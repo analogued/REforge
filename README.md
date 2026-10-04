@@ -18,6 +18,10 @@ All 18 extracted files match the archived contents. The emulator checks are
 user-reported; emulator versions, settings, and the extent of play were not
 recorded. Individual video and sound modes remain to be verified.
 
+Static entry inspection shows that the standalone executable still starts
+through a self-unpacking loader with its own relocation stage. Analysis of the
+game routines requires an expanded image with a recorded address basis.
+
 The three supplied DOS packages contain identical contents for all 17 `DATA*`
 files. Their executables differ:
 

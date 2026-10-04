@@ -51,6 +51,19 @@ during initial setup; use tighter scopes as the project matures. Coordinated
 refactors may legitimately span several areas. Conventional Commits syntax is
 not required.
 
+## Third-party code
+
+Code from other projects may be reused when its license is compatible with this
+repository's license and intended distribution. Check the exact license/version
+before adopting copied, adapted, or translated code. Record the upstream source,
+revision, affected files, and modifications; retain required copyright notices,
+attribution, and license text inside this repository. Attribution alone does not
+replace the license requirements.
+
+The project license remains undecided. Assess proposed reuse against the candidate
+licenses and record any constraints before adoption; do not silently narrow the
+choice.
+
 ## Validation
 
 Build and test commands will be documented once the implementation stack is

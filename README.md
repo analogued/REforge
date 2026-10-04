@@ -67,7 +67,9 @@ Directions are latched independently about every 0.11 seconds, corresponding to
 the original two-BIOS-tick control-poll interval. The actual main-loop countdown,
 retrace phase, and spacing of the two updates within each tick are not modeled;
 this calibration does not establish real-hardware timing fidelity. `--step-hz
-18.2065` selects the earlier prototype rate for comparison.
+18.2065` selects the earlier prototype rate for comparison. See
+[timing contracts](docs/timing.md) for the original gates and the implementation's
+current limits.
 
 ## Headless use
 

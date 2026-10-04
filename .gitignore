@@ -1,5 +1,6 @@
 # Reproducible local outputs. Persistent evidence lives outside the repository.
 /build/
+/target/
 /out/
 /cache/
 /.venv/

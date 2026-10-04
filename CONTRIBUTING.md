@@ -10,10 +10,9 @@ and keeps LF on checkout, including on Windows. Add explicit `-text` rules for
 any fixtures or other files whose bytes must be preserved exactly. If a file
 needs another line-ending convention, keep its Git and editor rules consistent.
 
-The authored game implementation uses Rust. Format Rust code with rustfmt; once
-the Cargo project exists, use `cargo fmt` to format and `cargo fmt --check` to
-verify formatting. Document any project-specific formatter configuration and
-Rust naming conventions as the source is introduced. Supporting tools can use
+The authored game implementation uses Rust. Use `cargo fmt` to format and
+`cargo fmt --check` to verify formatting. Use standard Rust naming conventions
+and the default rustfmt configuration. Supporting tools can use
 other languages; select their formatters when needed. Let established formatters
 govern indentation, spacing, and wrapping. Add formatting checks when CI is
 introduced.
@@ -66,6 +65,24 @@ choice.
 
 ## Validation
 
-Build and test commands will be documented once the implementation stack is
-chosen. Run checks appropriate to the change and describe material limitations
-in validation when relevant.
+Run checks appropriate to the change and describe material limitations in
+validation when relevant. For changes to the Rust implementation:
+
+```sh
+cargo fmt --check
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --no-default-features
+cargo clippy --locked --all-targets --no-default-features -- -D warnings
+```
+
+The default build requires SDL3; the headless build does not. Unit tests use
+synthetic data and do not require original game files. Runtime checks need the
+supported external executable described in the README. Keep captures and raw
+comparison evidence outside Git, with input hashes and reproduction metadata.
+Compare reconstructed routines and accepted movement updates against the
+original before claiming behavior fidelity; a window smoke test alone does not
+establish that fidelity.
+
+Use `CARGO_TARGET_DIR` and, when appropriate, `CARGO_HOME` to direct reproducible
+build/cache output to a configured working directory. Do not commit those outputs.

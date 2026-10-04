@@ -1,51 +1,93 @@
 # Alley Cat
 
-Game reverse-engineering project. Status: initial reconnaissance; there is no
-playable reconstruction yet. The initial goal is an accurate recreation, with
-enhancements considered afterward.
+An early Rust reconstruction of **Alley Cat** for modern desktop systems,
+initially targeting Linux. The current program draws the alley and supports
+walking, jumping, and landing on its platforms. It is not a complete game.
+A public recreation name has not been chosen.
 
-The target release, supporting libraries, and RE method remain open.
+## Original game required
 
-Target game: **Alley Cat**. A public recreation name has not been chosen. When
-chosen, use it in this repository's documentation while keeping the target game
-clearly identified.
+The program requires your original `CAT.EXE` at runtime. It reads embedded
+sprites, scenery, animation tables, and platform data from that file. Rust
+implements the reconstructed behavior; it does not execute the DOS program.
+Original game data is not included in this repository or embedded in builds.
 
-## Implementation language
+Currently one executable is supported, identified by its exact bytes rather
+than an unverified historical release name:
 
-The authored game implementation will use Rust, initially targeting Linux on
-modern desktop systems while keeping the platform layer portable.
-This is an Alley Cat decision; other game projects choose their languages
-independently. Supporting tools can use other languages where appropriate, such
-as Python for analysis utilities and Java or Python for Ghidra scripts.
+```text
+Size:    55067 bytes
+SHA-256: 4979c8867826e08881d1d4bec95c95d6bc1ac70fd21050ccdb4f733a50d7bfdd
+```
 
-The compiler version, libraries, and RE method remain open. Retaining C-like
-decompiler output as external reference evidence does not require a compiled
-C++ implementation. Add authored C++ components when a concrete need justifies
-their integration and maintenance.
+The loader opens the file read-only and rejects other versions. Keep original
+files and any generated captures outside this repository.
 
-## Repository structure
+## Build and run
 
-Starter directories are `src/`, `tools/`, `re/`, `tests/`, and `docs/`. Adapt them
-to the project when its needs become clear. Game-specific tools belong here;
-shared tools can have independent repositories elsewhere in the workspace.
-Keep `docs/` for maintained implementation and reference documentation. Internal
-discussion, experiments, and planning notes live outside the source repository.
+Install Rust 1.85 or newer with Cargo, and an SDL3 development package providing
+the native `SDL3` library. The window backend was checked against SDL 3.4.16 on
+Linux. It uses a small authored C interface; no Rust SDL binding crate or SDL
+image/font/mixer extension is required. Cargo fetches `sha2` and its locked
+dependencies for executable verification.
 
-## External inputs
+From this repository:
 
-Original executables/assets, raw analysis, emulator snapshots, and reference
-captures live outside this repository. Use configured paths to access them.
-In the DOSRE umbrella, the adjacent local `project.toml` describes those paths;
-standalone use must not require that umbrella layout.
+```sh
+cargo run --locked --release -- --original /path/to/CAT.EXE
+```
 
-Build and development instructions will be added when those choices are made.
-No implementation build system or RE workflow has been selected. The initial
-[analysis tool](tools/README.md) supports read-only executable reconnaissance.
+Use the arrow keys to move and jump. Escape or closing the window exits.
+`--machine pcjr` selects the PCjr palette; the default is `cga`. Both modes
+present the same packed 320×200 pixel buffer with nearest-neighbor integer
+scaling. The display currently uses square pixels, without 4:3 aspect correction
+or composite-monitor simulation.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for formatting and commit conventions.
+`--seed` selects a nonzero 16-bit random seed, in decimal or `0xHEX` notation.
+`--difficulty` accepts 0 through 7 and affects the initial alley layout.
+These controls are diagnostic setup options; startup and difficulty selection
+screens are not implemented.
 
-## License
+## Current behavior
 
-The project's license has not been selected; none is granted by this scaffold.
-Once chosen, include the full text in `LICENSE`, identify and link it here, and
-add short copyright and SPDX license headers to authored code files.
+The implemented slice includes seeded alley initialization, CGA bank addressing,
+sprite composition and background restoration, and player movement on the floor,
+dumpsters, and occupied upper platforms. Scenery remains static after setup.
+The player starts settled on the floor, bypassing the original entry animation.
+
+Actors and hazards, moving scenery, window entry, rooms, scoring, menus, and
+audio are absent. Some boundary and entry paths remain unsupported and report
+an error. `--step-hz` controls a diagnostic accepted-update rate, defaulting to
+18.2065; this does not reproduce the original main-loop timing or establish
+accurate real-time gameplay pacing.
+
+## Headless use
+
+A headless build needs no SDL library:
+
+```sh
+cargo run --locked --no-default-features -- \
+  --original /path/to/CAT.EXE --headless --steps 60
+```
+
+`--script /path/to/controls.csv` supplies one accepted update per row, with
+columns `x,y`. Each value is -1, 0, or 1: negative is left/up, positive is
+right/down. Blank lines, `#` comments, and an optional `x,y` header are accepted.
+Without `--steps`, a script runs for its row count; additional requested updates
+use neutral controls.
+
+`--trace`, `--dump-cga`, and `--dump-ppm` write player-state CSV, the final
+16384-byte packed framebuffer, and a 320×200 PPM image respectively. Use paths
+outside the repository: these outputs contain original graphics or reference
+evidence. Output files must not already exist. See `--help` for all options.
+
+## Development and licensing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for validation, formatting, and commit
+conventions, and [the analysis tool](tools/README.md) for read-only executable
+reconnaissance. Development does not require a particular parent workspace.
+
+The project's license has not been selected; no project license is granted yet.
+Dependency attribution and license notices are in
+[THIRD_PARTY.md](THIRD_PARTY.md). Those notices do not grant rights to the
+original game data.

@@ -11,6 +11,9 @@
 - This repository contains authored project source and documented RE knowledge.
   Original game files and raw generated evidence are external inputs. Keep them
   outside Git unless a specific redistribution basis has been established.
+- The recreation must require external original game data at runtime. Read the
+  original graphics and game tables from the supported executable; do not bundle
+  extracted assets or replace them to make the program self-contained.
 - These instructions must remain usable in a standalone clone. Do not require
   umbrella instructions or local files outside the repository.
 - Resolve original data, analysis, captures, and tool paths through configuration.

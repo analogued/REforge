@@ -2,14 +2,21 @@
 
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
-Status: initial scaffold with a static inventory of three supplied DOS archives.
-No game execution or hardware verification has been performed.
+Status: initial scaffold with an inventoried DOS working reference. The user
+tested that copy in DOSBox-X and DOSBox-Staging and reported no issues.
 
-The exact DOS release, tools, implementation stack, and RE method remain
+The official DOS release identity, tools, implementation stack, and RE method remain
 undecided. Other platform versions are outside the initial scope. Hardware
 support must be verified against the selected DOS build.
 
 ## DOS inputs
+
+The initial working reference is `mach_3_DOSGameZone.com.zip`. Its `MACH3.EXE`
+is 43,008 bytes with SHA-256
+`0cc5c73476ec31ebc52f5c3a66be58e08244c85b2e8178abac65178a37474fe1`.
+All 18 extracted files match the archived contents. The emulator checks are
+user-reported; emulator versions, settings, and the extent of play were not
+recorded. Individual video and sound modes remain to be verified.
 
 The three supplied DOS packages contain identical contents for all 17 `DATA*`
 files. Their executables differ:

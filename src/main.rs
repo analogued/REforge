@@ -7,6 +7,11 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
+const BIOS_TICK_HZ: f64 = 18.2065;
+// Measured mean active cadence in the recorded DOSBox-X reference, not an
+// emulation of its changed-tick/countdown-expiry spacing within each tick.
+const DEFAULT_STEP_HZ: f64 = BIOS_TICK_HZ * 2.0;
+
 const HELP: &str = "Alley Cat — initial alley reconstruction
 
 Usage: alley-cat --original /path/to/CAT.EXE [options]
@@ -14,7 +19,7 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
   --machine cga|pcjr       Palette selection (default: cga)
   --seed N                Initial random seed, decimal or 0xHEX (default: 0xfa59)
   --difficulty N          Alley layout difficulty 0..7 (default: 0)
-  --step-hz N              Diagnostic player update rate (default: 18.2065)
+  --step-hz N              Diagnostic player update rate (default: 36.413)
   --headless              Run without a window
   --steps N               Accepted updates to run (default: 60 headless)
   --script FILE           Headless controls CSV: x,y, each -1, 0, or 1
@@ -58,7 +63,7 @@ fn options() -> Result<Option<Options>, String> {
         machine: Machine::Cga,
         seed: 0xfa59,
         difficulty: 0,
-        step_hz: 18.2065,
+        step_hz: DEFAULT_STEP_HZ,
         headless: false,
         steps: None,
         script: None,
@@ -238,6 +243,11 @@ fn interactive(
         3,
     )?;
     let period = Duration::from_secs_f64(1.0 / step_hz);
+    // Original 1200 latches directions at intervals of at least two BIOS ticks,
+    // independently of player acceptance and presentation.
+    let control_period = Duration::from_secs_f64(2.0 / BIOS_TICK_HZ);
+    let mut next_control_poll = Instant::now();
+    let mut controls = Controls::default();
     let mut deadline = Instant::now() + period;
     let mut index = 0;
     window.present(&alley.rgba())?;
@@ -247,9 +257,9 @@ fn interactive(
             break;
         }
         let now = Instant::now();
-        if now >= deadline {
+        if now >= next_control_poll {
             // Left and up take precedence, matching the original keyboard decoder.
-            let controls = Controls {
+            controls = Controls {
                 x: if input.left {
                     -1
                 } else {
@@ -257,6 +267,12 @@ fn interactive(
                 },
                 y: if input.up { -1 } else { i8::from(input.down) },
             };
+            next_control_poll += control_period;
+            if now >= next_control_poll {
+                next_control_poll = now + control_period;
+            }
+        }
+        if now >= deadline {
             let outcome = alley.update(controls)?;
             if let Some(trace) = trace.as_mut() {
                 trace_row(trace, index, &alley.player)?;
@@ -267,7 +283,10 @@ fn interactive(
                 // The original fence-reset speaker effect blocks game work
                 // until seven BIOS ticks elapse. Preserve a diagnostic pause
                 // without blocking host input; synthesis/PRNG timing is deferred.
-                deadline = now + Duration::from_secs_f64(7.0 / 18.2065);
+                deadline = now + Duration::from_secs_f64(7.0 / BIOS_TICK_HZ);
+                // Interrupts may update held keys during the effect, but the
+                // original direction poll resumes only after it returns.
+                next_control_poll = deadline;
             }
             // Keep focus/debugger pauses from producing a burst of old input updates.
             if now.saturating_duration_since(deadline) > period * 4 {

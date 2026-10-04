@@ -61,8 +61,13 @@ pause in the windowed runner; the effect's random-state schedule is not modeled.
 Actors and hazards, moving scenery, window entry, rooms, scoring, menus, and
 audio are absent. Scene entry and collision-effect paths beyond this slice remain
 unsupported. `--step-hz` controls a diagnostic accepted-update rate, defaulting to
-18.2065; this does not reproduce the original main-loop timing or establish
-accurate real-time gameplay pacing.
+36.413. This matches the mean active rate measured in DOSBox-X with normal CPU
+core and fixed 2000 cycles, in CGA walking/jumping and PCjr walking samples.
+Directions are latched independently about every 0.11 seconds, corresponding to
+the original two-BIOS-tick control-poll interval. The actual main-loop countdown,
+retrace phase, and spacing of the two updates within each tick are not modeled;
+this calibration does not establish real-hardware timing fidelity. `--step-hz
+18.2065` selects the earlier prototype rate for comparison.
 
 ## Headless use
 

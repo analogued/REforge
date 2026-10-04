@@ -74,14 +74,25 @@ Check the Rust implementation with:
 
 ```sh
 cargo fmt --all -- --check
-cargo test --offline
-cargo clippy --offline --all-targets -- -D warnings
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
 ```
 
-Build the library and frame renderer with `cargo build --offline`. The crate
-has no external dependencies. Tests use synthetic resources; private captures
-and original assets must not become test fixtures. Set `CARGO_TARGET_DIR` when
-build output belongs in a separately configured working directory.
+With SDL2 development and runtime libraries installed, also check the viewer:
+
+```sh
+cargo test --locked --features viewer
+cargo clippy --locked --all-targets --features viewer -- -D warnings
+```
+
+Build the library and frame renderer with `cargo build --locked`; add
+`--features viewer` to build the windowed viewer. The viewer feature enables
+the dependencies recorded in `Cargo.lock` and [dependency notices](docs/dependencies.md).
+Once Cargo has fetched them, use `--offline` for local checks and builds.
+The viewer's software-rendering test uses an offscreen surface and requires no
+desktop display. Tests use synthetic resources; private captures and original
+assets must not become test fixtures. Set `CARGO_TARGET_DIR` when build output
+belongs in a separately configured working directory.
 
 Run checks appropriate to the change and describe material limitations in
 validation when relevant. Runtime captures and comparisons with original-derived

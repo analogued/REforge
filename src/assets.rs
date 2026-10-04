@@ -4,7 +4,7 @@
 //! Decode the original packed graphics into row-major CGA bytes.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::Error;
 
@@ -71,30 +71,33 @@ impl GraphicsAssets {
 
     /// Read DOS resource names case-insensitively, rejecting ambiguous matches.
     pub fn load(directory: impl AsRef<Path>) -> Result<Self, Error> {
-        let names = ["DATA2", "DATA3", "DATA4", "DATA5"];
-        let mut paths: [Option<PathBuf>; 4] = std::array::from_fn(|_| None);
-        for entry in fs::read_dir(directory).map_err(Error::Io)? {
-            let entry = entry.map_err(Error::Io)?;
-            let filename = entry.file_name();
-            let Some(filename) = filename.to_str() else {
-                continue;
-            };
-            for (index, expected) in names.iter().enumerate() {
-                if filename.eq_ignore_ascii_case(expected) {
-                    if paths[index].is_some() {
-                        return Err(invalid(format!("ambiguous resource name {expected}")));
-                    }
-                    paths[index] = Some(entry.path());
-                }
-            }
-        }
-        let mut inputs = Vec::with_capacity(names.len());
-        for (name, path) in names.into_iter().zip(paths) {
-            let path = path.ok_or_else(|| invalid(format!("missing resource {name}")))?;
-            inputs.push(fs::read(path).map_err(Error::Io)?);
-        }
-        Self::decode(&inputs[0], &inputs[1], &inputs[2], &inputs[3])
+        let directory = directory.as_ref();
+        let data2 = read_resource(directory, "DATA2")?;
+        let data3 = read_resource(directory, "DATA3")?;
+        let data4 = read_resource(directory, "DATA4")?;
+        let data5 = read_resource(directory, "DATA5")?;
+        Self::decode(&data2, &data3, &data4, &data5)
     }
+}
+
+/// Read a DOS resource name case-insensitively, rejecting ambiguous matches.
+pub(crate) fn read_resource(directory: &Path, name: &str) -> Result<Vec<u8>, Error> {
+    let mut path = None;
+    for entry in fs::read_dir(directory).map_err(Error::Io)? {
+        let entry = entry.map_err(Error::Io)?;
+        let filename = entry.file_name();
+        let Some(filename) = filename.to_str() else {
+            continue;
+        };
+        if filename.eq_ignore_ascii_case(name) {
+            if path.is_some() {
+                return Err(invalid(format!("ambiguous resource name {name}")));
+            }
+            path = Some(entry.path());
+        }
+    }
+    let path = path.ok_or_else(|| invalid(format!("missing resource {name}")))?;
+    fs::read(path).map_err(Error::Io)
 }
 
 struct Record<'a> {
@@ -201,6 +204,7 @@ fn invalid(message: String) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn sprite_file(header: [u8; 7], pixels: &[u8]) -> Vec<u8> {
         assert_eq!(

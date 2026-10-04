@@ -6,6 +6,17 @@ rust-version = "1.85"
 publish = false
 description = "Verified DOS Mach 3 graphics reconstruction"
 
+[features]
+viewer = ["dep:sdl2"]
+
+[dependencies]
+sdl2 = { version = "=0.38.0", optional = true, default-features = false }
+
 [[bin]]
 name = "mach3-frame"
 path = "src/main.rs"
+
+[[bin]]
+name = "mach3-viewer"
+path = "src/bin/viewer.rs"
+required-features = ["viewer"]

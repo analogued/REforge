@@ -5,6 +5,9 @@
 pub mod assets;
 pub mod frame;
 pub mod scene;
+pub mod startup;
+#[cfg(feature = "viewer")]
+pub mod viewer;
 
 #[derive(Debug)]
 pub enum Error {

@@ -137,6 +137,12 @@ or captured pixel input. See the [README](../README.md#rust-renderer) for comman
 It implements the verified initial scene only. The alternate background is
 decoded, but later scene selection and procedural drawing remain unimplemented.
 
+`StartupFrames` also decodes `data1` and `data6` using the CGA bank layout.
+The optional `mach3-viewer` presents those frames and the initial scene through
+SDL2. Space manually advances each screen, with held/repeated presses ignored.
+This presentation order follows the verified initial path; it does not reproduce
+the original timer waits or audio-dependent intro control flow.
+
 For the separate Python video-memory decoder, run from the repository root
 using external input and output paths:
 

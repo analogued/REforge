@@ -2,8 +2,8 @@
 
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
-Status: Rust asset decoding and initial CGA frame composition implemented;
-reverse engineering of gameplay continues.
+Status: Rust graphics decoding, initial CGA frame composition, and a windowed
+startup viewer implemented; reverse engineering of gameplay continues.
 
 The main implementation language is **Rust**. Supporting tools and investigation
 scripts may use other languages. Other platform versions are outside the initial
@@ -35,11 +35,11 @@ with the private evidence rather than in repository documentation.
 
 ## Rust renderer
 
-Requires Rust 1.85 or later. The crate uses only the standard library.
-From the repository root:
+Requires Rust 1.85 or later. Asset decoding and frame export use the standard
+library; the optional windowed viewer uses SDL2. From the repository root:
 
 ```sh
-cargo run --offline --bin mach3-frame -- /path/to/assets /path/to/first-frame.ppm
+cargo run --bin mach3-frame -- /path/to/assets /path/to/first-frame.ppm
 ```
 
 The renderer reads `DATA2`, `DATA3`, `DATA4`, and `DATA5` from the supplied
@@ -48,16 +48,42 @@ verified initial scene into a 320-by-200 binary PPM. The output must be a new
 file. For a 16-KiB CGA framebuffer with unused bank bytes zeroed:
 
 ```sh
-cargo run --offline --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
+cargo run --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
 ```
 
 This implements the fixed initial draw state, masked sprites, and frame export.
-Gameplay updates, window presentation, input, and audio remain unimplemented.
+Gameplay updates and audio remain unimplemented.
 Asset decoding and frame composition are also available through the `mach3`
 library. See [CGA graphics](docs/cga-graphics.md) for the supported formats.
 
 The separate CGA decoder runs with Python 3.11 or later and has no external
 dependencies.
+
+## Windowed startup viewer
+
+The optional viewer requires SDL2 development and runtime libraries, version
+2.0.12 or later, available to the compiler and system loader:
+
+```sh
+cargo run --features viewer --bin mach3-viewer -- /path/to/assets
+```
+
+It reads `DATA1` and `DATA6` as the splash and intro, then displays the composed
+initial scene from `DATA2` through `DATA5`. Space advances one screen per fresh
+press; holding Space does not skip screens. Escape or window close exits.
+The initial scene remains static. This is manual presentation: original startup
+timing and audio playback have not been reproduced.
+
+The default window is 960 by 600 (3x). `--scale 1..6` sets its initial scale:
+
+```sh
+cargo run --features viewer --bin mach3-viewer -- --scale 2 /path/to/assets
+```
+
+Resizing keeps pixels sharp with integer nearest-neighbor scaling and centered
+black borders. The viewer preserves the source's 320-by-200 proportions; CRT
+pixel-aspect correction is not applied. See [dependency notices](docs/dependencies.md).
+After Cargo has fetched the locked dependencies, these commands can use `--offline`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for formatting and commit conventions.
 

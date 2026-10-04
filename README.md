@@ -54,10 +54,13 @@ The implemented slice includes seeded alley initialization, CGA bank addressing,
 sprite composition and background restoration, and player movement on the floor,
 dumpsters, and occupied upper platforms. Scenery remains static after setup.
 The player starts settled on the floor, bypassing the original entry animation.
+Falling behind the fence hides the cat and starts a clipped re-entry from the
+nearer alley edge. Its speaker effect is silent, with an approximate seven-tick
+pause in the windowed runner; the effect's random-state schedule is not modeled.
 
 Actors and hazards, moving scenery, window entry, rooms, scoring, menus, and
-audio are absent. Some boundary and entry paths remain unsupported and report
-an error. `--step-hz` controls a diagnostic accepted-update rate, defaulting to
+audio are absent. Scene entry and collision-effect paths beyond this slice remain
+unsupported. `--step-hz` controls a diagnostic accepted-update rate, defaulting to
 18.2065; this does not reproduce the original main-loop timing or establish
 accurate real-time gameplay pacing.
 

@@ -3,7 +3,7 @@
 //! Accepted-update movement for the ordinary alley player path.
 //!
 //! The caller supplies the current external game data segment, including alley
-//! support and sprite tables. Timing, entry animation, actors, collision effects,
+//! support and sprite tables. Timing, actors, collision effects,
 //! sound, and idle sprite randomness belong to the caller.
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -200,6 +200,183 @@ mod tests {
             Draw::Idle
         );
     }
+
+    fn walking_tables() -> Vec<u8> {
+        let mut data = empty_tables();
+        for index in 0..12 {
+            let source = (0x400 + index * 0x60) as u16;
+            data[0xf7a + index * 2..0xf7c + index * 2].copy_from_slice(&source.to_le_bytes());
+        }
+        data
+    }
+
+    fn fence_fall(x: u16) -> Player {
+        let mut player = Player::at_alley_floor(x);
+        player.y = 104;
+        player.vertical_coordinate = 154;
+        player.vertical_direction = 1;
+        player.band_state = 2;
+        player.support_disabled = 1;
+        player.previous_direction = 255;
+        player.animation_frame = 5;
+        player.phase = 7;
+        player.idle_counter = 6;
+        player.airborne_sprite = Sprite {
+            source: 0x900,
+            dimensions: 0x0b03,
+        };
+        player
+    }
+
+    #[test]
+    fn fence_reset_uses_advanced_x_and_preserves_animation_history() {
+        let data = walking_tables();
+        for (initial_x, edge_x, direction) in [(157, 0, 1), (158, 296, 255)] {
+            let mut player = fence_fall(initial_x);
+            player.horizontal_direction = 1;
+            let outcome = player.update(Controls::default(), &data).unwrap();
+            assert_eq!(outcome.draw, Draw::Erase);
+            assert!(outcome.edge_reset);
+            assert!(!outcome.landed);
+            assert_eq!((player.x, player.horizontal_direction), (edge_x, direction));
+            assert_eq!((player.y, player.vertical_coordinate), (180, 230));
+            assert_eq!((player.entry_state, player.entry_delay), (3, 12));
+            assert_eq!((player.vertical_direction, player.vertical_step), (0, 1));
+            assert_eq!(player.horizontal_step, 2);
+            assert_eq!((player.band_state, player.support_disabled), (0, 0));
+            assert_eq!(player.previous_dimensions, 0x0b03);
+            assert_eq!(
+                (
+                    player.previous_direction,
+                    player.animation_frame,
+                    player.phase
+                ),
+                (255, 5, 7)
+            );
+            assert_eq!(player.idle_counter, 6);
+            assert_eq!(player.airborne_sprite.source, 0x900);
+            assert_eq!(player.airborne_sprite.dimensions, 0x0b03);
+        }
+    }
+
+    #[test]
+    fn final_visible_fence_row_is_drawn_before_the_reset_update() {
+        let data = walking_tables();
+        let mut player = fence_fall(80);
+        player.vertical_coordinate = 153;
+        let visible = player.update(Controls::default(), &data).unwrap();
+        assert_eq!(player.y, 104);
+        assert_eq!(
+            visible.draw,
+            Draw::Sprite(Sprite {
+                source: 0x900,
+                dimensions: 0x0103,
+            })
+        );
+        assert!(!visible.edge_reset);
+        assert_eq!(player.vertical_step, 2);
+        let hidden = player.update(Controls::default(), &data).unwrap();
+        assert_eq!(hidden.draw, Draw::Erase);
+        assert!(hidden.edge_reset);
+    }
+
+    #[test]
+    fn edge_entry_waits_then_crops_walking_rows_from_both_sides() {
+        let data = walking_tables();
+        for (x, direction, first_x, second_x, first_source, second_source) in [
+            (80, 1, 0, 0, 0x404, 0x462),
+            (180, 255, 312, 304, 0x640, 0x6a0),
+        ] {
+            let mut player = fence_fall(x);
+            player.previous_direction = direction ^ 254;
+            player.update(Controls::default(), &data).unwrap();
+            for delay in (0..12).rev() {
+                let wait = player.update(Controls { x: 0, y: -1 }, &data).unwrap();
+                assert_eq!(wait.draw, Draw::Keep);
+                assert_eq!((player.entry_state, player.entry_delay), (3, delay));
+                assert_eq!((player.phase, player.animation_frame), (7, 5));
+            }
+            for (state, expected_x, source, dimensions, phase) in [
+                (2, first_x, first_source, 0x0b01, 6),
+                (1, second_x, second_source, 0x0b02, 5),
+            ] {
+                let frame = player.update(Controls { x: 0, y: -1 }, &data).unwrap();
+                assert_eq!(player.entry_state, state);
+                assert_eq!(player.x, expected_x);
+                assert_eq!(player.phase, phase);
+                assert_eq!(
+                    frame.draw,
+                    Draw::StridedSprite {
+                        sprite: Sprite { source, dimensions },
+                        stride_bytes: 6,
+                    }
+                );
+                assert_eq!(player.vertical_direction, 0);
+            }
+            let complete = player.update(Controls::default(), &data).unwrap();
+            assert_eq!(complete.draw, Draw::Idle);
+            assert_eq!(player.x, if direction == 1 { 8 } else { 296 });
+            assert_eq!(
+                (player.entry_state, player.phase, player.horizontal_step),
+                (0, 8, 2)
+            );
+        }
+    }
+
+    #[test]
+    fn final_entry_update_processes_held_controls_after_inward_step() {
+        let data = walking_tables();
+        for (direction, expected_x) in [(1, 16), (255, 288)] {
+            let mut player = Player::at_alley_floor(8);
+            player.entry_state = 1;
+            player.horizontal_direction = direction;
+            player.x = if direction == 1 { 0 } else { 304 };
+            let complete = player
+                .update(
+                    Controls {
+                        x: direction as i8,
+                        y: 0,
+                    },
+                    &data,
+                )
+                .unwrap();
+            assert_eq!(player.x, expected_x);
+            assert_eq!(player.horizontal_step, 8);
+            assert!(matches!(complete.draw, Draw::Sprite(_)));
+
+            player.entry_state = 1;
+            player.horizontal_direction = direction;
+            player.x = if direction == 1 { 0 } else { 304 };
+            let jump = player.update(Controls { x: 0, y: -1 }, &data).unwrap();
+            assert_eq!(player.x, if direction == 1 { 8 } else { 296 });
+            assert_eq!(jump.draw, Draw::Keep);
+            assert_eq!((player.entry_state, player.vertical_direction), (0, 255));
+            assert_eq!((player.horizontal_step, player.phase_decrement), (6, 112));
+        }
+    }
+
+    #[test]
+    fn imported_entry_delay_obeys_dog_activity_and_death_gates() {
+        let mut data = vec![0; 0x1cc0];
+        data[0x558] = 3;
+        data[0x559] = 12;
+        data[0x56e] = 1;
+        data[0x57b] = 180;
+        let mut player = Player::from_data(&data).unwrap();
+        data[0x1cbf] = 1;
+        assert_eq!(
+            player.update(Controls::default(), &data).unwrap().draw,
+            Draw::Keep
+        );
+        assert_eq!(player.entry_delay, 12);
+        data[0x1cbf] = 0;
+        data[0x1cb8] = 255;
+        player.update(Controls::default(), &data).unwrap();
+        assert_eq!(player.entry_delay, 12);
+        data[0x1cb8] = 0;
+        player.update(Controls::default(), &data).unwrap();
+        assert_eq!(player.entry_delay, 11);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -212,9 +389,16 @@ pub struct Sprite {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Draw {
     Keep,
+    /// Restore the current player background without drawing a replacement.
+    Erase,
     /// Select and draw the original two idle pieces using the shared PRNG.
     Idle,
     Sprite(Sprite),
+    /// Copy each visible row from a wider original source row before drawing.
+    StridedSprite {
+        sprite: Sprite,
+        stride_bytes: usize,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -232,6 +416,8 @@ pub struct UpdateOutcome {
     pub draw: Draw,
     pub landed: bool,
     pub support: Support,
+    /// The original 070d edge initializer ran during this update.
+    pub edge_reset: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -254,6 +440,7 @@ pub struct Player {
     support_delay: u8,
     support_disabled: u8,
     pub entry_state: u8,
+    pub entry_delay: u8,
     alternate_animation: u8,
     idle_counter: u8,
     previous_dimensions: u16,
@@ -285,6 +472,7 @@ impl Player {
             support_delay: 0,
             support_disabled: 0,
             entry_state: 0,
+            entry_delay: 0,
             alternate_animation: 0,
             idle_counter: 0,
             previous_dimensions: 0,
@@ -319,6 +507,7 @@ impl Player {
             support_delay: data[0x55b],
             support_disabled: data[0x55a],
             entry_state: data[0x558],
+            entry_delay: data[0x559],
             alternate_animation: data[0x584],
             idle_counter: data[0x56d],
             previous_dimensions: word(data, 0x561),
@@ -348,14 +537,47 @@ impl Player {
         if !(-1..=1).contains(&controls.x) || !(-1..=1).contains(&controls.y) {
             return Err("control directions must be -1, 0, or 1");
         }
-        if self.entry_state != 0 || self.alternate_animation != 0 {
-            return Err("entry and collision-effect animation are outside the player core");
+        if self.alternate_animation != 0 {
+            return Err("collision-effect animation is outside the player core");
         }
         let mut outcome = UpdateOutcome {
             draw: Draw::Keep,
             landed: false,
             support: self.last_support,
+            edge_reset: false,
         };
+        if data.get(0x1cb8).copied().unwrap_or(0) != 0 {
+            return Ok(outcome);
+        }
+        if self.entry_state != 0 {
+            if self.entry_delay != 0 {
+                if data.get(0x1cbf).copied().unwrap_or(0) == 0 {
+                    self.entry_delay -= 1;
+                }
+                return Ok(outcome);
+            }
+            self.entry_state = self.entry_state.wrapping_sub(1);
+            if self.entry_state != 0 {
+                let mut sprite = self.select_walk_sprite(data);
+                let crop_words = self.entry_state;
+                sprite.dimensions = 0x0b00 | u16::from(3u8.wrapping_sub(crop_words));
+                if self.horizontal_direction == 255 {
+                    self.x = 296 + u16::from(crop_words) * 8;
+                } else {
+                    self.x = 0;
+                    sprite.source = sprite.source.wrapping_add(u16::from(crop_words) * 2);
+                }
+                self.previous_dimensions = sprite.dimensions;
+                outcome.draw = Draw::StridedSprite {
+                    sprite,
+                    stride_bytes: 6,
+                };
+                return Ok(outcome);
+            }
+            self.horizontal_step = 8;
+            self.advance_x();
+            // The original falls through to ordinary controls on this same update.
+        }
         if self.support_state != 0 {
             if self.support_state == 1 {
                 self.support_state = 2;
@@ -416,29 +638,8 @@ impl Player {
             self.previous_dimensions = 0x0c02;
             outcome.draw = Draw::Idle;
         } else {
-            if self.horizontal_direction != self.previous_direction {
-                self.horizontal_step = 2;
-            }
-            if self.horizontal_step < 8 {
-                self.phase = self.phase.wrapping_sub(1);
-                if self.phase & 3 == 0 {
-                    self.horizontal_step += 1;
-                }
-            }
-            self.animation_frame = self.animation_frame.wrapping_add(1);
-            if self.animation_frame >= 6 {
-                self.animation_frame = 0;
-            }
-            let index = usize::from(self.animation_frame)
-                + if self.horizontal_direction == 255 {
-                    6
-                } else {
-                    0
-                };
-            outcome.draw = self.draw_sprite(Sprite {
-                source: word(data, 0xf7a + index * 2),
-                dimensions: 0x0b03,
-            });
+            let sprite = self.select_walk_sprite(data);
+            outcome.draw = self.draw_sprite(sprite);
         }
         Ok(outcome)
     }
@@ -446,6 +647,52 @@ impl Player {
     fn draw_sprite(&mut self, sprite: Sprite) -> Draw {
         self.previous_dimensions = sprite.dimensions;
         Draw::Sprite(sprite)
+    }
+
+    fn select_walk_sprite(&mut self, data: &[u8]) -> Sprite {
+        if self.horizontal_direction != self.previous_direction {
+            self.horizontal_step = 2;
+        }
+        if self.horizontal_step < 8 {
+            self.phase = self.phase.wrapping_sub(1);
+            if self.phase & 3 == 0 {
+                self.horizontal_step += 1;
+            }
+        }
+        self.animation_frame = self.animation_frame.wrapping_add(1);
+        if self.animation_frame >= 6 {
+            self.animation_frame = 0;
+        }
+        let index = usize::from(self.animation_frame)
+            + if self.horizontal_direction == 255 {
+                6
+            } else {
+                0
+            };
+        Sprite {
+            source: word(data, 0xf7a + index * 2),
+            dimensions: 0x0b03,
+        }
+    }
+
+    fn initialize_alley_edge(&mut self) {
+        let right_edge = self.x >= 160;
+        self.x = if right_edge { 296 } else { 0 };
+        self.horizontal_direction = if right_edge { 255 } else { 1 };
+        self.y = 180;
+        self.vertical_coordinate = 230;
+        self.entry_state = 3;
+        self.entry_delay = 12;
+        self.previous_dimensions = 0x0b03;
+        self.vertical_direction = 0;
+        self.horizontal_step = 2;
+        self.vertical_step = 1;
+        self.support_delay = 0;
+        self.band_state = 0;
+        self.support_state = 0;
+        self.support_disabled = 0;
+        self.alternate_animation = 0;
+        self.last_support = Support::Floor;
     }
 
     fn request_transition(&mut self, controls: Controls, data: &[u8]) {
@@ -586,7 +833,11 @@ impl Player {
             let rows = (sprite.dimensions >> 8) as u8;
             let hidden_rows = self.y - 94;
             if hidden_rows >= rows {
-                return Err("band-96 edge reset requires the wider game state");
+                self.initialize_alley_edge();
+                outcome.draw = Draw::Erase;
+                outcome.edge_reset = true;
+                outcome.support = Support::Floor;
+                return Ok(());
             }
             sprite.dimensions -= u16::from(hidden_rows) << 8;
             self.vertical_step = 2;

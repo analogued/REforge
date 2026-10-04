@@ -71,9 +71,20 @@ impl Alley {
 
     pub fn update(&mut self, controls: Controls) -> Result<UpdateOutcome, String> {
         let outcome = self.player.update(controls, &self.data)?;
+        if outcome.edge_reset {
+            // Non-player state cleared by the original alley edge initializer.
+            // Its blocking speaker helper's PRNG schedule is still separate.
+            for offset in [0x583, 0x698, 0x699, 0x551, 0x584, 0x552, 0x553, 0x127c] {
+                self.data[offset] = 0;
+            }
+            for offset in [0x554, 0x57d, 0x684] {
+                set_word(&mut self.data, offset, 0);
+            }
+        }
         let offset = pixel_offset(self.player.x, self.player.y);
         match outcome.draw {
             Draw::Keep => {}
+            Draw::Erase => self.compositor.restore(&mut self.screen)?,
             Draw::Idle => {
                 let (top, bottom) = idle_sources(&mut self.data);
                 let top = sprite_bytes(&self.data, top, Dimensions(0x0602))?;
@@ -86,6 +97,27 @@ impl Alley {
                 let source = sprite_bytes(&self.data, sprite.source, dimensions)?;
                 self.compositor
                     .draw(&mut self.screen, offset, dimensions, source)?;
+            }
+            Draw::StridedSprite {
+                sprite,
+                stride_bytes,
+            } => {
+                let dimensions = Dimensions(sprite.dimensions);
+                let width = dimensions.width_bytes();
+                if stride_bytes < width {
+                    return Err("Sprite source stride is smaller than its visible width".into());
+                }
+                let mut packed = Vec::with_capacity(dimensions.len());
+                for row in 0..dimensions.rows() {
+                    let start = usize::from(sprite.source) + row * stride_bytes;
+                    let source = self
+                        .data
+                        .get(start..start + width)
+                        .ok_or("Strided sprite exceeds executable data segment")?;
+                    packed.extend_from_slice(source);
+                }
+                self.compositor
+                    .draw(&mut self.screen, offset, dimensions, &packed)?;
             }
         }
         Ok(outcome)

@@ -141,7 +141,7 @@ fn read_script(path: &PathBuf) -> Result<Vec<Controls>, String> {
 fn trace_row(output: &mut impl Write, index: usize, player: &Player) -> Result<(), String> {
     writeln!(
         output,
-        "{index},{},{},{},{},{},{},{},{},{},{}",
+        "{index},{},{},{},{},{},{},{},{},{},{},{},{}",
         player.x,
         player.y,
         player.vertical_coordinate,
@@ -152,6 +152,8 @@ fn trace_row(output: &mut impl Write, index: usize, player: &Player) -> Result<(
         player.phase,
         player.phase_decrement,
         player.support_state,
+        player.entry_state,
+        player.entry_delay,
     )
     .map_err(|error| error.to_string())
 }
@@ -173,7 +175,7 @@ fn run() -> Result<(), String> {
         .transpose()
         .map_err(|error| format!("Cannot create trace: {error}"))?;
     if let Some(trace) = trace.as_mut() {
-        writeln!(trace, "index,x,y,vertical_coordinate,x_direction,y_direction,x_step,y_step,phase,phase_decrement,support_state")
+        writeln!(trace, "index,x,y,vertical_coordinate,x_direction,y_direction,x_step,y_step,phase,phase_decrement,support_state,entry_state,entry_delay")
             .map_err(|error| error.to_string())?;
     }
     if options.headless {
@@ -255,12 +257,18 @@ fn interactive(
                 },
                 y: if input.up { -1 } else { i8::from(input.down) },
             };
-            alley.update(controls)?;
+            let outcome = alley.update(controls)?;
             if let Some(trace) = trace.as_mut() {
                 trace_row(trace, index, &alley.player)?;
             }
             index += 1;
             deadline += period;
+            if outcome.edge_reset {
+                // The original fence-reset speaker effect blocks game work
+                // until seven BIOS ticks elapse. Preserve a diagnostic pause
+                // without blocking host input; synthesis/PRNG timing is deferred.
+                deadline = now + Duration::from_secs_f64(7.0 / 18.2065);
+            }
             // Keep focus/debugger pauses from producing a burst of old input updates.
             if now.saturating_duration_since(deadline) > period * 4 {
                 deadline = now + period;

@@ -10,8 +10,8 @@ and keeps LF on checkout, including on Windows. Add explicit `-text` rules for
 any fixtures or other files whose bytes must be preserved exactly. If a file
 needs another line-ending convention, keep its Git and editor rules consistent.
 
-Use Rust for the main implementation, with rustfmt and the checked-in
-`rustfmt.toml`. Once a Cargo crate exists, format with `cargo fmt --all`.
+Use Rust 1.85 or later for the main implementation, with rustfmt and the
+checked-in `rustfmt.toml`. Format with `cargo fmt --all`.
 Tools and investigation scripts may use other languages.
 
 The maintained Python tools use Python 3.11 or later. Format with
@@ -70,7 +70,19 @@ choice.
 
 Run the Python tool checks with `python3 -m unittest discover -s tests -v`.
 Tests use authored synthetic data and must not import original game material.
-Rust build/test commands will be documented when its first crate is introduced.
+Check the Rust implementation with:
+
+```sh
+cargo fmt --all -- --check
+cargo test --offline
+cargo clippy --offline --all-targets -- -D warnings
+```
+
+Build the library and frame renderer with `cargo build --offline`. The crate
+has no external dependencies. Tests use synthetic resources; private captures
+and original assets must not become test fixtures. Set `CARGO_TARGET_DIR` when
+build output belongs in a separately configured working directory.
+
 Run checks appropriate to the change and describe material limitations in
 validation when relevant. Runtime captures and comparisons with original-derived
 images remain external evidence rather than repository fixtures.

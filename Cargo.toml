@@ -1,0 +1,11 @@
+[package]
+name = "mach3"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+description = "Verified DOS Mach 3 graphics reconstruction"
+
+[[bin]]
+name = "mach3-frame"
+path = "src/main.rs"

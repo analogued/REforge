@@ -2,6 +2,7 @@
 /build/
 /out/
 /cache/
+/target/
 /.venv/
 __pycache__/
 *.py[cod]

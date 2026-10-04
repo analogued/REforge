@@ -2,7 +2,8 @@
 
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
-Status: initial reverse-engineering investigation.
+Status: Rust asset decoding and initial CGA frame composition implemented;
+reverse engineering of gameplay continues.
 
 The main implementation language is **Rust**. Supporting tools and investigation
 scripts may use other languages. Other platform versions are outside the initial
@@ -32,9 +33,31 @@ captures live outside this repository. Use configured paths to access them.
 Input provenance, checksums, comparison reports, and experiment records belong
 with the private evidence rather than in repository documentation.
 
-The CGA decoder runs with Python 3.11 or later and has no external dependencies.
-Build commands for the Rust implementation will be added when its first crate
-is introduced.
+## Rust renderer
+
+Requires Rust 1.85 or later. The crate uses only the standard library.
+From the repository root:
+
+```sh
+cargo run --offline --bin mach3-frame -- /path/to/assets /path/to/first-frame.ppm
+```
+
+The renderer reads `DATA2`, `DATA3`, `DATA4`, and `DATA5` from the supplied
+directory; names are case-insensitive. It decodes the graphics and composes the
+verified initial scene into a 320-by-200 binary PPM. The output must be a new
+file. For a 16-KiB CGA framebuffer with unused bank bytes zeroed:
+
+```sh
+cargo run --offline --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
+```
+
+This implements the fixed initial draw state, masked sprites, and frame export.
+Gameplay updates, window presentation, input, and audio remain unimplemented.
+Asset decoding and frame composition are also available through the `mach3`
+library. See [CGA graphics](docs/cga-graphics.md) for the supported formats.
+
+The separate CGA decoder runs with Python 3.11 or later and has no external
+dependencies.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for formatting and commit conventions.
 

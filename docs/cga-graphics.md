@@ -123,7 +123,22 @@ later gameplay, procedural rendering, or other graphics adapters.
 
 ## Decoder
 
-From the repository root, using external input and output paths:
+The Rust library implements gameplay asset decoding in `assets`, packed frame
+storage and clipped masked drawing in `frame`, and the fixed initial resolved
+draw state in `scene`. `scene::initial_frame` composes into a row-major frame;
+`Frame::to_cga` exports it into the two scanline banks. This produces the same
+visible initial frame as the original two scratch-buffer passes without
+reproducing their allocator or previous-frame bookkeeping. The source stride
+for ordinary drawing comes from the object's width, including the initial
+13-byte left fuel bar, rather than always using the descriptor's padded width.
+
+`mach3-frame` uses the Rust implementation directly; it needs no emulator state
+or captured pixel input. See the [README](../README.md#rust-renderer) for commands.
+It implements the verified initial scene only. The alternate background is
+decoded, but later scene selection and procedural drawing remain unimplemented.
+
+For the separate Python video-memory decoder, run from the repository root
+using external input and output paths:
 
 ```sh
 python3 tools/decode_cga.py /path/to/screen.bin /path/to/screen.ppm

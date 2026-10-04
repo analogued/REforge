@@ -8,3 +8,5 @@ pub mod cga;
 #[cfg(feature = "sdl")]
 pub mod platform;
 pub mod player;
+pub mod runtime;
+pub mod timing;

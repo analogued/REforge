@@ -2,7 +2,7 @@
 
 //! The initial alley slice: external assets, static scenery, and player updates.
 
-use crate::assets::{Assets, idle_sources, initialize_alley, set_word, sprite_bytes};
+use crate::assets::{Assets, idle_sources, initialize_alley, next_random, set_word, sprite_bytes};
 use crate::cga::{Dimensions, Framebuffer, PlayerCompositor, pixel_offset};
 use crate::player::{Controls, Draw, Player, UpdateOutcome};
 use std::path::Path;
@@ -43,6 +43,27 @@ pub struct Alley {
 }
 
 impl Alley {
+    pub fn machine(&self) -> Machine {
+        self.machine
+    }
+
+    pub(crate) fn advance_random(&mut self) {
+        next_random(&mut self.data);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn synthetic() -> Self {
+        let mut data = vec![0; 0x7130];
+        set_word(&mut data, 0x2ae5, 0xfa59);
+        Self {
+            data,
+            screen: Framebuffer::default(),
+            compositor: PlayerCompositor::default(),
+            player: Player::at_alley_floor(80),
+            machine: Machine::Cga,
+        }
+    }
+
     pub fn load(
         original: impl AsRef<Path>,
         seed: u16,

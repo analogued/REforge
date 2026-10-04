@@ -79,21 +79,76 @@ random stream nor the full original schedule.
 
 ## Current Rust implementation
 
-`Player::update` advances an already accepted movement update. The windowed
-runner uses evenly spaced diagnostic updates, defaulting to 36.413 per second,
-and latches host directions approximately every two BIOS-tick periods. This
-mean active rate matches the measured DOSBox-X normal-core/fixed-2000-cycle
-CGA walking/jumping and PCjr walking samples. Those observations used a naturally
-advancing guest clock, with controlled initial state and held keys. Debugger
-pauses were used to inspect acceptances; these samples do not establish
-uninterrupted physical-hardware pacing.
+The default windowed runner executes virtual loop attempts rather than evenly
+spaced accepted player updates. `Runtime` polls controls, applies `PlayerGate`,
+advances an accepted `Player::update`, then advances the ordinary alley divider.
+The divider runs even on rejected player calls. Actors are absent from this slice;
+post-player work currently consumes a fitted time allowance, without executing
+actor behavior or their individual gates.
 
-The runner does not implement the original countdown/retrace gate or outer-loop
-schedule. BIOS/PIT phase, elapsed costs between calls, hardware keyboard timing,
-and idle/retrace cadence are not established by that average. The reference
-configuration is not a validated 8088 or 286 hardware profile.
+`VirtualClock` uses integer rational time with a PIT input frequency of 1,193,182
+Hz and a channel-0 divisor of 65,536. The BIOS rate is consequently about 18.2065
+Hz. The modeled mode-3 latch reloads twice per BIOS period and follows DOSBox-X's
+fractional-count interpolation. Keyboard polling executes the original wrapped
+counter comparison, advancing virtual time between reads; it does not substitute
+an arbitrary fixed delay for that predicate.
 
-The fence effect uses an approximate seven-tick pause in the windowed runner;
-its sound and random-state schedule remain unimplemented. Headless execution
-counts accepted updates and imposes no wall-clock delays. Rendering and host
-display refresh do not define original BIOS ticks.
+Retrace is independent of host rendering. The default BIOS-mode-4 reference
+pulse uses 76 PIT input clocks per line, 262 lines per frame, and retrace from
+line 224 through line 240, following DOSBox-X's endpoint test. This corresponds
+to about 59.92 frames per second. CGA and PCjr use the same pulse profile in this
+model; the player countdown differs. The starting video/PIT phases are synthetic
+and deterministic, not a replay of the original boot and initialization.
+See DOSBox-X's [video setup](https://github.com/joncampbell123/dosbox-x/blob/master/src/hardware/vga_draw.cpp),
+[video mode registers](https://github.com/joncampbell123/dosbox-x/blob/master/src/ints/int10_modes.cpp),
+[status-port test](https://github.com/joncampbell123/dosbox-x/blob/master/src/hardware/vga_misc.cpp),
+and [PIT implementation](https://github.com/joncampbell123/dosbox-x/blob/master/src/hardware/timer.cpp).
+
+### Reference execution costs
+
+The execution-cost profile is fitted to guest-time measurements from DOSBox-X
+normal core at fixed 240 cycles. The number 240 describes emulator throughput;
+it is neither a 240 Hz game tick nor the native host CPU's frequency. Costs are
+approximate stage allowances, not execution of original instructions or a
+cycle-accurate 8088 model.
+
+Representative CGA costs include about 0.35 ms for an accepted idle call without
+redraw, 3.05 ms for ordinary walking, and 3.27 ms for ordinary jumping. Post-player
+work costs about 0.096 ms on an ordinary pass plus 0.346 ms on a grouped pass.
+Captured actor drawing caused occasional much larger delays that this allowance
+does not reproduce. Keyboard decoding, retained support state and redraw paths
+also vary. Clipped re-entry costs have not been separately calibrated. PCjr uses
+the CGA cost fit with its verified 16-call countdown, pending separate cost fits.
+
+The original fixed-240 samples show two accepts per complete BIOS tick during
+CGA/PCjr walking and about one during CGA idle. The model reproduces those sampled
+cadences; this does not establish exact timing within each tick. Software
+breakpoints perturb the stage measurements, and the profile does not model every
+path, interrupt latency, the BIOS midnight reset, or hardware keyboard transport.
+Physical-PC timing fidelity is not established.
+
+### Blocking effects and diagnostic modes
+
+Fence fall runs the edge initializer before starting the blocking effect. The
+runner clears logical directions, accepted tick and countdown, retaining the
+input-poll baseline, divider and last accepted AX. `FenceEffect` retains the
+original two-tick initial wait, variable call countdown, wrapping accumulator,
+and seven-tick exit before a random call. It advances the shared random state
+once per completed effect cycle even with silent output. Ordinary controls,
+player and actors remain suspended until the effect returns; then the interrupted
+pass resumes with post-player work.
+
+Effect-loop costs use bounded fixed-240 helper measurements and remain approximate,
+so exact random-call counts are not established. Audio synthesis and ordinary
+sound-state random consumers remain absent.
+
+`--step-hz` explicitly selects the former uniform diagnostic movement scheduler.
+Untimed headless execution also advances accepted movement bodies directly.
+`--headless --timed` executes the reference schedule without wall-clock waits;
+script rows choose held directions by accepted-update index. `--trace-timing`
+records loop attempts and blocking-effect checks, including rejected movement.
+On player attempts the BIOS/PIT fields describe the BIOS-sample stage; retrace
+is sampled later, after the gate's execution allowance.
+The windowed runner uses monotonic host time only to pace virtual execution and
+discards excessive pause debt without resetting guest phases. Display refresh
+never supplies BIOS ticks.

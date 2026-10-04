@@ -1,0 +1,2 @@
+# Normalize detected text files to LF and keep LF on checkout on every platform.
+* text=auto eol=lf

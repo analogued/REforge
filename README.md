@@ -2,39 +2,13 @@
 
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
-Status: initial scaffold with an inventoried DOS working reference. The user
-tested that copy in DOSBox-X and DOSBox-Staging and reported no issues.
+Status: initial reverse-engineering investigation.
 
-The official DOS release identity, tools, implementation stack, and RE method remain
-undecided. Other platform versions are outside the initial scope. Hardware
-support must be verified against the selected DOS build.
+Other platform versions are outside the initial scope. Hardware support,
+implementation stack, and the broader RE method remain to be established.
 
-## DOS inputs
-
-The initial working reference is `mach_3_DOSGameZone.com.zip`. Its `MACH3.EXE`
-is 43,008 bytes with SHA-256
-`0cc5c73476ec31ebc52f5c3a66be58e08244c85b2e8178abac65178a37474fe1`.
-All 18 extracted files match the archived contents. The emulator checks are
-user-reported; emulator versions, settings, and the extent of play were not
-recorded. Individual video and sound modes remain to be verified.
-
-Static entry inspection shows that the standalone executable still starts
-through a self-unpacking loader with its own relocation stage. Analysis of the
-game routines requires an expanded image with a recorded address basis.
-
-The three supplied DOS packages contain identical contents for all 17 `DATA*`
-files. Their executables differ:
-
-| Package filename | Executable layout |
-| --- | --- |
-| `Mach 3 (1987)(Loriciel).zip` | Small launcher plus `MACH3.OV1` and `MACH3.OV2` |
-| `Mach-3_DOS_EN.zip` | Single executable with a PKLITE signature |
-| `mach_3_DOSGameZone.com.zip` | Single executable differing from `MACH3.OV2` by header fields, two code edits, and one trailing byte |
-
-The PKLITE-bearing executable's loaded contents have not been compared with the
-others. These packages have not been established as distinct official releases
-or gameplay revisions. All inputs and raw comparison evidence remain external
-to this repository; preserve each package's identity during future analysis.
+See [DOS startup](docs/dos-startup.md) for the verified entry path, expanded-image
+address conventions, initial graphics setup, and file access.
 
 Target game: **Mach 3**. A public recreation name has not been chosen. When
 chosen, use it in this repository's documentation while keeping the target game
@@ -52,8 +26,8 @@ discussion, experiments, and planning notes live outside the source repository.
 
 Original executables/assets, raw analysis, emulator snapshots, and reference
 captures live outside this repository. Use configured paths to access them.
-In the DOSRE umbrella, the adjacent local `project.toml` describes those paths;
-standalone use must not require that umbrella layout.
+Input provenance, checksums, comparison reports, and experiment records belong
+with the private evidence rather than in repository documentation.
 
 Build and development instructions will be added when those choices are made.
 No build system or RE workflow is supplied by this scaffold.

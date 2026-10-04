@@ -8,6 +8,10 @@
   audits, retrospectives, session logs, and planning notes outside the source
   repository. Do not move them to another tracked directory to avoid this rule.
   Promote verified findings into concise implementation documentation when useful.
+- Keep private input provenance, distribution/archive names, checksums, and
+  variant comparisons out of the README and repository docs. Record them with
+  external private evidence. Repository docs should describe maintained tools,
+  implementation, and verified technical findings useful in a standalone clone.
 - This repository contains authored project source and documented RE knowledge.
   Original game files and raw generated evidence are external inputs. Keep them
   outside Git unless a specific redistribution basis has been established.

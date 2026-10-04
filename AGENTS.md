@@ -1,6 +1,8 @@
 # Repository instructions
 
 - Read and follow `CONTRIBUTING.md` for code style, commit messages, and validation.
+- Use Rust for the main implementation. Supporting tools and investigation
+  scripts may use whichever language suits their task. Audio analysis is deferred.
 - Keep `docs/` focused on maintained implementation and reference documentation
   useful to users and contributors. Add documentation only when an actual need
   arises; an empty `docs/` is fine. Do not create a preset collection of documents.

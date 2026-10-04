@@ -10,11 +10,15 @@ and keeps LF on checkout, including on Windows. Add explicit `-text` rules for
 any fixtures or other files whose bytes must be preserved exactly. If a file
 needs another line-ending convention, keep its Git and editor rules consistent.
 
-Languages and formatters have not yet been selected. When they are chosen,
-commit the formatter configuration and document the formatting command and
-language-specific naming conventions here. Use an established language formatter
-and let it govern indentation, spacing, and wrapping. Add a formatting check when
-CI is introduced.
+Use Rust for the main implementation, with rustfmt and the checked-in
+`rustfmt.toml`. Once a Cargo crate exists, format with `cargo fmt --all`.
+Tools and investigation scripts may use other languages.
+
+The maintained Python tools use Python 3.11 or later. Format with
+`ruff format --config ruff.toml tools tests` and check with
+`ruff check --config ruff.toml tools tests`. The decoder itself uses only the
+Python standard library. Keep language-specific naming idiomatic and let the
+formatter govern spacing and wrapping. Add formatting checks when CI is introduced.
 
 Keep broad formatting changes separate from functional changes. Preserve
 third-party style and notices. Do not reformat generated files or fixtures whose
@@ -64,6 +68,9 @@ choice.
 
 ## Validation
 
-Build and test commands will be documented once the implementation stack is
-chosen. Run checks appropriate to the change and describe material limitations
-in validation when relevant.
+Run the Python tool checks with `python3 -m unittest discover -s tests -v`.
+Tests use authored synthetic data and must not import original game material.
+Rust build/test commands will be documented when its first crate is introduced.
+Run checks appropriate to the change and describe material limitations in
+validation when relevant. Runtime captures and comparisons with original-derived
+images remain external evidence rather than repository fixtures.

@@ -1,6 +1,8 @@
 # Repository instructions
 
 - Read and follow `CONTRIBUTING.md` for code style, commit messages, and validation.
+- Read `docs/goals.md` for the agreed fidelity and platform requirements. Library
+  candidates described there are proposals, not selected dependencies.
 - This repository contains authored project source and documented RE knowledge.
   Original game files and raw generated evidence are external inputs. Keep them
   outside Git unless a specific redistribution basis has been established.

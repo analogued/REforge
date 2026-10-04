@@ -10,7 +10,8 @@ scope; broader hardware support remains to be established.
 
 See [DOS startup](docs/dos-startup.md) for the verified entry path, expanded-image
 address conventions, initial graphics setup, and file access.
-See [CGA graphics](docs/cga-graphics.md) for the splash layout and decoder usage.
+See [CGA graphics](docs/cga-graphics.md) for screen layouts, gameplay composition,
+and decoder usage.
 
 Target game: **Mach 3**. A public recreation name has not been chosen. When
 chosen, use it in this repository's documentation while keeping the target game

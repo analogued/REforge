@@ -1,4 +1,4 @@
-# CGA splash graphics
+# CGA graphics
 
 The initial screen is a direct copy of `data1` into CGA video memory at
 `b800:0000`. The copy routine is `6004`, called at `0808` and returning at
@@ -46,6 +46,80 @@ Initial scene rendering completes at `044a`, before another playback call and
 entry into the gameplay loop. No intro duration is asserted here: timer changes
 and debugger pauses make wall-clock measurements unsuitable for that purpose.
 Audio decoding and synthesis remain deferred.
+
+## Gameplay graphics resources
+
+Gameplay backgrounds use row-major packed pixels rather than CGA's alternating
+scanline banks. Their stored bytes interleave two four-bit planes during loading:
+output bits 7 through 0 take input bits `3,7,2,6,1,5,0,4`, respectively. The
+converted byte contains four two-bit pixels in the same left-to-right order as
+video memory.
+
+| Resource | Converted contents |
+| --- | --- |
+| `data2` | 320-by-200 cockpit/background, followed by twelve 288-by-15 terrain strips |
+| `data3` | Alternate 320-by-200 cockpit/background with a starfield |
+| `data4` | Color pixels and descriptors for 190 sprites |
+| `data5` | Paired sprite masks with matching dimensions |
+
+The first background occupies 16,000 bytes. Each terrain strip occupies 1,080
+bytes, with 72 bytes per row. The first strip starts at `0x3e80`; successive
+strips are `0x438` bytes apart. The presence of the alternate background does not
+establish which gameplay transition selects it.
+
+Sprite rows are padded to an even byte width in memory. The loader supplies
+zero color padding and `0xff` mask padding. A far-pointer table indexes the
+color pixels; each pixel pointer has a descriptor before it containing dimensions
+and positioning fields. The corresponding mask begins exactly `0x7d00` bytes
+after the color source. The ordinary blitter at `6ffd` applies:
+
+```text
+destination = (destination & mask) | color
+```
+
+## Initial scene composition
+
+The initial gameplay frame is composed in scratch memory, then copied into
+the CGA framebuffer. Routine `6147` is called at `0429` for rows 0 through 99
+and at `0447` for rows 100 through 199. Each pass covers all 80 bytes of its
+scanlines. Within each pass, the drawing order is:
+
+1. Copy the stored cockpit/background and selected terrain strip (`63c6`).
+2. Draw the scene-object list at `DS:a3f1`.
+3. Draw the HUD-object list at `DS:984f`.
+4. Copy the composed rows into CGA banks (`60a0`).
+
+The first terrain selection is index 2, placed at pixel x=16, y=92. Its width
+is 288 pixels and height is 15 scanlines. HUD artwork surrounding the playfield
+is part of the stored background; counters and other changing elements overlay it.
+
+Object lists contain zero-terminated far pointers to 41-byte records. Ordinary
+records supply byte-x and scanline-y coordinates, dimensions, a resolved sprite
+pointer, and an active flag. `7281` resolves sprite descriptors; `54c2` projects
+scene positions; `5901` sorts scene objects by depth before composition.
+Ordinary sprite dimensions come from their descriptors; projection determines
+placement rather than rescaling their pixels. Rendering classification 1 uses
+separate procedural handlers, outside the ordinary masked-sprite path.
+
+The player update selects sprite index 13 from its initial world position before
+the first draw. Its visible craft image starts at pixel `(148,139)` and is
+52 by 18 pixels. A companion record selects shadow sprite 18 and is drawn before
+the craft; its visible pixels extend to row 157, below the craft's last row 156.
+The six initial counter zeros use glyph sprite 70, each 8 by 7 pixels,
+starting at `(136,33)` with an 8-pixel horizontal spacing.
+
+Drawing follows the resolved source pointer, which can differ from the record's
+current sprite index. The initial HUD resolves two indicators to sprites 85 and
+86, then changes their index fields to 87 before drawing without resolving again.
+A renderer that looks up those current indices instead of using the resolved
+sources would produce a different first frame.
+
+An independent composition of the background, terrain, scene objects, and HUD
+matches all 16,000 visible packed bytes, or 64,000 pixels, of the captured first
+gameplay frame. Runtime checkpoints also verify the two framebuffer passes:
+after the first, the top 100 rows match the completed scene while the bottom
+100 rows still contain the intro image. This verifies the initial scene, not
+later gameplay, procedural rendering, or other graphics adapters.
 
 ## Decoder
 

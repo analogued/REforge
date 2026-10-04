@@ -1,8 +1,13 @@
 # Repository instructions
 
 - Read and follow `CONTRIBUTING.md` for code style, commit messages, and validation.
-- Read `docs/goals.md` for the agreed fidelity and platform requirements. Library
-  candidates described there are proposals, not selected dependencies.
+- Keep `docs/` focused on maintained implementation and reference documentation
+  useful to users and contributors. Add documentation only when an actual need
+  arises; an empty `docs/` is fine. Do not create a preset collection of documents.
+- Keep discussions, brainstorming, speculative designs, experiments, internal
+  audits, retrospectives, session logs, and planning notes outside the source
+  repository. Do not move them to another tracked directory to avoid this rule.
+  Promote verified findings into concise implementation documentation when useful.
 - This repository contains authored project source and documented RE knowledge.
   Original game files and raw generated evidence are external inputs. Keep them
   outside Git unless a specific redistribution basis has been established.

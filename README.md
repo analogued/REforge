@@ -2,7 +2,7 @@
 
 Game reverse-engineering project. Status: initial reconnaissance; there is no
 playable reconstruction yet. The initial goal is an accurate recreation, with
-enhancements considered afterward. See [project goals](docs/goals.md).
+enhancements considered afterward.
 
 The target release, supporting libraries, and RE method remain open.
 
@@ -28,6 +28,8 @@ their integration and maintenance.
 Starter directories are `src/`, `tools/`, `re/`, `tests/`, and `docs/`. Adapt them
 to the project when its needs become clear. Game-specific tools belong here;
 shared tools can have independent repositories elsewhere in the workspace.
+Keep `docs/` for maintained implementation and reference documentation. Internal
+discussion, experiments, and planning notes live outside the source repository.
 
 ## External inputs
 

@@ -1,0 +1,17 @@
+# Reproducible local outputs. Persistent evidence lives outside the repository.
+/build/
+/out/
+/cache/
+/.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Defensive exclusions if external inputs are accidentally placed here.
+# This is a safety net, not a publication review or access-control boundary.
+/original/
+/private/
+/work/
+/captures/
+/recordings/
+/states/

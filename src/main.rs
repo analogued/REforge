@@ -30,7 +30,8 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
   --dump-ppm FILE         Write the final 320x200 image
   --help                  Show this help
 
-Window controls: arrows to move/jump; Escape to quit.
+Window controls: arrows to move/jump; Esc, P or Pause/Break to pause.
+Press any fresh key to resume; Ctrl+Q or closing the window quits.
 This slice includes bin cats and mice; hazards, rooms and audio remain absent.
 Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
@@ -320,7 +321,7 @@ fn interactive(
     trace: &mut Option<BufWriter<File>>,
     timing_trace: &mut Option<BufWriter<File>>,
 ) -> Result<(), String> {
-    use alley_cat::platform::Window;
+    use alley_cat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
 
     let mut window = Window::new(
@@ -330,9 +331,11 @@ fn interactive(
         u32::from(scale),
     )?;
     let mut runtime = Runtime::new(alley.machine());
-    let mut previous = Instant::now();
+    let start = Instant::now();
+    let mut pause_clock = PauseClock::new(start);
+    let pause_overlay = PauseOverlay::new(alley.pause_text()?, alley.machine())?;
     let mut target_nanos = 0;
-    let mut next_present = previous;
+    let mut next_present = start;
     let mut index = 0;
     let mut pass = 0;
     window.present(&alley.rgba())?;
@@ -350,9 +353,22 @@ fn interactive(
             y: if input.up { -1 } else { i8::from(input.down) },
         };
         let now = Instant::now();
-        // Discard excess host pause debt without resetting guest timer phases.
-        let elapsed = now.duration_since(previous).min(Duration::from_millis(100));
-        previous = now;
+        let pause = pause_clock.sample(now, input);
+        if pause.changed {
+            // Do not carry a partial host pacing budget across the pause.
+            target_nanos = runtime.clock.elapsed_nanos();
+            next_present = now;
+        }
+        if pause.paused {
+            if now >= next_present {
+                window.present_with_pause(&alley.rgba(), Some(&pause_overlay))?;
+                next_present = now + Duration::from_millis(16);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+            continue;
+        }
+        // Discard excess host stalls without resetting guest timer phases.
+        let elapsed = pause.elapsed.min(Duration::from_millis(100));
         target_nanos += elapsed.as_nanos();
         while runtime.clock.elapsed_nanos() < target_nanos
             && steps.is_none_or(|limit| index < limit)
@@ -387,7 +403,7 @@ fn interactive_diagnostic(
     steps: Option<usize>,
     trace: &mut Option<BufWriter<File>>,
 ) -> Result<(), String> {
-    use alley_cat::platform::Window;
+    use alley_cat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
     let mut window = Window::new(
         "Alley Cat — alley prototype",
@@ -402,6 +418,9 @@ fn interactive_diagnostic(
     let mut next_control_poll = Instant::now();
     let mut controls = Controls::default();
     let mut deadline = Instant::now() + period;
+    let mut pause_clock = PauseClock::new(Instant::now());
+    let pause_overlay = PauseOverlay::new(alley.pause_text()?, alley.machine())?;
+    let mut next_present = Instant::now();
     let mut index = 0;
     window.present(&alley.rgba())?;
     while steps.is_none_or(|steps| index < steps) {
@@ -410,6 +429,20 @@ fn interactive_diagnostic(
             break;
         }
         let now = Instant::now();
+        let pause = pause_clock.sample(now, input);
+        if let Some(duration) = pause.resumed_after {
+            // Preserve the remaining diagnostic step/effect and input waits.
+            deadline += duration;
+            next_control_poll += duration;
+        }
+        if pause.changed || pause.paused {
+            if pause.changed || now >= next_present {
+                window.present_with_pause(&alley.rgba(), pause.paused.then_some(&pause_overlay))?;
+                next_present = now + Duration::from_millis(16);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+            continue;
+        }
         if now >= next_control_poll {
             // Left and up take precedence, matching the original keyboard decoder.
             controls = Controls {

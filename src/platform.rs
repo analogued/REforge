@@ -11,6 +11,9 @@ use std::marker::PhantomData;
 use std::ptr;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+use crate::alley::Machine;
 
 /// Host input sampled after draining SDL's event queue.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -21,6 +24,80 @@ pub struct Input {
     pub right: bool,
     pub alt: bool,
     pub quit: bool,
+    pub pause_pressed: bool,
+    pub key_pressed: bool,
+}
+
+/// Host pause bookkeeping shared by the normal and diagnostic runners.
+pub struct PauseClock {
+    previous: Instant,
+    paused_at: Option<Instant>,
+}
+
+pub struct PauseSample {
+    pub paused: bool,
+    pub changed: bool,
+    pub elapsed: Duration,
+    pub resumed_after: Option<Duration>,
+}
+
+impl PauseClock {
+    pub fn new(now: Instant) -> Self {
+        Self {
+            previous: now,
+            paused_at: None,
+        }
+    }
+
+    pub fn sample(&mut self, now: Instant, input: Input) -> PauseSample {
+        let mut resumed_after = None;
+        let changed = if let Some(start) = self.paused_at {
+            if input.key_pressed {
+                self.paused_at = None;
+                resumed_after = Some(now.duration_since(start));
+                true
+            } else {
+                false
+            }
+        } else if input.pause_pressed {
+            self.paused_at = Some(now);
+            true
+        } else {
+            false
+        };
+        let paused = self.paused_at.is_some();
+        let elapsed = if paused || changed {
+            Duration::ZERO
+        } else {
+            now.duration_since(self.previous)
+        };
+        self.previous = now;
+        PauseSample {
+            paused,
+            changed,
+            elapsed,
+            resumed_after,
+        }
+    }
+}
+
+/// External original text, rendered with SDL's built-in font until BIOS font
+/// support is available. This overlay never modifies the game's framebuffer.
+pub struct PauseOverlay {
+    lines: [CString; 2],
+    color: [u8; 4],
+}
+
+impl PauseOverlay {
+    pub fn new(lines: [&str; 2], machine: Machine) -> Result<Self, String> {
+        Ok(Self {
+            lines: [
+                CString::new(lines[0]).map_err(|_| "pause text contains a NUL byte")?,
+                CString::new(lines[1]).map_err(|_| "pause text contains a NUL byte")?,
+            ],
+            color: machine.colors()[2],
+        })
+    }
 }
 
 static SDL_IN_USE: AtomicBool = AtomicBool::new(false);
@@ -174,14 +251,19 @@ impl Window {
 
     pub fn poll_input(&mut self) -> Input {
         let mut event = ffi::Event { bytes: [0; 128] };
+        let mut presses = Input::default();
         // SAFETY: Event has SDL_Event's 128-byte storage and sufficient alignment
-        // on supported desktop ABIs. PollEvent fills it; only the common initial
-        // Uint32 event type is read. The queue pump updates held-key state.
+        // on supported desktop ABIs. PollEvent fills it; keyboard fields are
+        // read only after checking its type. The pump updates held-key state.
         unsafe {
             while ffi::SDL_PollEvent(&mut event) {
                 let kind = u32::from_ne_bytes(event.bytes[..4].try_into().unwrap());
                 if kind == ffi::EVENT_QUIT || kind == ffi::EVENT_WINDOW_CLOSE_REQUESTED {
                     self.quit = true;
+                }
+                if kind == ffi::EVENT_KEY_DOWN {
+                    let key = &*((&event as *const ffi::Event).cast::<ffi::KeyboardEvent>());
+                    presses.record_press(key.scancode as usize, key.modifiers, key.repeat);
                 }
             }
             let mut count = 0;
@@ -191,7 +273,7 @@ impl Window {
                 // before reading, and the state is consumed before the next pump.
                 !keys.is_null() && index < count.max(0) as usize && *keys.add(index)
             };
-            self.quit |= held(ffi::SCANCODE_ESCAPE);
+            self.quit |= presses.quit;
             Input {
                 up: held(ffi::SCANCODE_UP),
                 down: held(ffi::SCANCODE_DOWN),
@@ -199,12 +281,22 @@ impl Window {
                 right: held(ffi::SCANCODE_RIGHT),
                 alt: held(ffi::SCANCODE_LALT) || held(ffi::SCANCODE_RALT),
                 quit: self.quit,
+                pause_pressed: presses.pause_pressed,
+                key_pressed: presses.key_pressed,
             }
         }
     }
 
     /// Present tightly packed RGBA bytes matching the source dimensions.
     pub fn present(&mut self, rgba: &[u8]) -> Result<(), String> {
+        self.present_with_pause(rgba, None)
+    }
+
+    pub fn present_with_pause(
+        &mut self,
+        rgba: &[u8],
+        pause: Option<&PauseOverlay>,
+    ) -> Result<(), String> {
         if rgba.len() != self.byte_len {
             return Err(format!(
                 "expected {} RGBA bytes, received {}",
@@ -226,11 +318,51 @@ impl Window {
             if !ffi::SDL_RenderTexture(self.renderer, self.texture, ptr::null(), ptr::null()) {
                 return Err(error("draw SDL texture"));
             }
+            if let Some(pause) = pause {
+                // Use original 320x200 coordinates in the 320x240 logical area.
+                let rect = ffi::FRect {
+                    x: 40.0,
+                    y: 88.0,
+                    w: 256.0,
+                    h: 16.0,
+                };
+                if !ffi::SDL_SetRenderScale(self.renderer, 1.0, 1.2)
+                    || !ffi::SDL_RenderFillRect(self.renderer, &rect)
+                    || !ffi::SDL_SetRenderDrawColor(
+                        self.renderer,
+                        pause.color[0],
+                        pause.color[1],
+                        pause.color[2],
+                        255,
+                    )
+                    || !ffi::SDL_RenderDebugText(self.renderer, 40.0, 88.0, pause.lines[0].as_ptr())
+                    || !ffi::SDL_RenderDebugText(self.renderer, 40.0, 96.0, pause.lines[1].as_ptr())
+                    || !ffi::SDL_SetRenderScale(self.renderer, 1.0, 1.0)
+                    || !ffi::SDL_SetRenderDrawColor(self.renderer, 0, 0, 0, 255)
+                {
+                    return Err(error("draw pause overlay"));
+                }
+            }
             if !ffi::SDL_RenderPresent(self.renderer) {
                 return Err(error("present SDL frame"));
             }
         }
         Ok(())
+    }
+}
+
+impl Input {
+    fn record_press(&mut self, scancode: usize, modifiers: u16, repeat: bool) {
+        if scancode == ffi::SCANCODE_Q && modifiers & ffi::KMOD_CTRL != 0 {
+            self.quit = true;
+        }
+        if !repeat {
+            self.key_pressed = true;
+            self.pause_pressed |= matches!(
+                scancode,
+                ffi::SCANCODE_ESCAPE | ffi::SCANCODE_P | ffi::SCANCODE_PAUSE
+            );
+        }
     }
 }
 
@@ -259,6 +391,78 @@ fn error(action: &str) -> String {
     format!("{action}: {detail}")
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pause_discards_wall_time_and_requires_a_fresh_press() {
+        let start = Instant::now();
+        let mut clock = PauseClock::new(start);
+        let running = clock.sample(start + Duration::from_millis(10), Input::default());
+        assert_eq!(running.elapsed, Duration::from_millis(10));
+        let mut press = Input::default();
+        press.record_press(ffi::SCANCODE_ESCAPE, 0, false);
+        let entered = clock.sample(start + Duration::from_millis(20), press);
+        assert!(entered.paused && entered.changed);
+        assert_eq!(entered.elapsed, Duration::ZERO);
+        let mut repeated = Input::default();
+        repeated.record_press(ffi::SCANCODE_ESCAPE, 0, true);
+        let held = clock.sample(start + Duration::from_secs(30), repeated);
+        assert!(held.paused && !held.changed);
+        assert_eq!(held.elapsed, Duration::ZERO);
+        let mut resume = Input::default();
+        resume.record_press(ffi::SCANCODE_RIGHT, 0, false);
+        let resumed = clock.sample(start + Duration::from_secs(60), resume);
+        assert!(!resumed.paused && resumed.changed);
+        assert_eq!(resumed.elapsed, Duration::ZERO);
+        assert_eq!(resumed.resumed_after, Some(Duration::from_millis(59_980)));
+        // Diagnostic deadlines retain the unelapsed portion of a blocking wait.
+        let deadline = start + Duration::from_millis(100) + resumed.resumed_after.unwrap();
+        assert_eq!(
+            deadline.duration_since(start + Duration::from_secs(60)),
+            Duration::from_millis(80)
+        );
+        let running = clock.sample(start + Duration::from_millis(60_015), Input::default());
+        assert_eq!(running.elapsed, Duration::from_millis(15));
+    }
+
+    #[test]
+    fn all_pause_keys_can_resume_without_immediately_repausing() {
+        for scancode in [ffi::SCANCODE_ESCAPE, ffi::SCANCODE_P, ffi::SCANCODE_PAUSE] {
+            let now = Instant::now();
+            let mut clock = PauseClock::new(now);
+            let mut press = Input::default();
+            press.record_press(scancode, 0, false);
+            assert!(!press.quit);
+            assert!(clock.sample(now, press).paused);
+            assert!(!clock.sample(now + Duration::from_secs(1), press).paused);
+            assert!(
+                !clock
+                    .sample(now + Duration::from_secs(2), Input::default())
+                    .paused
+            );
+        }
+    }
+
+    #[test]
+    fn quit_requires_control_and_keyboard_abi_matches_sdl3() {
+        let mut plain = Input::default();
+        plain.record_press(ffi::SCANCODE_Q, 0, false);
+        assert!(!plain.quit);
+        for control in [0x0040, 0x0080] {
+            let mut input = Input::default();
+            input.record_press(ffi::SCANCODE_Q, control, false);
+            assert!(input.quit);
+            assert!(!input.pause_pressed);
+        }
+        assert_eq!(std::mem::size_of::<ffi::KeyboardEvent>(), 40);
+        assert_eq!(std::mem::offset_of!(ffi::KeyboardEvent, scancode), 24);
+        assert_eq!(std::mem::offset_of!(ffi::KeyboardEvent, modifiers), 32);
+        assert_eq!(std::mem::offset_of!(ffi::KeyboardEvent, repeat), 37);
+    }
+}
+
 // Small authored ABI declarations, checked against SDL3's public headers.
 // No SDL implementation or generated binding code is included here.
 #[allow(non_snake_case)]
@@ -276,6 +480,11 @@ mod ffi {
     pub const PIXELFORMAT_RGBA32: u32 = 0x1646_2004;
     pub const EVENT_QUIT: u32 = 0x100;
     pub const EVENT_WINDOW_CLOSE_REQUESTED: u32 = 0x210;
+    pub const EVENT_KEY_DOWN: u32 = 0x300;
+    pub const KMOD_CTRL: u16 = 0x00c0;
+    pub const SCANCODE_P: usize = 19;
+    pub const SCANCODE_Q: usize = 20;
+    pub const SCANCODE_PAUSE: usize = 72;
     pub const SCANCODE_ESCAPE: usize = 41;
     pub const SCANCODE_RIGHT: usize = 79;
     pub const SCANCODE_LEFT: usize = 80;
@@ -287,6 +496,29 @@ mod ffi {
     #[repr(C, align(8))]
     pub struct Event {
         pub bytes: [u8; 128],
+    }
+
+    #[repr(C)]
+    pub struct KeyboardEvent {
+        pub kind: u32,
+        pub reserved: u32,
+        pub timestamp: u64,
+        pub window_id: u32,
+        pub keyboard_id: u32,
+        pub scancode: c_int,
+        pub key: u32,
+        pub modifiers: u16,
+        pub raw: u16,
+        pub down: bool,
+        pub repeat: bool,
+    }
+
+    #[repr(C)]
+    pub struct FRect {
+        pub x: f32,
+        pub y: f32,
+        pub w: f32,
+        pub h: f32,
     }
 
     #[link(name = "SDL3")]
@@ -336,6 +568,14 @@ mod ffi {
             destination: *const c_void,
         ) -> bool;
         pub fn SDL_RenderPresent(renderer: *mut c_void) -> bool;
+        pub fn SDL_SetRenderScale(renderer: *mut c_void, x: f32, y: f32) -> bool;
+        pub fn SDL_RenderFillRect(renderer: *mut c_void, rect: *const FRect) -> bool;
+        pub fn SDL_RenderDebugText(
+            renderer: *mut c_void,
+            x: f32,
+            y: f32,
+            text: *const c_char,
+        ) -> bool;
         pub fn SDL_PollEvent(event: *mut Event) -> bool;
         pub fn SDL_GetKeyboardState(count: *mut c_int) -> *const bool;
     }

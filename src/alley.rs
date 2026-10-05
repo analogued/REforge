@@ -20,7 +20,7 @@ pub enum Machine {
 
 impl Machine {
     /// Conventional digital RGB values; composite/monitor conversion is separate.
-    fn colors(self) -> [[u8; 4]; 4] {
+    pub(crate) fn colors(self) -> [[u8; 4]; 4] {
         match self {
             Self::Cga => [
                 [0, 0, 0, 255],
@@ -67,6 +67,25 @@ pub(crate) struct BinAdvance {
 impl Alley {
     pub fn machine(&self) -> Machine {
         self.machine
+    }
+
+    /// Keyboard pause captions from the supported executable's data segment.
+    pub fn pause_text(&self) -> Result<[&str; 2], String> {
+        let read = |offset| {
+            let bytes = self
+                .data
+                .get(offset..offset + 33)
+                .ok_or("missing pause text")?;
+            let end = bytes
+                .iter()
+                .position(|byte| *byte == 0)
+                .ok_or("unterminated pause text")?;
+            std::str::from_utf8(&bytes[..end]).map_err(|_| "invalid pause text")
+        };
+        Ok([
+            read(0x6d91).map_err(str::to_owned)?,
+            read(0x6db2).map_err(str::to_owned)?,
+        ])
     }
 
     pub(crate) fn advance_random(&mut self) {
@@ -373,6 +392,21 @@ impl Alley {
 mod tests {
     use super::*;
     use crate::assets::word;
+
+    #[test]
+    fn pause_captions_are_external_and_bounded() {
+        let mut alley = Alley::synthetic();
+        alley.data[0x6d91..0x6d96].copy_from_slice(b"test\0");
+        alley.data[0x6db2..0x6db9].copy_from_slice(b"resume\0");
+        assert_eq!(alley.pause_text().unwrap(), ["test", "resume"]);
+        alley.data[0x6d91..0x6db1].fill(b'x');
+        alley.data[0x6db1] = 0;
+        assert_eq!(alley.pause_text().unwrap()[0].len(), 32);
+        alley.data[0x6d91..0x6db2].fill(b'x');
+        assert!(alley.pause_text().is_err());
+        alley.data.truncate(0x6d90);
+        assert!(alley.pause_text().is_err());
+    }
 
     fn actor_fixture() -> Alley {
         let mut alley = Alley::synthetic();

@@ -203,3 +203,20 @@ is sampled later, after the gate's execution allowance.
 The windowed runner uses monotonic host time only to pace virtual execution and
 discards excessive pause debt without resetting guest phases. Display refresh
 never supplies BIOS ticks.
+
+The original keyboard pause (`5e70`) saves the BIOS tick count, displays the
+pause captions, waits for a later keyboard make event, then restores that count
+with `INT 1a/AH=1`. Key releases do not resume it. The text is drawn through
+BIOS `INT 10/AH=0e`, using the BIOS ROM font rather than glyphs in CAT.EXE.
+Its saved CGA rectangle covers source pixels `(40,88)` through `(295,103)`;
+the two text rows start at `(40,88)` and `(40,96)`, in palette color two.
+
+The recreation pauses on Esc, P or Pause/Break and resumes on a fresh key press.
+SDL auto-repeat events are ignored to avoid resuming while a pause key remains
+held. The host runner stops all guest work while paused and removes elapsed host
+time from its pacing budget. It preserves the complete virtual clock, including
+PIT/retrace phases; the original restores BIOS ticks without restoring those
+hardware phases. Diagnostic pacing shifts pending movement, input and blocking
+effect deadlines by the pause duration. The overlay is a presentation layer and
+does not alter the packed framebuffer or actor background saves. Its current SDL
+font is a visible approximation of the original BIOS lettering.

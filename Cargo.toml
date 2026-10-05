@@ -7,10 +7,10 @@ publish = false
 description = "Verified DOS Mach 3 graphics reconstruction"
 
 [features]
-viewer = ["dep:sdl2"]
+viewer = ["dep:sdl3"]
 
 [dependencies]
-sdl2 = { version = "=0.38.0", optional = true, default-features = false }
+sdl3 = { version = "=0.20.0", optional = true, default-features = false }
 
 [[bin]]
 name = "mach3-frame"

@@ -78,7 +78,7 @@ cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
 ```
 
-With SDL2 development and runtime libraries installed, also check the viewer:
+With SDL3 development and runtime libraries installed, also check the viewer:
 
 ```sh
 cargo test --locked --features viewer

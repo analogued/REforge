@@ -36,7 +36,7 @@ with the private evidence rather than in repository documentation.
 ## Rust renderer
 
 Requires Rust 1.85 or later. Asset decoding and frame export use the standard
-library; the optional windowed viewer uses SDL2. From the repository root:
+library; the optional windowed viewer uses SDL3. From the repository root:
 
 ```sh
 cargo run --bin mach3-frame -- /path/to/assets /path/to/first-frame.ppm
@@ -61,8 +61,8 @@ dependencies.
 
 ## Windowed startup viewer
 
-The optional viewer requires SDL2 development and runtime libraries, version
-2.0.12 or later, available to the compiler and system loader:
+The optional viewer requires SDL3 development and runtime libraries available
+to the compiler and system loader:
 
 ```sh
 cargo run --features viewer --bin mach3-viewer -- /path/to/assets

@@ -20,3 +20,7 @@ path = "src/main.rs"
 name = "mach3-viewer"
 path = "src/bin/viewer.rs"
 required-features = ["viewer"]
+
+[[bin]]
+name = "mach3-opening"
+path = "src/bin/opening.rs"

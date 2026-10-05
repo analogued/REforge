@@ -85,7 +85,7 @@ cargo test --locked --features viewer
 cargo clippy --locked --all-targets --features viewer -- -D warnings
 ```
 
-Build the library and frame renderer with `cargo build --locked`; add
+Build the library, frame renderer, and opening exporter with `cargo build --locked`; add
 `--features viewer` to build the windowed viewer. The viewer feature enables
 the dependencies recorded in `Cargo.lock` and [dependency notices](docs/dependencies.md).
 Once Cargo has fetched them, use `--offline` for local checks and builds.

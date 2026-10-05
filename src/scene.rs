@@ -53,29 +53,44 @@ pub fn initial_draws() -> Vec<Draw> {
 }
 
 pub fn initial_frame(assets: &GraphicsAssets) -> Result<Frame, Error> {
-    let base = assets
-        .primary
-        .get(..FRAME_BYTES)
-        .ok_or_else(|| Error::InvalidData("truncated primary background".into()))?;
-    let mut packed = base.to_vec();
-    const STRIP_BYTES: usize = 72 * 15;
-    let start = FRAME_BYTES + 2 * STRIP_BYTES;
-    let strip = assets
-        .primary
-        .get(start..start + STRIP_BYTES)
-        .ok_or_else(|| Error::InvalidData("missing initial terrain strip".into()))?;
-    for y in 0..15 {
-        let destination = (92 + y) * ROW_BYTES + 4;
-        packed[destination..destination + 72].copy_from_slice(&strip[y * 72..(y + 1) * 72]);
-    }
-    let mut frame = Frame::from_packed(&packed)?;
-    for command in initial_draws() {
+    compose(assets, 2, &initial_draws())
+}
+
+pub(crate) fn compose(
+    assets: &GraphicsAssets,
+    strip_index: usize,
+    draws: &[Draw],
+) -> Result<Frame, Error> {
+    let mut frame = background(assets, strip_index)?;
+    for command in draws {
         let sprite = assets.sprites.get(command.resolved_sprite).ok_or_else(|| {
             Error::InvalidData(format!("missing sprite {}", command.resolved_sprite))
         })?;
         frame.draw_sprite(sprite, command.rect)?;
     }
     Ok(frame)
+}
+
+pub(crate) fn background(assets: &GraphicsAssets, strip_index: usize) -> Result<Frame, Error> {
+    let base = assets
+        .primary
+        .get(..FRAME_BYTES)
+        .ok_or_else(|| Error::InvalidData("truncated primary background".into()))?;
+    let mut packed = base.to_vec();
+    const STRIP_BYTES: usize = 72 * 15;
+    if strip_index >= 12 {
+        return Err(Error::InvalidData("invalid terrain strip index".into()));
+    }
+    let start = FRAME_BYTES + strip_index * STRIP_BYTES;
+    let strip = assets
+        .primary
+        .get(start..start + STRIP_BYTES)
+        .ok_or_else(|| Error::InvalidData("missing terrain strip".into()))?;
+    for y in 0..15 {
+        let destination = (92 + y) * ROW_BYTES + 4;
+        packed[destination..destination + 72].copy_from_slice(&strip[y * 72..(y + 1) * 72]);
+    }
+    Frame::from_packed(&packed)
 }
 
 #[cfg(test)]

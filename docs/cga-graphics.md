@@ -144,9 +144,10 @@ decoded, but later scene selection and procedural drawing remain unimplemented.
 
 `StartupFrames` also decodes `data1` and `data6` using the CGA bank layout.
 The optional `mach3-viewer` presents those frames and the initial scene through
-SDL3. Space manually advances each screen, with held/repeated presses ignored.
-This presentation order follows the verified initial path; it does not reproduce
-the original timer waits or audio-dependent intro control flow.
+SDL3. Space manually advances the splash and intro, with held/repeated presses
+ignored. The viewer then runs the bounded [opening simulation](dos-gameplay.md#rust-opening-simulation),
+with optional manual body stepping or static presentation. It does not reproduce
+the original startup waits or audio-dependent intro control flow.
 
 For the separate Python video-memory decoder, run from the repository root
 using external input and output paths:

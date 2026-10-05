@@ -2,8 +2,9 @@
 
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
-Status: Rust graphics decoding, initial CGA frame composition, and a windowed
-startup viewer implemented; reverse engineering of gameplay continues.
+Status: Rust graphics decoding and a windowed, no-input opening preview,
+including terrain, HUD updates, and the first enemy wave. Later gameplay
+remains under investigation.
 
 The main implementation language is **Rust**. Supporting tools and investigation
 scripts may use other languages. Other platform versions are outside the initial
@@ -54,14 +55,15 @@ cargo run --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
 ```
 
 This implements the fixed initial draw state, masked sprites, and frame export.
-Gameplay updates and audio remain unimplemented.
+The separate opening simulation implements bounded gameplay updates; audio
+remains unimplemented.
 Asset decoding and frame composition are also available through the `mach3`
 library. See [CGA graphics](docs/cga-graphics.md) for the supported formats.
 
 The separate CGA decoder runs with Python 3.11 or later and has no external
 dependencies.
 
-## Windowed startup viewer
+## Windowed opening preview
 
 The optional viewer requires SDL3 development and runtime libraries available
 to the compiler and system loader:
@@ -70,11 +72,18 @@ to the compiler and system loader:
 cargo run --features viewer --bin mach3-viewer -- /path/to/assets
 ```
 
-It reads `DATA1` and `DATA6` as the splash and intro, then displays the composed
-initial scene from `DATA2` through `DATA5`. Space advances one screen per fresh
-press; holding Space does not skip screens. Escape or window close exits.
-The initial scene remains static. This is manual presentation: original startup
-timing and audio playback have not been reproduced.
+It reads `DATA1` and `DATA6` as the splash and intro. Fresh Space presses advance
+to the opening, which then runs 89 no-input game-loop bodies using graphics
+from `DATA2` through `DATA5`. Terrain moves, the HUD updates, and the first
+enemy wave and its seeking projectile appear. The preview holds its final
+frame at the supported boundary. Escape or window close exits.
+
+Use `--step` to advance one body per fresh Space press after entering gameplay,
+or `--static` to retain the initial scene. Held or repeated Space does not skip
+manual steps. The default animation pace is approximately 12.14 bodies per
+second, derived from the game's timer logic; `--period-ms 1..5000` overrides
+the interval. Original startup timing and exact DOS CPU-dependent pacing are
+not reproduced. Player controls, later gameplay, and audio remain deferred.
 
 The default window is 960 by 600 (3x). `--scale 1..6` sets its initial scale:
 
@@ -86,6 +95,17 @@ Resizing keeps pixels sharp with integer nearest-neighbor scaling and centered
 black borders. The viewer preserves the source's 320-by-200 proportions; CRT
 pixel-aspect correction is not applied. See [dependency notices](docs/dependencies.md).
 After Cargo has fetched the locked dependencies, these commands can use `--offline`.
+
+For reproducible frame and state export without SDL3:
+
+```sh
+cargo run --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
+```
+
+This writes frames `000.cga` through `089.cga` plus state and object TSV tables.
+`--steps 0..89` exports a shorter prefix. The directory must be new. Simulation
+uses the decoded assets and interpreted update rules; it does not load captured
+frames, emulator state, or a replay.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for formatting and commit conventions.
 

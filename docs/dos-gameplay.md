@@ -1,7 +1,6 @@
 # DOS opening gameplay
 
-This describes verified original behavior. The Rust viewer currently presents
-the static initial scene; gameplay updates are not implemented there yet.
+This describes verified original behavior and its bounded Rust implementation.
 Code and data addresses follow [DOS startup](dos-startup.md).
 
 ## Update order
@@ -62,3 +61,36 @@ existing process can change the subsequent sequence.
 
 See [CGA graphics](cga-graphics.md) for composition and object records. Captures,
 raw state, and comparison reports remain external to the repository.
+
+## Rust opening simulation
+
+`Opening` implements the stationary-player opening through completed body 89.
+It updates the HUD, recycles and projects terrain, starts the first enemy wave,
+and updates its shadow and seeking projectile. The generator runs from fresh
+startup state; branch decisions consume its results in the original order.
+Source resolution remains separate from requested sprite selection. Drawing
+preserves the initial indicator artwork and clips world objects to the viewport.
+
+The seeking projectile updates before the enemy chooses its next target, so it
+uses the preceding target. The enemy shadow uses the craft's position before
+its forward delta. The first-half render resolves these sources; the later
+near-object render does not yet include them within the supported prefix.
+
+Native frames and the checked HUD, terrain, enemy, target, and random state
+match the original at every completed-body boundary from 0 through 89.
+This is algorithmic simulation rather than captured-frame playback. It does
+not reproduce every intermediate framebuffer write within a body.
+
+The viewer presents completed-body frames. It uses a nominal interval of
+about 82.388 ms: three units of the approximately 36.413 Hz counter. The timer
+helper accumulates the PIT divisor twice per IRQ and increments the counter on
+carry. Original rendering cost, discarded timer phase, and the startup timer
+transition make precise DOS elapsed time dependent on execution conditions.
+The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
+by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
+The viewer offers an interval override and manual stepping.
+
+The simulation holds at its supported boundary. The projectile approaches the
+player and enters additional near-render/collision paths around body 90;
+those paths require further interpretation. Player input, restart within an
+existing random stream, subsequent encounter scripts, and audio are unsupported.

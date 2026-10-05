@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! SDL3 presentation of the three verified startup frames.
+//! SDL3 presentation of startup screens and the bounded opening animation.
 
 use sdl3::{
     event::{Event, WindowEvent},
@@ -10,8 +10,41 @@ use sdl3::{
 
 use crate::{
     frame::{HEIGHT, WIDTH},
+    opening::{BODY_PERIOD, Opening},
     startup::{Presentation, Screen, StartupFrames},
 };
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Playback {
+    #[default]
+    Animated,
+    Step,
+    Static,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Options {
+    pub scale: u32,
+    pub playback: Playback,
+    pub body_period: std::time::Duration,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            scale: 3,
+            playback: Playback::Animated,
+            body_period: BODY_PERIOD,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Action {
+    Continue,
+    Space,
+    Close,
+}
 
 fn title(screen: Screen) -> &'static str {
     match screen {
@@ -21,8 +54,7 @@ fn title(screen: Screen) -> &'static str {
     }
 }
 
-/// Returns false when the application should close.
-fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
+fn event_action(presentation: &mut Presentation, event: Event) -> Action {
     match event {
         Event::Quit { .. }
         | Event::Window {
@@ -32,13 +64,15 @@ fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
         | Event::KeyDown {
             keycode: Some(Keycode::Escape),
             ..
-        } => return false,
+        } => return Action::Close,
         Event::KeyDown {
             keycode: Some(Keycode::Space),
             repeat,
             ..
         } => {
-            presentation.space_down(repeat);
+            if presentation.space_down(repeat) {
+                return Action::Space;
+            }
         }
         Event::KeyUp {
             keycode: Some(Keycode::Space),
@@ -50,7 +84,12 @@ fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
         } => presentation.focus_lost(),
         _ => {}
     }
-    true
+    Action::Continue
+}
+
+#[cfg(test)]
+fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
+    event_action(presentation, event) != Action::Close
 }
 
 fn destination(width: u32, height: u32) -> Option<FRect> {
@@ -82,9 +121,29 @@ fn paint<T: RenderTarget>(canvas: &mut Canvas<T>, texture: &Texture<'_>) -> Resu
 
 /// Open a resizable nearest-neighbor viewer. No audio subsystem is initialized.
 pub fn run(frames: &StartupFrames, scale: u32) -> Result<(), String> {
+    run_with_options(
+        frames,
+        Options {
+            scale,
+            ..Options::default()
+        },
+    )
+}
+
+pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), String> {
+    let scale = options.scale;
     if !(1..=6).contains(&scale) {
         return Err("window scale must be between 1 and 6".into());
     }
+    if options.body_period.is_zero() || options.body_period > std::time::Duration::from_secs(5) {
+        return Err("opening period must be greater than zero and at most five seconds".into());
+    }
+    let mut opening = if options.playback == Playback::Static {
+        None
+    } else {
+        Some(Opening::new(frames.graphics()).map_err(|error| error.to_string())?)
+    };
+    let mut next_body = None;
     let sdl = sdl3::init().map_err(|error| error.to_string())?;
     let video = sdl.video().map_err(|error| error.to_string())?;
     let mut window = video
@@ -118,10 +177,14 @@ pub fn run(frames: &StartupFrames, scale: u32) -> Result<(), String> {
     }
     let mut events = sdl.event_pump().map_err(|error| error.to_string())?;
     loop {
+        let mut step = false;
         for event in events.poll_iter() {
-            if !handle_event(&mut presentation, event) {
+            let was_scene = presentation.screen() == Screen::InitialScene;
+            let action = event_action(&mut presentation, event);
+            if action == Action::Close {
                 return Ok(());
             }
+            step |= was_scene && action == Action::Space && options.playback == Playback::Step;
         }
         if presentation.screen() != shown {
             shown = presentation.screen();
@@ -132,6 +195,46 @@ pub fn run(frames: &StartupFrames, scale: u32) -> Result<(), String> {
                 .window_mut()
                 .set_title(title(shown))
                 .map_err(|error| error.to_string())?;
+            if shown == Screen::InitialScene && options.playback != Playback::Static {
+                next_body = Some(std::time::Instant::now() + options.body_period);
+                canvas
+                    .window_mut()
+                    .set_title(if options.playback == Playback::Step {
+                        "Mach 3 — Opening (Space to step, Esc to close)"
+                    } else {
+                        "Mach 3 — Opening preview (Esc to close)"
+                    })
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        if shown == Screen::InitialScene {
+            let now = std::time::Instant::now();
+            let timed = options.playback == Playback::Animated
+                && next_body.is_some_and(|deadline| now >= deadline);
+            if step || timed {
+                if let Some(opening) = &mut opening {
+                    if opening
+                        .advance(frames.graphics())
+                        .map_err(|error| error.to_string())?
+                    {
+                        texture
+                            .update(None, &opening.frame().rgb(), WIDTH * 3)
+                            .map_err(|error| error.to_string())?;
+                    }
+                    next_body = if timed {
+                        next_body.map(|deadline| deadline + options.body_period)
+                    } else {
+                        Some(now + options.body_period)
+                    };
+                    if opening.complete() {
+                        canvas
+                            .window_mut()
+                            .set_title("Mach 3 — Opening preview complete (Esc to close)")
+                            .map_err(|error| error.to_string())?;
+                        next_body = None;
+                    }
+                }
+            }
         }
         // Repaint also handles expose/resize events without changing screen state.
         paint(&mut canvas, &texture)?;

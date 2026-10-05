@@ -82,6 +82,25 @@ impl Frame {
     }
 
     pub fn draw_sprite(&mut self, sprite: &Sprite, rect: Rect) -> Result<(), Error> {
+        self.draw_sprite_clipped(
+            sprite,
+            rect,
+            Rect {
+                x_bytes: 0,
+                y: 0,
+                width_bytes: ROW_BYTES,
+                height: HEIGHT,
+            },
+        )
+    }
+
+    /// Draw within a byte-aligned region, retaining pixels outside that region.
+    pub fn draw_sprite_clipped(
+        &mut self,
+        sprite: &Sprite,
+        rect: Rect,
+        clip: Rect,
+    ) -> Result<(), Error> {
         let size = rect.width_bytes.checked_mul(rect.height);
         if rect.width_bytes == 0
             || rect.height == 0
@@ -98,10 +117,22 @@ impl Frame {
             .map_err(|_| Error::InvalidData("sprite width is too large".into()))?;
         let height = i64::try_from(rect.height)
             .map_err(|_| Error::InvalidData("sprite height is too large".into()))?;
-        let left = x.clamp(0, ROW_BYTES as i64) as usize;
-        let right = x.saturating_add(width).clamp(0, ROW_BYTES as i64) as usize;
-        let top = y.clamp(0, HEIGHT as i64) as usize;
-        let bottom = y.saturating_add(height).clamp(0, HEIGHT as i64) as usize;
+        let clip_width = i64::try_from(clip.width_bytes)
+            .map_err(|_| Error::InvalidData("clip width is too large".into()))?;
+        let clip_height = i64::try_from(clip.height)
+            .map_err(|_| Error::InvalidData("clip height is too large".into()))?;
+        let clip_x = i64::from(clip.x_bytes);
+        let clip_y = i64::from(clip.y);
+        let left = x.max(clip_x).clamp(0, ROW_BYTES as i64) as usize;
+        let right = x
+            .saturating_add(width)
+            .min(clip_x.saturating_add(clip_width))
+            .clamp(0, ROW_BYTES as i64) as usize;
+        let top = y.max(clip_y).clamp(0, HEIGHT as i64) as usize;
+        let bottom = y
+            .saturating_add(height)
+            .min(clip_y.saturating_add(clip_height))
+            .clamp(0, HEIGHT as i64) as usize;
         for dy in top..bottom {
             for dx in left..right {
                 let source = (dy as i64 - y) as usize * rect.width_bytes + (dx as i64 - x) as usize;
@@ -216,5 +247,34 @@ mod tests {
                 .is_err()
         );
         assert_eq!(frame, before);
+    }
+
+    #[test]
+    fn viewport_clipping_preserves_surround_and_original_source_rows() {
+        let mut frame = Frame::from_packed(&vec![0xaa; FRAME_BYTES]).unwrap();
+        let sprite = sprite(4, 2, vec![1, 2, 3, 4, 5, 6, 7, 8], vec![0; 8]);
+        frame
+            .draw_sprite_clipped(
+                &sprite,
+                Rect {
+                    x_bytes: 2,
+                    y: 10,
+                    width_bytes: 4,
+                    height: 2,
+                },
+                Rect {
+                    x_bytes: 3,
+                    y: 11,
+                    width_bytes: 2,
+                    height: 1,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            &frame.packed()[11 * 80 + 2..11 * 80 + 6],
+            &[0xaa, 6, 7, 0xaa]
+        );
+        assert!(frame.packed()[..11 * 80 + 3].iter().all(|b| *b == 0xaa));
+        assert!(frame.packed()[11 * 80 + 5..].iter().all(|b| *b == 0xaa));
     }
 }

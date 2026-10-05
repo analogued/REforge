@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Manual presentation of the startup screens and verified initial scene.
+//! Manual progression through startup screens into the opening preview.
 //! Original startup timing and audio remain deferred.
 
 use std::path::Path;
@@ -18,10 +18,11 @@ pub enum Screen {
     InitialScene,
 }
 
-/// Decoded startup screens and the composed initial scene.
+/// Decoded startup screens, initial scene, and graphics for the opening simulation.
 #[derive(Debug)]
 pub struct StartupFrames {
     frames: [Frame; 3],
+    graphics: GraphicsAssets,
 }
 
 impl StartupFrames {
@@ -30,9 +31,11 @@ impl StartupFrames {
         let directory = directory.as_ref();
         let splash = Frame::from_cga(&read_resource(directory, "DATA1")?)?;
         let intro = Frame::from_cga(&read_resource(directory, "DATA6")?)?;
-        let initial_scene = scene::initial_frame(&GraphicsAssets::load(directory)?)?;
+        let graphics = GraphicsAssets::load(directory)?;
+        let initial_scene = scene::initial_frame(&graphics)?;
         Ok(Self {
             frames: [splash, intro, initial_scene],
+            graphics,
         })
     }
 
@@ -43,6 +46,10 @@ impl StartupFrames {
             Screen::InitialScene => 2,
         };
         &self.frames[index]
+    }
+
+    pub fn graphics(&self) -> &GraphicsAssets {
+        &self.graphics
     }
 }
 
@@ -67,15 +74,17 @@ impl Presentation {
         self.screen
     }
 
-    pub fn space_down(&mut self, repeat: bool) {
+    /// Return true for a fresh press, including one on the terminal screen.
+    pub fn space_down(&mut self, repeat: bool) -> bool {
         if repeat || self.space_held {
-            return;
+            return false;
         }
         self.space_held = true;
         self.screen = match self.screen {
             Screen::Splash => Screen::Intro,
             Screen::Intro | Screen::InitialScene => Screen::InitialScene,
         };
+        true
     }
 
     pub fn space_up(&mut self) {

@@ -78,3 +78,49 @@ fn renders_both_formats_and_protects_existing_files() {
     assert!(!directory.render("invalid.bin", "unknown").status.success());
     assert!(!directory.0.join("invalid.bin").exists());
 }
+
+#[test]
+fn opening_export_preserves_existing_directories_and_rejects_unsupported_steps() {
+    let directory = TestDirectory::new();
+    fs::write(directory.0.join("data2"), vec![0; 28_960]).unwrap();
+    fs::write(directory.0.join("data3"), vec![0; 16_000]).unwrap();
+    fs::write(directory.0.join("data4"), sprite_file(0)).unwrap();
+    fs::write(directory.0.join("data5"), sprite_file(255)).unwrap();
+    let export = |steps: &str, destination: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mach3-opening"))
+            .args(["--steps", steps])
+            .arg(&directory.0)
+            .arg(directory.0.join(destination))
+            .output()
+            .unwrap()
+    };
+    let result = export("2", "opening");
+    assert!(result.status.success(), "{result:?}");
+    let first = fs::read(directory.0.join("opening/000.cga")).unwrap();
+    assert_eq!(first, vec![0; 0x4000]);
+    assert_eq!(
+        fs::metadata(directory.0.join("opening/002.cga"))
+            .unwrap()
+            .len(),
+        0x4000
+    );
+    assert!(!directory.0.join("opening/003.cga").exists());
+    let state = fs::read_to_string(directory.0.join("opening/state.tsv")).unwrap();
+    assert_eq!(state.lines().count(), 4);
+    assert!(!export("1", "opening").status.success());
+    assert_eq!(
+        fs::read_to_string(directory.0.join("opening/state.tsv")).unwrap(),
+        state
+    );
+    assert_eq!(
+        fs::read(directory.0.join("opening/000.cga")).unwrap(),
+        first
+    );
+    assert!(!export("90", "unsupported").status.success());
+    assert!(!directory.0.join("unsupported").exists());
+    assert!(!export("0", "data2").status.success());
+    assert_eq!(
+        fs::read(directory.0.join("data2")).unwrap(),
+        vec![0; 28_960]
+    );
+}

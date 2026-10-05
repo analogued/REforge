@@ -1,9 +1,10 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Asset decoding and composition for the verified initial DOS CGA scene.
+//! DOS CGA asset decoding, composition, and bounded opening simulation.
 #![forbid(unsafe_code)]
 
 pub mod assets;
 pub mod frame;
+pub mod opening;
 pub mod scene;
 pub mod startup;
 #[cfg(feature = "viewer")]

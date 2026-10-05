@@ -13,6 +13,7 @@ use crate::timing::{
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Omitted actors consume a measured
 /// time allowance here; their game state and individual gates are not simulated.
+/// Clothesline state is implemented and active scrolling has a separate cost.
 #[derive(Clone, Copy, Debug)]
 pub struct ReferenceCosts {
     pub prelude: u64,
@@ -39,6 +40,8 @@ pub struct ReferenceCosts {
     pub player_entry: u64,
     pub ground_dog: u64,
     pub actor_group: u64,
+    pub clothes_shift: u64,
+    pub clothes_new_tile: u64,
     pub loop_return: u64,
     pub fence_setup: u64,
     pub fence_bios: u64,
@@ -79,6 +82,11 @@ impl ReferenceCosts {
             player_entry: 2_875_000,
             ground_dog: 95_833,
             actor_group: 345_833,
+            // Additional work above the ordinary grouped-call allowance.
+            // Fixed-240 helper probes measured about 8ms for a band shift,
+            // 9.5ms with tile generation, and 0.1ms for a tick-gated hold.
+            clothes_shift: 7_900_000,
+            clothes_new_tile: 9_400_000,
             // The observed post-player allowance includes loop return work.
             loop_return: 0,
             fence_setup: 29_167,
@@ -166,7 +174,7 @@ impl Runtime {
                 FenceAction::Complete => {
                     self.clock.advance_nanos(self.costs.fence_finish);
                     self.fence = None;
-                    let mut event = self.finish_pass(start_nanos, false, None);
+                    let mut event = self.finish_pass(alley, start_nanos, false, None)?;
                     event.fence_wait = true;
                     return Ok(event);
                 }
@@ -277,7 +285,7 @@ impl Runtime {
         } else if tests_retrace {
             self.clock.advance_nanos(self.costs.player_retrace_return);
         }
-        let mut event = self.finish_pass(start_nanos, control_polled, acceptance);
+        let mut event = self.finish_pass(alley, start_nanos, control_polled, acceptance)?;
         event.tick_low = sample.bios.tick_low;
         event.pit_counter = sample.pit_counter;
         event.retrace = retrace;
@@ -286,18 +294,27 @@ impl Runtime {
 
     fn finish_pass(
         &mut self,
+        alley: &mut Alley,
         start_nanos: u128,
         control_polled: bool,
         acceptance: Option<PlayerAcceptance>,
-    ) -> PassOutcome {
+    ) -> Result<PassOutcome, String> {
         self.clock.advance_nanos(self.costs.ground_dog);
         let actor_group_due = self.divider.advance(false);
         if actor_group_due {
+            let sample = self.clock.sample();
+            if let Some(scroll) = alley.advance_scenery(sample.bios.tick_low, sample.retrace)? {
+                self.clock.advance_nanos(if scroll.generated_tile {
+                    self.costs.clothes_new_tile
+                } else {
+                    self.costs.clothes_shift
+                });
+            }
             self.clock.advance_nanos(self.costs.actor_group);
         }
         self.clock.advance_nanos(self.costs.loop_return);
         let sample = self.clock.sample();
-        PassOutcome {
+        Ok(PassOutcome {
             start_nanos,
             end_nanos: self.clock.elapsed_nanos(),
             tick_low: sample.bios.tick_low,
@@ -307,7 +324,7 @@ impl Runtime {
             acceptance,
             actor_group_due,
             fence_wait: false,
-        }
+        })
     }
 }
 

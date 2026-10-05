@@ -5,6 +5,7 @@
 pub mod alley;
 pub mod assets;
 pub mod cga;
+mod clothes;
 mod decoration;
 #[cfg(feature = "sdl")]
 pub mod platform;

@@ -178,7 +178,11 @@ fn draw_window_half(data: &mut [u8], tile: &mut [u8; 64], column: usize) -> u8 {
     1
 }
 
-fn window_tile(data: &mut [u8], threshold_low: u8, threshold_high: u8) -> ([u8; 64], u8) {
+pub(crate) fn clothes_tile(
+    data: &mut [u8],
+    threshold_low: u8,
+    threshold_high: u8,
+) -> ([u8; 64], u8) {
     let mut tile = [0xaa; 64];
     tile[4..8].fill(0x44);
     let random = next_random(data);
@@ -233,7 +237,7 @@ pub fn initialize_alley(data: &mut [u8], screen: &mut Framebuffer) -> Result<(),
     let threshold_low = data[0x2aba + difficulty];
     for (row, threshold_high) in [0x80, 0x30, 0].into_iter().enumerate() {
         for column in 0..20 {
-            let (tile, occupancy) = window_tile(data, threshold_low, threshold_high);
+            let (tile, occupancy) = clothes_tile(data, threshold_low, threshold_high);
             screen.copy_rect(
                 (0x0140 + row * 0x0500 + column * 4) as u16,
                 Dimensions(0x1002),

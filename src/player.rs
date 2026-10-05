@@ -17,6 +17,32 @@ pub struct Controls {
 mod tests {
     use super::*;
 
+    #[test]
+    fn clothes_edges_release_support_without_changing_animation_phase_or_direction() {
+        for (x, left) in [(8, true), (290, false)] {
+            let mut player = Player::at_alley_floor(x);
+            player.support_state = 2;
+            player.y = 40;
+            player.vertical_coordinate = 90;
+            player.horizontal_direction = 0xff;
+            player.horizontal_step = 0x1206;
+            player.phase = 77;
+            player.last_support = Support::UpperBitfield;
+            player.carry_with_clothes(left);
+            assert_eq!(
+                (player.x, player.y, player.vertical_coordinate),
+                (x, 40, 90)
+            );
+            assert_eq!((player.phase, player.horizontal_direction), (77, 0xff));
+            assert_eq!(player.horizontal_step, 0x1201);
+            assert_eq!(player.support_state, 0);
+            assert_eq!(player.support_delay, 17);
+            assert_eq!((player.vertical_direction, player.vertical_step), (1, 1));
+            assert_eq!(player.phase_decrement, 24);
+            assert_eq!(player.last_support, Support::None);
+        }
+    }
+
     fn empty_tables() -> Vec<u8> {
         // Authored empty tables, not a captured original data segment.
         vec![0; 0x1200]
@@ -453,6 +479,31 @@ fn word(data: &[u8], offset: usize) -> u16 {
 }
 
 impl Player {
+    pub(crate) fn clothes_motion_disabled(&self) -> bool {
+        self.support_disabled != 0
+    }
+
+    /// CS:04a0 carries an attached cat with its garment. At either edge it
+    /// releases support without losing a life or moving X beyond the boundary.
+    pub(crate) fn carry_with_clothes(&mut self, left: bool) {
+        let next = if left {
+            self.x.checked_sub(4).filter(|x| *x >= 8)
+        } else {
+            Some(self.x.wrapping_add(4)).filter(|x| *x < 0x123)
+        };
+        if let Some(next) = next {
+            self.x = next;
+        } else {
+            self.support_delay = 17;
+            self.vertical_direction = 1;
+            self.vertical_step = 1;
+            self.phase_decrement = 0x18;
+            self.horizontal_step = (self.horizontal_step & 0xff00) | 1;
+            self.support_state = 0;
+            self.last_support = Support::None;
+        }
+    }
+
     /// Start after the original alley entry has completed.
     pub fn at_alley_floor(x: u16) -> Self {
         Self {

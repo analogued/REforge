@@ -183,15 +183,33 @@ impl Framebuffer {
 /// Saves and restores the player's previous rectangle before each redraw.
 #[derive(Default)]
 pub struct PlayerCompositor {
-    previous: Option<(u16, Dimensions, Vec<u8>)>,
+    previous: Option<PlayerRectangle>,
+}
+
+struct PlayerRectangle {
+    offset: u16,
+    dimensions: Dimensions,
+    background: Vec<u8>,
+    source: Vec<u8>,
 }
 
 impl PlayerCompositor {
     pub fn restore(&mut self, framebuffer: &mut Framebuffer) -> Result<(), String> {
-        if let Some((offset, dimensions, bytes)) = self.previous.take() {
-            framebuffer.copy_rect(offset, dimensions, &bytes)?;
-        }
+        self.suspend(framebuffer)?;
         Ok(())
+    }
+
+    /// Remove the current sprite before modifying scenery; returning its exact
+    /// pixels avoids selecting another idle image and advancing random state.
+    pub(crate) fn suspend(
+        &mut self,
+        framebuffer: &mut Framebuffer,
+    ) -> Result<Option<(Dimensions, Vec<u8>)>, String> {
+        if let Some(previous) = self.previous.take() {
+            framebuffer.copy_rect(previous.offset, previous.dimensions, &previous.background)?;
+            return Ok(Some((previous.dimensions, previous.source)));
+        }
+        Ok(None)
     }
 
     pub fn draw(
@@ -208,7 +226,12 @@ impl PlayerCompositor {
         }
         self.restore(framebuffer)?;
         let background = framebuffer.and_rect(offset, dimensions, source)?;
-        self.previous = Some((offset, dimensions, background));
+        self.previous = Some(PlayerRectangle {
+            offset,
+            dimensions,
+            background,
+            source: source.to_vec(),
+        });
         Ok(())
     }
 

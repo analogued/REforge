@@ -1,6 +1,6 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
-//! The initial alley slice: external assets, static scenery, and player updates.
+//! External alley assets, animated scenery, and player updates.
 
 use crate::assets::{Assets, idle_sources, initialize_alley, next_random, set_word, sprite_bytes};
 use crate::cga::{Dimensions, Framebuffer, PlayerCompositor, pixel_offset};
@@ -152,6 +152,32 @@ impl Alley {
         &self.screen
     }
 
+    /// Scheduled scenery work runs after the player, even on passes which
+    /// reject movement. Present only a finished band and a recomposed cat.
+    pub(crate) fn advance_scenery(
+        &mut self,
+        tick: u16,
+        retrace: bool,
+    ) -> Result<Option<crate::clothes::Scroll>, String> {
+        let image = self.compositor.suspend(&mut self.screen)?;
+        let result = crate::clothes::advance(
+            &mut self.data,
+            &mut self.screen,
+            &mut self.player,
+            tick,
+            retrace,
+        );
+        if let Some((dimensions, source)) = image {
+            self.compositor.draw(
+                &mut self.screen,
+                pixel_offset(self.player.x, self.player.y),
+                dimensions,
+                &source,
+            )?;
+        }
+        result
+    }
+
     pub fn rgba(&self) -> Vec<u8> {
         let colors = self.machine.colors();
         self.screen
@@ -159,5 +185,61 @@ impl Alley {
             .into_iter()
             .flat_map(|index| colors[usize::from(index)])
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assets::word;
+
+    #[test]
+    fn moving_clothes_recompose_the_carried_cat_without_extra_random_calls_or_ghosts() {
+        let mut alley = Alley::synthetic();
+        alley.screen.fill_visible(0xaa);
+        let dimensions = Dimensions(0x1028);
+        let band: Vec<u8> = (0..1280).map(|index| (index % 251) as u8).collect();
+        alley.screen.copy_rect(0x140, dimensions, &band).unwrap();
+        alley.data[0x531] = 1;
+        alley.data[0x532] = 100;
+        alley.data[0x529] = 0xff;
+        alley.data[0x525] = 2;
+        alley.data[0x53a] = 75;
+        alley.data[0x53d] = 46;
+        set_word(&mut alley.data, 0x51d, 0x140);
+        alley.player.x = 80;
+        alley.player.y = 8;
+        alley.player.vertical_coordinate = 58;
+        alley.player.support_state = 2;
+        let source = vec![0; Dimensions(0x0e03).len()];
+        alley
+            .compositor
+            .draw(
+                &mut alley.screen,
+                pixel_offset(80, 8),
+                Dimensions(0x0e03),
+                &source,
+            )
+            .unwrap();
+        let seed = word(&alley.data, 0x2ae5);
+        assert!(alley.advance_scenery(1, false).unwrap().is_some());
+        assert_eq!(alley.player.x, 84);
+        assert_eq!(word(&alley.data, 0x2ae5), seed);
+        assert_eq!(
+            alley
+                .screen
+                .read_rect(pixel_offset(84, 8), Dimensions(0x0e03))
+                .unwrap(),
+            source
+        );
+        alley.compositor.restore(&mut alley.screen).unwrap();
+        let clean = alley.screen.read_rect(0x140, dimensions).unwrap();
+        for row in 0..16 {
+            assert_eq!(
+                &clean[row * 80 + 1..row * 80 + 80],
+                &band[row * 80..row * 80 + 79]
+            );
+            assert_eq!(clean[row * 80], 0);
+        }
     }
 }

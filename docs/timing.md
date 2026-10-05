@@ -61,8 +61,8 @@ difference, which alone does not establish a fixed duration in milliseconds.
 
 The ordinary alley loop calls controls, player, and ground dog in that order.
 When the dog-death flag is clear, it increments byte `040f`; every fourth pass
-also calls the sound-state routine, projectiles, windows, other alley animation,
-dumpster cat, mice, and another alley helper in their original order. During
+also calls the sound-state routine, clothes scrolling, windows, projectiles,
+dumpster cat, mice, and the lives display in their original order. During
 dog death this additional group runs every pass. The divider advances even
 when the player gate rejects an update.
 
@@ -82,9 +82,18 @@ random stream nor the full original schedule.
 The default windowed runner executes virtual loop attempts rather than evenly
 spaced accepted player updates. `Runtime` polls controls, applies `PlayerGate`,
 advances an accepted `Player::update`, then advances the ordinary alley divider.
-The divider runs even on rejected player calls. Actors are absent from this slice;
-post-player work currently consumes a fitted time allowance, without executing
-actor behavior or their individual gates.
+The divider runs even on rejected player calls. Grouped passes execute the
+clothesline routine's call-count, retrace, suppression and BIOS-tick gates.
+Damaging actors are absent; their post-player work retains fitted time allowances.
+
+Clothes scrolling (`04a0`) decrements byte `0531` before other tests. On expiry
+it reloads 1, requires retrace clear, no support-disable flag or active window
+projectile, and a changed low BIOS tick relative to `0544`. It then reloads a
+difficulty-dependent call interval, quartered when player Y is at most 96.
+An airborne cat in the selected row can inhibit movement. A completed garment
+advances its packed occupancy by two support cells before its four successive
+four-pixel columns finish entering; player support checks compensate for this
+phase. Attached cats move with the selected line.
 
 `VirtualClock` uses integer rational time with a PIT input frequency of 1,193,182
 Hz and a channel-0 divisor of 65,536. The BIOS rate is consequently about 18.2065
@@ -115,8 +124,12 @@ cycle-accurate 8088 model.
 Representative CGA costs include about 0.35 ms for an accepted idle call without
 redraw, 3.05 ms for ordinary walking, and 3.27 ms for ordinary jumping. Post-player
 work costs about 0.096 ms on an ordinary pass plus 0.346 ms on a grouped pass.
-Captured actor drawing caused occasional much larger delays that this allowance
-does not reproduce. Keyboard decoding, retained support state and redraw paths
+Active clothes scrolling adds approximately 7.9 ms, or 9.4 ms when generating a
+new tile, above that grouped allowance. Original fixed-240 helper measurements
+gave about 8 ms for a shift, 9.5 ms with generation, and 0.1 ms for a tick-gated
+hold. These costs remain approximate; they do not establish every garment path
+or interrupt phase. Other omitted actor drawing can cause larger delays that
+the allowance does not reproduce. Keyboard decoding, retained support state and redraw paths
 also vary. Clipped re-entry costs have not been separately calibrated. PCjr uses
 the CGA cost fit with its verified 16-call countdown, pending separate cost fits.
 
@@ -144,6 +157,7 @@ sound-state random consumers remain absent.
 
 `--step-hz` explicitly selects the former uniform diagnostic movement scheduler.
 Untimed headless execution also advances accepted movement bodies directly.
+These accepted-update diagnostic modes do not advance the clothesline schedule.
 `--headless --timed` executes the reference schedule without wall-clock waits;
 script rows choose held directions by accepted-update index. `--trace-timing`
 records loop attempts and blocking-effect checks, including rejected movement.

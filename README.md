@@ -51,6 +51,7 @@ monitor simulation is not implemented. Raw framebuffer and PPM exports remain
 320×200 for data comparisons.
 
 `--seed` selects a nonzero 16-bit random seed, in decimal or `0xHEX` notation.
+The default seed is `0xfa59`.
 `--difficulty` accepts 0 through 7 and affects the initial alley layout.
 These controls are diagnostic setup options; startup and difficulty selection
 screens are not implemented.
@@ -62,7 +63,14 @@ sprite composition and background restoration, and player movement on the floor,
 dumpsters, and occupied upper platforms. Ground decorations use the original's
 weighted random selection and external sprites. Current score, high score and
 three starting lives use the original digit glyphs; scoring events and life loss
-are not implemented. Clothes remain static after setup.
+are not implemented.
+
+In the default timing mode, the clotheslines scroll right/left/right, generate
+new garments, update landing supports, and carry an attached cat. Their original
+call countdown, BIOS-tick and retrace gates control motion; scrolling pauses when
+the cat is airborne in the relevant row. Releasing a cat at a clothesline edge
+starts a fall without losing a life. The renderer composes complete scenery and
+cat images rather than simulating partially updated display memory.
 The player starts settled on the floor, bypassing the original entry animation.
 Falling behind the fence hides the cat and starts a clipped re-entry from the
 nearer alley edge. Its speaker effect is silent. The timed runner blocks game

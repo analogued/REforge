@@ -25,7 +25,6 @@ pub struct Input {
     pub alt: bool,
     pub quit: bool,
     pub pause_pressed: bool,
-    pub key_pressed: bool,
 }
 
 /// Host pause bookkeeping shared by the normal and diagnostic runners.
@@ -52,7 +51,7 @@ impl PauseClock {
     pub fn sample(&mut self, now: Instant, input: Input) -> PauseSample {
         let mut resumed_after = None;
         let changed = if let Some(start) = self.paused_at {
-            if input.key_pressed {
+            if input.pause_pressed {
                 self.paused_at = None;
                 resumed_after = Some(now.duration_since(start));
                 true
@@ -81,19 +80,19 @@ impl PauseClock {
     }
 }
 
-/// External original text, rendered with SDL's built-in font until BIOS font
-/// support is available. This overlay never modifies the game's framebuffer.
+/// Original title and host resume hint, rendered with SDL's built-in font until
+/// BIOS font support is available. This never modifies the game's framebuffer.
 pub struct PauseOverlay {
     lines: [CString; 2],
     color: [u8; 4],
 }
 
 impl PauseOverlay {
-    pub fn new(lines: [&str; 2], machine: Machine) -> Result<Self, String> {
+    pub fn new(title: &str, machine: Machine) -> Result<Self, String> {
         Ok(Self {
             lines: [
-                CString::new(lines[0]).map_err(|_| "pause text contains a NUL byte")?,
-                CString::new(lines[1]).map_err(|_| "pause text contains a NUL byte")?,
+                CString::new(title).map_err(|_| "pause text contains a NUL byte")?,
+                c" Esc / P / Pause to continue...  ".to_owned(),
             ],
             color: machine.colors()[2],
         })
@@ -282,7 +281,6 @@ impl Window {
                 alt: held(ffi::SCANCODE_LALT) || held(ffi::SCANCODE_RALT),
                 quit: self.quit,
                 pause_pressed: presses.pause_pressed,
-                key_pressed: presses.key_pressed,
             }
         }
     }
@@ -356,8 +354,7 @@ impl Input {
         if scancode == ffi::SCANCODE_Q && modifiers & ffi::KMOD_CTRL != 0 {
             self.quit = true;
         }
-        if !repeat {
-            self.key_pressed = true;
+        if !repeat && modifiers & ffi::KMOD_SHORTCUT == 0 {
             self.pause_pressed |= matches!(
                 scancode,
                 ffi::SCANCODE_ESCAPE | ffi::SCANCODE_P | ffi::SCANCODE_PAUSE
@@ -412,7 +409,7 @@ mod tests {
         assert!(held.paused && !held.changed);
         assert_eq!(held.elapsed, Duration::ZERO);
         let mut resume = Input::default();
-        resume.record_press(ffi::SCANCODE_RIGHT, 0, false);
+        resume.record_press(ffi::SCANCODE_P, 0, false);
         let resumed = clock.sample(start + Duration::from_secs(60), resume);
         assert!(!resumed.paused && resumed.changed);
         assert_eq!(resumed.elapsed, Duration::ZERO);
@@ -442,6 +439,38 @@ mod tests {
                     .sample(now + Duration::from_secs(2), Input::default())
                     .paused
             );
+        }
+    }
+
+    #[test]
+    fn movement_and_desktop_shortcuts_do_not_change_pause_state() {
+        let mut ignored = vec![
+            (ffi::SCANCODE_UP, 0),
+            (ffi::SCANCODE_DOWN, 0),
+            (ffi::SCANCODE_LEFT, 0),
+            (ffi::SCANCODE_RIGHT, 0),
+            (43, 0x0100),  // Alt+Tab
+            (226, 0x0100), // Alt itself, before Tab arrives
+            (40, 0),       // Enter
+            (44, 0),       // Space
+        ];
+        for modifier in [0x0040, 0x0080, 0x0100, 0x0200, 0x0400, 0x0800] {
+            for key in [ffi::SCANCODE_ESCAPE, ffi::SCANCODE_P, ffi::SCANCODE_PAUSE] {
+                ignored.push((key, modifier));
+            }
+        }
+        for (key, modifier) in ignored {
+            let start = Instant::now();
+            let mut clock = PauseClock::new(start);
+            let mut input = Input::default();
+            input.record_press(key, modifier, false);
+            assert!(!clock.sample(start, input).changed);
+            let mut pause = Input::default();
+            pause.record_press(ffi::SCANCODE_ESCAPE, 0, false);
+            assert!(clock.sample(start, pause).paused);
+            let ignored = clock.sample(start + Duration::from_secs(1), input);
+            assert!(ignored.paused && !ignored.changed);
+            assert_eq!(ignored.elapsed, Duration::ZERO);
         }
     }
 
@@ -482,6 +511,7 @@ mod ffi {
     pub const EVENT_WINDOW_CLOSE_REQUESTED: u32 = 0x210;
     pub const EVENT_KEY_DOWN: u32 = 0x300;
     pub const KMOD_CTRL: u16 = 0x00c0;
+    pub const KMOD_SHORTCUT: u16 = 0x0fc0; // Left/right Ctrl, Alt and GUI/Super
     pub const SCANCODE_P: usize = 19;
     pub const SCANCODE_Q: usize = 20;
     pub const SCANCODE_PAUSE: usize = 72;

@@ -37,14 +37,16 @@ From this repository:
 cargo run --locked --release -- --original /path/to/CAT.EXE
 ```
 
-Use the arrow keys to move and jump. Esc, P and Pause/Break pause the game;
-press any fresh key to resume. Ctrl+Q or closing the window exits, including
-while paused. Held-key repeats do not resume play.
+Use the arrow keys to move and jump. Esc, P and Pause/Break toggle pause;
+other keys, including arrows, leave it paused. Pause shortcuts are ignored while
+Alt, Ctrl or Super is held, and held-key repeats do not toggle pause. Losing or
+regaining window focus does not change the pause state. Ctrl+Q or closing the
+window exits, including while paused.
 
 Pause preserves the game state and virtual clock without catching up on resume.
-The overlay reads the original pause captions from the executable and uses their
-original placement and palette color. Its lettering currently uses SDL's built-in
-font rather than the original BIOS font.
+The overlay reads the original pause title from the executable and uses the
+original placement and palette color, with an updated hint for the toggle keys.
+Its lettering currently uses SDL's built-in font rather than the original BIOS font.
 
 `--machine pcjr` selects the PCjr palette and player countdown; the default is
 `cga`. Both modes use the same packed 320×200, four-colour framebuffer. Pixels

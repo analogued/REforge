@@ -30,8 +30,8 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
   --dump-ppm FILE         Write the final 320x200 image
   --help                  Show this help
 
-Window controls: arrows to move/jump; Esc, P or Pause/Break to pause.
-Press any fresh key to resume; Ctrl+Q or closing the window quits.
+Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
+Ctrl+Q or closing the window quits.
 This slice includes bin cats and mice; hazards, rooms and audio remain absent.
 Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
@@ -333,7 +333,7 @@ fn interactive(
     let mut runtime = Runtime::new(alley.machine());
     let start = Instant::now();
     let mut pause_clock = PauseClock::new(start);
-    let pause_overlay = PauseOverlay::new(alley.pause_text()?, alley.machine())?;
+    let pause_overlay = PauseOverlay::new(alley.pause_text()?[0], alley.machine())?;
     let mut target_nanos = 0;
     let mut next_present = start;
     let mut index = 0;
@@ -419,7 +419,7 @@ fn interactive_diagnostic(
     let mut controls = Controls::default();
     let mut deadline = Instant::now() + period;
     let mut pause_clock = PauseClock::new(Instant::now());
-    let pause_overlay = PauseOverlay::new(alley.pause_text()?, alley.machine())?;
+    let pause_overlay = PauseOverlay::new(alley.pause_text()?[0], alley.machine())?;
     let mut next_present = Instant::now();
     let mut index = 0;
     window.present(&alley.rgba())?;

@@ -16,6 +16,7 @@ const HELP: &str = "Alley Cat — initial alley reconstruction
 Usage: alley-cat --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
+  --scale N               Initial window multiplier, 1..16 (default: 4)
   --seed N                Initial random seed, decimal or 0xHEX (default: 0xfa59)
   --difficulty N          Alley layout difficulty 0..7 (default: 0)
   --step-hz N              Override timing with diagnostic accepted updates/sec
@@ -36,6 +37,7 @@ Your original executable is required; original data is never bundled.";
 struct Options {
     original: PathBuf,
     machine: Machine,
+    scale: u16,
     seed: u16,
     difficulty: u16,
     step_hz: Option<f64>,
@@ -64,6 +66,7 @@ fn options() -> Result<Option<Options>, String> {
     let mut result = Options {
         original: PathBuf::new(),
         machine: Machine::Cga,
+        scale: 4,
         seed: 0xfa59,
         difficulty: 0,
         step_hz: None,
@@ -103,6 +106,7 @@ fn options() -> Result<Option<Options>, String> {
                 }
             }
             "--seed" => result.seed = integer(&value)?,
+            "--scale" => result.scale = integer(&value)?,
             "--difficulty" => result.difficulty = integer(&value)?,
             "--step-hz" => {
                 let rate: f64 = value.parse().map_err(|_| "Invalid --step-hz")?;
@@ -121,6 +125,9 @@ fn options() -> Result<Option<Options>, String> {
         }
     }
     result.original = original.ok_or("Supply --original /path/to/CAT.EXE")?;
+    if !(1..=16).contains(&result.scale) {
+        return Err("Scale must be between 1 and 16".into());
+    }
     if result.difficulty > 7 {
         return Err("Difficulty must be between 0 and 7".into());
     }
@@ -265,9 +272,15 @@ fn run() -> Result<(), String> {
     } else {
         #[cfg(feature = "sdl")]
         if let Some(rate) = options.step_hz {
-            interactive_diagnostic(&mut alley, rate, options.steps, &mut trace)?;
+            interactive_diagnostic(&mut alley, options.scale, rate, options.steps, &mut trace)?;
         } else {
-            interactive(&mut alley, options.steps, &mut trace, &mut timing_trace)?;
+            interactive(
+                &mut alley,
+                options.scale,
+                options.steps,
+                &mut trace,
+                &mut timing_trace,
+            )?;
         }
         #[cfg(not(feature = "sdl"))]
         return Err(
@@ -300,6 +313,7 @@ fn run() -> Result<(), String> {
 #[cfg(feature = "sdl")]
 fn interactive(
     alley: &mut Alley,
+    scale: u16,
     steps: Option<usize>,
     trace: &mut Option<BufWriter<File>>,
     timing_trace: &mut Option<BufWriter<File>>,
@@ -311,7 +325,7 @@ fn interactive(
         "Alley Cat — alley prototype",
         WIDTH as u32,
         HEIGHT as u32,
-        3,
+        u32::from(scale),
     )?;
     let mut runtime = Runtime::new(alley.machine());
     let mut previous = Instant::now();
@@ -366,6 +380,7 @@ fn interactive(
 #[cfg(feature = "sdl")]
 fn interactive_diagnostic(
     alley: &mut Alley,
+    scale: u16,
     step_hz: f64,
     steps: Option<usize>,
     trace: &mut Option<BufWriter<File>>,
@@ -376,7 +391,7 @@ fn interactive_diagnostic(
         "Alley Cat — alley prototype",
         WIDTH as u32,
         HEIGHT as u32,
-        3,
+        u32::from(scale),
     )?;
     let period = Duration::from_secs_f64(1.0 / step_hz);
     // Original 1200 latches directions at intervals of at least two BIOS ticks,

@@ -37,6 +37,26 @@ pub(crate) fn initialize_score_state(data: &mut [u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// CS:2706 adds the row award to the first six decimal bytes. The seventh,
+/// rightmost displayed digit is unchanged: an award of seven displays as 70.
+/// Carry beyond the leading digit is discarded. High-score comparison belongs
+/// to CS:2690 at game entry, rather than this ordinary alley contact helper.
+pub(crate) fn award_points(data: &mut [u8], points: u8) -> Result<(), String> {
+    check_data(data)?;
+    let mut carry = points;
+    for index in (0..6).rev() {
+        let digit = data[CURRENT_SCORE + index];
+        let sum = carry.wrapping_add(digit);
+        // ADD AL followed by AAA; AH is reset before each digit. Preserve its
+        // nibble carry condition rather than converting the array to an integer.
+        let adjust = sum & 0x0f > 9 || (carry & 0x0f) + (digit & 0x0f) > 0x0f;
+        let adjusted = u16::from(sum) + if adjust { 0x0106 } else { 0 };
+        data[CURRENT_SCORE + index] = adjusted as u8 & 0x0f;
+        carry = (adjusted >> 8) as u8;
+    }
+    Ok(())
+}
+
 /// Draws CS:5400's external destination list after base alley initialization.
 /// The weighted choices are byte offsets into the source/dimension word tables,
 /// and every destination consumes exactly one shared random value.
@@ -97,7 +117,7 @@ fn draw_score(
 }
 
 /// Renders real DS score/lives state with external 8x8 digit glyphs. Scores
-/// retain all seven decimal bytes; this does not award points or lose lives.
+/// retain all seven decimal bytes; life loss belongs to separate actor responses.
 pub(crate) fn draw_hud(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
     check_data(data)?;
     draw_score(data, screen, HIGH_SCORE, 0x12ca)?;
@@ -122,6 +142,36 @@ mod tests {
         assert_eq!(data[PREVIOUS_LIVES], 0xff);
         assert_eq!(&data[CURRENT_SCORE..HIGH_SCORE + SCORE_DIGITS], &[0; 14]);
         assert_eq!(data[0x1f90], 0xa5);
+    }
+
+    #[test]
+    fn mouse_award_carries_across_six_digits_and_preserves_the_seventh() {
+        let mut data = vec![0; DATA_LENGTH];
+        data[CURRENT_SCORE..CURRENT_SCORE + SCORE_DIGITS].copy_from_slice(&[0, 0, 0, 9, 9, 8, 3]);
+        award_points(&mut data, 7).unwrap();
+        assert_eq!(
+            &data[CURRENT_SCORE..CURRENT_SCORE + SCORE_DIGITS],
+            &[0, 0, 1, 0, 0, 5, 3]
+        );
+    }
+
+    #[test]
+    fn score_award_discards_overflow_and_does_not_update_high_score_or_lives() {
+        let mut data = vec![0; DATA_LENGTH];
+        initialize_score_state(&mut data).unwrap();
+        data[CURRENT_SCORE..CURRENT_SCORE + SCORE_DIGITS].fill(9);
+        data[HIGH_SCORE..HIGH_SCORE + SCORE_DIGITS].copy_from_slice(&[0, 1, 2, 3, 4, 5, 6]);
+        award_points(&mut data, 1).unwrap();
+        assert_eq!(
+            &data[CURRENT_SCORE..CURRENT_SCORE + SCORE_DIGITS],
+            &[0, 0, 0, 0, 0, 0, 9]
+        );
+        assert_eq!(
+            &data[HIGH_SCORE..HIGH_SCORE + SCORE_DIGITS],
+            &[0, 1, 2, 3, 4, 5, 6]
+        );
+        assert_eq!(data[LIVES], 3);
+        assert_eq!(data[PREVIOUS_LIVES], 0xff);
     }
 
     #[test]

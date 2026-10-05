@@ -62,8 +62,8 @@ The implemented slice includes seeded alley initialization, CGA bank addressing,
 sprite composition and background restoration, and player movement on the floor,
 dumpsters, and occupied upper platforms. Ground decorations use the original's
 weighted random selection and external sprites. Current score, high score and
-three starting lives use the original digit glyphs; scoring events and life loss
-are not implemented.
+three starting lives use the original digit glyphs. Mouse catches award points;
+life loss and other scoring events are not implemented.
 
 In the default timing mode, the clotheslines scroll right/left/right, generate
 new garments, update landing supports, and carry an attached cat. Their original
@@ -71,14 +71,24 @@ call countdown, BIOS-tick and retrace gates control motion; scrolling pauses whe
 the cat is airborne in the relevant row. Releasing a cat at a clothesline edge
 starts a fall without losing a life. The renderer composes complete scenery and
 cat images rather than simulating partially updated display memory.
+
+The bin cat emerges from randomly selected bins and pushes a supported player
+off on contact. It also sets the original dog-alert state; the dog remains absent.
+Three clothesline mice move and animate using the shared random generator and
+their own BIOS-tick gate. Contact knocks an attached cat off its line, with the
+original eight-tick pause (about 0.44 seconds). An airborne cat instead catches
+the mouse for 90, 70 or 50 points on the top, middle or bottom line. Caught mice
+respawn after 54 ticks (about three seconds). Neither interaction removes a life.
+Actor sprites and motion tables come from the required original executable.
+
 The player starts settled on the floor, bypassing the original entry animation.
 Falling behind the fence hides the cat and starts a clipped re-entry from the
 nearer alley edge. Its speaker effect is silent. The timed runner blocks game
 work until seven BIOS ticks have elapsed and advances the effect's shared random
 state through its original call-count algorithm, using approximate loop costs.
 
-Actors and hazards, moving scenery, window entry, rooms, scoring, menus, and
-audio are absent. Scene entry and collision-effect paths beyond this slice remain
+The dog, window projectiles, window entry, rooms, menus, and audio are absent.
+Scene entry and collision-effect paths beyond this slice remain
 unsupported. Windowed execution uses a virtual BIOS/PIT clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle
 movement. The reference is DOSBox-X normal CPU core at fixed 240 cycles. Loop

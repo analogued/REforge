@@ -49,6 +49,20 @@ mod tests {
     }
 
     #[test]
+    fn lower_support_transition_keeps_the_direction_before_control_latching() {
+        let mut data = empty_tables();
+        data[0xff0] = 20;
+        let mut player = Player::at_alley_floor(80);
+        player.y = 142;
+        player.vertical_coordinate = 192;
+        player.horizontal_direction = 1;
+        player.update(Controls { x: -1, y: 1 }, &data).unwrap();
+        assert_eq!(player.previous_direction, 1);
+        assert_eq!(player.horizontal_direction, 0xff);
+        assert_eq!(player.vertical_direction, 1);
+    }
+
+    #[test]
     fn walking_moves_before_accelerating_and_wraps_the_shared_phase() {
         let data = empty_tables();
         let mut player = Player::at_alley_floor(8);
@@ -444,6 +458,10 @@ pub struct UpdateOutcome {
     pub support: Support,
     /// The original 070d edge initializer ran during this update.
     pub edge_reset: bool,
+    /// The lower-support caller tested the bin cat on this update.
+    pub bin_contact_checked: bool,
+    /// Logical input written by the bin cat, retained until the next poll.
+    pub forced_controls: Option<Controls>,
 }
 
 #[derive(Clone, Debug)]
@@ -479,6 +497,16 @@ fn word(data: &[u8], offset: usize) -> u16 {
 }
 
 impl Player {
+    /// CS:2567 drops an attached cat without resetting its airborne phase,
+    /// vertical step, or sprite history, and without removing a life.
+    pub(crate) fn knock_down_from_mouse(&mut self) {
+        self.support_state = 0;
+        self.support_delay = 17;
+        self.vertical_direction = 1;
+        self.horizontal_direction = 0;
+        self.last_support = Support::None;
+    }
+
     pub(crate) fn clothes_motion_disabled(&self) -> bool {
         self.support_disabled != 0
     }
@@ -581,7 +609,7 @@ impl Player {
     /// Advance exactly one accepted update. This does not poll a host clock.
     pub fn update(
         &mut self,
-        controls: Controls,
+        mut controls: Controls,
         data: &[u8],
     ) -> Result<UpdateOutcome, &'static str> {
         Self::check_data(data)?;
@@ -596,6 +624,8 @@ impl Player {
             landed: false,
             support: self.last_support,
             edge_reset: false,
+            bin_contact_checked: false,
+            forced_controls: None,
         };
         if data.get(0x1cb8).copied().unwrap_or(0) != 0 {
             return Ok(outcome);
@@ -660,6 +690,17 @@ impl Player {
                 return Ok(outcome);
             }
             self.last_support = support;
+            outcome.bin_contact_checked = true;
+            if crate::bin_cat::overlaps(data, self) {
+                // Predict the one shared draw without mutating the read-only
+                // player tables. Alley commits it before any later consumer.
+                let random = crate::assets::random_successor(word(data, 0x2ae5));
+                controls = Controls {
+                    x: if random & 1 != 0 { 1 } else { -1 },
+                    y: 1,
+                };
+                outcome.forced_controls = Some(controls);
+            }
         } else {
             self.last_support = Support::Floor;
         }
@@ -671,7 +712,7 @@ impl Player {
             if self.vertical_direction == 1 && self.y >= 180 {
                 self.vertical_direction = 0;
             } else {
-                self.request_transition(controls, data);
+                self.start_vertical_transition(data);
                 outcome.support = Support::None;
                 return Ok(outcome);
             }
@@ -750,6 +791,10 @@ impl Player {
         self.previous_direction = self.horizontal_direction;
         self.horizontal_direction = controls.x as u8;
         self.vertical_direction = controls.y as u8;
+        self.start_vertical_transition(data);
+    }
+
+    fn start_vertical_transition(&mut self, data: &[u8]) {
         if self.vertical_direction == 1 {
             self.start_fall(data);
         } else {

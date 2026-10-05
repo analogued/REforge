@@ -83,7 +83,8 @@ The default windowed runner executes virtual loop attempts rather than evenly
 spaced accepted player updates. `Runtime` polls controls, applies `PlayerGate`,
 advances an accepted `Player::update`, then advances the ordinary alley divider.
 The divider runs even on rejected player calls. Grouped passes execute the
-clothesline routine's call-count, retrace, suppression and BIOS-tick gates.
+clothesline routine's call-count, retrace, suppression and BIOS-tick gates, then
+the bin cat and mouse routines. Each samples virtual time at its own call stage.
 Damaging actors are absent; their post-player work retains fitted time allowances.
 
 Clothes scrolling (`04a0`) decrements byte `0531` before other tests. On expiry
@@ -94,6 +95,19 @@ An airborne cat in the selected row can inhibit movement. A completed garment
 advances its packed occupancy by two support cells before its four successive
 four-pixel columns finish entering; player support checks compensate for this
 phase. Attached cats move with the selected line.
+
+The bin cat (`2216`) requires a changed BIOS tick and retrace set. A selected
+animation advances through 27 count decrements, including two full-height
+frames. A supported player touching it receives a randomized left/right down
+request before movement initializes the fall; that request remains latched until
+the next input poll. Its contact also alerts the omitted dog.
+
+Mice (`237b`) have a separate changed-tick gate and cycle one of three rows per
+accepted call. Direction changes and pursuit use the original shared generator
+and difficulty tables. A captured mouse retains its catch image until its
+54-tick respawn. Captures award 90/70/50 displayed points: the decimal addition
+at `2706` updates six of the seven displayed digits, leaving the rightmost digit
+unchanged. High-score comparison belongs to game entry rather than each catch.
 
 `VirtualClock` uses integer rational time with a PIT input frequency of 1,193,182
 Hz and a channel-0 divisor of 65,536. The BIOS rate is consequently about 18.2065
@@ -128,7 +142,17 @@ Active clothes scrolling adds approximately 7.9 ms, or 9.4 ms when generating a
 new tile, above that grouped allowance. Original fixed-240 helper measurements
 gave about 8 ms for a shift, 9.5 ms with generation, and 0.1 ms for a tick-gated
 hold. These costs remain approximate; they do not establish every garment path
-or interrupt phase. Other omitted actor drawing can cause larger delays that
+or interrupt phase. Active mouse redraw adds about 1.55 ms; catching adds about
+7.6 ms, fitted from full original helper calls of about 1.6 ms and 8 ms.
+Active bin animation adds a bounded fit by drawn and restored row counts; full
+original calls range from about 0.43 ms when hiding to 6.04 ms at full height.
+The bin cat's first-contact sound still incurs a silent delay: about 81.5 ms for
+CGA or 40.9 ms for PCjr, measured with original native calls at fixed240. PCjr
+halves each of its three `1800h` delay-loop counts. Subsequent contact with its
+latch set skips that effect. The ordinary downward transition uses the existing
+support-release cost allowance; its separate support-tone bookkeeping remains
+incomplete, and PCjr still shares that general CGA cost fit.
+Other omitted actor drawing can cause larger delays that
 the allowance does not reproduce. Keyboard decoding, retained support state and redraw paths
 also vary. Clipped re-entry costs have not been separately calibrated. PCjr uses
 the CGA cost fit with its verified 16-call countdown, pending separate cost fits.
@@ -139,6 +163,10 @@ cadences; this does not establish exact timing within each tick. Software
 breakpoints perturb the stage measurements, and the profile does not model every
 path, interrupt latency, the BIOS midnight reset, or hardware keyboard transport.
 Physical-PC timing fidelity is not established.
+Actor helpers currently share one BIOS sample within each nonblocking call;
+an original interrupt between its internal timer reads can change a boundary
+decision, such as a mouse's 53/54-tick respawn. Instruction-level interrupt
+placement is outside this execution-cost model.
 
 ### Blocking effects and diagnostic modes
 
@@ -155,9 +183,18 @@ Effect-loop costs use bounded fixed-240 helper measurements and remain approxima
 so exact random-call counts are not established. Audio synthesis and ordinary
 sound-state random consumers remain absent.
 
+Mouse knockdown (`2567`) clears attachment and horizontal direction, sets a
+17-update support delay and downward direction, and preserves vertical step,
+animation phase and sprite history. Its temporary image blocks input, player
+and scenery work until eight wrapping low BIOS ticks have elapsed. The silent
+`5a90` model consumes one random value per changed tick when sound is enabled,
+including the final tick check. Completion resumes after the interrupted actor
+batch without advancing its divider again. Effect polling has an approximate
+execution cost; the elapsed-tick exit and random predicate are retained.
+
 `--step-hz` explicitly selects the former uniform diagnostic movement scheduler.
 Untimed headless execution also advances accepted movement bodies directly.
-These accepted-update diagnostic modes do not advance the clothesline schedule.
+These accepted-update diagnostic modes do not advance scenery or actor schedules.
 `--headless --timed` executes the reference schedule without wall-clock waits;
 script rows choose held directions by accepted-update index. `--trace-timing`
 records loop attempts and blocking-effect checks, including rejected movement.

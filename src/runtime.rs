@@ -13,7 +13,7 @@ use crate::timing::{
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Omitted actors consume a measured
 /// time allowance here; their game state and individual gates are not simulated.
-/// Clothesline state is implemented and active scrolling has a separate cost.
+/// Clotheslines and nonlethal actors have separate active-work costs.
 #[derive(Clone, Copy, Debug)]
 pub struct ReferenceCosts {
     pub prelude: u64,
@@ -42,6 +42,13 @@ pub struct ReferenceCosts {
     pub actor_group: u64,
     pub clothes_shift: u64,
     pub clothes_new_tile: u64,
+    pub mouse_redraw: u64,
+    pub mouse_catch: u64,
+    pub bin_push_sound: u64,
+    pub bin_frame: u64,
+    pub bin_restore_row: u64,
+    pub bin_draw_row: u64,
+    pub bin_start: u64,
     pub loop_return: u64,
     pub fence_setup: u64,
     pub fence_bios: u64,
@@ -49,10 +56,11 @@ pub struct ReferenceCosts {
     pub fence_countdown: u64,
     pub fence_random: u64,
     pub fence_finish: u64,
+    pub mouse_effect_poll: u64,
 }
 
 impl ReferenceCosts {
-    pub fn dosbox_x_240(_machine: Machine) -> Self {
+    pub fn dosbox_x_240(machine: Machine) -> Self {
         // Rounded guest-time stage medians from the fixed-240 reference.
         // Software-breakpoint observation and state-dependent paths limit these
         // fitted allowances; see docs/timing.md. Actor draw spikes are omitted.
@@ -87,6 +95,22 @@ impl ReferenceCosts {
             // 9.5ms with tile generation, and 0.1ms for a tick-gated hold.
             clothes_shift: 7_900_000,
             clothes_new_tile: 9_400_000,
+            // Full original helpers: normal draw about 1.6ms, catch about 8ms.
+            // Add only work above the ordinary gated group allowance.
+            mouse_redraw: 1_550_000,
+            mouse_catch: 7_600_000,
+            // Native CALL/RET helper measurements, including its three tones.
+            bin_push_sound: if machine == Machine::Pcjr {
+                40_900_000
+            } else {
+                81_500_000
+            },
+            // Bounded full-helper fit, less its ordinary gated allowance.
+            // Row coefficients are a fit, not physical per-row CPU costs.
+            bin_frame: 390_000,
+            bin_restore_row: 26_000,
+            bin_draw_row: 399_000,
+            bin_start: 120_000,
             // The observed post-player allowance includes loop return work.
             loop_return: 0,
             fence_setup: 29_167,
@@ -97,6 +121,8 @@ impl ReferenceCosts {
             fence_countdown: 25_000,
             fence_random: 91_667,
             fence_finish: 54_167,
+            // BIOS tick read plus the short mouse-effect loop; approximate.
+            mouse_effect_poll: 50_000,
         }
     }
 }
@@ -112,6 +138,7 @@ pub struct PassOutcome {
     pub acceptance: Option<PlayerAcceptance>,
     pub actor_group_due: bool,
     pub fence_wait: bool,
+    pub mouse_wait: bool,
 }
 
 pub struct Runtime {
@@ -123,6 +150,7 @@ pub struct Runtime {
     costs: ReferenceCosts,
     machine: Machine,
     fence: Option<FenceEffect>,
+    mouse_pause: Option<u16>,
 }
 
 impl Runtime {
@@ -135,6 +163,10 @@ impl Runtime {
             costs.pit_repeat > 0,
             "PIT polling must advance virtual time"
         );
+        assert!(
+            costs.mouse_effect_poll > 0,
+            "Mouse-effect polling must advance virtual time"
+        );
         Self {
             clock: VirtualClock::default(),
             player_gate: PlayerGate::new(u16::MAX, 0),
@@ -144,6 +176,7 @@ impl Runtime {
             costs,
             machine,
             fence: None,
+            mouse_pause: None,
         }
     }
 
@@ -155,6 +188,30 @@ impl Runtime {
         held: Controls,
     ) -> Result<PassOutcome, String> {
         let start_nanos = self.clock.elapsed_nanos();
+        if let Some(start_tick) = self.mouse_pause {
+            self.clock.advance_nanos(self.costs.mouse_effect_poll);
+            let sample = self.clock.sample();
+            alley.mouse_effect_random(sample.bios.tick_low);
+            if sample.bios.tick_low.wrapping_sub(start_tick) >= 8 {
+                alley.finish_mouse_effect()?;
+                self.mouse_pause = None;
+                // The suspended mouse CALL has returned. Resume after the
+                // actor batch, without repeating its divider or actor calls.
+                self.clock.advance_nanos(self.costs.loop_return);
+            }
+            return Ok(PassOutcome {
+                start_nanos,
+                end_nanos: self.clock.elapsed_nanos(),
+                tick_low: sample.bios.tick_low,
+                pit_counter: sample.pit_counter,
+                retrace: sample.retrace,
+                control_polled: false,
+                acceptance: None,
+                actor_group_due: false,
+                fence_wait: false,
+                mouse_wait: true,
+            });
+        }
         if let Some(fence) = self.fence.as_mut() {
             self.clock.advance_nanos(self.costs.fence_bios);
             let sample = self.clock.sample();
@@ -189,6 +246,7 @@ impl Runtime {
                 acceptance: None,
                 actor_group_due: false,
                 fence_wait: true,
+                mouse_wait: false,
             });
         }
 
@@ -245,8 +303,12 @@ impl Runtime {
             let descending = alley.player.vertical_direction == 1;
             let entering = alley.player.entry_state != 0;
             let releasing = alley.player.support_state != 0 && self.controls.y != 0;
+            let bin_sound_ready = alley.bin_contact_sound_ready();
             let outcome = alley.update(self.controls)?;
-            let cost = if releasing {
+            if let Some(controls) = outcome.forced_controls {
+                self.controls = controls;
+            }
+            let cost = if releasing || outcome.forced_controls.is_some() {
                 self.costs.player_support_release
             } else if outcome.landed {
                 self.costs.player_landing
@@ -263,6 +325,9 @@ impl Runtime {
                 }
             };
             self.clock.advance_nanos(cost);
+            if outcome.forced_controls.is_some() && bin_sound_ready {
+                self.clock.advance_nanos(self.costs.bin_push_sound);
+            }
             if outcome.edge_reset {
                 // The original calls 070d before 59cb: clear requests, accepted
                 // tick and countdown now. 069f, divider and accepted AX survive.
@@ -280,6 +345,7 @@ impl Runtime {
                     acceptance,
                     actor_group_due: false,
                     fence_wait: false,
+                    mouse_wait: false,
                 });
             }
         } else if tests_retrace {
@@ -310,9 +376,34 @@ impl Runtime {
                     self.costs.clothes_shift
                 });
             }
+            let sample = self.clock.sample();
+            if let Some(bin) = alley.advance_bin_cat(sample.bios.tick_low, sample.retrace)? {
+                self.clock.advance_nanos(
+                    self.costs.bin_frame
+                        + u64::from(bin.restore_rows) * self.costs.bin_restore_row
+                        + u64::from(bin.draw_rows) * self.costs.bin_draw_row
+                        + if bin.started { self.costs.bin_start } else { 0 },
+                );
+            }
+            let sample = self.clock.sample();
+            let mouse = alley.advance_mice(sample.bios.tick_low)?;
+            self.clock.advance_nanos(if mouse.caught {
+                self.costs.mouse_catch
+            } else if mouse.redraw {
+                self.costs.mouse_redraw
+            } else {
+                0
+            });
             self.clock.advance_nanos(self.costs.actor_group);
+            if mouse.paused {
+                let tick = self.clock.sample().bios.tick_low;
+                self.mouse_pause = Some(tick);
+                alley.start_mouse_effect_wait(tick);
+            }
         }
-        self.clock.advance_nanos(self.costs.loop_return);
+        if self.mouse_pause.is_none() {
+            self.clock.advance_nanos(self.costs.loop_return);
+        }
         let sample = self.clock.sample();
         Ok(PassOutcome {
             start_nanos,
@@ -324,6 +415,7 @@ impl Runtime {
             acceptance,
             actor_group_due,
             fence_wait: false,
+            mouse_wait: false,
         })
     }
 }
@@ -398,6 +490,40 @@ mod tests {
         assert_eq!(runtime.divider.counter, 1);
         assert_eq!(runtime.player_gate.accepted_ax, 32);
         assert_eq!(runtime.player_gate.countdown, 0);
+    }
+
+    #[test]
+    fn mouse_effect_blocks_input_and_resumes_after_the_actor_batch_at_tick_wrap() {
+        let mut alley = Alley::synthetic();
+        let mut runtime = Runtime::new(Machine::Cga);
+        runtime
+            .clock
+            .advance_pit_ticks(BIOS_TICK_PIT_CLOCKS * u64::from(u16::MAX - 3));
+        runtime.mouse_pause = Some(u16::MAX - 3);
+        runtime.divider = OuterLoopDivider::new(4);
+        runtime.controls = Controls { x: 1, y: 0 };
+        runtime.player_gate.accepted_ax = 32;
+        let position = (alley.player.x, alley.player.y);
+        let first = runtime
+            .advance_pass(&mut alley, Controls { x: -1, y: -1 })
+            .unwrap();
+        assert!(first.mouse_wait);
+        assert!(!first.control_polled && !first.actor_group_due);
+        assert!(first.acceptance.is_none());
+        assert!(runtime.mouse_pause.is_some());
+        runtime.clock.advance_pit_ticks(BIOS_TICK_PIT_CLOCKS * 8);
+        let last = runtime
+            .advance_pass(&mut alley, Controls { x: -1, y: -1 })
+            .unwrap();
+        assert!(last.mouse_wait);
+        assert!(!last.control_polled && !last.actor_group_due);
+        assert!(last.acceptance.is_none());
+        assert!(runtime.mouse_pause.is_none());
+        assert_eq!(runtime.clock.sample().bios.tick_low, 4);
+        assert_eq!(runtime.controls, Controls { x: 1, y: 0 });
+        assert_eq!(runtime.divider.counter, 4);
+        assert_eq!(runtime.player_gate.accepted_ax, 32);
+        assert_eq!((alley.player.x, alley.player.y), position);
     }
 
     #[test]

@@ -4,9 +4,11 @@
 
 pub mod alley;
 pub mod assets;
+mod bin_cat;
 pub mod cga;
 mod clothes;
 mod decoration;
+mod mice;
 #[cfg(feature = "sdl")]
 pub mod platform;
 pub mod player;

@@ -31,7 +31,8 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
   --help                  Show this help
 
 Window controls: arrows to move/jump; Escape to quit.
-This slice omits actors, rooms and audio. Timing uses a DOSBox-X 240-cycle model.
+This slice includes bin cats and mice; hazards, rooms and audio remain absent.
+Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
 
 struct Options {
@@ -193,7 +194,7 @@ fn trace_row(output: &mut impl Write, index: usize, player: &Player) -> Result<(
 fn timing_row(output: &mut impl Write, index: usize, event: &PassOutcome) -> Result<(), String> {
     writeln!(
         output,
-        "{index},{},{},{},{},{},{},{},{},{},{}",
+        "{index},{},{},{},{},{},{},{},{},{},{},{}",
         event.start_nanos,
         event.end_nanos,
         event.tick_low,
@@ -204,6 +205,7 @@ fn timing_row(output: &mut impl Write, index: usize, event: &PassOutcome) -> Res
         event.acceptance.map_or(0, |accepted| accepted.ax),
         u8::from(event.actor_group_due),
         u8::from(event.fence_wait),
+        u8::from(event.mouse_wait),
     )
     .map_err(|error| error.to_string())
 }
@@ -235,7 +237,7 @@ fn run() -> Result<(), String> {
         .transpose()
         .map_err(|error| format!("Cannot create timing trace: {error}"))?;
     if let Some(output) = timing_trace.as_mut() {
-        writeln!(output, "event,start_ns,end_ns,bios_tick,pit_counter,retrace,control_polled,accepted,accepted_ax,actor_group_due,fence_wait")
+        writeln!(output, "event,start_ns,end_ns,bios_tick,pit_counter,retrace,control_polled,accepted,accepted_ax,actor_group_due,fence_wait,mouse_wait")
             .map_err(|error| error.to_string())?;
     }
     if options.headless {

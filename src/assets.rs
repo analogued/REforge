@@ -53,11 +53,14 @@ pub fn set_word(data: &mut [u8], offset: usize, value: u16) {
 
 /// Advances the shared game random state once, including its original feedback.
 pub fn next_random(data: &mut [u8]) -> u16 {
-    let old = word(data, 0x2ae5);
-    let feedback = (((old as u8) ^ (old >> 8) as u8) >> 1) & 1;
-    let next = (old >> 1) | (u16::from(feedback) << 15);
+    let next = random_successor(word(data, 0x2ae5));
     set_word(data, 0x2ae5, next);
     next
+}
+
+pub(crate) fn random_successor(old: u16) -> u16 {
+    let feedback = (((old as u8) ^ (old >> 8) as u8) >> 1) & 1;
+    (old >> 1) | (u16::from(feedback) << 15)
 }
 
 pub fn sprite_bytes(data: &[u8], source: u16, dimensions: Dimensions) -> Result<&[u8], String> {

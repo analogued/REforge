@@ -59,7 +59,10 @@ screens are not implemented.
 
 The implemented slice includes seeded alley initialization, CGA bank addressing,
 sprite composition and background restoration, and player movement on the floor,
-dumpsters, and occupied upper platforms. Scenery remains static after setup.
+dumpsters, and occupied upper platforms. Ground decorations use the original's
+weighted random selection and external sprites. Current score, high score and
+three starting lives use the original digit glyphs; scoring events and life loss
+are not implemented. Clothes remain static after setup.
 The player starts settled on the floor, bypassing the original entry animation.
 Falling behind the fence hides the cat and starts a clipped re-entry from the
 nearer alley edge. Its speaker effect is silent. The timed runner blocks game

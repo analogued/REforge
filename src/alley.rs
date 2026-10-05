@@ -4,6 +4,7 @@
 
 use crate::assets::{Assets, idle_sources, initialize_alley, next_random, set_word, sprite_bytes};
 use crate::cga::{Dimensions, Framebuffer, PlayerCompositor, pixel_offset};
+use crate::decoration::{draw_ground_objects, draw_hud, initialize_score_state};
 use crate::player::{Controls, Draw, Player, UpdateOutcome};
 use std::path::Path;
 
@@ -77,7 +78,10 @@ impl Alley {
         set_word(&mut data, 0x6df8, 0);
         data[0x697] = if machine == Machine::Pcjr { 0xfd } else { 0xfc };
         let mut screen = Framebuffer::default();
+        initialize_score_state(&mut data)?;
         initialize_alley(&mut data, &mut screen)?;
+        draw_ground_objects(&mut data, &mut screen)?;
+        draw_hud(&mut data, &mut screen)?;
         let mut alley = Self {
             data,
             screen,

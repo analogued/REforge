@@ -39,9 +39,13 @@ cargo run --locked --release -- --original /path/to/CAT.EXE
 
 Use the arrow keys to move and jump. Escape or closing the window exits.
 `--machine pcjr` selects the PCjr palette and player countdown; the default is
-`cga`. Both modes present the same packed 320×200 pixel buffer with nearest-neighbor
-integer scaling. The display currently uses square pixels, without 4:3 aspect correction
-or composite-monitor simulation.
+`cga`. Both modes use the same packed 320×200, four-colour framebuffer. Pixels
+have a 5:6 width-to-height ratio: the initial 960×720 window displays them at
+4:3, with nearest-neighbor sampling and no CRT shader. Resizing or maximizing
+preserves 4:3 with black bars as needed. Host display vsync is requested when
+supported; game timing still follows the virtual PIT/video clocks. Composite
+monitor simulation is not implemented. Raw framebuffer and PPM exports remain
+320×200 for data comparisons.
 
 `--seed` selects a nonzero 16-bit random seed, in decimal or `0xHEX` notation.
 `--difficulty` accepts 0 through 7 and affects the initial alley layout.

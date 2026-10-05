@@ -3,8 +3,8 @@
 
 //! SDL3 presentation and held-key input. Call from the program's main thread.
 //!
-//! Pixels remain square and use nearest-neighbor integer scaling. Display
-//! aspect correction belongs to a later, reference-validated presentation mode.
+//! The 320x200 framebuffer uses a 5:6 pixel aspect ratio on a 4:3 display.
+//! Nearest-neighbor sampling keeps pixels sharp; resizing preserves that ratio.
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::marker::PhantomData;
@@ -62,7 +62,7 @@ impl Drop for Sdl {
     }
 }
 
-/// Owns one resizable window, renderer, and RGBA streaming texture.
+/// Owns a resizable window, renderer, and RGBA texture with 5:6 pixel aspect.
 ///
 /// Construct, use, and drop this on the program's main thread. SDL is owned by
 /// this backend; other code must not initialize or shut down SDL independently.
@@ -84,11 +84,20 @@ impl Window {
         let title = CString::new(title).map_err(|_| "window title contains a NUL byte")?;
         let source_width = c_int::try_from(width).map_err(|_| "source width is too large")?;
         let source_height = c_int::try_from(height).map_err(|_| "source height is too large")?;
+        // 320x200 source pixels occupy a 320x240 square-pixel display area.
+        // Correct presentation only; framebuffer coordinates remain unchanged.
+        let display_height = height
+            .checked_mul(6)
+            .map(|value| value / 5)
+            .filter(|value| *value > 0)
+            .ok_or("aspect-corrected height is too large or zero")?;
+        let logical_height =
+            c_int::try_from(display_height).map_err(|_| "logical height is too large")?;
         let window_width = width
             .checked_mul(scale)
             .and_then(|value| c_int::try_from(value).ok())
             .ok_or("scaled window width is too large")?;
-        let window_height = height
+        let window_height = display_height
             .checked_mul(scale)
             .and_then(|value| c_int::try_from(value).ok())
             .ok_or("scaled window height is too large")?;
@@ -123,20 +132,25 @@ impl Window {
             if result.window.is_null() {
                 return Err(error("create SDL window"));
             }
-            if !ffi::SDL_SetWindowMinimumSize(result.window, source_width, source_height) {
+            if !ffi::SDL_SetWindowMinimumSize(result.window, source_width, logical_height) {
                 return Err(error("set window minimum size"));
             }
             result.renderer = ffi::SDL_CreateRenderer(result.window, ptr::null());
             if result.renderer.is_null() {
                 return Err(error("create SDL renderer"));
             }
+            // Host presentation sync is independent of the virtual PIT/video
+            // clocks. Unsupported renderers can still present without vsync.
+            if !ffi::SDL_SetRenderVSync(result.renderer, 1) {
+                eprintln!("{}; continuing without it", error("enable display vsync"));
+            }
             if !ffi::SDL_SetRenderLogicalPresentation(
                 result.renderer,
                 source_width,
-                source_height,
-                ffi::LOGICAL_PRESENTATION_INTEGER_SCALE,
+                logical_height,
+                ffi::LOGICAL_PRESENTATION_LETTERBOX,
             ) {
-                return Err(error("set integer presentation"));
+                return Err(error("set aspect-corrected presentation"));
             }
             if !ffi::SDL_SetRenderDrawColor(result.renderer, 0, 0, 0, 255) {
                 return Err(error("set letterbox color"));
@@ -255,7 +269,7 @@ mod ffi {
     pub const WINDOW_RESIZABLE: u64 = 0x20;
     pub const TEXTUREACCESS_STREAMING: c_int = 1;
     pub const SCALEMODE_NEAREST: c_int = 0;
-    pub const LOGICAL_PRESENTATION_INTEGER_SCALE: c_int = 4;
+    pub const LOGICAL_PRESENTATION_LETTERBOX: c_int = 2;
     #[cfg(target_endian = "little")]
     pub const PIXELFORMAT_RGBA32: u32 = 0x1676_2004;
     #[cfg(target_endian = "big")]
@@ -290,6 +304,7 @@ mod ffi {
         pub fn SDL_SetWindowMinimumSize(window: *mut c_void, w: c_int, h: c_int) -> bool;
         pub fn SDL_DestroyWindow(window: *mut c_void);
         pub fn SDL_CreateRenderer(window: *mut c_void, name: *const c_char) -> *mut c_void;
+        pub fn SDL_SetRenderVSync(renderer: *mut c_void, vsync: c_int) -> bool;
         pub fn SDL_DestroyRenderer(renderer: *mut c_void);
         pub fn SDL_SetRenderLogicalPresentation(
             renderer: *mut c_void,

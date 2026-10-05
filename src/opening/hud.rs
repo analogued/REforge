@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! No-input HUD updates through the bounded first-wave opening preview.
+//! No-input HUD updates, pending score, and delayed life-icon source resolution.
 
 use crate::{Error, assets::GraphicsAssets, frame::Rect, scene::Draw};
 
@@ -9,6 +9,7 @@ use super::Random;
 pub struct HudSnapshot {
     pub fuel: u16,
     pub left_bar_width: usize,
+    pub left_bar_draw_width: usize,
     pub score: u32,
     pub pending_score: u16,
     pub marker_requested: u8,
@@ -16,6 +17,8 @@ pub struct HudSnapshot {
     pub marker_resolved: usize,
     pub marker_width: usize,
     pub marker_height: usize,
+    pub lives_requested: u8,
+    pub lives_resolved: u8,
 }
 
 #[derive(Debug)]
@@ -40,6 +43,7 @@ impl Hud {
                 // The pre-loop HUD update consumes fuel once, without choosing a marker.
                 fuel: 0x0dff - 5,
                 left_bar_width: 13,
+                left_bar_draw_width: 13,
                 score: 0,
                 pending_score: 0,
                 marker_requested: 0,
@@ -47,6 +51,8 @@ impl Hud {
                 marker_resolved: 0,
                 marker_width: 2,
                 marker_height: 2,
+                lives_requested: 6,
+                lives_resolved: 6,
             },
             marker_dimensions,
         })
@@ -84,9 +90,13 @@ impl Hud {
             self.state.fuel -= 5;
         }
         if resolve_marker {
+            self.state.left_bar_draw_width = self.state.left_bar_width;
             // Incremental drawing remembers the request, even when its source was
             // resolved before that request changed.
             self.state.marker_previous = self.state.marker_requested;
+        }
+        if loop_index % 8 == 3 {
+            self.state.lives_resolved = self.state.lives_requested;
         }
     }
 
@@ -102,12 +112,16 @@ impl Hud {
         self.state.fuel = 3583;
     }
 
+    pub fn set_lives(&mut self, lives: u8) {
+        self.state.lives_requested = lives;
+    }
+
     /// All HUD layers needed when composing a fresh background at a loop boundary.
     pub fn draws(&self) -> Vec<Draw> {
         // The source stride follows the current object width, as in the original
-        // blitter. The left bar first shrinks to twelve bytes at body 69.
+        // blitter. Drawing retains the previous width until the HUD render phase.
         let mut draws = vec![
-            draw(24, 8, 38, self.state.left_bar_width, 3),
+            draw(24, 8, 38, self.state.left_bar_draw_width, 3),
             draw(24, 58, 38, 14, 3),
         ];
         let mut divisor = 100_000;
@@ -120,7 +134,10 @@ impl Hud {
         // requests resolve to a transparent sprite and preserve this artwork.
         draws.push(draw(85, 28, 13, 6, 7));
         draws.push(draw(86, 47, 13, 6, 7));
-        for x in [63, 2, 68, 7, 73, 12] {
+        for x in [63, 2, 68, 7, 73, 12]
+            .into_iter()
+            .take(usize::from(self.state.lives_resolved))
+        {
             draws.push(draw(28, x, 180, 6, 7));
         }
         draws.push(draw(
@@ -245,5 +262,40 @@ mod tests {
         assert_eq!((hud.state.score, hud.state.pending_score), (1003, 0));
         hud.add_points(40_000);
         assert_eq!(hud.state.pending_score, 32_000);
+    }
+
+    #[test]
+    fn life_loss_waits_for_the_bottom_hud_resolution_phase() {
+        let mut hud = Hud::new(&assets()).unwrap();
+        let mut random = Random::default();
+        hud.update(3, &mut random);
+        // Death can occur after the resolution phase in the same body.
+        hud.set_lives(5);
+        hud.update(4, &mut random);
+        assert_eq!(hud.snapshot().lives_requested, 5);
+        assert_eq!(hud.snapshot().lives_resolved, 6);
+        assert_eq!(hud.draws().len(), 17);
+        hud.update(11, &mut random);
+        assert_eq!(hud.snapshot().lives_resolved, 5);
+        assert_eq!(hud.draws().len(), 16);
+    }
+
+    #[test]
+    fn fuel_bar_waits_for_render_phase_when_width_shrinks_or_recovers() {
+        let mut hud = Hud::new(&assets()).unwrap();
+        let mut random = Random::default();
+        hud.state.fuel = 13 << 8;
+        hud.update(2, &mut random);
+        hud.update(4, &mut random);
+        assert_eq!(hud.snapshot().left_bar_width, 12);
+        assert_eq!(hud.draws()[0].rect.width_bytes, 13);
+        hud.update(5, &mut random);
+        assert_eq!(hud.draws()[0].rect.width_bytes, 12);
+        hud.reset_fuel();
+        hud.update(6, &mut random);
+        assert_eq!(hud.snapshot().left_bar_width, 13);
+        assert_eq!(hud.draws()[0].rect.width_bytes, 12);
+        hud.update(9, &mut random);
+        assert_eq!(hud.draws()[0].rect.width_bytes, 13);
     }
 }

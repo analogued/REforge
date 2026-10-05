@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! First opening wave, its ground shadow, and its single seeking projectile.
+//! Opening wave movement, ground shadows, seeking projectiles and explosions.
 
 use super::Random;
 use crate::{Error, assets::GraphicsAssets, frame::Rect, scene::Draw};
@@ -79,13 +79,21 @@ pub(crate) enum EnemyCollision {
     Craft,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Motion {
+    Fixed,
+    Seeking,
+    Orbit,
+}
+
 #[derive(Debug)]
 pub(crate) struct Enemy {
     bullet: EnemySnapshot,
     craft: EnemySnapshot,
     shadow: EnemySnapshot,
     target: [i16; 2],
-    craft_seeks_player: bool,
+    motion: Motion,
+    orbit_center: [i16; 2],
     craft_animation: Option<u8>,
 }
 
@@ -96,7 +104,8 @@ impl Enemy {
             craft: EnemySnapshot::new(5, 0, 0, 0),
             shadow: EnemySnapshot::new(10, 0, 0, 0),
             target: [0, 0],
-            craft_seeks_player: false,
+            motion: Motion::Fixed,
+            orbit_center: [0, -100],
             craft_animation: None,
         };
         state.bullet.project(assets, 106, 0)?;
@@ -119,7 +128,7 @@ impl Enemy {
                     .wrapping_sub(player_lateral.wrapping_mul(2));
                 self.craft.height = (random.next_word() & 255) as i16 - 50;
             }
-            0x84 => {
+            0x84 | 0x8e => {
                 self.craft.lateral = 0;
                 self.craft.height = 0;
             }
@@ -129,7 +138,11 @@ impl Enemy {
                 )));
             }
         }
-        self.craft_seeks_player = command == 0x84;
+        self.motion = match command {
+            0x84 => Motion::Seeking,
+            0x8e => Motion::Orbit,
+            _ => Motion::Fixed,
+        };
         self.craft_animation = None;
         self.craft.requested_sprite = 0;
         self.craft.depth = 1600;
@@ -141,7 +154,7 @@ impl Enemy {
 
     /// Slot order matters: a projectile can retire before its craft fires again,
     /// and the companion copies coordinates before the primary delta is applied.
-    pub(crate) fn update_half_step(&mut self, random: &mut Random) {
+    pub(crate) fn update_half_step(&mut self, random: &mut Random, player: [i16; 3]) {
         if self.bullet.active {
             self.bullet.requested_sprite = match size(self.bullet.depth) {
                 0..=3 => 64,
@@ -155,7 +168,7 @@ impl Enemy {
             self.bullet.lateral += (self.target[0] - self.bullet.lateral).clamp(-80, 80);
             self.bullet.height += (self.target[1] - self.bullet.height).clamp(-80, 80);
             self.bullet.depth -= 28;
-            if self.bullet.depth <= 14 {
+            if self.bullet.depth <= player[0] {
                 self.bullet.requested_sprite = 0;
                 self.bullet.active = false;
             }
@@ -169,13 +182,26 @@ impl Enemy {
                 self.craft_animation = Some(animation + 1);
             }
         } else if self.craft.active {
-            let steering = if self.craft_seeks_player {
-                [
-                    (-self.craft.lateral >> 1).clamp(-30, 30),
-                    ((-100 - self.craft.height) >> 1).clamp(-30, 30),
-                ]
-            } else {
-                [0, 0]
+            let steering = match self.motion {
+                Motion::Orbit if self.craft.depth >= 240 => {
+                    self.orbit_center[0] +=
+                        player[1].wrapping_sub(self.orbit_center[0]).clamp(-9, 9);
+                    self.orbit_center[1] +=
+                        player[2].wrapping_sub(self.orbit_center[1]).clamp(-9, 9);
+                    let phase = ((self.craft.depth & 1023) >> 4) as u8;
+                    // The orbital lateral coordinate changes inside movement,
+                    // before companion copying and firing. Height is a delta.
+                    self.craft.lateral = self.orbit_center[0].wrapping_add(orbit_wave(phase) << 4);
+                    let height = self.orbit_center[1]
+                        .wrapping_add(orbit_wave(phase.wrapping_add(16)) << 4)
+                        .clamp(-100, 250);
+                    [0, height.wrapping_sub(self.craft.height)]
+                }
+                Motion::Seeking | Motion::Orbit => [
+                    (player[1].wrapping_sub(self.craft.lateral) >> 1).clamp(-30, 30),
+                    (player[2].wrapping_sub(self.craft.height) >> 1).clamp(-30, 30),
+                ],
+                Motion::Fixed => [0, 0],
             };
             self.craft.requested_sprite = craft_sprite(self.craft.depth, self.craft.phase);
             self.shadow.depth = self.craft.depth;
@@ -187,12 +213,12 @@ impl Enemy {
                 self.bullet.height = self.craft.height;
                 self.bullet.active = true;
             }
-            self.target[0] = (random.next_word() & 63) as i16 - 32;
-            self.target[1] = (random.next_word() & 63) as i16 - 132;
+            self.target[0] = player[1].wrapping_add((random.next_word() & 63) as i16 - 32);
+            self.target[1] = player[2].wrapping_add((random.next_word() & 63) as i16 - 32);
             self.craft.depth -= 22;
             self.craft.lateral += steering[0];
             self.craft.height += steering[1];
-            if self.craft.depth <= 14 {
+            if self.craft.depth <= player[0] {
                 self.craft.active = false;
                 self.shadow.active = false;
             }
@@ -260,7 +286,7 @@ impl Enemy {
         Ok(None)
     }
 
-    /// The final projection list contains every slot with depth strictly below70,
+    /// The final projection list contains every slot with depth strictly below 70,
     /// including inactive slots. Source resolution still happens before activity
     /// sends their rectangles offscreen.
     pub(crate) fn project(
@@ -285,7 +311,7 @@ impl Enemy {
         random: &mut Random,
         full_projection: bool,
     ) -> Result<(), Error> {
-        self.update_half_step(random);
+        self.update_half_step(random, [14, 0, -100]);
         self.project(assets, full_projection, 106, 0)
     }
 
@@ -305,6 +331,21 @@ impl Enemy {
     pub(crate) fn active(&self) -> bool {
         self.craft.active
     }
+}
+
+/// Signed integer wave with 64 phases; mirror the quarter-wave's small stepped
+/// amplitudes rather than introducing floating-point rounding into movement.
+fn orbit_wave(phase: u8) -> i16 {
+    let phase = phase & 63;
+    let half = phase & 31;
+    let quarter = if half <= 16 { half } else { 32 - half };
+    let amplitude = match quarter {
+        0..=8 => i16::from(quarter),
+        9..=10 => 9,
+        11..=12 => 10,
+        _ => 11,
+    };
+    if phase < 32 { amplitude } else { -amplitude }
 }
 
 fn explosion_sprite(depth: i16, animation: u8) -> usize {
@@ -448,7 +489,7 @@ mod tests {
         enemy.craft.active = true;
         enemy.craft.depth = 36;
         enemy.shadow.active = true;
-        enemy.update_half_step(&mut Random::default());
+        enemy.update_half_step(&mut Random::default(), [14, 0, -100]);
         assert!(!enemy.bullet.active);
         assert_eq!(enemy.bullet.requested_sprite, 0);
         assert!(!enemy.craft.active);
@@ -479,7 +520,7 @@ mod tests {
         random.next_word();
         random.next_word();
         random.next_word(); // Next word is odd, so the craft fires.
-        enemy.update_half_step(&mut random);
+        enemy.update_half_step(&mut random, [14, 0, -100]);
         assert!(enemy.bullet.active);
         assert_eq!(
             (
@@ -582,13 +623,13 @@ mod tests {
         for _ in 0..3 {
             random.next_word();
         }
-        enemy.update_half_step(&mut random);
+        enemy.update_half_step(&mut random, [14, 0, -100]);
         assert_eq!((enemy.craft.lateral, enemy.craft.height), (41, -30));
         assert_eq!((enemy.bullet.lateral, enemy.bullet.height), (71, 0));
         assert_eq!(enemy.bullet.depth, 1600);
         assert_eq!(enemy.shadow.lateral, 71);
         for _ in 0..7 {
-            enemy.update_half_step(&mut random);
+            enemy.update_half_step(&mut random, [14, 0, -100]);
         }
         assert_eq!(enemy.craft.height, -100);
     }
@@ -614,16 +655,98 @@ mod tests {
         );
         let mut random = Random::default();
         for source in [69, 69, 61, 61, 69, 69, 67, 67, 65, 65, 64, 64] {
-            enemy.update_half_step(&mut random);
+            enemy.update_half_step(&mut random, [14, 0, -100]);
             assert!(enemy.craft.active);
             assert_eq!(enemy.craft.requested_sprite, source);
             assert_eq!((enemy.craft.depth, enemy.craft.height), (16, -100));
             assert_eq!(random.state(), [0; 3]);
         }
-        enemy.update_half_step(&mut random);
+        enemy.update_half_step(&mut random, [14, 0, -100]);
         assert!(!enemy.craft.active);
         assert_eq!(enemy.craft.requested_sprite, 64);
         enemy.project(&assets, false, 106, 0).unwrap();
         assert_eq!(enemy.craft.rect.x_bytes, 128);
+    }
+
+    #[test]
+    fn orbit_changes_lateral_before_firing_but_defers_height_until_after_firing() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.spawn_command(0x8e, &mut random, 50).unwrap();
+        assert_eq!(random.state(), [0; 3]);
+        enemy.craft.depth = 1024;
+        for _ in 0..3 {
+            random.next_word();
+        }
+        enemy.update_half_step(&mut random, [14, 50, -28]);
+        assert_eq!(enemy.orbit_center, [9, -91]);
+        assert_eq!(
+            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (1002, 9, 85)
+        );
+        assert_eq!(
+            (
+                enemy.bullet.depth,
+                enemy.bullet.lateral,
+                enemy.bullet.height
+            ),
+            (1024, 9, 0)
+        );
+        assert_eq!(enemy.shadow.lateral, 9);
+        assert!((18..=81).contains(&enemy.target[0]));
+        assert!((-60..=3).contains(&enemy.target[1]));
+    }
+
+    #[test]
+    fn orbit_switches_to_seeking_only_below_the_old_depth_threshold() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.spawn_command(0x8e, &mut random, 0).unwrap();
+        enemy.craft.depth = 240;
+        enemy.update_half_step(&mut random, [14, 50, -28]);
+        assert_eq!(
+            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (218, 185, -75)
+        );
+        enemy.update_half_step(&mut random, [14, 50, -28]);
+        assert_eq!(
+            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (196, 155, -52)
+        );
+        assert_eq!(enemy.orbit_center, [9, -91]);
+        enemy.spawn_command(0x8e, &mut random, 0).unwrap();
+        assert_eq!(enemy.orbit_center, [9, -91]);
+    }
+
+    #[test]
+    fn recovered_player_coordinates_drive_seeking_targets_and_retirement() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.spawn_command(0x84, &mut random, 0).unwrap();
+        enemy.update_half_step(&mut random, [28, 100, -28]);
+        assert_eq!((enemy.craft.lateral, enemy.craft.height), (30, -14));
+        assert!((68..=131).contains(&enemy.target[0]));
+        assert!((-60..=3).contains(&enemy.target[1]));
+        enemy.craft.active = false;
+        enemy.bullet.active = true;
+        enemy.bullet.depth = 56;
+        enemy.update_half_step(&mut random, [28, 100, -28]);
+        assert!(!enemy.bullet.active);
+        assert_eq!(enemy.bullet.depth, 28);
+    }
+    #[test]
+    fn orbit_height_clamps_before_the_world_delta_is_applied() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.spawn_command(0x8e, &mut random, 0).unwrap();
+        enemy.orbit_center[1] = 200;
+        enemy.craft.depth = 1024;
+        enemy.update_half_step(&mut random, [14, 0, 230]);
+        assert_eq!(enemy.orbit_center[1], 209);
+        assert_eq!(enemy.craft.height, 250);
+        enemy.orbit_center[1] = -100;
+        enemy.craft.depth = 512;
+        enemy.update_half_step(&mut random, [14, 0, -100]);
+        assert_eq!(enemy.craft.height, -100);
     }
 }

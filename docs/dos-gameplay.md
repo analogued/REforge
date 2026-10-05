@@ -43,6 +43,14 @@ and the initial threshold, its first events are:
 | 118 | Terrain selector becomes 7; recycled slots adopt a second sprite family |
 | 138 | Second primary wave starts and steers toward the player |
 | 174 | Second primary collides with the player, becomes an explosion, and adds 1,000 pending score points |
+| 181 | Second primary explosion clears |
+| 184 | Player death completes; remaining lives decrease to five and fuel resets |
+| 187 | The removed life icon's source resolves on the bottom HUD update |
+| 201 | Terrain selector becomes 6; recycled slots 20 through 22 remain inactive |
+| 221 | Third primary wave starts with orbital movement |
+| 257 | Third primary collides with the recovered player and becomes an explosion |
+| 264 | Third primary explosion clears |
+| 267 | Second player death completes; remaining lives decrease to four |
 
 These counts are logical loop positions, not durations. Newly created objects
 may receive their resolved sprite and projected rectangle in subsequent updates.
@@ -69,7 +77,7 @@ raw state, and comparison reports remain external to the repository.
 ## Rust opening simulation
 
 `Opening` implements the opening without keyboard input through completed body
-180. It updates the HUD, recycles and projects terrain, and starts two enemy
+270. It updates the HUD, recycles and projects terrain, and starts three enemy
 waves. The generator runs from fresh startup state; branch decisions consume
 its results in the original order. Source resolution remains separate from
 requested sprite selection.
@@ -87,8 +95,27 @@ explosion, hides its shadow, and stops its movement and random targeting calls.
 It awards pending points after that body's HUD update; later even bodies apply
 at most 500 points each. The player receives two damage units and enters the
 hit response. The original player update runs three times per body, recenters
-the damaged craft, and advances the response into the death animation. Body 180
-ends during that animation, before a life is consumed.
+the damaged craft, and advances the response into the death animation. Completion
+consumes a life, clears damage and response phase, restores fuel to 3,583, and
+starts four completed bodies of collision immunity. The next player update
+selects its normal sprite again, preserving the recovered height and horizon.
+
+The third enemy derives a 64-phase integer orbit from its old depth. Its center
+approaches the current player coordinates by at most nine units per axis per
+half-step. The lateral coordinate changes before shadow copying and firing;
+height changes afterward and is clamped to -100 through 250. Below old depth
+240 it switches to the same seeking movement as the second enemy. Projectile
+targets use the current player position plus independent random offsets from
+-32 through 31, including after recovery.
+
+Terrain selector 6 activates only slots 15 through 19 when recycled. Excluded
+slots retain their prior kind and phase and still consume random words while
+inactive. Life icons resolve every eighth body at phase three. The first death
+changes the request at body 184 and the visible icon disappears at 187. The
+second death occurs after body 267's HUD update, so five icons remain visible
+through body 270 despite four requested lives. The fuel bar likewise retains
+its last drawn width until the HUD render phase at body one modulo four; fuel
+consumption updates its logical width separately.
 
 Camera height changes with the player's response movement. The terrain strip
 position and vertical projection origin are cached by the first render pass;
@@ -98,7 +125,7 @@ retain the first pass's drawing order between updates. The initial HUD indicator
 artwork is preserved.
 
 Native frames and checked HUD, player, terrain, enemy, target, camera, and random
-state match the original at every completed-body boundary from 0 through 180.
+state match the original at every completed-body boundary from 0 through 270.
 The simulation uses interpreted rules and decoded resources. It does not load
 captured frames or state and does not reproduce every intermediate framebuffer
 write within a body.
@@ -112,7 +139,7 @@ The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
 The viewer offers an interval override and manual stepping.
 
-The simulation holds after the current verified batch of 180 bodies. This is a
-comparison checkpoint, not a randomness barrier. Full death completion and
-subsequent encounters need further runtime validation. Keyboard movement and
-firing, restart within an existing random stream, and audio are unsupported.
+The simulation holds after the current verified batch of 270 bodies. This is a
+comparison checkpoint, not a randomness barrier. Subsequent encounter commands
+need further implementation and validation. Keyboard movement and firing,
+restart within an existing random stream, and audio are unsupported.

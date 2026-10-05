@@ -13,10 +13,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: mach3-opening [--steps 0..180] <assets-directory> <new-output-directory>\n\n\
+const HELP: &str = "Usage: mach3-opening [--steps 0..270] <assets-directory> <new-output-directory>\n\n\
 Export the no-input opening from the initial frame through the requested body.\n\
 Writes numbered CGA frames and state/object TSV tables; output directory must be new.\n\
-Default: 180 bodies, including the first two enemy waves. No audio or player controls.";
+Default: 270 bodies, including the first three enemy waves. No audio or player controls.";
 
 fn new_file(path: impl AsRef<Path>) -> Result<BufWriter<std::fs::File>, Error> {
     Ok(BufWriter::new(
@@ -41,7 +41,7 @@ fn run() -> Result<(), Error> {
             .and_then(|arg| arg.to_str().and_then(|arg| arg.parse::<u16>().ok()))
             .filter(|steps| *steps <= LAST_BODY)
             .ok_or_else(|| {
-                Error::InvalidData("--steps must be an integer between 0 and 180".into())
+                Error::InvalidData("--steps must be an integer between 0 and 270".into())
             })?;
     }
     let directory = args.next().map(PathBuf::from);
@@ -58,7 +58,7 @@ fn run() -> Result<(), Error> {
     let mut player = new_file(destination.join("player.tsv"))?;
     writeln!(
         state,
-        "body\tstrip\trng_a\trng_b\trng_c\tcursor\tdelay\tterrain_selector\tfuel\tscore\tmarker_requested\tmarker_previous\tmarker_resolved\tmarker_width\tmarker_height\ttarget_lateral\ttarget_height\tpending_score\tstrip_y\tvertical_origin"
+        "body\tstrip\trng_a\trng_b\trng_c\tcursor\tdelay\tterrain_selector\tfuel\tscore\tmarker_requested\tmarker_previous\tmarker_resolved\tmarker_width\tmarker_height\ttarget_lateral\ttarget_height\tpending_score\tstrip_y\tvertical_origin\tlives_requested\tlives_resolved\tbar_width\tbar_draw_width"
     )?;
     writeln!(
         player,
@@ -81,7 +81,7 @@ fn run() -> Result<(), Error> {
         let [a, b, c] = snapshot.random;
         writeln!(
             state,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             body,
             snapshot.strip_index,
             a,
@@ -101,7 +101,11 @@ fn run() -> Result<(), Error> {
             snapshot.enemy_target[1],
             h.pending_score,
             snapshot.strip_y,
-            snapshot.vertical_origin
+            snapshot.vertical_origin,
+            h.lives_requested,
+            h.lives_resolved,
+            h.left_bar_width,
+            h.left_bar_draw_width
         )?;
         let p = snapshot.player;
         writeln!(

@@ -321,5 +321,15 @@ mod tests {
         assert_eq!(player.snapshot().damage, 0);
         assert_eq!(player.snapshot().lives, 5);
         assert_eq!(player.snapshot().grace, 0);
+        assert!(!player.can_damage());
+        assert!(!player.update_no_input().unwrap());
+        assert_eq!(player.snapshot().requested_sprite, 13);
+        assert_eq!(player.snapshot().coordinates, [14, 0, -28]);
+        assert_eq!(player.snapshot().horizon, 18);
+        for _ in 0..4 {
+            assert!(!player.can_damage());
+            player.finish_body();
+        }
+        assert!(player.can_damage());
     }
 }

@@ -237,6 +237,15 @@ impl Opening {
                         self.enemy.spawn_command(0x84, &mut self.random, 0)?;
                         self.script_delay = 0;
                     }
+                    5 => self.terrain_selector = 6,
+                    6 => {
+                        self.enemy.spawn_command(
+                            0x8e,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                        )?;
+                        self.script_delay = 0;
+                    }
                     _ => return Err(Error::InvalidData("unsupported opening command".into())),
                 }
                 self.script_cursor += 1;
@@ -252,9 +261,10 @@ impl Opening {
         assets: &GraphicsAssets,
         full_projection: bool,
     ) -> Result<(), Error> {
-        self.enemy.update_half_step(&mut self.random);
-        // Collision sees the preceding resolved descriptors, before projection.
         let player = self.player.snapshot();
+        self.enemy
+            .update_half_step(&mut self.random, player.coordinates);
+        // Collision sees the preceding resolved descriptors, before projection.
         if let Some(collision) = self.enemy.player_collision(
             assets,
             player.coordinates,
@@ -285,13 +295,14 @@ impl Opening {
     fn advance_player(&mut self) -> Result<(), Error> {
         if self.player.update_no_input()? {
             self.hud.reset_fuel();
+            self.hud.set_lives(self.player.snapshot().lives);
         }
         Ok(())
     }
 }
 
 /// Final completed body of the currently verified, no-input opening batch.
-pub const LAST_BODY: u16 = 180;
+pub const LAST_BODY: u16 = 270;
 
 /// Three nominal 36.413 Hz timer units per completed loop body.
 /// Original CPU/render costs and startup timer transitions are not emulated.
@@ -337,10 +348,14 @@ mod tests {
             primary: vec![0; 28_960],
             alternate: vec![0; 16_000],
             sprites: (0..190)
-                .map(|_| crate::assets::Sprite {
+                .map(|index| crate::assets::Sprite {
                     width_bytes: 14,
                     height: 18,
-                    descriptor: [0; 7],
+                    descriptor: if index == 13 {
+                        [0, 0, 15, 0, 0, 0, 0]
+                    } else {
+                        [0; 7]
+                    },
                     color: vec![0; 14 * 18],
                     mask: vec![255; 14 * 18],
                 })
@@ -363,13 +378,18 @@ mod tests {
                     0
                 } else if body < 118 {
                     5
-                } else {
+                } else if body < 201 {
                     7
+                } else {
+                    6
                 }
             );
             assert_eq!(
                 state.enemies[1].active,
-                (61..98).contains(&body) || (138..175).contains(&body)
+                (61..98).contains(&body)
+                    || (138..181).contains(&body)
+                    || (221..264).contains(&body),
+                "enemy activation at body {body}"
             );
             assert_eq!(
                 state.script_cursor,
@@ -383,8 +403,12 @@ mod tests {
                     3
                 } else if body < 138 {
                     4
-                } else {
+                } else if body < 201 {
                     5
+                } else if body < 221 {
+                    6
+                } else {
+                    7
                 }
             );
         }

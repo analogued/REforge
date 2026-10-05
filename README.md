@@ -13,6 +13,8 @@ See [DOS startup](docs/dos-startup.md) for the verified entry path, expanded-ima
 address conventions, initial graphics setup, and file access.
 See [CGA graphics](docs/cga-graphics.md) for screen layouts, gameplay composition,
 and decoder usage.
+See [DOS opening gameplay](docs/dos-gameplay.md) for update order, encounter
+scripts, and repeatability.
 
 Target game: **Mach 3**. A public recreation name has not been chosen. When
 chosen, use it in this repository's documentation while keeping the target game

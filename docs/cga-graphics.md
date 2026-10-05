@@ -114,6 +114,11 @@ current sprite index. The initial HUD resolves two indicators to sprites 85 and
 A renderer that looks up those current indices instead of using the resolved
 sources would produce a different first frame.
 
+In the verified opening updates, the two indicators resolve sprite 87 while
+their initial artwork remains visible. Rebuilding a complete frame from the
+current HUD records alone loses those retained pixels. Gameplay composition
+must account for framebuffer history as well as current object state.
+
 An independent composition of the background, terrain, scene objects, and HUD
 matches all 16,000 visible packed bytes, or 64,000 pixels, of the captured first
 gameplay frame. Runtime checkpoints also verify the two framebuffer passes:

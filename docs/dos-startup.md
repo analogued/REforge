@@ -42,5 +42,6 @@ The open wrapper at `81fb` loads the filename pointer at `8202`, sets function
 The expanded image, relocation handling, entry transfer, initial mode call,
 and first open/read request have been checked against an isolated DOSBox-X
 debugger execution. The broader startup map is based on static control flow.
-Further graphics and asset interpretation remains to be established. Audio
-analysis is deferred.
+See [CGA graphics](cga-graphics.md) for verified asset layouts and composition,
+and [DOS opening gameplay](dos-gameplay.md) for the subsequent update loop.
+Audio analysis is deferred.

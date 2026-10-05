@@ -3,6 +3,7 @@
 
 mod enemy;
 mod hud;
+mod player;
 mod terrain;
 
 use crate::{
@@ -14,23 +15,27 @@ use crate::{
 
 pub use enemy::EnemySnapshot as EnemyState;
 pub use hud::HudSnapshot as HudState;
+pub use player::PlayerSnapshot as PlayerState;
 pub use terrain::TerrainSnapshot as TerrainState;
 
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     pub body: u16,
     pub strip_index: usize,
+    pub strip_y: usize,
+    pub vertical_origin: i32,
     pub random: [u16; 3],
     pub script_cursor: u16,
     pub script_delay: u16,
     pub terrain_selector: u16,
     pub hud: HudState,
+    pub player: PlayerState,
     pub terrain: [TerrainState; 8],
     pub enemies: [EnemyState; 3],
     pub enemy_target: [i16; 2],
 }
 
-/// Stationary player, terrain, HUD, and the opening's first enemy wave.
+/// No directional input, two enemy waves, and their collision/damage responses.
 #[derive(Debug)]
 pub struct Opening {
     body: u16,
@@ -38,6 +43,9 @@ pub struct Opening {
     hud: hud::Hud,
     terrain: terrain::Terrain,
     enemy: enemy::Enemy,
+    player: player::Player,
+    strip_y: usize,
+    vertical_origin: i32,
     script_cursor: u16,
     script_delay: u16,
     terrain_selector: u16,
@@ -55,6 +63,9 @@ impl Opening {
             hud: hud::Hud::new(assets)?,
             terrain: terrain::Terrain::new(),
             enemy: enemy::Enemy::new(assets)?,
+            player: player::Player::new(assets)?,
+            strip_y: 92,
+            vertical_origin: 106,
             script_cursor: 0,
             script_delay: 0,
             terrain_selector: 0,
@@ -74,11 +85,14 @@ impl Opening {
         Snapshot {
             body: self.body,
             strip_index: (2 + 3 - usize::from(self.body % 3)) % 3,
+            strip_y: self.strip_y,
+            vertical_origin: self.vertical_origin,
             random: self.random.state(),
             script_cursor: self.script_cursor,
             script_delay: self.script_delay,
             terrain_selector: self.terrain_selector,
             hud: self.hud.snapshot(),
+            player: self.player.snapshot(),
             terrain: self.terrain.snapshots(),
             enemies: self.enemy.snapshots(),
             enemy_target: self.enemy.target(),
@@ -91,28 +105,100 @@ impl Opening {
             return Ok(false);
         }
         self.body += 1;
-        self.enemy
-            .advance_half_step(assets, &mut self.random, true)?;
-        self.terrain.advance_half_step(assets, true)?;
+        self.advance_player()?;
+        self.advance_enemy(assets, true)?;
+        self.terrain.advance_half_step(
+            assets,
+            true,
+            self.vertical_origin,
+            self.player.snapshot().horizon,
+        )?;
+        self.player.project(assets, self.vertical_origin)?;
+        // Far-object ordering remains from the first render pass even when the
+        // second movement update changes relative depths without reprojecting.
+        let first_depths: Vec<_> = self
+            .enemy
+            .snapshots()
+            .into_iter()
+            .take(2)
+            .map(|slot| (slot.slot, slot.depth))
+            .chain(
+                self.terrain
+                    .snapshots()
+                    .into_iter()
+                    .map(|slot| (slot.slot, slot.depth)),
+            )
+            .collect();
         self.hud.update(self.body, &mut self.random);
-        self.enemy
-            .advance_half_step(assets, &mut self.random, false)?;
-        self.terrain.advance_half_step(assets, false)?;
-        let mut frame = scene::background(assets, self.snapshot().strip_index)?;
+        self.advance_player()?;
+        self.player.project(assets, self.vertical_origin)?;
+        self.advance_player()?;
+        self.advance_enemy(assets, false)?;
+        self.terrain.advance_half_step(
+            assets,
+            false,
+            self.vertical_origin,
+            self.player.snapshot().horizon,
+        )?;
+        self.player.project(assets, self.vertical_origin)?;
+        let mut frame = scene::background_at(assets, self.snapshot().strip_index, self.strip_y)?;
         let viewport = Rect {
             x_bytes: 4,
             y: 44,
             width_bytes: 72,
             height: 114,
         };
-        let mut world = self.enemy.draws();
-        world.extend(self.terrain.draws());
-        world.sort_by_key(|(depth, _)| std::cmp::Reverse(*depth));
-        for draw in self
+        let mut world: Vec<_> = self
             .enemy
-            .shadow_draw()
+            .snapshots()
             .into_iter()
-            .chain(world.into_iter().map(|(_, draw)| draw))
+            .take(2)
+            .filter(|slot| slot.active)
+            .map(|slot| {
+                (
+                    slot.slot,
+                    scene::Draw {
+                        resolved_sprite: slot.resolved_sprite,
+                        rect: slot.rect,
+                    },
+                )
+            })
+            .chain(
+                self.terrain
+                    .snapshots()
+                    .into_iter()
+                    .filter(|slot| slot.active)
+                    .map(|slot| {
+                        (
+                            slot.slot,
+                            scene::Draw {
+                                resolved_sprite: slot.resolved_sprite,
+                                rect: slot.rect,
+                            },
+                        )
+                    }),
+            )
+            .map(|(slot, draw)| {
+                (
+                    first_depths
+                        .iter()
+                        .find(|(index, _)| *index == slot)
+                        .unwrap()
+                        .1,
+                    draw,
+                )
+            })
+            .collect();
+        world.sort_by_key(|(depth, _)| std::cmp::Reverse(*depth));
+        let [player_shadow, player_craft] = self.player.draws();
+        for draw in std::iter::once(player_shadow)
+            .chain(
+                self.enemy
+                    .shadow_draw()
+                    .into_iter()
+                    .chain(world.into_iter().map(|(_, draw)| draw)),
+            )
+            .chain(std::iter::once(player_craft))
         {
             let sprite = assets.sprites.get(draw.resolved_sprite).ok_or_else(|| {
                 Error::InvalidData(format!("missing sprite {}", draw.resolved_sprite))
@@ -121,7 +207,8 @@ impl Opening {
         }
         for draw in scene::initial_draws()
             .into_iter()
-            .take(6)
+            .skip(2)
+            .take(4)
             .chain(self.hud.draws())
         {
             let sprite = assets.sprites.get(draw.resolved_sprite).ok_or_else(|| {
@@ -130,6 +217,7 @@ impl Opening {
             frame.draw_sprite(sprite, draw.rect)?;
         }
         self.frame = frame;
+        self.player.finish_body();
 
         // Event creation and recycling happen after the last framebuffer write.
         if !self.enemy.active() {
@@ -141,7 +229,12 @@ impl Opening {
                     0 => self.terrain_selector = 5,
                     1 => {} // Palette-family 1 is already active.
                     2 => {
-                        self.enemy.spawn(&mut self.random);
+                        self.enemy.spawn_command(0x91, &mut self.random, 0)?;
+                        self.script_delay = 0;
+                    }
+                    3 => self.terrain_selector = 7,
+                    4 => {
+                        self.enemy.spawn_command(0x84, &mut self.random, 0)?;
                         self.script_delay = 0;
                     }
                     _ => return Err(Error::InvalidData("unsupported opening command".into())),
@@ -153,10 +246,52 @@ impl Opening {
             .recycle(self.terrain_selector, &mut self.random)?;
         Ok(true)
     }
+
+    fn advance_enemy(
+        &mut self,
+        assets: &GraphicsAssets,
+        full_projection: bool,
+    ) -> Result<(), Error> {
+        self.enemy.update_half_step(&mut self.random);
+        // Collision sees the preceding resolved descriptors, before projection.
+        let player = self.player.snapshot();
+        if let Some(collision) = self.enemy.player_collision(
+            assets,
+            player.coordinates,
+            player.resolved_sprite,
+            self.player.can_damage(),
+        )? {
+            match collision {
+                enemy::EnemyCollision::Projectile => self.player.hit(1),
+                enemy::EnemyCollision::Craft => {
+                    self.hud.add_points(1000);
+                    self.enemy.explode_craft();
+                    self.player.hit(2);
+                }
+            }
+        }
+        if full_projection {
+            self.strip_y = (92 + (player.horizon >> 3)) as usize;
+            self.vertical_origin = 106 + i32::from(player.horizon >> 4);
+        }
+        self.enemy.project(
+            assets,
+            full_projection,
+            self.vertical_origin,
+            self.player.snapshot().horizon,
+        )
+    }
+
+    fn advance_player(&mut self) -> Result<(), Error> {
+        if self.player.update_no_input()? {
+            self.hud.reset_fuel();
+        }
+        Ok(())
+    }
 }
 
-/// Final reference boundary for the currently implemented first-wave preview.
-pub const LAST_BODY: u16 = 89;
+/// Final completed body of the currently verified, no-input opening batch.
+pub const LAST_BODY: u16 = 180;
 
 /// Three nominal 36.413 Hz timer units per completed loop body.
 /// Original CPU/render costs and startup timer transitions are not emulated.
@@ -222,8 +357,20 @@ mod tests {
             assert!(opening.advance(&assets).unwrap());
             let state = opening.snapshot();
             assert_eq!(state.body, body);
-            assert_eq!(state.terrain_selector, if body < 21 { 0 } else { 5 });
-            assert_eq!(state.enemies[1].active, body >= 61);
+            assert_eq!(
+                state.terrain_selector,
+                if body < 21 {
+                    0
+                } else if body < 118 {
+                    5
+                } else {
+                    7
+                }
+            );
+            assert_eq!(
+                state.enemies[1].active,
+                (61..98).contains(&body) || (138..175).contains(&body)
+            );
             assert_eq!(
                 state.script_cursor,
                 if body < 21 {
@@ -232,8 +379,12 @@ mod tests {
                     1
                 } else if body < 61 {
                     2
-                } else {
+                } else if body < 118 {
                     3
+                } else if body < 138 {
+                    4
+                } else {
+                    5
                 }
             );
         }

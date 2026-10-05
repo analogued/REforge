@@ -39,6 +39,10 @@ and the initial threshold, its first events are:
 | 21 | Terrain selector becomes 5; terrain slots 15 through 22 become active |
 | 41 | Palette-family-1 command |
 | 61 | First primary wave starts in slot 5; further script delay waits for the wave to clear |
+| 98 | First primary wave clears after passing the player depth |
+| 118 | Terrain selector becomes 7; recycled slots adopt a second sprite family |
+| 138 | Second primary wave starts and steers toward the player |
+| 174 | Second primary collides with the player, becomes an explosion, and adds 1,000 pending score points |
 
 These counts are logical loop positions, not durations. Newly created objects
 may receive their resolved sprite and projected rectangle in subsequent updates.
@@ -64,22 +68,40 @@ raw state, and comparison reports remain external to the repository.
 
 ## Rust opening simulation
 
-`Opening` implements the stationary-player opening through completed body 89.
-It updates the HUD, recycles and projects terrain, starts the first enemy wave,
-and updates its shadow and seeking projectile. The generator runs from fresh
-startup state; branch decisions consume its results in the original order.
-Source resolution remains separate from requested sprite selection. Drawing
-preserves the initial indicator artwork and clips world objects to the viewport.
+`Opening` implements the opening without keyboard input through completed body
+180. It updates the HUD, recycles and projects terrain, and starts two enemy
+waves. The generator runs from fresh startup state; branch decisions consume
+its results in the original order. Source resolution remains separate from
+requested sprite selection.
 
-The seeking projectile updates before the enemy chooses its next target, so it
-uses the preceding target. The enemy shadow uses the craft's position before
-its forward delta. The first-half render resolves these sources; the later
-near-object render does not yet include them within the supported prefix.
+Projectiles update before the enemy chooses its next target, so they use the
+preceding target. The shadow uses the craft's position before its forward delta.
+Objects retire before collision checks. Collision uses signed inclusive bounds
+from previously resolved descriptors; the target's extent is used on both sides
+of the height test. Near-list source resolution includes objects at depth below
+70, including inactive records whose projected rectangles move offscreen.
 
-Native frames and the checked HUD, terrain, enemy, target, and random state
-match the original at every completed-body boundary from 0 through 89.
-This is algorithmic simulation rather than captured-frame playback. It does
-not reproduce every intermediate framebuffer write within a body.
+The second enemy steers by half the remaining coordinate difference, capped at
+30 units per axis per half-step. Its collision changes it to a stationary
+explosion, hides its shadow, and stops its movement and random targeting calls.
+It awards pending points after that body's HUD update; later even bodies apply
+at most 500 points each. The player receives two damage units and enters the
+hit response. The original player update runs three times per body, recenters
+the damaged craft, and advances the response into the death animation. Body 180
+ends during that animation, before a life is consumed.
+
+Camera height changes with the player's response movement. The terrain strip
+position and vertical projection origin are cached by the first render pass;
+subsequent projections use the current camera height. Shadows precede ordinary
+objects, world and player sprites clip to the viewport, and distant objects
+retain the first pass's drawing order between updates. The initial HUD indicator
+artwork is preserved.
+
+Native frames and checked HUD, player, terrain, enemy, target, camera, and random
+state match the original at every completed-body boundary from 0 through 180.
+The simulation uses interpreted rules and decoded resources. It does not load
+captured frames or state and does not reproduce every intermediate framebuffer
+write within a body.
 
 The viewer presents completed-body frames. It uses a nominal interval of
 about 82.388 ms: three units of the approximately 36.413 Hz counter. The timer
@@ -90,7 +112,7 @@ The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
 The viewer offers an interval override and manual stepping.
 
-The simulation holds at its supported boundary. The projectile approaches the
-player and enters additional near-render/collision paths around body 90;
-those paths require further interpretation. Player input, restart within an
-existing random stream, subsequent encounter scripts, and audio are unsupported.
+The simulation holds after the current verified batch of 180 bodies. This is a
+comparison checkpoint, not a randomness barrier. Full death completion and
+subsequent encounters need further runtime validation. Keyboard movement and
+firing, restart within an existing random stream, and audio are unsupported.

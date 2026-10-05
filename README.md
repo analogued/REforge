@@ -3,8 +3,8 @@
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
 Status: Rust graphics decoding and a windowed, no-input opening preview,
-including terrain, HUD updates, and the first enemy wave. Later gameplay
-remains under investigation.
+including terrain changes, two enemy waves, and collision/damage responses.
+Later gameplay remains under investigation.
 
 The main implementation language is **Rust**. Supporting tools and investigation
 scripts may use other languages. Other platform versions are outside the initial
@@ -73,17 +73,19 @@ cargo run --features viewer --bin mach3-viewer -- /path/to/assets
 ```
 
 It reads `DATA1` and `DATA6` as the splash and intro. Fresh Space presses advance
-to the opening, which then runs 89 no-input game-loop bodies using graphics
+to the opening, which then runs 180 no-input game-loop bodies using graphics
 from `DATA2` through `DATA5`. Terrain moves, the HUD updates, and the first
-enemy wave and its seeking projectile appear. The preview holds its final
-frame at the supported boundary. Escape or window close exits.
+two enemy waves and their seeking projectiles appear. The second enemy steers
+into the player, triggering hit and explosion animations. The preview holds
+its final frame at the current verification boundary. Escape or window close exits.
 
 Use `--step` to advance one body per fresh Space press after entering gameplay,
 or `--static` to retain the initial scene. Held or repeated Space does not skip
 manual steps. The default animation pace is approximately 12.14 bodies per
 second, derived from the game's timer logic; `--period-ms 1..5000` overrides
 the interval. Original startup timing and exact DOS CPU-dependent pacing are
-not reproduced. Player controls, later gameplay, and audio remain deferred.
+not reproduced. Keyboard movement/firing, later encounters, and audio remain
+deferred.
 
 The default window is 960 by 600 (3x). `--scale 1..6` sets its initial scale:
 
@@ -102,8 +104,9 @@ For reproducible frame and state export without SDL3:
 cargo run --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
 ```
 
-This writes frames `000.cga` through `089.cga` plus state and object TSV tables.
-`--steps 0..89` exports a shorter prefix. The directory must be new. Simulation
+This writes frames `000.cga` through `180.cga` plus state, player, and object
+TSV tables.
+`--steps 0..180` exports a shorter prefix. The directory must be new. Simulation
 uses the decoded assets and interpreted update rules; it does not load captured
 frames, emulator state, or a replay.
 

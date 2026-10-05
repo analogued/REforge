@@ -10,6 +10,7 @@ pub struct HudSnapshot {
     pub fuel: u16,
     pub left_bar_width: usize,
     pub score: u32,
+    pub pending_score: u16,
     pub marker_requested: u8,
     pub marker_previous: u8,
     pub marker_resolved: usize,
@@ -40,6 +41,7 @@ impl Hud {
                 fuel: 0x0dff - 5,
                 left_bar_width: 13,
                 score: 0,
+                pending_score: 0,
                 marker_requested: 0,
                 marker_previous: 0,
                 marker_resolved: 0,
@@ -65,8 +67,10 @@ impl Hud {
             }
         }
         if loop_index % 2 == 0 {
-            // With no input or collisions, the even-body score contribution is one.
-            self.state.score += 1;
+            self.add_points(1);
+            let applied = self.state.pending_score.min(500);
+            self.state.pending_score -= applied;
+            self.state.score += u32::from(applied);
         }
         if loop_index % 2 == 0 || resolve_marker {
             while self.state.marker_requested == self.state.marker_previous {
@@ -88,6 +92,14 @@ impl Hud {
 
     pub fn snapshot(&self) -> HudSnapshot {
         self.state
+    }
+
+    pub fn add_points(&mut self, points: u16) {
+        self.state.pending_score = self.state.pending_score.saturating_add(points).min(32_000);
+    }
+
+    pub fn reset_fuel(&mut self) {
+        self.state.fuel = 3583;
     }
 
     /// All HUD layers needed when composing a fresh background at a loop boundary.
@@ -216,5 +228,22 @@ mod tests {
         let mut assets = assets();
         assets.sprites.truncate(188);
         assert!(Hud::new(&assets).is_err());
+    }
+
+    #[test]
+    fn collision_points_are_paid_in_bounded_even_body_updates() {
+        let mut hud = Hud::new(&assets()).unwrap();
+        let mut random = Random::default();
+        hud.add_points(1000);
+        hud.update(1, &mut random);
+        assert_eq!(hud.state.score, 0);
+        hud.update(2, &mut random);
+        assert_eq!((hud.state.score, hud.state.pending_score), (500, 501));
+        hud.update(4, &mut random);
+        assert_eq!((hud.state.score, hud.state.pending_score), (1000, 2));
+        hud.update(6, &mut random);
+        assert_eq!((hud.state.score, hud.state.pending_score), (1003, 0));
+        hud.add_points(40_000);
+        assert_eq!(hud.state.pending_score, 32_000);
     }
 }

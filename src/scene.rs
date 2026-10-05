@@ -72,6 +72,14 @@ pub(crate) fn compose(
 }
 
 pub(crate) fn background(assets: &GraphicsAssets, strip_index: usize) -> Result<Frame, Error> {
+    background_at(assets, strip_index, 92)
+}
+
+pub(crate) fn background_at(
+    assets: &GraphicsAssets,
+    strip_index: usize,
+    strip_y: usize,
+) -> Result<Frame, Error> {
     let base = assets
         .primary
         .get(..FRAME_BYTES)
@@ -81,13 +89,16 @@ pub(crate) fn background(assets: &GraphicsAssets, strip_index: usize) -> Result<
     if strip_index >= 12 {
         return Err(Error::InvalidData("invalid terrain strip index".into()));
     }
+    if strip_y > crate::frame::HEIGHT - 15 {
+        return Err(Error::InvalidData("invalid terrain strip position".into()));
+    }
     let start = FRAME_BYTES + strip_index * STRIP_BYTES;
     let strip = assets
         .primary
         .get(start..start + STRIP_BYTES)
         .ok_or_else(|| Error::InvalidData("missing terrain strip".into()))?;
     for y in 0..15 {
-        let destination = (92 + y) * ROW_BYTES + 4;
+        let destination = (strip_y + y) * ROW_BYTES + 4;
         packed[destination..destination + 72].copy_from_slice(&strip[y * 72..(y + 1) * 72]);
     }
     Frame::from_packed(&packed)

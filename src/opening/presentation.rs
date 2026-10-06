@@ -30,6 +30,8 @@ pub struct TransitionFrame {
     /// Whether this transition precedes the current ordinary render pass.
     pub before_pass: bool,
     pub palette_family: u8,
+    /// Native state captured when the transition is queued.
+    pub state: Option<Box<super::Snapshot>>,
 }
 
 impl Presentation {
@@ -132,6 +134,7 @@ impl Presentation {
                 wait_count,
                 before_pass: false,
                 palette_family: 1,
+                state: None,
             });
         }
         Ok(result)

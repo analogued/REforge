@@ -1,6 +1,8 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Replay recorded poll results without consulting reference pixels or runtime dumps.
 
+mod diagnostics;
+
 use crate::{
     Error,
     assets::GraphicsAssets,
@@ -288,6 +290,7 @@ struct FrameWriter {
     pixels: BufWriter<File>,
     seq: u64,
     limit: u64,
+    diagnostics: diagnostics::Diagnostics,
 }
 
 impl FrameWriter {
@@ -300,6 +303,7 @@ impl FrameWriter {
             pixels: new_file(&destination.join("frames.bin"))?,
             seq: 0,
             limit,
+            diagnostics: diagnostics::Diagnostics::new(destination)?,
         })
     }
 
@@ -310,12 +314,15 @@ impl FrameWriter {
         kind: &str,
         palette: u8,
         mode: u8,
-        frame: &Frame,
+        capture: (&Frame, Option<&crate::opening::Snapshot>),
     ) -> Result<(), Error> {
         if self.seq >= self.limit {
             return Ok(());
         }
-        self.pixels.write_all(frame.packed())?;
+        self.pixels.write_all(capture.0.packed())?;
+        if let Some(state) = capture.1 {
+            self.diagnostics.frame(self.seq, body, pass, kind, state)?;
+        }
         writeln!(
             self.table,
             "{}\t0\t{body}\t{pass}\t{kind}\t{palette}\t{mode}",
@@ -331,6 +338,7 @@ impl FrameWriter {
     fn flush(&mut self) -> Result<(), Error> {
         self.pixels.flush()?;
         self.table.flush()?;
+        self.diagnostics.flush()?;
         Ok(())
     }
 }
@@ -384,7 +392,7 @@ pub fn replay_first_game(
         "initial",
         opening.palette_family(),
         4,
-        opening.frame(),
+        (opening.frame(), Some(&opening.snapshot())),
     )?;
     let mut consumed = 0;
     let mut diagnostic = None;
@@ -466,7 +474,7 @@ pub fn replay_first_game(
                 "transition",
                 transition.palette_family,
                 mode,
-                &transition.frame,
+                (&transition.frame, transition.state.as_deref()),
             )?;
         }
         writer.frame(
@@ -475,7 +483,7 @@ pub fn replay_first_game(
             "gameplay",
             palette,
             mode,
-            opening.pass_frame(),
+            (opening.pass_frame(), opening.pass_snapshot()),
         )?;
         for (index, transition) in transitions
             .iter()
@@ -488,7 +496,7 @@ pub fn replay_first_game(
                 "transition",
                 transition.palette_family,
                 mode,
-                &transition.frame,
+                (&transition.frame, transition.state.as_deref()),
             )?;
         }
         consumed += 1;
@@ -611,6 +619,15 @@ mod tests {
         fs::write(recording.join("frames.tsv"), "seq\tgame\tbody\tpass\tkind\tpalette\tmode\n0\t0\t0\t0\tinitial\t99\t255\n1\t0\t1\t1\tgameplay\t99\t255\n2\t0\t1\t2\tgameplay\t99\t255\n").unwrap();
         // A directory in place of reference pixels proves they are never opened.
         fs::create_dir(recording.join("frames.bin")).unwrap();
+        for evidence in [
+            "state.tsv",
+            "registers.tsv",
+            "objects.tsv",
+            "draw-order.tsv",
+            "data-segment.bin",
+        ] {
+            fs::create_dir(recording.join(evidence)).unwrap();
+        }
         fs::write(recording.join("controls.tsv"), "seq\tgame\tbody\tsite\tf1\tf2\tf3\n0\t0\t1\tbody\t0\t0\t1\n1\t0\t1\tplayer1\t0\t0\t0\n2\t0\t1\tplayer2\t0\t0\t0\n3\t0\t1\tplayer3\t0\t0\t0\n").unwrap();
         let assets = synthetic_assets();
         let output = directory.join("replayed");
@@ -633,6 +650,12 @@ mod tests {
             expected.extend_from_slice(native.pass_frame().packed());
         }
         assert_eq!(fs::read(output.join("frames.bin")).unwrap(), expected);
+        let state = fs::read_to_string(output.join("state.tsv")).unwrap();
+        assert_eq!(state.lines().count(), 4);
+        let objects = fs::read_to_string(output.join("objects-normalized.tsv")).unwrap();
+        assert_eq!(objects.lines().count(), 1 + 3 * 29);
+        let order = fs::read_to_string(output.join("draw-order.tsv")).unwrap();
+        assert_eq!(order.lines().count(), 1 + 3 * 29);
         let metadata = fs::read_to_string(output.join("frames.tsv")).unwrap();
         assert!(metadata.contains("1\t0\t1\t1\tgameplay\t1\t6\n"));
         assert!(!metadata.contains("255"));

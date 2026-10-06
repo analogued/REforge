@@ -59,7 +59,17 @@ exit
 """
 
 
-def record(assets, destination, emulator, replay_binary, scale=3, cycles=3000):
+def record(
+    assets,
+    destination,
+    emulator,
+    replay_binary,
+    scale=3,
+    cycles=3000,
+    *,
+    observer_tool=None,
+    profile=None,
+):
     assets = assets.resolve()
     destination = destination.resolve()
     emulator = emulator.resolve()
@@ -75,6 +85,15 @@ def record(assets, destination, emulator, replay_binary, scale=3, cycles=3000):
     for binary in (emulator, replay_binary):
         if not binary.is_file() or not os.access(binary, os.X_OK):
             raise ValueError(f"executable not found: {binary}")
+    if observer_tool is None:
+        raise ValueError("supply the DOSBox-X Observer --observer-tool path")
+    observer_tool = observer_tool.resolve()
+    profile = (
+        profile or Path(__file__).resolve().parents[1] / "capture/mach3.toml"
+    ).resolve()
+    for tool in (observer_tool, profile):
+        if not tool.is_file():
+            raise ValueError(f"tool or profile not found: {tool}")
     signature = subprocess.check_output(
         [str(replay_binary), "--hook-signature", str(assets)], text=True
     ).strip()
@@ -98,17 +117,28 @@ def record(assets, destination, emulator, replay_binary, scale=3, cycles=3000):
     env = os.environ.copy()
     # An inherited investigation replay or frame limit must not alter manual play.
     for name in tuple(env):
-        if name.startswith("MACH3_CAPTURE_") or name == "MACH3_REPLAY_INPUTS":
+        if (
+            name.startswith(("MACH3_CAPTURE_", "DOSBOX_OBSERVER_"))
+            or name == "MACH3_REPLAY_INPUTS"
+        ):
             del env[name]
-    env.update(
-        MACH3_CAPTURE_DIR=str(reference),
-        MACH3_CAPTURE_SIGNATURE=signature,
-        MACH3_CAPTURE_FIRST_GAME="1",
-    )
     if env.get("XDG_SESSION_TYPE") == "wayland" and env.get("DISPLAY"):
         env.setdefault("SDL_VIDEODRIVER", "x11")
     command = [
+        sys.executable,
+        str(observer_tool),
+        "capture",
+        "--profile",
+        str(profile),
+        "--output",
+        str(reference),
+        "--emulator",
         str(emulator),
+        "--bind",
+        f"program_signature={signature}",
+        "--stop-event",
+        "game_end",
+        "--",
         "-defaultconf",
         "-conf",
         str(config),
@@ -117,7 +147,10 @@ def record(assets, destination, emulator, replay_binary, scale=3, cycles=3000):
         "-nomenu",
     ]
     receipt = {
-        "format_version": 1,
+        "format_version": 2,
+        "observer_tool": str(observer_tool),
+        "observer_sha256": hashlib.sha256(observer_tool.read_bytes()).hexdigest(),
+        "profile_sha256": hashlib.sha256(profile.read_bytes()).hexdigest(),
         "command": command,
         "emulator_sha256": hashlib.sha256(emulator.read_bytes()).hexdigest(),
         "replay_sha256": hashlib.sha256(replay_binary.read_bytes()).hexdigest(),
@@ -146,6 +179,13 @@ def record(assets, destination, emulator, replay_binary, scale=3, cycles=3000):
             )
         if not (reference / "games.tsv").read_text(encoding="utf-8").splitlines()[1:]:
             raise ValueError("gameplay did not start; the recording contains no game")
+        decoder_command = [
+            sys.executable,
+            str(Path(__file__).with_name("decode_gameplay_state.py")),
+            str(reference),
+            str(reference / "objects-normalized.tsv"),
+        ]
+        subprocess.run(decoder_command, check=True)
         print("Recording saved. Replaying sampled inputs...", flush=True)
         recreation = destination / "recreation"
         replay_command = [
@@ -184,7 +224,27 @@ def record(assets, destination, emulator, replay_binary, scale=3, cycles=3000):
         print(
             f"Graphical comparison: {destination / 'report' / 'index.html'}", flush=True
         )
-        return max(result.returncode, receipt["replay_exit_code"])
+        state_command = [
+            sys.executable,
+            str(Path(__file__).with_name("compare_gameplay_state.py")),
+            str(reference),
+            str(recreation),
+            str(destination / "state-report"),
+        ]
+        receipt["state_compare_command"] = state_command
+        state_result = subprocess.run(state_command, check=False)
+        receipt["state_compare_exit_code"] = state_result.returncode
+        if state_result.returncode not in (0, 1):
+            raise ValueError(
+                "invalid state capture; see the state comparison diagnostic"
+            )
+        print(
+            f"State comparison: {destination / 'state-report' / 'summary.json'}",
+            flush=True,
+        )
+        return max(
+            result.returncode, state_result.returncode, receipt["replay_exit_code"]
+        )
     finally:
         after = file_hashes(assets)
         receipt["input_hashes_after"] = after
@@ -203,6 +263,15 @@ def main():
         "destination", type=Path, help="new external recording directory"
     )
     parser.add_argument("--emulator", type=Path, required=True)
+    parser.add_argument(
+        "--observer-tool",
+        type=Path,
+        required=True,
+        help="DOSBox-X Observer tools/observer.py",
+    )
+    parser.add_argument(
+        "--profile", type=Path, help="override the bundled Mach 3 observer profile"
+    )
     parser.add_argument("--replay-binary", type=Path, required=True)
     parser.add_argument("--scale", type=int, choices=range(1, 17), default=3)
     parser.add_argument("--cycles", type=int, default=3000)
@@ -215,6 +284,8 @@ def main():
             args.replay_binary,
             args.scale,
             args.cycles,
+            observer_tool=args.observer_tool,
+            profile=args.profile,
         )
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"record_gameplay: {error}", file=sys.stderr)

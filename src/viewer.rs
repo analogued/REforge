@@ -807,6 +807,7 @@ mod tests {
                     wait_count,
                     before_pass: false,
                     palette_family: 1,
+                    state: None,
                 })
                 .collect(),
             now,

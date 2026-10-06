@@ -101,6 +101,7 @@ pub struct Opening {
     full_world_order: Vec<usize>,
     frame: Frame,
     pass_frame: Frame,
+    pass_snapshot: Option<Box<Snapshot>>,
     updating_before_render: bool,
     selected_layer: u16,
     remembered_draws: [Option<scene::Draw>; 29],
@@ -153,6 +154,7 @@ impl Opening {
             full_world_order: (0..29).collect(),
             frame: initial_frame.clone(),
             pass_frame: initial_frame,
+            pass_snapshot: None,
             updating_before_render: false,
             selected_layer: 0,
             remembered_draws: [None; 29],
@@ -252,6 +254,11 @@ impl Opening {
     /// The most recent ordinary render pass, before any end-of-body transitions.
     pub fn pass_frame(&self) -> &Frame {
         &self.pass_frame
+    }
+
+    /// State at the last ordinary framebuffer checkpoint, before end-of-body events.
+    pub fn pass_snapshot(&self) -> Option<&Snapshot> {
+        self.pass_snapshot.as_deref()
     }
 
     pub fn complete(&self) -> bool {
@@ -382,6 +389,7 @@ impl Opening {
         }
         self.render(assets)?;
         self.pass_frame = self.frame.clone();
+        self.pass_snapshot = Some(Box::new(self.snapshot()));
         self.updating_before_render = false;
         self.hud
             .set_score_multiplier(if self.selected_layer == 1 { 4 } else { 1 });
@@ -547,9 +555,11 @@ impl Opening {
             self.strip_y,
             |frame, clip| self.draw_world(assets, frame, clip),
         )?;
+        let state = self.snapshot();
         for frame in &mut frames {
             frame.before_pass = self.updating_before_render;
             frame.palette_family = self.palette_family;
+            frame.state = Some(Box::new(state.clone()));
         }
         if let Some(last) = frames.last() {
             self.frame = last.frame.clone();
@@ -1494,9 +1504,13 @@ mod tests {
         let mut game = Opening::for_play(&assets, synthetic_rules(&[0xd6, 0x85]), start).unwrap();
         game.script_delay = 20;
         game.advance(&assets).unwrap();
+        let pass_state = game.pass_snapshot().unwrap();
+        assert_eq!(pass_state.script_delay, 20);
+        assert_ne!(pass_state.script_cursor, game.snapshot().script_cursor);
         let transitions = game.take_transitions();
         assert_eq!(transitions.len(), 7);
         assert!(transitions.iter().all(|frame| !frame.before_pass));
+        assert!(transitions.iter().all(|frame| frame.state.is_some()));
         assert_ne!(game.pass_frame(), game.frame());
         assert_eq!(game.frame(), &transitions.last().unwrap().frame);
         assert_eq!(game.snapshot().render_pass, 3);

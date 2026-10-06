@@ -59,17 +59,11 @@ with its original comment markers.
 
 ## Capture emulator
 
-The optional original-game recorder builds [DOSBox-X](https://github.com/joncampbell123/dosbox-x)
-at revision `478c860050b20afdb58bce28f1b43163952fc541` in an external directory.
-DOSBox-X is GPL-2.0-or-later; its complete `COPYING` and source notices remain in
-that checkout. The repository does not include or redistribute its executable
-or source tree.
-
-`tools/build_capture_emulator.py` inserts an include and an observation call in
-`src/cpu/core_normal.cpp`. The observer itself is authored here in
-`tools/dosbox_capture_hook.h`; it reads input and video state without inserting
-guest instructions. The builder also adds a capture-only clean host exit on
-window close in `src/gui/sdlmain.cpp`. The build uses upstream's SDL2 frontend;
-this is separate from the recreation's SDL3 viewer. The integration does not select a license for
-the authored project, and redistribution of a resulting emulator must follow
-the upstream license and applicable terms of the observer.
+The optional original-game recorder uses the separately configured DOSBox-X
+Observer component. Its generic observer and emulator adapter are maintained
+outside this repository; `capture/mach3.toml` supplies this game's layout.
+The component's builder retains the DOSBox-X source, complete GPL-2.0-or-later
+`COPYING`, and notices in an external checkout and records the tested revision.
+No emulator executable or upstream source is redistributed here. The upstream
+emulator uses SDL2; the Rust recreation continues to use SDL3. Redistribution of
+an integrated emulator must follow upstream and applicable observer terms.

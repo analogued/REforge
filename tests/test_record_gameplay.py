@@ -60,13 +60,15 @@ class RecordGameplayTests(unittest.TestCase):
                     reference = destination / "reference"
                     (reference / "frames.tsv").write_text("authored frame index\n")
                     (reference / "games.tsv").write_text("authored header\n0\n")
-                return Mock(returncode=1 if calls == 2 else 0)
+                return Mock(returncode=1 if calls == 3 else 0)
 
             with (
                 patch.object(RECORD.subprocess, "check_output", return_value="00" * 32),
                 patch.object(RECORD.subprocess, "run", side_effect=program_run),
             ):
-                result = RECORD.record(assets, destination, binary, binary)
+                result = RECORD.record(
+                    assets, destination, binary, binary, observer_tool=binary
+                )
             self.assertEqual(result, 1)
             receipt = json.loads((destination / "recording.json").read_text())
             self.assertEqual(receipt["replay_exit_code"], 1)

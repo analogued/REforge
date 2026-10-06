@@ -1,0 +1,1046 @@
+# Copyright (c) 2026 analogued. Project license has not been selected.
+# Mach 3 instruction checkpoints and original memory interpretation.
+# All code/data offsets are relative to the running expanded program segments.
+# Supply startup instruction bytes externally with --bind program_signature=HEX.
+# Callback runs before each checkpoint instruction; pass 3 precedes body-tail events.
+schema = 1
+
+[variables]
+identified = 0
+active = 0
+game_cs = 0
+game = -1
+frame_seq = 0
+input_seq = 0
+control_seq = 0
+poll_pass = 0
+frame_pass = 0
+kind = "initial"
+input_body = 0
+observed_input = 0
+input_mask = 0
+caller = 0
+control_site = "other"
+object_address = 0
+position = 0
+sprite_base = 0
+
+[[signatures]]
+name = "program"
+address = "base.cs + 0x044a"
+bytes_binding = "program_signature"
+
+[[streams]]
+name = "frames"
+path = "frames.bin"
+format = "binary"
+append = true
+
+[[streams]]
+name = "frame_index"
+path = "frames.tsv"
+format = "tsv"
+headers = ["seq", "game", "body", "pass", "kind", "palette", "mode"]
+
+[[streams]]
+name = "inputs"
+path = "inputs.tsv"
+format = "tsv"
+headers = ["seq", "game", "body", "pass", "mask"]
+
+[[streams]]
+name = "raw_inputs"
+path = "raw-inputs.tsv"
+format = "tsv"
+headers = ["seq", "game", "body", "pass", "mask"]
+
+[[streams]]
+name = "games"
+path = "games.tsv"
+format = "tsv"
+headers = ["game", "script", "rng_a", "rng_b", "rng_c"]
+
+[[streams]]
+name = "ends"
+path = "ends.tsv"
+format = "tsv"
+headers = ["game", "body", "quit"]
+
+[[streams]]
+name = "controls"
+path = "controls.tsv"
+format = "tsv"
+headers = ["seq", "game", "body", "site", "f1", "f2", "f3"]
+
+[[streams]]
+name = "display"
+path = "display.tsv"
+format = "tsv"
+headers = ["seq", "color_select", "mode_control"]
+
+[[streams]]
+name = "registers"
+path = "registers.tsv"
+format = "tsv"
+headers = ["seq", "game", "body", "pass", "kind", "eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp", "flags", "eflags", "cs", "ds", "es", "ss", "fs", "gs", "ip", "eip"]
+
+[[streams]]
+name = "state"
+path = "state.tsv"
+format = "tsv"
+headers = ["seq", "game", "body", "pass", "kind", "strip_index", "strip_y", "vertical_origin", "rng_a", "rng_b", "rng_c", "script_index", "script_cursor", "script_delay", "difficulty", "progression", "speed_forward", "speed_primary", "speed_slow", "speed_mode", "distance_hint", "terrain_selector", "primary_count", "enemy_target_lateral", "enemy_target_height", "fuel", "weapon_counter", "pending_score", "score", "player_phase", "player_animation_row", "player_damage", "player_grace", "player_horizon", "player_velocity_lateral", "player_velocity_height", "player_orientation", "player_vertical_band", "player_input", "exit_requested", "exit_flag_word", "lives_requested", "lives_resolved", "marker_requested", "marker_previous", "marker_width", "marker_height", "bar_width", "bar_draw_width", "marker_source_pointer", "marker_source_relative"]
+
+[[streams]]
+name = "objects"
+path = "objects.tsv"
+format = "tsv"
+headers = ["seq", "game", "body", "pass", "kind", "slot", "depth", "lateral", "height_world", "extent_depth", "extent_lateral", "extent_height", "active", "activity_byte", "movement", "requested_sprite", "previous_sprite", "source_pointer", "source_relative", "x_bytes", "y", "width_bytes", "height", "phase", "scale", "animation_phase", "variant", "previous_x", "previous_y", "previous_width", "previous_height"]
+
+[[streams]]
+name = "order"
+path = "draw-order.tsv"
+format = "tsv"
+headers = ["seq", "game", "body", "pass", "kind", "position", "slot", "offset", "segment"]
+
+[[streams]]
+name = "data_segment"
+path = "data-segment.bin"
+format = "binary"
+append = true
+
+[[streams]]
+name = "data_index"
+path = "data-segment.tsv"
+format = "tsv"
+headers = ["seq", "game", "body", "pass", "kind", "ds", "length"]
+
+[[streams]]
+name = "sprite_pointers"
+path = "sprite-pointers.bin"
+format = "binary"
+append = true
+
+[[streams]]
+name = "stack"
+path = "stack.bin"
+format = "binary"
+append = true
+
+[[streams]]
+name = "stack_index"
+path = "stack.tsv"
+format = "tsv"
+headers = ["seq", "game", "body", "pass", "kind", "ss", "sp", "address", "length"]
+
+[[action_groups]]
+name = "capture_frame"
+
+[[action_groups.actions]]
+type = "set"
+variable = "sprite_base"
+value = "mem16(base.ds + 0x0f7a) + 16 * mem16(base.ds + 0x0f7c)"
+
+[[action_groups.actions]]
+type = "memory"
+stream = "frames"
+address = "0xb8000"
+rows = "200"
+bytes_per_row = "80"
+row_stride = "80"
+banks = "2"
+bank_stride = "8192"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "frame_index"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "(device.cga_color_select >> 5) & 1", "mem8(0x449)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "display"
+values = ["frame_seq", "device.cga_color_select", "device.cga_mode_control"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "registers"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "reg.eax", "reg.ebx", "reg.ecx", "reg.edx", "reg.esi", "reg.edi", "reg.ebp", "reg.esp", "reg.flags", "reg.eflags", "reg.cs", "reg.ds", "reg.es", "reg.ss", "reg.fs", "reg.gs", "reg.ip", "reg.eip"]
+
+[[action_groups.actions]]
+type = "memory"
+stream = "stack"
+address = "base.ss + reg.sp"
+bytes_per_row = "128"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "stack_index"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "reg.ss", "reg.sp", "base.ss + reg.sp", "128"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "state"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "mem16(base.ds + 0x0f84)", "mem16(base.ds + 0x0f88)", "s16(mem16(base.ds + 0x0fa8))", "mem16(base.ds + 0x17c1)", "mem16(base.ds + 0x184b)", "mem16(base.ds + 0x184d)", "mem16(base.ds + 0xb6ac)", "mem16(base.ds + 0xb69e)", "mem16(base.ds + 0xb6b8)", "mem16(base.ds + 0xb6c6)", "mem16(base.ds + 0xb668)", "s16(mem16(base.ds + 0xb682))", "s16(mem16(base.ds + 0xb684))", "s16(mem16(base.ds + 0xb686))", "mem16(base.ds + 0xb6c0)", "s16(mem16(base.ds + 0xb690))", "mem16(base.ds + 0xb6a0)", "mem16(base.ds + 0xb6ba)", "s16(mem16(base.ds + 0xb6a4))", "s16(mem16(base.ds + 0xb6a6))", "mem16(base.ds + 0xb67c)", "s16(mem16(base.ds + 0xb67e))", "mem16(base.ds + 0xb68e)", "mem16(base.ds + 0x061a) * 100000 + mem16(base.ds + 0x061c) * 10000 + mem16(base.ds + 0x061e) * 1000 + mem16(base.ds + 0x0620) * 100 + mem16(base.ds + 0x0622) * 10 + mem16(base.ds + 0x0624) * 1", "mem16(base.ds + 0xb688)", "mem16(base.ds + 0xb68a)", "mem16(base.ds + 0xb68c)", "mem16(base.ds + 0xb6b0)", "s16(mem16(base.ds + 0xb67a))", "s16(mem16(base.ds + 0xb674))", "s16(mem16(base.ds + 0xb672))", "s16(mem16(base.ds + 0xb676))", "s16(mem16(base.ds + 0xb678))", "mem16(base.ds + 0xb670)", "mem16(base.ds + 0xb66a) != 0", "mem16(base.ds + 0xb66a)", "(mem8(base.ds + 0x973c) == 28) + (mem8(base.ds + 0x9765) == 28) + (mem8(base.ds + 0x978e) == 28) + (mem8(base.ds + 0x97b7) == 28) + (mem8(base.ds + 0x97e0) == 28) + (mem8(base.ds + 0x9809) == 28)", "(mem8(base.ds + 0x973d) == 28) + (mem8(base.ds + 0x9766) == 28) + (mem8(base.ds + 0x978f) == 28) + (mem8(base.ds + 0x97b8) == 28) + (mem8(base.ds + 0x97e1) == 28) + (mem8(base.ds + 0x980a) == 28)", "mem8(base.ds + 0x9832)", "mem8(base.ds + 0x9833)", "mem16(base.ds + 0x982a)", "mem16(base.ds + 0x982c)", "mem16(base.ds + 0x959a)", "mem16(base.ds + 0x95a8)", "mem16(base.ds + 0x982e) + 16 * mem16(base.ds + 0x9830)", "mem16(base.ds + 0x982e) + 16 * mem16(base.ds + 0x9830) - sprite_base"]
+
+[[action_groups.actions]]
+type = "memory"
+stream = "sprite_pointers"
+address = "sprite_base"
+rows = "1"
+bytes_per_row = "760"
+guard = "frame_seq == 0"
+
+[[action_groups.actions]]
+type = "memory"
+stream = "data_segment"
+address = "base.ds"
+rows = "1"
+bytes_per_row = "65536"
+guard = "kind == \"initial\" or (kind == \"gameplay\" and frame_pass == 3)"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "data_index"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "reg.ds", "65536"]
+guard = "kind == \"initial\" or (kind == \"gameplay\" and frame_pass == 3)"
+
+# Scene records retain cached sources, geometry, and unused fields while inactive.
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0x9ed4"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "0", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0x9efd"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "1", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0x9f26"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "2", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0x9f4f"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "3", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0x9f78"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "4", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0x9fa1"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "5", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0x9fca"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "6", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0x9ff3"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "7", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa01c"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "8", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa045"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "9", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa06e"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "10", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa097"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "11", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa0c0"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "12", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa0e9"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "13", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa112"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "14", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa13b"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "15", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa164"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "16", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa18d"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "17", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa1b6"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "18", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa1df"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "19", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa208"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "20", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa231"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "21", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa25a"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "22", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa283"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "23", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa2ac"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "24", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa2d5"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "25", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa2fe"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "26", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa327"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "27", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "object_address"
+value = "base.ds + 0xa350"
+
+[[action_groups.actions]]
+type = "emit"
+stream = "objects"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "28", "s16(mem16(object_address + 22))", "s16(mem16(object_address + 24))", "s16(mem16(object_address + 26))", "s16(mem16(object_address + 28))", "s16(mem16(object_address + 30))", "s16(mem16(object_address + 32))", "mem8(object_address + 35) == 128", "mem8(object_address + 35)", "mem8(object_address + 34)", "mem8(object_address + 12)", "mem8(object_address + 13)", "mem16(object_address + 8) + 16 * mem16(object_address + 10)", "mem16(object_address + 8) + 16 * mem16(object_address + 10) - sprite_base", "s16(mem16(object_address))", "s16(mem16(object_address + 2))", "mem16(object_address + 4)", "mem16(object_address + 6)", "mem8(object_address + 36)", "mem16(object_address + 37)", "mem8(object_address + 39)", "mem8(object_address + 40)", "s16(mem16(object_address + 14))", "s16(mem16(object_address + 16))", "mem16(object_address + 18)", "mem16(object_address + 20)"]
+
+# Persistent full scene order includes inactive objects and the static record.
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "0", "(mem16(base.ds + 0xa379) - 0x9ed4) // 41", "mem16(base.ds + 0xa379)", "mem16(base.ds + 0xa37b)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "1", "(mem16(base.ds + 0xa37d) - 0x9ed4) // 41", "mem16(base.ds + 0xa37d)", "mem16(base.ds + 0xa37f)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "2", "(mem16(base.ds + 0xa381) - 0x9ed4) // 41", "mem16(base.ds + 0xa381)", "mem16(base.ds + 0xa383)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "3", "(mem16(base.ds + 0xa385) - 0x9ed4) // 41", "mem16(base.ds + 0xa385)", "mem16(base.ds + 0xa387)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "4", "(mem16(base.ds + 0xa389) - 0x9ed4) // 41", "mem16(base.ds + 0xa389)", "mem16(base.ds + 0xa38b)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "5", "(mem16(base.ds + 0xa38d) - 0x9ed4) // 41", "mem16(base.ds + 0xa38d)", "mem16(base.ds + 0xa38f)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "6", "(mem16(base.ds + 0xa391) - 0x9ed4) // 41", "mem16(base.ds + 0xa391)", "mem16(base.ds + 0xa393)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "7", "(mem16(base.ds + 0xa395) - 0x9ed4) // 41", "mem16(base.ds + 0xa395)", "mem16(base.ds + 0xa397)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "8", "(mem16(base.ds + 0xa399) - 0x9ed4) // 41", "mem16(base.ds + 0xa399)", "mem16(base.ds + 0xa39b)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "9", "(mem16(base.ds + 0xa39d) - 0x9ed4) // 41", "mem16(base.ds + 0xa39d)", "mem16(base.ds + 0xa39f)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "10", "(mem16(base.ds + 0xa3a1) - 0x9ed4) // 41", "mem16(base.ds + 0xa3a1)", "mem16(base.ds + 0xa3a3)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "11", "(mem16(base.ds + 0xa3a5) - 0x9ed4) // 41", "mem16(base.ds + 0xa3a5)", "mem16(base.ds + 0xa3a7)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "12", "(mem16(base.ds + 0xa3a9) - 0x9ed4) // 41", "mem16(base.ds + 0xa3a9)", "mem16(base.ds + 0xa3ab)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "13", "(mem16(base.ds + 0xa3ad) - 0x9ed4) // 41", "mem16(base.ds + 0xa3ad)", "mem16(base.ds + 0xa3af)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "14", "(mem16(base.ds + 0xa3b1) - 0x9ed4) // 41", "mem16(base.ds + 0xa3b1)", "mem16(base.ds + 0xa3b3)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "15", "(mem16(base.ds + 0xa3b5) - 0x9ed4) // 41", "mem16(base.ds + 0xa3b5)", "mem16(base.ds + 0xa3b7)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "16", "(mem16(base.ds + 0xa3b9) - 0x9ed4) // 41", "mem16(base.ds + 0xa3b9)", "mem16(base.ds + 0xa3bb)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "17", "(mem16(base.ds + 0xa3bd) - 0x9ed4) // 41", "mem16(base.ds + 0xa3bd)", "mem16(base.ds + 0xa3bf)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "18", "(mem16(base.ds + 0xa3c1) - 0x9ed4) // 41", "mem16(base.ds + 0xa3c1)", "mem16(base.ds + 0xa3c3)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "19", "(mem16(base.ds + 0xa3c5) - 0x9ed4) // 41", "mem16(base.ds + 0xa3c5)", "mem16(base.ds + 0xa3c7)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "20", "(mem16(base.ds + 0xa3c9) - 0x9ed4) // 41", "mem16(base.ds + 0xa3c9)", "mem16(base.ds + 0xa3cb)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "21", "(mem16(base.ds + 0xa3cd) - 0x9ed4) // 41", "mem16(base.ds + 0xa3cd)", "mem16(base.ds + 0xa3cf)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "22", "(mem16(base.ds + 0xa3d1) - 0x9ed4) // 41", "mem16(base.ds + 0xa3d1)", "mem16(base.ds + 0xa3d3)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "23", "(mem16(base.ds + 0xa3d5) - 0x9ed4) // 41", "mem16(base.ds + 0xa3d5)", "mem16(base.ds + 0xa3d7)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "24", "(mem16(base.ds + 0xa3d9) - 0x9ed4) // 41", "mem16(base.ds + 0xa3d9)", "mem16(base.ds + 0xa3db)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "25", "(mem16(base.ds + 0xa3dd) - 0x9ed4) // 41", "mem16(base.ds + 0xa3dd)", "mem16(base.ds + 0xa3df)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "26", "(mem16(base.ds + 0xa3e1) - 0x9ed4) // 41", "mem16(base.ds + 0xa3e1)", "mem16(base.ds + 0xa3e3)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "27", "(mem16(base.ds + 0xa3e5) - 0x9ed4) // 41", "mem16(base.ds + 0xa3e5)", "mem16(base.ds + 0xa3e7)"]
+
+[[action_groups.actions]]
+type = "emit"
+stream = "order"
+values = ["frame_seq", "game", "mem16(base.ds + 0xb692)", "frame_pass", "kind", "28", "(mem16(base.ds + 0xa3e9) - 0x9ed4) // 41", "mem16(base.ds + 0xa3e9)", "mem16(base.ds + 0xa3eb)"]
+
+[[action_groups.actions]]
+type = "set"
+variable = "frame_seq"
+value = "frame_seq + 1"
+
+[[events]]
+name = "game_start"
+ip = "0x044a"
+guard = "not identified or reg.cs == game_cs"
+signature = "program"
+
+[[events.actions]]
+type = "set"
+variable = "game"
+value = "game + 1"
+
+[[events.actions]]
+type = "set"
+variable = "identified"
+value = "1"
+
+[[events.actions]]
+type = "set"
+variable = "game_cs"
+value = "reg.cs"
+
+[[events.actions]]
+type = "set"
+variable = "active"
+value = "1"
+
+[[events.actions]]
+type = "set"
+variable = "poll_pass"
+value = "0"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "0"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"initial\""
+
+[[events.actions]]
+type = "emit"
+stream = "games"
+values = ["game", "mem16(base.ds + 0xb6ac)", "mem16(base.ds + 0x17c1)", "mem16(base.ds + 0x184b)", "mem16(base.ds + 0x184d)"]
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "game_end"
+ip = "0x0452"
+guard = "active and reg.cs == game_cs"
+
+[[events.actions]]
+type = "emit"
+stream = "ends"
+values = ["game", "mem16(base.ds + 0xb692)", "mem16(base.ds + 0xb66a)"]
+
+[[events.actions]]
+type = "set"
+variable = "active"
+value = "0"
+
+[[events]]
+name = "body_entry"
+ip = "0x04c2"
+guard = "active and reg.cs == game_cs"
+
+[[events.actions]]
+type = "set"
+variable = "poll_pass"
+value = "0"
+
+[[events]]
+name = "input_poll"
+ip = "0x228c"
+guard = "active and reg.cs == game_cs"
+
+[[events.actions]]
+type = "set"
+variable = "poll_pass"
+value = "poll_pass + 1"
+
+[[events.actions]]
+type = "assert"
+condition = "poll_pass <= 3"
+message = "unexpected gameplay poll cadence"
+
+[[events.actions]]
+type = "set"
+variable = "input_body"
+value = "(mem16(base.ds + 0xb692) + (poll_pass == 1)) & 65535"
+
+[[events.actions]]
+type = "set"
+variable = "observed_input"
+value = "reg.ax"
+
+[[events.actions]]
+type = "set"
+variable = "input_mask"
+value = "observed_input & 31"
+
+[[events.actions]]
+type = "emit"
+stream = "inputs"
+values = ["input_seq", "game", "input_body", "poll_pass", "input_mask"]
+
+[[events.actions]]
+type = "emit"
+stream = "raw_inputs"
+values = ["input_seq", "game", "input_body", "poll_pass", "observed_input"]
+
+[[events.actions]]
+type = "set"
+variable = "input_seq"
+value = "input_seq + 1"
+
+[[events]]
+name = "gameplay_frame_1"
+ip = "0x0698"
+guard = "active and reg.cs == game_cs"
+
+[[events.actions]]
+type = "assert"
+condition = "poll_pass == 1"
+message = "render/input phase mismatch"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "1"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"gameplay\""
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "gameplay_frame_2"
+ip = "0x06dc"
+guard = "active and reg.cs == game_cs"
+
+[[events.actions]]
+type = "assert"
+condition = "poll_pass == 2"
+message = "render/input phase mismatch"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "2"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"gameplay\""
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "gameplay_frame_3"
+ip = "0x0733"
+guard = "active and reg.cs == game_cs"
+
+[[events.actions]]
+type = "assert"
+condition = "poll_pass == 3"
+message = "render/input phase mismatch"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "3"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"gameplay\""
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "transition_frame_1"
+ip = "0x5bac"
+guard = "active and reg.cs == game_cs and mem16(base.ss + reg.bp + 2) == 0 and mem16(base.ss + reg.sp) == 0x1f29"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "1"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"transition\""
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "transition_frame_2"
+ip = "0x5bac"
+guard = "active and reg.cs == game_cs and mem16(base.ss + reg.bp + 2) == 0 and mem16(base.ss + reg.sp) == 0x1f59"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "2"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"transition\""
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "transition_frame_3"
+ip = "0x5bac"
+guard = "active and reg.cs == game_cs and mem16(base.ss + reg.bp + 2) == 0 and mem16(base.ss + reg.sp) == 0x1f89"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "3"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"transition\""
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "transition_frame_4"
+ip = "0x5bac"
+guard = "active and reg.cs == game_cs and mem16(base.ss + reg.bp + 2) == 0 and mem16(base.ss + reg.sp) == 0x1fb9"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "4"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"transition\""
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "transition_frame_5"
+ip = "0x5bac"
+guard = "active and reg.cs == game_cs and mem16(base.ss + reg.bp + 2) == 0 and mem16(base.ss + reg.sp) == 0x1fe9"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "5"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"transition\""
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "transition_frame_6"
+ip = "0x5bac"
+guard = "active and reg.cs == game_cs and mem16(base.ss + reg.bp + 2) == 0 and mem16(base.ss + reg.sp) == 0x2019"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "6"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"transition\""
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "transition_frame_7"
+ip = "0x5bac"
+guard = "active and reg.cs == game_cs and mem16(base.ss + reg.bp + 2) == 0 and mem16(base.ss + reg.sp) == 0x2049"
+
+[[events.actions]]
+type = "set"
+variable = "frame_pass"
+value = "7"
+
+[[events.actions]]
+type = "set"
+variable = "kind"
+value = "\"transition\""
+
+[[events.actions]]
+type = "call"
+group = "capture_frame"
+
+[[events]]
+name = "control_poll"
+ip = "0x73b2"
+guard = "active and reg.cs == game_cs"
+
+[[events.actions]]
+type = "set"
+variable = "caller"
+value = "mem16(base.ss + reg.sp)"
+
+[[events.actions]]
+type = "set"
+variable = "control_site"
+value = "\"other\""
+
+[[events.actions]]
+type = "set"
+variable = "control_site"
+value = "\"body\""
+guard = "caller == 0x2694"
+
+[[events.actions]]
+type = "set"
+variable = "control_site"
+value = "\"player1\""
+guard = "caller == 0x228c and poll_pass == 0"
+
+[[events.actions]]
+type = "set"
+variable = "control_site"
+value = "\"player2\""
+guard = "caller == 0x228c and poll_pass == 1"
+
+[[events.actions]]
+type = "set"
+variable = "control_site"
+value = "\"player3\""
+guard = "caller == 0x228c and poll_pass > 1"
+
+[[events.actions]]
+type = "set"
+variable = "control_site"
+value = "\"pause269f\""
+guard = "caller == 0x269f"
+
+[[events.actions]]
+type = "set"
+variable = "control_site"
+value = "\"pause26b8\""
+guard = "caller == 0x26b8"
+
+[[events.actions]]
+type = "set"
+variable = "control_site"
+value = "\"pause-confirm\""
+guard = "caller == 0x26d1"
+
+[[events.actions]]
+type = "set"
+variable = "control_site"
+value = "\"pause26e2\""
+guard = "caller == 0x26e2"
+
+[[events.actions]]
+type = "emit"
+stream = "controls"
+values = ["control_seq", "game", "(mem16(base.ds + 0xb692) + (poll_pass == 0)) & 65535", "control_site", "mem8(base.ds + 0x1801) != 0", "mem8(base.ds + 0x1802) != 0", "mem8(base.ds + 0x1803) != 0"]
+
+[[events.actions]]
+type = "set"
+variable = "control_seq"
+value = "control_seq + 1"

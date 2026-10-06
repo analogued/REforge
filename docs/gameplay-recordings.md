@@ -1,4 +1,4 @@
-# Gameplay recording and graphical comparison
+# Gameplay recording and comparison
 
 The recorder lets a manually played original game become a repeatable graphics
 test. It observes the original's sampled controls and each of its three CGA
@@ -20,25 +20,23 @@ Build the replay tool:
 cargo build --locked --release --bin mach3-replay
 ```
 
-Build a separate capture-enabled DOSBox-X in an external working directory:
+Build DOSBox-X Observer using its separate component checkout and an external working directory:
 
 ```sh
-python3 tools/build_capture_emulator.py --work-dir /path/to/emulator-build
+python3 /path/to/dosbox-x-observer/tools/build_emulator.py --work-dir /path/to/emulator-build
 ```
 
-The build script fetches its pinned upstream revision and adds the authored
-observer to the normal CPU core. It requires Git, a C++ compiler, Make,
-Autoconf/Automake, pkg-config, SDL2 development libraries, and ncurses development
-libraries, and OpenGL development headers. The capture window uses nearest
-OpenGL scaling to honor the requested size. It keeps the upstream source,
-license, build logs, and binary outside
-this repository. See [dependency notices](dependencies.md#capture-emulator).
+The shared component owns the generic observer, emulator adapter, and minimal
+upstream patch. This repository supplies `capture/mach3.toml`, which defines the
+game's checkpoints and memory layouts. Build requirements and upstream revision
+are documented in that component. See [dependency notices](dependencies.md#capture-emulator).
 
 ## Record and compare
 
 ```sh
 python3 tools/record_gameplay.py /path/to/game /path/to/new-recording \
-  --emulator /path/to/emulator-build/upstream/src/dosbox-x \
+  --observer-tool /path/to/dosbox-x-observer/tools/observer.py \
+  --emulator /path/to/emulator-build/dosbox-x-observer \
   --replay-binary target/release/mach3-replay --scale 8
 ```
 
@@ -56,6 +54,13 @@ displayed at 4:3. It also records missing frames and differing palette or displa
 mode. `report/mismatches.ndjson` lists all mismatching checkpoints. A partially
 completed native replay remains available if it ends early or encounters an
 unimplemented path.
+
+`state-report/summary.json` separately reports differences in modeled gameplay
+state, scene records, and drawing order. `state-report/comparisons.ndjson` retains
+every comparable field and identifies skipped fields. Pixel equality and state
+equality are separate results; inactive or stale fields can differ without changing
+the display. Missing native fields remain explicitly unmodeled. The recorder
+returns 1 if either comparison differs or replay is partial.
 
 Keep recordings even after fixing a discrepancy. To compare one again with an
 updated implementation, use new output directories:
@@ -76,8 +81,10 @@ a partial replay, and an invalid recording or tool error.
 `inputs.tsv` records the original's action mask at each player poll, before
 damage responses alter it. `controls.tsv` records function-key state at the
 body, player, and pause polls. `ends.tsv` records game termination, which the
-replay also checks against its own game-over condition. Input positions use a wide sequence number plus
-the wrapping 16-bit game body and pass number; wall-clock key timestamps are
+replay also checks against its own game-over condition. Its legacy `quit` column
+records the original exit word and does not distinguish death from a player quit.
+Input positions use a wide sequence number plus the wrapping 16-bit game body
+and pass number; wall-clock key timestamps are
 not used to align execution.
 
 `frames.tsv` indexes `frames.bin`, which contains one 16,000-byte linear CGA
@@ -96,3 +103,37 @@ The observer reads guest state without adding guest instructions or stopping
 at debugger breakpoints. Host recording work can still affect wall-clock pace;
 comparison establishes logical update and rendering fidelity, not exact DOS
 CPU-dependent timing or monitor scanout behavior.
+
+## Diagnostic evidence
+
+The profile records full 32-bit general registers, segment selectors, instruction
+pointers, and materialized FLAGS/EFLAGS in `registers.tsv` at each framebuffer
+checkpoint. The low halves retain the 16-bit register values.
+`stack.tsv` indexes a 128-byte physical memory window from SS:SP in `stack.bin`
+at each checkpoint; its address and length are explicit.
+`state.tsv` records random state, script cursor/delay, movement, player, weapon,
+score, fuel, and HUD fields. `objects.tsv` contains all 29 raw scene records and
+resolved source pointers; `draw-order.tsv` records their full render order.
+`data-segment.tsv` indexes complete 64-KiB snapshots in `data-segment.bin`, sampled
+at initialization and ordinary pass 3. Raw registers, pointers, and memory are
+diagnostic evidence, not replacement native state.
+
+`decode_gameplay_state.py` uses the captured sprite pointer table to produce
+`objects-normalized.tsv`. Null, unknown, and unavailable pointers remain distinct
+from a known sprite ID. The comparator skips only the unresolved sprite ID for
+such records and preserves the other fields. Rust exports its modeled state at
+the same ordinary render checkpoint, before end-of-body updates, and at queued
+transitions. It intentionally leaves absent model fields blank.
+
+To compare state again after a fresh replay:
+
+```sh
+python3 tools/compare_gameplay_state.py /path/to/recording/reference \
+  /path/to/new-replay /path/to/new-state-report
+```
+
+State comparison exits with 0 for equal comparable fields, 1 for differences or
+missing rows, and 2 for invalid input. It does not compare CPU registers against
+Rust, which does not emulate the CPU. Captured dumps and raw register state provide
+context for investigating a discrepancy; they do not guarantee that every cause
+can be diagnosed without additional targeted observations.

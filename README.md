@@ -18,7 +18,7 @@ and decoder usage.
 See [DOS opening gameplay](docs/dos-gameplay.md) for update order, encounter
 scripts, and repeatability.
 See [gameplay recordings](docs/gameplay-recordings.md) to record a manually played
-original game and compare its rendered pixels with a Rust replay.
+original game and compare its rendered pixels and modeled state with a Rust replay.
 
 Target game: **Mach 3**. A public recreation name has not been chosen. When
 chosen, use it in this repository's documentation while keeping the target game

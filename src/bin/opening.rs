@@ -13,10 +13,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: mach3-opening [--steps 0..450] <assets-directory> <new-output-directory>\n\n\
+const HELP: &str = "Usage: mach3-opening [--steps 0..540] <assets-directory> <new-output-directory>\n\n\
 Export the no-input opening from the initial frame through the requested body.\n\
 Writes numbered CGA frames and state/object TSV tables; output directory must be new.\n\
-Default: 450 bodies, including the first five enemy waves. No audio or player controls.";
+Default: 540 bodies, including the first six enemy waves. No audio or player controls.";
 
 fn new_file(path: impl AsRef<Path>) -> Result<BufWriter<std::fs::File>, Error> {
     Ok(BufWriter::new(
@@ -41,7 +41,7 @@ fn run() -> Result<(), Error> {
             .and_then(|arg| arg.to_str().and_then(|arg| arg.parse::<u16>().ok()))
             .filter(|steps| *steps <= LAST_BODY)
             .ok_or_else(|| {
-                Error::InvalidData("--steps must be an integer between 0 and 450".into())
+                Error::InvalidData("--steps must be an integer between 0 and 540".into())
             })?;
     }
     let directory = args.next().map(PathBuf::from);
@@ -56,6 +56,11 @@ fn run() -> Result<(), Error> {
     let mut terrain = new_file(destination.join("terrain.tsv"))?;
     let mut enemies = new_file(destination.join("enemies.tsv"))?;
     let mut player = new_file(destination.join("player.tsv"))?;
+    let mut special = new_file(destination.join("special.tsv"))?;
+    writeln!(
+        special,
+        "body\tslot\tdepth\tlateral\theight_world\textent_depth\textent_lateral\textent_height\tactive\trequested\tresolved\tx\ty\twidth\theight\tphase\tmovement\tscale"
+    )?;
     let mut order = new_file(destination.join("order.tsv"))?;
     writeln!(order, "body\tposition\tslot")?;
     writeln!(
@@ -68,7 +73,7 @@ fn run() -> Result<(), Error> {
     )?;
     writeln!(
         enemies,
-        "body\tslot\tdepth\tlateral\theight_world\tactive\trequested\tresolved\tx\ty\twidth\theight\tphase\tmovement"
+        "body\tslot\tdepth\tlateral\theight_world\tactive\trequested\tresolved\tx\ty\twidth\theight\tphase\tmovement\tvariant\tanimation_phase"
     )?;
     writeln!(
         terrain,
@@ -81,6 +86,30 @@ fn run() -> Result<(), Error> {
         let snapshot = opening.snapshot();
         for (position, slot) in snapshot.world_order.into_iter().enumerate() {
             writeln!(order, "{body}\t{position}\t{slot}")?;
+        }
+        for slot in snapshot.special {
+            writeln!(
+                special,
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                body,
+                slot.slot,
+                slot.depth,
+                slot.lateral,
+                slot.height,
+                slot.extents[0],
+                slot.extents[1],
+                slot.extents[2],
+                u8::from(slot.active),
+                slot.requested_sprite,
+                slot.resolved_sprite,
+                slot.rect.x_bytes,
+                slot.rect.y,
+                slot.rect.width_bytes,
+                slot.rect.height,
+                slot.phase,
+                slot.movement,
+                slot.scale
+            )?;
         }
         let h = snapshot.hud;
         let [a, b, c] = snapshot.random;
@@ -158,7 +187,7 @@ fn run() -> Result<(), Error> {
         for slot in snapshot.enemies {
             writeln!(
                 enemies,
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 body,
                 slot.slot,
                 slot.depth,
@@ -172,7 +201,9 @@ fn run() -> Result<(), Error> {
                 slot.rect.width_bytes,
                 slot.rect.height,
                 slot.phase,
-                slot.movement
+                slot.movement,
+                slot.variant,
+                slot.animation_phase
             )?;
         }
         let mut frame = new_file(destination.join(format!("{body:03}.cga")))?;
@@ -184,6 +215,7 @@ fn run() -> Result<(), Error> {
     enemies.flush()?;
     player.flush()?;
     order.flush()?;
+    special.flush()?;
     println!(
         "Wrote {} opening frames to {}",
         steps + 1,

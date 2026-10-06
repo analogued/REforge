@@ -12,6 +12,8 @@ pub struct EnemySnapshot {
     pub height: i16,
     pub active: bool,
     pub movement: u8,
+    pub variant: u8,
+    pub animation_phase: u8,
     pub requested_sprite: usize,
     pub resolved_sprite: usize,
     pub rect: Rect,
@@ -27,6 +29,8 @@ impl EnemySnapshot {
             height,
             active: false,
             movement: if slot == 4 { 253 } else { 0 },
+            variant: 0,
+            animation_phase: 0,
             requested_sprite: sprite,
             resolved_sprite: sprite,
             rect: Rect {
@@ -88,6 +92,7 @@ enum Motion {
     Orbit,
     LateralOrbit,
     FullOrbit,
+    ScriptedSweep,
 }
 
 #[derive(Debug)]
@@ -131,6 +136,7 @@ impl Enemy {
             0x8e => Motion::Orbit,
             0x8a => Motion::LateralOrbit,
             0x88 => Motion::FullOrbit,
+            0x97 => Motion::ScriptedSweep,
             _ => {
                 return Err(Error::InvalidData(format!(
                     "unsupported enemy command {command:02x}"
@@ -151,10 +157,20 @@ impl Enemy {
             self.craft_animations[i] = None;
             craft.requested_sprite = 0;
             craft.movement = command & 63;
-            craft.depth = 1600 - 100 * i as i16;
+            craft.variant = u8::from(command == 0x97);
+            craft.animation_phase = 0;
+            craft.depth = if command == 0x97 {
+                1000
+            } else {
+                1600 - 100 * i as i16
+            };
             craft.active = true;
             self.shadows[i].height = -115;
             self.shadows[i].active = true;
+            if command == 0x97 && i != 0 {
+                craft.active = false;
+                self.shadows[i].active = false;
+            }
         }
         Ok(())
     }
@@ -202,6 +218,7 @@ impl Enemy {
             } else {
                 self.crafts[i].requested_sprite = source;
                 self.craft_animations[i] = Some(animation + 1);
+                self.crafts[i].animation_phase = animation + 1;
             }
             return;
         }
@@ -213,14 +230,32 @@ impl Enemy {
                 (player[1].wrapping_sub(self.crafts[i].lateral) >> 1).clamp(-30, 30),
                 (player[2].wrapping_sub(self.crafts[i].height) >> 1).clamp(-30, 30),
             ],
+            Motion::ScriptedSweep => {
+                let craft = &mut self.crafts[i];
+                let (coordinates, source) = scripted_sweep(craft.animation_phase);
+                [craft.depth, craft.lateral, craft.height] = coordinates;
+                craft.requested_sprite = source;
+                craft.animation_phase = craft.animation_phase.wrapping_add(1);
+                [0, 0]
+            }
             Motion::Fixed => [0, 0],
         };
         let craft = &mut self.crafts[i];
         let shadow = &mut self.shadows[i];
-        craft.requested_sprite = craft_sprite(craft.depth, craft.phase);
+        if craft.variant == 0 {
+            craft.requested_sprite = craft_sprite(craft.depth, craft.phase);
+        }
         shadow.depth = craft.depth;
         shadow.lateral = craft.lateral;
-        shadow.requested_sprite = shadow_sprite(craft.depth);
+        shadow.requested_sprite = if craft.depth < 0 {
+            36
+        } else {
+            shadow_sprite(craft.depth)
+        };
+        if craft.variant == 1 {
+            // The opening's alternate-shadow mode remains disabled.
+            shadow.active = true;
+        }
         if random.next_word() & 1 != 0 && !self.bullet.active {
             self.bullet.depth = craft.depth;
             self.bullet.lateral = craft.lateral;
@@ -229,7 +264,9 @@ impl Enemy {
         }
         self.target[0] = player[1].wrapping_add((random.next_word() & 63) as i16 - 32);
         self.target[1] = player[2].wrapping_add((random.next_word() & 63) as i16 - 32);
-        craft.depth -= 22;
+        if craft.variant == 0 {
+            craft.depth -= 22;
+        }
         craft.lateral += steering[0];
         craft.height += steering[1];
         if craft.depth <= player[0] {
@@ -264,6 +301,7 @@ impl Enemy {
             .ok_or_else(|| Error::InvalidData(format!("invalid primary explosion slot {slot}")))?;
         self.craft_animations[i] = Some(0);
         self.crafts[i].movement = 3;
+        self.crafts[i].animation_phase = 0;
         self.shadows[i].active = false;
         Ok(())
     }
@@ -379,6 +417,46 @@ impl Enemy {
     }
 }
 
+/// Resource-defined sweep reconstructed as affine segments. Division truncates
+/// toward zero, preserving the original quantized coordinates without floats.
+fn scripted_sweep(phase: u8) -> ([i16; 3], usize) {
+    if phase >= 77 {
+        return ([-50, 0, 0], 100);
+    }
+    let (start, axes): (u8, [[i32; 3]; 3]) = match phase {
+        0..=11 => (0, [[500, 0, 1], [-2600, 50, 1], [16, 0, 1]]),
+        12..=25 => (12, [[500, -2, 1], [-2000, 48, 1], [16, 2, 1]]),
+        26..=27 => (26, [[472, -2, 1], [-1328, 55, 1], [44, 2, 1]]),
+        28..=32 => (28, [[470, -2, 1], [-2436, 71, 2], [48, 29, 1]]),
+        33..=40 => (33, [[460, -1, 1], [-2080, 53, 2], [388, 73, 2]]),
+        41..=49 => (41, [[1812, -81, 4], [-5796, 333, 7], [972, -17, 2]]),
+        50..=54 => (50, [[1084, -45, 4], [-400, 40, 1], [1230, -38, 3]]),
+        55..=58 => (55, [[215, -11, 1], [-200, 10, 1], [1040, -38, 3]]),
+        59..=63 => (59, [[513, -23, 3], [-160, 10, 1], [888, -44, 3]]),
+        64..=65 => (64, [[133, -8, 1], [-106, 10, 1], [223, -15, 1]]),
+        66..=68 => (66, [[236, -11, 2], [-84, 12, 1], [194, -20, 1]]),
+        69..=70 => (69, [[101, -10, 1], [-48, 24, 1], [135, -39, 1]]),
+        71..=72 => (71, [[82, -17, 1], [-18, 12, 1], [72, -48, 1]]),
+        _ => (73, [[47, -10, 1], [0, 0, 1], [0, 0, 1]]),
+    };
+    let step = i32::from(phase - start);
+    let coordinates = axes.map(|[base, delta, divisor]| ((base + delta * step) / divisor) as i16);
+    let source = match phase {
+        0..=28 => 90,
+        29..=33 => 91,
+        34..=41 => 92,
+        42..=55 => 93,
+        56..=61 => 94,
+        62..=66 => 95,
+        67..=69 => 96,
+        70 => 97,
+        71 => 98,
+        72..=73 => 99,
+        _ => usize::from(phase) + 26,
+    };
+    (coordinates, source)
+}
+
 /// Signed integer wave with 64 phases; mirror the quarter-wave's small stepped
 /// amplitudes rather than introducing floating-point rounding into movement.
 fn orbit_wave(phase: u8) -> i16 {
@@ -463,7 +541,7 @@ mod tests {
         GraphicsAssets {
             primary: vec![],
             alternate: vec![],
-            sprites: (0..70)
+            sprites: (0..190)
                 .map(|_| Sprite {
                     width_bytes: 4,
                     height: 7,
@@ -1086,6 +1164,115 @@ mod tests {
                 Some(EnemyCollision::Craft(8)),
                 Some(EnemyCollision::Craft(9)),
             ]
+        );
+    }
+    #[test]
+    fn sweep_initializes_variant_one_but_only_the_first_primary_is_active() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.crafts[0].resolved_sprite = 33;
+        enemy.crafts[0].rect.y = 51;
+        enemy.spawn_command(0x97, &mut random, 100, 3).unwrap();
+        assert_eq!(random.state(), [0; 3]);
+        assert_eq!(enemy.crafts.map(|c| c.depth), [1000, 1000, 1000, 0, 0]);
+        assert_eq!(
+            enemy.crafts.map(|c| c.active),
+            [true, false, false, false, false]
+        );
+        assert_eq!(
+            enemy.shadows.map(|c| c.active),
+            [true, false, false, false, false]
+        );
+        assert_eq!(enemy.crafts.map(|c| c.variant), [1, 1, 1, 0, 0]);
+        assert_eq!(enemy.crafts[0].requested_sprite, 0);
+        assert_eq!(enemy.crafts[0].resolved_sprite, 33);
+        assert_eq!(enemy.crafts[0].rect.y, 51);
+    }
+
+    #[test]
+    fn sweep_copies_absolute_coordinates_before_firing_and_updates_shared_target() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.spawn_command(0x97, &mut random, 0, 2).unwrap();
+        enemy.crafts[0].animation_phase = 33;
+        enemy.crafts[0].depth = 800;
+        for _ in 0..3 {
+            random.next_word();
+        }
+        let mut expected = random;
+        assert_eq!(expected.next_word() & 1, 1);
+        let target = [
+            50 + (expected.next_word() & 63) as i16 - 32,
+            -28 + (expected.next_word() & 63) as i16 - 32,
+        ];
+        enemy.update_half_step(&mut random, [14, 50, -28]);
+        let craft = enemy.crafts[0];
+        assert_eq!(
+            (craft.depth, craft.lateral, craft.height),
+            (460, -1040, 194)
+        );
+        assert_eq!((craft.requested_sprite, craft.animation_phase), (91, 34));
+        assert_eq!(
+            (
+                enemy.bullet.depth,
+                enemy.bullet.lateral,
+                enemy.bullet.height
+            ),
+            (460, -1040, 194)
+        );
+        assert_eq!(
+            (enemy.shadows[0].depth, enemy.shadows[0].lateral),
+            (460, -1040)
+        );
+        assert_eq!(enemy.shadows[0].requested_sprite, 37);
+        assert_eq!(enemy.target(), target);
+        assert_eq!(random.state(), expected.state());
+    }
+
+    #[test]
+    fn sweep_terminal_coordinates_retire_before_collision_and_keep_the_requested_source() {
+        let assets = assets();
+        let mut enemy = Enemy::new(&assets).unwrap();
+        let mut random = Random::default();
+        enemy.spawn_command(0x97, &mut random, 0, 2).unwrap();
+        enemy.crafts[0].animation_phase = 77;
+        enemy.update_half_step(&mut random, [14, 0, -100]);
+        assert!(!enemy.active());
+        assert!(!enemy.shadows[0].active);
+        assert_eq!(enemy.crafts[0].depth, -50);
+        assert_eq!(enemy.crafts[0].animation_phase, 78);
+        assert_eq!(enemy.crafts[0].requested_sprite, 100);
+        assert_eq!(
+            enemy
+                .player_collisions(&assets, [14, 0, -100], 13, true)
+                .unwrap(),
+            [None; 6]
+        );
+    }
+
+    #[test]
+    fn sweep_collision_keeps_the_preceding_descriptor_until_projection() {
+        let mut assets = assets();
+        assets.sprites[13].descriptor[..3].copy_from_slice(&[32, 128, 15]);
+        assets.sprites[90].descriptor[..3].copy_from_slice(&[40, 158, 15]);
+        assets.sprites[91].descriptor[..3].copy_from_slice(&[100, 158, 15]);
+        let mut enemy = Enemy::new(&assets).unwrap();
+        let mut random = Random::default();
+        enemy.spawn_command(0x97, &mut random, 0, 1).unwrap();
+        enemy.crafts[0].animation_phase = 29;
+        enemy.crafts[0].resolved_sprite = 90;
+        let player = [453, -1182, 120];
+        enemy.update_half_step(&mut random, player);
+        assert_eq!(enemy.crafts[0].requested_sprite, 91);
+        assert_eq!(enemy.crafts[0].resolved_sprite, 90);
+        assert_eq!(
+            enemy.player_collisions(&assets, player, 13, true).unwrap(),
+            [None; 6]
+        );
+        enemy.project(&assets, true, 106, 0).unwrap();
+        assert_eq!(
+            enemy.player_collisions(&assets, player, 13, true).unwrap(),
+            [None, Some(EnemyCollision::Craft(5)), None, None, None, None]
         );
     }
 }

@@ -218,7 +218,7 @@ impl Terrain {
 
     /// Recycle after rendering and event processing, preserving resolved draw state.
     pub(crate) fn recycle(&mut self, selector: u16, random: &mut Random) -> Result<(), Error> {
-        if !matches!(selector, 0 | 3 | 5 | 6 | 7) {
+        if !matches!(selector, 0 | 3 | 5 | 6 | 7 | 9) {
             return Err(Error::InvalidData(format!(
                 "unsupported opening terrain selector {selector}"
             )));
@@ -258,6 +258,14 @@ impl Terrain {
                 }
                 7 => {
                     self.kinds[index] = TerrainKind::Type3;
+                    slot.active = true;
+                }
+                9 => {
+                    self.kinds[index] = if index <= 4 {
+                        TerrainKind::Type2
+                    } else {
+                        TerrainKind::Type3
+                    };
                     slot.active = true;
                 }
                 _ => unreachable!(),
@@ -773,5 +781,55 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn selector_nine_splits_recycled_rows_without_excluding_or_retyping_live_rows() {
+        let mut terrain = Terrain::new();
+        let mut random = Random::default();
+        let mut reference = Random::default();
+        terrain.recycle(9, &mut random).unwrap();
+        for slot in terrain.snapshots() {
+            reference.next_word();
+            assert!(slot.active);
+            assert_eq!(slot.kind, if slot.slot <= 19 { 2 } else { 3 });
+        }
+        assert_eq!(random.state(), reference.state());
+        terrain.kinds[0] = TerrainKind::Type3;
+        let live_lateral = terrain.slots[0].lateral;
+        for index in [4, 5] {
+            terrain.slots[index].active = false;
+            terrain.slots[index].phase = 3;
+            terrain.slots[index].resolved_sprite = 157;
+            terrain.slots[index].animation_phase = 9;
+        }
+        terrain.recycle(9, &mut random).unwrap();
+        let expected_laterals =
+            [reference.next_word(), reference.next_word()].map(|word| (word & 2047) as i16 - 1024);
+        assert_eq!(random.state(), reference.state());
+        let snapshots = terrain.snapshots();
+        assert_eq!(snapshots[0].kind, 3);
+        assert_eq!(snapshots[0].lateral, live_lateral);
+        for (index, kind, sprite, lateral) in [
+            (4, 2, 149, expected_laterals[0]),
+            (5, 3, 158, expected_laterals[1]),
+        ] {
+            let slot = snapshots[index];
+            assert!(slot.active);
+            assert_eq!(slot.kind, kind);
+            assert_eq!(slot.movement, 2);
+            assert_eq!(slot.lateral, lateral);
+            assert_eq!(slot.requested_sprite, sprite);
+            assert_eq!(slot.resolved_sprite, 157);
+            assert_eq!(slot.phase, 3);
+            assert_eq!(slot.animation_phase, 9);
+        }
+        terrain.project(&assets(), true, 106, 0).unwrap();
+        assert_eq!(terrain.slots[4].resolved_sprite, 149);
+        assert_eq!(terrain.slots[5].resolved_sprite, 158);
+        assert_eq!(terrain.slots[4].phase, 3);
+        assert_eq!(terrain.slots[5].phase, 3);
+        terrain.recycle(9, &mut random).unwrap();
+        assert_eq!(random.state(), reference.state());
     }
 }

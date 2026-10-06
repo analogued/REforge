@@ -4,6 +4,7 @@
 mod enemy;
 mod hud;
 mod player;
+mod special;
 mod terrain;
 
 use crate::{
@@ -16,6 +17,7 @@ use crate::{
 pub use enemy::EnemySnapshot as EnemyState;
 pub use hud::HudSnapshot as HudState;
 pub use player::PlayerSnapshot as PlayerState;
+pub use special::SpecialSnapshot as SpecialState;
 pub use terrain::TerrainSnapshot as TerrainState;
 
 #[derive(Clone, Debug)]
@@ -34,7 +36,8 @@ pub struct Snapshot {
     pub terrain: [TerrainState; 8],
     pub enemies: [EnemyState; 11],
     pub enemy_target: [i16; 2],
-    pub world_order: [usize; 14],
+    pub special: [SpecialState; 5],
+    pub world_order: [usize; 19],
 }
 
 /// No directional input, with bounded encounter and collision/damage updates.
@@ -46,6 +49,7 @@ pub struct Opening {
     terrain: terrain::Terrain,
     enemy: enemy::Enemy,
     player: player::Player,
+    special: special::Special,
     strip_y: usize,
     vertical_origin: i32,
     script_cursor: u16,
@@ -68,13 +72,18 @@ impl Opening {
             terrain: terrain::Terrain::new(),
             enemy: enemy::Enemy::new(assets)?,
             player: player::Player::new(assets)?,
+            special: special::Special::new(),
             strip_y: 92,
             vertical_origin: 106,
             script_cursor: 0,
             script_delay: 0,
             terrain_selector: 0,
             primary_count: 1,
-            world_order: (5..=9).chain(15..=22).chain(std::iter::once(4)).collect(),
+            world_order: (5..=9)
+                .chain(15..=22)
+                .chain(std::iter::once(4))
+                .chain(23..=27)
+                .collect(),
             frame: scene::initial_frame(assets)?,
         })
     }
@@ -103,6 +112,7 @@ impl Opening {
             terrain: self.terrain.snapshots(),
             enemies: self.enemy.snapshots(),
             enemy_target: self.enemy.target(),
+            special: self.special.snapshots(),
             world_order: std::array::from_fn(|i| self.world_order[i]),
         }
     }
@@ -130,6 +140,12 @@ impl Opening {
                     .into_iter()
                     .map(|slot| (slot.slot, slot.depth, slot.movement)),
             )
+            .chain(
+                self.special
+                    .snapshots()
+                    .into_iter()
+                    .map(|slot| (slot.slot, slot.depth, slot.movement)),
+            )
             .collect();
         // Subtype-zero entries form a stable prefix. Other entries keep their
         // preceding order at equal depth, including after another row recycles.
@@ -147,61 +163,7 @@ impl Opening {
             width_bytes: 72,
             height: 114,
         };
-        let mut world: Vec<_> = self
-            .enemy
-            .snapshots()
-            .into_iter()
-            .filter(|slot| slot.slot < 10)
-            .filter(|slot| slot.active)
-            .map(|slot| {
-                (
-                    slot.slot,
-                    scene::Draw {
-                        resolved_sprite: slot.resolved_sprite,
-                        rect: slot.rect,
-                    },
-                )
-            })
-            .chain(
-                self.terrain
-                    .snapshots()
-                    .into_iter()
-                    .filter(|slot| slot.active)
-                    .map(|slot| {
-                        (
-                            slot.slot,
-                            scene::Draw {
-                                resolved_sprite: slot.resolved_sprite,
-                                rect: slot.rect,
-                            },
-                        )
-                    }),
-            )
-            .map(|(slot, draw)| {
-                (
-                    self.world_order
-                        .iter()
-                        .position(|index| *index == slot)
-                        .unwrap(),
-                    draw,
-                )
-            })
-            .collect();
-        world.sort_by_key(|(position, _)| *position);
-        let [player_shadow, player_craft] = self.player.draws();
-        for draw in std::iter::once(player_shadow)
-            .chain(
-                self.enemy
-                    .shadow_draws()
-                    .chain(world.into_iter().map(|(_, draw)| draw)),
-            )
-            .chain(std::iter::once(player_craft))
-        {
-            let sprite = assets.sprites.get(draw.resolved_sprite).ok_or_else(|| {
-                Error::InvalidData(format!("missing sprite {}", draw.resolved_sprite))
-            })?;
-            frame.draw_sprite_clipped(sprite, draw.rect, viewport)?;
-        }
+        self.draw_world(assets, &mut frame, viewport)?;
         for draw in scene::initial_draws()
             .into_iter()
             .skip(2)
@@ -278,6 +240,17 @@ impl Opening {
                         )?;
                         self.script_delay = 0;
                     }
+                    12 => self.terrain_selector = 9,
+                    13 => self.special.spawn_command_40(&mut self.random, 28, false),
+                    14 => {
+                        self.enemy.spawn_command(
+                            0x97,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                        )?;
+                        self.script_delay = 0;
+                    }
                     _ => return Err(Error::InvalidData("unsupported opening command".into())),
                 }
                 self.script_cursor += 1;
@@ -286,6 +259,53 @@ impl Opening {
         self.terrain
             .recycle(self.terrain_selector, &mut self.random)?;
         Ok(true)
+    }
+
+    fn draw_world(
+        &self,
+        assets: &GraphicsAssets,
+        frame: &mut Frame,
+        viewport: Rect,
+    ) -> Result<(), Error> {
+        let [player_shadow, player_craft] = self.player.draws();
+        for draw in std::iter::once(player_shadow).chain(self.enemy.shadow_draws()) {
+            draw_clipped(assets, frame, draw, viewport)?;
+        }
+        let enemies = self.enemy.snapshots();
+        let terrain = self.terrain.snapshots();
+        for &slot in &self.world_order {
+            let (active, draw) = match slot {
+                4..=9 => {
+                    let state = enemies[slot - 4];
+                    (
+                        state.active,
+                        scene::Draw {
+                            resolved_sprite: state.resolved_sprite,
+                            rect: state.rect,
+                        },
+                    )
+                }
+                15..=22 => {
+                    let state = terrain[slot - 15];
+                    (
+                        state.active,
+                        scene::Draw {
+                            resolved_sprite: state.resolved_sprite,
+                            rect: state.rect,
+                        },
+                    )
+                }
+                23..=27 => {
+                    self.special.draw_slot(frame, slot, viewport)?;
+                    continue;
+                }
+                _ => unreachable!("unsupported world slot"),
+            };
+            if active {
+                draw_clipped(assets, frame, draw, viewport)?;
+            }
+        }
+        draw_clipped(assets, frame, player_craft, viewport)
     }
 
     fn sort_world(&mut self, depths: &[(usize, i16, u8)]) {
@@ -308,6 +328,7 @@ impl Opening {
             .update_half_step(&mut self.random, player.coordinates);
         let collected_fuel = self.terrain.update_half_step(player.coordinates);
         self.hud.add_fuel(collected_fuel);
+        self.special.update_half_step(player.coordinates[0], 28);
         // All motion precedes collision, which sees the previous resolved sources.
         let collisions = self.enemy.player_collisions(
             assets,
@@ -339,12 +360,29 @@ impl Opening {
             self.hud.add_points(collision.points);
             self.player.hit(collision.damage);
         }
+        if let Some(collision) = self.special.player_collision(
+            assets,
+            player.coordinates,
+            player.resolved_sprite,
+            self.player.snapshot().phase == 0,
+            self.player.can_damage(),
+        )? {
+            self.hud.add_points(collision.points);
+            if let Some(damage) = collision.damage {
+                self.player.hit(damage);
+            }
+        }
         if full_projection {
             self.strip_y = (92 + (player.horizon >> 3)) as usize;
             self.vertical_origin = 106 + i32::from(player.horizon >> 4);
         }
         self.enemy.project(
             assets,
+            full_projection,
+            self.vertical_origin,
+            self.player.snapshot().horizon,
+        )?;
+        self.special.project(
             full_projection,
             self.vertical_origin,
             self.player.snapshot().horizon,
@@ -366,8 +404,21 @@ impl Opening {
     }
 }
 
+fn draw_clipped(
+    assets: &GraphicsAssets,
+    frame: &mut Frame,
+    draw: scene::Draw,
+    viewport: Rect,
+) -> Result<(), Error> {
+    let sprite = assets
+        .sprites
+        .get(draw.resolved_sprite)
+        .ok_or_else(|| Error::InvalidData(format!("missing sprite {}", draw.resolved_sprite)))?;
+    frame.draw_sprite_clipped(sprite, draw.rect, viewport)
+}
+
 /// Final completed body of the currently verified, no-input opening batch.
-pub const LAST_BODY: u16 = 450;
+pub const LAST_BODY: u16 = 540;
 
 /// Three nominal 36.413 Hz timer units per completed loop body.
 /// Original CPU/render costs and startup timer transitions are not emulated.
@@ -528,6 +579,43 @@ mod tests {
         assert_eq!(state.enemies[2].depth, 1500);
         assert!(state.enemies[1].active && state.enemies[2].active);
         assert!(state.enemies[6].active && state.enemies[7].active);
+    }
+
+    #[test]
+    fn gate_allocation_preserves_the_delay_before_the_scripted_enemy() {
+        let assets = synthetic_assets();
+        let mut opening = Opening::new(&assets).unwrap();
+        opening.script_cursor = 13;
+        opening.script_delay = 20;
+        opening.terrain_selector = 7;
+        opening.primary_count = 2;
+        opening.advance(&assets).unwrap();
+        let state = opening.snapshot();
+        assert_eq!(state.script_cursor, 14);
+        assert_eq!(state.script_delay, 1);
+        assert_eq!(
+            state.special.map(|slot| slot.depth),
+            [916, 1140, 1364, 1588, 1812]
+        );
+        assert!(state.special.iter().all(|slot| slot.active
+            && slot.rect.x_bytes == 128
+            && slot.rect.width_bytes == 43
+            && slot.rect.height == 0));
+        assert!(!opening.enemy.active());
+        for _ in 0..20 {
+            opening.advance(&assets).unwrap();
+        }
+        let state = opening.snapshot();
+        assert_eq!(state.script_cursor, 15);
+        assert_eq!(state.script_delay, 0);
+        assert!(state.enemies[1].active);
+        assert!(!state.enemies[2].active);
+        assert_eq!(state.enemies[1].variant, 1);
+        assert_eq!(state.enemies[1].animation_phase, 0);
+        assert_eq!(state.enemies[1].depth, 1000);
+        assert_eq!(state.enemies[2].depth, 1000);
+        assert!(state.enemies[6].active);
+        assert!(!state.enemies[7].active);
     }
 
     #[test]

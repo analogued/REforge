@@ -85,8 +85,8 @@ raw state, and comparison reports remain external to the repository.
 ## Rust opening simulation
 
 `Opening` implements the opening without keyboard input through completed body
-450. It updates the HUD, recycles and projects terrain, and starts five enemy
-waves. The generator runs from fresh startup state; branch decisions consume
+540. It updates the HUD, recycles and projects terrain, and starts six enemy
+encounters. The generator runs from fresh startup state; branch decisions consume
 its results in the original order. Source resolution remains separate from
 requested sprite selection.
 
@@ -154,6 +154,31 @@ handler. Kind-1 collection, far effects, and immune overlap paths are covered by
 static inspection and authored synthetic tests; this no-input batch exercises
 kind-0 near effects.
 
+Selector 9 assigns kind 2 to recycled slots 15 through 19 and kind 3 to slots
+20 through 22. Each inactive row consumes its usual single random word; live
+rows keep their previous kind until retirement.
+
+The later gate command consumes two random words and allocates five records
+with a shared lateral position and staggered depths. These use movement subtype
+one and retain collision extents independently of sprite descriptors. They
+bypass ordinary source resolution and near projection, preserving logical
+width, zero bitmap height, and the first pass's scale and placement. The
+procedural renderer clears packed pixel bits to form a beam and two pillars,
+with perspective-dependent thickness and viewport clipping. Gates participate
+in the same persistent world order as ordinary sprites. Successful containment
+adds pending points; a failed overlapping crossing calls the player response
+with zero damage. Phase and grace still govern dispatch and response separately.
+The no-input run misses the gates; containment and response paths are covered by
+static inspection and synthetic tests.
+
+The sixth encounter uses variant one and a resource-defined sweep. Its
+coordinates and sprite requests follow integer affine segments reproducing the
+original quantized path. The common update retains those requests, copies
+coordinates to its shadow, and consumes three random words for firing and
+shared targeting. Creation initializes the available primary slots but leaves
+only the first craft and companion active. Terminal retirement and alternate
+modes remain beyond this batch's runtime coverage.
+
 Camera height changes with the player's response movement. The terrain strip
 position and vertical projection origin are cached by the first render pass;
 subsequent projections use the current camera height. Shadows precede ordinary
@@ -164,8 +189,8 @@ other entries sort by descending depth, retaining their preceding order at equal
 depth. Inactive records still participate.
 The initial HUD indicator artwork is preserved.
 
-Native frames and checked HUD, player, terrain, enemy, target, camera, and random
-state match the original at every completed-body boundary from 0 through 450.
+Native frames and checked HUD, player, terrain, enemy, gate, target, camera,
+random state, and retained drawing order match the original at every completed-body boundary from 0 through 540.
 The simulation uses interpreted rules and decoded resources. It does not load
 captured frames or state and does not reproduce every intermediate framebuffer
 write within a body.
@@ -179,7 +204,7 @@ The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
 The viewer offers an interval override and manual stepping.
 
-The simulation holds after the current verified batch of 450 bodies. This is a
+The simulation holds after the current verified batch of 540 bodies. This is a
 comparison checkpoint, not a randomness barrier. Subsequent encounter commands
 need further implementation and validation. Keyboard movement and firing,
 restart within an existing random stream, and audio are unsupported.

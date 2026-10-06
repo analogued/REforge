@@ -10,7 +10,7 @@ use std::{env, path::PathBuf};
 const HELP: &str = "Usage: mach3-viewer [--scale 1..6] [--step|--static] [--period-ms 1..5000] <assets-directory>\n\n\
 Space: splash -> intro -> opening. Escape or window close: exit.\n\
 Default window scale: 3; resizing preserves integer pixel scaling.\n\
-Opening animates 450 no-input loop bodies, including the first five enemy waves, then holds.\n\
+Opening animates 540 no-input loop bodies, including the first six enemy waves, then holds.\n\
 --step: fresh Space presses advance one body. --static: show initial scene only.\n\
 Default pace: about 12.14 bodies/s; --period-ms overrides it.\n\
 Original intro timing, player controls, later enemy behavior, and audio remain deferred.";

@@ -55,6 +55,13 @@ impl Frame {
         &self.packed
     }
 
+    /// Apply a packed-byte mask for procedural world drawing.
+    pub(crate) fn mask_byte(&mut self, x_bytes: usize, y: usize, mask: u8) {
+        if x_bytes < ROW_BYTES && y < HEIGHT {
+            self.packed[y * ROW_BYTES + x_bytes] &= mask;
+        }
+    }
+
     /// Export visible pixels into two CGA banks; unused bank bytes are zero.
     pub fn to_cga(&self) -> Vec<u8> {
         let mut vram = vec![0; 0x4000];

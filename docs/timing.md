@@ -151,10 +151,10 @@ work. Each changed low BIOS tick moves it down five pixels. The next changed
 tick after it reaches Y 164 breaks it and releases the bird; execution resumes
 at the bird call without repeating input or the cage prelude. Capture awards
 the external room score plus twice the unused part of a 1350-tick allowance.
-The completion path retains its 30-tick blocking wait before returning to the
-saved alley position. It awards once, and a neutral window exit awards nothing.
-Celebration rendering, transition wipes and the subsequent bonus scene are
-omitted. Scene changes reset the player acceptance gate and logical controls.
+Completion blocks gameplay through the shared scoring presentation before
+returning to the saved alley position. It awards once, and a neutral window
+exit awards nothing. The subsequent bonus scene is omitted. Scene changes
+reset the player acceptance gate and logical controls.
 
 The candidate selector uses the shared generator, difficulty weighting and
 two-entry room history; it avoids a third consecutive identical candidate.
@@ -167,6 +167,46 @@ expires once per distinct tick rather than catching up skipped ticks. Random
 tone requests from the bird follow their original predicates. Ambient sound
 random consumers and instruction-level interrupt placement remain omitted;
 full original-loop random-stream equivalence is not established.
+
+### Ordinary-room scoring presentation
+
+Success enters the shared `1bf0`/`38b0` transition. Two `1c67` wipes expand around
+`((playerX+12)&fff0, playerY+8)`, first filling black and finally logical color
+two. Width starts at one pixel, grows by 32 and is rounded down to eight-pixel
+words for drawing; height starts at eight and grows by 16. Each boundary clamps
+independently. The wipes have no explicit tick or retrace wait: their pace comes
+from the execution-cost allowance for drawing and sound I/O.
+
+Between wipes, `3a96` masks the external cat-face sprite into writable scratch
+data. `3aac` draws twelve rows of four silhouettes, bottom to top, without a
+tick wait. The time bonus is sampled after this initial drawing; ordinary
+rooms 1..5 use twice the unused part of 1350 wrapping BIOS ticks, while room 6
+uses the unused part of 2700 ticks. The external per-room base award is added
+to the seven-digit decimal award and then to the current score. High score is
+unchanged. The completed-room count increments before the silhouettes; score
+addition occurs once after them.
+
+The second pass uses the full sprite and reveals rows from Y176 upwards in
+16-pixel steps, stopping at `((2700-timeBonus)>>4)&f0`. Each row, including the
+last, is followed by a two-tick wait. Four award digits are then displayed at
+X144 and the cutoff Y, preserving leading zeros. The original `3a3a` prints
+through the BIOS font; the reconstruction adapts the executable's HUD digit
+ink to color three, retaining an explicit glyph-shape approximation.
+
+The final `3a1c` loop samples a BIOS tick before waiting for retrace set. It
+sets logical background color zero to hardware green when sampled tick bit 2
+is clear, and black otherwise. After 30 wrapping ticks, it restores black and
+runs the final color wipe before initializing the alley. Pending retrace samples
+and animation phases remain frozen during a desktop pause. Input, player and
+ordinary actors stay blocked throughout; host pause and quit remain responsive.
+Sound counters advance with the reviewed table-driven tone requests, without
+audio synthesis or random draws from these presentation helpers.
+
+The original sets scene zero before presentation. The recreation's scene
+diagnostic remains five until the alley has been initialized; a dedicated
+completion state blocks all room work meanwhile. `--scene completion` starts
+this sequence directly for testing. The pending bonus flag is suppressed at
+alley return until that destination is implemented.
 
 ### Reference execution costs
 
@@ -191,6 +231,9 @@ Active window work adds about 0.48 ms, based on fixed-240 row-helper samples
 near 0.5 ms; start and contact-hold paths share this approximate allowance.
 Room actor gates, cage/bird/broom drawing and blocking-fall polling use
 provisional allowances that have not been independently cost-calibrated.
+Completion drawing currently uses a provisional allowance per copied byte;
+its explicit two-tick reveal waits and 30-tick final hold remain independent
+of that fit. No exact fixed-240 transition duration is claimed.
 Room tick predicates and blocking waits are retained, but this does not
 establish the room's original real-time movement cadence.
 The bin cat's first-contact sound still incurs a silent delay: about 81.5 ms for

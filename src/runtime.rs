@@ -48,6 +48,7 @@ pub struct ReferenceCosts {
     pub room_bird_draw: u64,
     pub room_broom_draw: u64,
     pub room_effect_poll: u64,
+    pub completion_draw_byte: u64,
     pub mouse_redraw: u64,
     pub mouse_catch: u64,
     pub bin_push_sound: u64,
@@ -111,6 +112,9 @@ impl ReferenceCosts {
             room_bird_draw: 600_000,
             room_broom_draw: 2_500_000,
             room_effect_poll: 50_000,
+            // Provisional drawing allowance for wipes and cat-face stamps.
+            // Original presentation tick/retrace waits are modeled separately.
+            completion_draw_byte: 4_000,
             // Full original helpers: normal draw about 1.6ms, catch about 8ms.
             // Add only work above the ordinary gated group allowance.
             mouse_redraw: 1_550_000,
@@ -218,7 +222,11 @@ impl Runtime {
         self.synchronize_scene(alley);
         if alley.completion_waiting() {
             self.clock.advance_nanos(self.costs.room_effect_poll);
-            let changed = alley.finish_scene(self.clock.sample().bios.tick_low)?;
+            let sample = self.clock.sample();
+            let work = alley.advance_completion(sample.bios.tick_low, sample.retrace)?;
+            self.clock
+                .advance_nanos(work.bytes_drawn as u64 * self.costs.completion_draw_byte);
+            let changed = work.complete;
             if changed {
                 self.synchronize_scene(alley);
             }

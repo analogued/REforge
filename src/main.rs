@@ -16,7 +16,7 @@ const HELP: &str = "Alley Cat — game reconstruction
 Usage: alley-cat --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
-  --scene alley|birdcage   Initial scene for testing (default: alley)
+  --scene NAME            Start in alley, birdcage or completion (default: alley)
   --scale N               Initial window multiplier, 1..16 (default: 4)
   --seed N                Initial random seed, decimal or 0xHEX (default: 0xfa59)
   --difficulty N          Alley layout difficulty 0..7 (default: 0)
@@ -37,10 +37,17 @@ Open windows currently lead to the birdcage room. Lethal actors and audio are ab
 Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum StartScene {
+    Alley,
+    Birdcage,
+    Completion,
+}
+
 struct Options {
     original: PathBuf,
     machine: Machine,
-    start_birdcage: bool,
+    scene: StartScene,
     scale: u16,
     seed: u16,
     difficulty: u16,
@@ -70,7 +77,7 @@ fn options() -> Result<Option<Options>, String> {
     let mut result = Options {
         original: PathBuf::new(),
         machine: Machine::Cga,
-        start_birdcage: false,
+        scene: StartScene::Alley,
         scale: 4,
         seed: 0xfa59,
         difficulty: 0,
@@ -112,10 +119,11 @@ fn options() -> Result<Option<Options>, String> {
             }
             "--seed" => result.seed = integer(&value)?,
             "--scene" => {
-                result.start_birdcage = match value.as_str() {
-                    "alley" => false,
-                    "birdcage" => true,
-                    _ => return Err("Scene must be alley or birdcage".into()),
+                result.scene = match value.as_str() {
+                    "alley" => StartScene::Alley,
+                    "birdcage" => StartScene::Birdcage,
+                    "completion" => StartScene::Completion,
+                    _ => return Err("Scene must be alley, birdcage or completion".into()),
                 }
             }
             "--scale" => result.scale = integer(&value)?,
@@ -236,8 +244,17 @@ fn run() -> Result<(), String> {
         options.difficulty,
         options.machine,
     )?;
-    if options.start_birdcage {
-        alley.enter_birdcage(0)?;
+    match options.scene {
+        StartScene::Alley => {}
+        StartScene::Birdcage => alley.enter_birdcage(0)?,
+        StartScene::Completion => {
+            if options.step_hz.is_some() || (options.headless && !options.timed) {
+                return Err(
+                    "Completion preview requires default timing or --headless --timed".into(),
+                );
+            }
+            alley.enter_completion(0)?;
+        }
     }
     let mut trace = options
         .trace

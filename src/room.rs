@@ -26,7 +26,7 @@ fn copy_sprite(
 }
 
 /// CS:2b24 uses bytes per row, unlike the generic word-width rectangle helpers.
-fn draw_list(
+pub(crate) fn draw_list(
     data: &mut [u8],
     screen: &mut Framebuffer,
     mut list: usize,
@@ -162,15 +162,28 @@ fn add_decimal(data: &mut [u8], destination: usize, addend: &[u8]) {
     }
 }
 
-/// CS:38b0/391e/3974 completion bookkeeping. The original celebration and its
-/// 30-tick blocking presentation remain the caller's responsibility.
-pub(crate) fn award_birdcage_completion(data: &mut [u8], tick: u16) -> Result<(), String> {
+/// CS:38ba..38be, before the initial cat-face presentation.
+pub(crate) fn begin_room_completion(data: &mut [u8]) -> Result<(), String> {
     check_data(data)?;
     let progress = word(data, 0x414).wrapping_add(1);
     set_word(data, 0x414, progress);
     data[0x418] = 1;
+    Ok(())
+}
+
+/// CS:391e/3974 ordinary-room score bookkeeping. Presentation is
+/// scheduled separately, and its initial drawing precedes this tick sample.
+pub(crate) fn award_room_completion(data: &mut [u8], scene: u16, tick: u16) -> Result<(), String> {
+    check_data(data)?;
+    if !(1..=6).contains(&scene) {
+        return Err("Ordinary completion requires a room number in 1..6".into());
+    }
     let elapsed = tick.wrapping_sub(word(data, 0x410));
-    let time_bonus = 1350u16.saturating_sub(elapsed) * 2;
+    let time_bonus = if scene == 6 {
+        2700u16.saturating_sub(elapsed)
+    } else {
+        1350u16.saturating_sub(elapsed) * 2
+    };
     set_word(data, 0x3697, time_bonus);
     set_word(data, 0x368b, time_bonus);
     data[0x368d..0x3695].fill(0);
@@ -179,14 +192,14 @@ pub(crate) fn award_birdcage_completion(data: &mut [u8], tick: u16) -> Result<()
         data[0x368d + index] = (value % 10) as u8;
         value /= 10;
     }
-    let source = usize::from(word(data, 0x36cc + 5 * 2));
+    let source = usize::from(word(data, 0x36cc + usize::from(scene) * 2));
     let base: [u8; 7] = data
         .get(source..source + 7)
-        .ok_or("Birdcage completion score exceeds executable data")?
+        .ok_or("Room completion score exceeds executable data")?
         .try_into()
-        .map_err(|_| "Birdcage completion score is truncated")?;
+        .map_err(|_| "Room completion score is truncated")?;
     if base.iter().any(|digit| *digit > 9) {
-        return Err("Birdcage completion score has an invalid decimal digit".into());
+        return Err("Room completion score has an invalid decimal digit".into());
     }
     add_decimal(data, 0x368d, &base);
     let award: [u8; 7] = data[0x368d..0x3694].try_into().unwrap();
@@ -588,7 +601,8 @@ mod tests {
         data[0x6100..0x6107].copy_from_slice(&[0, 0, 0, 3, 5, 0, 0]);
         set_word(&mut data, 0x410, 0xfff0);
         data[0x1f80] = 3;
-        award_birdcage_completion(&mut data, 84).unwrap();
+        begin_room_completion(&mut data).unwrap();
+        award_room_completion(&mut data, 5, 84).unwrap();
         assert_eq!(word(&data, 0x3697), 2500);
         assert_eq!(&data[0x1f82..0x1f89], &[0, 0, 0, 6, 0, 0, 0]);
         assert_eq!((word(&data, 0x414), data[0x418]), (1, 1));
@@ -602,9 +616,30 @@ mod tests {
         set_word(&mut data, 0x36d6, 0x6100);
         data[0x6100..0x6107].copy_from_slice(&[0, 0, 0, 3, 5, 0, 0]);
         data[0x1f82..0x1f89].copy_from_slice(&[9, 9, 9, 9, 0, 0, 0]);
-        award_birdcage_completion(&mut data, 1351).unwrap();
+        award_room_completion(&mut data, 5, 1351).unwrap();
         assert_eq!(word(&data, 0x3697), 0);
         assert_eq!(&data[0x1f82..0x1f89], &[0, 0, 0, 2, 5, 0, 0]);
+    }
+
+    #[test]
+    fn ordinary_completion_uses_each_rooms_external_base_and_milk_time_rule() {
+        let mut data = data();
+        set_word(&mut data, 0x36d4, 0x6100);
+        set_word(&mut data, 0x36d8, 0x6107);
+        data[0x6100..0x6107].copy_from_slice(&[0, 0, 0, 1, 5, 0, 0]);
+        data[0x6107..0x610e].copy_from_slice(&[0, 0, 0, 2, 5, 0, 0]);
+        award_room_completion(&mut data, 4, 100).unwrap();
+        assert_eq!(word(&data, 0x3697), 2500);
+        assert_eq!(&data[0x368d..0x3694], &[0, 0, 0, 4, 0, 0, 0]);
+        award_room_completion(&mut data, 6, 100).unwrap();
+        assert_eq!(word(&data, 0x3697), 2600);
+        assert_eq!(&data[0x368d..0x3694], &[0, 0, 0, 5, 1, 0, 0]);
+        assert_eq!(&data[0x1f82..0x1f89], &[0, 0, 0, 9, 1, 0, 0]);
+        assert_eq!(
+            word(&data, 0x414),
+            0,
+            "Scoring must not begin another presentation"
+        );
     }
 
     #[test]

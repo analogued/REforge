@@ -8,6 +8,7 @@ mod bin_cat;
 mod birdcage;
 pub mod cga;
 mod clothes;
+mod completion;
 mod decoration;
 mod mice;
 #[cfg(feature = "sdl")]

@@ -68,6 +68,9 @@ screens are not implemented.
 
 `--scene birdcage` starts directly in the birdcage room for testing; the default
 is `--scene alley`. Room actors and transitions use the default timed runner.
+`--scene completion` previews the birdcage scoring presentation and returns to
+the alley, without playing the objective. This preview requires default windowed
+timing or `--headless --timed`.
 
 ## Current behavior
 
@@ -104,10 +107,21 @@ history do not determine the playable destination yet. Projectiles are disabled.
 In the birdcage room, push the cage off its shelf and catch the released bird.
 Furniture supports, cage pushing/falling, bird movement, floor tracks and the
 broom use the original tables and rules. The broom pushes the cat without
-removing a life. Catching the bird awards the base score plus a time bonus,
-waits 30 BIOS ticks, then returns to the alley. Returning through the room
-window leaves the score unchanged. Lives are preserved on both paths. The
-celebration graphics, transition wipes and subsequent bonus room are absent.
+removing a life. Catching the bird starts the shared ordinary-room scoring
+presentation: an expanding black wipe, cat-face silhouettes, a stepped reveal,
+the four-digit award, a green/black background flash and an expanding color wipe
+before returning to the alley. The reveal waits two BIOS ticks after each row;
+the final flash lasts 30 ticks. The award includes the external room base score
+and a time bonus sampled after the initial drawing. Lives are preserved, and
+returning through the room window leaves the score unchanged. The subsequent
+bonus room remains disabled.
+
+Scoring cat faces come from the executable. The original award lettering uses
+a BIOS ROM font absent from that file; the recreation adapts its external HUD
+digits to white instead, so numeral shapes remain an approximation. The black
+and color wipes follow the original expanding geometry; their execution costs
+are provisional. Audio is silent, with the presentation's logical tone counters
+retained.
 
 The player starts settled on the floor, bypassing the original entry animation.
 Falling behind the fence hides the cat and starts a clipped re-entry from the

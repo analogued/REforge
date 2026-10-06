@@ -2,8 +2,8 @@
 
 An early Rust reconstruction of **Alley Cat** for modern desktop systems,
 initially targeting Linux. The current program supports alley movement,
-nonlethal actors, window entry, the cheese and birdcage rooms, and the hearts
-bonus scene.
+nonlethal actors, window entry, the bookcase, cheese and birdcage rooms, and the
+hearts bonus scene.
 It is not a complete game.
 A public recreation name has not been chosen.
 
@@ -72,10 +72,11 @@ The default seed is `0xfa59`.
 These controls are diagnostic setup options; startup and difficulty selection
 screens are not implemented.
 
-`--scene cheese` and `--scene birdcage` start directly in those rooms for testing;
-the default is `--scene alley`. Room actors and transitions use the default timed runner.
-`--scene hearts` starts directly in the hearts scene with one gift. Cheese and
-hearts require default windowed timing or `--headless --timed`.
+`--scene bookcase`, `--scene cheese` and `--scene birdcage` start directly in those
+rooms for testing; the default is `--scene alley`. Room actors and transitions
+use the default timed runner. `--scene hearts` starts directly in the hearts
+scene with one gift. Bookcase, cheese and hearts require default windowed timing
+or `--headless --timed`.
 `--scene completion` previews the birdcage scoring presentation and returns to
 the alley, without playing the objective. This preview requires default windowed
 timing or `--headless --timed`.
@@ -109,13 +110,22 @@ Actor sprites and motion tables come from the required original executable.
 Windows open, hold and close with the original invocation-count, retrace and
 BIOS-tick gates. New openings require the cat to be above the fence, as in the
 original. A descending cat touching an eligible open window enters a room.
-While the ordinary-room set is incomplete, a seeded choice selects cheese or
-birdcage, allowing at most two identical ordinary window destinations in a row.
+While the ordinary-room set is incomplete, a seeded choice selects bookcase,
+cheese or birdcage, allowing at most two identical ordinary window destinations
+in a row.
 The original weighted selector and its candidate history are retained separately;
 the temporary playable choice consumes one additional shared random value per
-ordinary entry. Completing either room
-makes the next eligible window display the female cat and lead to the hearts
-scene. Projectiles remain disabled.
+ordinary entry. Completing any ordinary room makes the next eligible window
+display the female cat and lead to the hearts scene. Projectiles remain disabled.
+
+In the bookcase room, climb the shelves and collect the three potted plants.
+Books use the original seeded layout; shelf support uses the original geometric
+rule rather than individual book outlines. The spider follows the original
+pursuit, descent and ascent logic, including broom interference. Its lethal
+contact effect and life loss are disabled during this development stage.
+Collecting the third plant starts the shared scoring presentation, then returns
+to the alley with the next eligible window leading to hearts. Leaving through
+the room window returns without an award.
 
 In the cheese room, collect four mice as they emerge from the holes. Their
 visibility, avoidance and relocation use the original shared random generator

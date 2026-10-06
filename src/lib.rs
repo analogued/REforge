@@ -6,6 +6,7 @@ pub mod alley;
 pub mod assets;
 mod bin_cat;
 mod birdcage;
+mod bookcase;
 pub mod cga;
 mod cheese;
 mod clothes;

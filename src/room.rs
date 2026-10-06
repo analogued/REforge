@@ -112,6 +112,58 @@ pub(crate) fn draw_birdcage_room(data: &mut [u8], screen: &mut Framebuffer) -> R
     copy_sprite(data, screen, 0x1fe0, 0x0dd6, 0x1002)
 }
 
+/// CS:28be..2908 and CS:3bdb: bookcase furniture, plants and seeded books.
+pub(crate) fn draw_bookcase_room(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
+    check_data(data)?;
+    screen.fill_visible(0xaa);
+    draw_room_wall(data, screen, 0x0640)?;
+    draw_list(data, screen, 0x2570, 0x0c90)?;
+    set_word(data, 0x2650, 96);
+    data[0x2652] = 96;
+    draw_furniture(data, screen, 0x140c, &[0x263c, 0x263a, 0x2638, 0x2636])?;
+    draw_furniture(
+        data,
+        screen,
+        0x1418,
+        &[0x2646, 0x2644, 0x2642, 0x2640, 0x263e],
+    )?;
+    for base in [0x1184, 0x11a2] {
+        draw_list(data, screen, 0x2344, base)?;
+    }
+    draw_list(data, screen, 0x2624, 0)?;
+    let mut destination = 0x066au16;
+    for remaining in (1..=16).rev() {
+        let mut selected = 0u8;
+        set_word(data, 0x37a0, destination);
+        for column in 0..16 {
+            data[0x37a2] = selected;
+            copy_sprite(
+                data,
+                screen,
+                0x3730 + u16::from(selected),
+                destination + column * 2,
+                0x0801,
+            )?;
+            let next_column = (column + 1) * 2;
+            selected = if next_column == 30 {
+                0x20
+            } else if next_column > 30 {
+                break;
+            } else if selected != 0x50 && remaining & 1 == 0 && next_random(data) as u8 >= 0x40 {
+                0x10
+            } else {
+                let random = next_random(data) as u8;
+                (random.wrapping_sub(next_column as u8) & 0x30) + 0x30
+            };
+        }
+        destination += 0x0140;
+    }
+    set_word(data, 0x37a0, destination);
+    data[0x2ae0] = 1;
+    data[0x2ae2] = 0;
+    Ok(())
+}
+
 /// CS:288d..28bd and CS:3f9e: furniture, cheese tiles and the difficulty's
 /// paired holes. Actor placement follows player entry and broom initialization.
 pub(crate) fn draw_cheese_room(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
@@ -170,8 +222,10 @@ pub(crate) fn draw_cheese_room(data: &mut [u8], screen: &mut Framebuffer) -> Res
 /// Existing animation phase, speed and edge-entry countdown are preserved.
 pub(crate) fn initialize_room_player(data: &mut [u8], scene: u16) -> Result<(), String> {
     check_data(data)?;
-    if !matches!(scene, 0 | 4 | 5 | 7) {
-        return Err("Player entry supports the alley, cheese, birdcage and hearts rooms".into());
+    if !matches!(scene, 0 | 3..=5 | 7) {
+        return Err(
+            "Player entry supports the alley, bookcase, cheese, birdcage and hearts rooms".into(),
+        );
     }
     let (x, y) = if scene == 0 {
         (word(data, 1), data[3])
@@ -295,8 +349,8 @@ fn overlaps(first: (u16, u8, u16, u8), second: (u16, u8, u16, u8)) -> bool {
 pub(crate) fn resolve_scene_support(data: &[u8], player: &Player) -> Result<SupportCheck, String> {
     check_data(data)?;
     let scene = usize::from(word(data, 4));
-    if !matches!(scene, 4 | 5) {
-        return Err("Room support supports the cheese and birdcage rooms".into());
+    if !matches!(scene, 3..=5) {
+        return Err("Room support supports the bookcase, cheese and birdcage rooms".into());
     }
     if player.vertical_direction == 1
         && overlaps(
@@ -313,6 +367,23 @@ pub(crate) fn resolve_scene_support(data: &[u8], player: &Player) -> Result<Supp
             hit: None,
             exit: true,
         });
+    }
+    // CS:3c43 precedes the ordinary furniture table in scene three. Shelf
+    // support deliberately spans the bookcase, irrespective of book graphics.
+    if scene == 3 {
+        let x = player.x & 0xfffc;
+        let shelf = player.y.wrapping_sub(2) & 0xf8;
+        if (164..=280).contains(&x) && shelf & 8 != 0 && (40..=160).contains(&shelf) {
+            return Ok(SupportCheck {
+                hit: Some(TableSupport {
+                    x,
+                    y: shelf + 2,
+                    state: 1,
+                    index: 0,
+                }),
+                exit: false,
+            });
+        }
     }
     let mut index = usize::from(word(data, 0x1269 + scene * 2));
     loop {
@@ -496,8 +567,8 @@ pub(crate) fn advance_broom(
 ) -> Result<Option<BroomUpdate>, String> {
     check_data(data)?;
     let scene = usize::from(word(data, 4));
-    if !matches!(scene, 4 | 5) {
-        return Err("Broom update supports the cheese and birdcage rooms".into());
+    if !matches!(scene, 3..=5) {
+        return Err("Broom update supports the bookcase, cheese and birdcage rooms".into());
     }
     if tick.wrapping_sub(word(data, 0x328c)) < word(data, 0x32f2 + scene * 2) {
         return Ok(None);
@@ -626,6 +697,66 @@ mod tests {
         set_word(&mut data, 0x2650, 248);
         data[0x2652] = 96;
         data
+    }
+
+    #[test]
+    fn bookcase_shelves_use_aligned_geometry_and_window_exit_precedence() {
+        let mut data = data();
+        set_word(&mut data, 4, 3);
+        set_word(&mut data, 0x2650, 96);
+        data[0x2652] = 96;
+        for (x, expected) in [
+            (163, None),
+            (164, Some(164)),
+            (167, Some(164)),
+            (280, Some(280)),
+            (283, Some(280)),
+            (284, None),
+        ] {
+            let mut player = Player::at_alley_floor(x);
+            player.y = 42;
+            let result = resolve_scene_support(&data, &player).unwrap();
+            assert_eq!(
+                result.hit.map(|hit| (hit.x, hit.y, hit.state)),
+                expected.map(|x| (x, 42, 1))
+            );
+            assert!(!result.exit);
+        }
+        for (y, expected) in [
+            (41, None),
+            (42, Some(42)),
+            (49, Some(42)),
+            (50, None),
+            (58, Some(58)),
+            (154, Some(154)),
+            (161, Some(154)),
+            (162, None),
+            (0, None),
+        ] {
+            let mut player = Player::at_alley_floor(200);
+            player.y = y;
+            assert_eq!(
+                resolve_scene_support(&data, &player)
+                    .unwrap()
+                    .hit
+                    .map(|hit| hit.y),
+                expected
+            );
+        }
+        set_word(&mut data, 0x2650, 204);
+        data[0x2652] = 50;
+        let mut player = Player::at_alley_floor(200);
+        player.y = 42;
+        player.vertical_direction = 1;
+        assert_eq!(
+            resolve_scene_support(&data, &player).unwrap(),
+            SupportCheck {
+                hit: None,
+                exit: true
+            }
+        );
+        player.vertical_direction = 0xff;
+        assert!(resolve_scene_support(&data, &player).unwrap().hit.is_some());
     }
 
     #[test]

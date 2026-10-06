@@ -184,11 +184,12 @@ reset the player acceptance gate and logical controls.
 
 The candidate selector uses the shared generator, difficulty weighting and
 two-entry room history; it avoids a third consecutive identical candidate.
-Until all rooms are implemented, dispatch makes a separate seeded choice between
-scenes 4 and 5, consuming one additional shared random value. A separate two-entry
-history prevents three identical playable destinations in a row. Original
-candidate history is therefore not a history of actual ordinary destinations. Success preserves
-the pending-bonus flag; the next eligible window selects scene 7 without
+Until all rooms are implemented, dispatch makes a separate seeded choice among
+scenes 3, 4 and 5, consuming one additional shared random value. A separate
+two-entry history prevents three identical playable destinations in a row. Original
+candidate history is therefore not a history of actual ordinary destinations.
+Success preserves the pending-bonus flag; the next eligible window selects scene
+7 without
 advancing the selector's random state or ordinary candidate history.
 
 Logical room tone state is retained without audio output. A pending tone
@@ -196,6 +197,23 @@ expires once per distinct tick rather than catching up skipped ticks. Random
 tone requests from the bird follow their original predicates. Ambient sound
 random consumers and instruction-level interrupt placement remain omitted;
 full original-loop random-stream equivalence is not established.
+
+### Bookcase room
+
+Scene three follows the original caller order: input, shared tone expiry,
+accepted player update, spider (`3cb1`), plants (`3b42`), broom, then termination.
+The spider accepts at least two wrapping BIOS ticks between updates; plants
+accept one changed tick and consume at most one target in reverse slot order.
+The last plant sets success only while failure is clear. Spider contact reports
+an overlap while allowing movement to continue: the original nine-tick lethal
+effect and failure flag remain disabled.
+
+Bookcase shelf support (`3c43`) precedes the ordinary furniture table but follows
+the descending room-window exit test. It aligns X to four pixels, accepts
+164..280 inclusive, and snaps to shelf rows 42, 58, 74, 90, 106, 122, 138 and
+154 using the original byte arithmetic. These supports span the bookcase
+independently of the randomized book tiles. Spider and plant drawing execution
+costs are provisional; no full original-loop pacing equivalence is claimed.
 
 ### Ordinary-room scoring presentation
 

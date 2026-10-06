@@ -58,7 +58,13 @@ mod tests {
 
     #[test]
     fn horizontal_limits_keep_hearts_inside_cupids_and_preserve_other_scenes() {
-        for (scene, left, right) in [(0, 8, 290), (4, 8, 290), (5, 8, 290), (7, 36, 270)] {
+        for (scene, left, right) in [
+            (0, 8, 290),
+            (3, 8, 290),
+            (4, 8, 290),
+            (5, 8, 290),
+            (7, 36, 270),
+        ] {
             let mut data = room_tables();
             crate::assets::set_word(&mut data, 4, scene);
             for step in [1, 8] {
@@ -819,8 +825,10 @@ impl Player {
     /// Import state from a data-segment capture. No original data is embedded.
     pub fn from_data(data: &[u8]) -> Result<Self, &'static str> {
         Self::check_data(data)?;
-        if !matches!(word(data, 4), 0 | 4 | 5 | 7) {
-            return Err("player core supports the alley, cheese, birdcage and hearts scenes only");
+        if !matches!(word(data, 4), 0 | 3..=5 | 7) {
+            return Err(
+                "player core supports the alley, bookcase, cheese, birdcage and hearts scenes only",
+            );
         }
         Ok(Self {
             x: word(data, 0x579),
@@ -921,7 +929,7 @@ impl Player {
     fn check_data(data: &[u8]) -> Result<(), &'static str> {
         if data.len() < 0x1028 {
             Err("external data segment is too short for alley player tables")
-        } else if matches!(word(data, 4), 4 | 5 | 7) && data.len() < crate::assets::DATA_LENGTH {
+        } else if matches!(word(data, 4), 3..=5 | 7) && data.len() < crate::assets::DATA_LENGTH {
             Err("external data segment is too short for room player tables")
         } else {
             Ok(())
@@ -939,7 +947,7 @@ impl Player {
         if !(-1..=1).contains(&controls.x) || !(-1..=1).contains(&controls.y) {
             return Err("control directions must be -1, 0, or 1");
         }
-        if self.alternate_animation != 0 && !matches!(word(data, 4), 4 | 5 | 7) {
+        if self.alternate_animation != 0 && !matches!(word(data, 4), 3..=5 | 7) {
             return Err("collision-effect animation is outside the player core");
         }
         let mut outcome = UpdateOutcome {

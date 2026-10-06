@@ -50,7 +50,7 @@ pub struct Alley {
     machine: Machine,
     completion: Option<crate::completion::Completion>,
     hearts_completion: Option<crate::hearts_completion::HeartsCompletion>,
-    /// Actual ordinary window destinations while only two rooms are playable.
+    /// Actual ordinary window destinations while the ordinary room set is incomplete.
     /// Original candidate history remains separate in the external runtime data.
     ordinary_rooms: [u16; 2],
 }
@@ -167,10 +167,10 @@ impl Alley {
     }
 
     pub fn update(&mut self, controls: Controls) -> Result<UpdateOutcome, String> {
-        let image = if matches!(self.scene(), 4 | 5 | 7) {
+        let image = if matches!(self.scene(), 3..=5 | 7) {
             let image = self.compositor.suspend(&mut self.screen)?;
             self.player.write_data(&mut self.data)?;
-            if matches!(self.scene(), 4 | 5) && self.player.floor_track_due(controls) {
+            if matches!(self.scene(), 3..=5) && self.player.floor_track_due(controls) {
                 self.data[0x56e] = controls.x as u8;
                 crate::room::record_floor_track(&mut self.data, &mut self.screen)?;
             }
@@ -256,7 +256,8 @@ impl Alley {
         &self.presented
     }
 
-    /// Original scene numbers: alley zero, cheese four, birdcage five, hearts seven.
+    /// Original scene numbers: alley zero, bookcase three, cheese four, birdcage
+    /// five and hearts seven.
     pub fn scene(&self) -> u16 {
         word(&self.data, 4)
     }
@@ -366,6 +367,35 @@ impl Alley {
         self.setup_birdcage()
     }
 
+    /// Enter the bookcase room directly for diagnostic play.
+    pub fn enter_bookcase(&mut self, tick: u16) -> Result<(), String> {
+        self.player.write_data(&mut self.data)?;
+        set_word(&mut self.data, 1, self.player.x);
+        self.data[3] = self.player.y;
+        set_word(&mut self.data, 0x410, tick);
+        self.data[0x419] = 1;
+        self.setup_bookcase()
+    }
+
+    fn setup_bookcase(&mut self) -> Result<(), String> {
+        self.completion = None;
+        self.hearts_completion = None;
+        set_word(&mut self.data, 4, 3);
+        set_word(&mut self.data, 6, 0);
+        self.compositor = PlayerCompositor::default();
+        self.bin_image = None;
+        self.mouse_effect = None;
+        crate::room::draw_bookcase_room(&mut self.data, &mut self.screen)?;
+        crate::room::initialize_room_player(&mut self.data, 3)?;
+        crate::room::initialize_broom(&mut self.data)?;
+        crate::bookcase::initialize(&mut self.data, &mut self.screen)?;
+        self.data[0x1cb8] = 0;
+        self.data[0x1cbf] = 0;
+        self.player = Player::from_data(&self.data)?;
+        self.reset_sound_state();
+        self.compose_actors()
+    }
+
     /// Enter the cheese room directly for diagnostic play.
     pub fn enter_cheese(&mut self, tick: u16) -> Result<(), String> {
         self.player.write_data(&mut self.data)?;
@@ -469,6 +499,20 @@ impl Alley {
         Ok(result)
     }
 
+    pub(crate) fn advance_bookcase_spider(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::bookcase::SpiderStep, String> {
+        self.room_actor(|data, screen| crate::bookcase::advance_spider(data, screen, tick))
+    }
+
+    pub(crate) fn advance_bookcase_targets(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::bookcase::TargetStep, String> {
+        self.room_actor(|data, screen| crate::bookcase::advance_targets(data, screen, tick))
+    }
+
     pub(crate) fn advance_cheese_mice(
         &mut self,
         tick: u16,
@@ -560,13 +604,9 @@ impl Alley {
         if candidate == 7 {
             return 7;
         }
-        let mut room = if next_random(&mut self.data) & 1 == 0 {
-            4
-        } else {
-            5
-        };
+        let mut room = 3 + next_random(&mut self.data) % 3;
         if self.ordinary_rooms == [room; 2] {
-            room = if room == 4 { 5 } else { 4 };
+            room = 3 + (room - 2) % 3;
         }
         self.ordinary_rooms = [self.ordinary_rooms[1], room];
         room
@@ -587,6 +627,7 @@ impl Alley {
             let candidate = crate::windows::select_room(&mut self.data, &self.player, tick)?;
             match self.playable_destination(candidate) {
                 7 => self.setup_hearts(tick)?,
+                3 => self.setup_bookcase()?,
                 4 => self.setup_cheese()?,
                 _ => self.setup_birdcage()?,
             }
@@ -897,11 +938,11 @@ mod tests {
                 assert_eq!(word(&alley.data, 0x41d), candidate);
                 rooms.push(actual);
             }
-            assert!(rooms.contains(&4) && rooms.contains(&5));
+            assert!([3, 4, 5].into_iter().all(|room| rooms.contains(&room)));
             assert!(
                 rooms
                     .windows(3)
-                    .all(|rooms| rooms != [4; 3] && rooms != [5; 3])
+                    .all(|rooms| rooms[0] != rooms[1] || rooms[1] != rooms[2])
             );
             assert_eq!(word(&alley.data, 0x2ae5), word(&replay.data, 0x2ae5));
         }

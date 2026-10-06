@@ -52,6 +52,8 @@ pub struct ReferenceCosts {
     pub hearts_actor_draw: u64,
     pub cheese_mouse_draw: u64,
     pub cheese_transfer_draw: u64,
+    pub bookcase_spider_draw: u64,
+    pub bookcase_target_draw: u64,
     pub mouse_redraw: u64,
     pub mouse_catch: u64,
     pub bin_push_sound: u64,
@@ -123,6 +125,9 @@ impl ReferenceCosts {
             // Provisional scene-four costs above its original tick gates.
             cheese_mouse_draw: 600_000,
             cheese_transfer_draw: 2_000_000,
+            // Provisional scene-three work above the original tick gates.
+            bookcase_spider_draw: 1_500_000,
+            bookcase_target_draw: 1_500_000,
             // Full original helpers: normal draw about 1.6ms, catch about 8ms.
             // Add only work above the ordinary gated group allowance.
             mouse_redraw: 1_550_000,
@@ -389,8 +394,8 @@ impl Runtime {
                 self.clock.advance_nanos(self.costs.room_bird_draw);
             }
         }
-        if matches!(alley.scene(), 4 | 7) {
-            // Both scenes expire the shared room tone before the player call.
+        if matches!(alley.scene(), 3 | 4 | 7) {
+            // These scenes expire the shared room tone before the player call.
             alley.advance_room_tone(self.clock.sample().bios.tick_low);
         }
 
@@ -491,7 +496,7 @@ impl Runtime {
         acceptance: Option<PlayerAcceptance>,
     ) -> Result<PassOutcome, String> {
         let before_scene = alley.scene();
-        if matches!(before_scene, 4 | 5 | 7) {
+        if matches!(before_scene, 3..=5 | 7) {
             if before_scene == 7 {
                 for call in [
                     Alley::advance_hearts_arrow,
@@ -506,6 +511,21 @@ impl Runtime {
                     }
                 }
             } else {
+                if before_scene == 3 {
+                    // Original scene-three loop: player, spider, plants, broom.
+                    let spider =
+                        alley.advance_bookcase_spider(self.clock.sample().bios.tick_low)?;
+                    self.clock.advance_nanos(self.costs.room_actor_gate);
+                    if spider.drew {
+                        self.clock.advance_nanos(self.costs.bookcase_spider_draw);
+                    }
+                    let targets =
+                        alley.advance_bookcase_targets(self.clock.sample().bios.tick_low)?;
+                    self.clock.advance_nanos(self.costs.room_actor_gate);
+                    if targets.drew {
+                        self.clock.advance_nanos(self.costs.bookcase_target_draw);
+                    }
+                }
                 if before_scene == 4 {
                     // Original scene-four loop: player, transfer, mice, broom,
                     // then termination. Transfers do not block room scheduling.

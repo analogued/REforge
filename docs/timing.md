@@ -248,6 +248,10 @@ reject unchanged BIOS ticks; the cat scheduler commits its tick only at indices
 Initializer `300f` draws sixteen heart cells per row but preserves eighteen
 support cells. Landing uses `(Y-5)&f8` and shifted/clamped `(X+7)>>4` indexing
 from `30fa`, retaining the original mismatch between sprites and geometry.
+The horizontal movement helper restricts scene seven to X36..270, inside the
+cupid columns; other implemented scenes use X8..290. Overshooting either limit
+while airborne stops horizontal motion and requests descent with a two-pixel step.
+Reaching the exact limit without overshooting does not trigger that response.
 Whole/broken states are zero/two. Each arrow toggles a crossed cell once with
 XOR two; a cell latch prevents repeating the toggle within that cell. Cat gifts
 use per-difficulty hiding timers; cat zero doubles its timer and the goal cat

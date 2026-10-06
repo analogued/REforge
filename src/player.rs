@@ -57,6 +57,73 @@ mod tests {
     }
 
     #[test]
+    fn horizontal_limits_keep_hearts_inside_cupids_and_preserve_other_scenes() {
+        for (scene, left, right) in [(0, 8, 290), (4, 8, 290), (5, 8, 290), (7, 36, 270)] {
+            let mut data = room_tables();
+            crate::assets::set_word(&mut data, 4, scene);
+            for step in [1, 8] {
+                for (x, direction, expected_x, crossed) in [
+                    (left + step, 255, left, false),
+                    (left + step - 1, 255, left, true),
+                    (left, 255, left, true),
+                    (right - step, 1, right, false),
+                    (right - step + 1, 1, right, true),
+                    (right, 1, right, true),
+                    (0, 255, left, true),
+                ] {
+                    let mut player = Player::at_alley_floor(80);
+                    player.x = x;
+                    player.horizontal_direction = direction;
+                    player.horizontal_step = step;
+                    assert_eq!(player.advance_x(&data), crossed);
+                    assert_eq!(player.x, expected_x);
+                }
+            }
+            // The native helper clamps attempted movement, not stationary state.
+            let mut player = Player::at_alley_floor(80);
+            player.x = 0;
+            player.horizontal_direction = 0;
+            assert!(!player.advance_x(&data));
+            assert_eq!(player.x, 0);
+        }
+    }
+
+    #[test]
+    fn hearts_edge_hit_stops_horizontal_motion_and_turns_a_jump_into_a_fall() {
+        let mut data = room_tables();
+        crate::assets::set_word(&mut data, 4, 7);
+        data[0x2be2..0x2c60].fill(2);
+        for (x, direction, limit) in [(37, 255, 36), (269, 1, 270)] {
+            let mut player = Player::at_alley_floor(x);
+            player.y = 100;
+            player.vertical_coordinate = 150;
+            player.horizontal_direction = direction;
+            player.horizontal_step = 8;
+            player.vertical_direction = 255;
+            player.vertical_step = 8;
+            player.support_delay = 8;
+            player.phase = 0xa5;
+            player.phase_decrement = 0x10;
+            player.airborne_sprite = Sprite {
+                source: 0x900,
+                dimensions: 0x0d03,
+            };
+            let outcome = player.update(Controls::default(), &data).unwrap();
+            assert_eq!((player.x, player.y), (limit, 102));
+            assert_eq!(
+                (player.horizontal_direction, player.vertical_direction),
+                (0, 1)
+            );
+            assert_eq!(
+                (player.vertical_step, player.support_delay, player.phase),
+                (2, 0, 0xa5)
+            );
+            assert!(!outcome.landed && !outcome.edge_reset);
+            assert!(!player.take_room_exit());
+        }
+    }
+
+    #[test]
     fn hearts_fall_has_no_alley_floor_and_exits_below_the_bottom_row() {
         let mut data = room_tables();
         crate::assets::set_word(&mut data, 4, 7);
@@ -917,7 +984,7 @@ impl Player {
                 return Ok(outcome);
             }
             self.horizontal_step = 8;
-            self.advance_x();
+            self.advance_x(data);
             // The original falls through to ordinary controls on this same update.
         }
         if self.support_state != 0 {
@@ -979,7 +1046,7 @@ impl Player {
                 return Ok(outcome);
             }
         }
-        self.advance_x();
+        self.advance_x(data);
         if self.horizontal_direction == 0 {
             self.horizontal_step = 2;
             self.phase = 8;
@@ -1099,19 +1166,29 @@ impl Player {
         self.last_support = Support::None;
     }
 
-    /// Return whether the original helper would set carry after clamping.
-    fn advance_x(&mut self) -> bool {
+    /// CS:0fc9 returns carry when movement crosses a scene's horizontal limit.
+    /// Scene seven keeps the cat inside the decorative cupid columns.
+    fn advance_x(&mut self, data: &[u8]) -> bool {
+        let (left, right_exclusive) = if word(data, 4) == 7 {
+            (36, 271)
+        } else {
+            (8, 291)
+        };
         match self.horizontal_direction {
             0 => false,
             1 => {
                 let next = self.x.wrapping_add(self.horizontal_step);
-                self.x = if next >= 291 { 290 } else { next };
-                next >= 291
+                self.x = if next >= right_exclusive {
+                    right_exclusive - 1
+                } else {
+                    next
+                };
+                next >= right_exclusive
             }
             _ => {
                 let (next, borrow) = self.x.overflowing_sub(self.horizontal_step);
-                self.x = if borrow || next < 8 { 8 } else { next };
-                borrow || next < 8
+                self.x = if borrow || next < left { left } else { next };
+                borrow || next < left
             }
         }
     }
@@ -1121,7 +1198,7 @@ impl Player {
         data: &[u8],
         outcome: &mut UpdateOutcome,
     ) -> Result<(), &'static str> {
-        if self.advance_x() {
+        if self.advance_x(data) {
             self.horizontal_direction = 0;
             self.vertical_step = 2;
             self.vertical_direction = 1;

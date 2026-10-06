@@ -49,6 +49,7 @@ pub struct ReferenceCosts {
     pub room_broom_draw: u64,
     pub room_effect_poll: u64,
     pub completion_draw_byte: u64,
+    pub hearts_actor_draw: u64,
     pub mouse_redraw: u64,
     pub mouse_catch: u64,
     pub bin_push_sound: u64,
@@ -115,6 +116,8 @@ impl ReferenceCosts {
             // Provisional drawing allowance for wipes and cat-face stamps.
             // Original presentation tick/retrace waits are modeled separately.
             completion_draw_byte: 4_000,
+            // Provisional scene-seven drawing work above its tick gates.
+            hearts_actor_draw: 1_500_000,
             // Full original helpers: normal draw about 1.6ms, catch about 8ms.
             // Add only work above the ordinary gated group allowance.
             mouse_redraw: 1_550_000,
@@ -217,6 +220,17 @@ impl Runtime {
         &mut self,
         alley: &mut Alley,
         held: Controls,
+    ) -> Result<PassOutcome, String> {
+        self.advance_pass_with_action(alley, held, false)
+    }
+
+    /// Alt places a carried gift. Like directions, action is latched only by
+    /// the original two-tick input gate; it does not interrupt blocking work.
+    pub fn advance_pass_with_action(
+        &mut self,
+        alley: &mut Alley,
+        held: Controls,
+        action: bool,
     ) -> Result<PassOutcome, String> {
         let start_nanos = self.clock.elapsed_nanos();
         self.synchronize_scene(alley);
@@ -333,6 +347,7 @@ impl Runtime {
                 .should_poll(self.clock.sample().bios.tick_low);
         if control_polled {
             self.controls = held;
+            alley.latch_action(action);
             self.clock.advance_nanos(self.costs.control_decode);
             self.clock.advance_nanos(self.costs.pit_read);
             let start = self.clock.sample().pit_counter;
@@ -368,6 +383,11 @@ impl Runtime {
             if bird.drew {
                 self.clock.advance_nanos(self.costs.room_bird_draw);
             }
+        }
+        if alley.scene() == 7 {
+            // Original scene-seven loop: controls, sound, player, arrow,
+            // pickup, placement, cats, then scene termination.
+            alley.advance_room_tone(self.clock.sample().bios.tick_low);
         }
 
         self.clock.advance_nanos(self.costs.player_gate);
@@ -467,8 +487,23 @@ impl Runtime {
         acceptance: Option<PlayerAcceptance>,
     ) -> Result<PassOutcome, String> {
         let before_scene = alley.scene();
-        if before_scene == 5 {
-            if let Some(broom) = alley.advance_room_broom(self.clock.sample().bios.tick_low)? {
+        if matches!(before_scene, 5 | 7) {
+            if before_scene == 7 {
+                for call in [
+                    Alley::advance_hearts_arrow,
+                    Alley::pickup_hearts_item,
+                    Alley::place_hearts_item,
+                    Alley::advance_hearts_cat,
+                ] {
+                    let step = call(alley, self.clock.sample().bios.tick_low)?;
+                    self.clock.advance_nanos(self.costs.room_actor_gate);
+                    if step.drew {
+                        self.clock.advance_nanos(self.costs.hearts_actor_draw);
+                    }
+                }
+            } else if let Some(broom) =
+                alley.advance_room_broom(self.clock.sample().bios.tick_low)?
+            {
                 if broom.drawn {
                     self.clock.advance_nanos(self.costs.room_broom_draw);
                 }

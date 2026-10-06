@@ -49,6 +49,7 @@ pub struct Alley {
     pub player: Player,
     machine: Machine,
     completion: Option<crate::completion::Completion>,
+    hearts_completion: Option<crate::hearts_completion::HeartsCompletion>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -114,6 +115,7 @@ impl Alley {
             player: Player::at_alley_floor(80),
             machine: Machine::Cga,
             completion: None,
+            hearts_completion: None,
         }
     }
 
@@ -128,6 +130,7 @@ impl Alley {
         // Original startup enables sound. Keep its logical gates even while
         // audio output is deferred: silent helpers still affect shared state.
         data[0] = 0xff;
+        data[0x69a] = 16;
         set_word(&mut data, 8, difficulty);
         set_word(&mut data, 0x2ae5, seed);
         set_word(&mut data, 0x6df8, 0);
@@ -151,6 +154,7 @@ impl Alley {
             player: Player::at_alley_floor(8),
             machine,
             completion: None,
+            hearts_completion: None,
         };
         // The first accepted neutral update establishes the original idle image.
         alley.update(Controls::default())?;
@@ -158,10 +162,10 @@ impl Alley {
     }
 
     pub fn update(&mut self, controls: Controls) -> Result<UpdateOutcome, String> {
-        let image = if self.scene() == 5 {
+        let image = if matches!(self.scene(), 5 | 7) {
             let image = self.compositor.suspend(&mut self.screen)?;
             self.player.write_data(&mut self.data)?;
-            if self.player.floor_track_due(controls) {
+            if self.scene() == 5 && self.player.floor_track_due(controls) {
                 self.data[0x56e] = controls.x as u8;
                 crate::room::record_floor_track(&mut self.data, &mut self.screen)?;
             }
@@ -247,7 +251,7 @@ impl Alley {
         &self.presented
     }
 
-    /// Original scene number: zero is the alley, five is the birdcage room.
+    /// Original scene numbers: alley zero, birdcage five, hearts seven.
     pub fn scene(&self) -> u16 {
         word(&self.data, 4)
     }
@@ -259,6 +263,39 @@ impl Alley {
             set_word(&mut self.data, 0x5921, tick);
             self.data[0x5920] -= 1;
         }
+    }
+
+    pub(crate) fn latch_action(&mut self, held: bool) {
+        // CS:12d3..1334 converts the Alt key's 00/80 state to 00/10.
+        self.data[0x69a] = if held { 0 } else { 16 };
+    }
+
+    pub(crate) fn advance_hearts_arrow(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::hearts::HeartStep, String> {
+        self.room_actor(|data, screen| crate::hearts::advance_arrow(data, screen, tick))
+    }
+
+    pub(crate) fn pickup_hearts_item(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::hearts::HeartStep, String> {
+        self.room_actor(|data, screen| crate::hearts::pickup_item(data, screen, tick))
+    }
+
+    pub(crate) fn place_hearts_item(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::hearts::HeartStep, String> {
+        self.room_actor(|data, screen| crate::hearts::place_item(data, screen, tick))
+    }
+
+    pub(crate) fn advance_hearts_cat(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::hearts::HeartStep, String> {
+        self.room_actor(|data, screen| crate::hearts::advance_cat(data, screen, tick))
     }
 
     fn reset_sound_state(&mut self) {
@@ -281,7 +318,7 @@ impl Alley {
     }
 
     pub(crate) fn completion_waiting(&self) -> bool {
-        self.completion.is_some()
+        self.completion.is_some() || self.hearts_completion.is_some()
     }
 
     /// Preview the ordinary birdcage success presentation without playing its
@@ -298,14 +335,17 @@ impl Alley {
         tick: u16,
         retrace: bool,
     ) -> Result<crate::completion::Work, String> {
-        let completion = self
-            .completion
-            .as_mut()
-            .ok_or("No completion presentation is active")?;
-        let work = completion.advance(&mut self.data, &mut self.screen, tick, retrace)?;
+        let work = if let Some(completion) = self.completion.as_mut() {
+            completion.advance(&mut self.data, &mut self.screen, tick, retrace)?
+        } else if let Some(completion) = self.hearts_completion.as_mut() {
+            completion.advance(&mut self.data, &mut self.screen, tick, retrace)?
+        } else {
+            return Err("No completion presentation is active".into());
+        };
         self.presented = self.screen.clone();
         if work.complete {
             self.completion = None;
+            self.hearts_completion = None;
             self.return_to_alley()?;
         }
         Ok(work)
@@ -321,8 +361,38 @@ impl Alley {
         self.setup_birdcage()
     }
 
+    /// Enter scene seven directly for diagnostic play, saving the same return
+    /// coordinates as a window entry. Normal progression enters via a window.
+    pub fn enter_hearts(&mut self, tick: u16) -> Result<(), String> {
+        self.player.write_data(&mut self.data)?;
+        set_word(&mut self.data, 1, self.player.x);
+        self.data[3] = self.player.y;
+        set_word(&mut self.data, 0x410, tick);
+        self.data[0x419] = 1;
+        self.setup_hearts(tick)
+    }
+
+    fn setup_hearts(&mut self, tick: u16) -> Result<(), String> {
+        self.completion = None;
+        self.hearts_completion = None;
+        set_word(&mut self.data, 4, 7);
+        set_word(&mut self.data, 6, 0);
+        self.data[0x418] = 0;
+        self.compositor = PlayerCompositor::default();
+        self.bin_image = None;
+        self.mouse_effect = None;
+        crate::hearts::initialize(&mut self.data, &mut self.screen, tick)?;
+        crate::room::initialize_room_player(&mut self.data, 7)?;
+        self.data[0x1cb8] = 0;
+        self.data[0x1cbf] = 0;
+        self.player = Player::from_data(&self.data)?;
+        self.reset_sound_state();
+        self.compose_actors()
+    }
+
     fn setup_birdcage(&mut self) -> Result<(), String> {
         self.completion = None;
+        self.hearts_completion = None;
         set_word(&mut self.data, 4, 5);
         set_word(&mut self.data, 6, 0);
         self.compositor = PlayerCompositor::default();
@@ -421,7 +491,7 @@ impl Alley {
 
     /// Dispatch only after the original caller's remaining actor work finishes.
     pub(crate) fn finish_scene(&mut self, tick: u16) -> Result<bool, String> {
-        if self.completion.is_some() {
+        if self.completion_waiting() {
             return Ok(false);
         }
         if self.scene() == 0 {
@@ -429,13 +499,28 @@ impl Alley {
                 return Ok(false);
             }
             self.player.write_data(&mut self.data)?;
-            // Preserve the independently verified original candidate selector;
-            // temporarily route every candidate to the one implemented room.
-            crate::windows::select_room(&mut self.data, &self.player, tick)?;
-            self.setup_birdcage()?;
+            // Preserve ordinary candidate history while routing its room set
+            // to the birdcage. The pending-bonus override retains scene seven.
+            let candidate = crate::windows::select_room(&mut self.data, &self.player, tick)?;
+            if candidate == 7 {
+                self.setup_hearts(tick)?;
+            } else {
+                self.setup_birdcage()?;
+            }
             return Ok(true);
         }
         if self.data[0x551] == 0 && self.data[0x553] == 0 {
+            return Ok(false);
+        }
+        if self.scene() == 7 {
+            self.player.write_data(&mut self.data)?;
+            set_word(&mut self.data, 6, 7);
+            self.compositor = PlayerCompositor::default();
+            self.hearts_completion = Some(crate::hearts_completion::HeartsCompletion::new(
+                self.player.x,
+                self.player.y,
+                self.data[0x553] != 0,
+            )?);
             return Ok(false);
         }
         if self.data[0x553] != 0 {
@@ -455,8 +540,6 @@ impl Alley {
     }
 
     fn return_to_alley(&mut self) -> Result<(), String> {
-        // Keep the unimplemented heart-platform bonus destination disabled.
-        self.data[0x418] = 0;
         self.player.write_data(&mut self.data)?;
         let scene = self.scene();
         set_word(&mut self.data, 6, scene);
@@ -638,15 +721,48 @@ impl Alley {
     }
 
     pub fn rgba(&self) -> Vec<u8> {
-        let mut colors = self.machine.colors();
-        if self
-            .completion
-            .as_ref()
-            .is_some_and(|completion| completion.background() == 2)
+        let presentation = self.hearts_completion.as_ref();
+        let palette_scene = if self.completion.is_some()
+            || presentation.is_some_and(|completion| completion.uses_alley_palette())
         {
-            // BIOS AH=0b/BH=0/BL=2 changes logical color zero to hardware
-            // green on CGA and PCjr; it is not framebuffer palette index two.
-            colors[0] = [0, 170, 0, 255];
+            0
+        } else {
+            usize::from(self.scene())
+        };
+        let mut colors = if palette_scene == 0 {
+            self.machine.colors()
+        } else if self.machine == Machine::Pcjr {
+            [
+                hardware_color(0),
+                hardware_color(self.data[0x183b + palette_scene]),
+                hardware_color(self.data[0x1843 + palette_scene]),
+                hardware_color(self.data[0x184b + palette_scene]),
+            ]
+        } else if self.data[0x1853 + palette_scene] & 1 == 0
+            && !presentation.is_some_and(|completion| completion.presentation_palette())
+        {
+            [
+                hardware_color(0),
+                hardware_color(2),
+                hardware_color(4),
+                hardware_color(6),
+            ]
+        } else {
+            self.machine.colors()
+        };
+        let background = if let Some(completion) = presentation {
+            completion.background()
+        } else if let Some(completion) = self.completion.as_ref() {
+            completion.background()
+        } else if self.scene() == 7 && word(&self.data, 0x2e8d) < 8 {
+            1
+        } else {
+            0
+        };
+        if background != 0 {
+            // BIOS background/border requests use hardware color numbers,
+            // independently of scene palette indices one through three.
+            colors[0] = hardware_color(background);
         }
         self.presented
             .indices()
@@ -656,10 +772,55 @@ impl Alley {
     }
 }
 
+fn hardware_color(color: u8) -> [u8; 4] {
+    let bright = if color & 8 != 0 { 85 } else { 0 };
+    let mut rgb = [
+        if color & 4 != 0 { 170 } else { 0 },
+        if color & 2 != 0 { 170 } else { 0 },
+        if color & 1 != 0 { 170 } else { 0 },
+        255,
+    ];
+    for channel in &mut rgb[..3] {
+        *channel += bright;
+    }
+    if color == 6 {
+        rgb[1] = 85;
+    }
+    rgb
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::assets::word;
+
+    #[test]
+    fn scene_palettes_and_carried_gift_change_colors_without_changing_pixels() {
+        let mut alley = Alley::synthetic();
+        set_word(&mut alley.data, 4, 7);
+        set_word(&mut alley.data, 0x2e8d, 0xffff);
+        alley.data[0x185a] = 0;
+        alley.presented.fill_visible(0x1b);
+        let before = alley.framebuffer().bytes().to_vec();
+        let rgba = alley.rgba();
+        assert_eq!(
+            &rgba[..16],
+            &[
+                0, 0, 0, 255, 0, 170, 0, 255, 170, 0, 0, 255, 170, 85, 0, 255
+            ]
+        );
+        set_word(&mut alley.data, 0x2e8d, 0);
+        assert_eq!(&alley.rgba()[..4], &[0, 0, 170, 255]);
+        alley.machine = Machine::Pcjr;
+        alley.data[0x1842] = 10;
+        alley.data[0x184a] = 4;
+        alley.data[0x1852] = 15;
+        assert_eq!(
+            &alley.rgba()[4..16],
+            &[85, 255, 85, 255, 170, 0, 0, 255, 255, 255, 255, 255]
+        );
+        assert_eq!(alley.framebuffer().bytes().as_slice(), before);
+    }
 
     #[test]
     fn pause_captions_are_external_and_bounded() {

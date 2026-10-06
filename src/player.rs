@@ -57,6 +57,57 @@ mod tests {
     }
 
     #[test]
+    fn hearts_fall_has_no_alley_floor_and_exits_below_the_bottom_row() {
+        let mut data = room_tables();
+        crate::assets::set_word(&mut data, 4, 7);
+        data[0x2be2..0x2c60].fill(2);
+        data[0x2bd4..0x2bdb].copy_from_slice(&[184, 160, 136, 112, 88, 64, 40]);
+        let mut player = Player::at_alley_floor(80);
+        player.vertical_direction = 1;
+        player.vertical_step = 4;
+        player.phase_decrement = 0;
+        player.airborne_sprite = Sprite {
+            source: 0x900,
+            dimensions: 0x0d03,
+        };
+        let first = player.update(Controls::default(), &data).unwrap();
+        assert!(!first.landed);
+        assert_eq!(
+            (
+                player.y,
+                player.vertical_coordinate,
+                player.vertical_direction
+            ),
+            (184, 234, 1)
+        );
+        for _ in 0..10 {
+            player.update(Controls::default(), &data).unwrap();
+            if player.room_exit_requested {
+                break;
+            }
+        }
+        assert!(player.take_room_exit());
+        assert_eq!(player.vertical_direction, 1);
+        assert!(player.y > 187);
+        assert!(player.vertical_coordinate <= 248);
+        assert_eq!(player.entry_state, 0);
+    }
+
+    #[test]
+    fn stationary_hearts_player_below_180_still_checks_platform_support() {
+        let mut data = room_tables();
+        crate::assets::set_word(&mut data, 4, 7);
+        data[0x2bd4..0x2bdb].copy_from_slice(&[184, 160, 136, 112, 88, 64, 40]);
+        data[0x2be2..0x2c60].fill(2);
+        let mut player = Player::at_alley_floor(80);
+        player.y = 189;
+        player.vertical_coordinate = 239;
+        player.update(Controls::default(), &data).unwrap();
+        assert_eq!(player.vertical_direction, 1);
+        assert_eq!(player.last_support, Support::None);
+    }
+
+    #[test]
     fn room_landing_uses_table_geometry_without_alley_band_clipping() {
         let mut data = room_tables();
         data[0x1029] = 136;
@@ -647,8 +698,8 @@ impl Player {
     /// Import state from a data-segment capture. No original data is embedded.
     pub fn from_data(data: &[u8]) -> Result<Self, &'static str> {
         Self::check_data(data)?;
-        if !matches!(word(data, 4), 0 | 5) {
-            return Err("player core supports the alley and birdcage scenes only");
+        if !matches!(word(data, 4), 0 | 5 | 7) {
+            return Err("player core supports the alley, birdcage and hearts scenes only");
         }
         Ok(Self {
             x: word(data, 0x579),
@@ -745,7 +796,7 @@ impl Player {
     fn check_data(data: &[u8]) -> Result<(), &'static str> {
         if data.len() < 0x1028 {
             Err("external data segment is too short for alley player tables")
-        } else if word(data, 4) == 5 && data.len() < crate::assets::DATA_LENGTH {
+        } else if matches!(word(data, 4), 5 | 7) && data.len() < crate::assets::DATA_LENGTH {
             Err("external data segment is too short for room player tables")
         } else {
             Ok(())
@@ -763,7 +814,7 @@ impl Player {
         if !(-1..=1).contains(&controls.x) || !(-1..=1).contains(&controls.y) {
             return Err("control directions must be -1, 0, or 1");
         }
-        if self.alternate_animation != 0 && word(data, 4) != 5 {
+        if self.alternate_animation != 0 && !matches!(word(data, 4), 5 | 7) {
             return Err("collision-effect animation is outside the player core");
         }
         let mut outcome = UpdateOutcome {
@@ -826,7 +877,7 @@ impl Player {
             return Ok(outcome);
         }
 
-        if self.y < 180 {
+        if self.y < 180 || word(data, 4) == 7 {
             let support = self.check_support(data)?;
             if support == Support::None {
                 self.horizontal_direction = 0;
@@ -1039,7 +1090,14 @@ impl Player {
             self.finish_landing();
         } else if self.vertical_direction == 1 {
             let next = self.vertical_coordinate.wrapping_add(self.vertical_step);
-            if next > 230 {
+            if word(data, 4) == 7 {
+                // CS:0d0e..0d20: scene seven has no floor at Y180. Falling
+                // continues below its bottom hearts until coordinate248.
+                self.vertical_coordinate = next.min(248);
+                if next >= 248 {
+                    self.room_exit_requested = true;
+                }
+            } else if next > 230 {
                 self.vertical_coordinate = 230;
                 self.band_state = 0;
                 self.finish_landing();
@@ -1083,11 +1141,24 @@ impl Player {
             .wrapping_add(u16::from(hidden_rows) * (sprite.dimensions & 255) * 2);
             sprite.dimensions -= u16::from(hidden_rows) << 8;
         }
-        // State 2 clips the original sprite below the band-96 boundary.
-        if word(data, 4) == 0 && self.band_state == 2 && self.y >= 94 {
+        // CS:0dde..0e1a clips below Y187 in scene seven, versus Y94 for
+        // the alley's band-two fall. Only the latter resets to an alley edge.
+        let clip_y = if word(data, 4) == 7 {
+            Some(187)
+        } else if word(data, 4) == 0 && self.band_state == 2 {
+            Some(94)
+        } else {
+            None
+        };
+        if let Some(clip_y) = clip_y.filter(|boundary| self.y >= *boundary) {
             let rows = (sprite.dimensions >> 8) as u8;
-            let hidden_rows = self.y - 94;
+            let hidden_rows = self.y - clip_y;
             if hidden_rows >= rows {
+                if word(data, 4) == 7 {
+                    self.room_exit_requested = true;
+                    outcome.draw = Draw::Erase;
+                    return Ok(());
+                }
                 self.initialize_alley_edge();
                 outcome.draw = Draw::Erase;
                 outcome.edge_reset = true;
@@ -1113,8 +1184,12 @@ impl Player {
         if word(data, 4) == 0 {
             return Ok(self.check_alley_support(data));
         }
-        let check = crate::room::resolve_scene_support(data, self)
-            .map_err(|_| "invalid room support tables")?;
+        let check = if word(data, 4) == 7 {
+            crate::hearts::resolve_support(data, self)
+        } else {
+            crate::room::resolve_scene_support(data, self)
+        }
+        .map_err(|_| "invalid room support tables")?;
         self.room_exit_requested |= check.exit;
         if let Some(hit) = check.hit {
             self.y = hit.y;

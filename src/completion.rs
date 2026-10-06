@@ -13,7 +13,7 @@ pub(crate) struct Work {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct Wipe {
+pub(crate) struct Wipe {
     x: u16,
     y: u8,
     width: u16,
@@ -23,7 +23,7 @@ struct Wipe {
 }
 
 impl Wipe {
-    fn new(x: u16, y: u8, packed: u8) -> Self {
+    pub(crate) fn new(x: u16, y: u8, packed: u8) -> Self {
         Self {
             x: x.wrapping_add(12) & 0xfff0,
             y: y.wrapping_add(8),
@@ -36,7 +36,11 @@ impl Wipe {
 
     /// CS:1c67. Geometry grows in pixels, but REP STOSW rounds width down to
     /// whole eight-pixel words. The first one-pixel rectangle writes no bytes.
-    fn advance(&mut self, data: &mut [u8], screen: &mut Framebuffer) -> Result<Work, String> {
+    pub(crate) fn advance(
+        &mut self,
+        data: &mut [u8],
+        screen: &mut Framebuffer,
+    ) -> Result<Work, String> {
         if data[0] != 0 {
             set_word(data, 0x5a56, word(data, 0x5a56).wrapping_add(2));
         }
@@ -131,7 +135,7 @@ fn draw_row(data: &mut [u8], screen: &mut Framebuffer, y: u16) -> Result<usize, 
     Ok(usize::from(word(data, 0x361c) as u8) * usize::from(word(data, 0x361c) >> 8) * 4)
 }
 
-fn digit(data: &[u8], value: u8) -> Result<Vec<u8>, String> {
+pub(crate) fn digit(data: &[u8], value: u8) -> Result<Vec<u8>, String> {
     if value > 9 {
         return Err("Completion score contains an invalid decimal digit".into());
     }

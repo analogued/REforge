@@ -117,8 +117,8 @@ pub(crate) fn draw_birdcage_room(data: &mut [u8], screen: &mut Framebuffer) -> R
 /// Existing animation phase, speed and edge-entry countdown are preserved.
 pub(crate) fn initialize_room_player(data: &mut [u8], scene: u16) -> Result<(), String> {
     check_data(data)?;
-    if scene != 0 && scene != 5 {
-        return Err("Player entry supports the alley and birdcage room".into());
+    if !matches!(scene, 0 | 5 | 7) {
+        return Err("Player entry supports the alley, birdcage and hearts room".into());
     }
     let (x, y) = if scene == 0 {
         (word(data, 1), data[3])
@@ -142,6 +142,9 @@ pub(crate) fn initialize_room_player(data: &mut [u8], scene: u16) -> Result<(), 
     data[0x576] = 1;
     data[0x578] = 0x40;
     data[0x55b] = 10;
+    if scene == 7 {
+        data[0x55b] = 0;
+    }
     for offset in [
         0x550, 0x55c, 0x55a, 0x583, 0x698, 0x699, 0x551, 0x584, 0x552, 0x553, 0x127c,
     ] {

@@ -153,14 +153,15 @@ at the bird call without repeating input or the cage prelude. Capture awards
 the external room score plus twice the unused part of a 1350-tick allowance.
 Completion blocks gameplay through the shared scoring presentation before
 returning to the saved alley position. It awards once, and a neutral window
-exit awards nothing. The subsequent bonus scene is omitted. Scene changes
+exit awards nothing. Scene changes
 reset the player acceptance gate and logical controls.
 
 The candidate selector uses the shared generator, difficulty weighting and
 two-entry room history; it avoids a third consecutive identical candidate.
-The current dispatch maps every candidate to scene 5. Candidate history is
-therefore not a history of actual destinations. Completion suppresses the
-unimplemented bonus destination while preserving the completed-room count.
+The current dispatch maps ordinary candidates to scene 5. Candidate history is
+therefore not a history of actual ordinary destinations. Success preserves
+the pending-bonus flag; the next eligible window selects scene 7 without
+advancing the selector's random state or ordinary candidate history.
 
 Logical room tone state is retained without audio output. A pending tone
 expires once per distinct tick rather than catching up skipped ticks. Random
@@ -205,8 +206,54 @@ audio synthesis or random draws from these presentation helpers.
 The original sets scene zero before presentation. The recreation's scene
 diagnostic remains five until the alley has been initialized; a dedicated
 completion state blocks all room work meanwhile. `--scene completion` starts
-this sequence directly for testing. The pending bonus flag is suppressed at
-alley return until that destination is implemented.
+this sequence directly for testing. The pending bonus flag survives alley
+return and selects the hearts scene at the next eligible window entry.
+
+### Hearts scene schedule and progression
+
+Scene 7 runs controls, pending-tone expiration, common player movement, arrows
+(`6106`), automatic pickup (`2f66`), Alt-key placement (`2e60`) and cats (`4c10`),
+then tests success/exit. Action is latched by the same two-tick input poll as
+directions. These calls bypass the alley's actor divider. Arrows and pickup
+reject unchanged BIOS ticks; the cat scheduler commits its tick only at indices
+1, 4 and 0, allowing the other cats within a group to run in that same tick.
+
+Initializer `300f` draws sixteen heart cells per row but preserves eighteen
+support cells. Landing uses `(Y-5)&f8` and shifted/clamped `(X+7)>>4` indexing
+from `30fa`, retaining the original mismatch between sprites and geometry.
+Whole/broken states are zero/two. Each arrow toggles a crossed cell once with
+XOR two; a cell latch prevents repeating the toggle within that cell. Cat gifts
+use per-difficulty hiding timers; cat zero doubles its timer and the goal cat
+does not hide. Their contacts and arrow contacts request downward motion
+without life loss. Scene-seven falling continues past Y180, clips below Y187,
+and exits by secondary coordinate248 or when its sprite is completely clipped.
+
+The completed ordinary-room count supplies up to eight gifts. A neutral hearts
+exit retains that count and other progression state. Its `6040` falling-cat
+presentation waits for retrace and changed ticks, then holds for eighteen ticks.
+Successful goal-cat contact runs `5060` approach animation and the special
+`38b0` score branch, followed by three `519b` pairing animations. The score uses
+half the unused portion of 10800 wrapping BIOS ticks since the progression
+timer, plus an external base, multiplied by the old difficulty's external
+multiplier. Carrying a gift doubles that multiplier. The displayed four digits
+show the base-plus-time amount; the multiplier label shows the separate factor.
+The score display flashes the background for 68 ticks, while approach and pair
+frames use their original distinct tick delays.
+
+After scoring/pairing, `528b` adds a life up to nine, increases difficulty up to
+seven, clears the ordinary completion count and resets the progression timer.
+The shared black wipe is followed by `5313` decoration for new difficulties
+two and above, using five-tick frame gates for forty ticks, then the final color
+wipe. Both outcomes reconstruct the alley and its HUD with the updated state,
+restore the saved window coordinates and start descending. Presentation blocks
+gameplay throughout; pause freezes virtual time and quit remains responsive.
+
+Scene-specific palette tables, carried-gift background changes and presentation
+palette requests are independent of framebuffer memory. BIOS font lettering is
+approximated with executable HUD digits and authored multiplier-label letters.
+Ambient sound random consumers, synthesis and sound busy-loop timing remain
+incomplete. Controlled helper/frame comparisons do not establish full original
+loop timing or random-stream equivalence.
 
 ### Reference execution costs
 
@@ -231,6 +278,7 @@ Active window work adds about 0.48 ms, based on fixed-240 row-helper samples
 near 0.5 ms; start and contact-hold paths share this approximate allowance.
 Room actor gates, cage/bird/broom drawing and blocking-fall polling use
 provisional allowances that have not been independently cost-calibrated.
+Hearts actor drawing and presentation work also use provisional allowances.
 Completion drawing currently uses a provisional allowance per copied byte;
 its explicit two-tick reveal waits and 30-tick final hold remain independent
 of that fit. No exact fixed-240 transition duration is claimed.

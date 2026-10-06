@@ -10,6 +10,8 @@ pub mod cga;
 mod clothes;
 mod completion;
 mod decoration;
+mod hearts;
+mod hearts_completion;
 mod mice;
 #[cfg(feature = "sdl")]
 pub mod platform;

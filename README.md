@@ -2,7 +2,8 @@
 
 An early Rust reconstruction of **Alley Cat** for modern desktop systems,
 initially targeting Linux. The current program supports alley movement,
-nonlethal actors, window entry and the birdcage room. It is not a complete game.
+nonlethal actors, window entry, the birdcage room and the hearts bonus scene.
+It is not a complete game.
 A public recreation name has not been chosen.
 
 ## Original game required
@@ -42,6 +43,8 @@ other keys, including arrows, leave it paused. Pause shortcuts are ignored while
 Alt, Ctrl or Super is held, and held-key repeats do not toggle pause. Losing or
 regaining window focus does not change the pause state. Ctrl+Q or closing the
 window exits, including while paused.
+In the hearts scene, gifts are picked up automatically on contact; hold Alt
+to place a carried gift near the cat's current position.
 
 Pause preserves the game state and virtual clock without catching up on resume.
 The overlay reads the original pause title from the executable and uses the
@@ -68,6 +71,8 @@ screens are not implemented.
 
 `--scene birdcage` starts directly in the birdcage room for testing; the default
 is `--scene alley`. Room actors and transitions use the default timed runner.
+`--scene hearts` starts directly in the hearts scene with one gift. This scene
+requires default windowed timing or `--headless --timed`.
 `--scene completion` previews the birdcage scoring presentation and returns to
 the alley, without playing the objective. This preview requires default windowed
 timing or `--headless --timed`.
@@ -79,7 +84,8 @@ sprite composition and background restoration, and player movement on the floor,
 dumpsters, and occupied upper platforms. Ground decorations use the original's
 weighted random selection and external sprites. Current score, high score and
 three starting lives use the original digit glyphs. Mouse catches and birdcage
-completion award points; life loss is not implemented.
+completion award points. Hearts completion also awards points and an extra
+life, capped at nine; life loss is not implemented.
 
 In the default timing mode, the clotheslines scroll right/left/right, generate
 new garments, update landing supports, and carry an attached cat. Their original
@@ -100,9 +106,11 @@ Actor sprites and motion tables come from the required original executable.
 Windows open, hold and close with the original invocation-count, retrace and
 BIOS-tick gates. New openings require the cat to be above the fence, as in the
 original. A descending cat touching an eligible open window enters a room.
-For now every destination leads to the birdcage room. The original candidate
+Ordinary destinations currently lead to the birdcage room. The original candidate
 selector is retained separately, but its weighted choices and recent-room
-history do not determine the playable destination yet. Projectiles are disabled.
+history do not determine the playable ordinary destination yet. Completing it
+makes the next eligible window display the female cat and lead to the hearts
+scene. Projectiles remain disabled.
 
 In the birdcage room, push the cage off its shelf and catch the released bird.
 Furniture supports, cage pushing/falling, bird movement, floor tracks and the
@@ -113,15 +121,34 @@ the four-digit award, a green/black background flash and an expanding color wipe
 before returning to the alley. The reveal waits two BIOS ticks after each row;
 the final flash lasts 30 ticks. The award includes the external room base score
 and a time bonus sampled after the initial drawing. Lives are preserved, and
-returning through the room window leaves the score unchanged. The subsequent
-bonus room remains disabled.
+returning through the room window leaves the score unchanged. Alley return
+restores the saved window position and starts a downward fall. Direct scene
+previews instead save the initial ground-level alley position.
+
+In the hearts scene, jump through seven rows of whole and broken hearts to
+reach the female cat at the top. Other cats and arrows knock the player down
+without removing lives. Arrows toggle crossed cells between whole and broken;
+the original support geometry, including edge cells, is retained. Placed gifts
+temporarily distract other cats. Each completed ordinary room supplies another
+gift, up to eight, and unsuccessful hearts attempts preserve that count.
+
+Success plays the original approach and pairing animations, score/multiplier
+display and return presentation. Its award combines the external base and a
+time bonus with a difficulty multiplier; arriving with a carried gift doubles
+the multiplier. It then adds a life, increases difficulty up to seven, resets
+the ordinary-room completion count and returns to the alley. The updated
+difficulty selects new bin and ground-object tables. Falling out of the hearts
+scene instead plays its neutral return animation, preserving score, lives,
+difficulty and the gift count. Both paths return at the saved window position.
 
 Scoring cat faces come from the executable. The original award lettering uses
 a BIOS ROM font absent from that file; the recreation adapts its external HUD
 digits to white instead, so numeral shapes remain an approximation. The black
 and color wipes follow the original expanding geometry; their execution costs
-are provisional. Audio is silent, with the presentation's logical tone counters
-retained.
+are provisional. The hearts multiplier label also uses approximate authored
+letter shapes in place of the BIOS font. Scene-specific CGA/PCjr palette tables,
+carried-gift background changes and completion flashes are applied separately
+from packed framebuffer pixels. Audio remains silent.
 
 The player starts settled on the floor, bypassing the original entry animation.
 Falling behind the fence hides the cat and starts a clipped re-entry from the
@@ -134,7 +161,7 @@ virtual BIOS/PIT clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle
 movement. The reference is DOSBox-X normal CPU core at fixed 240 cycles. Loop
 costs are fitted approximations; original-PC timing fidelity is not established.
-Birdcage execution costs are provisional and have not been independently
+Birdcage and hearts execution costs are provisional and have not been independently
 calibrated against the fixed-240 reference.
 Rendering refresh does not determine game ticks. See
 [timing contracts](docs/timing.md) for the schedule and its limits.
@@ -152,8 +179,10 @@ cargo run --locked --no-default-features -- \
 ```
 
 `--script /path/to/controls.csv` supplies one accepted update per row, with
-columns `x,y`. Each value is -1, 0, or 1: negative is left/up, positive is
-right/down. Blank lines, `#` comments, and an optional `x,y` header are accepted.
+columns `x,y` and an optional third `action` column. Directions are -1, 0, or 1:
+negative is left/up, positive is right/down. Action is 0 (released) or 1 (Alt
+held); omitting it selects 0. Blank lines, `#` comments, and an optional
+`x,y` or `x,y,action` header are accepted.
 Without `--steps`, a script runs for its row count; additional requested updates
 use neutral controls.
 
@@ -165,7 +194,7 @@ retrace, polling, acceptance, actor-divider events, scene changes and blocking w
 In headless runs it requires `--timed`; in windowed runs it uses default timing.
 
 `--trace`, `--dump-cga`, and `--dump-ppm` write player-state CSV including the
-original scene number (0 for alley, 5 for birdcage), the final
+original scene number (0 for alley, 5 for birdcage, 7 for hearts), the final
 16384-byte packed framebuffer, and a 320×200 PPM image respectively. Use paths
 outside the repository: these outputs contain original graphics or reference
 evidence. Output files must not already exist. See `--help` for all options.

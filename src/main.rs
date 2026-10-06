@@ -16,7 +16,7 @@ const HELP: &str = "Alley Cat — game reconstruction
 Usage: alley-cat --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
-  --scene NAME            Start in alley, birdcage or completion (default: alley)
+  --scene NAME            Start in alley, birdcage, hearts or completion
   --scale N               Initial window multiplier, 1..16 (default: 4)
   --seed N                Initial random seed, decimal or 0xHEX (default: 0xfa59)
   --difficulty N          Alley layout difficulty 0..7 (default: 0)
@@ -24,7 +24,7 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
   --headless              Run without a window
   --timed                 Use the reference clock in headless runs
   --steps N               Accepted updates to run (default: 60 headless)
-  --script FILE           Headless controls CSV: x,y, each -1, 0, or 1
+  --script FILE           Headless CSV: x,y[,action]; directions -1..1, action 0/1
   --trace FILE            Write accepted player states as CSV
   --trace-timing FILE     Write timed outer-loop events as CSV
   --dump-cga FILE         Write the final packed 16384-byte framebuffer
@@ -33,7 +33,9 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
 
 Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
 Ctrl+Q or closing the window quits.
-Open windows currently lead to the birdcage room. Lethal actors and audio are absent.
+Gifts are picked up automatically; Alt places a carried gift in the hearts room.
+Ordinary windows lead to birdcage; after success, the next leads to hearts.
+Lethal alley actors and audio are absent.
 Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
 
@@ -41,6 +43,7 @@ Your original executable is required; original data is never bundled.";
 enum StartScene {
     Alley,
     Birdcage,
+    Hearts,
     Completion,
 }
 
@@ -122,8 +125,9 @@ fn options() -> Result<Option<Options>, String> {
                 result.scene = match value.as_str() {
                     "alley" => StartScene::Alley,
                     "birdcage" => StartScene::Birdcage,
+                    "hearts" => StartScene::Hearts,
                     "completion" => StartScene::Completion,
-                    _ => return Err("Scene must be alley, birdcage or completion".into()),
+                    _ => return Err("Scene must be alley, birdcage, hearts or completion".into()),
                 }
             }
             "--scale" => result.scale = integer(&value)?,
@@ -166,17 +170,28 @@ fn options() -> Result<Option<Options>, String> {
     Ok(Some(result))
 }
 
-fn read_script(path: &PathBuf) -> Result<Vec<Controls>, String> {
+#[derive(Clone, Copy, Default)]
+struct ScriptInput {
+    controls: Controls,
+    action: bool,
+}
+
+fn read_script(path: &PathBuf) -> Result<Vec<ScriptInput>, String> {
     let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
     let mut controls = Vec::new();
     for (index, line) in text.lines().enumerate() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') || line == "x,y" {
+        if line.is_empty() || line.starts_with('#') || matches!(line, "x,y" | "x,y,action") {
             continue;
         }
-        let (x, y) = line
-            .split_once(',')
-            .ok_or_else(|| format!("Script line {} must contain x,y", index + 1))?;
+        let fields: Vec<_> = line.split(',').collect();
+        if !(2..=3).contains(&fields.len()) {
+            return Err(format!(
+                "Script line {} must contain x,y[,action]",
+                index + 1
+            ));
+        }
+        let (x, y) = (fields[0], fields[1]);
         let x = x.trim().parse().map_err(|_| "Invalid script X direction")?;
         let y = y.trim().parse().map_err(|_| "Invalid script Y direction")?;
         if !(-1..=1).contains(&x) || !(-1..=1).contains(&y) {
@@ -185,7 +200,15 @@ fn read_script(path: &PathBuf) -> Result<Vec<Controls>, String> {
                 index + 1
             ));
         }
-        controls.push(Controls { x, y });
+        let action = match fields.get(2).map(|field| field.trim()) {
+            None | Some("0") => false,
+            Some("1") => true,
+            _ => return Err(format!("Script line {} action must be 0 or 1", index + 1)),
+        };
+        controls.push(ScriptInput {
+            controls: Controls { x, y },
+            action,
+        });
     }
     Ok(controls)
 }
@@ -247,6 +270,12 @@ fn run() -> Result<(), String> {
     match options.scene {
         StartScene::Alley => {}
         StartScene::Birdcage => alley.enter_birdcage(0)?,
+        StartScene::Hearts => {
+            if options.step_hz.is_some() || (options.headless && !options.timed) {
+                return Err("Hearts play requires default timing or --headless --timed".into());
+            }
+            alley.enter_hearts(0)?;
+        }
         StartScene::Completion => {
             if options.step_hz.is_some() || (options.headless && !options.timed) {
                 return Err(
@@ -285,13 +314,14 @@ fn run() -> Result<(), String> {
         let mut index = 0;
         let mut pass = 0;
         while index < steps {
-            let controls = script
+            let input = script
                 .as_ref()
                 .and_then(|script| script.get(index))
                 .copied()
                 .unwrap_or_default();
             if options.timed {
-                let event = runtime.advance_pass(&mut alley, controls)?;
+                let event =
+                    runtime.advance_pass_with_action(&mut alley, input.controls, input.action)?;
                 if let Some(output) = timing_trace.as_mut() {
                     timing_row(output, pass, &event)?;
                 }
@@ -300,7 +330,7 @@ fn run() -> Result<(), String> {
                     continue;
                 }
             } else {
-                alley.update(controls)?;
+                alley.update(input.controls)?;
             }
             if let Some(trace) = trace.as_mut() {
                 trace_row(trace, index, &alley)?;
@@ -408,7 +438,7 @@ fn interactive(
         while runtime.clock.elapsed_nanos() < target_nanos
             && steps.is_none_or(|limit| index < limit)
         {
-            let event = runtime.advance_pass(alley, held)?;
+            let event = runtime.advance_pass_with_action(alley, held, input.alt)?;
             if let Some(output) = timing_trace.as_mut() {
                 timing_row(output, pass, &event)?;
             }

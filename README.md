@@ -3,7 +3,7 @@
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
 Status: Rust graphics decoding and a windowed, no-input opening preview,
-including terrain changes, three enemy waves, collision responses, and life recovery.
+including terrain changes, four enemy waves, collision responses, and life recovery.
 Later gameplay remains under investigation.
 
 The main implementation language is **Rust**. Supporting tools and investigation
@@ -73,11 +73,13 @@ cargo run --features viewer --bin mach3-viewer -- /path/to/assets
 ```
 
 It reads `DATA1` and `DATA6` as the splash and intro. Fresh Space presses advance
-to the opening, which then runs 270 no-input game-loop bodies using graphics
+to the opening, which then runs 360 no-input game-loop bodies using graphics
 from `DATA2` through `DATA5`. Terrain moves, the HUD updates, and the first
-three enemy waves and their seeking projectiles appear. The second enemy steers
+four enemy waves and their seeking projectiles appear. The second enemy steers
 into the player, triggering hit and explosion animations. Life loss restores
-fuel and resumes flight; the third enemy orbits before seeking the player.
+fuel and resumes flight. The third enemy orbits before seeking the player;
+the fourth keeps its lateral orbit and fixed height. Ground effects can also
+damage the craft.
 The preview holds its final frame at the current verification boundary.
 Escape or window close exits.
 
@@ -106,9 +108,9 @@ For reproducible frame and state export without SDL3:
 cargo run --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
 ```
 
-This writes frames `000.cga` through `270.cga` plus state, player, and object
+This writes frames `000.cga` through `360.cga` plus state, player, and object
 TSV tables.
-`--steps 0..270` exports a shorter prefix. The directory must be new. Simulation
+`--steps 0..360` exports a shorter prefix. The directory must be new. Simulation
 uses the decoded assets and interpreted update rules; it does not load captured
 frames, emulator state, or a replay.
 

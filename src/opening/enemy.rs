@@ -84,6 +84,7 @@ enum Motion {
     Fixed,
     Seeking,
     Orbit,
+    LateralOrbit,
 }
 
 #[derive(Debug)]
@@ -128,7 +129,7 @@ impl Enemy {
                     .wrapping_sub(player_lateral.wrapping_mul(2));
                 self.craft.height = (random.next_word() & 255) as i16 - 50;
             }
-            0x84 | 0x8e => {
+            0x84 | 0x8e | 0x8a => {
                 self.craft.lateral = 0;
                 self.craft.height = 0;
             }
@@ -141,6 +142,7 @@ impl Enemy {
         self.motion = match command {
             0x84 => Motion::Seeking,
             0x8e => Motion::Orbit,
+            0x8a => Motion::LateralOrbit,
             _ => Motion::Fixed,
         };
         self.craft_animation = None;
@@ -183,20 +185,8 @@ impl Enemy {
             }
         } else if self.craft.active {
             let steering = match self.motion {
-                Motion::Orbit if self.craft.depth >= 240 => {
-                    self.orbit_center[0] +=
-                        player[1].wrapping_sub(self.orbit_center[0]).clamp(-9, 9);
-                    self.orbit_center[1] +=
-                        player[2].wrapping_sub(self.orbit_center[1]).clamp(-9, 9);
-                    let phase = ((self.craft.depth & 1023) >> 4) as u8;
-                    // The orbital lateral coordinate changes inside movement,
-                    // before companion copying and firing. Height is a delta.
-                    self.craft.lateral = self.orbit_center[0].wrapping_add(orbit_wave(phase) << 4);
-                    let height = self.orbit_center[1]
-                        .wrapping_add(orbit_wave(phase.wrapping_add(16)) << 4)
-                        .clamp(-100, 250);
-                    [0, height.wrapping_sub(self.craft.height)]
-                }
+                Motion::Orbit if self.craft.depth >= 240 => self.orbit_delta(player, true),
+                Motion::LateralOrbit => self.orbit_delta(player, false),
                 Motion::Seeking | Motion::Orbit => [
                     (player[1].wrapping_sub(self.craft.lateral) >> 1).clamp(-30, 30),
                     (player[2].wrapping_sub(self.craft.height) >> 1).clamp(-30, 30),
@@ -228,6 +218,24 @@ impl Enemy {
         }
     }
 
+    fn orbit_delta(&mut self, player: [i16; 3], vertical_motion: bool) -> [i16; 2] {
+        self.orbit_center[0] += player[1].wrapping_sub(self.orbit_center[0]).clamp(-9, 9);
+        self.orbit_center[1] += player[2].wrapping_sub(self.orbit_center[1]).clamp(-9, 9);
+        let phase = ((self.craft.depth & 1023) >> 4) as u8;
+        // Lateral changes inside movement, before companion copying and firing.
+        // The full orbit also stores height as a delta, applied after firing.
+        self.craft.lateral = self.orbit_center[0].wrapping_add(orbit_wave(phase) << 4);
+        let height_delta = if vertical_motion {
+            self.orbit_center[1]
+                .wrapping_add(orbit_wave(phase.wrapping_add(16)) << 4)
+                .clamp(-100, 250)
+                .wrapping_sub(self.craft.height)
+        } else {
+            0
+        };
+        [0, height_delta]
+    }
+
     /// Collision handler changes the primary to a stationary explosion, retaining
     /// its current source until the next object update and hiding its companion.
     pub(crate) fn explode_craft(&mut self) {
@@ -237,23 +245,29 @@ impl Enemy {
 
     /// Collision runs before source resolution, using extents from the previously
     /// resolved sprite. Only the target's height extent participates on that axis.
-    pub(crate) fn player_collision(
+    /// Candidates remain in slot order: the caller's grace gate blocks damage,
+    /// while score and target-conversion effects still run for an overlap.
+    pub(crate) fn player_collisions(
         &self,
         assets: &GraphicsAssets,
         player: [i16; 3],
         player_sprite: usize,
-        can_damage: bool,
-    ) -> Result<Option<EnemyCollision>, Error> {
-        if !can_damage {
-            return Ok(None);
+        collidable: bool,
+    ) -> Result<[Option<EnemyCollision>; 2], Error> {
+        let mut collisions = [None; 2];
+        if !collidable {
+            return Ok(collisions);
         }
         let player_source = assets.sprites.get(player_sprite).ok_or_else(|| {
             Error::InvalidData(format!("missing player collision sprite {player_sprite}"))
         })?;
-        for (slot, collision) in [
+        for (index, (slot, collision)) in [
             (self.bullet, EnemyCollision::Projectile),
             (self.craft, EnemyCollision::Craft),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             if !slot.active || (slot.slot == 5 && self.craft_animation.is_some()) {
                 continue;
             }
@@ -280,10 +294,10 @@ impl Enemy {
             ) && player[2].wrapping_add(source.descriptor[0]) >= slot.height
                 && player[2] <= slot.height.wrapping_add(source.descriptor[0])
             {
-                return Ok(Some(collision));
+                collisions[index] = Some(collision);
             }
         }
-        Ok(None)
+        Ok(collisions)
     }
 
     /// The final projection list contains every slot with depth strictly below 70,
@@ -497,9 +511,9 @@ mod tests {
         assert_eq!(enemy.craft.requested_sprite, 31);
         assert_eq!(
             enemy
-                .player_collision(&assets, [14, 0, -100], 0, true)
+                .player_collisions(&assets, [14, 0, -100], 0, true)
                 .unwrap(),
-            None
+            [None; 2]
         );
         enemy.project(&assets, false, 106, 0).unwrap();
         assert_eq!(enemy.bullet.resolved_sprite, 0);
@@ -563,39 +577,39 @@ mod tests {
         enemy.bullet.requested_sprite = 65;
         assert_eq!(
             enemy
-                .player_collision(&assets, [14, 0, -100], 13, true)
+                .player_collisions(&assets, [14, 0, -100], 13, true)
                 .unwrap(),
-            Some(EnemyCollision::Projectile)
+            [Some(EnemyCollision::Projectile), None]
         );
         assert!(enemy.bullet.active);
         enemy.bullet.depth = 30;
         assert_eq!(
             enemy
-                .player_collision(&assets, [14, 0, -100], 13, true)
+                .player_collisions(&assets, [14, 0, -100], 13, true)
                 .unwrap(),
-            None
+            [None; 2]
         );
         enemy.bullet.depth = 29;
         enemy.bullet.height = -98;
         assert_eq!(
             enemy
-                .player_collision(&assets, [14, 0, -100], 13, true)
+                .player_collisions(&assets, [14, 0, -100], 13, true)
                 .unwrap(),
-            None
+            [None; 2]
         );
         enemy.bullet.height = -101;
         enemy.bullet.lateral = -1;
         assert_eq!(
             enemy
-                .player_collision(&assets, [14, 0, -100], 13, true)
+                .player_collisions(&assets, [14, 0, -100], 13, true)
                 .unwrap(),
-            Some(EnemyCollision::Projectile)
+            [Some(EnemyCollision::Projectile), None]
         );
         assert_eq!(
             enemy
-                .player_collision(&assets, [14, 0, -100], 13, false)
+                .player_collisions(&assets, [14, 0, -100], 13, false)
                 .unwrap(),
-            None
+            [None; 2]
         );
     }
 
@@ -649,9 +663,9 @@ mod tests {
         assert!(!enemy.shadow.active);
         assert_eq!(
             enemy
-                .player_collision(&assets, [14, 0, -100], 0, true)
+                .player_collisions(&assets, [14, 0, -100], 0, true)
                 .unwrap(),
-            None
+            [None; 2]
         );
         let mut random = Random::default();
         for source in [69, 69, 61, 61, 69, 69, 67, 67, 65, 65, 64, 64] {
@@ -748,5 +762,81 @@ mod tests {
         enemy.craft.depth = 512;
         enemy.update_half_step(&mut random, [14, 0, -100]);
         assert_eq!(enemy.craft.height, -100);
+    }
+    #[test]
+    fn lateral_orbit_preserves_height_and_does_not_seek_at_near_depth() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.spawn_command(0x8a, &mut random, 0).unwrap();
+        assert_eq!(random.state(), [0; 3]);
+        enemy.craft.depth = 128;
+        enemy.update_half_step(&mut random, [14, 50, -28]);
+        assert_eq!(enemy.orbit_center, [9, -91]);
+        assert_eq!(
+            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (106, 137, 0)
+        );
+        enemy.update_half_step(&mut random, [14, 50, -28]);
+        assert_eq!(enemy.orbit_center, [18, -82]);
+        assert_eq!(
+            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (84, 114, 0)
+        );
+    }
+
+    #[test]
+    fn lateral_orbit_firing_observes_the_new_lateral_and_preserved_height() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.orbit_center = [0, -28];
+        enemy.spawn_command(0x8a, &mut random, 0).unwrap();
+        enemy.craft.depth = 38;
+        for _ in 0..3 {
+            random.next_word();
+        }
+        enemy.update_half_step(&mut random, [14, 0, -28]);
+        assert_eq!(
+            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (16, 32, 0)
+        );
+        assert_eq!(
+            (
+                enemy.bullet.depth,
+                enemy.bullet.lateral,
+                enemy.bullet.height
+            ),
+            (38, 32, 0)
+        );
+        assert_eq!((enemy.shadow.depth, enemy.shadow.lateral), (38, 32));
+        assert!(enemy.craft.active);
+    }
+    #[test]
+    fn collision_candidates_preserve_slot_order_for_grace_gated_damage() {
+        let mut assets = assets();
+        assets.sprites[13].descriptor[..3].copy_from_slice(&[32, 128, 15]);
+        let mut enemy = Enemy::new(&assets).unwrap();
+        for slot in [&mut enemy.bullet, &mut enemy.craft] {
+            slot.active = true;
+            slot.depth = 29;
+            slot.lateral = 128;
+            slot.height = -99;
+        }
+        enemy.bullet.resolved_sprite = 64;
+        enemy.craft.resolved_sprite = 33;
+        assert_eq!(
+            enemy
+                .player_collisions(&assets, [14, 0, -100], 13, true)
+                .unwrap(),
+            [
+                Some(EnemyCollision::Projectile),
+                Some(EnemyCollision::Craft)
+            ]
+        );
+        assert_eq!(
+            enemy
+                .player_collisions(&assets, [14, 0, -100], 13, false)
+                .unwrap(),
+            [None; 2]
+        );
     }
 }

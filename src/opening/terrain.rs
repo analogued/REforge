@@ -14,6 +14,9 @@ pub struct TerrainSnapshot {
     pub resolved_sprite: usize,
     pub rect: Rect,
     pub phase: u8,
+    pub kind: u8,
+    pub movement: u8,
+    pub animation_phase: u8,
 }
 
 #[derive(Debug)]
@@ -24,9 +27,17 @@ pub(crate) struct Terrain {
 
 #[derive(Clone, Copy, Debug)]
 enum TerrainKind {
-    Empty,
+    Type0,
+    Type1,
     Type2,
     Type3,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct TerrainCollision {
+    pub fuel: u16,
+    pub points: u16,
+    pub damage: u16,
 }
 
 impl Terrain {
@@ -46,31 +57,131 @@ impl Terrain {
                     height: 2,
                 },
                 phase: 0,
+                kind: 0,
+                movement: 0,
+                animation_phase: 0,
             }),
-            kinds: [TerrainKind::Empty; 8],
+            kinds: [TerrainKind::Type0; 8],
         }
     }
 
-    /// Advance the world, then resolve sources and project the render list.
-    /// The first pass projects all slots; the second includes only depth < 70.
-    pub(crate) fn advance_half_step(
+    /// Advance every terrain row before collision and source resolution.
+    pub(crate) fn update_half_step(&mut self, player: [i16; 3]) -> u16 {
+        let mut fuel = 0_u16;
+        for (slot, kind) in self.slots.iter_mut().zip(self.kinds) {
+            if !slot.active {
+                continue;
+            }
+            match slot.movement {
+                2 => {
+                    slot.requested_sprite = sprite_choice(slot.depth, slot.phase, kind);
+                    if proximity_effect(slot, kind, player) {
+                        if matches!(kind, TerrainKind::Type1) {
+                            fuel = fuel.wrapping_add(512);
+                        }
+                        start_effect(slot);
+                    }
+                    // A newly converted effect still applies this half-step's delta.
+                    slot.depth -= 28;
+                    if slot.depth <= player[0] {
+                        slot.active = false;
+                        if slot.movement != 2 {
+                            slot.requested_sprite = 0;
+                        }
+                    }
+                }
+                3 | 252 => {
+                    let sprite = effect_sprite(slot, kind);
+                    if sprite == 0 {
+                        slot.active = false;
+                    } else {
+                        slot.requested_sprite = sprite;
+                        slot.animation_phase = slot.animation_phase.wrapping_add(1);
+                    }
+                    // Both effect subtypes clear activity and the requested source.
+                    if slot.depth <= player[0] {
+                        slot.active = false;
+                        slot.requested_sprite = 0;
+                    }
+                }
+                _ => unreachable!("active terrain has unsupported movement subtype"),
+            }
+        }
+        fuel
+    }
+
+    /// Collision uses the preceding resolved sources and ascending slot order.
+    /// Grace gates damage only; collection/conversion still occur during grace.
+    pub(crate) fn player_collision(
+        &mut self,
+        assets: &GraphicsAssets,
+        player: [i16; 3],
+        player_sprite: usize,
+        collidable: bool,
+        can_damage: bool,
+    ) -> Result<Option<TerrainCollision>, Error> {
+        if !collidable {
+            return Ok(None);
+        }
+        let player_source = assets.sprites.get(player_sprite).ok_or_else(|| {
+            Error::InvalidData(format!("missing player collision sprite {player_sprite}"))
+        })?;
+        let mut collision = None;
+        for (slot, kind) in self.slots.iter_mut().zip(self.kinds) {
+            if !slot.active
+                || !matches!(slot.movement, 2 | 252)
+                || !matches!(kind, TerrainKind::Type0 | TerrainKind::Type1)
+            {
+                continue;
+            }
+            let source = assets.sprites.get(slot.resolved_sprite).ok_or_else(|| {
+                Error::InvalidData(format!(
+                    "missing terrain collision sprite {}",
+                    slot.resolved_sprite
+                ))
+            })?;
+            let overlaps = |position: i16, extent: i16, target: i16, target_extent: i16| {
+                position.wrapping_add(extent) >= target
+                    && position <= target.wrapping_add(target_extent)
+            };
+            if overlaps(
+                player[0],
+                player_source.descriptor[2],
+                slot.depth,
+                source.descriptor[2],
+            ) && overlaps(
+                player[1],
+                player_source.descriptor[1],
+                slot.lateral,
+                source.descriptor[1],
+            ) && player[2].wrapping_add(source.descriptor[0]) >= -100
+                && player[2] <= (-100_i16).wrapping_add(source.descriptor[0])
+            {
+                let effects = collision.get_or_insert(TerrainCollision::default());
+                effects.damage = if slot.movement == 252 { 1 } else { 2 };
+                if slot.movement == 2 {
+                    if matches!(kind, TerrainKind::Type1) {
+                        effects.fuel = effects.fuel.wrapping_add(512);
+                        effects.points = effects.points.wrapping_add(400);
+                    }
+                    start_effect(slot);
+                }
+                if can_damage {
+                    break;
+                }
+            }
+        }
+        Ok(collision)
+    }
+
+    pub(crate) fn project(
         &mut self,
         assets: &GraphicsAssets,
         full_projection: bool,
         vertical_origin: i32,
         camera_height: i16,
     ) -> Result<(), Error> {
-        for (slot, kind) in self.slots.iter_mut().zip(self.kinds) {
-            if slot.active {
-                // Terrain kinds 2 and 3 have no player collision effect. Their
-                // retirement handler clears activity only after passing depth 14.
-                // Sprite choice observes the old depth and the preceding projection's phase.
-                slot.requested_sprite = sprite_choice(slot.depth, slot.phase, kind);
-                slot.depth -= 28;
-                if slot.depth <= 14 {
-                    slot.active = false;
-                }
-            }
+        for slot in &mut self.slots {
             if full_projection || slot.depth < 70 {
                 let sprite = assets.sprites.get(slot.requested_sprite).ok_or_else(|| {
                     Error::InvalidData(format!("missing terrain sprite {}", slot.requested_sprite))
@@ -93,9 +204,21 @@ impl Terrain {
         Ok(())
     }
 
+    #[cfg(test)]
+    fn advance_half_step(
+        &mut self,
+        assets: &GraphicsAssets,
+        full_projection: bool,
+        vertical_origin: i32,
+        camera_height: i16,
+    ) -> Result<(), Error> {
+        self.update_half_step([14, 0, -100]);
+        self.project(assets, full_projection, vertical_origin, camera_height)
+    }
+
     /// Recycle after rendering and event processing, preserving resolved draw state.
     pub(crate) fn recycle(&mut self, selector: u16, random: &mut Random) -> Result<(), Error> {
-        if !matches!(selector, 0 | 5 | 6 | 7) {
+        if !matches!(selector, 0 | 3 | 5 | 6 | 7) {
             return Err(Error::InvalidData(format!(
                 "unsupported opening terrain selector {selector}"
             )));
@@ -106,10 +229,19 @@ impl Terrain {
             }
             slot.lateral = (random.next_word() & 0x7ff) as i16 - 1024;
             slot.depth = 916 + index as i16 * 112;
+            slot.movement = 2;
             match selector {
                 0 => {
-                    self.kinds[index] = TerrainKind::Empty;
+                    self.kinds[index] = TerrainKind::Type0;
                     slot.active = false;
+                }
+                3 => {
+                    self.kinds[index] = if random.next_word() & 3 == 0 {
+                        TerrainKind::Type1
+                    } else {
+                        TerrainKind::Type0
+                    };
+                    slot.active = true;
                 }
                 5 => {
                     self.kinds[index] = TerrainKind::Type2;
@@ -136,7 +268,65 @@ impl Terrain {
     }
 
     pub(crate) fn snapshots(&self) -> [TerrainSnapshot; 8] {
-        self.slots
+        std::array::from_fn(|index| {
+            let mut slot = self.slots[index];
+            slot.kind = match self.kinds[index] {
+                TerrainKind::Type0 => 0,
+                TerrainKind::Type1 => 1,
+                TerrainKind::Type2 => 2,
+                TerrainKind::Type3 => 3,
+            };
+            slot
+        })
+    }
+}
+
+fn proximity_effect(slot: &TerrainSnapshot, kind: TerrainKind, player: [i16; 3]) -> bool {
+    if slot.depth >= player[0].wrapping_add(56) || player[2] >= 60 {
+        return false;
+    }
+    match kind {
+        TerrainKind::Type0 => {
+            slot.lateral > player[1].wrapping_sub(100) && slot.lateral < player[1].wrapping_add(200)
+        }
+        TerrainKind::Type1 => {
+            player[2] > -80
+                && slot.lateral > player[1].wrapping_sub(60)
+                && slot.lateral < player[1].wrapping_add(100)
+        }
+        _ => false,
+    }
+}
+
+fn start_effect(slot: &mut TerrainSnapshot) {
+    slot.movement = if slot.depth < 56 { 252 } else { 3 };
+    slot.animation_phase = 0;
+}
+
+fn effect_sprite(slot: &TerrainSnapshot, kind: TerrainKind) -> usize {
+    let frame = usize::from(slot.animation_phase / 2);
+    if slot.movement == 252 {
+        let first = if matches!(kind, TerrainKind::Type1) {
+            118
+        } else {
+            117
+        };
+        if frame < 124 - first {
+            first + frame
+        } else {
+            0
+        }
+    } else {
+        let row = slot.depth >> 5;
+        let sequence: &[usize] = match row {
+            0..=2 => &[69, 61, 69, 67, 65, 64],
+            3..=4 => &[69, 68, 67, 66, 65, 64],
+            5..=7 => &[68, 67, 66, 65, 64],
+            8..=11 => &[67, 66, 65, 64],
+            12..=15 => &[66, 65, 63, 64],
+            _ => unreachable!("far terrain effect depth outside supported range"),
+        };
+        sequence.get(frame).copied().unwrap_or(0)
     }
 }
 
@@ -149,6 +339,40 @@ fn sprite_choice(depth: i16, phase: u8, kind: TerrainKind) -> usize {
     let size = 2047 / (i32::from(depth) + 64);
     let shifted = phase >= 2;
     match kind {
+        TerrainKind::Type1 => match size {
+            0..=1 => {
+                if shifted {
+                    113
+                } else {
+                    105
+                }
+            }
+            2..=3 => {
+                if shifted {
+                    114
+                } else {
+                    106
+                }
+            }
+            4..=5 => {
+                if shifted {
+                    115
+                } else {
+                    107
+                }
+            }
+            6..=8 => {
+                if shifted {
+                    116
+                } else {
+                    108
+                }
+            }
+            9..=14 => 109,
+            15..=19 => 110,
+            20..=24 => 111,
+            _ => 112,
+        },
         TerrainKind::Type2 => match size {
             0..=1 => {
                 if shifted {
@@ -197,7 +421,7 @@ fn sprite_choice(depth: i16, phase: u8, kind: TerrainKind) -> usize {
             12..=15 => 156,
             _ => 157,
         },
-        TerrainKind::Empty => match size {
+        TerrainKind::Type0 => match size {
             0..=1 => {
                 if shifted {
                     54
@@ -255,6 +479,7 @@ mod tests {
         terrain.kinds[0] = TerrainKind::Type2;
         let slot = &mut terrain.slots[0];
         slot.active = true;
+        slot.movement = 2;
         slot.depth = 664;
         slot.lateral = -200;
         terrain.advance_half_step(&assets(), true, 106, 0).unwrap();
@@ -272,6 +497,7 @@ mod tests {
         terrain.kinds[0] = TerrainKind::Type2;
         let slot = &mut terrain.slots[0];
         slot.active = true;
+        slot.movement = 2;
         slot.depth = 580;
         slot.phase = 3;
         slot.resolved_sprite = 143;
@@ -294,6 +520,7 @@ mod tests {
         let mut terrain = Terrain::new();
         for slot in &mut terrain.slots[1..] {
             slot.active = true;
+            slot.movement = 2;
         }
         terrain.slots[0].resolved_sprite = 148;
         terrain.slots[0].rect.y = 140;
@@ -394,5 +621,157 @@ mod tests {
             assert_eq!(sprite_choice(depth, 1, TerrainKind::Type3), aligned);
             assert_eq!(sprite_choice(depth, 2, TerrainKind::Type3), shifted);
         }
+    }
+
+    #[test]
+    fn selector_three_interleaves_lateral_and_kind_random_words() {
+        let mut terrain = Terrain::new();
+        let mut random = Random::default();
+        let mut reference = Random::default();
+        let expected: Vec<_> = (0..8)
+            .map(|_| {
+                let lateral = (reference.next_word() & 2047) as i16 - 1024;
+                let kind = u8::from(reference.next_word() & 3 == 0);
+                (lateral, kind)
+            })
+            .collect();
+        terrain.recycle(3, &mut random).unwrap();
+        for (slot, (lateral, kind)) in terrain.snapshots().into_iter().zip(expected) {
+            assert_eq!(slot.lateral, lateral);
+            assert_eq!(slot.kind, kind);
+            assert_eq!(slot.movement, 2);
+            assert!(slot.active);
+        }
+        assert_eq!(random.state(), reference.state());
+    }
+
+    #[test]
+    fn proximity_conversion_applies_motion_once_then_freezes_and_ends_animation() {
+        let mut terrain = Terrain::new();
+        terrain.kinds[0] = TerrainKind::Type1;
+        let slot = &mut terrain.slots[0];
+        slot.active = true;
+        slot.movement = 2;
+        slot.depth = 48;
+        assert_eq!(terrain.update_half_step([14, 0, -28]), 512);
+        assert_eq!(terrain.slots[0].depth, 20);
+        assert_eq!(terrain.slots[0].movement, 252);
+        for expected in [118, 118, 119, 119, 120, 120, 121, 121, 122, 122, 123, 123] {
+            assert_eq!(terrain.update_half_step([14, 0, -28]), 0);
+            assert_eq!(terrain.slots[0].requested_sprite, expected);
+            assert_eq!(terrain.slots[0].depth, 20);
+            assert!(terrain.slots[0].active);
+        }
+        terrain.update_half_step([14, 0, -28]);
+        assert!(!terrain.slots[0].active);
+        assert_eq!(terrain.slots[0].requested_sprite, 123);
+        terrain.slots[0].active = true;
+        terrain.slots[0].movement = 2;
+        terrain.slots[0].depth = 42;
+        terrain.update_half_step([14, 0, -28]);
+        assert!(!terrain.slots[0].active);
+        assert_eq!(terrain.slots[0].requested_sprite, 0);
+    }
+
+    #[test]
+    fn proximity_bounds_are_strict_and_far_effect_uses_post_motion_depth_row() {
+        let mut terrain = Terrain::new();
+        terrain.kinds[0] = TerrainKind::Type1;
+        let slot = &mut terrain.slots[0];
+        slot.active = true;
+        slot.movement = 2;
+        slot.depth = 70;
+        for (depth, lateral, height, expected) in [
+            (70, 0, -28, false),
+            (69, -60, -28, false),
+            (69, 100, -28, false),
+            (69, 0, -80, false),
+            (69, 0, 60, false),
+            (69, -59, -79, true),
+        ] {
+            slot.depth = depth;
+            slot.lateral = lateral;
+            assert_eq!(
+                proximity_effect(slot, TerrainKind::Type1, [14, 0, height]),
+                expected
+            );
+        }
+        slot.depth = 64;
+        slot.lateral = 0;
+        assert_eq!(terrain.update_half_step([14, 0, -28]), 512);
+        assert_eq!(terrain.slots[0].movement, 3);
+        assert_eq!(terrain.slots[0].depth, 36);
+        terrain.update_half_step([14, 0, -28]);
+        assert_eq!(terrain.slots[0].requested_sprite, 69);
+        terrain.update_half_step([14, 0, -28]);
+        terrain.update_half_step([14, 0, -28]);
+        assert_eq!(terrain.slots[0].requested_sprite, 61);
+        assert_eq!(terrain.slots[0].depth, 36);
+    }
+
+    #[test]
+    fn collision_grace_retains_collection_and_conversion_but_damage_stops_slot_iteration() {
+        let mut assets = assets();
+        assets.sprites[0].descriptor[2] = 30;
+        let setup = || {
+            let mut terrain = Terrain::new();
+            for index in 0..2 {
+                terrain.kinds[index] = TerrainKind::Type1;
+                terrain.slots[index].active = true;
+                terrain.slots[index].movement = 2;
+                terrain.slots[index].depth = 40;
+            }
+            terrain
+        };
+        let mut immune = setup();
+        let effect = immune
+            .player_collision(&assets, [14, 0, -100], 0, true, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!((effect.fuel, effect.points), (1024, 800));
+        assert!(immune.slots[..2].iter().all(|slot| slot.movement == 252));
+        let mut vulnerable = setup();
+        let effect = vulnerable
+            .player_collision(&assets, [14, 0, -100], 0, true, true)
+            .unwrap()
+            .unwrap();
+        assert_eq!((effect.fuel, effect.points), (512, 400));
+        assert_eq!(vulnerable.slots[0].movement, 252);
+        assert_eq!(vulnerable.slots[1].movement, 2);
+        let mut phased = setup();
+        assert!(
+            phased
+                .player_collision(&assets, [14, 0, -100], 0, false, true)
+                .unwrap()
+                .is_none()
+        );
+        assert!(phased.slots[..2].iter().all(|slot| slot.movement == 2));
+    }
+
+    #[test]
+    fn near_effect_collides_for_one_damage_without_restart_or_collection() {
+        let mut assets = assets();
+        assets.sprites[0].descriptor[2] = 30;
+        assets.sprites[117].descriptor[0] = 80;
+        let mut terrain = Terrain::new();
+        terrain.slots[0].active = true;
+        terrain.slots[0].movement = 252;
+        terrain.slots[0].depth = 20;
+        terrain.slots[0].animation_phase = 3;
+        terrain.slots[0].resolved_sprite = 117;
+        let effect = terrain
+            .player_collision(&assets, [14, 0, -28], 0, true, true)
+            .unwrap()
+            .unwrap();
+        assert_eq!((effect.damage, effect.fuel, effect.points), (1, 0, 0));
+        assert_eq!(terrain.slots[0].movement, 252);
+        assert_eq!(terrain.slots[0].animation_phase, 3);
+        terrain.slots[0].movement = 3;
+        assert!(
+            terrain
+                .player_collision(&assets, [14, 0, -28], 0, true, true)
+                .unwrap()
+                .is_none()
+        );
     }
 }

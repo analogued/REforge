@@ -86,6 +86,7 @@ impl Hud {
                 }
             }
             // The bar uses the fuel value before this call consumes its five units.
+            self.state.fuel = self.state.fuel.min(3583);
             self.state.left_bar_width = usize::from(self.state.fuel >> 8);
             self.state.fuel -= 5;
         }
@@ -106,6 +107,10 @@ impl Hud {
 
     pub fn add_points(&mut self, points: u16) {
         self.state.pending_score = self.state.pending_score.saturating_add(points).min(32_000);
+    }
+
+    pub fn add_fuel(&mut self, fuel: u16) {
+        self.state.fuel = self.state.fuel.wrapping_add(fuel);
     }
 
     pub fn reset_fuel(&mut self) {
@@ -297,5 +302,17 @@ mod tests {
         assert_eq!(hud.draws()[0].rect.width_bytes, 12);
         hud.update(9, &mut random);
         assert_eq!(hud.draws()[0].rect.width_bytes, 13);
+    }
+
+    #[test]
+    fn collected_fuel_clamps_on_consumption_instead_of_collection() {
+        let mut hud = Hud::new(&assets()).unwrap();
+        let mut random = Random::default();
+        hud.add_fuel(512);
+        hud.update(3, &mut random);
+        assert_eq!(hud.snapshot().fuel, 4090);
+        hud.update(4, &mut random);
+        assert_eq!(hud.snapshot().fuel, 3578);
+        assert_eq!(hud.snapshot().left_bar_width, 13);
     }
 }

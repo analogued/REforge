@@ -35,7 +35,7 @@ pub struct Snapshot {
     pub enemy_target: [i16; 2],
 }
 
-/// No directional input, two enemy waves, and their collision/damage responses.
+/// No directional input, with bounded encounter and collision/damage updates.
 #[derive(Debug)]
 pub struct Opening {
     body: u16,
@@ -49,6 +49,7 @@ pub struct Opening {
     script_cursor: u16,
     script_delay: u16,
     terrain_selector: u16,
+    world_order: Vec<usize>,
     frame: Frame,
 }
 
@@ -69,6 +70,7 @@ impl Opening {
             script_cursor: 0,
             script_delay: 0,
             terrain_selector: 0,
+            world_order: [4, 5].into_iter().chain(15..=22).collect(),
             frame: scene::initial_frame(assets)?,
         })
     }
@@ -106,13 +108,7 @@ impl Opening {
         }
         self.body += 1;
         self.advance_player()?;
-        self.advance_enemy(assets, true)?;
-        self.terrain.advance_half_step(
-            assets,
-            true,
-            self.vertical_origin,
-            self.player.snapshot().horizon,
-        )?;
+        self.advance_world(assets, true)?;
         self.player.project(assets, self.vertical_origin)?;
         // Far-object ordering remains from the first render pass even when the
         // second movement update changes relative depths without reprojecting.
@@ -129,17 +125,14 @@ impl Opening {
                     .map(|slot| (slot.slot, slot.depth)),
             )
             .collect();
+        // The original retains its sorted list. Equal-depth entries keep their
+        // preceding order, including when recycling changes another row's depth.
+        self.sort_world(&first_depths);
         self.hud.update(self.body, &mut self.random);
         self.advance_player()?;
         self.player.project(assets, self.vertical_origin)?;
         self.advance_player()?;
-        self.advance_enemy(assets, false)?;
-        self.terrain.advance_half_step(
-            assets,
-            false,
-            self.vertical_origin,
-            self.player.snapshot().horizon,
-        )?;
+        self.advance_world(assets, false)?;
         self.player.project(assets, self.vertical_origin)?;
         let mut frame = scene::background_at(assets, self.snapshot().strip_index, self.strip_y)?;
         let viewport = Rect {
@@ -180,16 +173,15 @@ impl Opening {
             )
             .map(|(slot, draw)| {
                 (
-                    first_depths
+                    self.world_order
                         .iter()
-                        .find(|(index, _)| *index == slot)
-                        .unwrap()
-                        .1,
+                        .position(|index| *index == slot)
+                        .unwrap(),
                     draw,
                 )
             })
             .collect();
-        world.sort_by_key(|(depth, _)| std::cmp::Reverse(*depth));
+        world.sort_by_key(|(position, _)| *position);
         let [player_shadow, player_craft] = self.player.draws();
         for draw in std::iter::once(player_shadow)
             .chain(
@@ -246,6 +238,15 @@ impl Opening {
                         )?;
                         self.script_delay = 0;
                     }
+                    7 => self.terrain_selector = 3,
+                    8 => {
+                        self.enemy.spawn_command(
+                            0x8a,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                        )?;
+                        self.script_delay = 0;
+                    }
                     _ => return Err(Error::InvalidData("unsupported opening command".into())),
                 }
                 self.script_cursor += 1;
@@ -256,7 +257,13 @@ impl Opening {
         Ok(true)
     }
 
-    fn advance_enemy(
+    fn sort_world(&mut self, depths: &[(usize, i16)]) {
+        self.world_order.sort_by_key(|slot| {
+            std::cmp::Reverse(depths.iter().find(|(index, _)| index == slot).unwrap().1)
+        });
+    }
+
+    fn advance_world(
         &mut self,
         assets: &GraphicsAssets,
         full_projection: bool,
@@ -264,13 +271,19 @@ impl Opening {
         let player = self.player.snapshot();
         self.enemy
             .update_half_step(&mut self.random, player.coordinates);
-        // Collision sees the preceding resolved descriptors, before projection.
-        if let Some(collision) = self.enemy.player_collision(
+        let collected_fuel = self.terrain.update_half_step(player.coordinates);
+        self.hud.add_fuel(collected_fuel);
+        // All motion precedes collision, which sees the previous resolved sources.
+        let collisions = self.enemy.player_collisions(
             assets,
             player.coordinates,
             player.resolved_sprite,
-            self.player.can_damage(),
-        )? {
+            player.phase == 0,
+        )?;
+        for collision in collisions.into_iter().flatten() {
+            if self.player.snapshot().phase != 0 {
+                break;
+            }
             match collision {
                 enemy::EnemyCollision::Projectile => self.player.hit(1),
                 enemy::EnemyCollision::Craft => {
@@ -280,11 +293,28 @@ impl Opening {
                 }
             }
         }
+        if let Some(collision) = self.terrain.player_collision(
+            assets,
+            player.coordinates,
+            player.resolved_sprite,
+            self.player.snapshot().phase == 0,
+            self.player.can_damage(),
+        )? {
+            self.hud.add_fuel(collision.fuel);
+            self.hud.add_points(collision.points);
+            self.player.hit(collision.damage);
+        }
         if full_projection {
             self.strip_y = (92 + (player.horizon >> 3)) as usize;
             self.vertical_origin = 106 + i32::from(player.horizon >> 4);
         }
         self.enemy.project(
+            assets,
+            full_projection,
+            self.vertical_origin,
+            self.player.snapshot().horizon,
+        )?;
+        self.terrain.project(
             assets,
             full_projection,
             self.vertical_origin,
@@ -302,7 +332,7 @@ impl Opening {
 }
 
 /// Final completed body of the currently verified, no-input opening batch.
-pub const LAST_BODY: u16 = 270;
+pub const LAST_BODY: u16 = 360;
 
 /// Three nominal 36.413 Hz timer units per completed loop body.
 /// Original CPU/render costs and startup timer transitions are not emulated.
@@ -380,15 +410,18 @@ mod tests {
                     5
                 } else if body < 201 {
                     7
-                } else {
+                } else if body < 284 {
                     6
+                } else {
+                    3
                 }
             );
             assert_eq!(
                 state.enemies[1].active,
                 (61..98).contains(&body)
                     || (138..181).contains(&body)
-                    || (221..264).contains(&body),
+                    || (221..264).contains(&body)
+                    || (304..341).contains(&body),
                 "enemy activation at body {body}"
             );
             assert_eq!(
@@ -407,8 +440,12 @@ mod tests {
                     5
                 } else if body < 221 {
                     6
-                } else {
+                } else if body < 284 {
                     7
+                } else if body < 304 {
+                    8
+                } else {
+                    9
                 }
             );
         }
@@ -421,5 +458,21 @@ mod tests {
         assert_eq!(opening.snapshot().body, LAST_BODY);
         assert_eq!(opening.snapshot().random, final_random);
         assert_eq!(opening.frame(), &final_frame);
+    }
+
+    #[test]
+    fn equal_depth_objects_retain_their_order_from_the_preceding_pass() {
+        let mut opening = Opening::new(&synthetic_assets()).unwrap();
+        let mut depths: Vec<_> = opening
+            .world_order
+            .iter()
+            .map(|slot| (*slot, 100))
+            .collect();
+        depths.last_mut().unwrap().1 = 200;
+        opening.sort_world(&depths);
+        assert_eq!(opening.world_order[0], 22);
+        depths.last_mut().unwrap().1 = 100;
+        opening.sort_world(&depths);
+        assert_eq!(opening.world_order[0], 22);
     }
 }

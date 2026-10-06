@@ -13,10 +13,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: mach3-opening [--steps 0..270] <assets-directory> <new-output-directory>\n\n\
+const HELP: &str = "Usage: mach3-opening [--steps 0..360] <assets-directory> <new-output-directory>\n\n\
 Export the no-input opening from the initial frame through the requested body.\n\
 Writes numbered CGA frames and state/object TSV tables; output directory must be new.\n\
-Default: 270 bodies, including the first three enemy waves. No audio or player controls.";
+Default: 360 bodies, including the first four enemy waves. No audio or player controls.";
 
 fn new_file(path: impl AsRef<Path>) -> Result<BufWriter<std::fs::File>, Error> {
     Ok(BufWriter::new(
@@ -41,7 +41,7 @@ fn run() -> Result<(), Error> {
             .and_then(|arg| arg.to_str().and_then(|arg| arg.parse::<u16>().ok()))
             .filter(|steps| *steps <= LAST_BODY)
             .ok_or_else(|| {
-                Error::InvalidData("--steps must be an integer between 0 and 270".into())
+                Error::InvalidData("--steps must be an integer between 0 and 360".into())
             })?;
     }
     let directory = args.next().map(PathBuf::from);
@@ -70,7 +70,7 @@ fn run() -> Result<(), Error> {
     )?;
     writeln!(
         terrain,
-        "body\tslot\tdepth\tlateral\tactive\trequested\tresolved\tx\ty\twidth\theight\tphase"
+        "body\tslot\tdepth\tlateral\tactive\trequested\tresolved\tx\ty\twidth\theight\tphase\tkind\tmovement\tanimation_phase"
     )?;
     for body in 0..=steps {
         if body > 0 {
@@ -131,7 +131,7 @@ fn run() -> Result<(), Error> {
         for slot in snapshot.terrain {
             writeln!(
                 terrain,
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 body,
                 slot.slot,
                 slot.depth,
@@ -143,7 +143,10 @@ fn run() -> Result<(), Error> {
                 slot.rect.y,
                 slot.rect.width_bytes,
                 slot.rect.height,
-                slot.phase
+                slot.phase,
+                slot.kind,
+                slot.movement,
+                slot.animation_phase
             )?;
         }
         for slot in snapshot.enemies {

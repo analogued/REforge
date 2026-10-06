@@ -116,7 +116,7 @@ fn opening_export_preserves_existing_directories_and_rejects_unsupported_steps()
         fs::read(directory.0.join("opening/000.cga")).unwrap(),
         first
     );
-    assert!(!export("271", "unsupported").status.success());
+    assert!(!export("361", "unsupported").status.success());
     assert!(!directory.0.join("unsupported").exists());
     assert!(!export("0", "data2").status.success());
     assert_eq!(

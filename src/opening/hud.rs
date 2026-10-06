@@ -45,6 +45,8 @@ pub(crate) struct Hud {
     progression: u16,
     score_multiplier: u16,
     score_digits: [i16; 6],
+    marker_draw_x: i32,
+    marker_draw_y: i32,
     indicator_source: usize,
     indicator_changed: bool,
 }
@@ -90,6 +92,8 @@ impl Hud {
             progression: 1,
             score_multiplier: 1,
             score_digits: [0; 6],
+            marker_draw_x: 38,
+            marker_draw_y: 4,
             indicator_source: 87,
             indicator_changed: false,
         })
@@ -228,6 +232,10 @@ impl Hud {
             self.state.left_bar_draw_height = self.state.left_bar_height;
             self.state.left_bar_draw_sprite = self.state.left_bar_sprite;
             self.state.marker_previous = self.state.marker_requested;
+            // Selection may move the requested marker on an even body, but
+            // its pixels remain at the preceding position until this phase.
+            self.marker_draw_x = self.state.marker_x;
+            self.marker_draw_y = self.state.marker_y;
         }
         if loop_index % 8 == 3 {
             self.state.lives_resolved = self.state.lives_requested;
@@ -309,8 +317,8 @@ impl Hud {
         }
         draws.push(draw(
             self.state.marker_resolved,
-            self.state.marker_x,
-            self.state.marker_y,
+            self.marker_draw_x,
+            self.marker_draw_y,
             self.state.marker_width,
             self.state.marker_height,
         ));
@@ -595,5 +603,47 @@ mod tests {
         .unwrap();
         hud.state.marker_requested = hud.state.marker_previous;
         assert!(hud.update_with_weapon(6, &mut random, 4).is_err());
+    }
+
+    #[test]
+    fn marker_position_waits_for_render_phase_after_style_change() {
+        let resources = assets();
+        let mut hud = Hud::new(&resources).unwrap();
+        let mut random = Random::default();
+        hud.update_with_weapon(1, &mut random, 4).unwrap();
+        let preceding_draw = *hud.draws().last().unwrap();
+        // A new difficulty's marker family changes both coordinates. Selection
+        // on the even body updates the request without repainting the marker.
+        hud.set_marker_styles(&resources, [(175, 35, 9); 3])
+            .unwrap();
+        hud.update_with_weapon(2, &mut random, 4).unwrap();
+        assert_eq!(hud.state.marker_requested, 175);
+        assert_eq!((hud.state.marker_x, hud.state.marker_y), (35, 9));
+        for body in 2..=4 {
+            if body != 2 {
+                hud.update_with_weapon(body, &mut random, 4).unwrap();
+            }
+            let retained = *hud.draws().last().unwrap();
+            assert_eq!(retained.resolved_sprite, preceding_draw.resolved_sprite);
+            assert_eq!(
+                (
+                    retained.rect.x_bytes,
+                    retained.rect.y,
+                    retained.rect.width_bytes,
+                    retained.rect.height,
+                ),
+                (
+                    preceding_draw.rect.x_bytes,
+                    preceding_draw.rect.y,
+                    preceding_draw.rect.width_bytes,
+                    preceding_draw.rect.height,
+                )
+            );
+        }
+        hud.update_with_weapon(5, &mut random, 4).unwrap();
+        let resolved = *hud.draws().last().unwrap();
+        assert_eq!(resolved.resolved_sprite, 175);
+        assert_eq!((resolved.rect.x_bytes, resolved.rect.y), (35, 9));
+        assert_eq!((resolved.rect.width_bytes, resolved.rect.height), (6, 23));
     }
 }

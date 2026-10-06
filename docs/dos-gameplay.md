@@ -171,6 +171,9 @@ second death occurs after body 267's HUD update, so five icons remain visible
 through body 270 despite four requested lives. The fuel bar likewise retains
 its last drawn width until the HUD render phase at body one modulo four; fuel
 consumption updates its logical width separately.
+The HUD marker's requested source and position can change on even bodies.
+Its visible source, dimensions, and position remain cached until that same
+render phase, including when a new difficulty changes the marker family.
 
 Selector 3 consumes two random words for each recycled row, first for lateral
 placement and then for its kind. Kind 1 is selected when the second word's low

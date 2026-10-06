@@ -184,9 +184,10 @@ reset the player acceptance gate and logical controls.
 
 The candidate selector uses the shared generator, difficulty weighting and
 two-entry room history; it avoids a third consecutive identical candidate.
-The current dispatch retains scene 4 candidates and maps other ordinary
-candidates to scene 5 until their rooms are implemented. Candidate history is
-therefore not a history of actual ordinary destinations. Success preserves
+Until all rooms are implemented, dispatch makes a separate seeded choice between
+scenes 4 and 5, consuming one additional shared random value. A separate two-entry
+history prevents three identical playable destinations in a row. Original
+candidate history is therefore not a history of actual ordinary destinations. Success preserves
 the pending-bonus flag; the next eligible window selects scene 7 without
 advancing the selector's random state or ordinary candidate history.
 

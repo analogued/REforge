@@ -50,6 +50,9 @@ pub struct Alley {
     machine: Machine,
     completion: Option<crate::completion::Completion>,
     hearts_completion: Option<crate::hearts_completion::HeartsCompletion>,
+    /// Actual ordinary window destinations while only two rooms are playable.
+    /// Original candidate history remains separate in the external runtime data.
+    ordinary_rooms: [u16; 2],
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -116,6 +119,7 @@ impl Alley {
             machine: Machine::Cga,
             completion: None,
             hearts_completion: None,
+            ordinary_rooms: [0; 2],
         }
     }
 
@@ -155,6 +159,7 @@ impl Alley {
             machine,
             completion: None,
             hearts_completion: None,
+            ordinary_rooms: [0; 2],
         };
         // The first accepted neutral update establishes the original idle image.
         alley.update(Controls::default())?;
@@ -549,6 +554,24 @@ impl Alley {
         Ok(update)
     }
 
+    /// Temporary selection among implemented rooms. The original candidate
+    /// selector still advances its own generator/history before this choice.
+    fn playable_destination(&mut self, candidate: u16) -> u16 {
+        if candidate == 7 {
+            return 7;
+        }
+        let mut room = if next_random(&mut self.data) & 1 == 0 {
+            4
+        } else {
+            5
+        };
+        if self.ordinary_rooms == [room; 2] {
+            room = if room == 4 { 5 } else { 4 };
+        }
+        self.ordinary_rooms = [self.ordinary_rooms[1], room];
+        room
+    }
+
     /// Dispatch only after the original caller's remaining actor work finishes.
     pub(crate) fn finish_scene(&mut self, tick: u16) -> Result<bool, String> {
         if self.completion_waiting() {
@@ -559,16 +582,13 @@ impl Alley {
                 return Ok(false);
             }
             self.player.write_data(&mut self.data)?;
-            // Preserve ordinary candidate history. Unimplemented candidates
-            // currently route to birdcage; cheese and the hearts override retain
-            // their original scene numbers.
+            // Keep the original candidate selector independent from the current
+            // playable set. Its pending-hearts override takes priority.
             let candidate = crate::windows::select_room(&mut self.data, &self.player, tick)?;
-            if candidate == 7 {
-                self.setup_hearts(tick)?;
-            } else if candidate == 4 {
-                self.setup_cheese()?;
-            } else {
-                self.setup_birdcage()?;
+            match self.playable_destination(candidate) {
+                7 => self.setup_hearts(tick)?,
+                4 => self.setup_cheese()?,
+                _ => self.setup_birdcage()?,
             }
             return Ok(true);
         }
@@ -856,6 +876,49 @@ fn hardware_color(color: u8) -> [u8; 4] {
 mod tests {
     use super::*;
     use crate::assets::word;
+
+    #[test]
+    fn available_rooms_are_seeded_and_do_not_repeat_three_times() {
+        for difficulty in 0..8 {
+            let mut alley = Alley::synthetic();
+            set_word(&mut alley.data, 8, difficulty);
+            alley.data[0x421..0x432]
+                .copy_from_slice(&[4, 4, 1, 1, 3, 3, 5, 5, 6, 6, 4, 1, 1, 3, 4, 5, 6]);
+            let mut replay = Alley::synthetic();
+            replay.data.clone_from(&alley.data);
+            let mut rooms = Vec::new();
+            for _ in 0..64 {
+                let candidate = crate::windows::choose_room(&mut alley.data).unwrap();
+                let actual = alley.playable_destination(candidate);
+                let replay_candidate = crate::windows::choose_room(&mut replay.data).unwrap();
+                assert_eq!(replay_candidate, candidate);
+                assert_eq!(replay.playable_destination(replay_candidate), actual);
+                // Temporary selection must not rewrite the original candidate history.
+                assert_eq!(word(&alley.data, 0x41d), candidate);
+                rooms.push(actual);
+            }
+            assert!(rooms.contains(&4) && rooms.contains(&5));
+            assert!(
+                rooms
+                    .windows(3)
+                    .all(|rooms| rooms != [4; 3] && rooms != [5; 3])
+            );
+            assert_eq!(word(&alley.data, 0x2ae5), word(&replay.data, 0x2ae5));
+        }
+    }
+
+    #[test]
+    fn pending_hearts_preserves_random_state_and_actual_room_history() {
+        let mut alley = Alley::synthetic();
+        alley.ordinary_rooms = [4, 4];
+        alley.data[0x418] = 1;
+        let seed = word(&alley.data, 0x2ae5);
+        let candidate = crate::windows::choose_room(&mut alley.data).unwrap();
+        assert_eq!(alley.playable_destination(candidate), 7);
+        assert_eq!(word(&alley.data, 0x2ae5), seed);
+        assert_eq!(alley.ordinary_rooms, [4, 4]);
+        assert_eq!(alley.data[0x418], 0);
+    }
 
     #[test]
     fn scene_palettes_and_carried_gift_change_colors_without_changing_pixels() {

@@ -109,10 +109,11 @@ Actor sprites and motion tables come from the required original executable.
 Windows open, hold and close with the original invocation-count, retrace and
 BIOS-tick gates. New openings require the cat to be above the fence, as in the
 original. A descending cat touching an eligible open window enters a room.
-Ordinary candidates for the cheese room retain that destination; other ordinary
-candidates currently lead to the birdcage room. The original weighted selector
-and recent-room history are retained separately from this temporary restriction
-to implemented rooms. Completing either room
+While the ordinary-room set is incomplete, a seeded choice selects cheese or
+birdcage, allowing at most two identical ordinary window destinations in a row.
+The original weighted selector and its candidate history are retained separately;
+the temporary playable choice consumes one additional shared random value per
+ordinary entry. Completing either room
 makes the next eligible window display the female cat and lead to the hearts
 scene. Projectiles remain disabled.
 

@@ -59,6 +59,13 @@ revision, affected files, and modifications; retain required copyright notices,
 attribution, and license text inside this repository. Attribution alone does not
 replace the license requirements.
 
+Keep copied, adapted, or translated third-party code and embedded third-party
+data in dedicated files or modules wherever practical. Avoid scattering imported
+material through authored implementation files. Retain its notices and provenance
+with it, and identify local adaptations and any authored helpers in those files.
+Ordinary library API calls do not require upstream source notices at each call
+site; keep applicable dependency notices centrally in the repository.
+
 The project license remains undecided. Assess proposed reuse against the candidate
 licenses and record any constraints before adoption; do not silently narrow the
 choice.

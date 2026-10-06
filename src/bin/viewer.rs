@@ -7,7 +7,7 @@ use mach3::{
 };
 use std::{env, path::PathBuf};
 
-const HELP: &str = "Usage: mach3-viewer [--scale 1..6] [--step|--static] [--controls] [--period-ms 1..5000] <assets-directory>\n\n\
+const HELP: &str = "Usage: mach3-viewer [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000] <assets-directory>\n\n\
 Space: splash -> intro -> opening. Escape or window close: exit.\n\
 Default window scale: 3; resizing preserves integer pixel scaling.\n\
 Opening animates 836 no-input loop bodies, then Game Over and High Score.\n\
@@ -35,8 +35,8 @@ fn run() -> Result<(), String> {
                 options.scale = args
                     .next()
                     .and_then(|arg| arg.to_str().and_then(|arg| arg.parse::<u32>().ok()))
-                    .filter(|scale| (1..=6).contains(scale))
-                    .ok_or_else(|| "--scale must be an integer between 1 and 6".to_string())?;
+                    .filter(|scale| (1..=16).contains(scale))
+                    .ok_or_else(|| "--scale must be an integer between 1 and 16".to_string())?;
             }
             "--controls" => {
                 args.next();

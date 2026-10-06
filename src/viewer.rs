@@ -134,8 +134,8 @@ pub fn run(frames: &StartupFrames, scale: u32) -> Result<(), String> {
 
 pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), String> {
     let scale = options.scale;
-    if !(1..=6).contains(&scale) {
-        return Err("window scale must be between 1 and 6".into());
+    if !(1..=16).contains(&scale) {
+        return Err("window scale must be between 1 and 16".into());
     }
     if options.body_period.is_zero() || options.body_period > std::time::Duration::from_secs(5) {
         return Err("opening period must be greater than zero and at most five seconds".into());

@@ -107,7 +107,7 @@ controlled prefix holds its final frame; the full no-input mode still reaches
 game over and the return intro. `--controls --step` samples held directions
 when Space advances a body. Losing focus releases held controls.
 
-The default window is 960 by 600 (3x). `--scale 1..6` sets its initial scale:
+The default window is 960 by 600 (3x). `--scale 1..16` sets its initial scale:
 
 ```sh
 cargo run --features viewer --bin mach3-viewer -- --scale 2 /path/to/assets

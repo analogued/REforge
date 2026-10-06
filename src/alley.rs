@@ -64,6 +64,17 @@ struct DamageEffect {
     kind: EffectKind,
 }
 
+/// Post-pass selection state for development traces; observing it consumes no RNG.
+#[cfg(feature = "dev-tools")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SelectionTraceState {
+    pub last_room: u16,
+    pub previous_room: u16,
+    pub random_state: u16,
+    pub difficulty: u16,
+    pub pending_hearts: bool,
+}
+
 pub struct Alley {
     data: Vec<u8>,
     screen: Framebuffer,
@@ -768,6 +779,17 @@ impl Alley {
     /// bookcase three, cheese four, birdcage five, milk six and hearts seven.
     pub fn scene(&self) -> u16 {
         word(&self.data, 4)
+    }
+
+    #[cfg(feature = "dev-tools")]
+    pub fn selection_trace_state(&self) -> SelectionTraceState {
+        SelectionTraceState {
+            last_room: word(&self.data, 0x41d),
+            previous_room: word(&self.data, 0x41f),
+            random_state: word(&self.data, 0x2ae5),
+            difficulty: word(&self.data, 8),
+            pending_hearts: self.data[0x418] != 0,
+        }
     }
 
     pub(crate) fn advance_room_tone(&mut self, tick: u16) {

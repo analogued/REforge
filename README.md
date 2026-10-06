@@ -296,6 +296,8 @@ calls without wall-clock waits. Timed headless runs stop early at game over. Scr
 accepted-update index; they are not timestamped hardware input recordings.
 `--trace-timing /path/to/timing.csv` records guest times, BIOS/PIT samples,
 retrace, polling, acceptance, actor-divider events, scene changes and blocking waits.
+It also records post-pass ordinary-room history, random state, difficulty and pending
+hearts entry; collecting these values does not alter selection or consume randomness.
 In headless runs it requires `--timed`; in windowed runs it uses default timing.
 
 `--trace`, `--dump-cga`, and `--dump-ppm` write player-state CSV including the

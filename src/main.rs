@@ -332,10 +332,18 @@ fn trace_row(output: &mut impl Write, index: usize, alley: &Alley) -> Result<(),
 }
 
 #[cfg(feature = "dev-tools")]
-fn timing_row(output: &mut impl Write, index: usize, event: &PassOutcome) -> Result<(), String> {
+const TIMING_HEADER: &str = "event,start_ns,end_ns,bios_tick,pit_counter,retrace,control_polled,accepted,accepted_ax,actor_group_due,fence_wait,mouse_wait,room_wait,scene,scene_changed,last_ordinary_room,previous_ordinary_room,random_state,difficulty,pending_hearts";
+
+#[cfg(feature = "dev-tools")]
+fn timing_row(
+    output: &mut impl Write,
+    index: usize,
+    event: &PassOutcome,
+    selection: alley_cat::alley::SelectionTraceState,
+) -> Result<(), String> {
     writeln!(
         output,
-        "{index},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        "{index},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         event.start_nanos,
         event.end_nanos,
         event.tick_low,
@@ -350,6 +358,11 @@ fn timing_row(output: &mut impl Write, index: usize, event: &PassOutcome) -> Res
         u8::from(event.room_wait),
         event.scene,
         u8::from(event.scene_changed),
+        selection.last_room,
+        selection.previous_room,
+        selection.random_state,
+        selection.difficulty,
+        u8::from(selection.pending_hearts),
     )
     .map_err(|error| error.to_string())
 }
@@ -455,8 +468,7 @@ fn run_development(
         .transpose()
         .map_err(|error| format!("Cannot create timing trace: {error}"))?;
     if let Some(output) = timing_trace.as_mut() {
-        writeln!(output, "event,start_ns,end_ns,bios_tick,pit_counter,retrace,control_polled,accepted,accepted_ax,actor_group_due,fence_wait,mouse_wait,room_wait,scene,scene_changed")
-            .map_err(|error| error.to_string())?;
+        writeln!(output, "{TIMING_HEADER}").map_err(|error| error.to_string())?;
     }
     if options.headless {
         let script = options.script.as_ref().map(read_script).transpose()?;
@@ -476,7 +488,7 @@ fn run_development(
                 let event =
                     runtime.advance_pass_with_action(alley, input.controls, input.action)?;
                 if let Some(output) = timing_trace.as_mut() {
-                    timing_row(output, pass, &event)?;
+                    timing_row(output, pass, &event, alley.selection_trace_state())?;
                 }
                 pass += 1;
                 if alley.game_over() {
@@ -607,7 +619,7 @@ fn interactive(
             {
                 let event = runtime.advance_pass_with_action(alley, held, input.alt)?;
                 if let Some(output) = timing_trace.as_mut() {
-                    timing_row(output, pass, &event)?;
+                    timing_row(output, pass, &event, alley.selection_trace_state())?;
                 }
                 pass += 1;
                 if event.acceptance.is_some() {
@@ -751,6 +763,53 @@ mod tests {
         assert_eq!(options.machine, Machine::Pcjr);
         assert_eq!((options.scale, options.difficulty), (3, 7));
         assert!(parse(&["--help"]).unwrap().is_none());
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn timing_trace_keeps_selection_state_without_an_accepted_player_update() {
+        let event = PassOutcome {
+            start_nanos: 100,
+            end_nanos: 200,
+            tick_low: 18,
+            pit_counter: 65530,
+            retrace: false,
+            control_polled: true,
+            acceptance: None,
+            actor_group_due: true,
+            fence_wait: false,
+            mouse_wait: false,
+            room_wait: false,
+            scene: 7,
+            scene_changed: true,
+        };
+        let selection = alley_cat::alley::SelectionTraceState {
+            last_room: 5,
+            previous_room: 5,
+            random_state: 64089,
+            difficulty: 6,
+            pending_hearts: false,
+        };
+        let mut output = Vec::new();
+        timing_row(&mut output, 9, &event, selection).unwrap();
+        let row = String::from_utf8(output).unwrap();
+        let fields: Vec<_> = row.trim_end().split(',').collect();
+        let columns: Vec<_> = TIMING_HEADER.split(',').collect();
+        assert_eq!(fields.len(), columns.len());
+        let value = |name| fields[columns.iter().position(|column| *column == name).unwrap()];
+        for (name, expected) in [
+            ("event", "9"),
+            ("accepted", "0"),
+            ("scene", "7"),
+            ("scene_changed", "1"),
+            ("last_ordinary_room", "5"),
+            ("previous_ordinary_room", "5"),
+            ("random_state", "64089"),
+            ("difficulty", "6"),
+            ("pending_hearts", "0"),
+        ] {
+            assert_eq!(value(name), expected, "{name}");
+        }
     }
 
     #[test]

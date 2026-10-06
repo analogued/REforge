@@ -209,8 +209,7 @@ implemented. Candidate history is the ordinary destination history. Failed
 hearts attempts leave it unchanged: birdcage → hearts failure → birdcage →
 hearts failure still leaves two birdcage selections in history, so the next
 ordinary selection must differ. Direct `--scene` previews bypass selection and
-do not enter that history; a direct birdcage preview followed by two selected
-birdcage rooms can therefore look like three repeats.
+do not enter that history.
 Success preserves the pending-bonus flag; the next eligible window selects scene
 7 without
 advancing the selector's random state or ordinary candidate history.

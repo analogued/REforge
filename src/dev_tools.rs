@@ -113,7 +113,7 @@ impl DevOptions {
         if self.infinite_lives {
             controls.push("infinite lives (life loss is not implemented)");
         }
-        for (name, actor) in &ACTORS[..4] {
+        for (name, actor) in &ACTORS[..3] {
             if self.actor_disabled(*actor) {
                 controls.push(name);
             }

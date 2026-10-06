@@ -58,6 +58,8 @@ pub struct ReferenceCosts {
     pub underwater_actor_draw: u64,
     pub water_surface_draw: u64,
     pub fishbowl_draw: u64,
+    pub milk_drink_draw: u64,
+    pub milk_attention_draw: u64,
     pub mouse_redraw: u64,
     pub mouse_catch: u64,
     pub bin_push_sound: u64,
@@ -137,6 +139,9 @@ impl ReferenceCosts {
             underwater_actor_draw: 250_000,
             water_surface_draw: 200_000,
             fishbowl_draw: 500_000,
+            // Provisional milk-room drawing costs, separate from native gates.
+            milk_drink_draw: 1_500_000,
+            milk_attention_draw: 1_000_000,
             // Full original helpers: normal draw about 1.6ms, catch about 8ms.
             // Add only work above the ordinary gated group allowance.
             mouse_redraw: 1_550_000,
@@ -243,8 +248,9 @@ impl Runtime {
         self.advance_pass_with_action(alley, held, false)
     }
 
-    /// Alt places a carried gift. Like directions, action is latched only by
-    /// the original two-tick input gate; it does not interrupt blocking work.
+    /// Alt drinks milk, uses cheese holes or places a gift. Like directions,
+    /// action is latched only by the original two-tick input gate; it does not
+    /// interrupt blocking work.
     pub fn advance_pass_with_action(
         &mut self,
         alley: &mut Alley,
@@ -367,6 +373,9 @@ impl Runtime {
         if control_polled {
             self.controls = held;
             alley.latch_action(action);
+            if alley.scene() == 6 {
+                alley.latch_controls(self.controls);
+            }
             self.clock.advance_nanos(self.costs.control_decode);
             self.clock.advance_nanos(self.costs.pit_read);
             let start = self.clock.sample().pit_counter;
@@ -403,9 +412,24 @@ impl Runtime {
                 self.clock.advance_nanos(self.costs.room_bird_draw);
             }
         }
-        if matches!(alley.scene(), 1..=4 | 7) {
+        if matches!(alley.scene(), 1..=4 | 6..=7) {
             // These scenes expire the shared room tone before the player call.
             alley.advance_room_tone(self.clock.sample().bios.tick_low);
+        }
+        if alley.scene() == 6 {
+            // CS:02ce..02d4: drinking and sleeping-dog attention precede the
+            // player call. The drink helper may replace latched directions.
+            let drinking = alley.advance_milk_drinking(self.clock.sample().bios.tick_low)?;
+            self.controls = alley.requested_controls();
+            self.clock.advance_nanos(self.costs.room_actor_gate);
+            if drinking.drew {
+                self.clock.advance_nanos(self.costs.milk_drink_draw);
+            }
+            let attention = alley.advance_milk_attention(self.clock.sample().bios.tick_low)?;
+            self.clock.advance_nanos(self.costs.room_actor_gate);
+            if attention.drew {
+                self.clock.advance_nanos(self.costs.milk_attention_draw);
+            }
         }
 
         self.clock.advance_nanos(self.costs.player_gate);
@@ -512,7 +536,7 @@ impl Runtime {
         acceptance: Option<PlayerAcceptance>,
     ) -> Result<PassOutcome, String> {
         let before_scene = alley.scene();
-        if matches!(before_scene, 1..=5 | 7) {
+        if matches!(before_scene, 1..=7) {
             if before_scene == 7 {
                 for call in [
                     Alley::advance_hearts_arrow,

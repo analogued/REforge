@@ -33,9 +33,9 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
 
 Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
 Ctrl+Q or closing the window quits.
-Alt uses paired holes in cheese and places a carried gift in the hearts room.
+Alt drinks milk, uses paired holes in cheese and places a carried gift in the hearts room.
 Gifts are picked up automatically.
-Ordinary windows lead to fishbowl, bookcase, cheese or birdcage; after success, the next leads to hearts.
+Ordinary windows lead to fishbowl, bookcase, cheese, birdcage or milk; after success, the next leads to hearts.
 Life loss and audio are not implemented.
 Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
@@ -43,7 +43,7 @@ Your original executable is required; original data is never bundled.";
 #[cfg(feature = "dev-tools")]
 const DEV_HELP: &str = "
 Development options (compiled with dev-tools):
-  --scene NAME            Start in alley, fishbowl, underwater, bookcase, cheese, birdcage, hearts or completion
+  --scene NAME            Start in alley, fishbowl, underwater, bookcase, cheese, birdcage, milk, hearts or completion
   --seed N                Random seed, decimal or 0xHEX (default: 0xfa59)
   --step-hz N             Diagnostic accepted updates/sec
   --headless              Run without a window
@@ -74,6 +74,7 @@ enum StartScene {
     Fishbowl,
     Underwater,
     Cheese,
+    Milk,
     Hearts,
     Completion,
 }
@@ -201,9 +202,10 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
                     "fishbowl" => StartScene::Fishbowl,
                     "underwater" => StartScene::Underwater,
                     "cheese" => StartScene::Cheese,
+                    "milk" => StartScene::Milk,
                     "hearts" => StartScene::Hearts,
                     "completion" => StartScene::Completion,
-                    _ => return Err("Scene must be alley, fishbowl, underwater, bookcase, cheese, birdcage, hearts or completion".into()),
+                    _ => return Err("Scene must be alley, fishbowl, underwater, bookcase, cheese, birdcage, milk, hearts or completion".into()),
                 }
             }
             #[cfg(feature = "dev-tools")]
@@ -423,6 +425,12 @@ fn run_development(
                 return Err("Hearts play requires default timing or --headless --timed".into());
             }
             alley.enter_hearts(0)?;
+        }
+        StartScene::Milk => {
+            if options.step_hz.is_some() || (options.headless && !options.timed) {
+                return Err("Milk play requires default timing or --headless --timed".into());
+            }
+            alley.enter_milk(0)?;
         }
         StartScene::Completion => {
             if options.step_hz.is_some() || (options.headless && !options.timed) {
@@ -847,6 +855,22 @@ mod tests {
         .unwrap()
         .unwrap();
         assert!(options.dev.switches.stub_notice().is_none());
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn milk_scene_is_available_for_timed_development_play() {
+        let options = parse(&[
+            "--original",
+            "example.exe",
+            "--scene",
+            "milk",
+            "--headless",
+            "--timed",
+        ])
+        .unwrap()
+        .unwrap();
+        assert!(options.dev.scene == StartScene::Milk);
     }
 
     #[cfg(feature = "dev-tools")]

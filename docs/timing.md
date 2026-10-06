@@ -291,10 +291,38 @@ Sound counters advance with the reviewed table-driven tone requests, without
 audio synthesis or random draws from these presentation helpers.
 
 The original sets scene zero before presentation. The recreation's scene
-diagnostic remains five until the alley has been initialized; a dedicated
-completion state blocks all room work meanwhile. With `dev-tools`,
+diagnostic retains the completed room number until the alley has been
+initialized; a dedicated completion state blocks all room work meanwhile. With `dev-tools`,
 `--scene completion` starts this sequence directly for testing. The pending bonus flag survives alley
 return and selects the hearts scene at the next eligible window entry.
+
+### Milk room schedule
+
+Scene 6 runs controls, pending-tone expiration, drinking (`4943`), sleeping-dog
+attention (`47d6`), ordinary player movement, and the broom before checking
+success or room exit. Its twelve bowls and seeded sleeping-dog placement use
+external tables. Drinking rejects unchanged BIOS ticks, selects the closest
+unfinished bowl on the exact matching level, and favors the lower slot on ties.
+The original SUB/NOT distance calculation is retained. Alignment replaces the
+latched horizontal request; successful drinking advances an eight-bit phase by
+48, consuming milk only when that addition carries. Emptying the final bowl
+sets success. Normal player timing still commits accepted updates while the
+drinking-state flag suppresses movement.
+
+Attention requires elapsed ticks strictly greater than its difficulty-table
+threshold. Nearby dogs advance toward alert level two; away dogs can calm using
+the shared generator. The warning flag and eye images are retained. Level-two
+contact is harmless while lethal pursuit remains unimplemented. The drinking
+image is suspended around room actor drawing and recomposed from its current
+phase, keeping it out of saved player and broom backgrounds. Disabling
+`milk-dogs` removes eye updates and sprites without disabling milk objectives.
+
+Milk-room active-drawing costs are provisional allowances, not independently
+calibrated CPU timings. Warning audio and its blocking duration remain deferred.
+The shared scoring presentation uses scene 6's original time bonus:
+`max(2700 - elapsed BIOS ticks, 0)`, plus the external room base score. Its
+success returns at the saved alley position and makes the next eligible window
+lead to hearts.
 
 ### Hearts scene schedule and progression
 

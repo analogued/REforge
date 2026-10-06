@@ -137,6 +137,26 @@ pub(crate) fn draw_fishbowl_room(data: &mut [u8], screen: &mut Framebuffer) -> R
     Ok(())
 }
 
+/// CS:2800..283a: the sleeping-dog room's lower wall and furniture.
+/// Milk bowls and sleeping dogs are initialized separately by CS:4b47.
+pub(crate) fn draw_milk_room(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
+    check_data(data)?;
+    screen.fill_visible(0xaa);
+    draw_room_wall(data, screen, 0)?;
+    draw_list(data, screen, 0x2570, 0x064a)?;
+    set_word(data, 0x2650, 72);
+    data[0x2652] = 56;
+    draw_furniture(data, screen, 0x0dd2, &[0x263c, 0x263a, 0x2638, 0x2636])?;
+    draw_furniture(
+        data,
+        screen,
+        0x0df6,
+        &[0x2646, 0x2644, 0x2642, 0x2640, 0x263e],
+    )?;
+    copy_sprite(data, screen, 0x1fa0, 0x067e, 0x1002)?;
+    draw_list(data, screen, 0x2344, 0x0b84)
+}
+
 /// CS:28be..2908 and CS:3bdb: bookcase furniture, plants and seeded books.
 pub(crate) fn draw_bookcase_room(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
     check_data(data)?;
@@ -247,9 +267,9 @@ pub(crate) fn draw_cheese_room(data: &mut [u8], screen: &mut Framebuffer) -> Res
 /// Existing animation phase, speed and edge-entry countdown are preserved.
 pub(crate) fn initialize_room_player(data: &mut [u8], scene: u16) -> Result<(), String> {
     check_data(data)?;
-    if !matches!(scene, 0 | 1 | 3..=5 | 7) {
+    if !matches!(scene, 0 | 1 | 3..=7) {
         return Err(
-            "Player entry supports the alley, fishbowl, bookcase, cheese, birdcage and hearts rooms".into(),
+            "Player entry supports the alley, fishbowl, bookcase, cheese, birdcage, milk and hearts rooms".into(),
         );
     }
     let (x, y) = if scene == 0 {
@@ -374,9 +394,9 @@ fn overlaps(first: (u16, u8, u16, u8), second: (u16, u8, u16, u8)) -> bool {
 pub(crate) fn resolve_scene_support(data: &[u8], player: &Player) -> Result<SupportCheck, String> {
     check_data(data)?;
     let scene = usize::from(word(data, 4));
-    if !matches!(scene, 1 | 3..=5) {
+    if !matches!(scene, 1 | 3..=6) {
         return Err(
-            "Room support supports the fishbowl, bookcase, cheese and birdcage rooms".into(),
+            "Room support supports the fishbowl, bookcase, cheese, birdcage and milk rooms".into(),
         );
     }
     if player.vertical_direction == 1
@@ -594,9 +614,9 @@ pub(crate) fn advance_broom(
 ) -> Result<Option<BroomUpdate>, String> {
     check_data(data)?;
     let scene = usize::from(word(data, 4));
-    if !matches!(scene, 1 | 3..=5) {
+    if !matches!(scene, 1 | 3..=6) {
         return Err(
-            "Broom update supports the fishbowl, bookcase, cheese and birdcage rooms".into(),
+            "Broom update supports the fishbowl, bookcase, cheese, birdcage and milk rooms".into(),
         );
     }
     if tick.wrapping_sub(word(data, 0x328c)) < word(data, 0x32f2 + scene * 2) {
@@ -786,6 +806,83 @@ mod tests {
         );
         player.vertical_direction = 0xff;
         assert!(resolve_scene_support(&data, &player).unwrap().hit.is_some());
+    }
+
+    #[test]
+    fn milk_room_uses_its_lower_window_external_furniture_and_own_entry_table() {
+        let mut data = data();
+        set_word(&mut data, 4, 6);
+        for list in [0x251c, 0x2570, 0x2344, 0x6000] {
+            set_word(&mut data, list, 0x0101);
+            set_word(&mut data, list + 2, 0xffff);
+        }
+        for pointer in [
+            0x263c, 0x263a, 0x2638, 0x2636, 0x2646, 0x2644, 0x2642, 0x2640, 0x263e,
+        ] {
+            set_word(&mut data, pointer, 0x6000);
+        }
+        data[0x1fa0..0x1fe0].fill(0x55);
+        let mut screen = Framebuffer::default();
+        draw_milk_room(&mut data, &mut screen).unwrap();
+        assert_eq!(
+            (word(&data, 0x267e), word(&data, 0x2650), data[0x2652]),
+            (0, 72, 56)
+        );
+        assert_eq!(word(&data, 0x2634), 0x0df6);
+        assert_eq!(
+            screen.read_rect(0x067e, Dimensions(0x1002)).unwrap(),
+            [0x55; 64]
+        );
+        assert_eq!(word(&data, 0x2ae5), 0xfa59);
+        set_word(&mut data, 0x5e5, 240);
+        data[0x5ef] = 56;
+        set_word(&mut data, 0xfb2, 0x6100);
+        set_word(&mut data, 0xfbe, 0x0d03);
+        initialize_room_player(&mut data, 6).unwrap();
+        assert_eq!(
+            (word(&data, 0x579), data[0x57b], data[0x57c], data[0x55b]),
+            (240, 56, 106, 10)
+        );
+    }
+
+    #[test]
+    fn milk_support_and_broom_use_scene_six_external_tables() {
+        let mut data = data();
+        set_word(&mut data, 4, 6);
+        set_word(&mut data, 0x2650, 72);
+        data[0x2652] = 56;
+        set_word(&mut data, 0x1275, 90);
+        data[0x1029 + 90] = 136;
+        data[0x1089 + 90] = 1;
+        set_word(&mut data, 0x10e9 + 180, 144);
+        set_word(&mut data, 0x11a9 + 180, 40);
+        let mut player = Player::at_alley_floor(147);
+        player.y = 143;
+        let support = resolve_scene_support(&data, &player).unwrap().hit.unwrap();
+        assert_eq!(
+            (support.x, support.y, support.state, support.index),
+            (144, 136, 1, 90)
+        );
+        player.x = 72;
+        player.y = 56;
+        player.vertical_direction = 1;
+        assert!(resolve_scene_support(&data, &player).unwrap().exit);
+        set_word(&mut data, 0x32fe, 3);
+        set_word(&mut data, 0x327d, 100);
+        data[0x327f] = 100;
+        set_word(&mut data, 0x579, 100);
+        data[0x57b] = 100;
+        assert!(
+            advance_broom(&mut data, &mut Framebuffer::default(), 2)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            advance_broom(&mut data, &mut Framebuffer::default(), 3)
+                .unwrap()
+                .unwrap()
+                .contact
+        );
     }
 
     #[test]

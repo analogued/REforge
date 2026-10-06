@@ -215,8 +215,8 @@ pub(crate) fn advance(
 }
 
 /// CS:01e5..0238 ordinary selection and forced-bonus override. This helper
-/// retains the original choices even if the caller currently supports fewer
-/// rooms. It does not save the alley return position; that precedes selection.
+/// retains the weighted choices and two-entry history without remapping rooms.
+/// It does not save the alley return position; that precedes selection.
 pub(crate) fn choose_room(data: &mut [u8]) -> Result<u16, String> {
     check_data(data)?;
     let selected = if data[0x418] != 0 {

@@ -19,6 +19,7 @@ mod font;
 mod hearts;
 mod hearts_completion;
 mod mice;
+mod milk;
 #[cfg(feature = "sdl")]
 pub mod platform;
 pub mod player;

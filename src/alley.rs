@@ -52,9 +52,8 @@ pub struct Alley {
     machine: Machine,
     completion: Option<crate::completion::Completion>,
     hearts_completion: Option<crate::hearts_completion::HeartsCompletion>,
-    /// Actual ordinary window destinations while the ordinary room set is incomplete.
-    /// Original candidate history remains separate in the external runtime data.
-    ordinary_rooms: [u16; 2],
+    /// Normal cat image held aside while the milk drinking helper owns drawing.
+    milk_player_image: Option<(Dimensions, Vec<u8>)>,
     air_warning: u8,
     #[cfg(feature = "dev-tools")]
     dev_options: DevOptions,
@@ -98,7 +97,7 @@ impl Alley {
             return self.compose_actors();
         }
         self.room_actor(|data, screen| {
-            if matches!(scene, 1 | 3..=5) && options.actor_disabled(Actor::Broom) {
+            if matches!(scene, 1 | 3..=6) && options.actor_disabled(Actor::Broom) {
                 crate::room::restore_broom(data, screen)?;
                 data[0x3286] = 1;
             }
@@ -107,6 +106,9 @@ impl Alley {
             }
             if scene == 2 && options.actor_disabled(Actor::Eels) {
                 crate::fishbowl::remove_eels(data, screen)?;
+            }
+            if scene == 6 && options.actor_disabled(Actor::MilkDogs) {
+                crate::milk::remove_dogs(data, screen)?;
             }
             if scene == 7 {
                 if options.actor_disabled(Actor::HeartsRivals) {
@@ -169,7 +171,7 @@ impl Alley {
             machine: Machine::Cga,
             completion: None,
             hearts_completion: None,
-            ordinary_rooms: [0; 2],
+            milk_player_image: None,
             air_warning: 0,
             #[cfg(feature = "dev-tools")]
             dev_options: DevOptions::default(),
@@ -212,7 +214,7 @@ impl Alley {
             machine,
             completion: None,
             hearts_completion: None,
-            ordinary_rooms: [0; 2],
+            milk_player_image: None,
             air_warning: 0,
             #[cfg(feature = "dev-tools")]
             dev_options: DevOptions::default(),
@@ -227,10 +229,10 @@ impl Alley {
         if self.dev_options.actor_disabled(Actor::BinCat) {
             self.data[0x1d59] = 0;
         }
-        let image = if matches!(self.scene(), 1 | 3..=5 | 7) {
+        let image = if matches!(self.scene(), 1 | 3..=6 | 7) {
             let image = self.compositor.suspend(&mut self.screen)?;
             self.player.write_data(&mut self.data)?;
-            if matches!(self.scene(), 1 | 3..=5) && self.player.floor_track_due(controls) {
+            if matches!(self.scene(), 1 | 3..=6) && self.player.floor_track_due(controls) {
                 self.data[0x56e] = controls.x as u8;
                 crate::room::record_floor_track(&mut self.data, &mut self.screen)?;
             }
@@ -359,7 +361,7 @@ impl Alley {
     }
 
     /// Original scene numbers: alley zero, fishbowl one, underwater two,
-    /// bookcase three, cheese four, birdcage five and hearts seven.
+    /// bookcase three, cheese four, birdcage five, milk six and hearts seven.
     pub fn scene(&self) -> u16 {
         word(&self.data, 4)
     }
@@ -376,6 +378,18 @@ impl Alley {
     pub(crate) fn latch_action(&mut self, held: bool) {
         // CS:12d3..1334 converts the Alt key's 00/80 state to 00/10.
         self.data[0x69a] = if held { 0 } else { 16 };
+    }
+
+    pub(crate) fn latch_controls(&mut self, controls: Controls) {
+        self.data[0x698] = controls.x as u8;
+        self.data[0x699] = controls.y as u8;
+    }
+
+    pub(crate) fn requested_controls(&self) -> Controls {
+        Controls {
+            x: self.data[0x698] as i8,
+            y: self.data[0x699] as i8,
+        }
     }
 
     pub(crate) fn advance_hearts_arrow(
@@ -625,6 +639,41 @@ impl Alley {
         self.compose_actors()
     }
 
+    /// Enter the milk bowls and sleeping dogs room directly for diagnostic play.
+    #[cfg(any(feature = "dev-tools", test))]
+    pub fn enter_milk(&mut self, tick: u16) -> Result<(), String> {
+        self.player.write_data(&mut self.data)?;
+        set_word(&mut self.data, 1, self.player.x);
+        self.data[3] = self.player.y;
+        set_word(&mut self.data, 0x410, tick);
+        self.data[0x419] = 1;
+        self.setup_milk()
+    }
+
+    fn setup_milk(&mut self) -> Result<(), String> {
+        self.completion = None;
+        self.hearts_completion = None;
+        self.milk_player_image = None;
+        set_word(&mut self.data, 4, 6);
+        set_word(&mut self.data, 6, 0);
+        self.compositor = PlayerCompositor::default();
+        self.bin_image = None;
+        self.mouse_effect = None;
+        crate::room::draw_milk_room(&mut self.data, &mut self.screen)?;
+        crate::milk::initialize(&mut self.data, &mut self.screen)?;
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::MilkDogs) {
+            crate::milk::remove_dogs(&mut self.data, &mut self.screen)?;
+        }
+        crate::room::initialize_room_player(&mut self.data, 6)?;
+        crate::room::initialize_broom(&mut self.data)?;
+        self.data[0x1cb8] = 0;
+        self.data[0x1cbf] = 0;
+        self.player = Player::from_data(&self.data)?;
+        self.reset_sound_state();
+        self.compose_actors()
+    }
+
     /// Enter scene seven directly for diagnostic play, saving the same return
     /// coordinates as a window entry. Normal progression enters via a window.
     #[cfg(any(feature = "dev-tools", test))]
@@ -694,8 +743,22 @@ impl Alley {
     ) -> Result<T, String> {
         let image = self.compositor.suspend(&mut self.screen)?;
         self.player.write_data(&mut self.data)?;
+        if self.scene() == 6 {
+            crate::milk::restore_drinking(&mut self.data, &mut self.screen)?;
+        }
         let result = action(&mut self.data, &mut self.screen)?;
         self.player.apply_actor_state(&self.data)?;
+        let image = if self.scene() == 6 && self.data[0x44bd] != 0 {
+            if image.is_some() {
+                self.milk_player_image = image;
+            }
+            if self.data[0x43e0] != 0 {
+                crate::milk::draw_drinking(&mut self.data, &mut self.screen)?;
+            }
+            None
+        } else {
+            image.or_else(|| self.milk_player_image.take())
+        };
         if let Some((dimensions, source)) = image {
             self.compositor.draw(
                 &mut self.screen,
@@ -706,6 +769,32 @@ impl Alley {
         }
         self.compose_actors()?;
         Ok(result)
+    }
+
+    pub(crate) fn advance_milk_drinking(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::milk::DrinkStep, String> {
+        #[cfg(feature = "dev-tools")]
+        {
+            let disabled = self.dev_options.actor_disabled(Actor::Broom);
+            self.room_actor(|data, screen| {
+                crate::milk::advance_drinking_with_actor_mask(data, screen, tick, disabled)
+            })
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        self.room_actor(|data, screen| crate::milk::advance_drinking(data, screen, tick))
+    }
+
+    pub(crate) fn advance_milk_attention(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::milk::AttentionStep, String> {
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::MilkDogs) {
+            return Ok(crate::milk::AttentionStep::default());
+        }
+        self.room_actor(|data, screen| crate::milk::advance_attention(data, screen, tick))
     }
 
     pub(crate) fn advance_fishbowl(
@@ -892,24 +981,6 @@ impl Alley {
         Ok(update)
     }
 
-    /// Temporary selection among implemented rooms. The original candidate
-    /// selector still advances its own generator/history before this choice.
-    fn playable_destination(&mut self, candidate: u16) -> u16 {
-        if candidate == 7 {
-            return 7;
-        }
-        const AVAILABLE: [u16; 4] = [1, 3, 4, 5];
-        // Original candidate filtering already constrains the low bits. Use the
-        // upper pair for the temporary playable choice.
-        let mut index = usize::from(next_random(&mut self.data) >> 14);
-        if self.ordinary_rooms == [AVAILABLE[index]; 2] {
-            index = (index + 1) % AVAILABLE.len();
-        }
-        let room = AVAILABLE[index];
-        self.ordinary_rooms = [self.ordinary_rooms[1], room];
-        room
-    }
-
     /// Dispatch only after the original caller's remaining actor work finishes.
     pub(crate) fn finish_scene(&mut self, tick: u16) -> Result<bool, String> {
         if self.completion_waiting() {
@@ -920,15 +991,17 @@ impl Alley {
                 return Ok(false);
             }
             self.player.write_data(&mut self.data)?;
-            // Keep the original candidate selector independent from the current
-            // playable set. Its pending-hearts override takes priority.
+            // Dispatch the original weighted selector directly. Its
+            // pending-hearts override takes priority over ordinary rooms.
             let candidate = crate::windows::select_room(&mut self.data, &self.player, tick)?;
-            match self.playable_destination(candidate) {
+            match candidate {
                 7 => self.setup_hearts(tick)?,
                 1 => self.setup_fishbowl()?,
                 3 => self.setup_bookcase()?,
                 4 => self.setup_cheese()?,
-                _ => self.setup_birdcage()?,
+                5 => self.setup_birdcage()?,
+                6 => self.setup_milk()?,
+                _ => return Err("Window selected an unsupported scene".into()),
             }
             return Ok(true);
         }
@@ -968,6 +1041,7 @@ impl Alley {
     }
 
     fn return_to_alley(&mut self) -> Result<(), String> {
+        self.milk_player_image = None;
         self.player.write_data(&mut self.data)?;
         let scene = self.scene();
         set_word(&mut self.data, 6, scene);
@@ -1241,6 +1315,49 @@ mod tests {
     use super::*;
     use crate::assets::word;
 
+    #[test]
+    fn drinking_recomposition_preserves_scenery_and_restores_the_normal_cat() {
+        let mut alley = Alley::synthetic();
+        set_word(&mut alley.data, 4, 6);
+        alley.player.x = 144;
+        alley.player.y = 136;
+        alley.player.vertical_coordinate = 186;
+        alley.player.vertical_direction = 0;
+        alley.data[0x43e0] = 1;
+        alley.data[0x44c4] = 2;
+        alley.data[0x4499] = 144;
+        set_word(&mut alley.data, 0x4481, 144);
+        set_word(&mut alley.data, 0x44a5, 0x410c);
+        alley.data[0x410c..0x410c + 120].fill(0x55);
+        alley.screen.fill_visible(0xaa);
+        alley
+            .compositor
+            .draw(
+                &mut alley.screen,
+                pixel_offset(144, 136),
+                Dimensions(0x0602),
+                &[0; 24],
+            )
+            .unwrap();
+        alley.compose_actors().unwrap();
+        let normal = alley.framebuffer().bytes().to_vec();
+        alley.latch_action(true);
+        let drinking = alley.advance_milk_drinking(1).unwrap();
+        assert!(drinking.drew);
+        assert!(alley.milk_player_image.is_some());
+        assert_eq!(alley.data[0x44bd], 1);
+        let drink_frame = alley.framebuffer().bytes().to_vec();
+        for _ in 0..3 {
+            alley.room_actor(|_, _| Ok(())).unwrap();
+            assert_eq!(alley.framebuffer().bytes().as_slice(), drink_frame);
+        }
+        alley.latch_action(false);
+        alley.advance_milk_drinking(2).unwrap();
+        assert_eq!(alley.data[0x44bd], 0);
+        assert!(alley.milk_player_image.is_none());
+        assert_eq!(alley.framebuffer().bytes().as_slice(), normal);
+    }
+
     #[cfg(feature = "dev-tools")]
     #[test]
     fn original_window_timing_override_reaches_both_window_kinds() {
@@ -1275,49 +1392,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn available_rooms_are_seeded_and_do_not_repeat_three_times() {
-        for difficulty in 0..8 {
-            let mut alley = Alley::synthetic();
-            set_word(&mut alley.data, 8, difficulty);
-            alley.data[0x421..0x432]
-                .copy_from_slice(&[4, 4, 1, 1, 3, 3, 5, 5, 6, 6, 4, 1, 1, 3, 4, 5, 6]);
-            let mut replay = Alley::synthetic();
-            replay.data.clone_from(&alley.data);
-            let mut rooms = Vec::new();
-            for _ in 0..64 {
-                let candidate = crate::windows::choose_room(&mut alley.data).unwrap();
-                let actual = alley.playable_destination(candidate);
-                let replay_candidate = crate::windows::choose_room(&mut replay.data).unwrap();
-                assert_eq!(replay_candidate, candidate);
-                assert_eq!(replay.playable_destination(replay_candidate), actual);
-                // Temporary selection must not rewrite the original candidate history.
-                assert_eq!(word(&alley.data, 0x41d), candidate);
-                rooms.push(actual);
-            }
-            assert!([1, 3, 4, 5].into_iter().all(|room| rooms.contains(&room)));
-            assert!(
-                rooms
-                    .windows(3)
-                    .all(|rooms| rooms[0] != rooms[1] || rooms[1] != rooms[2])
-            );
-            assert_eq!(word(&alley.data, 0x2ae5), word(&replay.data, 0x2ae5));
-        }
-    }
-
-    #[test]
-    fn pending_hearts_preserves_random_state_and_actual_room_history() {
-        let mut alley = Alley::synthetic();
-        alley.ordinary_rooms = [4, 4];
-        alley.data[0x418] = 1;
-        let seed = word(&alley.data, 0x2ae5);
-        let candidate = crate::windows::choose_room(&mut alley.data).unwrap();
-        assert_eq!(alley.playable_destination(candidate), 7);
-        assert_eq!(word(&alley.data, 0x2ae5), seed);
-        assert_eq!(alley.ordinary_rooms, [4, 4]);
-        assert_eq!(alley.data[0x418], 0);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 An early Rust reconstruction of **Alley Cat** for modern desktop systems,
 initially targeting Linux. The current program supports alley movement,
-nonlethal actors, window entry, the fishbowl, bookcase, cheese and birdcage rooms,
+nonlethal actors, window entry, the fishbowl, bookcase, cheese, birdcage and milk rooms,
 and the hearts bonus scene.
 It is not a complete game.
 A public recreation name has not been chosen.
@@ -93,10 +93,11 @@ difficulty 6. Both builds default to the corrected 18-tick hold. See
 usability change.
 
 `--scene fishbowl`, `--scene bookcase`, `--scene cheese` and `--scene birdcage`
-start directly in those rooms for testing; the default is `--scene alley`.
+start directly in those rooms for testing; `--scene milk` starts the milk-bowl
+room. The default is `--scene alley`.
 Room actors and transitions use the default timed runner. `--scene hearts`
 starts directly in the hearts scene with one gift. `--scene underwater` starts
-inside the fishbowl. Fishbowl, underwater, bookcase, cheese and hearts require
+inside the fishbowl. Fishbowl, underwater, bookcase, cheese, milk and hearts require
 default windowed timing or `--headless --timed`.
 `--scene completion` previews the birdcage scoring presentation and returns to
 the alley, without playing the objective. It also requires default windowed
@@ -111,7 +112,7 @@ Fish remain enabled when eels are disabled, and room objectives remain playable.
 initial placement may still consume randomness and shared schedulers retain
 skipped opportunities. Later timing and random consumption can differ from an
 unmodified run.
-The currently absent dog and projectile identifiers are placeholders.
+The currently absent alley-dog, room-dog and projectile identifiers are placeholders.
 
 `--disable-damage SOURCES` accepts `all`, `none`, or a comma-separated list:
 `alley-dog`, `room-dog`, `window-projectiles`, `milk-dogs`, `spider`, `eels`, `air`.
@@ -154,13 +155,11 @@ Actor sprites and motion tables come from the required original executable.
 Windows open, hold and close with the original invocation-count, retrace and
 BIOS-tick gates. New openings require the cat to be above the fence, as in the
 original. A descending cat touching an eligible open window enters a room.
-While the ordinary-room set is incomplete, a seeded choice selects fishbowl,
-bookcase, cheese or birdcage, allowing at most two identical ordinary window
-destinations in a row.
-The original weighted selector and its candidate history are retained separately;
-the temporary playable choice consumes one additional shared random value per
-ordinary entry. Completing any ordinary room makes the next eligible window
-display the female cat and lead to the hearts scene. Projectiles remain disabled.
+The original weighted selector chooses fishbowl, bookcase, cheese, birdcage or
+milk, using the shared random generator and two-entry history to avoid three
+identical ordinary destinations in a row. Completing any ordinary room makes
+the next eligible window display the female cat and lead to the hearts scene.
+Projectiles remain disabled.
 
 In the fishbowl room, climb the furniture and jump into the bowl. Contact during
 its six-tick animation gate enters the underwater section without requiring Alt.
@@ -204,6 +203,17 @@ and a time bonus sampled after the initial drawing. Lives are preserved, and
 returning through the room window leaves the score unchanged. Alley return
 restores the saved window position and starts a downward fall. Direct scene
 previews instead save the initial ground-level alley position.
+
+In the milk room, hold Alt near an unfinished bowl while standing on its level.
+The cat aligns toward the bowl and plays the drinking animation, holding normal
+movement until drinking stops. Empty all twelve bowls to start the shared
+scoring presentation and alley return; this room uses its original slower
+time-bonus decay. Higher difficulties increase the milk in each bowl and the
+number of sleeping dogs. Nearby dogs open their eyes and become alert, with
+probabilistic calming when the cat moves away. Their lethal pursuit is deferred,
+so contact does not relocate the cat or remove a life. `--disable-actors milk-dogs`
+removes them while keeping all bowls. Furniture supports, the room window,
+floor tracks and the broom remain active.
 
 In the hearts scene, jump through seven rows of whole and broken hearts to
 reach the female cat at the top. Other cats and arrows knock the player down

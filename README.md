@@ -3,7 +3,8 @@
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
 Status: Rust graphics decoding and a windowed, no-input opening preview,
-including terrain changes, eight enemy encounters, collision responses, and life recovery.
+including terrain changes, nine enemy encounters, collision responses, life recovery,
+and the post-game title sequence.
 Later gameplay remains under investigation.
 
 The main implementation language is **Rust**. Supporting tools and investigation
@@ -73,9 +74,9 @@ cargo run --features viewer --bin mach3-viewer -- /path/to/assets
 ```
 
 It reads `DATA1` and `DATA6` as the splash and intro. Fresh Space presses advance
-to the opening, which then runs 720 no-input game-loop bodies using graphics
+to the opening, which then runs 836 no-input game-loop bodies using graphics
 from `DATA2` through `DATA5`. Terrain moves, the HUD updates, and the first
-eight enemy encounters appear, with seeking projectiles. The fifth wave contains
+nine enemy encounters appear, with seeking projectiles. The fifth wave contains
 two craft with separate shadows and a shared projectile. The second enemy steers
 into the player, triggering hit and explosion animations. Life loss restores
 fuel and resumes flight. The third enemy orbits before seeking the player;
@@ -84,12 +85,16 @@ damage the craft. A later section mixes terrain families and adds procedural
 gates with their own projection and crossing rules. The sixth encounter follows
 a scripted sweep; the seventh uses staggered sweep phases around a center that
 follows the player. It then enters fuel-bearing terrain and starts a three-craft
-seeking wave.
-The preview holds its final frame at the current verification boundary.
+seeking wave, followed by a three-craft wave that seeks at near depths.
+After the final death, the frozen scene displays animated Game Over and High Score
+presentations. The first pair completes before Space can return to the intro
+path, whose image selection uses the retained random stream. This no-input run
+selects the splash artwork. The viewer holds there; another game within that
+stream remains unsupported.
 Escape or window close exits.
 
-Use `--step` to advance one body per fresh Space press after entering gameplay,
-or `--static` to retain the initial scene. Held or repeated Space does not skip
+Use `--step` to advance one body or post-game animation step per fresh Space
+press after entering gameplay, or `--static` to retain the initial scene. Held or repeated Space does not skip
 manual steps. The default animation pace is approximately 12.14 bodies per
 second, derived from the game's timer logic; `--period-ms 1..5000` overrides
 the interval. Original startup timing and exact DOS CPU-dependent pacing are
@@ -113,9 +118,10 @@ For reproducible frame and state export without SDL3:
 cargo run --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
 ```
 
-This writes frames `000.cga` through `720.cga` plus state, player, object, and
-drawing-order TSV tables.
-`--steps 0..720` exports a shorter prefix. The directory must be new. Simulation
+This writes frames `000.cga` through `836.cga` plus state, player, object, and
+drawing-order TSV tables. Add `--ending` to export the first post-game title pair,
+its state and drawing order, and the selected return intro image.
+`--steps 0..836` exports a shorter prefix. The directory must be new. Simulation
 uses the decoded assets and interpreted update rules; it does not load captured
 frames, emulator state, or a replay.
 

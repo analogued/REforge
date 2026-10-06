@@ -10,7 +10,7 @@ use sdl3::{
 
 use crate::{
     frame::{HEIGHT, WIDTH},
-    opening::{BODY_PERIOD, Opening},
+    opening::{BODY_PERIOD, Ending, Opening},
     startup::{Presentation, Screen, StartupFrames},
 };
 
@@ -144,6 +144,8 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
         Some(Opening::new(frames.graphics()).map_err(|error| error.to_string())?)
     };
     let mut next_body = None;
+    let mut ending: Option<Ending> = None;
+    let mut returned_intro = None;
     let sdl = sdl3::init().map_err(|error| error.to_string())?;
     let video = sdl.video().map_err(|error| error.to_string())?;
     let mut window = video
@@ -184,17 +186,39 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
             if action == Action::Close {
                 return Ok(());
             }
-            step |= was_scene && action == Action::Space && options.playback == Playback::Step;
+            if action == Action::Space {
+                if returned_intro.is_some() {
+                    presentation.return_to_intro();
+                } else if was_scene && ending.as_ref().is_some_and(Ending::can_return) {
+                    returned_intro = ending.as_mut().unwrap().returned_intro_choice();
+                    presentation.return_to_intro();
+                    next_body = None;
+                } else {
+                    step |= was_scene && options.playback == Playback::Step;
+                }
+            }
         }
         if presentation.screen() != shown {
             shown = presentation.screen();
             texture
-                .update(None, &frames.frame(shown).rgb(), WIDTH * 3)
+                .update(
+                    None,
+                    &returned_intro
+                        .map_or_else(|| frames.frame(shown), |choice| frames.return_intro(choice))
+                        .rgb(),
+                    WIDTH * 3,
+                )
                 .map_err(|error| error.to_string())?;
             canvas
                 .window_mut()
                 .set_title(title(shown))
                 .map_err(|error| error.to_string())?;
+            if returned_intro.is_some() {
+                canvas
+                    .window_mut()
+                    .set_title("Mach 3 — Return intro (Esc to close)")
+                    .map_err(|error| error.to_string())?;
+            }
             if shown == Screen::InitialScene && options.playback != Playback::Static {
                 next_body = Some(std::time::Instant::now() + options.body_period);
                 canvas
@@ -213,7 +237,22 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
                 && next_body.is_some_and(|deadline| now >= deadline);
             if step || timed {
                 if let Some(opening) = &mut opening {
-                    if opening
+                    if let Some(ending) = &mut ending {
+                        ending
+                            .advance(frames.graphics())
+                            .map_err(|error| error.to_string())?;
+                        texture
+                            .update(None, &ending.frame().rgb(), WIDTH * 3)
+                            .map_err(|error| error.to_string())?;
+                    } else if opening.complete() && opening.snapshot().player.game_over {
+                        let state =
+                            Ending::new(frames.graphics(), &opening.snapshot(), opening.frame())
+                                .map_err(|error| error.to_string())?;
+                        texture
+                            .update(None, &state.frame().rgb(), WIDTH * 3)
+                            .map_err(|error| error.to_string())?;
+                        ending = Some(state);
+                    } else if opening
                         .advance(frames.graphics())
                         .map_err(|error| error.to_string())?
                     {
@@ -221,17 +260,35 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
                             .update(None, &opening.frame().rgb(), WIDTH * 3)
                             .map_err(|error| error.to_string())?;
                     }
-                    next_body = if timed {
-                        next_body.map(|deadline| deadline + options.body_period)
+                    let period = if let Some(ending) = &ending {
+                        options.body_period * ending.wait_units() / 3
                     } else {
-                        Some(now + options.body_period)
+                        options.body_period
                     };
-                    if opening.complete() {
+                    next_body = if timed {
+                        next_body.map(|deadline| deadline + period)
+                    } else {
+                        Some(now + period)
+                    };
+                    if let Some(ending) = &ending {
                         canvas
                             .window_mut()
-                            .set_title("Mach 3 — Opening preview complete (Esc to close)")
+                            .set_title(if ending.can_return() {
+                                "Mach 3 — Game Over / High Score (Space to return, Esc to close)"
+                            } else if options.playback == Playback::Step {
+                                "Mach 3 — Game Over / High Score (Space to step, Esc to close)"
+                            } else {
+                                "Mach 3 — Game Over / High Score (Esc to close)"
+                            })
                             .map_err(|error| error.to_string())?;
-                        next_body = None;
+                    } else if opening.complete() {
+                        canvas
+                            .window_mut()
+                            .set_title("Mach 3 — Final gameplay frame (Esc to close)")
+                            .map_err(|error| error.to_string())?;
+                        if !opening.snapshot().player.game_over {
+                            next_body = None;
+                        }
                     }
                 }
             }

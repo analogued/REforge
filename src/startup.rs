@@ -48,6 +48,15 @@ impl StartupFrames {
         &self.frames[index]
     }
 
+    /// Choose the intro with the retained random stream's low-three-bit branch.
+    pub fn return_intro(&self, use_data6: bool) -> &Frame {
+        if use_data6 {
+            &self.frames[1]
+        } else {
+            &self.frames[0]
+        }
+    }
+
     pub fn graphics(&self) -> &GraphicsAssets {
         &self.graphics
     }
@@ -85,6 +94,11 @@ impl Presentation {
             Screen::Intro | Screen::InitialScene => Screen::InitialScene,
         };
         true
+    }
+
+    /// Return to intro while retaining the key latch that initiated the return.
+    pub fn return_to_intro(&mut self) {
+        self.screen = Screen::Intro;
     }
 
     pub fn space_up(&mut self) {

@@ -80,6 +80,12 @@ and the initial threshold, its first events are:
 | 672 | Terrain selector becomes 2; recycled rows use the fuel-bearing family |
 | 692 | Formation count increases to three |
 | 712 | Eighth encounter starts three seeking craft |
+| 756 | Sixth death clears the last requested life icon; play resumes |
+| 758, 779, 797, 799 | Kind-1 proximity effects grant fuel |
+| 772 | Terrain selector 2 is selected again |
+| 792 | Ninth encounter starts three craft that retain far coordinates and seek near the player |
+| 826 | The second craft in the ninth wave collides with the player |
+| 836 | Seventh death sets the game-over flag; the current body completes |
 
 These counts are logical loop positions, not durations. Newly created objects
 may receive their resolved sprite and projected rectangle in subsequent updates.
@@ -106,7 +112,7 @@ raw state, and comparison reports remain external to the repository.
 ## Rust opening simulation
 
 `Opening` implements the opening without keyboard input through completed body
-720. It updates the HUD, recycles and projects terrain, and starts eight enemy
+836. It updates the HUD, recycles and projects terrain, and starts nine enemy
 encounters. The generator runs from fresh startup state; branch decisions consume
 its results in the original order. Source resolution remains separate from
 requested sprite selection.
@@ -177,8 +183,8 @@ conversion can still occur during grace. Far effects have no player collision
 handler. Selector 2 assigns kind 1 to every recycled row with one lateral-placement
 random call, preserving live rows. It does not consume a separate kind-selection
 word. Kind-1 collection, far effects, and immune overlap paths are covered by
-static inspection and authored synthetic tests; this no-input batch exercises
-kind-0 near effects.
+static inspection and authored synthetic tests; this no-input run exercises
+kind-0 near effects and kind-1 proximity fuel grants.
 
 Selector 9 assigns kind 2 to recycled slots 15 through 19 and kind 3 to slots
 20 through 22. Each inactive row consumes its usual single random word; live
@@ -214,7 +220,10 @@ reaches depth -50 and retires. That terminal update still copies shadow state
 and consumes its three firing/targeting words before retirement. A projectile
 created there retires at the next world update. The eighth encounter increases
 the formation to three seeking craft; their shared projectile and target still
-update in ascending slot order. Alternate modes remain unsupported.
+update in ascending slot order. The ninth uses the same randomized formation
+initialization as the first wave. At old depths of at least 240 it retains
+lateral position and height while moving forward by 22 units per half-step.
+Below depth 240 it seeks the player. Alternate modes remain unsupported.
 
 Camera height changes with the player's response movement. The terrain strip
 position and vertical projection origin are cached by the first render pass;
@@ -227,7 +236,8 @@ depth. Inactive records still participate.
 The initial HUD indicator artwork is preserved.
 
 Native frames and checked HUD, player, terrain, enemy, gate, target, camera,
-random state, and retained drawing order match the original at every completed-body boundary from 0 through 720.
+random state, and retained drawing order match the original at every
+completed-body boundary from 0 through 836.
 The simulation uses interpreted rules and decoded resources. It does not load
 captured frames or state and does not reproduce every intermediate framebuffer
 write within a body.
@@ -241,7 +251,30 @@ The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
 The viewer offers an interval override and manual stepping.
 
-The simulation holds after the current verified batch of 720 bodies. This is a
-comparison checkpoint, not a randomness barrier. Subsequent encounter commands
-need further implementation and validation. Keyboard movement and firing,
-restart within an existing random stream, and audio are unsupported.
+## Game over and return
+
+A completed death removes one requested life icon. When the first icon was
+already clear, the death sets `DS:b66a` instead. Zero icons therefore allow one
+more recovery. The game-over flag is checked at the next loop entry, so the
+remaining updates and drawing of body 836 still run.
+
+After gameplay returns to `0452`, `26eb` displays Game Over and `2859` displays
+High Score. They reuse craft slot 5 over the frozen world. Each title has 35
+approach draws at depths 1,000 down to 48, fifty two-unit hold waits, and 34
+departure draws from 48 through 972. Title sprite selection follows the original
+integer depth-size rule. High Score compares six decimal digits and draws the
+best score relative to the retained closest title rectangle. Projection and
+stable drawing order include all 29 world slots; pixels outside the viewport
+retain the final gameplay frame. Audio during the hold remains deferred.
+
+The first title pair ignores return input. Further pairs repeat until a key
+returns control to the intro path at `03ae`. The random generator continues
+from the ending state: its next low-three-bit choice selects raw `DATA6` for
+values below four and raw `DATA1` otherwise. The verified no-input run selects
+`DATA1`, so the splash artwork appears on this return. This is the intro path's
+image selection; it does not replay the entire fresh-process startup.
+
+`Ending` implements the title stages, best-score retention, frozen projection,
+and return image choice. The viewer uses Space for return and holds the chosen
+image. Keyboard movement and firing, another game in the existing random stream,
+additional encounter commands, and audio remain unsupported.

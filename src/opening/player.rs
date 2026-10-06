@@ -15,6 +15,8 @@ pub struct PlayerSnapshot {
     pub grace: u16,
     pub horizon: i16,
     pub lives: u8,
+    pub game_over: bool,
+    pub shadow: Draw,
 }
 
 #[derive(Debug)]
@@ -27,6 +29,15 @@ pub(crate) struct Player {
 
 impl Player {
     pub(crate) fn new(assets: &GraphicsAssets) -> Result<Self, Error> {
+        let shadow = Draw {
+            resolved_sprite: 18,
+            rect: Rect {
+                x_bytes: 37,
+                y: 147,
+                width_bytes: 14,
+                height: 12,
+            },
+        };
         let mut player = Self {
             state: PlayerSnapshot {
                 coordinates: [14, 0, -100],
@@ -44,18 +55,12 @@ impl Player {
                 grace: 4,
                 horizon: 0,
                 lives: 6,
+                game_over: false,
+                shadow,
             },
             velocity: [0, 0],
             orientation: 3,
-            shadow: Draw {
-                resolved_sprite: 18,
-                rect: Rect {
-                    x_bytes: 37,
-                    y: 147,
-                    width_bytes: 14,
-                    height: 12,
-                },
-            },
+            shadow,
         };
         player.project(assets, 106)?;
         Ok(player)
@@ -79,7 +84,8 @@ impl Player {
     }
 
     /// The original calls this three times per body. A completed death requests
-    /// the caller's fuel reset; life symbols follow the remaining life count.
+    /// the caller's fuel reset. Exhausting the last symbol allows one more
+    /// recovery; a death with no symbol sets the exit flag for the next body.
     pub(crate) fn update_no_input(&mut self) -> Result<bool, Error> {
         let responding = self.state.phase != 0;
         let lateral = self.state.coordinates[1];
@@ -134,7 +140,11 @@ impl Player {
                             self.state.damage = 0;
                             self.state.requested_sprite = 0;
                             self.state.grace = 0;
-                            self.state.lives = self.state.lives.saturating_sub(1);
+                            if self.state.lives == 0 {
+                                self.state.game_over = true;
+                            } else {
+                                self.state.lives -= 1;
+                            }
                             reset_fuel = true;
                         } else {
                             self.state.phase = 1;
@@ -185,7 +195,10 @@ impl Player {
     }
 
     pub(crate) fn snapshot(&self) -> PlayerSnapshot {
-        self.state
+        PlayerSnapshot {
+            shadow: self.shadow,
+            ..self.state
+        }
     }
 
     pub(crate) fn draws(&self) -> [Draw; 2] {
@@ -320,6 +333,7 @@ mod tests {
         assert!(player.update_no_input().unwrap());
         assert_eq!(player.snapshot().damage, 0);
         assert_eq!(player.snapshot().lives, 5);
+        assert!(!player.snapshot().game_over);
         assert_eq!(player.snapshot().grace, 0);
         assert!(!player.can_damage());
         assert!(!player.update_no_input().unwrap());
@@ -331,5 +345,43 @@ mod tests {
             player.finish_body();
         }
         assert!(player.can_damage());
+    }
+
+    #[test]
+    fn clearing_the_last_life_symbol_recovers_before_the_following_death_exits() {
+        let mut player = Player::new(&assets()).unwrap();
+        player.state.lives = 1;
+        player.state.phase = 15;
+        player.state.animation_row = 16;
+        player.state.damage = 2;
+        player.state.requested_sprite = 0;
+        assert!(player.update_no_input().unwrap());
+        let state = player.snapshot();
+        assert_eq!(state.lives, 0);
+        assert!(!state.game_over);
+        assert_eq!((state.damage, state.phase, state.grace), (0, 0, 0));
+        assert_eq!(state.requested_sprite, 0);
+
+        // The rest of the current body still runs after a completed death.
+        assert!(!player.update_no_input().unwrap());
+        assert_eq!(player.snapshot().requested_sprite, 13);
+        for _ in 0..4 {
+            player.finish_body();
+        }
+        assert!(player.can_damage());
+        player.hit(2);
+        for _ in 0..29 {
+            assert!(!player.update_no_input().unwrap());
+            assert!(!player.snapshot().game_over);
+        }
+        assert!(player.update_no_input().unwrap());
+        let state = player.snapshot();
+        assert_eq!(state.lives, 0);
+        assert!(state.game_over);
+        assert_eq!((state.damage, state.phase, state.grace), (0, 0, 0));
+        assert_eq!(state.requested_sprite, 0);
+        assert!(!player.update_no_input().unwrap());
+        assert!(player.snapshot().game_over);
+        assert_eq!(player.snapshot().requested_sprite, 13);
     }
 }

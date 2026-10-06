@@ -38,6 +38,10 @@ pub(crate) struct Special {
 }
 
 impl Special {
+    pub(crate) fn from_snapshots(slots: [SpecialSnapshot; 5]) -> Self {
+        Self { slots }
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             slots: std::array::from_fn(|index| SpecialSnapshot {

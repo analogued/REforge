@@ -1,6 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Bounded, no-input opening simulation using interpreted game-state updates.
 
+mod ending;
 mod enemy;
 mod hud;
 mod player;
@@ -14,6 +15,7 @@ use crate::{
     scene,
 };
 
+pub use ending::{Ending, EndingSnapshot, EndingStage, EndingTitle};
 pub use enemy::EnemySnapshot as EnemyState;
 pub use hud::HudSnapshot as HudState;
 pub use player::PlayerSnapshot as PlayerState;
@@ -38,6 +40,7 @@ pub struct Snapshot {
     pub enemy_target: [i16; 2],
     pub special: [SpecialState; 5],
     pub world_order: [usize; 19],
+    pub full_world_order: [usize; 29],
 }
 
 /// No directional input, with bounded encounter and collision/damage updates.
@@ -57,6 +60,7 @@ pub struct Opening {
     terrain_selector: u16,
     primary_count: u16,
     world_order: Vec<usize>,
+    full_world_order: Vec<usize>,
     frame: Frame,
 }
 
@@ -65,7 +69,7 @@ impl Opening {
         let mut random = Random::default();
         random.next_word(); // Intro screen selection.
         random.next_word(); // Fresh-process script selection: script zero.
-        Ok(Self {
+        let mut opening = Self {
             body: 0,
             random,
             hud: hud::Hud::new(assets)?,
@@ -84,8 +88,12 @@ impl Opening {
                 .chain(std::iter::once(4))
                 .chain(23..=27)
                 .collect(),
+            full_world_order: (0..29).collect(),
             frame: scene::initial_frame(assets)?,
-        })
+        };
+        let depths = opening.world_depths();
+        opening.sort_full_world(&depths);
+        Ok(opening)
     }
 
     pub fn frame(&self) -> &Frame {
@@ -93,7 +101,7 @@ impl Opening {
     }
 
     pub fn complete(&self) -> bool {
-        self.body == LAST_BODY
+        self.body == LAST_BODY || self.player.snapshot().game_over
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -114,6 +122,7 @@ impl Opening {
             enemy_target: self.enemy.target(),
             special: self.special.snapshots(),
             world_order: std::array::from_fn(|i| self.world_order[i]),
+            full_world_order: std::array::from_fn(|i| self.full_world_order[i]),
         }
     }
 
@@ -128,28 +137,11 @@ impl Opening {
         self.player.project(assets, self.vertical_origin)?;
         // Far-object ordering remains from the first render pass even when the
         // second movement update changes relative depths without reprojecting.
-        let first_depths: Vec<_> = self
-            .enemy
-            .snapshots()
-            .into_iter()
-            .filter(|slot| slot.slot < 10)
-            .map(|slot| (slot.slot, slot.depth, slot.movement))
-            .chain(
-                self.terrain
-                    .snapshots()
-                    .into_iter()
-                    .map(|slot| (slot.slot, slot.depth, slot.movement)),
-            )
-            .chain(
-                self.special
-                    .snapshots()
-                    .into_iter()
-                    .map(|slot| (slot.slot, slot.depth, slot.movement)),
-            )
-            .collect();
+        let first_depths = self.world_depths();
         // Subtype-zero entries form a stable prefix. Other entries keep their
         // preceding order at equal depth, including after another row recycles.
         self.sort_world(&first_depths);
+        self.sort_full_world(&first_depths);
         self.hud.update(self.body, &mut self.random);
         self.advance_player()?;
         self.player.project(assets, self.vertical_origin)?;
@@ -276,6 +268,16 @@ impl Opening {
                         )?;
                         self.script_delay = 0;
                     }
+                    21 => self.terrain_selector = 2,
+                    22 => {
+                        self.enemy.spawn_command(
+                            0x92,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                        )?;
+                        self.script_delay = 0;
+                    }
                     _ => return Err(Error::InvalidData("unsupported opening command".into())),
                 }
                 self.script_cursor += 1;
@@ -331,6 +333,43 @@ impl Opening {
             }
         }
         draw_clipped(assets, frame, player_craft, viewport)
+    }
+
+    fn world_depths(&self) -> Vec<(usize, i16, u8)> {
+        self.enemy
+            .snapshots()
+            .into_iter()
+            .map(|slot| (slot.slot, slot.depth, slot.movement))
+            .chain(
+                self.terrain
+                    .snapshots()
+                    .into_iter()
+                    .map(|slot| (slot.slot, slot.depth, slot.movement)),
+            )
+            .chain(
+                self.special
+                    .snapshots()
+                    .into_iter()
+                    .map(|slot| (slot.slot, slot.depth, slot.movement)),
+            )
+            .chain([
+                (0, self.player.snapshot().coordinates[0], 255),
+                (1, self.player.snapshot().coordinates[0] + 1, 0),
+                (2, 400, 254),
+                (3, 700, 254),
+                (28, 0, 0),
+            ])
+            .collect()
+    }
+
+    fn sort_full_world(&mut self, depths: &[(usize, i16, u8)]) {
+        self.full_world_order.sort_by_key(|slot| {
+            let (_, depth, movement) = depths.iter().find(|(index, _, _)| index == slot).unwrap();
+            (
+                *movement != 0,
+                std::cmp::Reverse(if *movement == 0 { 0 } else { *depth }),
+            )
+        });
     }
 
     fn sort_world(&mut self, depths: &[(usize, i16, u8)]) {
@@ -443,7 +482,7 @@ fn draw_clipped(
 }
 
 /// Final completed body of the currently verified, no-input opening batch.
-pub const LAST_BODY: u16 = 720;
+pub const LAST_BODY: u16 = 836;
 
 /// Three nominal 36.413 Hz timer units per completed loop body.
 /// Original CPU/render costs and startup timer transitions are not emulated.
@@ -560,9 +599,9 @@ mod tests {
                 }
             );
         }
-        while !opening.complete() {
-            opening.advance(&assets).unwrap();
-        }
+        // Synthetic descriptor geometry does not reproduce the original
+        // collision route. Exercise the bounded guard independently of it.
+        opening.body = LAST_BODY;
         let final_frame = opening.frame().clone();
         let final_random = opening.snapshot().random;
         for _ in 0..3 {

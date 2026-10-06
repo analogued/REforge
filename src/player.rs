@@ -422,6 +422,47 @@ mod tests {
     }
 
     #[test]
+    fn lower_support_indexes_all_eight_difficulties_and_keeps_landing_bounds() {
+        let mut data = empty_tables();
+        // Independent synthetic lists distinguish all eight difficulty entries.
+        // Alternate tall/short bins so both landing bands are exercised.
+        for difficulty in 0..8 {
+            data[0x1006 + difficulty] = (difficulty * 2) as u8;
+            data[0xff0 + difficulty * 2] =
+                (8 + difficulty as u8 * 4) | if difficulty % 2 == 0 { 0x80 } else { 0 };
+        }
+        for difficulty in 0..8 {
+            crate::assets::set_word(&mut data, 8, difficulty as u16);
+            let target_x = 32 + difficulty as u16 * 16;
+            let target_y = if difficulty % 2 == 0 { 134 } else { 142 };
+            for (x, y, expected) in [
+                (target_x - 1, target_y, Support::None),
+                (target_x, target_y, Support::LowerList),
+                (target_x + 22, target_y, Support::LowerList),
+                (target_x + 23, target_y, Support::None),
+                (target_x, target_y - 1, Support::None),
+                (target_x, target_y + 7, Support::LowerList),
+                (target_x, target_y + 8, Support::None),
+            ] {
+                let mut player = Player::at_alley_floor(x);
+                player.y = y;
+                player.vertical_coordinate = y + 50;
+                assert_eq!(
+                    player.check_support(&data).unwrap(),
+                    expected,
+                    "difficulty={difficulty}, x={x}, y={y}"
+                );
+                if expected == Support::LowerList {
+                    assert_eq!(
+                        (player.y, player.vertical_coordinate),
+                        (target_y, target_y + 50)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn upper_support_aligns_x_and_holds_until_a_vertical_request() {
         let mut data = empty_tables();
         data[0x1025] = 0;
@@ -1375,7 +1416,8 @@ impl Player {
         }
         let list_band = self.y.wrapping_add(2) & 0xf8;
         let difficulty = usize::from(word(data, 8));
-        if difficulty < 4 {
+        // Eight difficulty entries select four shared, terminated bin lists.
+        if difficulty < 8 {
             let mut index = usize::from(data[0x1006 + difficulty]);
             // The accepted input's lists end before their index table.
             while 0xff0 + index < 0x1006 {

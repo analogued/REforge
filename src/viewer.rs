@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! SDL3 presentation of startup screens and the bounded opening animation.
+//! SDL3 presentation of startup screens and live gameplay.
 
 use std::collections::VecDeque;
 
@@ -14,8 +14,8 @@ use crate::{
     assets::GraphicsAssets,
     frame::{Frame, HEIGHT, WIDTH},
     opening::{
-        BODY_PERIOD, DisplayMode, Ending, LAST_BODY, Opening, PauseEvent, PauseState,
-        STEERING_LAST_BODY, ScriptRules, SessionState, Steering, TransitionFrame,
+        BODY_PERIOD, DisplayMode, Ending, Opening, PauseEvent, PauseState, ScriptRules,
+        SessionState, Steering, TransitionFrame,
     },
     startup::{Presentation, Screen, StartupFrames},
 };
@@ -419,16 +419,7 @@ fn run_inner(
                 let start = session.begin_game();
                 opening = Some(
                     if let Some(rules) = &rules {
-                        Opening::from_game_start(
-                            frames.graphics(),
-                            rules.clone(),
-                            start,
-                            if options.controls {
-                                STEERING_LAST_BODY
-                            } else {
-                                LAST_BODY
-                            },
-                        )
+                        Opening::for_play(frames.graphics(), rules.clone(), start)
                     } else if options.controls {
                         Opening::with_steering(frames.graphics())
                     } else {

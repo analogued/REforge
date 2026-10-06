@@ -2,9 +2,10 @@
 
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
-Status: bounded Rust gameplay recreation with steering, shooting, encounter
+Status: Rust gameplay recreation with steering, shooting, encounter
 progression, collision responses, and retained-session restarts.
-Audio and unrestricted gameplay remain deferred.
+Live gameplay has no loop cap. Audio remains deferred; later gameplay paths
+still need broader comparisons with the original.
 
 The main implementation language is **Rust**. Supporting tools and investigation
 scripts may use other languages. Other platform versions are outside the initial
@@ -55,8 +56,8 @@ cargo run --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
 ```
 
 This implements the fixed initial draw state, masked sprites, and frame export.
-The separate opening simulation implements bounded gameplay updates; audio
-remains unimplemented.
+The separate gameplay simulation implements live play and bounded frame exports;
+audio remains unimplemented.
 Asset decoding and frame composition are also available through the `mach3`
 library. See [CGA graphics](docs/cga-graphics.md) for the supported formats.
 
@@ -80,9 +81,9 @@ Space returns to the selected intro; another fresh press starts the next game
 with retained random state and best score.
 
 Use `--controls` to steer with arrows or S/X/B/N and fire with Space or keypad 5.
-The interactive preview still stops after 90 completed loop bodies. No-input
-playback retains its 836-body bound. Each body displays three passes, with player
-input sampled separately at each pass. The default pace is approximately 36.41
+Live gameplay continues until game over, including when controls are disabled.
+Each body displays three passes, with player input sampled separately at each
+pass. The default pace is approximately 36.41
 passes per second; `--period-ms 1..5000` overrides the whole-body interval.
 Original CPU-dependent pacing and audio are not reproduced.
 

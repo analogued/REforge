@@ -1,6 +1,6 @@
 # DOS opening gameplay
 
-This describes verified original behavior and its bounded Rust implementation.
+This describes verified original behavior and its Rust implementation.
 Code and data addresses follow [DOS startup](dos-startup.md).
 
 ## Update order
@@ -241,7 +241,9 @@ completed-body boundary from 0 through 836.
 The simulation uses interpreted rules and decoded resources. It does not load
 captured frames or state. `advance_subframe` exposes each of the three displayed
 passes; `advance_with_inputs` completes all three and then the end-of-body events.
-The supported boundary and game-over exit apply only after the third pass.
+Explicit export limits and the game-over exit apply only after the third pass.
+Live gameplay has no loop limit. Its body counter wraps as an original 16-bit
+word, preserving the HUD update phases across the wrap.
 
 The first pass updates the player and world, projects and sorts the full world,
 and updates the HUD. The second updates and projects only the player and shadow.
@@ -288,8 +290,8 @@ The first injected key in that capture reached the keyboard handler after the
 first player poll; a separate poll trace establishes samples zero, Left, Left.
 `advance_with_inputs` and the exporter's input TSV support exact per-poll replay;
 animated playback samples held state separately at each pass. Manual stepping
-samples the same held state for all three updates in a body. The interactive controlled preview remains capped at 90 bodies. Longer bounded
-exports exercise additional actions while that cap is retained.
+samples the same held state for all three updates in a body. Live gameplay
+continues until game over; bounded exports retain explicit limits for comparisons.
 
 ## Game over and return
 

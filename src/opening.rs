@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Bounded gameplay simulation using interpreted game-state updates.
+//! Gameplay simulation using interpreted game-state updates.
 
 mod ending;
 mod enemy;
@@ -69,7 +69,7 @@ pub struct Snapshot {
 pub struct Opening {
     body: u16,
     render_pass: u8,
-    body_limit: u16,
+    body_limit: Option<u16>,
     static_lateral: i16,
     random: Random,
     rules: Option<ScriptRules>,
@@ -114,7 +114,7 @@ impl Opening {
         let mut opening = Self {
             body: 0,
             render_pass: 0,
-            body_limit: LAST_BODY,
+            body_limit: Some(LAST_BODY),
             static_lateral: 0,
             random,
             rules: None,
@@ -162,7 +162,7 @@ impl Opening {
     /// A short controlled prefix, independently verified with held steering.
     pub fn with_steering(assets: &GraphicsAssets) -> Result<Self, Error> {
         let mut opening = Self::new(assets)?;
-        opening.body_limit = STEERING_LAST_BODY;
+        opening.body_limit = Some(STEERING_LAST_BODY);
         Ok(opening)
     }
 
@@ -178,7 +178,7 @@ impl Opening {
             words: start.random,
         };
         opening.script_index = start.script_index;
-        opening.body_limit = limit;
+        opening.body_limit = Some(limit);
         opening.terrain.set_data_segment(rules.data_segment());
         opening.rules = Some(rules);
         opening.enemy.reset_for_game(assets)?;
@@ -220,6 +220,18 @@ impl Opening {
         Ok(opening)
     }
 
+    /// Start live gameplay without an export limit. Game over still completes
+    /// the current body's three passes before returning to the ending sequence.
+    pub fn for_play(
+        assets: &GraphicsAssets,
+        rules: ScriptRules,
+        start: GameStart,
+    ) -> Result<Self, Error> {
+        let mut opening = Self::from_game_start(assets, rules, start, 0)?;
+        opening.body_limit = None;
+        Ok(opening)
+    }
+
     pub fn request_game_over(&mut self) {
         self.player.end_game();
     }
@@ -234,7 +246,8 @@ impl Opening {
 
     pub fn complete(&self) -> bool {
         self.at_body_boundary()
-            && (self.body >= self.body_limit || self.player.snapshot().game_over)
+            && (self.body_limit.is_some_and(|limit| self.body >= limit)
+                || self.player.snapshot().game_over)
     }
 
     /// True initially and after all three render passes and end-of-body events.
@@ -318,7 +331,7 @@ impl Opening {
             return Ok(false);
         }
         if self.at_body_boundary() {
-            self.body += 1;
+            self.body = self.body.wrapping_add(1);
             self.advance_player(input)?;
             self.advance_world(assets, true)?;
             self.player.project(assets, self.vertical_origin)?;
@@ -1265,7 +1278,7 @@ mod tests {
     fn displayed_passes_sample_input_and_finish_the_boundary_only_after_pass_three() {
         let assets = synthetic_assets();
         let mut opening = Opening::with_steering(&assets).unwrap();
-        opening.body_limit = 1;
+        opening.body_limit = Some(1);
         let initial = opening.snapshot();
         assert!(opening.at_body_boundary());
         for (pass, lateral, velocity) in [(1, -4, -1), (2, -12, -2), (3, -24, -3)] {
@@ -1454,6 +1467,31 @@ mod tests {
                 .copy_from_slice(&(index as u16).to_le_bytes());
         }
         ScriptRules::from_data_segment(&data).unwrap()
+    }
+
+    #[test]
+    fn live_play_passes_export_limits_wraps_the_counter_and_obeys_game_over() {
+        let assets = synthetic_assets();
+        let start = SessionState::default().begin_game();
+        let mut game = Opening::for_play(&assets, synthetic_rules(&[0x85]), start).unwrap();
+        for boundary in [STEERING_LAST_BODY, LAST_BODY] {
+            game.body = boundary - 1;
+            for expected in [boundary, boundary + 1] {
+                assert!(game.advance(&assets).unwrap());
+                assert_eq!(game.snapshot().body, expected);
+                assert!(!game.complete());
+            }
+        }
+        game.body = u16::MAX;
+        assert!(game.advance_subframe(&assets, Steering::default()).unwrap());
+        assert_eq!(game.snapshot().body, 0);
+        game.request_game_over();
+        assert!(!game.complete());
+        for _ in 0..2 {
+            assert!(game.advance_subframe(&assets, Steering::default()).unwrap());
+        }
+        assert!(game.complete());
+        assert!(!game.advance(&assets).unwrap());
     }
 
     #[test]

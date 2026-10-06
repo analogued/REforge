@@ -10,13 +10,13 @@ use std::{env, path::PathBuf};
 const HELP: &str = "Usage: mach3-viewer [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000] <assets-directory>\n\n\
 Space: splash -> intro -> opening. Escape or window close: exit.\n\
 Default window scale: 3 (960x720); CGA pixels are displayed at 4:3.\n\
-Opening animates 836 no-input loop bodies, then Game Over and High Score.\n\
+Gameplay continues until game over, then displays Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
 --step: fresh Enter presses advance one body or title step. --static: show initial scene only.\n\
---controls: arrows or S/X/B/N steer; Space or keypad5 fires, with a 90-body cap.\n\
+--controls: arrows or S/X/B/N steer; Space or keypad5 fires. Gameplay has no loop cap.\n\
 Default pace: about 36.41 displayed passes/s (12.14 bodies/s); --period-ms sets the body interval.\n\
 F1 pauses/ends game, F2 toggles sound preference, F3 switches color/monochrome.\n\
-Original intro timing, unrestricted gameplay, and audio remain deferred.";
+Original intro timing, exact CPU-dependent pacing, and audio remain deferred.";
 
 fn run() -> Result<(), String> {
     let mut args = env::args_os().skip(1).peekable();

@@ -2,8 +2,8 @@
 
 An early Rust reconstruction of **Alley Cat** for modern desktop systems,
 initially targeting Linux. The current program supports alley movement,
-nonlethal actors, window entry, the bookcase, cheese and birdcage rooms, and the
-hearts bonus scene.
+nonlethal actors, window entry, the fishbowl, bookcase, cheese and birdcage rooms,
+and the hearts bonus scene.
 It is not a complete game.
 A public recreation name has not been chosen.
 
@@ -72,10 +72,12 @@ The default seed is `0xfa59`.
 These controls are diagnostic setup options; startup and difficulty selection
 screens are not implemented.
 
-`--scene bookcase`, `--scene cheese` and `--scene birdcage` start directly in those
-rooms for testing; the default is `--scene alley`. Room actors and transitions
+`--scene fishbowl`, `--scene bookcase`, `--scene cheese` and `--scene birdcage`
+start directly in those rooms for testing; the default is `--scene alley`.
+Room actors and transitions
 use the default timed runner. `--scene hearts` starts directly in the hearts
-scene with one gift. Bookcase, cheese and hearts require default windowed timing
+scene with one gift. `--scene underwater` starts inside the fishbowl.
+Fishbowl, underwater, bookcase, cheese and hearts require default windowed timing
 or `--headless --timed`.
 `--scene completion` previews the birdcage scoring presentation and returns to
 the alley, without playing the objective. This preview requires default windowed
@@ -110,13 +112,26 @@ Actor sprites and motion tables come from the required original executable.
 Windows open, hold and close with the original invocation-count, retrace and
 BIOS-tick gates. New openings require the cat to be above the fence, as in the
 original. A descending cat touching an eligible open window enters a room.
-While the ordinary-room set is incomplete, a seeded choice selects bookcase,
-cheese or birdcage, allowing at most two identical ordinary window destinations
-in a row.
+While the ordinary-room set is incomplete, a seeded choice selects fishbowl,
+bookcase, cheese or birdcage, allowing at most two identical ordinary window
+destinations in a row.
 The original weighted selector and its candidate history are retained separately;
 the temporary playable choice consumes one additional shared random value per
 ordinary entry. Completing any ordinary room makes the next eligible window
 display the female cat and lead to the hearts scene. Projectiles remain disabled.
+
+In the fishbowl room, climb the furniture and jump into the bowl. Contact during
+its six-tick animation gate enters the underwater section without requiring Alt.
+Arrow keys then control swimming with acceleration, inertia and upward drift
+after releasing vertical input. Eat all twelve fish to complete the room.
+Fish and eels use the original slot scheduler, motion bounds, animation tables
+and shared random generator; collecting fish reactivates disabled eels.
+The water surface animates separately. Surface breathing resets the air timer
+through the original sprite-dependent test, and palette changes warn of low air.
+Eel damage, forced sinking and fatal air timeout are disabled during development.
+Completion uses the shared scoring presentation and returns directly to the alley
+at the saved window position. Leaving the furnished room through its window
+returns without an award.
 
 In the bookcase room, climb the shelves and collect the three potted plants.
 Books use the original seeded layout; shelf support uses the original geometric
@@ -180,12 +195,12 @@ nearer alley edge. Its speaker effect is silent. The timed runner blocks game
 work until seven BIOS ticks have elapsed and advances the effect's shared random
 state through its original call-count algorithm, using approximate loop costs.
 
-The dog, other rooms, menus and audio are absent. Windowed execution uses a
+The alley dog, milk room, menus and audio are absent. Windowed execution uses a
 virtual BIOS/PIT clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle
 movement. The reference is DOSBox-X normal CPU core at fixed 240 cycles. Loop
 costs are fitted approximations; original-PC timing fidelity is not established.
-Cheese, birdcage and hearts execution costs are provisional and have not been independently
+Room and hearts execution costs are provisional and have not been independently
 calibrated against the fixed-240 reference.
 Rendering refresh does not determine game ticks. See
 [timing contracts](docs/timing.md) for the schedule and its limits.
@@ -218,7 +233,8 @@ retrace, polling, acceptance, actor-divider events, scene changes and blocking w
 In headless runs it requires `--timed`; in windowed runs it uses default timing.
 
 `--trace`, `--dump-cga`, and `--dump-ppm` write player-state CSV including the
-original scene number (0 for alley, 4 for cheese, 5 for birdcage, 7 for hearts), the final
+original scene number (0 for alley, 1 for fishbowl, 2 for underwater, 3 for bookcase,
+4 for cheese, 5 for birdcage, 7 for hearts), the final
 16384-byte packed framebuffer, and a 320×200 PPM image respectively. Use paths
 outside the repository: these outputs contain original graphics or reference
 evidence. Output files must not already exist. See `--help` for all options.

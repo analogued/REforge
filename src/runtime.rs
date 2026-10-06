@@ -54,6 +54,10 @@ pub struct ReferenceCosts {
     pub cheese_transfer_draw: u64,
     pub bookcase_spider_draw: u64,
     pub bookcase_target_draw: u64,
+    pub swimming_player: u64,
+    pub underwater_actor_draw: u64,
+    pub water_surface_draw: u64,
+    pub fishbowl_draw: u64,
     pub mouse_redraw: u64,
     pub mouse_catch: u64,
     pub bin_push_sound: u64,
@@ -128,6 +132,11 @@ impl ReferenceCosts {
             // Provisional scene-three work above the original tick gates.
             bookcase_spider_draw: 1_500_000,
             bookcase_target_draw: 1_500_000,
+            // Provisional fishbowl/swimming work, separate from BIOS gates.
+            swimming_player: 3_500_000,
+            underwater_actor_draw: 250_000,
+            water_surface_draw: 200_000,
+            fishbowl_draw: 500_000,
             // Full original helpers: normal draw about 1.6ms, catch about 8ms.
             // Add only work above the ordinary gated group allowance.
             mouse_redraw: 1_550_000,
@@ -394,7 +403,7 @@ impl Runtime {
                 self.clock.advance_nanos(self.costs.room_bird_draw);
             }
         }
-        if matches!(alley.scene(), 3 | 4 | 7) {
+        if matches!(alley.scene(), 1..=4 | 7) {
             // These scenes expire the shared room tone before the player call.
             alley.advance_room_tone(self.clock.sample().bios.tick_low);
         }
@@ -411,8 +420,9 @@ impl Runtime {
             self.costs.player_countdown
         });
         let tests_retrace = candidate
-            && alley.player.horizontal_direction == 0
-            && alley.player.vertical_direction == 0;
+            && (alley.scene() == 2
+                || (alley.player.horizontal_direction == 0
+                    && alley.player.vertical_direction == 0));
         if tests_retrace {
             self.clock.advance_nanos(self.costs.player_retrace);
         }
@@ -425,17 +435,23 @@ impl Runtime {
             alley.player.vertical_direction as i8,
             retrace,
         );
-        if acceptance.is_some() {
+        if let Some(accepted) = acceptance {
             let airborne = alley.player.vertical_direction != 0;
             let descending = alley.player.vertical_direction == 1;
             let entering = alley.player.entry_state != 0;
             let releasing = alley.player.support_state != 0 && self.controls.y != 0;
             let bin_sound_ready = alley.bin_contact_sound_ready();
-            let outcome = alley.update(self.controls)?;
+            let outcome = if alley.scene() == 2 {
+                alley.update_swimming(self.controls, accepted.tick_low, accepted.ax)?
+            } else {
+                alley.update(self.controls)?
+            };
             if let Some(controls) = outcome.forced_controls {
                 self.controls = controls;
             }
-            let cost = if releasing || outcome.forced_controls.is_some() {
+            let cost = if alley.scene() == 2 {
+                self.costs.swimming_player
+            } else if releasing || outcome.forced_controls.is_some() {
                 self.costs.player_support_release
             } else if outcome.landed {
                 self.costs.player_landing
@@ -496,7 +512,7 @@ impl Runtime {
         acceptance: Option<PlayerAcceptance>,
     ) -> Result<PassOutcome, String> {
         let before_scene = alley.scene();
-        if matches!(before_scene, 3..=5 | 7) {
+        if matches!(before_scene, 1..=5 | 7) {
             if before_scene == 7 {
                 for call in [
                     Alley::advance_hearts_arrow,
@@ -509,6 +525,17 @@ impl Runtime {
                     if step.drew {
                         self.clock.advance_nanos(self.costs.hearts_actor_draw);
                     }
+                }
+            } else if before_scene == 2 {
+                let actor = alley.advance_underwater_actors(self.clock.sample().bios.tick_low)?;
+                self.clock.advance_nanos(self.costs.room_actor_gate);
+                if actor.drew {
+                    self.clock.advance_nanos(self.costs.underwater_actor_draw);
+                }
+                let surface = alley.advance_water_surface(self.clock.sample().bios.tick_low)?;
+                self.clock.advance_nanos(self.costs.room_actor_gate);
+                if surface.drew {
+                    self.clock.advance_nanos(self.costs.water_surface_draw);
                 }
             } else {
                 if before_scene == 3 {
@@ -544,6 +571,13 @@ impl Runtime {
                 if let Some(broom) = alley.advance_room_broom(self.clock.sample().bios.tick_low)? {
                     if broom.drawn {
                         self.clock.advance_nanos(self.costs.room_broom_draw);
+                    }
+                }
+                if before_scene == 1 {
+                    let bowl = alley.advance_fishbowl(self.clock.sample().bios.tick_low)?;
+                    self.clock.advance_nanos(self.costs.room_actor_gate);
+                    if bowl.drew {
+                        self.clock.advance_nanos(self.costs.fishbowl_draw);
                     }
                 }
             }

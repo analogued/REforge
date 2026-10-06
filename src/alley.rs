@@ -53,6 +53,7 @@ pub struct Alley {
     /// Actual ordinary window destinations while the ordinary room set is incomplete.
     /// Original candidate history remains separate in the external runtime data.
     ordinary_rooms: [u16; 2],
+    air_warning: u8,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -120,6 +121,7 @@ impl Alley {
             completion: None,
             hearts_completion: None,
             ordinary_rooms: [0; 2],
+            air_warning: 0,
         }
     }
 
@@ -160,6 +162,7 @@ impl Alley {
             completion: None,
             hearts_completion: None,
             ordinary_rooms: [0; 2],
+            air_warning: 0,
         };
         // The first accepted neutral update establishes the original idle image.
         alley.update(Controls::default())?;
@@ -167,10 +170,10 @@ impl Alley {
     }
 
     pub fn update(&mut self, controls: Controls) -> Result<UpdateOutcome, String> {
-        let image = if matches!(self.scene(), 3..=5 | 7) {
+        let image = if matches!(self.scene(), 1 | 3..=5 | 7) {
             let image = self.compositor.suspend(&mut self.screen)?;
             self.player.write_data(&mut self.data)?;
-            if matches!(self.scene(), 3..=5) && self.player.floor_track_due(controls) {
+            if matches!(self.scene(), 1 | 3..=5) && self.player.floor_track_due(controls) {
                 self.data[0x56e] = controls.x as u8;
                 crate::room::record_floor_track(&mut self.data, &mut self.screen)?;
             }
@@ -252,12 +255,46 @@ impl Alley {
         Ok(outcome)
     }
 
+    /// Scene two uses inertia and buoyancy instead of ordinary jumping.
+    pub(crate) fn update_swimming(
+        &mut self,
+        controls: Controls,
+        tick: u16,
+        accepted_ax: u16,
+    ) -> Result<UpdateOutcome, String> {
+        self.compositor.suspend(&mut self.screen)?;
+        self.player.write_data(&mut self.data)?;
+        set_word(&mut self.data, 0x57f, accepted_ax);
+        let step = crate::swimming::advance(&mut self.data, controls, tick)?;
+        self.player = Player::from_data(&self.data)?;
+        self.air_warning = step.air_warning;
+        let Draw::Sprite(sprite) = step.draw else {
+            return Err("Swimming update requires its external sprite".into());
+        };
+        let dimensions = Dimensions(sprite.dimensions);
+        self.compositor.draw(
+            &mut self.screen,
+            pixel_offset(self.player.x, self.player.y),
+            dimensions,
+            sprite_bytes(&self.data, sprite.source, dimensions)?,
+        )?;
+        self.room_actor(|data, screen| crate::fishbowl::contacts(data, screen, tick))?;
+        Ok(UpdateOutcome {
+            draw: step.draw,
+            landed: false,
+            support: crate::player::Support::None,
+            edge_reset: false,
+            bin_contact_checked: false,
+            forced_controls: None,
+        })
+    }
+
     pub fn framebuffer(&self) -> &Framebuffer {
         &self.presented
     }
 
-    /// Original scene numbers: alley zero, bookcase three, cheese four, birdcage
-    /// five and hearts seven.
+    /// Original scene numbers: alley zero, fishbowl one, underwater two,
+    /// bookcase three, cheese four, birdcage five and hearts seven.
     pub fn scene(&self) -> u16 {
         word(&self.data, 4)
     }
@@ -305,6 +342,7 @@ impl Alley {
     }
 
     fn reset_sound_state(&mut self) {
+        self.air_warning = 0;
         // CS:58bd logical initialization, without synthesizing audio.
         for (offset, value) in [
             (0x5927, 0x80),
@@ -365,6 +403,62 @@ impl Alley {
         set_word(&mut self.data, 0x410, tick);
         self.data[0x419] = 1;
         self.setup_birdcage()
+    }
+
+    /// Enter the furnished fishbowl room directly for diagnostic play.
+    pub fn enter_fishbowl(&mut self, tick: u16) -> Result<(), String> {
+        self.player.write_data(&mut self.data)?;
+        set_word(&mut self.data, 1, self.player.x);
+        self.data[3] = self.player.y;
+        set_word(&mut self.data, 0x410, tick);
+        self.data[0x419] = 1;
+        self.setup_fishbowl()
+    }
+
+    fn setup_fishbowl(&mut self) -> Result<(), String> {
+        self.completion = None;
+        self.hearts_completion = None;
+        set_word(&mut self.data, 4, 1);
+        set_word(&mut self.data, 6, 0);
+        self.compositor = PlayerCompositor::default();
+        self.bin_image = None;
+        self.mouse_effect = None;
+        crate::room::draw_fishbowl_room(&mut self.data, &mut self.screen)?;
+        crate::room::initialize_room_player(&mut self.data, 1)?;
+        crate::room::initialize_broom(&mut self.data)?;
+        self.data[0x1cb8] = 0;
+        self.data[0x1cbf] = 0;
+        self.player = Player::from_data(&self.data)?;
+        self.reset_sound_state();
+        self.compose_actors()
+    }
+
+    /// Direct underwater preview preserves the same alley return coordinates.
+    pub fn enter_underwater(&mut self, tick: u16) -> Result<(), String> {
+        self.player.write_data(&mut self.data)?;
+        set_word(&mut self.data, 1, self.player.x);
+        self.data[3] = self.player.y;
+        set_word(&mut self.data, 0x410, tick);
+        self.data[0x419] = 1;
+        self.setup_underwater(tick)
+    }
+
+    fn setup_underwater(&mut self, tick: u16) -> Result<(), String> {
+        self.completion = None;
+        self.hearts_completion = None;
+        set_word(&mut self.data, 4, 2);
+        set_word(&mut self.data, 6, 0);
+        self.compositor = PlayerCompositor::default();
+        self.bin_image = None;
+        self.mouse_effect = None;
+        crate::fishbowl::draw_underwater(&mut self.data, &mut self.screen)?;
+        crate::fishbowl::initialize_underwater(&mut self.data, &mut self.screen)?;
+        crate::swimming::initialize_player(&mut self.data, tick)?;
+        self.data[0x1cb8] = 0;
+        self.data[0x1cbf] = 0;
+        self.player = Player::from_data(&self.data)?;
+        self.reset_sound_state();
+        self.compose_actors()
     }
 
     /// Enter the bookcase room directly for diagnostic play.
@@ -499,6 +593,27 @@ impl Alley {
         Ok(result)
     }
 
+    pub(crate) fn advance_fishbowl(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::fishbowl::BowlStep, String> {
+        self.room_actor(|data, screen| crate::fishbowl::advance_bowl(data, screen, tick))
+    }
+
+    pub(crate) fn advance_underwater_actors(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::fishbowl::ActorStep, String> {
+        self.room_actor(|data, screen| crate::fishbowl::advance_actors(data, screen, tick))
+    }
+
+    pub(crate) fn advance_water_surface(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::fishbowl::SurfaceStep, String> {
+        self.room_actor(|data, screen| crate::fishbowl::advance_surface(data, screen, tick))
+    }
+
     pub(crate) fn advance_bookcase_spider(
         &mut self,
         tick: u16,
@@ -604,10 +719,14 @@ impl Alley {
         if candidate == 7 {
             return 7;
         }
-        let mut room = 3 + next_random(&mut self.data) % 3;
-        if self.ordinary_rooms == [room; 2] {
-            room = 3 + (room - 2) % 3;
+        const AVAILABLE: [u16; 4] = [1, 3, 4, 5];
+        // Original candidate filtering already constrains the low bits. Use the
+        // upper pair for the temporary playable choice.
+        let mut index = usize::from(next_random(&mut self.data) >> 14);
+        if self.ordinary_rooms == [AVAILABLE[index]; 2] {
+            index = (index + 1) % AVAILABLE.len();
         }
+        let room = AVAILABLE[index];
         self.ordinary_rooms = [self.ordinary_rooms[1], room];
         room
     }
@@ -627,10 +746,16 @@ impl Alley {
             let candidate = crate::windows::select_room(&mut self.data, &self.player, tick)?;
             match self.playable_destination(candidate) {
                 7 => self.setup_hearts(tick)?,
+                1 => self.setup_fishbowl()?,
                 3 => self.setup_bookcase()?,
                 4 => self.setup_cheese()?,
                 _ => self.setup_birdcage()?,
             }
+            return Ok(true);
+        }
+        // Original scene-one caller tests bowl entry before room termination.
+        if self.scene() == 1 && self.data[0x554] != 0 {
+            self.setup_underwater(tick)?;
             return Ok(true);
         }
         if self.data[0x551] == 0 && self.data[0x553] == 0 {
@@ -880,6 +1005,8 @@ impl Alley {
             completion.background()
         } else if self.scene() == 7 && word(&self.data, 0x2e8d) < 8 {
             1
+        } else if self.scene() == 2 {
+            self.air_warning
         } else {
             0
         };
@@ -938,7 +1065,7 @@ mod tests {
                 assert_eq!(word(&alley.data, 0x41d), candidate);
                 rooms.push(actual);
             }
-            assert!([3, 4, 5].into_iter().all(|room| rooms.contains(&room)));
+            assert!([1, 3, 4, 5].into_iter().all(|room| rooms.contains(&room)));
             assert!(
                 rooms
                     .windows(3)

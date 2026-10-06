@@ -112,6 +112,31 @@ pub(crate) fn draw_birdcage_room(data: &mut [u8], screen: &mut Framebuffer) -> R
     copy_sprite(data, screen, 0x1fe0, 0x0dd6, 0x1002)
 }
 
+/// CS:2909..2944: furniture and the fishbowl room's window reference.
+pub(crate) fn draw_fishbowl_room(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
+    check_data(data)?;
+    screen.fill_visible(0xaa);
+    draw_room_wall(data, screen, 0x0640)?;
+    draw_list(data, screen, 0x2570, 0x0ca0)?;
+    set_word(data, 0x2650, 160);
+    data[0x2652] = 96;
+    draw_furniture(data, screen, 0x1406, &[0x263c, 0x263a, 0x2638, 0x2636])?;
+    draw_list(data, screen, 0x2344, 0x11c4)?;
+    draw_furniture(
+        data,
+        screen,
+        0x1422,
+        &[0x2646, 0x2644, 0x2642, 0x2640, 0x263e],
+    )?;
+    draw_furniture(data, screen, 0x1690, &[0x264e, 0x264c, 0x264a, 0x2648])?;
+    set_word(data, 0x2634, 0x16b6);
+    draw_list(data, screen, 0x2384, 0x16b6)?;
+    draw_list(data, screen, 0x238c, 0x16b6)?;
+    data[0x2ae0] = 1;
+    data[0x2ae2] = 0;
+    Ok(())
+}
+
 /// CS:28be..2908 and CS:3bdb: bookcase furniture, plants and seeded books.
 pub(crate) fn draw_bookcase_room(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
     check_data(data)?;
@@ -222,9 +247,9 @@ pub(crate) fn draw_cheese_room(data: &mut [u8], screen: &mut Framebuffer) -> Res
 /// Existing animation phase, speed and edge-entry countdown are preserved.
 pub(crate) fn initialize_room_player(data: &mut [u8], scene: u16) -> Result<(), String> {
     check_data(data)?;
-    if !matches!(scene, 0 | 3..=5 | 7) {
+    if !matches!(scene, 0 | 1 | 3..=5 | 7) {
         return Err(
-            "Player entry supports the alley, bookcase, cheese, birdcage and hearts rooms".into(),
+            "Player entry supports the alley, fishbowl, bookcase, cheese, birdcage and hearts rooms".into(),
         );
     }
     let (x, y) = if scene == 0 {
@@ -349,8 +374,10 @@ fn overlaps(first: (u16, u8, u16, u8), second: (u16, u8, u16, u8)) -> bool {
 pub(crate) fn resolve_scene_support(data: &[u8], player: &Player) -> Result<SupportCheck, String> {
     check_data(data)?;
     let scene = usize::from(word(data, 4));
-    if !matches!(scene, 3..=5) {
-        return Err("Room support supports the bookcase, cheese and birdcage rooms".into());
+    if !matches!(scene, 1 | 3..=5) {
+        return Err(
+            "Room support supports the fishbowl, bookcase, cheese and birdcage rooms".into(),
+        );
     }
     if player.vertical_direction == 1
         && overlaps(
@@ -567,8 +594,10 @@ pub(crate) fn advance_broom(
 ) -> Result<Option<BroomUpdate>, String> {
     check_data(data)?;
     let scene = usize::from(word(data, 4));
-    if !matches!(scene, 3..=5) {
-        return Err("Broom update supports the bookcase, cheese and birdcage rooms".into());
+    if !matches!(scene, 1 | 3..=5) {
+        return Err(
+            "Broom update supports the fishbowl, bookcase, cheese and birdcage rooms".into(),
+        );
     }
     if tick.wrapping_sub(word(data, 0x328c)) < word(data, 0x32f2 + scene * 2) {
         return Ok(None);

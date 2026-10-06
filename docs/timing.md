@@ -140,8 +140,8 @@ and [PIT implementation](https://github.com/joncampbell123/dosbox-x/blob/master/
 
 Scene 4 polls controls, expires the room tone, attempts a player update, advances
 the paired-hole transfer, advances one collectible mouse slot, advances the
-broom, and checks scene termination, in that order. Both ordinary rooms retain
-floor tracking and the shared support, broom, scoring and window-return rules.
+broom, and checks scene termination, in that order. Furnished ordinary rooms
+retain floor tracking and the shared support, broom, scoring and window-return rules.
 
 The mouse scheduler accepts changed BIOS ticks and cycles four slots. Slot three
 leaves its tick unlatched, allowing the following slot-zero call in the same
@@ -185,8 +185,9 @@ reset the player acceptance gate and logical controls.
 The candidate selector uses the shared generator, difficulty weighting and
 two-entry room history; it avoids a third consecutive identical candidate.
 Until all rooms are implemented, dispatch makes a separate seeded choice among
-scenes 3, 4 and 5, consuming one additional shared random value. A separate
-two-entry history prevents three identical playable destinations in a row. Original
+scenes 1, 3, 4 and 5, using the upper two bits of one additional shared random
+value. A separate two-entry history prevents three identical playable destinations
+in a row. Original
 candidate history is therefore not a history of actual ordinary destinations.
 Success preserves the pending-bonus flag; the next eligible window selects scene
 7 without
@@ -214,6 +215,44 @@ the descending room-window exit test. It aligns X to four pixels, accepts
 154 using the original byte arithmetic. These supports span the bookcase
 independently of the randomized book tiles. Spider and plant drawing execution
 costs are provisional; no full original-loop pacing equivalence is claimed.
+
+### Fishbowl and underwater section
+
+Scene 1 calls controls, shared tone expiry, accepted player movement, broom,
+then bowl animation (`3850`). The bowl advances every six wrapping BIOS ticks
+and tests player contact only on those drawing opportunities. Its entry flag
+has priority over ordinary room termination. Scene 2 replaces the furnished
+room with the underwater scene while preserving the original alley return
+coordinates and ordinary-room timer.
+
+Scene 2 calls controls, shared tone expiry, the common acceptance gate and
+swimming body, fish/eel motion (`3675`), then water-surface motion (`37e5`). Its
+player gate requires retrace even during active movement. Swimming accelerates
+horizontal and vertical inertia with separate external difficulty caps; neutral
+input decays inertia and eventually requests upward motion. Animation depends
+on direction changes, relative inertia, and surface/bottom position. Surface
+breathing requires the pre-update selected sprite to match the external breathing
+sprite, rather than just testing the cat's Y coordinate.
+
+The actor scheduler increments through 24 slots before processing each selected
+slot: twelve fish followed by twelve eels. It commits its changed-tick baseline
+at slots 12 and 0, except PCjr skips the slot-12 latch while player Y is below
+48. Each active slot consumes shared random values for direction changes and
+uses its external vertical band. Old images restore uniform water pixels.
+The separate surface cursor visits forty tiles, accepts at least eight wrapping
+ticks and commits its baseline only at cursor wrap; tiles near the player skip
+drawing. Underwater initialization uses the external difficulty count to disable
+some eels and preserves actor/surface clocks and eel animation history.
+
+Accepted swimming calls check contacts in ascending slot order, collecting fish
+before checking eels. Fish collection reactivates disabled eels in reverse slot
+order, spawning at the edge opposite the player. The twelfth fish sets success
+and starts shared ordinary scoring followed by alley return. Ordinary eel
+damage and the air timeout's sinking/failure path are disabled during development;
+the original air-timer warning thresholds still change the background palette.
+Swimming, bowl, actor and surface execution costs remain provisional. Controlled
+routine comparisons establish these rules, not full original-loop timing or
+random-stream equivalence.
 
 ### Ordinary-room scoring presentation
 

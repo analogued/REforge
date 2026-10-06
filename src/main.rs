@@ -16,7 +16,7 @@ const HELP: &str = "Alley Cat — game reconstruction
 Usage: alley-cat --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
-  --scene NAME            Start in alley, bookcase, cheese, birdcage, hearts or completion
+  --scene NAME            Start in alley, fishbowl, underwater, bookcase, cheese, birdcage, hearts or completion
   --scale N               Initial window multiplier, 1..16 (default: 4)
   --seed N                Initial random seed, decimal or 0xHEX (default: 0xfa59)
   --difficulty N          Alley layout difficulty 0..7 (default: 0)
@@ -35,7 +35,7 @@ Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
 Ctrl+Q or closing the window quits.
 Alt uses paired holes in cheese and places a carried gift in the hearts room.
 Gifts are picked up automatically.
-Ordinary windows lead to bookcase, cheese or birdcage; after success, the next leads to hearts.
+Ordinary windows lead to fishbowl, bookcase, cheese or birdcage; after success, the next leads to hearts.
 Lethal actors and audio are absent.
 Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
@@ -45,6 +45,8 @@ enum StartScene {
     Alley,
     Birdcage,
     Bookcase,
+    Fishbowl,
+    Underwater,
     Cheese,
     Hearts,
     Completion,
@@ -129,12 +131,14 @@ fn options() -> Result<Option<Options>, String> {
                     "alley" => StartScene::Alley,
                     "birdcage" => StartScene::Birdcage,
                     "bookcase" => StartScene::Bookcase,
+                    "fishbowl" => StartScene::Fishbowl,
+                    "underwater" => StartScene::Underwater,
                     "cheese" => StartScene::Cheese,
                     "hearts" => StartScene::Hearts,
                     "completion" => StartScene::Completion,
                     _ => {
                         return Err(
-                            "Scene must be alley, bookcase, cheese, birdcage, hearts or completion"
+                            "Scene must be alley, fishbowl, underwater, bookcase, cheese, birdcage, hearts or completion"
                                 .into(),
                         );
                     }
@@ -280,6 +284,16 @@ fn run() -> Result<(), String> {
     match options.scene {
         StartScene::Alley => {}
         StartScene::Birdcage => alley.enter_birdcage(0)?,
+        StartScene::Fishbowl | StartScene::Underwater => {
+            if options.step_hz.is_some() || (options.headless && !options.timed) {
+                return Err("Fishbowl play requires default timing or --headless --timed".into());
+            }
+            if options.scene == StartScene::Fishbowl {
+                alley.enter_fishbowl(0)?;
+            } else {
+                alley.enter_underwater(0)?;
+            }
+        }
         StartScene::Bookcase => {
             if options.step_hz.is_some() || (options.headless && !options.timed) {
                 return Err("Bookcase play requires default timing or --headless --timed".into());

@@ -198,8 +198,13 @@ fn read_controls(reader: impl BufRead) -> Result<Vec<RecordedControl>, Error> {
                 | "pause26b8"
                 | "pause-confirm"
                 | "pause26e2"
+                | "audio-bypass"
+                | "other"
         ) {
-            return Err(invalid("controls.tsv: unsupported control site"));
+            return Err(invalid(format!(
+                "controls.tsv: unsupported control site {:?} at sequence {seq}",
+                fields[3]
+            )));
         }
         let flag = |value| -> Result<bool, Error> {
             match number::<u8>(value, "controls.tsv")? {
@@ -210,7 +215,7 @@ fn read_controls(reader: impl BufRead) -> Result<Vec<RecordedControl>, Error> {
                 )),
             }
         };
-        controls.push(RecordedControl {
+        let control = RecordedControl {
             game: number(fields[1], "controls.tsv")?,
             body: number(fields[2], "controls.tsv")?,
             site: fields[3].into(),
@@ -220,7 +225,16 @@ fn read_controls(reader: impl BufRead) -> Result<Vec<RecordedControl>, Error> {
                 f3: flag(fields[6])?,
                 ..HeldKeys::default()
             },
-        });
+        };
+        // Older profiles did not classify disabled playback's tail-call. A
+        // neutral function-key sample has no control side effects, regardless
+        // of its caller. Never infer a non-neutral unknown poll's semantics.
+        if control.site == "other" && control.keys != HeldKeys::default() {
+            return Err(invalid(format!(
+                "controls.tsv: unclassified function-key poll at sequence {seq}; record again with the updated profile"
+            )));
+        }
+        controls.push(control);
     }
     Ok(controls)
 }
@@ -430,7 +444,10 @@ pub fn replay_first_game(
                 let control = controls
                     .get(control_cursor)
                     .ok_or_else(|| invalid("controls.tsv: missing player poll"))?;
-                if control.game != input.game || control.body != input.body {
+                let body_tail = matches!(control.site.as_str(), "audio-bypass" | "other")
+                    && input.pass == 1
+                    && control.body == input.body.wrapping_sub(1);
+                if control.game != input.game || (control.body != input.body && !body_tail) {
                     return Err(invalid(format!(
                         "controls.tsv: poll does not match input {}",
                         input.seq
@@ -677,6 +694,17 @@ mod tests {
         fs::remove_file(recording.join("ends.tsv")).unwrap();
         fs::write(recording.join("inputs.tsv"), "seq\tgame\tbody\tpass\tmask\n0\t0\t1\t1\t0\n1\t0\t1\t2\t0\n2\t0\t1\t3\t0\n3\t0\t2\t1\t0\n").unwrap();
         fs::write(recording.join("frames.tsv"), "seq\tgame\tbody\tpass\tkind\tpalette\tmode\n0\t0\t0\t0\tinitial\t1\t4\n1\t0\t1\t1\tgameplay\t1\t4\n2\t0\t1\t2\tgameplay\t1\t4\n3\t0\t1\t3\tgameplay\t1\t4\n4\t0\t2\t1\tgameplay\t1\t4\n").unwrap();
+        for (site, f3, mode) in [("other", 0, 4), ("audio-bypass", 1, 6)] {
+            fs::write(recording.join("controls.tsv"), format!("seq\tgame\tbody\tsite\tf1\tf2\tf3\n0\t0\t1\tbody\t0\t0\t0\n1\t0\t1\tplayer1\t0\t0\t0\n2\t0\t1\tplayer2\t0\t0\t0\n3\t0\t1\tplayer3\t0\t0\t0\n4\t0\t1\t{site}\t0\t0\t{f3}\n5\t0\t2\tbody\t0\t0\t0\n6\t0\t2\tplayer1\t0\t0\t0\n")).unwrap();
+            let output = directory.join(site);
+            let report =
+                replay_first_game(&assets, synthetic_rules(), &recording, &output).unwrap();
+            assert_eq!((report.frames, report.inputs), (5, 4));
+            assert!(report.diagnostic.is_none());
+            let frames = fs::read_to_string(output.join("frames.tsv")).unwrap();
+            assert!(frames.contains("3\t0\t1\t3\tgameplay\t1\t4\n"));
+            assert!(frames.contains(&format!("4\t0\t2\t1\tgameplay\t1\t{mode}\n")));
+        }
         fs::write(recording.join("controls.tsv"), "seq\tgame\tbody\tsite\tf1\tf2\tf3\n0\t0\t1\tbody\t1\t0\t0\n1\t0\t1\tpause-confirm\t1\t0\t0\n2\t0\t1\tplayer1\t0\t0\t0\n3\t0\t1\tplayer2\t0\t0\t0\n4\t0\t1\tplayer3\t0\t0\t0\n5\t0\t2\tplayer1\t0\t0\t0\n").unwrap();
         let early_output = directory.join("early-ending");
         let early =
@@ -847,5 +875,13 @@ mod tests {
         let controls = read_controls(Cursor::new("seq\tgame\tbody\tsite\tf1\tf2\tf3\n0\t0\t7\tbody\t1\t0\t0\n1\t0\t7\tpause-confirm\t1\t0\t0\n")).unwrap();
         assert_eq!(controls[0].site, "body");
         assert_eq!(Controls::default().poll(controls[1].keys).mask, 128);
+        for (site, keys) in [("other", "0\t0\t1"), ("unknown", "0\t0\t0")] {
+            assert!(
+                read_controls(Cursor::new(format!(
+                    "seq\tgame\tbody\tsite\tf1\tf2\tf3\n0\t0\t7\t{site}\t{keys}\n"
+                )))
+                .is_err()
+            );
+        }
     }
 }

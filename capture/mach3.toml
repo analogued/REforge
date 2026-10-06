@@ -21,6 +21,7 @@ observed_input = 0
 input_mask = 0
 caller = 0
 control_site = "other"
+audio_bypass = 0
 object_address = 0
 position = 0
 sprite_base = 0
@@ -972,6 +973,17 @@ value = "\"transition\""
 type = "call"
 group = "capture_frame"
 
+# Disabled playback tail-calls the input helper, retaining the audio caller.
+[[events]]
+name = "audio_bypass"
+ip = "0x5600"
+guard = "active and reg.cs == game_cs"
+
+[[events.actions]]
+type = "set"
+variable = "audio_bypass"
+value = "1"
+
 [[events]]
 name = "control_poll"
 ip = "0x73b2"
@@ -986,6 +998,17 @@ value = "mem16(base.ss + reg.sp)"
 type = "set"
 variable = "control_site"
 value = "\"other\""
+
+[[events.actions]]
+type = "set"
+variable = "control_site"
+value = "\"audio-bypass\""
+guard = "audio_bypass"
+
+[[events.actions]]
+type = "set"
+variable = "audio_bypass"
+value = "0"
 
 [[events.actions]]
 type = "set"

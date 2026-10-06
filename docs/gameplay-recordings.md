@@ -80,7 +80,11 @@ a partial replay, and an invalid recording or tool error.
 `games.tsv` supplies the initial script and three random-state words.
 `inputs.tsv` records the original's action mask at each player poll, before
 damage responses alter it. `controls.tsv` records function-key state at the
-body, player, and pause polls. `ends.tsv` records game termination, which the
+body, player, pause, and disabled-playback polls. Disabled playback tail-calls
+the input helper, so these extra polls can change function-key preferences
+without advancing gameplay. Older profiles label these polls `other`; replay
+accepts such legacy rows only when all function keys are released.
+`ends.tsv` records game termination, which the
 replay also checks against its own game-over condition. Its legacy `quit` column
 records the original exit word and does not distinguish death from a player quit.
 Input positions use a wide sequence number plus the wrapping 16-bit game body

@@ -3,7 +3,7 @@
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
 Status: Rust graphics decoding and a windowed, no-input opening preview,
-including terrain changes, four enemy waves, collision responses, and life recovery.
+including terrain changes, seven enemy encounters, collision responses, and life recovery.
 Later gameplay remains under investigation.
 
 The main implementation language is **Rust**. Supporting tools and investigation
@@ -73,15 +73,17 @@ cargo run --features viewer --bin mach3-viewer -- /path/to/assets
 ```
 
 It reads `DATA1` and `DATA6` as the splash and intro. Fresh Space presses advance
-to the opening, which then runs 540 no-input game-loop bodies using graphics
+to the opening, which then runs 630 no-input game-loop bodies using graphics
 from `DATA2` through `DATA5`. Terrain moves, the HUD updates, and the first
-five enemy waves and a scripted sixth encounter appear, with seeking projectiles. The fifth wave contains
+seven enemy encounters appear, with seeking projectiles. The fifth wave contains
 two craft with separate shadows and a shared projectile. The second enemy steers
 into the player, triggering hit and explosion animations. Life loss restores
 fuel and resumes flight. The third enemy orbits before seeking the player;
 the fourth keeps its lateral orbit and fixed height. Ground effects can also
 damage the craft. A later section mixes terrain families and adds procedural
-gates with their own projection and crossing rules.
+gates with their own projection and crossing rules. The sixth encounter follows
+a scripted sweep; the seventh uses staggered sweep phases around a center that
+follows the player.
 The preview holds its final frame at the current verification boundary.
 Escape or window close exits.
 
@@ -110,9 +112,9 @@ For reproducible frame and state export without SDL3:
 cargo run --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
 ```
 
-This writes frames `000.cga` through `540.cga` plus state, player, object, and
+This writes frames `000.cga` through `630.cga` plus state, player, object, and
 drawing-order TSV tables.
-`--steps 0..540` exports a shorter prefix. The directory must be new. Simulation
+`--steps 0..630` exports a shorter prefix. The directory must be new. Simulation
 uses the decoded assets and interpreted update rules; it does not load captured
 frames, emulator state, or a replay.
 

@@ -59,6 +59,19 @@ and the initial threshold, its first events are:
 | 347 | Fourth primary explosion clears |
 | 350 | Third player death completes; remaining lives decrease to three |
 | 355 | The third removed life icon resolves on the bottom HUD update |
+| 367 | Terrain selector becomes 7 |
+| 387 | Formation count increases to two |
+| 407 | Fifth primary wave starts with both axes orbiting |
+| 464 | Terrain selector becomes 9; recycled rows mix two sprite families |
+| 484 | Five procedural gate records are created |
+| 504 | Sixth encounter starts a single craft on the scripted sweep |
+| 542 | The sweep craft collides with the player and becomes an explosion |
+| 549 | Sixth primary explosion clears |
+| 552 | Fourth player death completes; remaining lives decrease to two |
+| 555 | The fourth removed life icon resolves on the bottom HUD update |
+| 569 | Terrain selector 9 is selected again |
+| 589 | A second group of five procedural gates is created |
+| 609 | Seventh encounter starts two craft on staggered relative sweeps |
 
 These counts are logical loop positions, not durations. Newly created objects
 may receive their resolved sprite and projected rectangle in subsequent updates.
@@ -85,7 +98,7 @@ raw state, and comparison reports remain external to the repository.
 ## Rust opening simulation
 
 `Opening` implements the opening without keyboard input through completed body
-540. It updates the HUD, recycles and projects terrain, and starts six enemy
+630. It updates the HUD, recycles and projects terrain, and starts seven enemy
 encounters. The generator runs from fresh startup state; branch decisions consume
 its results in the original order. Source resolution remains separate from
 requested sprite selection.
@@ -176,8 +189,15 @@ coordinates and sprite requests follow integer affine segments reproducing the
 original quantized path. The common update retains those requests, copies
 coordinates to its shadow, and consumes three random words for firing and
 shared targeting. Creation initializes the available primary slots but leaves
-only the first craft and companion active. Terminal retirement and alternate
-modes remain beyond this batch's runtime coverage.
+only the first craft and companion active. The seventh encounter activates all
+allocated craft with sweep phases staggered by four rows. Each active craft
+advances a shared center toward the current player by at most four units per
+axis per half-step. Its row coordinates are offset by that center and a fixed
+lateral formation spacing. Both variants preserve the row's depth and source
+request rather than applying the ordinary forward delta. Forward retirement
+clears the animation phase while retaining the requested source. Terminal
+retirement is covered by static inspection and synthetic tests; alternate modes
+remain unsupported.
 
 Camera height changes with the player's response movement. The terrain strip
 position and vertical projection origin are cached by the first render pass;
@@ -190,7 +210,7 @@ depth. Inactive records still participate.
 The initial HUD indicator artwork is preserved.
 
 Native frames and checked HUD, player, terrain, enemy, gate, target, camera,
-random state, and retained drawing order match the original at every completed-body boundary from 0 through 540.
+random state, and retained drawing order match the original at every completed-body boundary from 0 through 630.
 The simulation uses interpreted rules and decoded resources. It does not load
 captured frames or state and does not reproduce every intermediate framebuffer
 write within a body.
@@ -204,7 +224,7 @@ The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
 The viewer offers an interval override and manual stepping.
 
-The simulation holds after the current verified batch of 540 bodies. This is a
+The simulation holds after the current verified batch of 630 bodies. This is a
 comparison checkpoint, not a randomness barrier. Subsequent encounter commands
 need further implementation and validation. Keyboard movement and firing,
 restart within an existing random stream, and audio are unsupported.

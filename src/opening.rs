@@ -251,6 +251,17 @@ impl Opening {
                         )?;
                         self.script_delay = 0;
                     }
+                    15 => self.terrain_selector = 9,
+                    16 => self.special.spawn_command_40(&mut self.random, 28, false),
+                    17 => {
+                        self.enemy.spawn_command(
+                            0x96,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                        )?;
+                        self.script_delay = 0;
+                    }
                     _ => return Err(Error::InvalidData("unsupported opening command".into())),
                 }
                 self.script_cursor += 1;
@@ -418,7 +429,7 @@ fn draw_clipped(
 }
 
 /// Final completed body of the currently verified, no-input opening batch.
-pub const LAST_BODY: u16 = 540;
+pub const LAST_BODY: u16 = 630;
 
 /// Three nominal 36.413 Hz timer units per completed loop body.
 /// Original CPU/render costs and startup timer transitions are not emulated.

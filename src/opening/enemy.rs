@@ -93,6 +93,7 @@ enum Motion {
     LateralOrbit,
     FullOrbit,
     ScriptedSweep,
+    RelativeSweep,
 }
 
 #[derive(Debug)]
@@ -137,6 +138,7 @@ impl Enemy {
             0x8a => Motion::LateralOrbit,
             0x88 => Motion::FullOrbit,
             0x97 => Motion::ScriptedSweep,
+            0x96 => Motion::RelativeSweep,
             _ => {
                 return Err(Error::InvalidData(format!(
                     "unsupported enemy command {command:02x}"
@@ -157,9 +159,9 @@ impl Enemy {
             self.craft_animations[i] = None;
             craft.requested_sprite = 0;
             craft.movement = command & 63;
-            craft.variant = u8::from(command == 0x97);
-            craft.animation_phase = 0;
-            craft.depth = if command == 0x97 {
+            craft.variant = u8::from(matches!(command, 0x96 | 0x97));
+            craft.animation_phase = if command == 0x96 { 4 * i as u8 } else { 0 };
+            craft.depth = if matches!(command, 0x96 | 0x97) {
                 1000
             } else {
                 1600 - 100 * i as i16
@@ -230,10 +232,22 @@ impl Enemy {
                 (player[1].wrapping_sub(self.crafts[i].lateral) >> 1).clamp(-30, 30),
                 (player[2].wrapping_sub(self.crafts[i].height) >> 1).clamp(-30, 30),
             ],
-            Motion::ScriptedSweep => {
+            Motion::ScriptedSweep | Motion::RelativeSweep => {
+                let relative = self.motions[i] == Motion::RelativeSweep;
+                if relative {
+                    self.follow_center(player, 4);
+                }
                 let craft = &mut self.crafts[i];
                 let (coordinates, source) = scripted_sweep(craft.animation_phase);
                 [craft.depth, craft.lateral, craft.height] = coordinates;
+                if relative {
+                    let spacing = (2 * i as i16 - 5) << 5;
+                    craft.lateral = craft
+                        .lateral
+                        .wrapping_add(self.orbit_center[0])
+                        .wrapping_add(spacing);
+                    craft.height = craft.height.wrapping_add(self.orbit_center[1]);
+                }
                 craft.requested_sprite = source;
                 craft.animation_phase = craft.animation_phase.wrapping_add(1);
                 [0, 0]
@@ -248,6 +262,8 @@ impl Enemy {
         shadow.depth = craft.depth;
         shadow.lateral = craft.lateral;
         shadow.requested_sprite = if craft.depth < 0 {
+            // The supported sweep's terminal -50 row reads a startup-zeroed
+            // size-table gap, selecting source 36 before forward retirement.
             36
         } else {
             shadow_sprite(craft.depth)
@@ -271,13 +287,19 @@ impl Enemy {
         craft.height += steering[1];
         if craft.depth <= player[0] {
             craft.active = false;
+            craft.animation_phase = 0;
             shadow.active = false;
         }
     }
 
+    fn follow_center(&mut self, player: [i16; 3], step: i16) {
+        for (center, coordinate) in self.orbit_center.iter_mut().zip(player[1..].iter()) {
+            *center = center.wrapping_add(coordinate.wrapping_sub(*center).clamp(-step, step));
+        }
+    }
+
     fn orbit_delta(&mut self, i: usize, player: [i16; 3], vertical_motion: bool) -> [i16; 2] {
-        self.orbit_center[0] += player[1].wrapping_sub(self.orbit_center[0]).clamp(-9, 9);
-        self.orbit_center[1] += player[2].wrapping_sub(self.orbit_center[1]).clamp(-9, 9);
+        self.follow_center(player, 9);
         let craft = &mut self.crafts[i];
         let phase = ((craft.depth & 1023) >> 4) as u8;
         // Lateral changes before companion copying and firing. Height is a delta.
@@ -1240,7 +1262,7 @@ mod tests {
         assert!(!enemy.active());
         assert!(!enemy.shadows[0].active);
         assert_eq!(enemy.crafts[0].depth, -50);
-        assert_eq!(enemy.crafts[0].animation_phase, 78);
+        assert_eq!(enemy.crafts[0].animation_phase, 0);
         assert_eq!(enemy.crafts[0].requested_sprite, 100);
         assert_eq!(
             enemy
@@ -1274,5 +1296,71 @@ mod tests {
             enemy.player_collisions(&assets, player, 13, true).unwrap(),
             [None, Some(EnemyCollision::Craft(5)), None, None, None, None]
         );
+    }
+    #[test]
+    fn relative_sweep_initializes_all_primaries_with_staggered_row_phases() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.spawn_command(0x96, &mut random, 0, 5).unwrap();
+        assert_eq!(enemy.crafts.map(|c| c.animation_phase), [0, 4, 8, 12, 16]);
+        assert_eq!(enemy.crafts.map(|c| c.variant), [1; 5]);
+        assert_eq!(enemy.crafts.map(|c| c.depth), [1000; 5]);
+        assert!(enemy.crafts.iter().all(|c| c.active && c.movement == 22));
+        assert!(enemy.shadows.iter().all(|c| c.active));
+        assert_eq!(random.state(), [0; 3]);
+    }
+
+    #[test]
+    fn relative_sweep_follows_center_per_craft_and_spaces_absolute_firing_coordinates() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        let mut expected = Random::default();
+        enemy.spawn_command(0x96, &mut random, 0, 2).unwrap();
+        enemy.update_half_step(&mut random, [14, 100, -80]);
+        assert_eq!(enemy.orbit_center, [8, -92]);
+        assert_eq!(
+            (
+                enemy.crafts[0].depth,
+                enemy.crafts[0].lateral,
+                enemy.crafts[0].height
+            ),
+            (500, -2756, -80)
+        );
+        assert_eq!(
+            (
+                enemy.crafts[1].depth,
+                enemy.crafts[1].lateral,
+                enemy.crafts[1].height
+            ),
+            (500, -2488, -76)
+        );
+        assert_eq!(
+            (
+                enemy.crafts[0].animation_phase,
+                enemy.crafts[1].animation_phase
+            ),
+            (1, 5)
+        );
+        assert_eq!(
+            (
+                enemy.bullet.depth,
+                enemy.bullet.lateral,
+                enemy.bullet.height
+            ),
+            (500, -2488, -76)
+        );
+        assert_eq!(
+            (enemy.shadows[0].lateral, enemy.shadows[1].lateral),
+            (-2756, -2488)
+        );
+        for _ in 0..4 {
+            expected.next_word();
+        }
+        let target = [
+            100 + (expected.next_word() & 63) as i16 - 32,
+            -80 + (expected.next_word() & 63) as i16 - 32,
+        ];
+        assert_eq!(enemy.target(), target);
+        assert_eq!(random.state(), expected.state());
     }
 }

@@ -13,10 +13,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: mach3-opening [--steps 0..540] <assets-directory> <new-output-directory>\n\n\
+const HELP: &str = "Usage: mach3-opening [--steps 0..630] <assets-directory> <new-output-directory>\n\n\
 Export the no-input opening from the initial frame through the requested body.\n\
 Writes numbered CGA frames and state/object TSV tables; output directory must be new.\n\
-Default: 540 bodies, including the first six enemy waves. No audio or player controls.";
+Default: 630 bodies, including the first seven enemy waves. No audio or player controls.";
 
 fn new_file(path: impl AsRef<Path>) -> Result<BufWriter<std::fs::File>, Error> {
     Ok(BufWriter::new(
@@ -41,7 +41,7 @@ fn run() -> Result<(), Error> {
             .and_then(|arg| arg.to_str().and_then(|arg| arg.parse::<u16>().ok()))
             .filter(|steps| *steps <= LAST_BODY)
             .ok_or_else(|| {
-                Error::InvalidData("--steps must be an integer between 0 and 540".into())
+                Error::InvalidData("--steps must be an integer between 0 and 630".into())
             })?;
     }
     let directory = args.next().map(PathBuf::from);

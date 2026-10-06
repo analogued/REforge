@@ -95,10 +95,11 @@ Escape or window close exits.
 
 Use `--step` to advance one body or post-game animation step per fresh Space
 press after entering gameplay, or `--static` to retain the initial scene. Held or repeated Space does not skip
-manual steps. The default animation pace is approximately 12.14 bodies per
-second, derived from the game's timer logic; `--period-ms 1..5000` overrides
-the interval. Original startup timing and exact DOS CPU-dependent pacing are
-not reproduced. Firing, later encounters, and audio remain deferred.
+manual steps. Animated playback displays all three original render passes per
+body, sampling steering at each pass. The default pace is approximately 36.41
+passes per second (12.14 bodies per second), derived from the game's timer logic;
+`--period-ms 1..5000` overrides the whole-body interval. Original startup timing
+and exact DOS CPU-dependent pacing are not reproduced. Firing, later encounters, and audio remain deferred.
 
 Use `--controls` for a 90-body steering preview. Arrow keys move the craft;
 release slows it down, and diagonal inputs combine both axes. Movement includes
@@ -128,8 +129,10 @@ cargo run --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
 ```
 
 This writes frames `000.cga` through `836.cga` plus state, player, object, and
-drawing-order TSV tables. Add `--ending` to export the first post-game title pair,
-its state and drawing order, and the selected return intro image.
+drawing-order TSV tables. Add `--subframes` to also write each body's three
+displayed passes as `NNN-1.cga` through `NNN-3.cga`. The numbered boundary frames
+and TSV tables retain their whole-body meaning. Add `--ending` to export the first
+post-game title pair, its state and drawing order, and the selected return intro image.
 `--steps 0..836` exports a shorter prefix. The directory must be new. Simulation
 uses the decoded assets and interpreted update rules; it does not load captured
 frames, emulator state, or a replay.

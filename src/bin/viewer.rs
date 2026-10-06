@@ -14,7 +14,7 @@ Opening animates 836 no-input loop bodies, then Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
 --step: fresh Space presses advance one body or title step. --static: show initial scene only.\n\
 --controls: arrows steer during a verified 90-body preview. Firing is deferred.\n\
-Default pace: about 12.14 bodies/s; --period-ms overrides it.\n\
+Default pace: about 36.41 displayed passes/s (12.14 bodies/s); --period-ms sets the body interval.\n\
 Original intro timing, full controlled gameplay, later enemy behavior, and audio remain deferred.";
 
 fn run() -> Result<(), String> {

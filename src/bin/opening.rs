@@ -14,12 +14,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: mach3-opening [--steps 0..836] [--ending] [--inputs input.tsv] <assets-directory> <new-output-directory>\n\n\
+const HELP: &str = "Usage: mach3-opening [--steps 0..836] [--ending] [--inputs input.tsv] [--subframes] <assets-directory> <new-output-directory>\n\n\
 Export the no-input opening from the initial frame through the requested body.\n\
 Writes numbered CGA frames and state/object TSV tables; output directory must be new.\n\
 Default: 836 bodies, including the complete first no-input run. No audio or player controls.\n\
 --ending: also export the first title pair and selected return intro image.\n\
---inputs: held steering TSV (body, update, mask); defaults to a 90-body prefix.";
+--inputs: held steering TSV (body, update, mask); defaults to a 90-body prefix.\n\
+--subframes: also export the three displayed passes as NNN-1.cga through NNN-3.cga.";
 
 fn new_file(path: impl AsRef<Path>) -> Result<BufWriter<std::fs::File>, Error> {
     Ok(BufWriter::new(
@@ -121,6 +122,10 @@ fn run() -> Result<(), Error> {
             );
         }
     }
+    let include_subframes = args.peek().is_some_and(|arg| arg == "--subframes");
+    if include_subframes {
+        args.next();
+    }
     let directory = args.next().map(PathBuf::from);
     let destination = args.next().map(PathBuf::from);
     let (Some(directory), Some(destination), None) = (directory, destination, args.next()) else {
@@ -171,7 +176,17 @@ fn run() -> Result<(), Error> {
                 }
                 held_input
             });
-            opening.advance_with_inputs(&assets, inputs)?;
+            if include_subframes {
+                for (pass, input) in inputs.into_iter().enumerate() {
+                    opening.advance_subframe(&assets, input)?;
+                    let mut output =
+                        new_file(destination.join(format!("{body:03}-{}.cga", pass + 1)))?;
+                    output.write_all(&opening.frame().to_cga())?;
+                    output.flush()?;
+                }
+            } else {
+                opening.advance_with_inputs(&assets, inputs)?;
+            }
         }
         let snapshot = opening.snapshot();
         for (position, slot) in snapshot.full_world_order.into_iter().enumerate() {

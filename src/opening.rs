@@ -25,6 +25,8 @@ pub use terrain::TerrainSnapshot as TerrainState;
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     pub body: u16,
+    /// Last displayed pass: zero initially, then one through three per body.
+    pub render_pass: u8,
     pub strip_index: usize,
     pub strip_y: usize,
     pub vertical_origin: i32,
@@ -48,6 +50,7 @@ pub struct Snapshot {
 #[derive(Debug)]
 pub struct Opening {
     body: u16,
+    render_pass: u8,
     body_limit: u16,
     static_lateral: i16,
     random: Random,
@@ -74,6 +77,7 @@ impl Opening {
         random.next_word(); // Fresh-process script selection: script zero.
         let mut opening = Self {
             body: 0,
+            render_pass: 0,
             body_limit: LAST_BODY,
             static_lateral: 0,
             random,
@@ -113,12 +117,19 @@ impl Opening {
     }
 
     pub fn complete(&self) -> bool {
-        self.body >= self.body_limit || self.player.snapshot().game_over
+        self.at_body_boundary()
+            && (self.body >= self.body_limit || self.player.snapshot().game_over)
+    }
+
+    /// True initially and after all three render passes and end-of-body events.
+    pub fn at_body_boundary(&self) -> bool {
+        self.render_pass == 0 || self.render_pass == 3
     }
 
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             body: self.body,
+            render_pass: self.render_pass,
             static_lateral: self.static_lateral,
             strip_index: (2 + 3 - usize::from(self.body % 3)) % 3,
             strip_y: self.strip_y,
@@ -159,56 +170,55 @@ impl Opening {
         assets: &GraphicsAssets,
         inputs: [Steering; 3],
     ) -> Result<bool, Error> {
+        if !self.at_body_boundary() {
+            return Err(Error::InvalidData(
+                "complete the pending render passes before advancing a whole body".into(),
+            ));
+        }
         if self.complete() {
             return Ok(false);
         }
-        self.body += 1;
-        self.advance_player(inputs[0])?;
-        self.advance_world(assets, true)?;
-        self.player.project(assets, self.vertical_origin)?;
-        // Far-object ordering remains from the first render pass even when the
-        // second movement update changes relative depths without reprojecting.
-        let first_depths = self.world_depths();
-        // Subtype-zero entries form a stable prefix. Other entries keep their
-        // preceding order at equal depth, including after another row recycles.
-        self.sort_world(&first_depths);
-        self.sort_full_world(&first_depths);
-        self.hud.set_orientation(self.player.snapshot().orientation);
-        self.hud.update(self.body, &mut self.random);
-        self.advance_player(inputs[1])?;
-        self.player.project(assets, self.vertical_origin)?;
-        self.advance_player(inputs[2])?;
-        self.advance_world(assets, false)?;
-        self.player.project(assets, self.vertical_origin)?;
-        let background = scene::background_at(assets, self.snapshot().strip_index, self.strip_y)?;
-        let mut packed = background.packed().to_vec();
-        // Incremental indicator masks paint over their preceding pixels.
-        for y in 13..20 {
-            for x in [28, 47] {
-                let start = y * 80 + x;
-                packed[start..start + 6].copy_from_slice(&self.frame.packed()[start..start + 6]);
+        for input in inputs {
+            self.advance_subframe(assets, input)?;
+        }
+        Ok(true)
+    }
+
+    /// Advance to the next of the original's three displayed passes.
+    /// Each pass samples steering once; world motion runs on passes one and three.
+    pub fn advance_subframe(
+        &mut self,
+        assets: &GraphicsAssets,
+        input: Steering,
+    ) -> Result<bool, Error> {
+        if self.complete() {
+            return Ok(false);
+        }
+        if self.at_body_boundary() {
+            self.body += 1;
+            self.advance_player(input)?;
+            self.advance_world(assets, true)?;
+            self.player.project(assets, self.vertical_origin)?;
+            // Far-object ordering remains from the first render pass even when
+            // later movement changes relative depths without reprojecting.
+            let first_depths = self.world_depths();
+            self.sort_world(&first_depths);
+            self.sort_full_world(&first_depths);
+            self.hud.set_orientation(self.player.snapshot().orientation);
+            self.hud.update(self.body, &mut self.random);
+            self.render_pass = 1;
+        } else {
+            self.advance_player(input)?;
+            if self.render_pass == 2 {
+                self.advance_world(assets, false)?;
             }
+            self.player.project(assets, self.vertical_origin)?;
+            self.render_pass += 1;
         }
-        let mut frame = Frame::from_packed(&packed)?;
-        let viewport = Rect {
-            x_bytes: 4,
-            y: 44,
-            width_bytes: 72,
-            height: 114,
-        };
-        self.draw_world(assets, &mut frame, viewport)?;
-        for draw in scene::initial_draws()
-            .into_iter()
-            .skip(2)
-            .take(4)
-            .chain(self.hud.draws())
-        {
-            let sprite = assets.sprites.get(draw.resolved_sprite).ok_or_else(|| {
-                Error::InvalidData(format!("missing sprite {}", draw.resolved_sprite))
-            })?;
-            frame.draw_sprite(sprite, draw.rect)?;
+        self.render(assets)?;
+        if self.render_pass != 3 {
+            return Ok(true);
         }
-        self.frame = frame;
         self.player.finish_body();
 
         // Event creation and recycling happen after the last framebuffer write.
@@ -333,6 +343,59 @@ impl Opening {
                 .recycle_at(self.terrain_selector, &mut self.random, lateral)?;
         }
         Ok(true)
+    }
+
+    fn render(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
+        let background = scene::background_at(assets, self.snapshot().strip_index, self.strip_y)?;
+        let viewport = Rect {
+            x_bytes: 4,
+            y: 44,
+            width_bytes: 72,
+            height: 114,
+        };
+        let mut packed = if self.render_pass == 1 {
+            let mut packed = background.packed().to_vec();
+            // Incremental indicator masks paint over their preceding pixels.
+            for y in 13..20 {
+                for x in [28, 47] {
+                    let start = y * 80 + x;
+                    packed[start..start + 6]
+                        .copy_from_slice(&self.frame.packed()[start..start + 6]);
+                }
+            }
+            packed
+        } else {
+            // Only the viewport changes between passes. In particular, changed
+            // HUD indicator masks must not be applied a second or third time.
+            self.frame.packed().to_vec()
+        };
+        for y in viewport.y..viewport.y + viewport.height as i32 {
+            let start = y as usize * 80 + viewport.x_bytes as usize;
+            packed[start..start + viewport.width_bytes]
+                .copy_from_slice(&background.packed()[start..start + viewport.width_bytes]);
+        }
+        let mut frame = Frame::from_packed(&packed)?;
+        self.draw_world(assets, &mut frame, viewport)?;
+        // Viewport corner masks participate in every pass; only the HUD is
+        // incremental and restricted to the first pass.
+        let hud_draws = if self.render_pass == 1 {
+            self.hud.draws()
+        } else {
+            Vec::new()
+        };
+        for draw in scene::initial_draws()
+            .into_iter()
+            .skip(2)
+            .take(4)
+            .chain(hud_draws)
+        {
+            let sprite = assets.sprites.get(draw.resolved_sprite).ok_or_else(|| {
+                Error::InvalidData(format!("missing sprite {}", draw.resolved_sprite))
+            })?;
+            frame.draw_sprite(sprite, draw.rect)?;
+        }
+        self.frame = frame;
+        Ok(())
     }
 
     fn draw_world(
@@ -675,6 +738,84 @@ mod tests {
         assert_eq!(opening.snapshot().body, LAST_BODY);
         assert_eq!(opening.snapshot().random, final_random);
         assert_eq!(opening.frame(), &final_frame);
+    }
+
+    #[test]
+    fn displayed_passes_sample_input_and_finish_the_boundary_only_after_pass_three() {
+        let assets = synthetic_assets();
+        let mut opening = Opening::with_steering(&assets).unwrap();
+        opening.body_limit = 1;
+        let initial = opening.snapshot();
+        assert!(opening.at_body_boundary());
+        for (pass, lateral, velocity) in [(1, -4, -1), (2, -12, -2), (3, -24, -3)] {
+            assert!(
+                opening
+                    .advance_subframe(
+                        &assets,
+                        Steering {
+                            left: true,
+                            ..Steering::default()
+                        }
+                    )
+                    .unwrap()
+            );
+            let state = opening.snapshot();
+            assert_eq!(state.body, 1);
+            assert_eq!(state.render_pass, pass);
+            assert_eq!(state.player.coordinates[1], lateral);
+            assert_eq!(state.player.velocity[0], velocity);
+            assert_eq!(opening.at_body_boundary(), pass == 3);
+            assert_eq!(opening.complete(), pass == 3);
+            assert_eq!(state.script_delay, u16::from(pass == 3));
+            assert_eq!(
+                state.player.grace,
+                initial.player.grace + u16::from(pass == 3 && initial.player.grace < 4)
+            );
+        }
+        let last_frame = opening.frame().clone();
+        assert!(
+            !opening
+                .advance_subframe(&assets, Steering::default())
+                .unwrap()
+        );
+        assert_eq!(opening.frame(), &last_frame);
+    }
+
+    #[test]
+    fn input_changes_between_passes_do_not_repeat_world_motion() {
+        let assets = synthetic_assets();
+        let mut opening = Opening::new(&assets).unwrap();
+        let left = Steering {
+            left: true,
+            ..Steering::default()
+        };
+        opening.advance_subframe(&assets, left).unwrap();
+        let first = opening.snapshot();
+        assert!(opening.advance(&assets).is_err());
+        opening
+            .advance_subframe(&assets, Steering::default())
+            .unwrap();
+        let second = opening.snapshot();
+        assert_eq!(second.player.velocity[0], 0);
+        assert_eq!(second.player.coordinates[1], first.player.coordinates[1]);
+        assert_eq!(second.terrain[0].depth, first.terrain[0].depth);
+        assert_eq!(second.hud.score, first.hud.score);
+        assert_eq!(second.random, first.random);
+        assert_eq!(second.player.grace, first.player.grace);
+        opening
+            .advance_subframe(
+                &assets,
+                Steering {
+                    right: true,
+                    ..Steering::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(opening.snapshot().player.velocity[0], 1);
+        assert_eq!(opening.snapshot().player.coordinates[1], 0);
+        assert!(opening.at_body_boundary());
+        assert!(opening.advance(&assets).unwrap());
+        assert_eq!(opening.snapshot().body, 2);
     }
 
     #[test]

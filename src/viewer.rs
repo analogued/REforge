@@ -155,7 +155,7 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
             .map_err(|error| error.to_string())?,
         )
     };
-    let mut next_body = None;
+    let mut next_frame = None;
     let mut steering = Steering::default();
     let mut ending: Option<Ending> = None;
     let mut returned_intro = None;
@@ -193,7 +193,9 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
     let mut events = sdl.event_pump().map_err(|error| error.to_string())?;
     loop {
         let mut step = false;
+        let mut repaint = false;
         for event in events.poll_iter() {
+            repaint |= matches!(event, Event::Window { .. });
             let was_scene = presentation.screen() == Screen::InitialScene;
             if options.controls {
                 match &event {
@@ -229,13 +231,14 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
                 } else if was_scene && ending.as_ref().is_some_and(Ending::can_return) {
                     returned_intro = ending.as_mut().unwrap().returned_intro_choice();
                     presentation.return_to_intro();
-                    next_body = None;
+                    next_frame = None;
                 } else {
                     step |= was_scene && options.playback == Playback::Step;
                 }
             }
         }
         if presentation.screen() != shown {
+            repaint = true;
             shown = presentation.screen();
             texture
                 .update(
@@ -257,7 +260,7 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
                     .map_err(|error| error.to_string())?;
             }
             if shown == Screen::InitialScene && options.playback != Playback::Static {
-                next_body = Some(std::time::Instant::now() + options.body_period);
+                next_frame = Some(std::time::Instant::now() + options.body_period / 3);
                 canvas
                     .window_mut()
                     .set_title(if options.playback == Playback::Step {
@@ -271,8 +274,9 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
         if shown == Screen::InitialScene {
             let now = std::time::Instant::now();
             let timed = options.playback == Playback::Animated
-                && next_body.is_some_and(|deadline| now >= deadline);
+                && next_frame.is_some_and(|deadline| now >= deadline);
             if step || timed {
+                repaint = true;
                 if let Some(opening) = &mut opening {
                     if let Some(ending) = &mut ending {
                         ending
@@ -289,21 +293,26 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
                             .update(None, &state.frame().rgb(), WIDTH * 3)
                             .map_err(|error| error.to_string())?;
                         ending = Some(state);
-                    } else if opening
-                        .advance_with_input(frames.graphics(), steering)
-                        .map_err(|error| error.to_string())?
-                    {
-                        texture
-                            .update(None, &opening.frame().rgb(), WIDTH * 3)
-                            .map_err(|error| error.to_string())?;
+                    } else {
+                        let advanced = if options.playback == Playback::Step {
+                            opening.advance_with_input(frames.graphics(), steering)
+                        } else {
+                            opening.advance_subframe(frames.graphics(), steering)
+                        }
+                        .map_err(|error| error.to_string())?;
+                        if advanced {
+                            texture
+                                .update(None, &opening.frame().rgb(), WIDTH * 3)
+                                .map_err(|error| error.to_string())?;
+                        }
                     }
                     let period = if let Some(ending) = &ending {
                         options.body_period * ending.wait_units() / 3
                     } else {
-                        options.body_period
+                        options.body_period / 3
                     };
-                    next_body = if timed {
-                        next_body.map(|deadline| deadline + period)
+                    next_frame = if timed {
+                        next_frame.map(|deadline| deadline + period)
                     } else {
                         Some(now + period)
                     };
@@ -328,18 +337,30 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
                             })
                             .map_err(|error| error.to_string())?;
                         if !opening.snapshot().player.game_over {
-                            next_body = None;
+                            next_frame = None;
                         }
                     }
                 }
             }
         }
         // Repaint also handles expose/resize events without changing screen state.
-        paint(&mut canvas, &texture)?;
-        if !canvas.present() {
-            return Err(sdl3::get_error().to_string());
+        if repaint {
+            paint(&mut canvas, &texture)?;
+            if !canvas.present() {
+                return Err(sdl3::get_error().to_string());
+            }
         }
-        std::thread::sleep(std::time::Duration::from_millis(16));
+        // Poll frequently enough that the nominal 27.46 ms passes are not
+        // rounded to alternating 16/32 ms intervals by a fixed 60 Hz sleep.
+        let poll_interval = std::time::Duration::from_millis(4);
+        let delay = next_frame
+            .filter(|_| options.playback == Playback::Animated)
+            .map_or(poll_interval, |deadline| {
+                deadline
+                    .saturating_duration_since(std::time::Instant::now())
+                    .min(poll_interval)
+            });
+        std::thread::sleep(delay);
     }
 }
 

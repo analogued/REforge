@@ -239,12 +239,21 @@ Native frames and checked HUD, player, terrain, enemy, gate, target, camera,
 random state, and retained drawing order match the original at every
 completed-body boundary from 0 through 836.
 The simulation uses interpreted rules and decoded resources. It does not load
-captured frames or state and does not reproduce every intermediate framebuffer
-write within a body.
+captured frames or state. `advance_subframe` exposes each of the three displayed
+passes; `advance_with_inputs` completes all three and then the end-of-body events.
+The supported boundary and game-over exit apply only after the third pass.
 
-The viewer presents completed-body frames. It uses a nominal interval of
-about 82.388 ms: three units of the approximately 36.413 Hz counter. The timer
-helper accumulates the PIT divisor twice per IRQ and increments the counter on
+The first pass updates the player and world, projects and sorts the full world,
+and updates the HUD. The second updates and projects only the player and shadow.
+The third updates the player and world again, then reprojects the near list.
+Far-object geometry and ordering persist from the first pass. All three passes
+include the viewport corner masks; HUD pixels persist from the first pass.
+The three screens before the waits at `0698`, `06dc`, and the end-of-body code
+at `0733` match original captures throughout the 90-body steering prefix.
+
+The viewer presents each pass at a nominal interval of about 27.463 ms,
+retaining about 82.388 ms per body: three units of the approximately 36.413 Hz
+counter. The timer helper accumulates the PIT divisor twice per IRQ and increments the counter on
 carry. Original rendering cost, discarded timer phase, and the startup timer
 transition make precise DOS elapsed time dependent on execution conditions.
 The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
@@ -278,8 +287,9 @@ enemy spawn. All 91 completed-body frames and checked state match the original.
 The first injected key in that capture reached the keyboard handler after the
 first player poll; a separate poll trace establishes samples zero, Left, Left.
 `advance_with_inputs` and the exporter's input TSV support exact per-poll replay;
-the viewer samples its held state for a completed body. Full controlled gameplay,
-firing, and a second run remain to be implemented and verified.
+animated playback samples held state separately at each pass. Manual stepping
+samples the same held state for all three updates in a body. Full controlled
+gameplay, firing, and a second run remain to be implemented and verified.
 
 ## Game over and return
 

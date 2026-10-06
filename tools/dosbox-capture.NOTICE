@@ -1,0 +1,22 @@
+The capture emulator builder downloads DOSBox-X from
+https://github.com/joncampbell123/dosbox-x.git at revision
+478c860050b20afdb58bce28f1b43163952fc541.
+
+DOSBox-X is licensed under GPL version 2 or any later version. The external
+source checkout retains the complete upstream COPYING license and all source
+copyright notices. The source and executable remain external build artifacts;
+the repository does not redistribute DOSBox-X source or binaries.
+
+The authored dosbox_capture_hook.h observer is inserted into the normal CPU
+core through an include and one call before instruction decode. The integration
+also adds a capture-only clean host exit when the SDL window closes, avoiding
+guest DOS cleanup after recording has been flushed. These changes affect only
+the external instrumented emulator and leave the original executable intact.
+The integration uses DOSBox-X register, memory, and graphics APIs without copying upstream
+implementation code. The integrated emulator is subject to DOSBox-X's GPL
+terms if redistributed. This separate tool integration does not select a
+license for the Rust recreation or the project's other authored source.
+
+No original game instructions, graphics, input files, or captured data are
+included in the observer. Its startup fingerprint is provided externally by
+configuration for the selected original executable.

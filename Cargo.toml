@@ -24,3 +24,7 @@ required-features = ["viewer"]
 [[bin]]
 name = "mach3-opening"
 path = "src/bin/opening.rs"
+
+[[bin]]
+name = "mach3-replay"
+path = "src/bin/replay.rs"

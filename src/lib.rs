@@ -7,6 +7,7 @@ pub mod frame;
 pub mod opening;
 pub mod rules;
 pub mod scene;
+pub mod session_capture;
 pub mod startup;
 #[cfg(feature = "viewer")]
 pub mod viewer;

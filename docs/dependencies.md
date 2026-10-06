@@ -1,4 +1,4 @@
-# Viewer dependencies and notices
+# Dependencies and notices
 
 The optional `viewer` feature uses `sdl3 = "=0.20.0"` with default features
 disabled. `Cargo.lock` fixes the Rust dependencies below. The default library
@@ -56,3 +56,20 @@ installed system path is given. Crate versions and checksums are recorded in
 The generated HIDAPI bindings retain Alan Ott's permissive notice in addition
 to the bindings crate's Zlib license. The complete source header is retained
 with its original comment markers.
+
+## Capture emulator
+
+The optional original-game recorder builds [DOSBox-X](https://github.com/joncampbell123/dosbox-x)
+at revision `478c860050b20afdb58bce28f1b43163952fc541` in an external directory.
+DOSBox-X is GPL-2.0-or-later; its complete `COPYING` and source notices remain in
+that checkout. The repository does not include or redistribute its executable
+or source tree.
+
+`tools/build_capture_emulator.py` inserts an include and an observation call in
+`src/cpu/core_normal.cpp`. The observer itself is authored here in
+`tools/dosbox_capture_hook.h`; it reads input and video state without inserting
+guest instructions. The builder also adds a capture-only clean host exit on
+window close in `src/gui/sdlmain.cpp`. The build uses upstream's SDL2 frontend;
+this is separate from the recreation's SDL3 viewer. The integration does not select a license for
+the authored project, and redistribution of a resulting emulator must follow
+the upstream license and applicable terms of the observer.

@@ -805,6 +805,8 @@ mod tests {
                         height: 1,
                     },
                     wait_count,
+                    before_pass: false,
+                    palette_family: 1,
                 })
                 .collect(),
             now,

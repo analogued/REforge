@@ -27,6 +27,9 @@ pub struct TransitionFrame {
     pub clip: Rect,
     /// Number of bounded vertical retrace polling calls after this step.
     pub wait_count: u16,
+    /// Whether this transition precedes the current ordinary render pass.
+    pub before_pass: bool,
+    pub palette_family: u8,
 }
 
 impl Presentation {
@@ -127,6 +130,8 @@ impl Presentation {
                 frame: frame.clone(),
                 clip,
                 wait_count,
+                before_pass: false,
+                palette_family: 1,
             });
         }
         Ok(result)

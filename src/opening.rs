@@ -100,6 +100,8 @@ pub struct Opening {
     world_order: Vec<usize>,
     full_world_order: Vec<usize>,
     frame: Frame,
+    pass_frame: Frame,
+    updating_before_render: bool,
     selected_layer: u16,
     remembered_draws: [Option<scene::Draw>; 29],
     remembered_requests: [usize; 29],
@@ -108,6 +110,7 @@ pub struct Opening {
 
 impl Opening {
     pub fn new(assets: &GraphicsAssets) -> Result<Self, Error> {
+        let initial_frame = scene::initial_frame(assets)?;
         let mut random = Random::default();
         random.next_word(); // Intro screen selection.
         random.next_word(); // Fresh-process script selection: script zero.
@@ -148,7 +151,9 @@ impl Opening {
                 .chain(23..=27)
                 .collect(),
             full_world_order: (0..29).collect(),
-            frame: scene::initial_frame(assets)?,
+            frame: initial_frame.clone(),
+            pass_frame: initial_frame,
+            updating_before_render: false,
             selected_layer: 0,
             remembered_draws: [None; 29],
             remembered_requests: [0; 29],
@@ -244,6 +249,11 @@ impl Opening {
         &self.frame
     }
 
+    /// The most recent ordinary render pass, before any end-of-body transitions.
+    pub fn pass_frame(&self) -> &Frame {
+        &self.pass_frame
+    }
+
     pub fn complete(&self) -> bool {
         self.at_body_boundary()
             && (self.body_limit.is_some_and(|limit| self.body >= limit)
@@ -330,6 +340,7 @@ impl Opening {
         if self.complete() {
             return Ok(false);
         }
+        self.updating_before_render = true;
         if self.at_body_boundary() {
             self.body = self.body.wrapping_add(1);
             self.advance_player(input)?;
@@ -370,6 +381,8 @@ impl Opening {
             self.render_pass += 1;
         }
         self.render(assets)?;
+        self.pass_frame = self.frame.clone();
+        self.updating_before_render = false;
         self.hud
             .set_score_multiplier(if self.selected_layer == 1 { 4 } else { 1 });
         if self.render_pass != 3 {
@@ -527,13 +540,17 @@ impl Opening {
     pub(crate) fn queue_transition(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
         self.hud
             .set_score_multiplier(if self.layer == 1 { 4 } else { 1 });
-        let frames = self.presentation().transition_frames(
+        let mut frames = self.presentation().transition_frames(
             assets,
             &self.frame,
             self.snapshot().strip_index,
             self.strip_y,
             |frame, clip| self.draw_world(assets, frame, clip),
         )?;
+        for frame in &mut frames {
+            frame.before_pass = self.updating_before_render;
+            frame.palette_family = self.palette_family;
+        }
         if let Some(last) = frames.last() {
             self.frame = last.frame.clone();
         }
@@ -1467,6 +1484,22 @@ mod tests {
                 .copy_from_slice(&(index as u16).to_le_bytes());
         }
         ScriptRules::from_data_segment(&data).unwrap()
+    }
+
+    #[test]
+    fn ordinary_pass_capture_precedes_post_body_scene_transitions() {
+        let mut assets = synthetic_assets();
+        assets.alternate.fill(0x55);
+        let start = SessionState::default().begin_game();
+        let mut game = Opening::for_play(&assets, synthetic_rules(&[0xd6, 0x85]), start).unwrap();
+        game.script_delay = 20;
+        game.advance(&assets).unwrap();
+        let transitions = game.take_transitions();
+        assert_eq!(transitions.len(), 7);
+        assert!(transitions.iter().all(|frame| !frame.before_pass));
+        assert_ne!(game.pass_frame(), game.frame());
+        assert_eq!(game.frame(), &transitions.last().unwrap().frame);
+        assert_eq!(game.snapshot().render_pass, 3);
     }
 
     #[test]

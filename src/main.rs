@@ -33,10 +33,11 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
 
 Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
 Ctrl+Q or closing the window quits.
+R starts a new game after all lives are lost.
 Alt drinks milk, uses paired holes in cheese and places a carried gift in the hearts room.
 Gifts are picked up automatically.
 Ordinary windows lead to fishbowl, bookcase, cheese, birdcage or milk; after success, the next leads to hearts.
-Life loss and audio are not implemented.
+Audio output is not implemented.
 Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
 
@@ -56,14 +57,13 @@ Development options (compiled with dev-tools):
   --dump-ppm FILE         Write the final 320x200 image
   --disable-damage SOURCES  all, none or comma-separated damage identifiers
   --disable-actors NAMES    all, none or comma-separated actor identifiers
-  --infinite-lives          Placeholder until life loss is implemented
+  --infinite-lives          Preserve lives while retaining hit/death effects
   --original-window-timing Restore the original difficulty-6 window hold
 
 Damage identifiers: alley-dog, room-dog, window-projectiles, milk-dogs, spider, eels, air.
 Actor identifiers: alley-dog, room-dog, window-projectiles, milk-dogs, spider, eels, bin-cat, alley-mice, broom, hearts-arrows, hearts-rivals.
 Repeated disable flags replace the previous list; the last value wins.
-Damage switches are placeholders while damage remains unimplemented.
-Absent actor identifiers are accepted for future implementation.";
+Damage suppression leaves actors active but makes their contacts harmless.";
 
 #[cfg(feature = "dev-tools")]
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -367,9 +367,6 @@ fn run() -> Result<(), String> {
     {
         let mut alley = alley;
         alley.set_dev_options(options.dev.switches)?;
-        if let Some(notice) = options.dev.switches.stub_notice() {
-            eprintln!("{notice}");
-        }
         run_development(&mut alley, options.scale, options.dev)
     }
     #[cfg(not(feature = "dev-tools"))]
@@ -482,6 +479,9 @@ fn run_development(
                     timing_row(output, pass, &event)?;
                 }
                 pass += 1;
+                if alley.game_over() {
+                    break;
+                }
                 if event.acceptance.is_none() {
                     continue;
                 }
@@ -564,6 +564,11 @@ fn interactive(
         let input = window.poll_input();
         if input.quit {
             break;
+        }
+        if input.restart_pressed && alley.game_over() {
+            alley.restart(0)?;
+            runtime = Runtime::new(alley.machine());
+            target_nanos = 0;
         }
         let held = Controls {
             x: if input.left {
@@ -834,7 +839,6 @@ mod tests {
         assert_eq!(dev.timing_trace, Some(PathBuf::from("timing.csv")));
         assert_eq!(dev.cga, Some(PathBuf::from("screen.bin")));
         assert_eq!(dev.ppm, Some(PathBuf::from("screen.ppm")));
-        assert!(dev.switches.stub_notice().is_some());
     }
 
     #[cfg(feature = "dev-tools")]
@@ -854,7 +858,18 @@ mod tests {
         ])
         .unwrap()
         .unwrap();
-        assert!(options.dev.switches.stub_notice().is_none());
+        assert!(
+            !options
+                .dev
+                .switches
+                .actor_disabled(alley_cat::dev_tools::Actor::AlleyDog)
+        );
+        assert!(
+            !options
+                .dev
+                .switches
+                .damage_disabled(alley_cat::dev_tools::Damage::AlleyDog)
+        );
     }
 
     #[cfg(feature = "dev-tools")]

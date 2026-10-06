@@ -11,9 +11,9 @@ use crate::timing::{
 
 /// Scoped execution costs for the DOSBox-X normal-core, fixed-240 reference.
 /// Values are virtual nanoseconds.
-/// These are not physical 8088 cycle counts. Omitted actors consume a measured
-/// time allowance here; their game state and individual gates are not simulated.
-/// Clotheslines and nonlethal actors have separate active-work costs.
+/// These are not physical 8088 cycle counts. Base call allowances and active
+/// drawing costs approximate execution time; actor state and tick gates are
+/// implemented separately. Uncalibrated active costs are marked below.
 #[derive(Clone, Copy, Debug)]
 pub struct ReferenceCosts {
     pub prelude: u64,
@@ -39,6 +39,8 @@ pub struct ReferenceCosts {
     pub player_support_release: u64,
     pub player_entry: u64,
     pub ground_dog: u64,
+    pub ground_dog_draw: u64,
+    pub projectile_draw: u64,
     pub actor_group: u64,
     pub clothes_shift: u64,
     pub clothes_new_tile: u64,
@@ -81,7 +83,7 @@ impl ReferenceCosts {
     pub fn dosbox_x_240(machine: Machine) -> Self {
         // Rounded guest-time stage medians from the fixed-240 reference.
         // Software-breakpoint observation and state-dependent paths limit these
-        // fitted allowances; see docs/timing.md. Actor draw spikes are omitted.
+        // fitted allowances; see docs/timing.md. New actor costs are provisional.
         Self {
             prelude: 62_500,
             control_bios: 33_333,
@@ -107,6 +109,8 @@ impl ReferenceCosts {
             // Clipped re-entry is not separately cost-calibrated yet.
             player_entry: 2_875_000,
             ground_dog: 95_833,
+            ground_dog_draw: 1_500_000,
+            projectile_draw: 500_000,
             actor_group: 345_833,
             // Additional work above the ordinary grouped-call allowance.
             // Fixed-240 helper probes measured about 8ms for a band shift,
@@ -191,6 +195,13 @@ pub struct PassOutcome {
     pub scene_changed: bool,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum DamageResume {
+    Player,
+    Projectiles,
+    Spider,
+}
+
 pub struct Runtime {
     pub clock: VirtualClock,
     pub player_gate: PlayerGate,
@@ -202,6 +213,7 @@ pub struct Runtime {
     fence: Option<FenceEffect>,
     mouse_pause: Option<u16>,
     cage_falling: bool,
+    damage_resume: Option<DamageResume>,
     scene: u16,
 }
 
@@ -234,6 +246,7 @@ impl Runtime {
             fence: None,
             mouse_pause: None,
             cage_falling: false,
+            damage_resume: None,
             scene: 0,
         }
     }
@@ -259,6 +272,19 @@ impl Runtime {
     ) -> Result<PassOutcome, String> {
         let start_nanos = self.clock.elapsed_nanos();
         self.synchronize_scene(alley);
+        if alley.game_over() {
+            self.clock.advance_nanos(self.costs.room_effect_poll);
+            return Ok(self.room_wait_outcome(alley, start_nanos));
+        }
+        if alley.damage_waiting() {
+            self.clock.advance_nanos(self.costs.room_effect_poll);
+            if !alley.advance_damage_effect(self.clock.sample().bios.tick_low)? || alley.game_over()
+            {
+                return Ok(self.room_wait_outcome(alley, start_nanos));
+            }
+            let resume = self.damage_resume.take();
+            return self.finish_pass_from(alley, start_nanos, false, None, resume);
+        }
         if alley.completion_waiting() {
             self.clock.advance_nanos(self.costs.room_effect_poll);
             let sample = self.clock.sample();
@@ -460,6 +486,13 @@ impl Runtime {
             retrace,
         );
         if let Some(accepted) = acceptance {
+            if alley.scene() == 0 && alley.check_player_projectile(accepted.tick_low)? {
+                if alley.damage_waiting() {
+                    self.damage_resume = Some(DamageResume::Player);
+                    return Ok(self.room_wait_outcome(alley, start_nanos));
+                }
+                return self.finish_pass(alley, start_nanos, control_polled, acceptance);
+            }
             let airborne = alley.player.vertical_direction != 0;
             let descending = alley.player.vertical_direction == 1;
             let entering = alley.player.entry_state != 0;
@@ -468,8 +501,19 @@ impl Runtime {
             let outcome = if alley.scene() == 2 {
                 alley.update_swimming(self.controls, accepted.tick_low, accepted.ax)?
             } else {
-                alley.update(self.controls)?
+                alley.update_at_tick(self.controls, accepted.tick_low)?
             };
+            if alley.damage_waiting() {
+                self.damage_resume = Some(DamageResume::Player);
+                return Ok(self.room_wait_outcome(alley, start_nanos));
+            }
+            if !matches!(outcome.draw, Draw::Keep | Draw::Erase)
+                && alley.check_player_dog()?
+                && alley.scene() == 0
+            {
+                self.player_gate.reset();
+                self.controls = Controls::default();
+            }
             if let Some(controls) = outcome.forced_controls {
                 self.controls = controls;
             }
@@ -535,6 +579,17 @@ impl Runtime {
         control_polled: bool,
         acceptance: Option<PlayerAcceptance>,
     ) -> Result<PassOutcome, String> {
+        self.finish_pass_from(alley, start_nanos, control_polled, acceptance, None)
+    }
+
+    fn finish_pass_from(
+        &mut self,
+        alley: &mut Alley,
+        start_nanos: u128,
+        control_polled: bool,
+        acceptance: Option<PlayerAcceptance>,
+        resume: Option<DamageResume>,
+    ) -> Result<PassOutcome, String> {
         let before_scene = alley.scene();
         if matches!(before_scene, 1..=7) {
             if before_scene == 7 {
@@ -562,7 +617,7 @@ impl Runtime {
                     self.clock.advance_nanos(self.costs.water_surface_draw);
                 }
             } else {
-                if before_scene == 3 {
+                if before_scene == 3 && resume != Some(DamageResume::Spider) {
                     // Original scene-three loop: player, spider, plants, broom.
                     let spider =
                         alley.advance_bookcase_spider(self.clock.sample().bios.tick_low)?;
@@ -570,6 +625,12 @@ impl Runtime {
                     if spider.drew {
                         self.clock.advance_nanos(self.costs.bookcase_spider_draw);
                     }
+                    if alley.damage_waiting() {
+                        self.damage_resume = Some(DamageResume::Spider);
+                        return Ok(self.room_wait_outcome(alley, start_nanos));
+                    }
+                }
+                if before_scene == 3 {
                     let targets =
                         alley.advance_bookcase_targets(self.clock.sample().bios.tick_low)?;
                     self.clock.advance_nanos(self.costs.room_actor_gate);
@@ -592,10 +653,21 @@ impl Runtime {
                         self.clock.advance_nanos(self.costs.cheese_mouse_draw);
                     }
                 }
-                if let Some(broom) = alley.advance_room_broom(self.clock.sample().bios.tick_low)? {
-                    if broom.drawn {
-                        self.clock.advance_nanos(self.costs.room_broom_draw);
+                if !(before_scene == 6 && alley.dying()) {
+                    if let Some(broom) =
+                        alley.advance_room_broom(self.clock.sample().bios.tick_low)?
+                    {
+                        if broom.drawn {
+                            self.clock.advance_nanos(self.costs.room_broom_draw);
+                        }
                     }
+                }
+                if matches!(before_scene, 1 | 3..=5) || (before_scene == 6 && alley.dying()) {
+                    let sample = self.clock.sample();
+                    if alley.advance_ground_dog(sample.bios.tick_low, sample.retrace)? {
+                        self.clock.advance_nanos(self.costs.ground_dog_draw);
+                    }
+                    self.clock.advance_nanos(self.costs.ground_dog);
                 }
                 if before_scene == 1 {
                     let bowl = alley.advance_fishbowl(self.clock.sample().bios.tick_low)?;
@@ -627,21 +699,46 @@ impl Runtime {
                 scene_changed,
             });
         }
-        self.clock.advance_nanos(self.costs.ground_dog);
-        let actor_group_due = self.divider.advance(false);
-        if actor_group_due {
+        let resumed_projectile = resume == Some(DamageResume::Projectiles);
+        if !resumed_projectile {
+            let was_dying = alley.dying();
             let sample = self.clock.sample();
-            if let Some(scroll) = alley.advance_scenery(sample.bios.tick_low, sample.retrace)? {
-                self.clock.advance_nanos(if scroll.generated_tile {
-                    self.costs.clothes_new_tile
-                } else {
-                    self.costs.clothes_shift
-                });
+            if alley.advance_ground_dog(sample.bios.tick_low, sample.retrace)? {
+                self.clock.advance_nanos(self.costs.ground_dog_draw);
             }
-            let sample = self.clock.sample();
-            let window = alley.advance_windows(sample.bios.tick_low, sample.retrace)?;
-            if window.accepted {
-                self.clock.advance_nanos(self.costs.window_work);
+            self.clock.advance_nanos(self.costs.ground_dog);
+            if !was_dying && alley.dying() {
+                self.player_gate.reset();
+                self.controls = Controls::default();
+            }
+            if alley.game_over() {
+                return Ok(self.room_wait_outcome(alley, start_nanos));
+            }
+        }
+        let actor_group_due = resumed_projectile || self.divider.advance(alley.dying());
+        if actor_group_due {
+            if !resumed_projectile {
+                let sample = self.clock.sample();
+                if let Some(scroll) = alley.advance_scenery(sample.bios.tick_low, sample.retrace)? {
+                    self.clock.advance_nanos(if scroll.generated_tile {
+                        self.costs.clothes_new_tile
+                    } else {
+                        self.costs.clothes_shift
+                    });
+                }
+                let sample = self.clock.sample();
+                let window = alley.advance_windows(sample.bios.tick_low, sample.retrace)?;
+                if window.accepted {
+                    self.clock.advance_nanos(self.costs.window_work);
+                }
+                let sample = self.clock.sample();
+                if alley.advance_projectiles(sample.bios.tick_low)? {
+                    self.clock.advance_nanos(self.costs.projectile_draw);
+                }
+                if alley.damage_waiting() {
+                    self.damage_resume = Some(DamageResume::Projectiles);
+                    return Ok(self.room_wait_outcome(alley, start_nanos));
+                }
             }
             let sample = self.clock.sample();
             if let Some(bin) = alley.advance_bin_cat(sample.bios.tick_low, sample.retrace)? {
@@ -705,6 +802,7 @@ impl Runtime {
             self.fence = None;
             self.mouse_pause = None;
             self.cage_falling = false;
+            self.damage_resume = None;
         }
     }
 

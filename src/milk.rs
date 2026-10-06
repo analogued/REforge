@@ -4,7 +4,7 @@
 //!
 //! The caller suspends its ordinary player image before these drawing helpers.
 //! The drinking image has its own original background buffer. Dog contact keeps
-//! the warning animation but defers the lethal pursuit, relocation and failure.
+//! the warning animation and reports lethal attention for the shared dog pursuit.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
@@ -24,6 +24,7 @@ pub(crate) struct AttentionStep {
     pub drew: bool,
     pub contact: bool,
     pub warning: bool,
+    pub lethal_slot: Option<usize>,
 }
 
 fn check(data: &[u8]) -> Result<(), String> {
@@ -334,13 +335,21 @@ fn draw_attention(data: &mut [u8], screen: &mut Framebuffer, offset: usize) -> R
     copy(data, screen, source, destination, 0x0101)
 }
 
-/// CS:47d6's attention clocks, slot order, warning and probabilistic decay.
-/// At level two the native lethal branch is omitted, retaining harmless
-/// overlap and the existing eye frame without stun, knockback or relocation.
+/// Nonlethal test wrapper for CS:47d6's attention clocks and slot order.
+#[cfg(test)]
 pub(crate) fn advance_attention(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+) -> Result<AttentionStep, String> {
+    advance_attention_with_damage(data, screen, tick, true)
+}
+
+pub(crate) fn advance_attention_with_damage(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    suppress_damage: bool,
 ) -> Result<AttentionStep, String> {
     check(data)?;
     let mut step = AttentionStep::default();
@@ -367,6 +376,10 @@ pub(crate) fn advance_attention(
         if near {
             if level >= 2 {
                 step.contact = true;
+                if !suppress_damage {
+                    step.lethal_slot = Some(slot);
+                    return Ok(step);
+                }
                 continue;
             }
             set_word(data, 0x4459 + offset, level + 1);

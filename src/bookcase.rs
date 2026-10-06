@@ -3,8 +3,8 @@
 //! Scene 3 plant collection and the spider's pursuit and background drawing.
 //!
 //! The caller suspends and recomposes the player image around these helpers.
-//! Spider contact is reported without the original lethal effect and wait;
-//! pursuit continues so contact cannot pin either actor in place.
+//! Spider contact starts its original effect and requests a nine-tick wait.
+//! The caller completes that wait before setting the room-failure flag.
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
@@ -22,6 +22,8 @@ pub(crate) struct SpiderStep {
     pub accepted: bool,
     pub drew: bool,
     pub contact: bool,
+    pub wait_ticks: u16,
+    pub failure_pending: bool,
 }
 
 fn check(data: &[u8]) -> Result<(), String> {
@@ -193,25 +195,69 @@ fn advance_targets_inner(
 /// CS:3cb1 accepts every two ticks, moves horizontally at the top, then follows
 /// the original cyclic vertical step. Broom collisions roll back coordinates
 /// while retaining the proposed direction and phase changes.
+#[cfg(test)]
 pub(crate) fn advance_spider(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
 ) -> Result<SpiderStep, String> {
-    advance_spider_inner(
-        data,
-        screen,
-        tick,
-        #[cfg(feature = "dev-tools")]
-        false,
-    )
+    advance_spider_with_damage(data, screen, tick, false)
+}
+
+pub(crate) fn advance_spider_with_damage(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    suppress_damage: bool,
+) -> Result<SpiderStep, String> {
+    advance_spider_inner(data, screen, tick, false, suppress_damage)
+}
+
+fn spider_failure_effect(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    result: &mut SpiderStep,
+) -> Result<(), String> {
+    if data[0x553] != 0 {
+        return Ok(());
+    }
+    draw_spider_failure(data, screen)?;
+    result.drew = true;
+    result.wait_ticks = 9;
+    result.failure_pending = true;
+    Ok(())
+}
+
+pub(crate) fn draw_spider_failure(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
+    check(data)?;
+    let x = word(data, 0x579).saturating_sub(12).min(270);
+    let y = data[0x57b].saturating_sub(4);
+    let dimensions = Dimensions(0x1506);
+    let saved = screen.zero_transparent_rect(
+        crate::cga::pixel_offset(x, y),
+        dimensions,
+        sprite_bytes(data, 0x37c0, dimensions)?,
+    )?;
+    data[0x000e..0x000e + saved.len()].copy_from_slice(&saved);
+    data[0x2ae0] = 6;
+    data[0x2ae2] = 0;
+    Ok(())
+}
+
+/// CS:3de8 runs after the contact effect's nine-tick wait. The room return
+/// presentation, rather than this helper, removes the life.
+pub(crate) fn finish_spider_failure(data: &mut [u8]) -> Result<(), String> {
+    check(data)?;
+    data[0x552] = 1;
+    Ok(())
 }
 
 fn advance_spider_inner(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
-    #[cfg(feature = "dev-tools")] disable_broom: bool,
+    disable_broom: bool,
+    suppress_damage: bool,
 ) -> Result<SpiderStep, String> {
     check(data)?;
     if tick.wrapping_sub(word(data, 0x39c8)) < 2 {
@@ -222,14 +268,15 @@ fn advance_spider_inner(
         accepted: true,
         ..SpiderStep::default()
     };
-    #[cfg(feature = "dev-tools")]
     let broom_enabled = !disable_broom;
-    #[cfg(not(feature = "dev-tools"))]
-    let broom_enabled = true;
     if broom_enabled && broom_contact(data) {
         return Ok(result);
     }
     result.contact = spider_contact(data);
+    if result.contact && !suppress_damage {
+        spider_failure_effect(data, screen, &mut result)?;
+        return Ok(result);
+    }
     let difficulty = usize::from(word(data, 8));
     if difficulty >= 8 {
         return Err("Bookcase spider difficulty exceeds its speed table".into());
@@ -282,7 +329,12 @@ fn advance_spider_inner(
         data[0x3966] = old_y;
         return Ok(result);
     }
-    result.contact |= spider_contact(data);
+    let moved_contact = spider_contact(data);
+    result.contact |= moved_contact;
+    if moved_contact && !suppress_damage {
+        spider_failure_effect(data, screen, &mut result)?;
+        return Ok(result);
+    }
     set_word(data, 0x39ca, pixel_offset(word(data, 0x3964), data[0x3966]));
     restore_spider(data, screen)?;
     data[0x396d] = data[0x396d].wrapping_sub(1);
@@ -324,17 +376,28 @@ pub(crate) fn advance_targets_dev(
     Ok(result)
 }
 
-#[cfg(feature = "dev-tools")]
+#[cfg(all(feature = "dev-tools", test))]
 pub(crate) fn advance_spider_dev(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
     disable_broom: bool,
 ) -> Result<SpiderStep, String> {
+    advance_spider_dev_with_damage(data, screen, tick, disable_broom, false)
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn advance_spider_dev_with_damage(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_broom: bool,
+    suppress_damage: bool,
+) -> Result<SpiderStep, String> {
     if !disable_broom {
-        return advance_spider(data, screen, tick);
+        return advance_spider_with_damage(data, screen, tick, suppress_damage);
     }
-    advance_spider_inner(data, screen, tick, true)
+    advance_spider_inner(data, screen, tick, disable_broom, suppress_damage)
 }
 
 #[cfg(test)]
@@ -380,7 +443,7 @@ mod tests {
         let mut alternate = data.clone();
         let mut alternate_screen = screen.clone();
         assert_eq!(
-            advance_spider(&mut data, &mut screen, 2).unwrap(),
+            advance_spider_with_damage(&mut data, &mut screen, 2, true).unwrap(),
             advance_spider_dev(&mut alternate, &mut alternate_screen, 2, false).unwrap()
         );
         assert_eq!(data, alternate);
@@ -535,15 +598,27 @@ mod tests {
     fn spider_scheduler_wrap_and_animation_draw_restore_the_full_background() {
         let (mut data, mut screen) = fixture();
         set_word(&mut data, 0x39c8, 0xffff);
-        assert!(!advance_spider(&mut data, &mut screen, 0).unwrap().accepted);
-        assert!(advance_spider(&mut data, &mut screen, 1).unwrap().drew);
+        assert!(
+            !advance_spider_with_damage(&mut data, &mut screen, 0, true)
+                .unwrap()
+                .accepted
+        );
+        assert!(
+            advance_spider_with_damage(&mut data, &mut screen, 1, true)
+                .unwrap()
+                .drew
+        );
         assert_eq!(
             (word(&data, 0x3964), word(&data, 0x396b), data[0x396d]),
             (276, 0, 1)
         );
         assert_eq!(&data[0x396f..0x39c3], &[0xaa; 84]);
         assert_eq!(word(&data, 0x2ae3), 0x3333);
-        assert!(advance_spider(&mut data, &mut screen, 3).unwrap().drew);
+        assert!(
+            advance_spider_with_damage(&mut data, &mut screen, 3, true)
+                .unwrap()
+                .drew
+        );
         assert_eq!(
             (word(&data, 0x3964), word(&data, 0x396b), data[0x396d]),
             (272, 0x54, 2)
@@ -561,7 +636,7 @@ mod tests {
         let (mut data, mut screen) = fixture();
         set_word(&mut data, 0x579, 283);
         data[0x57b] = 180;
-        advance_spider(&mut data, &mut screen, 2).unwrap();
+        advance_spider_with_damage(&mut data, &mut screen, 2, true).unwrap();
         assert_eq!(
             (
                 word(&data, 0x3964),
@@ -571,17 +646,17 @@ mod tests {
             ),
             (280, 10, 1, 2)
         );
-        advance_spider(&mut data, &mut screen, 4).unwrap();
+        advance_spider_with_damage(&mut data, &mut screen, 4, true).unwrap();
         assert_eq!(data[0x3966], 12);
-        advance_spider(&mut data, &mut screen, 6).unwrap();
+        advance_spider_with_damage(&mut data, &mut screen, 6, true).unwrap();
         assert_eq!(data[0x3966], 15);
         data[0x3966] = 159;
         data[0x396e] = 0;
-        advance_spider(&mut data, &mut screen, 8).unwrap();
+        advance_spider_with_damage(&mut data, &mut screen, 8, true).unwrap();
         assert_eq!((data[0x3966], data[0x3967]), (159, 255));
         data[0x3966] = 10;
         data[0x396e] = 11;
-        advance_spider(&mut data, &mut screen, 10).unwrap();
+        advance_spider_with_damage(&mut data, &mut screen, 10, true).unwrap();
         assert_eq!((data[0x3966], data[0x3967]), (8, 0));
     }
 
@@ -593,13 +668,13 @@ mod tests {
         set_word(&mut data, 0x327d, 264);
         let before = data.clone();
         let pixels = screen.bytes().to_vec();
-        let step = advance_spider(&mut data, &mut screen, 2).unwrap();
+        let step = advance_spider_with_damage(&mut data, &mut screen, 2, true).unwrap();
         assert!(step.accepted && !step.drew);
         assert_eq!(word(&data, 0x3964), word(&before, 0x3964));
         assert_eq!(screen.bytes().as_slice(), pixels);
         // One pixel beyond the old overlap; the four-pixel proposed move hits.
         set_word(&mut data, 0x327d, 263);
-        advance_spider(&mut data, &mut screen, 4).unwrap();
+        advance_spider_with_damage(&mut data, &mut screen, 4, true).unwrap();
         assert_eq!(word(&data, 0x3964), 280);
         assert_eq!(word(&data, 0x39c3), 280);
         assert_eq!(data[0x396d], 2);
@@ -610,7 +685,7 @@ mod tests {
         data[0x3967] = 1;
         data[0x396e] = 3;
         set_word(&mut data, 0x579, 280);
-        let step = advance_spider(&mut data, &mut screen, 6).unwrap();
+        let step = advance_spider_with_damage(&mut data, &mut screen, 6, true).unwrap();
         assert!(step.accepted && !step.drew);
         assert_eq!((data[0x3966], data[0x3967], data[0x396e]), (31, 1, 4));
     }
@@ -634,11 +709,46 @@ mod tests {
         }
         set_word(&mut data, 0x579, 280);
         data[0x57b] = 8;
-        let step = advance_spider(&mut data, &mut screen, 2).unwrap();
+        let step = advance_spider_with_damage(&mut data, &mut screen, 2, true).unwrap();
         assert!(step.contact && step.drew);
         assert_eq!(
             (data[0x3966], data[0x552], data[0x553], data[0x1f80]),
             (10, 0, 0, 3)
         );
+    }
+
+    #[test]
+    fn spider_harm_draws_effect_then_defers_failure_and_preserves_success_immunity() {
+        for completed in [false, true] {
+            let (mut data, mut screen) = fixture();
+            set_word(&mut data, 0x579, 280);
+            data[0x57b] = 8;
+            data[0x553] = u8::from(completed);
+            data[0x37c0..0x38bc].fill(0x55);
+            let before = screen.bytes().to_vec();
+            let step = advance_spider(&mut data, &mut screen, 2).unwrap();
+            assert!(step.contact && step.accepted);
+            assert_eq!(
+                (step.failure_pending, step.wait_ticks, data[0x552]),
+                (!completed, if completed { 0 } else { 9 }, 0)
+            );
+            assert_eq!(
+                (word(&data, 0x3964), data[0x3966], data[0x1f80]),
+                (280, 8, 3)
+            );
+            if completed {
+                assert_eq!(screen.bytes().as_slice(), before);
+            } else {
+                assert_eq!(
+                    screen
+                        .read_rect(pixel_offset(268, 4), Dimensions(0x1506))
+                        .unwrap(),
+                    [0x55; 252]
+                );
+                assert_eq!(&data[0x000e..0x010a], &[0xaa; 252]);
+                finish_spider_failure(&mut data).unwrap();
+                assert_eq!((data[0x552], data[0x1f80]), (1, 3));
+            }
+        }
     }
 }

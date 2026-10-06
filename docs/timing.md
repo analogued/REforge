@@ -84,8 +84,9 @@ spaced accepted player updates. `Runtime` polls controls, applies `PlayerGate`,
 advances an accepted `Player::update`, then advances the ordinary alley divider.
 The divider runs even on rejected player calls. Grouped passes execute the
 clothesline routine's call-count, retrace, suppression and BIOS-tick gates, then
-windows, the bin cat and mice. Each samples virtual time at its own call stage.
-Damaging actors are absent; their post-player work retains fitted time allowances.
+windows, projectiles, the bin cat and mice. The ground dog runs after the
+player on every pass. Each actor samples virtual time at its own call stage.
+Active dog and projectile drawing costs remain provisional allowances.
 
 Clothes scrolling (`04a0`) decrements byte `0531` before other tests. On expiry
 it reloads 1, requires retrace clear, no support-disable flag or active window
@@ -100,7 +101,7 @@ The bin cat (`2216`) requires a changed BIOS tick and retrace set. A selected
 animation advances through 27 count decrements, including two full-height
 frames. A supported player touching it receives a randomized left/right down
 request before movement initializes the fall; that request remains latched until
-the next input poll. Its contact also alerts the omitted dog.
+the next input poll. Its contact also alerts the ground dog.
 
 Mice (`237b`) have a separate changed-tick gate and cycle one of three rows per
 accepted call. Direction changes and pursuit use the original shared generator
@@ -116,7 +117,7 @@ An active window advances one packed row per accepted step and holds at phase
 animation. Entry (`1b05`) requires a descending cat, no forced-fall latch,
 player Y below 96, and phase 5 through 24. The caller dispatches entry after
 the remaining actor batch, including any blocking mouse knockdown. Projectile
-launching and its random draws are omitted. The original one-tick hold at
+launching during the phase-15 hold consumes the original shared random draws. The original one-tick hold at
 difficulty 6 is corrected to 18 ticks by default; development builds can
 restore it with `--original-window-timing`. See [deliberate deviations](deviations.md).
 
@@ -186,11 +187,8 @@ reset the player acceptance gate and logical controls.
 
 The candidate selector uses the shared generator, difficulty weighting and
 two-entry room history; it avoids a third consecutive identical candidate.
-Until all rooms are implemented, dispatch makes a separate seeded choice among
-scenes 1, 3, 4 and 5, using the upper two bits of one additional shared random
-value. A separate two-entry history prevents three identical playable destinations
-in a row. Original
-candidate history is therefore not a history of actual ordinary destinations.
+Dispatch uses the selected candidate directly; scenes 1, 3, 4, 5 and 6 are all
+implemented. Candidate history is the ordinary destination history.
 Success preserves the pending-bonus flag; the next eligible window selects scene
 7 without
 advancing the selector's random state or ordinary candidate history.
@@ -208,8 +206,9 @@ accepted player update, spider (`3cb1`), plants (`3b42`), broom, then terminatio
 The spider accepts at least two wrapping BIOS ticks between updates; plants
 accept one changed tick and consume at most one target in reverse slot order.
 The last plant sets success only while failure is clear. Spider contact reports
-an overlap while allowing movement to continue: the original nine-tick lethal
-effect and failure flag remain disabled.
+an overlap and starts its nine-tick lethal effect, unless success is already
+set or spider damage is disabled. The failure flag is committed after the wait;
+the suspended caller then resumes at the plant stage.
 
 Bookcase shelf support (`3c43`) precedes the ordinary furniture table but follows
 the descending room-window exit test. It aligns X to four pixels, accepts
@@ -250,11 +249,52 @@ Accepted swimming calls check contacts in ascending slot order, collecting fish
 before checking eels. Fish collection reactivates disabled eels in reverse slot
 order, spawning at the edge opposite the player. The twelfth fish sets success
 and starts shared ordinary scoring followed by alley return. Ordinary eel
-damage and the air timeout's sinking/failure path are disabled during development;
-the original air-timer warning thresholds still change the background palette.
+contact sets failure before its thirteen-tick effect and stops the contact scan,
+unless success or sinking suppresses harm. Air expiry at the external `0589`
+threshold forces sinking, clears horizontal motion and draws rising bubbles
+every six accepted updates. `0599` fails the room 72 ticks later. Disabling air
+damage retains warning colors but suppresses sinking and failure.
 Swimming, bowl, actor and surface execution costs remain provisional. Controlled
 routine comparisons establish these rules, not full original-loop timing or
 random-stream equivalence.
+
+### Dogs, projectile hits and room failure
+
+Ground-dog initialization (`1e40`) clears active/death state and selects Y177.
+Updates (`1e63`) require retrace set and an alternating one/two-BIOS-tick gate.
+Dormant ordinary spawns depend on difficulty, player height, entry state and
+the shared generator; the bin-cat alert bypasses those spawn gates. Contact
+(`20f5`/`2136`) uses inclusive X bounds and player Y at least 163, then starts
+the pursuit countdown and relocates the cat. Player updates do not move or
+leave floor tracks during pursuit. An alley death resets its acceptance gate
+and direction requests; the extra actor group runs every pass without advancing
+its ordinary divider. After four clipped exit steps, alley pursuit removes one
+life and resets the dog; room pursuit instead sets failure for the common return.
+
+Window launch (`1a05`) selects jitter, type and direction using the shared
+generator. Projectile motion (`184b`) requires a changed BIOS tick. Contact
+checks (`1b7a`) occur before movement and at the original movement checkpoints,
+including before fence clipping or edge reset. First contact pauses gameplay
+for ten BIOS ticks (`1166`), then charges one life and reverses the projectile.
+Repeated contact retains forced descent without repeating that charge.
+Projectile images and the hit effect are composed separately from scenery.
+
+Ordinary failure (`1bf0`/`1d76`) clears the saved window return, performs the
+black wipe and removes one life. It then reveals a masked cat face over 28
+changed ticks; dog failure at nonzero difficulty with lives remaining uses
+the alternate eight-frame, four-tick dog presentation (`5be0`). The color wipe
+returns the cat through a ground-level alley entry. Success takes precedence
+when both success and failure flags are present. Zero lives holds the modern
+game-over screen; R restarts, as described in [deviations](deviations.md).
+
+`--disable-damage` bypasses each selected response while leaving ordinary actor
+motion and rendering active. `--disable-actors` skips the corresponding actor;
+`milk-dogs` controls sleeping attention and its pursuit separately from other
+room dogs. `--infinite-lives` preserves life counts without skipping hit effects
+or room-failure presentation. These controls require the `dev-tools` feature.
+The ten-, nine- and thirteen-tick hit effects suspend other gameplay and resume
+at their original caller stage; host pause/quit remain responsive. Audio and
+instruction-level interrupt placement remain outside this implementation.
 
 ### Ordinary-room scoring presentation
 
@@ -299,8 +339,8 @@ return and selects the hearts scene at the next eligible window entry.
 ### Milk room schedule
 
 Scene 6 runs controls, pending-tone expiration, drinking (`4943`), sleeping-dog
-attention (`47d6`), ordinary player movement, and the broom before checking
-success or room exit. Its twelve bowls and seeded sleeping-dog placement use
+attention (`47d6`), ordinary player movement, then the broom while alive or
+shared ground-dog pursuit while dying, before checking success, failure or exit. Its twelve bowls and seeded sleeping-dog placement use
 external tables. Drinking rejects unchanged BIOS ticks, selects the closest
 unfinished bowl on the exact matching level, and favors the lower slot on ties.
 The original SUB/NOT distance calculation is retained. Alignment replaces the
@@ -312,7 +352,9 @@ drinking-state flag suppresses movement.
 Attention requires elapsed ticks strictly greater than its difficulty-table
 threshold. Nearby dogs advance toward alert level two; away dogs can calm using
 the shared generator. The warning flag and eye images are retained. Level-two
-contact is harmless while lethal pursuit remains unimplemented. The drinking
+contact erases that sleeping dog's body and starts shared pursuit at its
+position. The cat is relocated to the opposite edge; drinking and floor tracks
+stop during pursuit. Its final exit sets the dog-failure marker `552=dd`. The drinking
 image is suspended around room actor drawing and recomposed from its current
 phase, keeping it out of saved player and broom backgrounds. Disabling
 `milk-dogs` removes eye updates and sprites without disabling milk objectives.

@@ -3,7 +3,7 @@
 //! Scene 1 bowl entry and scene 2 fish, eels and animated water surface.
 //!
 //! The caller owns the player image and its background. Ordinary eel contact
-//! is reported without the lethal presentation; fish collection and the
+//! starts the original lethal presentation; fish collection and the
 //! original completion/timeout immunity branches retain their ordering.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
@@ -36,6 +36,8 @@ pub(crate) struct ContactStep {
     pub hazard_contacts: u8,
     pub success: bool,
     pub player_changed: bool,
+    pub wait_ticks: u16,
+    pub failure: bool,
 }
 
 fn check(data: &[u8]) -> Result<(), String> {
@@ -337,10 +339,20 @@ fn reactivate_hazards(data: &mut [u8]) {
 
 /// CS:34a0 scans fish before eels; the last fish can establish immunity for
 /// later eel slots in this same call. Ordinary eel hits leave the eel active.
+#[cfg(test)]
 pub(crate) fn contacts(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+) -> Result<ContactStep, String> {
+    contacts_with_damage(data, screen, tick, false)
+}
+
+pub(crate) fn contacts_with_damage(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    suppress_damage: bool,
 ) -> Result<ContactStep, String> {
     check(data)?;
     set_word(data, 0x3511, 0);
@@ -366,7 +378,16 @@ pub(crate) fn contacts(
         if slot >= 12 {
             result.hazard_contacts += 1;
             if data[0x553] == 0 && data[0x5f3] == 0 {
-                continue;
+                if suppress_damage {
+                    continue;
+                }
+                data[0x552] = 1;
+                draw_eel_failure(data, screen)?;
+                set_word(data, 0x3509, tick);
+                result.drew = true;
+                result.failure = true;
+                result.wait_ticks = 13;
+                return Ok(result);
             }
         }
         data[0x351b] = data[0x351b].wrapping_add(1);
@@ -392,6 +413,13 @@ pub(crate) fn contacts(
     }
     result.success = data[0x553] != 0;
     Ok(result)
+}
+
+pub(crate) fn draw_eel_failure(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
+    check(data)?;
+    let x = word(data, 0x579).saturating_sub(8).min(278);
+    let y = data[0x57b].min(180);
+    copy_sprite(data, screen, 0x3350, pixel_offset(x, y), Dimensions(0x1205))
 }
 
 /// Development-only suppression also clears any eel images already on screen.
@@ -439,15 +467,26 @@ pub(crate) fn advance_actors_dev(
 
 /// With eels disabled, collection still scans every fish and retains the
 /// objective and timeout rules. Its contact count cannot reactivate an eel.
-#[cfg(feature = "dev-tools")]
+#[cfg(all(feature = "dev-tools", test))]
 pub(crate) fn contacts_dev(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
     disable_eels: bool,
 ) -> Result<ContactStep, String> {
+    contacts_dev_with_damage(data, screen, tick, disable_eels, false)
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn contacts_dev_with_damage(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_eels: bool,
+    suppress_damage: bool,
+) -> Result<ContactStep, String> {
     if !disable_eels {
-        return contacts(data, screen, tick);
+        return contacts_with_damage(data, screen, tick, suppress_damage);
     }
     let mut result = ContactStep {
         drew: remove_eels(data, screen)?,
@@ -857,7 +896,7 @@ mod tests {
         let (mut data, mut screen) = fixture();
         place_contact(&mut data, 12);
         let before = screen.bytes().to_vec();
-        let step = contacts(&mut data, &mut screen, 1).unwrap();
+        let step = contacts_with_damage(&mut data, &mut screen, 1, true).unwrap();
         assert_eq!(
             (
                 step.contacts,
@@ -917,5 +956,42 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn eel_harm_stops_scan_sets_failure_and_retains_lives_and_active_eel() {
+        let (mut data, mut screen) = fixture();
+        place_contact(&mut data, 12);
+        place_contact(&mut data, 13);
+        data[0x3350..0x3404].fill(0x33);
+        let step = contacts(&mut data, &mut screen, 123).unwrap();
+        assert_eq!(
+            (
+                step.failure,
+                step.wait_ticks,
+                step.hazard_contacts,
+                step.contacts
+            ),
+            (true, 13, 1, 0)
+        );
+        assert_eq!(
+            (
+                data[0x552],
+                data[0x1f80],
+                data[0x34b3],
+                word(&data, 0x3511),
+                word(&data, 0x3509)
+            ),
+            (1, 3, 0, 12, 123)
+        );
+        assert_eq!(
+            screen
+                .read_rect(
+                    pixel_offset(word(&data, 0x579).saturating_sub(8), data[0x57b]),
+                    Dimensions(0x1205)
+                )
+                .unwrap(),
+            [0x33; 180]
+        );
     }
 }

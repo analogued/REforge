@@ -4,8 +4,7 @@
 //!
 //! Graphics and speed/warning tables come from the external executable. The
 //! caller owns acceptance timing, background composition and actor contacts.
-//! Air warnings remain visible after the original timeout; movement continues
-//! without setting its sinking latch or room-failure flag.
+//! Air expiry forces sinking and bubbles before the delayed room failure.
 
 use crate::assets::{DATA_LENGTH, set_word, word};
 use crate::cga::pixel_offset;
@@ -16,6 +15,10 @@ pub(crate) struct SwimmingStep {
     pub draw: Draw,
     /// Original BIOS background-color request: 0, 1, 5 or 4.
     pub air_warning: u8,
+    /// AND-composited before the old player image is restored. Native bubbles
+    /// accumulate in the scenery; there is no separate bubble restore.
+    pub bubble: Option<(u16, Sprite)>,
+    pub failure: bool,
 }
 
 fn check(data: &[u8]) -> Result<usize, String> {
@@ -114,12 +117,21 @@ fn sprite_index(data: &mut [u8], x_request: u8, y_request: u8) -> usize {
     }
 }
 
-/// CS:0926..0ba0, after the caller's BIOS/retrace acceptance gate. The original
-/// timeout's sinking, bubble effect and failure are deliberately omitted.
+/// CS:0926..0ba0, after the caller's BIOS/retrace acceptance gate.
+#[cfg(test)]
 pub(crate) fn advance(
     data: &mut [u8],
     controls: Controls,
     tick: u16,
+) -> Result<SwimmingStep, String> {
+    advance_with_damage(data, controls, tick, false)
+}
+
+pub(crate) fn advance_with_damage(
+    data: &mut [u8],
+    controls: Controls,
+    tick: u16,
+    suppress_air: bool,
 ) -> Result<SwimmingStep, String> {
     let difficulty = check(data)?;
     if !(-1..=1).contains(&controls.x) || !(-1..=1).contains(&controls.y) {
@@ -127,7 +139,8 @@ pub(crate) fn advance(
     }
     set_word(data, 0x57d, tick);
     let elapsed = tick.wrapping_sub(word(data, 0x5f1));
-    let air_warning = if elapsed < word(data, 0x5a9 + difficulty * 2) {
+    let sinking = !suppress_air && elapsed >= word(data, 0x589 + difficulty * 2);
+    let air_warning = if sinking || elapsed < word(data, 0x5a9 + difficulty * 2) {
         0
     } else if elapsed < word(data, 0x5b9 + difficulty * 2) {
         1
@@ -140,43 +153,79 @@ pub(crate) fn advance(
     let y_request = direction(controls.y);
     data[0x698] = x_request;
     data[0x699] = y_request;
-    data[0x56f] = data[0x56e];
-    data[0x570] = data[0x571];
-
-    let inertia = word(data, 0x574);
-    let inertia = if x_request == 0 && inertia >= 16 {
-        inertia - 1
-    } else if x_request != 0 && x_request == data[0x56e] {
-        if inertia < 48 {
-            inertia.wrapping_add(3)
-        } else {
-            inertia
+    let mut bubble = None;
+    if sinking {
+        if elapsed >= word(data, 0x599 + difficulty * 2) {
+            data[0x552] = 1;
         }
-    } else {
-        data[0x56e] = x_request;
-        32
-    };
-    set_word(data, 0x574, inertia);
-    set_word(
-        data,
-        0x572,
-        (inertia >> 3).min(word(data, 0x66c + difficulty * 2)),
-    );
-    advance_x(data);
-
-    let inertia = data[0x576];
-    data[0x576] = if y_request == 0 && inertia >= 16 {
-        inertia - 1
-    } else if y_request != 0 && y_request == data[0x571] {
-        if inertia < 64 {
-            inertia.wrapping_add(4)
-        } else {
-            inertia
+        data[0x5f5] = data[0x5f5].wrapping_sub(1);
+        if data[0x5f5] == 0 {
+            if data[0] != 0 {
+                let tone_phase = word(data, 0x5b08);
+                set_word(data, 0x5923, 0x1312u16.wrapping_add(tone_phase));
+                set_word(data, 0x5b08, tone_phase.wrapping_add(0x15e));
+                data[0x5920] = 2;
+                set_word(data, 0x5921, tick);
+                data[0x5b07] = 0x18;
+            }
+            data[0x5f5] = 6;
+            let mut rise = data[0x5f4];
+            if data[0x57b] >= 179 && rise < 200 {
+                rise = rise.wrapping_add(30);
+                data[0x5f4] = rise;
+            }
+            let y = data[0x57b].saturating_sub(rise) & 0xf8;
+            bubble = Some((
+                pixel_offset(word(data, 0x579), y),
+                Sprite {
+                    source: 0x64e,
+                    dimensions: 0x0503,
+                },
+            ));
         }
+        data[0x56e] = 0;
+        data[0x571] = 1;
+        data[0x5f3] = 1;
+        data[0x576] = 32;
     } else {
-        data[0x571] = if y_request == 0 { 0xff } else { y_request };
-        32
-    };
+        data[0x56f] = data[0x56e];
+        data[0x570] = data[0x571];
+
+        let inertia = word(data, 0x574);
+        let inertia = if x_request == 0 && inertia >= 16 {
+            inertia - 1
+        } else if x_request != 0 && x_request == data[0x56e] {
+            if inertia < 48 {
+                inertia.wrapping_add(3)
+            } else {
+                inertia
+            }
+        } else {
+            data[0x56e] = x_request;
+            32
+        };
+        set_word(data, 0x574, inertia);
+        set_word(
+            data,
+            0x572,
+            (inertia >> 3).min(word(data, 0x66c + difficulty * 2)),
+        );
+        advance_x(data);
+
+        let inertia = data[0x576];
+        data[0x576] = if y_request == 0 && inertia >= 16 {
+            inertia - 1
+        } else if y_request != 0 && y_request == data[0x571] {
+            if inertia < 64 {
+                inertia.wrapping_add(4)
+            } else {
+                inertia
+            }
+        } else {
+            data[0x571] = if y_request == 0 { 0xff } else { y_request };
+            32
+        };
+    }
     let step = (data[0x576] >> 4).min(data[0x67c + difficulty]);
     let y = data[0x57b];
     data[0x57b] = match data[0x571] {
@@ -195,7 +244,11 @@ pub(crate) fn advance(
     };
     let destination = pixel_offset(word(data, 0x579), data[0x57b]);
     set_word(data, 0x563, destination);
-    let index = sprite_index(data, x_request, y_request);
+    let index = if data[0x5f3] != 0 && !suppress_air {
+        0x10
+    } else {
+        sprite_index(data, x_request, y_request)
+    };
     let sprite = Sprite {
         source: word(data, 0x9a6 + index),
         dimensions: word(data, 0x9c0 + index),
@@ -208,6 +261,8 @@ pub(crate) fn advance(
     Ok(SwimmingStep {
         draw: Draw::Sprite(sprite),
         air_warning,
+        bubble,
+        failure: data[0x552] != 0,
     })
 }
 
@@ -222,7 +277,13 @@ mod tests {
         for difficulty in 0..8 {
             set_word(&mut data, 0x66c + difficulty * 2, 4 + difficulty as u16);
             data[0x67c + difficulty] = 3;
-            for (table, threshold) in [(0x5a9, 20), (0x5b9, 40), (0x5c9, 60)] {
+            for (table, threshold) in [
+                (0x589, 300),
+                (0x599, 372),
+                (0x5a9, 20),
+                (0x5b9, 40),
+                (0x5c9, 60),
+            ] {
                 set_word(&mut data, table + difficulty * 2, threshold);
             }
         }
@@ -352,10 +413,11 @@ mod tests {
             let mut data = tables();
             set_word(&mut data, 0x5f1, 0xfff0);
             data[0x553] = 1;
-            let result = advance(
+            let result = advance_with_damage(
                 &mut data,
                 Controls { x: -1, y: -1 },
                 0xfff0u16.wrapping_add(elapsed),
+                true,
             )
             .unwrap();
             assert_eq!(result.air_warning, warning);
@@ -420,5 +482,75 @@ mod tests {
         assert!(advance(&mut data, Controls::default(), 10).is_err());
         assert_eq!(data, initial);
         assert!(initialize_player(&mut data[..0x1000], 10).is_err());
+    }
+
+    #[test]
+    fn air_expiry_forces_sinking_then_failure_at_external_thresholds() {
+        for elapsed in [299, 300, 371, 372] {
+            let mut data = tables();
+            set_word(&mut data, 0x5f1, 0xfff0);
+            data[0x5f4] = 5;
+            data[0x5f5] = 1;
+            let tick = 0xfff0u16.wrapping_add(elapsed);
+            let step = advance(&mut data, Controls { x: -1, y: -1 }, tick).unwrap();
+            let sinking = elapsed >= 300;
+            assert_eq!((data[0x5f3] != 0, step.failure), (sinking, elapsed >= 372));
+            if sinking {
+                assert_eq!(
+                    (
+                        word(&data, 0x579),
+                        data[0x57b],
+                        data[0x56e],
+                        data[0x571],
+                        data[0x576],
+                        step.air_warning
+                    ),
+                    (100, 102, 0, 1, 32, 0)
+                );
+                assert_eq!(
+                    step.draw,
+                    Draw::Sprite(Sprite {
+                        source: 0x1010,
+                        dimensions: 0x0b03
+                    })
+                );
+                assert_eq!(
+                    step.bubble,
+                    Some((
+                        pixel_offset(100, 88),
+                        Sprite {
+                            source: 0x64e,
+                            dimensions: 0x0503
+                        }
+                    ))
+                );
+                assert_eq!((data[0x5f4], data[0x5f5], word(&data, 0x587)), (5, 6, 0));
+            } else {
+                assert!(step.bubble.is_none());
+                assert_eq!((word(&data, 0x579), data[0x57b]), (96, 98));
+            }
+        }
+    }
+
+    #[test]
+    fn air_bubbles_repeat_every_six_updates_and_rise_farther_from_bottom() {
+        let mut data = tables();
+        data[0x57b] = 179;
+        data[0x5f4] = 5;
+        data[0x5f5] = 1;
+        let first = advance(&mut data, Controls::default(), 300).unwrap();
+        assert_eq!(first.bubble.unwrap().0, pixel_offset(100, 144));
+        assert_eq!(data[0x5f4], 35);
+        for tick in 301..306 {
+            assert!(
+                advance(&mut data, Controls::default(), tick)
+                    .unwrap()
+                    .bubble
+                    .is_none()
+            );
+        }
+        let next = advance(&mut data, Controls::default(), 306).unwrap();
+        assert_eq!(next.bubble.unwrap().0, pixel_offset(100, 112));
+        assert_eq!((data[0x5f4], data[0x5f5]), (65, 6));
     }
 }

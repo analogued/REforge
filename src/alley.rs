@@ -8,7 +8,7 @@ use crate::assets::{
 use crate::cga::{Dimensions, Framebuffer, PlayerCompositor, pixel_offset};
 use crate::decoration::{award_points, draw_ground_objects, draw_hud, initialize_score_state};
 #[cfg(feature = "dev-tools")]
-use crate::dev_tools::{Actor, DevOptions};
+use crate::dev_tools::{Actor, Damage, DevOptions};
 use crate::mice::{Blend, Contact, Image, Mice};
 use crate::player::{Controls, Draw, Player, UpdateOutcome};
 use std::path::Path;
@@ -40,6 +40,30 @@ impl Machine {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Harm {
+    AlleyDog,
+    RoomDog,
+    WindowProjectiles,
+    MilkDogs,
+    Spider,
+    Eels,
+    Air,
+}
+
+#[derive(Clone, Copy)]
+enum EffectKind {
+    Projectile(crate::projectiles::VisibleSprite),
+    Spider,
+    Eel,
+}
+
+struct DamageEffect {
+    since: u16,
+    duration: u16,
+    kind: EffectKind,
+}
+
 pub struct Alley {
     data: Vec<u8>,
     screen: Framebuffer,
@@ -55,6 +79,13 @@ pub struct Alley {
     /// Normal cat image held aside while the milk drinking helper owns drawing.
     milk_player_image: Option<(Dimensions, Vec<u8>)>,
     air_warning: u8,
+    dog_image: Option<crate::dog::VisibleSprite>,
+    projectile_image: Option<crate::projectiles::VisibleSprite>,
+    damage_effect: Option<DamageEffect>,
+    failure: Option<crate::failure::Failure>,
+    game_over: bool,
+    initial_seed: u16,
+    initial_difficulty: u16,
     #[cfg(feature = "dev-tools")]
     dev_options: DevOptions,
 }
@@ -74,6 +105,293 @@ pub(crate) struct BinAdvance {
 }
 
 impl Alley {
+    fn harm_enabled(&self, harm: Harm) -> bool {
+        #[cfg(feature = "dev-tools")]
+        {
+            !self.dev_options.damage_disabled(match harm {
+                Harm::AlleyDog => Damage::AlleyDog,
+                Harm::RoomDog => Damage::RoomDog,
+                Harm::WindowProjectiles => Damage::WindowProjectiles,
+                Harm::MilkDogs => Damage::MilkDogs,
+                Harm::Spider => Damage::Spider,
+                Harm::Eels => Damage::Eels,
+                Harm::Air => Damage::Air,
+            })
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        {
+            let _ = harm;
+            true
+        }
+    }
+
+    fn infinite_lives(&self) -> bool {
+        #[cfg(feature = "dev-tools")]
+        {
+            self.dev_options.infinite_lives
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        {
+            false
+        }
+    }
+
+    pub fn game_over(&self) -> bool {
+        self.game_over
+    }
+
+    /// Begin a new run, preserving the high score and configured development controls.
+    pub fn restart(&mut self, tick: u16) -> Result<(), String> {
+        if self.data[0x1f82..0x1f89] > self.data[0x1f89..0x1f90] {
+            let score = self.data[0x1f82..0x1f89].to_vec();
+            self.data[0x1f89..0x1f90].copy_from_slice(&score);
+        }
+        self.data[0x1f82..0x1f89].fill(0);
+        self.data[0x1f80] = 3;
+        self.data[0x418] = 0;
+        self.data[0x419] = 0;
+        self.data[0x552] = 0;
+        self.data[0x553] = 0;
+        for (offset, value) in [
+            (8, self.initial_difficulty),
+            (0x2ae5, self.initial_seed),
+            (0x414, 0),
+            (0x1c30, 0),
+            (0x412, tick),
+            (0x41d, 0xffff),
+            (0x41f, 0xffff),
+        ] {
+            set_word(&mut self.data, offset, value);
+        }
+        self.game_over = false;
+        self.failure = None;
+        self.completion = None;
+        self.hearts_completion = None;
+        self.damage_effect = None;
+        self.return_to_alley()
+    }
+
+    fn initialize_ground_entry(&mut self) {
+        set_word(&mut self.data, 0x579, 0);
+        self.data[0x57b] = 180;
+        self.data[0x57c] = 230;
+        set_word(&mut self.data, 0x55f, pixel_offset(0, 180));
+        set_word(&mut self.data, 0x561, 0x0b03);
+        self.data[0x56e] = 1;
+        self.data[0x558] = 3;
+        self.data[0x559] = 12;
+        self.data[0x571] = 0;
+        set_word(&mut self.data, 0x572, 2);
+        self.data[0x576] = 1;
+        for offset in [
+            0x55b, 0x550, 0x55c, 0x55a, 0x583, 0x698, 0x699, 0x551, 0x584, 0x552, 0x553, 0x127c,
+        ] {
+            self.data[offset] = 0;
+        }
+        for offset in [0x554, 0x57d, 0x684] {
+            set_word(&mut self.data, offset, 0);
+        }
+    }
+
+    fn show_game_over(&mut self) -> Result<(), String> {
+        self.game_over = true;
+        self.damage_effect = None;
+        self.dog_image = None;
+        self.projectile_image = None;
+        self.screen.fill_visible(0);
+        for (y, text) in [(88, "GAME OVER"), (104, "R TO START A NEW GAME")] {
+            let x = (320 - text.len() as u16 * 8) / 2;
+            for (index, byte) in text.bytes().enumerate() {
+                self.screen.copy_rect(
+                    pixel_offset(x + index as u16 * 8, y),
+                    Dimensions(0x0801),
+                    &crate::font::character(byte)?,
+                )?;
+            }
+        }
+        self.presented = self.screen.clone();
+        Ok(())
+    }
+
+    pub(crate) fn dying(&self) -> bool {
+        self.data[0x1cb8] != 0
+    }
+    pub(crate) fn damage_waiting(&self) -> bool {
+        self.damage_effect.is_some()
+    }
+
+    pub(crate) fn advance_damage_effect(&mut self, tick: u16) -> Result<bool, String> {
+        let Some(effect) = &self.damage_effect else {
+            return Ok(true);
+        };
+        if tick.wrapping_sub(effect.since) < effect.duration {
+            return Ok(false);
+        }
+        let effect = self.damage_effect.take().expect("effect exists");
+        match effect.kind {
+            EffectKind::Projectile(_) => {
+                let lives = self.data[0x1f80];
+                crate::projectiles::finish_contact(&mut self.data)?;
+                if self.infinite_lives() {
+                    self.data[0x1f80] = lives;
+                }
+                self.player = Player::from_data(&self.data)?;
+                draw_hud(&mut self.data, &mut self.screen)?;
+                if self.data[0x1f80] == 0 {
+                    self.show_game_over()?;
+                }
+            }
+            EffectKind::Spider => crate::bookcase::finish_spider_failure(&mut self.data)?,
+            EffectKind::Eel => {}
+        }
+        if !self.game_over {
+            self.compose_actors()?;
+        }
+        Ok(true)
+    }
+
+    fn draw_projectile(&mut self, image: crate::projectiles::VisibleSprite) -> Result<(), String> {
+        self.presented.zero_transparent_rect(
+            image.offset,
+            image.dimensions,
+            sprite_bytes(&self.data, image.source, image.dimensions)?,
+        )?;
+        Ok(())
+    }
+
+    fn apply_projectile_contact(
+        &mut self,
+        contact: crate::projectiles::Contact,
+        tick: u16,
+    ) -> Result<bool, String> {
+        if matches!(contact, crate::projectiles::Contact::None) {
+            return Ok(false);
+        }
+        self.compositor.restore(&mut self.screen)?;
+        self.projectile_image = None;
+        self.player = Player::from_data(&self.data)?;
+        if let crate::projectiles::Contact::FirstHit { effect } = contact {
+            self.damage_effect = Some(DamageEffect {
+                since: tick,
+                duration: 10,
+                kind: EffectKind::Projectile(effect),
+            });
+        }
+        self.compose_actors()?;
+        Ok(true)
+    }
+
+    pub(crate) fn check_player_projectile(&mut self, tick: u16) -> Result<bool, String> {
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::WindowProjectiles) {
+            return Ok(false);
+        }
+        self.player.write_data(&mut self.data)?;
+        let enabled = self.harm_enabled(Harm::WindowProjectiles);
+        let contact = crate::projectiles::contact(&mut self.data, &self.player, tick, enabled);
+        self.apply_projectile_contact(contact, tick)
+    }
+
+    pub(crate) fn advance_projectiles(&mut self, tick: u16) -> Result<bool, String> {
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::WindowProjectiles) {
+            return Ok(false);
+        }
+        self.player.write_data(&mut self.data)?;
+        let enabled = self.harm_enabled(Harm::WindowProjectiles);
+        let Some(step) = crate::projectiles::advance(&mut self.data, &self.player, tick, enabled)?
+        else {
+            return Ok(false);
+        };
+        if step.restore_previous {
+            self.projectile_image = None;
+        }
+        if let Some(image) = step.sprite {
+            set_word(&mut self.data, 0x17e5, image.offset);
+            set_word(&mut self.data, 0x17e3, image.dimensions.0);
+            self.projectile_image = Some(image);
+        }
+        let contact = self.apply_projectile_contact(step.contact, tick)?;
+        if !contact {
+            self.compose_actors()?;
+        }
+        Ok(step.sprite.is_some())
+    }
+
+    pub(crate) fn advance_ground_dog(&mut self, tick: u16, retrace: bool) -> Result<bool, String> {
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(if self.scene() == 0 {
+            Actor::AlleyDog
+        } else if self.scene() == 6 {
+            Actor::MilkDogs
+        } else {
+            Actor::RoomDog
+        }) {
+            return Ok(false);
+        }
+        self.player.write_data(&mut self.data)?;
+        let enabled = self.harm_enabled(if self.scene() == 0 {
+            Harm::AlleyDog
+        } else if self.scene() == 6 {
+            Harm::MilkDogs
+        } else {
+            Harm::RoomDog
+        });
+        let lives = self.data[0x1f80];
+        let Some(step) = crate::dog::advance(&mut self.data, tick, retrace, !enabled)? else {
+            return Ok(false);
+        };
+        let drawn = step.sprite.is_some();
+        self.dog_image = step.sprite;
+        if step.started_death || step.failure {
+            self.compositor.restore(&mut self.screen)?;
+            self.player = Player::from_data(&self.data)?;
+        }
+        if step.life_lost {
+            if self.infinite_lives() {
+                self.data[0x1f80] = lives;
+            }
+            draw_hud(&mut self.data, &mut self.screen)?;
+            if self.data[0x1f80] == 0 {
+                self.show_game_over()?;
+                return Ok(drawn);
+            }
+        }
+        self.compose_actors()?;
+        Ok(drawn)
+    }
+
+    pub(crate) fn check_player_dog(&mut self) -> Result<bool, String> {
+        let scene = self.scene();
+        if !matches!(scene, 0 | 1 | 3..=5) {
+            return Ok(false);
+        }
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(if scene == 0 {
+            Actor::AlleyDog
+        } else if scene == 6 {
+            Actor::MilkDogs
+        } else {
+            Actor::RoomDog
+        }) {
+            return Ok(false);
+        }
+        self.player.write_data(&mut self.data)?;
+        if !self.harm_enabled(if scene == 0 {
+            Harm::AlleyDog
+        } else {
+            Harm::RoomDog
+        }) || !crate::dog::contact(&self.data)
+        {
+            return Ok(false);
+        }
+        self.compositor.restore(&mut self.screen)?;
+        self.dog_image = None;
+        crate::dog::begin_death(&mut self.data)?;
+        self.player = Player::from_data(&self.data)?;
+        self.compose_actors()?;
+        Ok(true)
+    }
     /// Configure development overrides before play or diagnostic scene entry.
     /// Suppression also retires images already drawn in the current scene.
     #[cfg(feature = "dev-tools")]
@@ -86,6 +404,21 @@ impl Alley {
     fn apply_actor_overrides(&mut self) -> Result<(), String> {
         let options = self.dev_options;
         let scene = self.scene();
+        if options.actor_disabled(if scene == 0 {
+            Actor::AlleyDog
+        } else if scene == 6 {
+            Actor::MilkDogs
+        } else {
+            Actor::RoomDog
+        }) {
+            self.dog_image = None;
+            crate::dog::initialize(&mut self.data)?;
+        }
+        if options.actor_disabled(Actor::WindowProjectiles) {
+            self.projectile_image = None;
+            self.data[0x1673] = 0;
+            self.data[0x1678] = 0;
+        }
         if scene == 0 {
             if options.actor_disabled(Actor::BinCat) {
                 self.data[0x1d59] = 0;
@@ -173,6 +506,13 @@ impl Alley {
             hearts_completion: None,
             milk_player_image: None,
             air_warning: 0,
+            dog_image: None,
+            projectile_image: None,
+            damage_effect: None,
+            failure: None,
+            game_over: false,
+            initial_seed: 0xfa59,
+            initial_difficulty: 0,
             #[cfg(feature = "dev-tools")]
             dev_options: DevOptions::default(),
         }
@@ -199,6 +539,7 @@ impl Alley {
         initialize_alley(&mut data, &mut screen)?;
         draw_ground_objects(&mut data, &mut screen)?;
         draw_hud(&mut data, &mut screen)?;
+        crate::dog::initialize(&mut data)?;
         crate::bin_cat::initialize(&mut data)?;
         crate::windows::initialize(&mut data)?;
         let mice = Mice::initialize(&mut data, 8)?;
@@ -216,15 +557,32 @@ impl Alley {
             hearts_completion: None,
             milk_player_image: None,
             air_warning: 0,
+            dog_image: None,
+            projectile_image: None,
+            damage_effect: None,
+            failure: None,
+            game_over: false,
+            initial_seed: 0xfa59,
+            initial_difficulty: 0,
             #[cfg(feature = "dev-tools")]
             dev_options: DevOptions::default(),
         };
+        alley.initial_seed = seed;
+        alley.initial_difficulty = difficulty;
         // The first accepted neutral update establishes the original idle image.
         alley.update(Controls::default())?;
         Ok(alley)
     }
 
     pub fn update(&mut self, controls: Controls) -> Result<UpdateOutcome, String> {
+        self.update_at_tick(controls, word(&self.data, 0x57d))
+    }
+
+    pub(crate) fn update_at_tick(
+        &mut self,
+        controls: Controls,
+        tick: u16,
+    ) -> Result<UpdateOutcome, String> {
         #[cfg(feature = "dev-tools")]
         if self.dev_options.actor_disabled(Actor::BinCat) {
             self.data[0x1d59] = 0;
@@ -232,7 +590,10 @@ impl Alley {
         let image = if matches!(self.scene(), 1 | 3..=6 | 7) {
             let image = self.compositor.suspend(&mut self.screen)?;
             self.player.write_data(&mut self.data)?;
-            if matches!(self.scene(), 1 | 3..=6) && self.player.floor_track_due(controls) {
+            if matches!(self.scene(), 1 | 3..=6)
+                && !self.dying()
+                && self.player.floor_track_due(controls)
+            {
                 self.data[0x56e] = controls.x as u8;
                 crate::room::record_floor_track(&mut self.data, &mut self.screen)?;
             }
@@ -240,7 +601,17 @@ impl Alley {
         } else {
             None
         };
-        let outcome = self.player.update(controls, &self.data)?;
+        let projectile_enabled = self.scene() == 0 && self.harm_enabled(Harm::WindowProjectiles);
+        #[cfg(feature = "dev-tools")]
+        let projectile_enabled =
+            projectile_enabled && !self.dev_options.actor_disabled(Actor::WindowProjectiles);
+        let outcome =
+            self.player
+                .update_with_projectiles(controls, &self.data, projectile_enabled)?;
+        if outcome.projectile_contact {
+            self.check_player_projectile(tick)?;
+            return Ok(outcome);
+        }
         if self.player.take_room_exit() {
             self.data[0x551] = 1;
         }
@@ -321,10 +692,21 @@ impl Alley {
         tick: u16,
         accepted_ax: u16,
     ) -> Result<UpdateOutcome, String> {
-        self.compositor.suspend(&mut self.screen)?;
         self.player.write_data(&mut self.data)?;
         set_word(&mut self.data, 0x57f, accepted_ax);
-        let step = crate::swimming::advance(&mut self.data, controls, tick)?;
+        let suppress_air = !self.harm_enabled(Harm::Air);
+        let step =
+            crate::swimming::advance_with_damage(&mut self.data, controls, tick, suppress_air)?;
+        if let Some((offset, sprite)) = step.bubble {
+            let dimensions = Dimensions(sprite.dimensions);
+            let background = self.screen.and_rect(
+                offset,
+                dimensions,
+                sprite_bytes(&self.data, sprite.source, dimensions)?,
+            )?;
+            self.data[0x0e..0x0e + background.len()].copy_from_slice(&background);
+        }
+        self.compositor.suspend(&mut self.screen)?;
         self.player = Player::from_data(&self.data)?;
         self.air_warning = step.air_warning;
         let Draw::Sprite(sprite) = step.draw else {
@@ -337,15 +719,33 @@ impl Alley {
             dimensions,
             sprite_bytes(&self.data, sprite.source, dimensions)?,
         )?;
+        let suppress_eels = !self.harm_enabled(Harm::Eels);
         #[cfg(feature = "dev-tools")]
-        {
+        let contact = {
             let disabled = self.dev_options.actor_disabled(Actor::Eels);
             self.room_actor(|data, screen| {
-                crate::fishbowl::contacts_dev(data, screen, tick, disabled)
-            })?;
-        }
+                crate::fishbowl::contacts_dev_with_damage(
+                    data,
+                    screen,
+                    tick,
+                    disabled,
+                    suppress_eels,
+                )
+            })?
+        };
         #[cfg(not(feature = "dev-tools"))]
-        self.room_actor(|data, screen| crate::fishbowl::contacts(data, screen, tick))?;
+        let contact = self.room_actor(|data, screen| {
+            crate::fishbowl::contacts_with_damage(data, screen, tick, suppress_eels)
+        })?;
+        if contact.wait_ticks != 0 {
+            crate::fishbowl::draw_eel_failure(&mut self.data, &mut self.screen)?;
+            self.damage_effect = Some(DamageEffect {
+                since: tick,
+                duration: contact.wait_ticks,
+                kind: EffectKind::Eel,
+            });
+            self.compose_actors()?;
+        }
         Ok(UpdateOutcome {
             draw: step.draw,
             landed: false,
@@ -353,6 +753,7 @@ impl Alley {
             edge_reset: false,
             bin_contact_checked: false,
             forced_controls: None,
+            projectile_contact: false,
         })
     }
 
@@ -465,7 +866,7 @@ impl Alley {
     }
 
     pub(crate) fn completion_waiting(&self) -> bool {
-        self.completion.is_some() || self.hearts_completion.is_some()
+        self.completion.is_some() || self.hearts_completion.is_some() || self.failure.is_some()
     }
 
     /// Preview the ordinary birdcage success presentation without playing its
@@ -487,6 +888,8 @@ impl Alley {
             completion.advance(&mut self.data, &mut self.screen, tick, retrace)?
         } else if let Some(completion) = self.hearts_completion.as_mut() {
             completion.advance(&mut self.data, &mut self.screen, tick, retrace)?
+        } else if let Some(failure) = self.failure.as_mut() {
+            failure.advance(&mut self.data, &mut self.screen, tick)?
         } else {
             return Err("No completion presentation is active".into());
         };
@@ -494,7 +897,12 @@ impl Alley {
         if work.complete {
             self.completion = None;
             self.hearts_completion = None;
-            self.return_to_alley()?;
+            self.failure = None;
+            if self.data[0x1f80] == 0 {
+                self.show_game_over()?;
+            } else {
+                self.return_to_alley()?;
+            }
         }
         Ok(work)
     }
@@ -532,8 +940,9 @@ impl Alley {
         crate::room::draw_fishbowl_room(&mut self.data, &mut self.screen)?;
         crate::room::initialize_room_player(&mut self.data, 1)?;
         crate::room::initialize_broom(&mut self.data)?;
-        self.data[0x1cb8] = 0;
-        self.data[0x1cbf] = 0;
+        crate::dog::initialize(&mut self.data)?;
+        self.dog_image = None;
+        self.projectile_image = None;
         self.player = Player::from_data(&self.data)?;
         self.reset_sound_state();
         self.compose_actors()
@@ -568,8 +977,9 @@ impl Alley {
         #[cfg(not(feature = "dev-tools"))]
         crate::fishbowl::initialize_underwater(&mut self.data, &mut self.screen)?;
         crate::swimming::initialize_player(&mut self.data, tick)?;
-        self.data[0x1cb8] = 0;
-        self.data[0x1cbf] = 0;
+        crate::dog::initialize(&mut self.data)?;
+        self.dog_image = None;
+        self.projectile_image = None;
         self.player = Player::from_data(&self.data)?;
         self.reset_sound_state();
         self.compose_actors()
@@ -602,8 +1012,9 @@ impl Alley {
         if self.dev_options.actor_disabled(Actor::Spider) {
             crate::bookcase::remove_spider(&mut self.data, &mut self.screen)?;
         }
-        self.data[0x1cb8] = 0;
-        self.data[0x1cbf] = 0;
+        crate::dog::initialize(&mut self.data)?;
+        self.dog_image = None;
+        self.projectile_image = None;
         self.player = Player::from_data(&self.data)?;
         self.reset_sound_state();
         self.compose_actors()
@@ -632,8 +1043,9 @@ impl Alley {
         crate::room::initialize_room_player(&mut self.data, 4)?;
         crate::room::initialize_broom(&mut self.data)?;
         crate::cheese::initialize(&mut self.data, &mut self.screen)?;
-        self.data[0x1cb8] = 0;
-        self.data[0x1cbf] = 0;
+        crate::dog::initialize(&mut self.data)?;
+        self.dog_image = None;
+        self.projectile_image = None;
         self.player = Player::from_data(&self.data)?;
         self.reset_sound_state();
         self.compose_actors()
@@ -667,8 +1079,9 @@ impl Alley {
         }
         crate::room::initialize_room_player(&mut self.data, 6)?;
         crate::room::initialize_broom(&mut self.data)?;
-        self.data[0x1cb8] = 0;
-        self.data[0x1cbf] = 0;
+        crate::dog::initialize(&mut self.data)?;
+        self.dog_image = None;
+        self.projectile_image = None;
         self.player = Player::from_data(&self.data)?;
         self.reset_sound_state();
         self.compose_actors()
@@ -705,8 +1118,9 @@ impl Alley {
         #[cfg(not(feature = "dev-tools"))]
         crate::hearts::initialize(&mut self.data, &mut self.screen, tick)?;
         crate::room::initialize_room_player(&mut self.data, 7)?;
-        self.data[0x1cb8] = 0;
-        self.data[0x1cbf] = 0;
+        crate::dog::initialize(&mut self.data)?;
+        self.dog_image = None;
+        self.projectile_image = None;
         self.player = Player::from_data(&self.data)?;
         self.reset_sound_state();
         self.compose_actors()
@@ -724,10 +1138,10 @@ impl Alley {
         crate::birdcage::initialize(&mut self.data, &mut self.screen)?;
         crate::room::initialize_room_player(&mut self.data, 5)?;
         crate::room::initialize_broom(&mut self.data)?;
-        // Shared roaming-dog state is retained as disabled until lethal actors
-        // are introduced. It must not stall the cage's nonlethal fall.
-        self.data[0x1cb8] = 0;
-        self.data[0x1cbf] = 0;
+        // Start with a dormant roaming dog; ordinary spawning follows its gates.
+        crate::dog::initialize(&mut self.data)?;
+        self.dog_image = None;
+        self.projectile_image = None;
         self.player = Player::from_data(&self.data)?;
         self.reset_sound_state();
         // CS:07a1 saves the initial background; the first accepted player call
@@ -794,7 +1208,25 @@ impl Alley {
         if self.dev_options.actor_disabled(Actor::MilkDogs) {
             return Ok(crate::milk::AttentionStep::default());
         }
-        self.room_actor(|data, screen| crate::milk::advance_attention(data, screen, tick))
+        let suppress = !self.harm_enabled(Harm::MilkDogs);
+        let step = self.room_actor(|data, screen| {
+            crate::milk::advance_attention_with_damage(data, screen, tick, suppress)
+        })?;
+        if let Some(slot) = step.lethal_slot {
+            self.compositor.restore(&mut self.screen)?;
+            crate::milk::restore_drinking(&mut self.data, &mut self.screen)?;
+            self.data[0x44bd] = 0;
+            self.milk_player_image = None;
+            let offset = word(&self.data, 0x4411 + slot * 2);
+            set_word(&mut self.data, 0x44da, offset);
+            self.data[0x0e..0x90].fill(0xaa);
+            self.screen
+                .copy_rect(offset, Dimensions(0x0d05), &[0xaa; 130])?;
+            crate::dog::begin_death(&mut self.data)?;
+            self.player = Player::from_data(&self.data)?;
+            self.compose_actors()?;
+        }
+        Ok(step)
     }
 
     pub(crate) fn advance_fishbowl(
@@ -836,17 +1268,30 @@ impl Alley {
         if self.dev_options.actor_disabled(Actor::Spider) {
             return Ok(crate::bookcase::SpiderStep::default());
         }
+        let suppress = !self.harm_enabled(Harm::Spider);
         #[cfg(feature = "dev-tools")]
-        {
+        let step = {
             let disabled = self.dev_options.actor_disabled(Actor::Broom);
             self.room_actor(|data, screen| {
-                crate::bookcase::advance_spider_dev(data, screen, tick, disabled)
-            })
-        }
+                crate::bookcase::advance_spider_dev_with_damage(
+                    data, screen, tick, disabled, suppress,
+                )
+            })?
+        };
         #[cfg(not(feature = "dev-tools"))]
-        {
-            self.room_actor(|data, screen| crate::bookcase::advance_spider(data, screen, tick))
+        let step = self.room_actor(|data, screen| {
+            crate::bookcase::advance_spider_with_damage(data, screen, tick, suppress)
+        })?;
+        if step.failure_pending {
+            crate::bookcase::draw_spider_failure(&mut self.data, &mut self.screen)?;
+            self.damage_effect = Some(DamageEffect {
+                since: tick,
+                duration: step.wait_ticks,
+                kind: EffectKind::Spider,
+            });
+            self.compose_actors()?;
         }
+        Ok(step)
     }
 
     pub(crate) fn advance_bookcase_targets(
@@ -961,13 +1406,18 @@ impl Alley {
         } else {
             timing
         };
-        let update = crate::windows::advance(
+        #[cfg(feature = "dev-tools")]
+        let projectiles_enabled = !self.dev_options.actor_disabled(Actor::WindowProjectiles);
+        #[cfg(not(feature = "dev-tools"))]
+        let projectiles_enabled = true;
+        let update = crate::windows::advance_with_projectiles(
             &mut self.data,
             &mut self.screen,
             &self.player,
             tick,
             retrace,
             timing,
+            projectiles_enabled,
         )?;
         if let Some((dimensions, source)) = image {
             self.compositor.draw(
@@ -1010,7 +1460,10 @@ impl Alley {
             self.setup_underwater(tick)?;
             return Ok(true);
         }
-        if self.data[0x551] == 0 && self.data[0x553] == 0 {
+        if self.data[0x552] != 0 {
+            self.data[0x419] = 0;
+        }
+        if self.data[0x551] == 0 && self.data[0x553] == 0 && self.data[0x552] == 0 {
             return Ok(false);
         }
         if self.scene() == 7 {
@@ -1036,12 +1489,25 @@ impl Alley {
             )?);
             return Ok(false);
         }
+        if self.data[0x552] != 0 {
+            self.failure = Some(crate::failure::Failure::new(
+                self.player.x,
+                self.player.y,
+                self.infinite_lives(),
+            ));
+            self.dog_image = None;
+            self.projectile_image = None;
+            self.compositor = PlayerCompositor::default();
+            return Ok(false);
+        }
         self.return_to_alley()?;
         Ok(true)
     }
 
     fn return_to_alley(&mut self) -> Result<(), String> {
         self.milk_player_image = None;
+        self.dog_image = None;
+        self.projectile_image = None;
         self.player.write_data(&mut self.data)?;
         let scene = self.scene();
         set_word(&mut self.data, 6, scene);
@@ -1051,14 +1517,19 @@ impl Alley {
         draw_ground_objects(&mut self.data, &mut self.screen)?;
         self.data[0x1f81] = 0xff;
         draw_hud(&mut self.data, &mut self.screen)?;
+        crate::dog::initialize(&mut self.data)?;
         crate::bin_cat::initialize(&mut self.data)?;
         crate::windows::initialize(&mut self.data)?;
         let saved_x = word(&self.data, 1);
         self.mice = Mice::initialize(&mut self.data, saved_x)?;
         crate::room::initialize_room_player(&mut self.data, 0)?;
-        self.data[0x550] = 2;
-        self.data[0x576] = 1;
-        self.data[0x578] = 0x20;
+        if self.data[0x419] != 0 {
+            self.data[0x550] = 2;
+            self.data[0x576] = 1;
+            self.data[0x578] = 0x20;
+        } else {
+            self.initialize_ground_entry();
+        }
         self.player = Player::from_data(&self.data)?;
         self.reset_sound_state();
         self.compose_actors()?;
@@ -1109,6 +1580,21 @@ impl Alley {
     /// bands. Compose finished layers instead of emulating stale draw buffers.
     fn compose_actors(&mut self) -> Result<(), String> {
         self.presented = self.screen.clone();
+        if let Some(image) = &self.dog_image {
+            if image.opaque {
+                self.presented
+                    .copy_rect(image.offset, image.dimensions, &image.pixels)?;
+            } else {
+                self.presented.zero_transparent_rect(
+                    image.offset,
+                    image.dimensions,
+                    &image.pixels,
+                )?;
+            }
+        }
+        if let Some(image) = self.projectile_image {
+            self.draw_projectile(image)?;
+        }
         if self.scene() != 0 {
             return Ok(());
         }
@@ -1134,6 +1620,13 @@ impl Alley {
             if let Some(image) = self.mouse_effect {
                 self.draw_actor(image)?;
             }
+        }
+        if let Some(DamageEffect {
+            kind: EffectKind::Projectile(image),
+            ..
+        }) = self.damage_effect
+        {
+            self.draw_projectile(image)?;
         }
         Ok(())
     }
@@ -1241,7 +1734,9 @@ impl Alley {
 
     pub fn rgba(&self) -> Vec<u8> {
         let presentation = self.hearts_completion.as_ref();
-        let palette_scene = if self.completion.is_some()
+        let palette_scene = if self.failure.is_some()
+            || self.game_over
+            || self.completion.is_some()
             || presentation.is_some_and(|completion| completion.uses_alley_palette())
         {
             0
@@ -1269,7 +1764,9 @@ impl Alley {
         } else {
             self.machine.colors()
         };
-        let background = if let Some(completion) = presentation {
+        let background = if self.failure.is_some() || self.game_over {
+            0
+        } else if let Some(completion) = presentation {
             completion.background()
         } else if let Some(completion) = self.completion.as_ref() {
             completion.background()
@@ -1366,6 +1863,7 @@ mod tests {
                 let mut alley = Alley::synthetic();
                 let mut options = alley.dev_options;
                 options.original_window_timing = original;
+                options.set_disabled_actors("window-projectiles").unwrap();
                 alley.set_dev_options(options).unwrap();
                 set_word(&mut alley.data, 8, 6);
                 set_word(&mut alley.data, 0x181e + 6 * 2, 1);

@@ -56,7 +56,7 @@ const DAMAGE: &[(&str, Damage)] = &[
 pub struct DevOptions {
     disabled_actors: u16,
     disabled_damage: u16,
-    /// Reserved until life loss and re-entry have been implemented.
+    /// Preserve life count while retaining hit effects, death and re-entry.
     pub infinite_lives: bool,
     /// Restore the original one-tick window hold at internal difficulty six.
     pub original_window_timing: bool,
@@ -102,28 +102,6 @@ impl DevOptions {
 
     pub fn damage_disabled(self, source: Damage) -> bool {
         self.disabled_damage & (1 << source as usize) != 0
-    }
-
-    /// Report requested controls which cannot affect the incomplete game yet.
-    pub fn stub_notice(self) -> Option<String> {
-        let mut controls = Vec::new();
-        if self.disabled_damage != 0 {
-            controls.push("damage overrides (death behavior is not implemented)");
-        }
-        if self.infinite_lives {
-            controls.push("infinite lives (life loss is not implemented)");
-        }
-        for (name, actor) in &ACTORS[..3] {
-            if self.actor_disabled(*actor) {
-                controls.push(name);
-            }
-        }
-        (!controls.is_empty()).then(|| {
-            format!(
-                "Development placeholders with no effect yet: {}.",
-                controls.join(", ")
-            )
-        })
     }
 }
 
@@ -171,9 +149,8 @@ mod tests {
     }
 
     #[test]
-    fn all_covers_each_actor_and_source_and_notices_only_describe_placeholders() {
+    fn all_covers_each_actor_and_source() {
         let mut options = DevOptions::default();
-        assert!(options.stub_notice().is_none());
         options.set_disabled_actors("all").unwrap();
         assert!(
             ACTORS
@@ -186,12 +163,5 @@ mod tests {
                 .iter()
                 .all(|(_, source)| options.damage_disabled(*source))
         );
-        options.infinite_lives = true;
-        let notice = options.stub_notice().unwrap();
-        assert!(notice.contains("life loss is not implemented"));
-        assert!(notice.contains("alley-dog"));
-        options = DevOptions::default();
-        options.set_disabled_actors("bin-cat,broom,eels").unwrap();
-        assert!(options.stub_notice().is_none());
     }
 }

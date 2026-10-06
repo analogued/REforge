@@ -2,9 +2,8 @@
 
 //! Alley window animation and entry, using the external executable's tables.
 //!
-//! The caller supplies the player and scenery framebuffer. Projectiles are
-//! deliberately disabled: their launch block and random draws are omitted,
-//! while the opening and closing follow the original. The difficulty-six
+//! The caller supplies the player and scenery framebuffer. Projectile launch
+//! shares the original window hold and random generator. The difficulty-six
 //! one-tick hold is corrected by default, with an optional development override.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
@@ -104,6 +103,7 @@ fn mouse_overlap(data: &[u8]) -> bool {
 /// retrace bit 8 clear. The countdown decrements even on rejected calls and is
 /// reset to 13 before testing retrace. One accepted animation step writes only
 /// eight packed bytes, with the closing row copied from the external wall tile.
+#[cfg(test)]
 pub(crate) fn advance(
     data: &mut [u8],
     screen: &mut Framebuffer,
@@ -111,6 +111,18 @@ pub(crate) fn advance(
     tick: u16,
     retrace: bool,
     timing: HoldTiming,
+) -> Result<Update, String> {
+    advance_with_projectiles(data, screen, player, tick, retrace, timing, false)
+}
+
+pub(crate) fn advance_with_projectiles(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    player: &Player,
+    tick: u16,
+    retrace: bool,
+    timing: HoldTiming,
+    projectiles_enabled: bool,
 ) -> Result<Update, String> {
     check_data(data)?;
     data[0x166a] = data[0x166a].wrapping_sub(1);
@@ -183,7 +195,9 @@ pub(crate) fn advance(
         set_word(data, 0x166e, tick);
     }
     if data[0x1665] == 15 && tick.wrapping_sub(word(data, 0x166e)) < word(data, 0x166c) {
-        // CS:1a05..1a75's projectile launch is deliberately excluded.
+        if projectiles_enabled {
+            crate::projectiles::launch(data, player)?;
+        }
         return Ok(update);
     }
     data[0x1665] = data[0x1665].wrapping_sub(1);

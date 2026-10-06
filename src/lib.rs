@@ -14,6 +14,8 @@ mod completion;
 mod decoration;
 #[cfg(feature = "dev-tools")]
 pub mod dev_tools;
+mod dog;
+mod failure;
 mod fishbowl;
 mod font;
 mod hearts;
@@ -23,6 +25,7 @@ mod milk;
 #[cfg(feature = "sdl")]
 pub mod platform;
 pub mod player;
+mod projectiles;
 mod room;
 pub mod runtime;
 mod swimming;

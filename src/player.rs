@@ -729,6 +729,96 @@ mod tests {
         player.update(Controls::default(), &data).unwrap();
         assert_eq!(player.entry_delay, 11);
     }
+
+    fn projectile_tables(x: u16, y: u8) -> Vec<u8> {
+        let mut data = vec![0; crate::assets::DATA_LENGTH];
+        crate::assets::set_word(&mut data, 0x1671, x);
+        data[0x1673] = y;
+        crate::assets::set_word(&mut data, 0x17df, 0x0c02);
+        data
+    }
+
+    #[test]
+    fn projectile_checkpoint_precedes_full_band_clip_and_edge_reset() {
+        let data = projectile_tables(80, 120);
+        let mut player = Player::at_alley_floor(50);
+        player.y = 104;
+        player.vertical_coordinate = 154;
+        player.horizontal_direction = 1;
+        player.horizontal_step = 8;
+        player.vertical_direction = 1;
+        player.vertical_step = 4;
+        player.support_disabled = 1;
+        player.band_state = 2;
+        player.airborne_sprite.dimensions = 0x0c02;
+        assert!(!crate::projectiles::overlaps(&data, &player));
+        let mut protected = player.clone();
+        let hit = player
+            .update_with_projectiles(Controls::default(), &data, true)
+            .unwrap();
+        assert!(hit.projectile_contact);
+        assert!(!hit.edge_reset);
+        assert_eq!(hit.draw, Draw::Keep);
+        assert_eq!((player.x, player.y, player.entry_state), (58, 108, 0));
+        let ordinary = protected
+            .update_with_projectiles(Controls::default(), &data, false)
+            .unwrap();
+        assert!(!ordinary.projectile_contact);
+        assert!(ordinary.edge_reset);
+        assert_eq!(
+            (protected.x, protected.y, protected.entry_state),
+            (0, 180, 3)
+        );
+    }
+
+    #[test]
+    fn projectile_checkpoint_detects_hidden_top_motion_before_returning_keep() {
+        let data = projectile_tables(80, 1);
+        let mut player = Player::at_alley_floor(50);
+        player.y = 0;
+        player.vertical_coordinate = 10;
+        player.horizontal_direction = 1;
+        player.horizontal_step = 8;
+        player.vertical_direction = 255;
+        player.vertical_step = 8;
+        player.support_disabled = 1;
+        player.airborne_sprite.dimensions = 0x0c02;
+        let hit = player
+            .update_with_projectiles(Controls::default(), &data, true)
+            .unwrap();
+        assert!(hit.projectile_contact);
+        assert_eq!(hit.draw, Draw::Keep);
+        assert_eq!((player.x, player.y, player.vertical_coordinate), (58, 0, 2));
+    }
+
+    #[test]
+    fn walking_contact_preserves_moved_position_before_committing_dimensions() {
+        let data = projectile_tables(80, 180);
+        let mut player = Player::at_alley_floor(50);
+        player.horizontal_step = 8;
+        player.previous_dimensions = 0x0c02;
+        let hit = player
+            .update_with_projectiles(Controls { x: 1, y: 0 }, &data, true)
+            .unwrap();
+        assert!(hit.projectile_contact);
+        assert_eq!(player.x, 58);
+        assert_eq!(player.previous_dimensions, 0x0c02);
+        assert_eq!(hit.draw, Draw::Keep);
+    }
+
+    #[test]
+    fn initial_projectile_contact_precedes_death_and_entry_delay_gates() {
+        let mut data = projectile_tables(80, 180);
+        data[0x1cb8] = 255;
+        let mut player = Player::at_alley_floor(80);
+        player.entry_state = 3;
+        player.entry_delay = 12;
+        let hit = player
+            .update_with_projectiles(Controls::default(), &data, true)
+            .unwrap();
+        assert!(hit.projectile_contact);
+        assert_eq!(player.entry_delay, 12);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -775,6 +865,8 @@ pub struct UpdateOutcome {
     pub bin_contact_checked: bool,
     /// Logical input written by the bin cat, retained until the next poll.
     pub forced_controls: Option<Controls>,
+    /// A native projectile checkpoint interrupted movement before drawing.
+    pub projectile_contact: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -998,8 +1090,19 @@ impl Player {
     /// Advance exactly one accepted update. This does not poll a host clock.
     pub fn update(
         &mut self,
+        controls: Controls,
+        data: &[u8],
+    ) -> Result<UpdateOutcome, &'static str> {
+        self.update_with_projectiles(controls, data, false)
+    }
+
+    /// Stop at the original projectile checkpoints before drawing or clipping.
+    /// The caller commits the contact response using the resulting position.
+    pub(crate) fn update_with_projectiles(
+        &mut self,
         mut controls: Controls,
         data: &[u8],
+        projectile_enabled: bool,
     ) -> Result<UpdateOutcome, &'static str> {
         Self::check_data(data)?;
         self.room_exit_requested = false;
@@ -1019,6 +1122,7 @@ impl Player {
             edge_reset: false,
             bin_contact_checked: false,
             forced_controls: None,
+            projectile_contact: false,
         };
         // CS:092d..0939 gates all movement during a paired-hole transfer.
         // Its sprite and background are owned by the separate room helper.
@@ -1028,6 +1132,10 @@ impl Player {
         // CS:093b..0947: drinking owns the cat image and suppresses ordinary
         // movement after the caller has committed its accepted tick/countdown.
         if word(data, 4) == 6 && data[0x44bd] != 0 {
+            return Ok(outcome);
+        }
+        // CS:0bac precedes death, entry and supported-state early returns.
+        if self.projectile_checkpoint(data, &mut outcome, projectile_enabled) {
             return Ok(outcome);
         }
         if data.get(0x1cb8).copied().unwrap_or(0) != 0 {
@@ -1050,6 +1158,10 @@ impl Player {
                 } else {
                     self.x = 0;
                     sprite.source = sprite.source.wrapping_add(u16::from(crop_words) * 2);
+                }
+                // CS:0c00 follows entry cropping, before the new image is drawn.
+                if self.projectile_checkpoint(data, &mut outcome, projectile_enabled) {
+                    return Ok(outcome);
                 }
                 self.previous_dimensions = sprite.dimensions;
                 outcome.draw = Draw::StridedSprite {
@@ -1078,7 +1190,7 @@ impl Player {
             return Ok(outcome);
         }
         if self.vertical_direction != 0 {
-            self.advance_airborne(data, &mut outcome)?;
+            self.advance_airborne(data, &mut outcome, projectile_enabled)?;
             return Ok(outcome);
         }
 
@@ -1131,13 +1243,36 @@ impl Player {
                     return Ok(outcome);
                 }
             }
+            // CS:1069 tests contact after the idle phase gate and before RNG.
+            if self.projectile_checkpoint(data, &mut outcome, projectile_enabled) {
+                return Ok(outcome);
+            }
             self.previous_dimensions = 0x0c02;
             outcome.draw = Draw::Idle;
         } else {
             let sprite = self.select_walk_sprite(data);
+            // CS:0f6d follows horizontal motion and walking sprite selection.
+            if self.projectile_checkpoint(data, &mut outcome, projectile_enabled) {
+                return Ok(outcome);
+            }
             outcome.draw = self.draw_sprite(sprite);
         }
         Ok(outcome)
+    }
+
+    fn projectile_checkpoint(
+        &self,
+        data: &[u8],
+        outcome: &mut UpdateOutcome,
+        enabled: bool,
+    ) -> bool {
+        if enabled && crate::projectiles::overlaps(data, self) {
+            outcome.projectile_contact = true;
+            outcome.draw = Draw::Keep;
+            true
+        } else {
+            false
+        }
     }
 
     fn draw_sprite(&mut self, sprite: Sprite) -> Draw {
@@ -1272,6 +1407,7 @@ impl Player {
         &mut self,
         data: &[u8],
         outcome: &mut UpdateOutcome,
+        projectile_enabled: bool,
     ) -> Result<(), &'static str> {
         if self.advance_x(data) {
             self.horizontal_direction = 0;
@@ -1333,6 +1469,11 @@ impl Player {
         self.last_support = support;
         outcome.support = support;
         outcome.landed = support != Support::None;
+        // CS:0d73 checks the updated position before alternate animation,
+        // top/band clipping and the alley-edge reset at CS:0e1b.
+        if self.projectile_checkpoint(data, outcome, projectile_enabled) {
+            return Ok(());
+        }
         let mut sprite = self.airborne_sprite;
         if self.alternate_animation != 0 {
             self.alternate_phase = self.alternate_phase.wrapping_add(2);

@@ -2,7 +2,7 @@
 
 An early Rust reconstruction of **Alley Cat** for modern desktop systems,
 initially targeting Linux. The current program supports alley movement,
-nonlethal actors, window entry, the fishbowl, bookcase, cheese, birdcage and milk rooms,
+alley and room actors, damage, window entry, the fishbowl, bookcase, cheese, birdcage and milk rooms,
 and the hearts bonus scene.
 It is not a complete game.
 A public recreation name has not been chosen.
@@ -43,7 +43,8 @@ Use the arrow keys to move and jump. Esc, P and Pause/Break toggle pause;
 other keys, including arrows, leave it paused. Pause shortcuts are ignored while
 Alt, Ctrl or Super is held, and held-key repeats do not toggle pause. Losing or
 regaining window focus does not change the pause state. Ctrl+Q or closing the
-window exits, including while paused.
+window exits, including while paused. After losing all lives, press R to start
+a new run with the initial difficulty and seed; the high score is retained.
 In the cheese room, hold Alt at a hole to travel to its paired hole.
 In the hearts scene, gifts are picked up automatically on contact; hold Alt
 to place a carried gift near the cat's current position.
@@ -112,19 +113,19 @@ Fish remain enabled when eels are disabled, and room objectives remain playable.
 initial placement may still consume randomness and shared schedulers retain
 skipped opportunities. Later timing and random consumption can differ from an
 unmodified run.
-The currently absent alley-dog, room-dog and projectile identifiers are placeholders.
 
 `--disable-damage SOURCES` accepts `all`, `none`, or a comma-separated list:
 `alley-dog`, `room-dog`, `window-projectiles`, `milk-dogs`, `spider`, `eels`, `air`.
-It records the selection for future damage implementation; damage is still
-unimplemented, so choosing `none` does not enable lethal gameplay.
-`--infinite-lives` likewise records a future setting while life loss is absent.
-Requests involving these placeholders print a concise startup notice.
+Actors still move and render when their damage is disabled. Contact does not
+start their hit, pursuit, forced-fall or death response; disabling `air` retains
+low-air warnings while suppressing sinking and fatal timeout. Actor removal and
+damage suppression are independent. `--infinite-lives` preserves the life count
+while retaining hit effects, death animations and returns to the alley.
 
 Repeated disable flags replace the previous selection, so the last value wins.
 Whitespace around list entries is accepted; unknown names and mixed `all`/`none`
 lists are rejected. With no development switches, gameplay follows the same
-nonlethal defaults as a normal build.
+harmful defaults as a normal build.
 
 ## Current behavior
 
@@ -134,7 +135,9 @@ dumpsters, and occupied upper platforms. Ground decorations use the original's
 weighted random selection and external sprites. Current score, high score and
 three starting lives use the original digit glyphs. Mouse catches and ordinary-room
 completion award points. Hearts completion also awards points and an extra
-life, capped at nine; life loss is not implemented.
+life, capped at nine. Dogs, projectiles, the spider, eels and air expiry can
+remove lives. Falling off scenery, broom contact, bin-cat pushes and clothesline
+mouse knockdowns do not directly remove lives.
 
 In the default timing mode, the clotheslines scroll right/left/right, generate
 new garments, update landing supports, and carry an attached cat. Their original
@@ -144,7 +147,10 @@ starts a fall without losing a life. The renderer composes complete scenery and
 cat images rather than simulating partially updated display memory.
 
 The bin cat emerges from randomly selected bins and pushes a supported player
-off on contact. It also sets the original dog-alert state; the dog remains absent.
+off on contact. It also alerts the alley dog. The dog enters from a screen edge,
+moves along the ground and starts the original pursuit on contact. Its final
+exit removes a life and begins alley re-entry. Ordinary furnished rooms use the
+same roaming-dog machinery, followed by the shared room-failure presentation.
 Three clothesline mice move and animate using the shared random generator and
 their own BIOS-tick gate. Contact knocks an attached cat off its line, with the
 original eight-tick pause (about 0.44 seconds). An airborne cat instead catches
@@ -159,7 +165,9 @@ The original weighted selector chooses fishbowl, bookcase, cheese, birdcage or
 milk, using the shared random generator and two-entry history to avoid three
 identical ordinary destinations in a row. Completing any ordinary room makes
 the next eligible window display the female cat and lead to the hearts scene.
-Projectiles remain disabled.
+Windows can throw projectiles aimed toward the player. A hit forces a fall;
+the first hit pauses game work for ten BIOS ticks and removes one life. Further
+contact with that projectile can force another fall without another life charge.
 
 In the fishbowl room, climb the furniture and jump into the bowl. Contact during
 its six-tick animation gate enters the underwater section without requiring Alt.
@@ -169,7 +177,9 @@ Fish and eels use the original slot scheduler, motion bounds, animation tables
 and shared random generator; collecting fish reactivates disabled eels.
 The water surface animates separately. Surface breathing resets the air timer
 through the original sprite-dependent test, and palette changes warn of low air.
-Eel damage, forced sinking and fatal air timeout are disabled during development.
+Eel contact triggers a thirteen-tick hit effect and room failure. Air expiry
+forces the cat to sink with bubbles, then fails the room at its later fatal
+threshold. Success and sinking follow the original eel-immunity predicates.
 Completion uses the shared scoring presentation and returns directly to the alley
 at the saved window position. Leaving the furnished room through its window
 returns without an award.
@@ -177,8 +187,8 @@ returns without an award.
 In the bookcase room, climb the shelves and collect the three potted plants.
 Books use the original seeded layout; shelf support uses the original geometric
 rule rather than individual book outlines. The spider follows the original
-pursuit, descent and ascent logic, including broom interference. Its lethal
-contact effect and life loss are disabled during this development stage.
+pursuit, descent and ascent logic, including broom interference. Contact starts
+a nine-tick effect, then the shared room-failure presentation and life loss.
 Collecting the third plant starts the shared scoring presentation, then returns
 to the alley with the next eligible window leading to hearts. Leaving through
 the room window returns without an award.
@@ -210,8 +220,10 @@ movement until drinking stops. Empty all twelve bowls to start the shared
 scoring presentation and alley return; this room uses its original slower
 time-bonus decay. Higher difficulties increase the milk in each bowl and the
 number of sleeping dogs. Nearby dogs open their eyes and become alert, with
-probabilistic calming when the cat moves away. Their lethal pursuit is deferred,
-so contact does not relocate the cat or remove a life. `--disable-actors milk-dogs`
+probabilistic calming when the cat moves away. Fully alert contact begins a
+pursuit from that dog's position, relocates the cat and ends in room failure.
+The `milk-dogs` damage control covers both attention and this pursuit; `room-dog`
+controls roaming dogs in the other furnished rooms. `--disable-actors milk-dogs`
 removes them while keeping all bowls. Furniture supports, the room window,
 floor tracks and the broom remain active.
 
@@ -247,7 +259,7 @@ nearer alley edge. Its speaker effect is silent. The timed runner blocks game
 work until seven BIOS ticks have elapsed and advances the effect's shared random
 state through its original call-count algorithm, using approximate loop costs.
 
-The alley dog, milk room, menus and audio are absent. Windowed execution uses a
+Startup menus and audio output are absent. Windowed execution uses a
 virtual BIOS/PIT clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle
 movement. The reference is DOSBox-X normal CPU core at fixed 240 cycles. Loop
@@ -278,7 +290,7 @@ Without `--steps`, a script runs for its row count; additional requested updates
 use neutral controls.
 
 Add `--timed` to execute virtual loop attempts, input polls and rejected player
-calls without wall-clock waits. Script rows still select held directions by
+calls without wall-clock waits. Timed headless runs stop early at game over. Script rows still select held directions by
 accepted-update index; they are not timestamped hardware input recordings.
 `--trace-timing /path/to/timing.csv` records guest times, BIOS/PIT samples,
 retrace, polling, acceptance, actor-divider events, scene changes and blocking waits.
@@ -286,7 +298,7 @@ In headless runs it requires `--timed`; in windowed runs it uses default timing.
 
 `--trace`, `--dump-cga`, and `--dump-ppm` write player-state CSV including the
 original scene number (0 for alley, 1 for fishbowl, 2 for underwater, 3 for bookcase,
-4 for cheese, 5 for birdcage, 7 for hearts), the final
+4 for cheese, 5 for birdcage, 6 for milk, 7 for hearts), the final
 16384-byte packed framebuffer, and a 320×200 PPM image respectively. Use paths
 outside the repository: these outputs contain original graphics or reference
 evidence. Output files must not already exist. See `--help` for all options.

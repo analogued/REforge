@@ -39,3 +39,12 @@ resuming play. Arrow keys do not resume. Losing or regaining focus does not
 change pause state. Ctrl+Q and the window close button quit, including while
 paused. There is currently no development override for the original any-key
 resume behavior.
+
+## Game over and restart
+
+After the final life is lost, the recreation holds an authored game-over screen
+and accepts R to start another run. The original returns to its startup/menu
+sequence, which is not yet implemented. Restart retains the high score and
+development controls and resets score, lives, initial difficulty and initial
+seed. Ctrl+Q and window close remain available. This is the current desktop
+replacement for that menu flow; there is no development override.

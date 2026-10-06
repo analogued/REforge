@@ -378,7 +378,13 @@ impl Enemy {
             self.falling_explosion(i, random, player[0]);
             if self.crafts[i].depth <= player[0] {
                 self.crafts[i].active = false;
-                self.crafts[i].requested_sprite = 0;
+                // Recycling changes the movement before terminal dispatch.
+                // Falling retirement retains the source and resets its phase.
+                if self.crafts[i].movement == 251 {
+                    self.crafts[i].requested_sprite = 0;
+                } else {
+                    self.crafts[i].animation_phase = 0;
+                }
             }
             return Ok(effects);
         }
@@ -2316,6 +2322,54 @@ mod tests {
         );
         assert_eq!(enemy.target, [0, 0]);
         assert!(!enemy.bullet.active);
+    }
+
+    #[test]
+    fn falling_recycle_at_player_depth_retires_with_the_new_movement() {
+        let mut assets = assets();
+        assets.sprites[123].width_bytes = 10;
+        assets.sprites[123].height = 31;
+        for movement in [25, 26] {
+            let mut enemy = Enemy::new(&assets).unwrap();
+            let mut random = Random::default();
+            let mut expected = Random::default();
+            enemy.falling_movement = movement;
+            let craft = &mut enemy.crafts[0];
+            craft.active = true;
+            craft.variant = 2;
+            craft.movement = 251;
+            craft.depth = 15;
+            craft.height = -120;
+            craft.animation_phase = 12;
+            craft.requested_sprite = 123;
+            enemy.project(&assets, false, 106, 0).unwrap();
+            let old_rect = enemy.crafts[0].rect;
+            let height = (expected.next_word() & 255) as i16 + 280;
+            let side = (expected.next_word() & 256) as i16;
+            let lateral = (expected.next_word() & 255) as i16 + 3 * side - 512;
+            expected.next_word();
+
+            enemy.update_half_step(&mut random, [14, 0, -100]);
+            let craft = enemy.crafts[0];
+            assert!(!craft.active);
+            assert_eq!(
+                (craft.depth, craft.lateral, craft.height),
+                (14, lateral, height)
+            );
+            assert_eq!((craft.movement, craft.animation_phase), (movement, 0));
+            assert_eq!(craft.requested_sprite, 123);
+            assert_eq!(random.state(), expected.state());
+
+            enemy.project(&assets, false, 106, 0).unwrap();
+            let craft = enemy.crafts[0];
+            assert_eq!(craft.resolved_sprite, 123);
+            assert_eq!(craft.rect.x_bytes, 128);
+            assert_eq!(craft.rect.y, old_rect.y);
+            assert_eq!((craft.rect.width_bytes, craft.rect.height), (10, 31));
+            enemy.update_half_step(&mut random, [14, 0, -100]);
+            assert_eq!(random.state(), expected.state());
+            assert_eq!(enemy.crafts[0].requested_sprite, 123);
+        }
     }
 
     #[test]

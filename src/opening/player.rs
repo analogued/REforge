@@ -35,6 +35,7 @@ pub struct PlayerSnapshot {
     pub horizon: i16,
     pub lives: u8,
     pub game_over: bool,
+    pub shadow_requested_sprite: usize,
     pub shadow: Draw,
     /// Lateral and vertical velocities after the response branch.
     pub velocity: [i16; 2],
@@ -83,6 +84,7 @@ impl Player {
                 horizon: 0,
                 lives: 6,
                 game_over: false,
+                shadow_requested_sprite: 18,
                 shadow,
                 velocity: [0, 0],
                 orientation: 3,
@@ -199,7 +201,7 @@ impl Player {
                 (3 - ((height + 290 + (height >> 2)) >> 7) + self.velocity[1]).clamp(0, 2);
             self.state.requested_sprite = (self.orientation + 5 * self.vertical_band) as usize;
         }
-        self.shadow.resolved_sprite = (self.orientation + 15) as usize;
+        self.state.shadow_requested_sprite = (self.orientation + 15) as usize;
         Ok(reset_fuel)
     }
 
@@ -216,6 +218,7 @@ impl Player {
             self.state.horizon,
         )?;
         self.state.resolved_sprite = self.state.requested_sprite;
+        self.shadow.resolved_sprite = self.state.shadow_requested_sprite;
         self.shadow.rect = project(
             assets,
             self.shadow.resolved_sprite,
@@ -512,6 +515,27 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn shadow_request_waits_for_projection_before_changing_the_resolved_source() {
+        let assets = assets();
+        let mut player = Player::new(&assets).unwrap();
+        let old_shadow = player.snapshot().shadow;
+        player.state.coordinates[1] = -100;
+        player.update_no_input().unwrap();
+        let state = player.snapshot();
+        assert_eq!(state.shadow_requested_sprite, 17);
+        assert_eq!(state.shadow.resolved_sprite, 18);
+        assert_eq!(player.draws()[0].resolved_sprite, 18);
+        let rect = |r: Rect| (r.x_bytes, r.y, r.width_bytes, r.height);
+        assert_eq!(rect(state.shadow.rect), rect(old_shadow.rect));
+
+        player.project(&assets, 106).unwrap();
+        let state = player.snapshot();
+        assert_eq!(state.shadow.resolved_sprite, 17);
+        assert_eq!(player.draws()[0].resolved_sprite, 17);
+        assert_eq!(state.shadow.rect.x_bytes, state.rect.x_bytes);
     }
 
     #[test]

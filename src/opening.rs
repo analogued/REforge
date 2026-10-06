@@ -642,14 +642,11 @@ impl Opening {
                     _ => false,
                 };
                 if !unchanged {
-                    for draw in [current[slot], self.remembered_draws[slot]]
-                        .into_iter()
-                        .flatten()
-                    {
-                        if let Some(clip) = presentation::dirty_region(draw.rect, viewport) {
-                            regions.push(clip);
-                        }
-                    }
+                    regions.extend(presentation::dirty_regions(
+                        current[slot].map(|draw| draw.rect),
+                        self.remembered_draws[slot].map(|draw| draw.rect),
+                        viewport,
+                    ));
                 }
                 self.remembered_draws[slot] = current[slot];
                 self.remembered_requests[slot] = requests[slot];
@@ -677,7 +674,7 @@ impl Opening {
         let mut requests = [0; 29];
         let player = self.player.snapshot();
         requests[0] = player.requested_sprite;
-        requests[1] = player.shadow.resolved_sprite;
+        requests[1] = player.shadow_requested_sprite;
         for shot in self.weapon.snapshot().shots {
             requests[shot.slot] = shot.requested_sprite;
         }

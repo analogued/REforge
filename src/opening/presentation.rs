@@ -141,6 +141,52 @@ impl Presentation {
     }
 }
 
+/// Overlapping old and new placements share one bounding restore rectangle.
+pub(crate) fn dirty_regions(
+    current: Option<Rect>,
+    previous: Option<Rect>,
+    viewport: Rect,
+) -> Vec<Rect> {
+    let rectangles = match (current, previous) {
+        (Some(current), Some(previous)) => match overlapping_union(current, previous) {
+            Some(merged) => [Some(merged), None],
+            None => [Some(current), Some(previous)],
+        },
+        _ => [current, previous],
+    };
+    rectangles
+        .into_iter()
+        .flatten()
+        .filter_map(|rect| dirty_region(rect, viewport))
+        .collect()
+}
+
+fn overlapping_union(current: Rect, previous: Rect) -> Option<Rect> {
+    let right =
+        |rect: Rect| i64::from(rect.x_bytes).checked_add(i64::try_from(rect.width_bytes).ok()?);
+    let bottom = |rect: Rect| i64::from(rect.y).checked_add(i64::try_from(rect.height).ok()?);
+    let current_right = right(current)?;
+    let previous_right = right(previous)?;
+    let current_bottom = bottom(current)?;
+    let previous_bottom = bottom(previous)?;
+    if current_right <= i64::from(previous.x_bytes)
+        || previous_right <= i64::from(current.x_bytes)
+        || current_bottom <= i64::from(previous.y)
+        || previous_bottom <= i64::from(current.y)
+    {
+        return None;
+    }
+    let x_bytes = current.x_bytes.min(previous.x_bytes);
+    let y = current.y.min(previous.y);
+    Some(Rect {
+        x_bytes,
+        y,
+        width_bytes: usize::try_from(current_right.max(previous_right) - i64::from(x_bytes))
+            .ok()?,
+        height: usize::try_from(current_bottom.max(previous_bottom) - i64::from(y)).ok()?,
+    })
+}
+
 /// Clip first, then expand to the even byte and scanline boundaries of restores.
 pub(crate) fn dirty_region(rect: Rect, viewport: Rect) -> Option<Rect> {
     let right = i64::from(rect.x_bytes).checked_add(i64::try_from(rect.width_bytes).ok()?)?;
@@ -280,6 +326,58 @@ mod tests {
         let rounded = dirty_region(lower, VIEWPORT).unwrap();
         assert_eq!((rounded.y, rounded.height), (88, 70));
         assert!(dirty_region(Rect { y: 158, ..VIEWPORT }, VIEWPORT).is_none());
+    }
+
+    #[test]
+    fn overlapping_placements_restore_the_bounding_corners() {
+        let previous = Rect {
+            x_bytes: 35,
+            y: 83,
+            width_bytes: 10,
+            height: 31,
+        };
+        let current = Rect {
+            x_bytes: 34,
+            y: 81,
+            ..previous
+        };
+        let regions = dirty_regions(Some(current), Some(previous), VIEWPORT);
+        assert_eq!(regions.len(), 1);
+        let region = regions[0];
+        assert_eq!(
+            (region.x_bytes, region.y, region.width_bytes, region.height),
+            (34, 80, 12, 34)
+        );
+        let mut frame = Frame::from_packed(&vec![0; FRAME_BYTES]).unwrap();
+        let background = Frame::from_packed(&vec![0xaa; FRAME_BYTES]).unwrap();
+        restore_background(&mut frame, &background, region).unwrap();
+        // This corner is outside both placements after separate alignment.
+        assert_eq!(frame.packed()[80 * ROW_BYTES + 45], 0xaa);
+        assert_eq!(frame.packed()[80 * ROW_BYTES + 46], 0);
+    }
+
+    #[test]
+    fn disjoint_or_touching_placements_restore_separate_regions() {
+        let previous = Rect {
+            x_bytes: 20,
+            y: 60,
+            width_bytes: 4,
+            height: 8,
+        };
+        for x_bytes in [24, 30] {
+            let current = Rect {
+                x_bytes,
+                ..previous
+            };
+            let regions = dirty_regions(Some(current), Some(previous), VIEWPORT);
+            assert_eq!(regions.len(), 2);
+            assert_eq!(regions[0].x_bytes, x_bytes);
+            assert_eq!(regions[0].width_bytes, 4);
+            assert_eq!(regions[1].x_bytes, 20);
+            assert_eq!(regions[1].width_bytes, 4);
+        }
+        assert_eq!(dirty_regions(Some(previous), None, VIEWPORT).len(), 1);
+        assert!(dirty_regions(None, None, VIEWPORT).is_empty());
     }
 
     #[test]

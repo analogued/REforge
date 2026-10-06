@@ -104,6 +104,7 @@ impl Diagnostics {
             s.player.resolved_sprite,
             s.player.rect,
         );
+        records[1].put(8, s.player.shadow_requested_sprite);
         records[1].put(9, s.player.shadow.resolved_sprite);
         records[1].rect(s.player.shadow.rect);
         for e in s.weapon.shots.iter().chain(&s.enemies) {

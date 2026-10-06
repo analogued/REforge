@@ -128,6 +128,12 @@ Perspective lookup uses the depth's low ten bits and treats the scale word as
 signed, including for a projectile created at negative terminal depth. Source
 resolution still precedes projection.
 
+Retirement selects its handler from the movement type after the update. A falling
+explosion can recycle, consume initialization random words, and decrement its
+depth into the retirement boundary in the same update. Its restored falling
+movement then clears activity and animation phase while retaining the last
+sprite request; an unrecycled explosion clears activity and its sprite request.
+
 The second enemy steers by half the remaining coordinate difference, capped at
 30 units per axis per half-step. Its collision changes it to a stationary
 explosion, hides its shadow, and stops its movement and random targeting calls.
@@ -250,6 +256,15 @@ and updates the HUD. The second updates and projects only the player and shadow.
 The third updates the player and world again, then reprojects the near list.
 Far-object geometry and ordering persist from the first pass. All three passes
 include the viewport corner masks; HUD pixels persist from the first pass.
+Player and shadow updates change sprite requests; resolved sources remain cached
+until projection. A scene transition between update and projection uses those
+cached sources.
+
+When old and new sprite placements overlap, background restoration merges their
+bounding rectangle before clipping and expansion to even byte and scanline
+boundaries. Disjoint placements restore separately. The merged region includes
+corners outside either individual placement.
+
 The three screens before the waits at `0698`, `06dc`, and the end-of-body code
 at `0733` match original captures throughout the 90-body steering prefix.
 

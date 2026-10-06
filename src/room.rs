@@ -581,11 +581,25 @@ fn broom_player_contact(data: &mut [u8]) -> bool {
     if data[0x1cb8] != 0 {
         return false;
     }
+    // CS:33c8/47b0 uses the wider drinking image without starting a push.
+    if word(data, 4) == 6 && data[0x44bd] != 0 {
+        return overlaps(
+            (word(data, 0x327d), data[0x327f], 16, 30),
+            (
+                word(data, 0x579).saturating_sub(8),
+                data[0x57b].wrapping_add(3),
+                40,
+                14,
+            ),
+        );
+    }
     let contact = overlaps(
         (word(data, 0x327d), data[0x327f], 16, 30),
         (word(data, 0x579), data[0x57b], 24, 14),
     );
-    if contact {
+    // CS:33f0..33fc blocks the broom during a cheese-hole transfer, but does
+    // not replace the transfer's player state with the ordinary push response.
+    if contact && !(word(data, 4) == 4 && data[0x39e1] != 0) {
         begin_push(data);
     }
     contact
@@ -1096,6 +1110,43 @@ mod tests {
         );
         assert_eq!(word(&data, 0x2ae5), 0xfa59);
         assert_eq!((data[0x1f80], data[0x552]), (3, 0));
+    }
+
+    #[test]
+    fn broom_blocks_a_cheese_transfer_without_replacing_its_player_motion() {
+        let mut data = data();
+        set_word(&mut data, 4, 4);
+        set_word(&mut data, 0x327d, 100);
+        data[0x327f] = 100;
+        set_word(&mut data, 0x579, 100);
+        data[0x57b] = 100;
+        data[0x39e1] = 7;
+        data[0x39e0] = 4;
+        let before = data.clone();
+        assert!(broom_player_contact(&mut data));
+        assert_eq!(data, before);
+        data[0x39e1] = 0;
+        assert!(broom_player_contact(&mut data));
+        assert_eq!((data[0x584], data[0x39e0]), (1, 0));
+    }
+
+    #[test]
+    fn drinking_broom_contact_uses_the_wider_image_without_starting_a_push() {
+        let mut data = data();
+        set_word(&mut data, 4, 6);
+        set_word(&mut data, 0x327d, 100);
+        data[0x327f] = 100;
+        set_word(&mut data, 0x579, 124);
+        data[0x57b] = 100;
+        data[0x44bd] = 1;
+        let before = data.clone();
+        // The ordinary 24-pixel image misses; the drinking image reaches left.
+        assert!(broom_player_contact(&mut data));
+        assert_eq!(data, before);
+        set_word(&mut data, 0x579, 125);
+        let before = data.clone();
+        assert!(!broom_player_contact(&mut data));
+        assert_eq!(data, before);
     }
 
     #[test]

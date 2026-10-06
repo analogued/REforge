@@ -95,7 +95,8 @@ usability change.
 
 `--scene fishbowl`, `--scene bookcase`, `--scene cheese` and `--scene birdcage`
 start directly in those rooms for testing; `--scene milk` starts the milk-bowl
-room. The default is `--scene alley`.
+room. The default is `--scene alley`. Direct room starts bypass the ordinary
+selector and do not add that starting room to its repeat-prevention history.
 Room actors and transitions use the default timed runner. `--scene hearts`
 starts directly in the hearts scene with one gift. `--scene underwater` starts
 inside the fishbowl. Fishbowl, underwater, bookcase, cheese, milk and hearts require
@@ -228,7 +229,8 @@ removes them while keeping all bowls. Furniture supports, the room window,
 floor tracks and the broom remain active.
 
 In the hearts scene, jump through seven rows of whole and broken hearts to
-reach the female cat at the top. Other cats and arrows knock the player down
+reach the female cat at the top. A rival on the starting row is initially hidden
+and appears after a difficulty-dependent delay. Other cats and arrows knock the player down
 without removing lives. Arrows toggle crossed cells between whole and broken;
 the original support geometry, including edge cells, is retained. Placed gifts
 temporarily distract other cats. Each completed ordinary room supplies another

@@ -139,6 +139,23 @@ See DOSBox-X's [video setup](https://github.com/joncampbell123/dosbox-x/blob/mas
 [status-port test](https://github.com/joncampbell123/dosbox-x/blob/master/src/hardware/vga_misc.cpp),
 and [PIT implementation](https://github.com/joncampbell123/dosbox-x/blob/master/src/hardware/timer.cpp).
 
+### Broom launches and the top of the screen
+
+Broom contact normally calls `0872`, which starts a push toward the room exit
+reference `2650/2652`, with an initial vertical step of eight pixels. Its
+phase decrement comes from horizontal separation using the original NOT-based
+expression and has a minimum of 36. A cat far from the window can therefore
+decelerate slowly enough to travel completely above the visible screen. Cheese
+uses an exit at X264, so launches from its left side commonly use that minimum.
+The push latch prevents repeated contact from restarting the launch.
+
+Vertical movement retains the original 50-row padding above the framebuffer.
+Partly hidden sprites are clipped; a completely hidden cat has its last visible
+image erased and sets `0583`, rather than retaining a fragment at the top.
+Broom contact during cheese-hole transfer bypasses the normal push. While milk
+drinking is active, contact uses the wider adjusted predicate at `47b0` instead
+of starting `0872`. Neither response removes a life.
+
 ### Cheese room schedule
 
 Scene 4 polls controls, expires the room tone, attempts a player update, advances
@@ -188,7 +205,12 @@ reset the player acceptance gate and logical controls.
 The candidate selector uses the shared generator, difficulty weighting and
 two-entry room history; it avoids a third consecutive identical candidate.
 Dispatch uses the selected candidate directly; scenes 1, 3, 4, 5 and 6 are all
-implemented. Candidate history is the ordinary destination history.
+implemented. Candidate history is the ordinary destination history. Failed
+hearts attempts leave it unchanged: birdcage → hearts failure → birdcage →
+hearts failure still leaves two birdcage selections in history, so the next
+ordinary selection must differ. Direct `--scene` previews bypass selection and
+do not enter that history; a direct birdcage preview followed by two selected
+birdcage rooms can therefore look like three repeats.
 Success preserves the pending-bonus flag; the next eligible window selects scene
 7 without
 advancing the selector's random state or ordinary candidate history.
@@ -374,6 +396,12 @@ then tests success/exit. Action is latched by the same two-tick input poll as
 directions. These calls bypass the alley's actor divider. Arrows and pickup
 reject unchanged BIOS ticks; the cat scheduler commits its tick only at indices
 1, 4 and 0, allowing the other cats within a group to run in that same tick.
+
+Seven fixed cat rows include a rival on the player's starting row. That bottom
+rival (index zero, Y179) starts hidden. It appears after twice the external
+difficulty-dependent hiding duration: 1080, 720, 540, 360, 350, 340, 320 or 280
+BIOS ticks at difficulties zero through seven (about 59.3 to 15.4 seconds).
+Other cats do not move between rows; the goal cat is index six at Y35.
 
 Initializer `300f` draws sixteen heart cells per row but preserves eighteen
 support cells. Landing uses `(Y-5)&f8` and shifted/clamped `(X+7)>>4` indexing

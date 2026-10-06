@@ -819,6 +819,38 @@ mod tests {
         assert!(hit.projectile_contact);
         assert_eq!(player.entry_delay, 12);
     }
+
+    #[test]
+    fn fully_hidden_top_erases_the_image_and_clears_the_latch_when_reappearing() {
+        let mut data = room_tables();
+        let mut player = Player::at_alley_floor(100);
+        player.vertical_coordinate = 37;
+        player.y = 0;
+        player.vertical_direction = 255;
+        player.vertical_step = 1;
+        player.support_disabled = 1;
+        player.airborne_sprite = Sprite {
+            source: 0x6100,
+            dimensions: 0x0e03,
+        };
+        let hidden = player.update(Controls::default(), &data).unwrap();
+        assert_eq!(hidden.draw, Draw::Erase);
+        player.write_data(&mut data).unwrap();
+        assert_eq!(data[0x583], 1);
+        player = Player::from_data(&data).unwrap();
+        player.vertical_direction = 1;
+        player.vertical_step = 2;
+        let visible = player.update(Controls::default(), &data).unwrap();
+        assert_eq!(
+            visible.draw,
+            Draw::Sprite(Sprite {
+                source: 0x6100 + 12 * 6,
+                dimensions: 0x0203,
+            })
+        );
+        player.write_data(&mut data).unwrap();
+        assert_eq!(data[0x583], 0);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -894,6 +926,8 @@ pub struct Player {
     alternate_phase: u16,
     idle_counter: u8,
     previous_dimensions: u16,
+    /// CS:0583 suppresses restoring a player image while it is fully clipped.
+    image_hidden: bool,
     airborne_sprite: Sprite,
     last_support: Support,
     room_exit_requested: bool,
@@ -965,6 +999,7 @@ impl Player {
             alternate_phase: 0,
             idle_counter: 0,
             previous_dimensions: 0,
+            image_hidden: false,
             airborne_sprite: Sprite {
                 source: 0,
                 dimensions: 0,
@@ -1003,6 +1038,7 @@ impl Player {
             alternate_phase: word(data, 0x585),
             idle_counter: data[0x56d],
             previous_dimensions: word(data, 0x561),
+            image_hidden: data[0x583] != 0,
             airborne_sprite: Sprite {
                 source: word(data, 0x569),
                 dimensions: word(data, 0x567),
@@ -1044,6 +1080,7 @@ impl Player {
             (0x559, self.entry_delay),
             (0x584, self.alternate_animation),
             (0x56d, self.idle_counter),
+            (0x583, u8::from(self.image_hidden)),
         ] {
             data[offset] = value;
         }
@@ -1164,6 +1201,7 @@ impl Player {
                     return Ok(outcome);
                 }
                 self.previous_dimensions = sprite.dimensions;
+                self.image_hidden = false;
                 outcome.draw = Draw::StridedSprite {
                     sprite,
                     stride_bytes: 6,
@@ -1248,6 +1286,7 @@ impl Player {
                 return Ok(outcome);
             }
             self.previous_dimensions = 0x0c02;
+            self.image_hidden = false;
             outcome.draw = Draw::Idle;
         } else {
             let sprite = self.select_walk_sprite(data);
@@ -1277,6 +1316,7 @@ impl Player {
 
     fn draw_sprite(&mut self, sprite: Sprite) -> Draw {
         self.previous_dimensions = sprite.dimensions;
+        self.image_hidden = false;
         Draw::Sprite(sprite)
     }
 
@@ -1323,6 +1363,7 @@ impl Player {
         self.support_state = 0;
         self.support_disabled = 0;
         self.alternate_animation = 0;
+        self.image_hidden = false;
         self.last_support = Support::Floor;
     }
 
@@ -1487,7 +1528,8 @@ impl Player {
         if hidden_rows != 0 {
             let rows = (sprite.dimensions >> 8) as u8;
             if hidden_rows >= rows {
-                outcome.draw = Draw::Keep;
+                self.image_hidden = true;
+                outcome.draw = Draw::Erase;
                 return Ok(());
             }
             sprite.source = if self.alternate_animation != 0 {

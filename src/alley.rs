@@ -530,6 +530,9 @@ impl Alley {
         // audio output is deferred: silent helpers still affect shared state.
         data[0] = 0xff;
         data[0x69a] = 16;
+        // CS:0073..0079 marks both selector-history entries as empty.
+        set_word(&mut data, 0x41d, 0xffff);
+        set_word(&mut data, 0x41f, 0xffff);
         set_word(&mut data, 8, difficulty);
         set_word(&mut data, 0x2ae5, seed);
         set_word(&mut data, 0x6df8, 0);

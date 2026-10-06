@@ -1,6 +1,6 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
-//! External alley assets, animated scenery, and player updates.
+//! External game assets, scenery, actors, player updates, and scene transitions.
 
 use crate::assets::{
     Assets, idle_sources, initialize_alley, next_random, set_word, sprite_bytes, word,
@@ -48,6 +48,7 @@ pub struct Alley {
     mouse_effect: Option<Image>,
     pub player: Player,
     machine: Machine,
+    completion_started: Option<u16>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -112,6 +113,7 @@ impl Alley {
             mouse_effect: None,
             player: Player::at_alley_floor(80),
             machine: Machine::Cga,
+            completion_started: None,
         }
     }
 
@@ -136,6 +138,7 @@ impl Alley {
         draw_ground_objects(&mut data, &mut screen)?;
         draw_hud(&mut data, &mut screen)?;
         crate::bin_cat::initialize(&mut data)?;
+        crate::windows::initialize(&mut data)?;
         let mice = Mice::initialize(&mut data, 8)?;
         let mut alley = Self {
             data,
@@ -147,6 +150,7 @@ impl Alley {
             mouse_effect: None,
             player: Player::at_alley_floor(8),
             machine,
+            completion_started: None,
         };
         // The first accepted neutral update establishes the original idle image.
         alley.update(Controls::default())?;
@@ -154,7 +158,21 @@ impl Alley {
     }
 
     pub fn update(&mut self, controls: Controls) -> Result<UpdateOutcome, String> {
+        let image = if self.scene() == 5 {
+            let image = self.compositor.suspend(&mut self.screen)?;
+            self.player.write_data(&mut self.data)?;
+            if self.player.floor_track_due(controls) {
+                self.data[0x56e] = controls.x as u8;
+                crate::room::record_floor_track(&mut self.data, &mut self.screen)?;
+            }
+            image
+        } else {
+            None
+        };
         let outcome = self.player.update(controls, &self.data)?;
+        if self.player.take_room_exit() {
+            self.data[0x551] = 1;
+        }
         if outcome.bin_contact_checked {
             if let Some(expected) = outcome.forced_controls {
                 self.data[0x1d58] = 1;
@@ -179,7 +197,12 @@ impl Alley {
         }
         let offset = pixel_offset(self.player.x, self.player.y);
         match outcome.draw {
-            Draw::Keep => {}
+            Draw::Keep => {
+                if let Some((dimensions, source)) = image {
+                    self.compositor
+                        .draw(&mut self.screen, offset, dimensions, &source)?;
+                }
+            }
             Draw::Erase => self.compositor.restore(&mut self.screen)?,
             Draw::Idle => {
                 let (top, bottom) = idle_sources(&mut self.data);
@@ -222,6 +245,202 @@ impl Alley {
 
     pub fn framebuffer(&self) -> &Framebuffer {
         &self.presented
+    }
+
+    /// Original scene number: zero is the alley, five is the birdcage room.
+    pub fn scene(&self) -> u16 {
+        word(&self.data, 4)
+    }
+
+    pub(crate) fn advance_room_tone(&mut self, tick: u16) {
+        // CS:546d expires a pending asynchronous tone once per distinct tick;
+        // skipped ticks are not caught up. Ambient synthesis remains deferred.
+        if self.data[0] != 0 && self.data[0x5920] != 0 && word(&self.data, 0x5921) != tick {
+            set_word(&mut self.data, 0x5921, tick);
+            self.data[0x5920] -= 1;
+        }
+    }
+
+    fn reset_sound_state(&mut self) {
+        // CS:58bd logical initialization, without synthesizing audio.
+        for (offset, value) in [
+            (0x5927, 0x80),
+            (0x5928, 0),
+            (0x5929, 0),
+            (0x592c, 255),
+            (0x592d, 0),
+            (0x5920, 0),
+            (0x5b07, 0),
+            (0x5b0e, 1),
+        ] {
+            self.data[offset] = value;
+        }
+        for (offset, value) in [(0x592a, 0x500), (0x5b08, 0), (0x5b0c, 1)] {
+            set_word(&mut self.data, offset, value);
+        }
+    }
+
+    pub(crate) fn completion_waiting(&self) -> bool {
+        self.completion_started.is_some()
+    }
+
+    /// Enter the currently supported room directly for diagnostic play.
+    pub fn enter_birdcage(&mut self, tick: u16) -> Result<(), String> {
+        self.player.write_data(&mut self.data)?;
+        set_word(&mut self.data, 1, self.player.x);
+        self.data[3] = self.player.y;
+        set_word(&mut self.data, 0x410, tick);
+        self.data[0x419] = 1;
+        self.setup_birdcage()
+    }
+
+    fn setup_birdcage(&mut self) -> Result<(), String> {
+        self.completion_started = None;
+        set_word(&mut self.data, 4, 5);
+        set_word(&mut self.data, 6, 0);
+        self.compositor = PlayerCompositor::default();
+        self.bin_image = None;
+        self.mouse_effect = None;
+        crate::room::draw_birdcage_room(&mut self.data, &mut self.screen)?;
+        crate::birdcage::initialize(&mut self.data, &mut self.screen)?;
+        crate::room::initialize_room_player(&mut self.data, 5)?;
+        crate::room::initialize_broom(&mut self.data)?;
+        // Shared roaming-dog state is retained as disabled until lethal actors
+        // are introduced. It must not stall the cage's nonlethal fall.
+        self.data[0x1cb8] = 0;
+        self.data[0x1cbf] = 0;
+        self.player = Player::from_data(&self.data)?;
+        self.reset_sound_state();
+        // CS:07a1 saves the initial background; the first accepted player call
+        // supplies the visible cat. Do not draw an extra entry frame here.
+        self.compose_actors()
+    }
+
+    /// Run a direct-graphics room helper against scenery without a stale cat
+    /// background. Recompose its exact current image without idle RNG draws.
+    fn room_actor<T>(
+        &mut self,
+        action: impl FnOnce(&mut [u8], &mut Framebuffer) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let image = self.compositor.suspend(&mut self.screen)?;
+        self.player.write_data(&mut self.data)?;
+        let result = action(&mut self.data, &mut self.screen)?;
+        self.player.apply_actor_state(&self.data)?;
+        if let Some((dimensions, source)) = image {
+            self.compositor.draw(
+                &mut self.screen,
+                pixel_offset(self.player.x, self.player.y),
+                dimensions,
+                &source,
+            )?;
+        }
+        self.compose_actors()?;
+        Ok(result)
+    }
+
+    pub(crate) fn advance_room_cage(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::birdcage::CageStep, String> {
+        self.room_actor(|data, screen| crate::birdcage::advance_cage(data, screen, tick))
+    }
+
+    pub(crate) fn advance_room_fall(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::birdcage::FallStep, String> {
+        self.room_actor(|data, screen| crate::birdcage::advance_fall(data, screen, tick))
+    }
+
+    pub(crate) fn advance_room_bird(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::birdcage::BirdStep, String> {
+        self.room_actor(|data, screen| crate::birdcage::advance_bird(data, screen, tick))
+    }
+
+    pub(crate) fn advance_room_broom(
+        &mut self,
+        tick: u16,
+    ) -> Result<Option<crate::room::BroomUpdate>, String> {
+        self.room_actor(|data, screen| crate::room::advance_broom(data, screen, tick))
+    }
+
+    pub(crate) fn advance_windows(
+        &mut self,
+        tick: u16,
+        retrace: bool,
+    ) -> Result<crate::windows::Update, String> {
+        let image = self.compositor.suspend(&mut self.screen)?;
+        self.player.write_data(&mut self.data)?;
+        let update = crate::windows::advance(
+            &mut self.data,
+            &mut self.screen,
+            &self.player,
+            tick,
+            retrace,
+        )?;
+        if let Some((dimensions, source)) = image {
+            self.compositor.draw(
+                &mut self.screen,
+                pixel_offset(self.player.x, self.player.y),
+                dimensions,
+                &source,
+            )?;
+        }
+        self.compose_actors()?;
+        Ok(update)
+    }
+
+    /// Dispatch only after the original caller's remaining actor work finishes.
+    pub(crate) fn finish_scene(&mut self, tick: u16) -> Result<bool, String> {
+        if self.scene() == 0 {
+            if self.data[0x551] == 0 {
+                return Ok(false);
+            }
+            self.player.write_data(&mut self.data)?;
+            // Preserve the independently verified original candidate selector;
+            // temporarily route every candidate to the one implemented room.
+            crate::windows::select_room(&mut self.data, &self.player, tick)?;
+            self.setup_birdcage()?;
+            return Ok(true);
+        }
+        if self.data[0x551] == 0 && self.data[0x553] == 0 {
+            return Ok(false);
+        }
+        if self.data[0x553] != 0 {
+            if self.completion_started.is_none() {
+                crate::room::award_birdcage_completion(&mut self.data, tick)?;
+                self.completion_started = Some(tick);
+            }
+            // The heart-platform bonus is not implemented yet. Ordinary rooms
+            // remain accessible instead of dispatching to an unavailable scene.
+            self.data[0x418] = 0;
+            if tick.wrapping_sub(self.completion_started.unwrap()) < 30 {
+                return Ok(false);
+            }
+        }
+        self.completion_started = None;
+        self.player.write_data(&mut self.data)?;
+        set_word(&mut self.data, 6, 5);
+        set_word(&mut self.data, 4, 0);
+        self.compositor = PlayerCompositor::default();
+        initialize_alley(&mut self.data, &mut self.screen)?;
+        draw_ground_objects(&mut self.data, &mut self.screen)?;
+        self.data[0x1f81] = 0xff;
+        draw_hud(&mut self.data, &mut self.screen)?;
+        crate::bin_cat::initialize(&mut self.data)?;
+        crate::windows::initialize(&mut self.data)?;
+        let saved_x = word(&self.data, 1);
+        self.mice = Mice::initialize(&mut self.data, saved_x)?;
+        crate::room::initialize_room_player(&mut self.data, 0)?;
+        self.data[0x550] = 2;
+        self.data[0x576] = 1;
+        self.data[0x578] = 0x20;
+        self.player = Player::from_data(&self.data)?;
+        self.reset_sound_state();
+        self.compose_actors()?;
+        Ok(true)
     }
 
     /// Scheduled scenery work runs after the player, even on passes which
@@ -268,6 +487,9 @@ impl Alley {
     /// bands. Compose finished layers instead of emulating stale draw buffers.
     fn compose_actors(&mut self) -> Result<(), String> {
         self.presented = self.screen.clone();
+        if self.scene() != 0 {
+            return Ok(());
+        }
         if let Some(image) = self.bin_image {
             self.draw_actor(Image {
                 source: image.source,

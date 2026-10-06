@@ -2,7 +2,7 @@
 
 use alley_cat::alley::{Alley, Machine};
 use alley_cat::cga::{HEIGHT, WIDTH};
-use alley_cat::player::{Controls, Player};
+use alley_cat::player::Controls;
 use alley_cat::runtime::{PassOutcome, Runtime};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -11,11 +11,12 @@ use std::path::PathBuf;
 #[cfg(feature = "sdl")]
 const BIOS_TICK_HZ: f64 = 18.2065;
 
-const HELP: &str = "Alley Cat — initial alley reconstruction
+const HELP: &str = "Alley Cat — game reconstruction
 
 Usage: alley-cat --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
+  --scene alley|birdcage   Initial scene for testing (default: alley)
   --scale N               Initial window multiplier, 1..16 (default: 4)
   --seed N                Initial random seed, decimal or 0xHEX (default: 0xfa59)
   --difficulty N          Alley layout difficulty 0..7 (default: 0)
@@ -32,13 +33,14 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
 
 Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
 Ctrl+Q or closing the window quits.
-This slice includes bin cats and mice; hazards, rooms and audio remain absent.
+Open windows currently lead to the birdcage room. Lethal actors and audio are absent.
 Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
 
 struct Options {
     original: PathBuf,
     machine: Machine,
+    start_birdcage: bool,
     scale: u16,
     seed: u16,
     difficulty: u16,
@@ -68,6 +70,7 @@ fn options() -> Result<Option<Options>, String> {
     let mut result = Options {
         original: PathBuf::new(),
         machine: Machine::Cga,
+        start_birdcage: false,
         scale: 4,
         seed: 0xfa59,
         difficulty: 0,
@@ -108,6 +111,13 @@ fn options() -> Result<Option<Options>, String> {
                 }
             }
             "--seed" => result.seed = integer(&value)?,
+            "--scene" => {
+                result.start_birdcage = match value.as_str() {
+                    "alley" => false,
+                    "birdcage" => true,
+                    _ => return Err("Scene must be alley or birdcage".into()),
+                }
+            }
             "--scale" => result.scale = integer(&value)?,
             "--difficulty" => result.difficulty = integer(&value)?,
             "--step-hz" => {
@@ -172,10 +182,12 @@ fn read_script(path: &PathBuf) -> Result<Vec<Controls>, String> {
     Ok(controls)
 }
 
-fn trace_row(output: &mut impl Write, index: usize, player: &Player) -> Result<(), String> {
+fn trace_row(output: &mut impl Write, index: usize, alley: &Alley) -> Result<(), String> {
+    let player = &alley.player;
     writeln!(
         output,
-        "{index},{},{},{},{},{},{},{},{},{},{},{},{}",
+        "{index},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        alley.scene(),
         player.x,
         player.y,
         player.vertical_coordinate,
@@ -195,7 +207,7 @@ fn trace_row(output: &mut impl Write, index: usize, player: &Player) -> Result<(
 fn timing_row(output: &mut impl Write, index: usize, event: &PassOutcome) -> Result<(), String> {
     writeln!(
         output,
-        "{index},{},{},{},{},{},{},{},{},{},{},{}",
+        "{index},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         event.start_nanos,
         event.end_nanos,
         event.tick_low,
@@ -207,6 +219,9 @@ fn timing_row(output: &mut impl Write, index: usize, event: &PassOutcome) -> Res
         u8::from(event.actor_group_due),
         u8::from(event.fence_wait),
         u8::from(event.mouse_wait),
+        u8::from(event.room_wait),
+        event.scene,
+        u8::from(event.scene_changed),
     )
     .map_err(|error| error.to_string())
 }
@@ -221,6 +236,9 @@ fn run() -> Result<(), String> {
         options.difficulty,
         options.machine,
     )?;
+    if options.start_birdcage {
+        alley.enter_birdcage(0)?;
+    }
     let mut trace = options
         .trace
         .as_ref()
@@ -228,7 +246,7 @@ fn run() -> Result<(), String> {
         .transpose()
         .map_err(|error| format!("Cannot create trace: {error}"))?;
     if let Some(trace) = trace.as_mut() {
-        writeln!(trace, "index,x,y,vertical_coordinate,x_direction,y_direction,x_step,y_step,phase,phase_decrement,support_state,entry_state,entry_delay")
+        writeln!(trace, "index,scene,x,y,vertical_coordinate,x_direction,y_direction,x_step,y_step,phase,phase_decrement,support_state,entry_state,entry_delay")
             .map_err(|error| error.to_string())?;
     }
     let mut timing_trace = options
@@ -238,7 +256,7 @@ fn run() -> Result<(), String> {
         .transpose()
         .map_err(|error| format!("Cannot create timing trace: {error}"))?;
     if let Some(output) = timing_trace.as_mut() {
-        writeln!(output, "event,start_ns,end_ns,bios_tick,pit_counter,retrace,control_polled,accepted,accepted_ax,actor_group_due,fence_wait,mouse_wait")
+        writeln!(output, "event,start_ns,end_ns,bios_tick,pit_counter,retrace,control_polled,accepted,accepted_ax,actor_group_due,fence_wait,mouse_wait,room_wait,scene,scene_changed")
             .map_err(|error| error.to_string())?;
     }
     if options.headless {
@@ -268,7 +286,7 @@ fn run() -> Result<(), String> {
                 alley.update(controls)?;
             }
             if let Some(trace) = trace.as_mut() {
-                trace_row(trace, index, &alley.player)?;
+                trace_row(trace, index, &alley)?;
             }
             index += 1;
         }
@@ -325,7 +343,7 @@ fn interactive(
     use std::time::{Duration, Instant};
 
     let mut window = Window::new(
-        "Alley Cat — alley prototype",
+        "Alley Cat — reconstruction",
         WIDTH as u32,
         HEIGHT as u32,
         u32::from(scale),
@@ -380,7 +398,7 @@ fn interactive(
             pass += 1;
             if event.acceptance.is_some() {
                 if let Some(output) = trace.as_mut() {
-                    trace_row(output, index, &alley.player)?;
+                    trace_row(output, index, alley)?;
                 }
                 index += 1;
             }
@@ -406,7 +424,7 @@ fn interactive_diagnostic(
     use alley_cat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
     let mut window = Window::new(
-        "Alley Cat — alley prototype",
+        "Alley Cat — reconstruction",
         WIDTH as u32,
         HEIGHT as u32,
         u32::from(scale),
@@ -461,7 +479,7 @@ fn interactive_diagnostic(
         if now >= deadline {
             let outcome = alley.update(controls)?;
             if let Some(trace) = trace.as_mut() {
-                trace_row(trace, index, &alley.player)?;
+                trace_row(trace, index, alley)?;
             }
             index += 1;
             deadline += period;

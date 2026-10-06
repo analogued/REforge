@@ -42,6 +42,12 @@ pub struct ReferenceCosts {
     pub actor_group: u64,
     pub clothes_shift: u64,
     pub clothes_new_tile: u64,
+    pub window_work: u64,
+    pub room_actor_gate: u64,
+    pub room_cage_draw: u64,
+    pub room_bird_draw: u64,
+    pub room_broom_draw: u64,
+    pub room_effect_poll: u64,
     pub mouse_redraw: u64,
     pub mouse_catch: u64,
     pub bin_push_sound: u64,
@@ -95,6 +101,16 @@ impl ReferenceCosts {
             // 9.5ms with tile generation, and 0.1ms for a tick-gated hold.
             clothes_shift: 7_900_000,
             clothes_new_tile: 9_400_000,
+            // Original window-row helpers measured about 0.5ms at fixed240.
+            // New-window and contact/hold paths still use this bounded fit.
+            window_work: 480_000,
+            // Provisional room allowances; not independently CPU-calibrated.
+            // Original tick gates, physics and blocking waits remain separate.
+            room_actor_gate: 200_000,
+            room_cage_draw: 2_000_000,
+            room_bird_draw: 600_000,
+            room_broom_draw: 2_500_000,
+            room_effect_poll: 50_000,
             // Full original helpers: normal draw about 1.6ms, catch about 8ms.
             // Add only work above the ordinary gated group allowance.
             mouse_redraw: 1_550_000,
@@ -139,6 +155,9 @@ pub struct PassOutcome {
     pub actor_group_due: bool,
     pub fence_wait: bool,
     pub mouse_wait: bool,
+    pub room_wait: bool,
+    pub scene: u16,
+    pub scene_changed: bool,
 }
 
 pub struct Runtime {
@@ -151,6 +170,8 @@ pub struct Runtime {
     machine: Machine,
     fence: Option<FenceEffect>,
     mouse_pause: Option<u16>,
+    cage_falling: bool,
+    scene: u16,
 }
 
 impl Runtime {
@@ -167,6 +188,10 @@ impl Runtime {
             costs.mouse_effect_poll > 0,
             "Mouse-effect polling must advance virtual time"
         );
+        assert!(
+            costs.room_effect_poll > 0,
+            "Room-effect polling must advance virtual time"
+        );
         Self {
             clock: VirtualClock::default(),
             player_gate: PlayerGate::new(u16::MAX, 0),
@@ -177,6 +202,8 @@ impl Runtime {
             machine,
             fence: None,
             mouse_pause: None,
+            cage_falling: false,
+            scene: 0,
         }
     }
 
@@ -188,7 +215,19 @@ impl Runtime {
         held: Controls,
     ) -> Result<PassOutcome, String> {
         let start_nanos = self.clock.elapsed_nanos();
+        self.synchronize_scene(alley);
+        if alley.completion_waiting() {
+            self.clock.advance_nanos(self.costs.room_effect_poll);
+            let changed = alley.finish_scene(self.clock.sample().bios.tick_low)?;
+            if changed {
+                self.synchronize_scene(alley);
+            }
+            let mut event = self.room_wait_outcome(alley, start_nanos);
+            event.scene_changed = changed;
+            return Ok(event);
+        }
         if let Some(start_tick) = self.mouse_pause {
+            let mut scene_changed = false;
             self.clock.advance_nanos(self.costs.mouse_effect_poll);
             let sample = self.clock.sample();
             alley.mouse_effect_random(sample.bios.tick_low);
@@ -198,6 +237,10 @@ impl Runtime {
                 // The suspended mouse CALL has returned. Resume after the
                 // actor batch, without repeating its divider or actor calls.
                 self.clock.advance_nanos(self.costs.loop_return);
+                if alley.finish_scene(sample.bios.tick_low)? {
+                    self.synchronize_scene(alley);
+                    scene_changed = true;
+                }
             }
             return Ok(PassOutcome {
                 start_nanos,
@@ -210,6 +253,9 @@ impl Runtime {
                 actor_group_due: false,
                 fence_wait: false,
                 mouse_wait: true,
+                room_wait: false,
+                scene: alley.scene(),
+                scene_changed,
             });
         }
         if let Some(fence) = self.fence.as_mut() {
@@ -247,14 +293,36 @@ impl Runtime {
                 actor_group_due: false,
                 fence_wait: true,
                 mouse_wait: false,
+                room_wait: false,
+                scene: alley.scene(),
+                scene_changed: false,
             });
         }
 
-        self.clock.advance_nanos(self.costs.prelude);
-        self.clock.advance_nanos(self.costs.control_bios);
-        let control_polled = self
-            .controls_gate
-            .should_poll(self.clock.sample().bios.tick_low);
+        let resumed_fall = if self.cage_falling {
+            self.clock.advance_nanos(self.costs.room_effect_poll);
+            let sample = self.clock.sample();
+            let fall = alley.advance_room_fall(sample.bios.tick_low)?;
+            if fall.drew {
+                self.clock.advance_nanos(self.costs.room_cage_draw);
+            }
+            if !fall.released {
+                return Ok(self.room_wait_outcome(alley, start_nanos));
+            }
+            self.cage_falling = false;
+            true
+        } else {
+            false
+        };
+
+        if !resumed_fall {
+            self.clock.advance_nanos(self.costs.prelude);
+            self.clock.advance_nanos(self.costs.control_bios);
+        }
+        let control_polled = !resumed_fall
+            && self
+                .controls_gate
+                .should_poll(self.clock.sample().bios.tick_low);
         if control_polled {
             self.controls = held;
             self.clock.advance_nanos(self.costs.control_decode);
@@ -268,8 +336,30 @@ impl Runtime {
                 }
             }
             self.clock.advance_nanos(self.costs.control_return);
-        } else {
+        } else if !resumed_fall {
             self.clock.advance_nanos(self.costs.control_hold);
+        }
+
+        if alley.scene() == 5 {
+            if !resumed_fall {
+                alley.advance_room_tone(self.clock.sample().bios.tick_low);
+                let cage = alley.advance_room_cage(self.clock.sample().bios.tick_low)?;
+                self.clock.advance_nanos(self.costs.room_actor_gate);
+                if cage.drew {
+                    self.clock.advance_nanos(self.costs.room_cage_draw);
+                }
+                if cage.falling {
+                    self.cage_falling = true;
+                    let mut event = self.room_wait_outcome(alley, start_nanos);
+                    event.control_polled = control_polled;
+                    return Ok(event);
+                }
+            }
+            let bird = alley.advance_room_bird(self.clock.sample().bios.tick_low)?;
+            self.clock.advance_nanos(self.costs.room_actor_gate);
+            if bird.drew {
+                self.clock.advance_nanos(self.costs.room_bird_draw);
+            }
         }
 
         self.clock.advance_nanos(self.costs.player_gate);
@@ -293,7 +383,7 @@ impl Runtime {
         let acceptance = self.player_gate.attempt(
             sample.bios,
             self.machine,
-            0,
+            alley.scene(),
             alley.player.horizontal_direction as i8,
             alley.player.vertical_direction as i8,
             retrace,
@@ -346,6 +436,9 @@ impl Runtime {
                     actor_group_due: false,
                     fence_wait: false,
                     mouse_wait: false,
+                    room_wait: false,
+                    scene: alley.scene(),
+                    scene_changed: false,
                 });
             }
         } else if tests_retrace {
@@ -365,6 +458,35 @@ impl Runtime {
         control_polled: bool,
         acceptance: Option<PlayerAcceptance>,
     ) -> Result<PassOutcome, String> {
+        let before_scene = alley.scene();
+        if before_scene == 5 {
+            if let Some(broom) = alley.advance_room_broom(self.clock.sample().bios.tick_low)? {
+                if broom.drawn {
+                    self.clock.advance_nanos(self.costs.room_broom_draw);
+                }
+            }
+            self.clock.advance_nanos(self.costs.room_actor_gate);
+            let sample = self.clock.sample();
+            let scene_changed = alley.finish_scene(sample.bios.tick_low)?;
+            if scene_changed {
+                self.synchronize_scene(alley);
+            }
+            return Ok(PassOutcome {
+                start_nanos,
+                end_nanos: self.clock.elapsed_nanos(),
+                tick_low: sample.bios.tick_low,
+                pit_counter: sample.pit_counter,
+                retrace: sample.retrace,
+                control_polled,
+                acceptance,
+                actor_group_due: false,
+                fence_wait: false,
+                mouse_wait: false,
+                room_wait: false,
+                scene: alley.scene(),
+                scene_changed,
+            });
+        }
         self.clock.advance_nanos(self.costs.ground_dog);
         let actor_group_due = self.divider.advance(false);
         if actor_group_due {
@@ -375,6 +497,11 @@ impl Runtime {
                 } else {
                     self.costs.clothes_shift
                 });
+            }
+            let sample = self.clock.sample();
+            let window = alley.advance_windows(sample.bios.tick_low, sample.retrace)?;
+            if window.accepted {
+                self.clock.advance_nanos(self.costs.window_work);
             }
             let sample = self.clock.sample();
             if let Some(bin) = alley.advance_bin_cat(sample.bios.tick_low, sample.retrace)? {
@@ -405,6 +532,14 @@ impl Runtime {
             self.clock.advance_nanos(self.costs.loop_return);
         }
         let sample = self.clock.sample();
+        let scene_changed = if self.mouse_pause.is_none() {
+            alley.finish_scene(sample.bios.tick_low)?
+        } else {
+            false
+        };
+        if scene_changed {
+            self.synchronize_scene(alley);
+        }
         Ok(PassOutcome {
             start_nanos,
             end_nanos: self.clock.elapsed_nanos(),
@@ -416,7 +551,40 @@ impl Runtime {
             actor_group_due,
             fence_wait: false,
             mouse_wait: false,
+            room_wait: false,
+            scene: alley.scene(),
+            scene_changed,
         })
+    }
+
+    fn synchronize_scene(&mut self, alley: &Alley) {
+        if self.scene != alley.scene() {
+            self.scene = alley.scene();
+            self.player_gate.reset();
+            self.controls = Controls::default();
+            self.fence = None;
+            self.mouse_pause = None;
+            self.cage_falling = false;
+        }
+    }
+
+    fn room_wait_outcome(&self, alley: &Alley, start_nanos: u128) -> PassOutcome {
+        let sample = self.clock.sample();
+        PassOutcome {
+            start_nanos,
+            end_nanos: self.clock.elapsed_nanos(),
+            tick_low: sample.bios.tick_low,
+            pit_counter: sample.pit_counter,
+            retrace: sample.retrace,
+            control_polled: false,
+            acceptance: None,
+            actor_group_due: false,
+            fence_wait: false,
+            mouse_wait: false,
+            room_wait: true,
+            scene: alley.scene(),
+            scene_changed: false,
+        }
     }
 }
 

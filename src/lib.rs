@@ -5,6 +5,7 @@
 pub mod alley;
 pub mod assets;
 mod bin_cat;
+mod birdcage;
 pub mod cga;
 mod clothes;
 mod decoration;
@@ -12,5 +13,7 @@ mod mice;
 #[cfg(feature = "sdl")]
 pub mod platform;
 pub mod player;
+mod room;
 pub mod runtime;
 pub mod timing;
+mod windows;

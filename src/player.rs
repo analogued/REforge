@@ -1,6 +1,6 @@
 // Copyright 2026 analogued. License selection is pending.
 
-//! Accepted-update movement for the ordinary alley player path.
+//! Accepted-update movement for the alley and ordinary room player paths.
 //!
 //! The caller supplies the current external game data segment, including alley
 //! support and sprite tables. Timing, actors, collision effects,
@@ -46,6 +46,82 @@ mod tests {
     fn empty_tables() -> Vec<u8> {
         // Authored empty tables, not a captured original data segment.
         vec![0; 0x1200]
+    }
+
+    fn room_tables() -> Vec<u8> {
+        let mut data = vec![0; crate::assets::DATA_LENGTH];
+        crate::assets::set_word(&mut data, 4, 5);
+        crate::assets::set_word(&mut data, 0x2650, 248);
+        data[0x2652] = 96;
+        data
+    }
+
+    #[test]
+    fn room_landing_uses_table_geometry_without_alley_band_clipping() {
+        let mut data = room_tables();
+        data[0x1029] = 136;
+        crate::assets::set_word(&mut data, 0x10e9, 128);
+        crate::assets::set_word(&mut data, 0x11a9, 40);
+        let mut player = Player::at_alley_floor(163);
+        player.y = 139;
+        player.vertical_coordinate = 189;
+        player.vertical_direction = 1;
+        player.vertical_step = 2;
+        player.band_state = 2;
+        player.alternate_animation = 1;
+        let outcome = player.update(Controls::default(), &data).unwrap();
+        assert!(outcome.landed && !outcome.edge_reset);
+        assert_eq!(outcome.support, Support::RoomTable);
+        assert_eq!(
+            (player.x, player.y, player.vertical_coordinate),
+            (163, 136, 186)
+        );
+        assert_eq!(
+            (player.vertical_direction, player.alternate_animation),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn room_exit_is_a_request_without_a_landing_or_fence_reset() {
+        let data = room_tables();
+        let mut player = Player::at_alley_floor(248);
+        player.y = 96;
+        player.vertical_coordinate = 146;
+        player.vertical_direction = 1;
+        player.vertical_step = 2;
+        player.band_state = 2;
+        let outcome = player.update(Controls::default(), &data).unwrap();
+        assert!(!outcome.landed && !outcome.edge_reset);
+        assert!(player.take_room_exit());
+        assert!(!player.take_room_exit());
+        assert_eq!((player.y, player.vertical_direction), (98, 1));
+    }
+
+    #[test]
+    fn broom_animation_keeps_physics_and_exports_its_separate_phase() {
+        let mut data = room_tables();
+        crate::assets::set_word(&mut data, 0xfc4, 0x6100);
+        crate::assets::set_word(&mut data, 0xfd4, 0x0e03);
+        let mut player = Player::at_alley_floor(80);
+        player.y = 120;
+        player.vertical_coordinate = 170;
+        player.vertical_direction = 1;
+        player.vertical_step = 8;
+        player.phase_decrement = 1;
+        player.alternate_animation = 1;
+        let outcome = player.update(Controls::default(), &data).unwrap();
+        assert_eq!((player.y, player.vertical_step), (128, 8));
+        assert_eq!(
+            outcome.draw,
+            Draw::Sprite(Sprite {
+                source: 0x6100,
+                dimensions: 0x0e03
+            })
+        );
+        player.write_data(&mut data).unwrap();
+        assert_eq!(word(&data, 0x585), 2);
+        assert_eq!(data[0x584], 1);
     }
 
     #[test]
@@ -165,9 +241,9 @@ mod tests {
         let mut player = Player::at_alley_floor(8);
         player.y = 142;
         player.vertical_coordinate = 192;
-        assert_eq!(player.check_support(&data), Support::None);
+        assert_eq!(player.check_support(&data).unwrap(), Support::None);
         player.x = 16;
-        assert_eq!(player.check_support(&data), Support::LowerList);
+        assert_eq!(player.check_support(&data).unwrap(), Support::LowerList);
     }
 
     #[test]
@@ -449,6 +525,7 @@ pub enum Support {
     LowerList,
     Band96,
     UpperBitfield,
+    RoomTable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -486,10 +563,12 @@ pub struct Player {
     pub entry_state: u8,
     pub entry_delay: u8,
     alternate_animation: u8,
+    alternate_phase: u16,
     idle_counter: u8,
     previous_dimensions: u16,
     airborne_sprite: Sprite,
     last_support: Support,
+    room_exit_requested: bool,
 }
 
 fn word(data: &[u8], offset: usize) -> u16 {
@@ -553,6 +632,7 @@ impl Player {
             entry_state: 0,
             entry_delay: 0,
             alternate_animation: 0,
+            alternate_phase: 0,
             idle_counter: 0,
             previous_dimensions: 0,
             airborne_sprite: Sprite {
@@ -560,14 +640,15 @@ impl Player {
                 dimensions: 0,
             },
             last_support: Support::Floor,
+            room_exit_requested: false,
         }
     }
 
     /// Import state from a data-segment capture. No original data is embedded.
     pub fn from_data(data: &[u8]) -> Result<Self, &'static str> {
         Self::check_data(data)?;
-        if word(data, 4) != 0 {
-            return Err("player core supports the alley scene only");
+        if !matches!(word(data, 4), 0 | 5) {
+            return Err("player core supports the alley and birdcage scenes only");
         }
         Ok(Self {
             x: word(data, 0x579),
@@ -588,6 +669,7 @@ impl Player {
             entry_state: data[0x558],
             entry_delay: data[0x559],
             alternate_animation: data[0x584],
+            alternate_phase: word(data, 0x585),
             idle_counter: data[0x56d],
             previous_dimensions: word(data, 0x561),
             airborne_sprite: Sprite {
@@ -595,12 +677,76 @@ impl Player {
                 dimensions: word(data, 0x567),
             },
             last_support: Support::None,
+            room_exit_requested: false,
         })
+    }
+
+    /// Mirror owned movement state for original-style room actor helpers.
+    pub(crate) fn write_data(&self, data: &mut [u8]) -> Result<(), &'static str> {
+        Self::check_data(data)?;
+        for (offset, value) in [
+            (0x579, self.x),
+            (0x572, self.horizontal_step),
+            (0x561, self.previous_dimensions),
+            (0x569, self.airborne_sprite.source),
+            (0x567, self.airborne_sprite.dimensions),
+            (0x585, self.alternate_phase),
+        ] {
+            crate::assets::set_word(data, offset, value);
+        }
+        for (offset, value) in [
+            (0x57b, self.y),
+            (0x57c, self.vertical_coordinate),
+            (0x56e, self.horizontal_direction),
+            (0x56f, self.previous_direction),
+            (0x571, self.vertical_direction),
+            (0x576, self.vertical_step),
+            (0x577, self.phase),
+            (0x578, self.phase_decrement),
+            (0x55c, self.support_state),
+            (0x550, self.band_state),
+            (0x56b, self.animation_frame),
+            (0x55b, self.support_delay),
+            (0x55a, self.support_disabled),
+            (0x558, self.entry_state),
+            (0x559, self.entry_delay),
+            (0x584, self.alternate_animation),
+            (0x56d, self.idle_counter),
+        ] {
+            data[offset] = value;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn apply_actor_state(&mut self, data: &[u8]) -> Result<(), &'static str> {
+        let mut updated = Self::from_data(data)?;
+        updated.last_support = if updated.vertical_direction != 0 && updated.support_state == 0 {
+            Support::None
+        } else {
+            self.last_support
+        };
+        *self = updated;
+        Ok(())
+    }
+
+    pub(crate) fn take_room_exit(&mut self) -> bool {
+        std::mem::take(&mut self.room_exit_requested)
+    }
+
+    pub(crate) fn floor_track_due(&self, controls: Controls) -> bool {
+        self.entry_state == 0
+            && self.support_state == 0
+            && self.vertical_direction == 0
+            && self.y >= 180
+            && controls.y != -1
+            && controls.x != 0
     }
 
     fn check_data(data: &[u8]) -> Result<(), &'static str> {
         if data.len() < 0x1028 {
             Err("external data segment is too short for alley player tables")
+        } else if word(data, 4) == 5 && data.len() < crate::assets::DATA_LENGTH {
+            Err("external data segment is too short for room player tables")
         } else {
             Ok(())
         }
@@ -613,10 +759,11 @@ impl Player {
         data: &[u8],
     ) -> Result<UpdateOutcome, &'static str> {
         Self::check_data(data)?;
+        self.room_exit_requested = false;
         if !(-1..=1).contains(&controls.x) || !(-1..=1).contains(&controls.y) {
             return Err("control directions must be -1, 0, or 1");
         }
-        if self.alternate_animation != 0 {
+        if self.alternate_animation != 0 && word(data, 4) != 5 {
             return Err("collision-effect animation is outside the player core");
         }
         let mut outcome = UpdateOutcome {
@@ -680,7 +827,7 @@ impl Player {
         }
 
         if self.y < 180 {
-            let support = self.check_support(data);
+            let support = self.check_support(data)?;
             if support == Support::None {
                 self.horizontal_direction = 0;
                 self.vertical_direction = 1;
@@ -690,8 +837,8 @@ impl Player {
                 return Ok(outcome);
             }
             self.last_support = support;
-            outcome.bin_contact_checked = true;
-            if crate::bin_cat::overlaps(data, self) {
+            outcome.bin_contact_checked = word(data, 4) == 0;
+            if outcome.bin_contact_checked && crate::bin_cat::overlaps(data, self) {
                 // Predict the one shared draw without mutating the read-only
                 // player tables. Alley commits it before any later consumer.
                 let random = crate::assets::random_successor(word(data, 0x2ae5));
@@ -711,6 +858,7 @@ impl Player {
         if self.vertical_direction != 0 {
             if self.vertical_direction == 1 && self.y >= 180 {
                 self.vertical_direction = 0;
+                self.alternate_animation = 0;
             } else {
                 self.start_vertical_transition(data);
                 outcome.support = Support::None;
@@ -884,7 +1032,7 @@ impl Player {
                 self.support_delay -= 1;
             }
             if self.support_delay == 0 && self.vertical_direction == 1 {
-                support = self.check_support(data);
+                support = self.check_support(data)?;
             }
         }
         if support != Support::None {
@@ -912,6 +1060,14 @@ impl Player {
         outcome.support = support;
         outcome.landed = support != Support::None;
         let mut sprite = self.airborne_sprite;
+        if self.alternate_animation != 0 {
+            self.alternate_phase = self.alternate_phase.wrapping_add(2);
+            let index = usize::from(self.alternate_phase & 14);
+            sprite = Sprite {
+                source: word(data, 0xfc2 + index),
+                dimensions: word(data, 0xfd2 + index),
+            };
+        }
         let hidden_rows = 50u8.saturating_sub(self.vertical_coordinate);
         if hidden_rows != 0 {
             let rows = (sprite.dimensions >> 8) as u8;
@@ -919,13 +1075,16 @@ impl Player {
                 outcome.draw = Draw::Keep;
                 return Ok(());
             }
-            sprite.source = sprite
-                .source
-                .wrapping_add(u16::from(hidden_rows) * (sprite.dimensions & 255) * 2);
+            sprite.source = if self.alternate_animation != 0 {
+                self.airborne_sprite.source
+            } else {
+                sprite.source
+            }
+            .wrapping_add(u16::from(hidden_rows) * (sprite.dimensions & 255) * 2);
             sprite.dimensions -= u16::from(hidden_rows) << 8;
         }
         // State 2 clips the original sprite below the band-96 boundary.
-        if self.band_state == 2 && self.y >= 94 {
+        if word(data, 4) == 0 && self.band_state == 2 && self.y >= 94 {
             let rows = (sprite.dimensions >> 8) as u8;
             let hidden_rows = self.y - 94;
             if hidden_rows >= rows {
@@ -947,9 +1106,30 @@ impl Player {
         self.horizontal_step = 2;
         self.support_delay = 0;
         self.support_disabled = 0;
+        self.alternate_animation = 0;
     }
 
-    fn check_support(&mut self, data: &[u8]) -> Support {
+    fn check_support(&mut self, data: &[u8]) -> Result<Support, &'static str> {
+        if word(data, 4) == 0 {
+            return Ok(self.check_alley_support(data));
+        }
+        let check = crate::room::resolve_scene_support(data, self)
+            .map_err(|_| "invalid room support tables")?;
+        self.room_exit_requested |= check.exit;
+        if let Some(hit) = check.hit {
+            self.y = hit.y;
+            self.vertical_coordinate = hit.y.wrapping_add(50);
+            self.support_state = hit.state;
+            if hit.state != 0 {
+                self.x &= 0xfffc;
+            }
+            Ok(Support::RoomTable)
+        } else {
+            Ok(Support::None)
+        }
+    }
+
+    fn check_alley_support(&mut self, data: &[u8]) -> Support {
         let band = self.y & 0xf8;
         if band == 0x60 {
             if self.band_state >= 2 {

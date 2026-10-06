@@ -1,8 +1,8 @@
 # Alley Cat
 
 An early Rust reconstruction of **Alley Cat** for modern desktop systems,
-initially targeting Linux. The current program draws the alley and supports
-walking, jumping, and landing on its platforms. It is not a complete game.
+initially targeting Linux. The current program supports alley movement,
+nonlethal actors, window entry and the birdcage room. It is not a complete game.
 A public recreation name has not been chosen.
 
 ## Original game required
@@ -66,14 +66,17 @@ The default seed is `0xfa59`.
 These controls are diagnostic setup options; startup and difficulty selection
 screens are not implemented.
 
+`--scene birdcage` starts directly in the birdcage room for testing; the default
+is `--scene alley`. Room actors and transitions use the default timed runner.
+
 ## Current behavior
 
 The implemented slice includes seeded alley initialization, CGA bank addressing,
 sprite composition and background restoration, and player movement on the floor,
 dumpsters, and occupied upper platforms. Ground decorations use the original's
 weighted random selection and external sprites. Current score, high score and
-three starting lives use the original digit glyphs. Mouse catches award points;
-life loss and other scoring events are not implemented.
+three starting lives use the original digit glyphs. Mouse catches and birdcage
+completion award points; life loss is not implemented.
 
 In the default timing mode, the clotheslines scroll right/left/right, generate
 new garments, update landing supports, and carry an attached cat. Their original
@@ -91,18 +94,34 @@ the mouse for 90, 70 or 50 points on the top, middle or bottom line. Caught mice
 respawn after 54 ticks (about three seconds). Neither interaction removes a life.
 Actor sprites and motion tables come from the required original executable.
 
+Windows open, hold and close with the original invocation-count, retrace and
+BIOS-tick gates. New openings require the cat to be above the fence, as in the
+original. A descending cat touching an eligible open window enters a room.
+For now every destination leads to the birdcage room. The original candidate
+selector is retained separately, but its weighted choices and recent-room
+history do not determine the playable destination yet. Projectiles are disabled.
+
+In the birdcage room, push the cage off its shelf and catch the released bird.
+Furniture supports, cage pushing/falling, bird movement, floor tracks and the
+broom use the original tables and rules. The broom pushes the cat without
+removing a life. Catching the bird awards the base score plus a time bonus,
+waits 30 BIOS ticks, then returns to the alley. Returning through the room
+window leaves the score unchanged. Lives are preserved on both paths. The
+celebration graphics, transition wipes and subsequent bonus room are absent.
+
 The player starts settled on the floor, bypassing the original entry animation.
 Falling behind the fence hides the cat and starts a clipped re-entry from the
 nearer alley edge. Its speaker effect is silent. The timed runner blocks game
 work until seven BIOS ticks have elapsed and advances the effect's shared random
 state through its original call-count algorithm, using approximate loop costs.
 
-The dog, window projectiles, window entry, rooms, menus, and audio are absent.
-Scene entry and collision-effect paths beyond this slice remain
-unsupported. Windowed execution uses a virtual BIOS/PIT clock, two-tick control
+The dog, other rooms, menus and audio are absent. Windowed execution uses a
+virtual BIOS/PIT clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle
 movement. The reference is DOSBox-X normal CPU core at fixed 240 cycles. Loop
 costs are fitted approximations; original-PC timing fidelity is not established.
+Birdcage execution costs are provisional and have not been independently
+calibrated against the fixed-240 reference.
 Rendering refresh does not determine game ticks. See
 [timing contracts](docs/timing.md) for the schedule and its limits.
 
@@ -128,10 +147,11 @@ Add `--timed` to execute virtual loop attempts, input polls and rejected player
 calls without wall-clock waits. Script rows still select held directions by
 accepted-update index; they are not timestamped hardware input recordings.
 `--trace-timing /path/to/timing.csv` records guest times, BIOS/PIT samples,
-retrace, polling, acceptance and actor-divider events (and fence wait checks).
+retrace, polling, acceptance, actor-divider events, scene changes and blocking waits.
 In headless runs it requires `--timed`; in windowed runs it uses default timing.
 
-`--trace`, `--dump-cga`, and `--dump-ppm` write player-state CSV, the final
+`--trace`, `--dump-cga`, and `--dump-ppm` write player-state CSV including the
+original scene number (0 for alley, 5 for birdcage), the final
 16384-byte packed framebuffer, and a 320×200 PPM image respectively. Use paths
 outside the repository: these outputs contain original graphics or reference
 evidence. Output files must not already exist. See `--help` for all options.

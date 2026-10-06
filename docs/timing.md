@@ -84,7 +84,7 @@ spaced accepted player updates. `Runtime` polls controls, applies `PlayerGate`,
 advances an accepted `Player::update`, then advances the ordinary alley divider.
 The divider runs even on rejected player calls. Grouped passes execute the
 clothesline routine's call-count, retrace, suppression and BIOS-tick gates, then
-the bin cat and mouse routines. Each samples virtual time at its own call stage.
+windows, the bin cat and mice. Each samples virtual time at its own call stage.
 Damaging actors are absent; their post-player work retains fitted time allowances.
 
 Clothes scrolling (`04a0`) decrements byte `0531` before other tests. On expiry
@@ -109,6 +109,15 @@ and difficulty tables. A captured mouse retains its catch image until its
 at `2706` updates six of the seven displayed digits, leaving the rightmost digit
 unchanged. High-score comparison belongs to game entry rather than each catch.
 
+Windows (`1936`) decrement byte `166a` on every grouped call. Expiry reloads
+13 before requiring retrace clear; the initial zero wraps through 255 first.
+An active window advances one packed row per accepted step and holds at phase
+15 for the difficulty-dependent BIOS-tick interval. Player overlap can hold its
+animation. Entry (`1b05`) requires a descending cat, no forced-fall latch,
+player Y below 96, and phase 5 through 24. The caller dispatches entry after
+the remaining actor batch, including any blocking mouse knockdown. Projectile
+launching and its random draws are omitted.
+
 `VirtualClock` uses integer rational time with a PIT input frequency of 1,193,182
 Hz and a channel-0 divisor of 65,536. The BIOS rate is consequently about 18.2065
 Hz. The modeled mode-3 latch reloads twice per BIOS period and follows DOSBox-X's
@@ -126,6 +135,38 @@ See DOSBox-X's [video setup](https://github.com/joncampbell123/dosbox-x/blob/mas
 [video mode registers](https://github.com/joncampbell123/dosbox-x/blob/master/src/ints/int10_modes.cpp),
 [status-port test](https://github.com/joncampbell123/dosbox-x/blob/master/src/hardware/vga_misc.cpp),
 and [PIT implementation](https://github.com/joncampbell123/dosbox-x/blob/master/src/hardware/timer.cpp).
+
+### Birdcage room schedule
+
+Scene 5 runs controls and pending-tone expiration, cage motion (`45ab`), bird
+motion (`4340`), the common player gate and movement, then the broom (`3339`).
+These calls run every room-loop attempt, without the alley's four-pass divider.
+Cage pushing, bird updates and broom motion have distinct BIOS-tick gates;
+the bird additionally skips every fourth changed-tick call. Room supports and
+the descending exit test come from `16c6` and external parallel tables. Room
+entry preserves inherited player animation/speed state as `07a1` does.
+
+Once a cage leaves its shelf, `46be` blocks ordinary controls, player and broom
+work. Each changed low BIOS tick moves it down five pixels. The next changed
+tick after it reaches Y 164 breaks it and releases the bird; execution resumes
+at the bird call without repeating input or the cage prelude. Capture awards
+the external room score plus twice the unused part of a 1350-tick allowance.
+The completion path retains its 30-tick blocking wait before returning to the
+saved alley position. It awards once, and a neutral window exit awards nothing.
+Celebration rendering, transition wipes and the subsequent bonus scene are
+omitted. Scene changes reset the player acceptance gate and logical controls.
+
+The candidate selector uses the shared generator, difficulty weighting and
+two-entry room history; it avoids a third consecutive identical candidate.
+The current dispatch maps every candidate to scene 5. Candidate history is
+therefore not a history of actual destinations. Completion suppresses the
+unimplemented bonus destination while preserving the completed-room count.
+
+Logical room tone state is retained without audio output. A pending tone
+expires once per distinct tick rather than catching up skipped ticks. Random
+tone requests from the bird follow their original predicates. Ambient sound
+random consumers and instruction-level interrupt placement remain omitted;
+full original-loop random-stream equivalence is not established.
 
 ### Reference execution costs
 
@@ -146,6 +187,12 @@ or interrupt phase. Active mouse redraw adds about 1.55 ms; catching adds about
 7.6 ms, fitted from full original helper calls of about 1.6 ms and 8 ms.
 Active bin animation adds a bounded fit by drawn and restored row counts; full
 original calls range from about 0.43 ms when hiding to 6.04 ms at full height.
+Active window work adds about 0.48 ms, based on fixed-240 row-helper samples
+near 0.5 ms; start and contact-hold paths share this approximate allowance.
+Room actor gates, cage/bird/broom drawing and blocking-fall polling use
+provisional allowances that have not been independently cost-calibrated.
+Room tick predicates and blocking waits are retained, but this does not
+establish the room's original real-time movement cadence.
 The bin cat's first-contact sound still incurs a silent delay: about 81.5 ms for
 CGA or 40.9 ms for PCjr, measured with original native calls at fixed240. PCjr
 halves each of its three `1800h` delay-loop counts. Subsequent contact with its
@@ -180,7 +227,7 @@ player and actors remain suspended until the effect returns; then the interrupte
 pass resumes with post-player work.
 
 Effect-loop costs use bounded fixed-240 helper measurements and remain approximate,
-so exact random-call counts are not established. Audio synthesis and ordinary
+so exact random-call counts are not established. Audio synthesis and ambient
 sound-state random consumers remain absent.
 
 Mouse knockdown (`2567`) clears attachment and horizontal direction, sets a

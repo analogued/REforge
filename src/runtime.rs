@@ -50,6 +50,8 @@ pub struct ReferenceCosts {
     pub room_effect_poll: u64,
     pub completion_draw_byte: u64,
     pub hearts_actor_draw: u64,
+    pub cheese_mouse_draw: u64,
+    pub cheese_transfer_draw: u64,
     pub mouse_redraw: u64,
     pub mouse_catch: u64,
     pub bin_push_sound: u64,
@@ -118,6 +120,9 @@ impl ReferenceCosts {
             completion_draw_byte: 4_000,
             // Provisional scene-seven drawing work above its tick gates.
             hearts_actor_draw: 1_500_000,
+            // Provisional scene-four costs above its original tick gates.
+            cheese_mouse_draw: 600_000,
+            cheese_transfer_draw: 2_000_000,
             // Full original helpers: normal draw about 1.6ms, catch about 8ms.
             // Add only work above the ordinary gated group allowance.
             mouse_redraw: 1_550_000,
@@ -384,9 +389,8 @@ impl Runtime {
                 self.clock.advance_nanos(self.costs.room_bird_draw);
             }
         }
-        if alley.scene() == 7 {
-            // Original scene-seven loop: controls, sound, player, arrow,
-            // pickup, placement, cats, then scene termination.
+        if matches!(alley.scene(), 4 | 7) {
+            // Both scenes expire the shared room tone before the player call.
             alley.advance_room_tone(self.clock.sample().bios.tick_low);
         }
 
@@ -487,7 +491,7 @@ impl Runtime {
         acceptance: Option<PlayerAcceptance>,
     ) -> Result<PassOutcome, String> {
         let before_scene = alley.scene();
-        if matches!(before_scene, 5 | 7) {
+        if matches!(before_scene, 4 | 5 | 7) {
             if before_scene == 7 {
                 for call in [
                     Alley::advance_hearts_arrow,
@@ -501,11 +505,26 @@ impl Runtime {
                         self.clock.advance_nanos(self.costs.hearts_actor_draw);
                     }
                 }
-            } else if let Some(broom) =
-                alley.advance_room_broom(self.clock.sample().bios.tick_low)?
-            {
-                if broom.drawn {
-                    self.clock.advance_nanos(self.costs.room_broom_draw);
+            } else {
+                if before_scene == 4 {
+                    // Original scene-four loop: player, transfer, mice, broom,
+                    // then termination. Transfers do not block room scheduling.
+                    let transfer =
+                        alley.advance_cheese_transfer(self.clock.sample().bios.tick_low)?;
+                    self.clock.advance_nanos(self.costs.room_actor_gate);
+                    if transfer.drew {
+                        self.clock.advance_nanos(self.costs.cheese_transfer_draw);
+                    }
+                    let mice = alley.advance_cheese_mice(self.clock.sample().bios.tick_low)?;
+                    self.clock.advance_nanos(self.costs.room_actor_gate);
+                    if mice.drew {
+                        self.clock.advance_nanos(self.costs.cheese_mouse_draw);
+                    }
+                }
+                if let Some(broom) = alley.advance_room_broom(self.clock.sample().bios.tick_low)? {
+                    if broom.drawn {
+                        self.clock.advance_nanos(self.costs.room_broom_draw);
+                    }
                 }
             }
             self.clock.advance_nanos(self.costs.room_actor_gate);

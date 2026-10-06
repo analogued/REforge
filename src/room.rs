@@ -112,13 +112,66 @@ pub(crate) fn draw_birdcage_room(data: &mut [u8], screen: &mut Framebuffer) -> R
     copy_sprite(data, screen, 0x1fe0, 0x0dd6, 0x1002)
 }
 
+/// CS:288d..28bd and CS:3f9e: furniture, cheese tiles and the difficulty's
+/// paired holes. Actor placement follows player entry and broom initialization.
+pub(crate) fn draw_cheese_room(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
+    check_data(data)?;
+    screen.fill_visible(0xaa);
+    draw_room_wall(data, screen, 0x0640)?;
+    draw_list(data, screen, 0x2570, 0x0cba)?;
+    set_word(data, 0x2650, 264);
+    data[0x2652] = 96;
+    draw_furniture(data, screen, 0x1439, &[0x263c, 0x263a, 0x2638, 0x2636])?;
+    set_word(data, 0x2634, 0x16c0);
+    draw_list(data, screen, 0x2384, 0x16c0)?;
+    draw_list(data, screen, 0x238c, 0x16c0)?;
+
+    data[0x39e0] = 0;
+    data[0x39e1] = 0;
+    let mut destination = 0x0506u16;
+    for row in 0..17 {
+        set_word(data, 0x3cbf, destination);
+        set_word(data, 0x3cc1, row as u16);
+        for tile in 0..usize::from(data[0x3cae + row]) {
+            let random = next_random(data) as u8;
+            let source = if random > 0x30 {
+                0x3aea
+            } else if random & 4 != 0 {
+                0x3af8
+            } else {
+                0x3b02
+            };
+            copy_sprite(data, screen, source, destination + tile as u16 * 2, 0x0801)?;
+        }
+        destination = destination.wrapping_add(0x140);
+    }
+    set_word(data, 0x3cbf, destination);
+    set_word(data, 0x3cc1, 17);
+    for list in [0x3c22, 0x3c3e, 0x3c9a, 0x3c56] {
+        draw_list(data, screen, list, 0)?;
+    }
+    let dimensions = Dimensions(0x0102);
+    let saved = screen.and_rect(0x08ec, dimensions, sprite_bytes(data, 0x3caa, dimensions)?)?;
+    data[0x000e..0x0012].copy_from_slice(&saved);
+    data[0x2ae0] = 2;
+    data[0x2ae2] = 0;
+    let pairing = 0x3cc3 + usize::from(word(data, 8) as u8 & 3) * 8;
+    for pair in 0..8 {
+        let packed = data[pairing + pair];
+        data[0x3ce3 + pair * 2] = packed >> 4;
+        data[0x3ce4 + pair * 2] = packed & 15;
+    }
+    data[0x3cf3..0x3d03].fill(0);
+    Ok(())
+}
+
 /// CS:07a1's owned player fields. The caller establishes the player background
 /// at 055f/0561 before drawing, as CS:1124 does between the sprite/timing writes.
 /// Existing animation phase, speed and edge-entry countdown are preserved.
 pub(crate) fn initialize_room_player(data: &mut [u8], scene: u16) -> Result<(), String> {
     check_data(data)?;
-    if !matches!(scene, 0 | 5 | 7) {
-        return Err("Player entry supports the alley, birdcage and hearts room".into());
+    if !matches!(scene, 0 | 4 | 5 | 7) {
+        return Err("Player entry supports the alley, cheese, birdcage and hearts rooms".into());
     }
     let (x, y) = if scene == 0 {
         (word(data, 1), data[3])
@@ -242,8 +295,8 @@ fn overlaps(first: (u16, u8, u16, u8), second: (u16, u8, u16, u8)) -> bool {
 pub(crate) fn resolve_scene_support(data: &[u8], player: &Player) -> Result<SupportCheck, String> {
     check_data(data)?;
     let scene = usize::from(word(data, 4));
-    if scene != 5 {
-        return Err("Room support supports the birdcage room".into());
+    if !matches!(scene, 4 | 5) {
+        return Err("Room support supports the cheese and birdcage rooms".into());
     }
     if player.vertical_direction == 1
         && overlaps(
@@ -339,14 +392,14 @@ pub(crate) fn record_floor_track(
     Ok(true)
 }
 
-fn restore_broom(data: &[u8], screen: &mut Framebuffer) -> Result<(), String> {
+pub(crate) fn restore_broom(data: &[u8], screen: &mut Framebuffer) -> Result<(), String> {
     if data[0x3286] == 0 {
         copy_sprite(data, screen, 0x31e8, word(data, 0x3282), 0x1e02)?;
     }
     Ok(())
 }
 
-fn draw_broom(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
+pub(crate) fn draw_broom(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
     let mut phase = usize::from(word(data, 0x327a));
     if phase + 0x3262 > data.len() {
         return Err("Broom phase exceeds its sprite table".into());
@@ -442,10 +495,11 @@ pub(crate) fn advance_broom(
     tick: u16,
 ) -> Result<Option<BroomUpdate>, String> {
     check_data(data)?;
-    if word(data, 4) != 5 {
-        return Err("Broom update supports the birdcage room".into());
+    let scene = usize::from(word(data, 4));
+    if !matches!(scene, 4 | 5) {
+        return Err("Broom update supports the cheese and birdcage rooms".into());
     }
-    if tick.wrapping_sub(word(data, 0x328c)) < word(data, 0x32f2 + 5 * 2) {
+    if tick.wrapping_sub(word(data, 0x328c)) < word(data, 0x32f2 + scene * 2) {
         return Ok(None);
     }
     set_word(data, 0x328c, tick);
@@ -572,6 +626,72 @@ mod tests {
         set_word(&mut data, 0x2650, 248);
         data[0x2652] = 96;
         data
+    }
+
+    #[test]
+    fn cheese_room_draw_uses_external_tiles_lists_and_difficulty_pairings() {
+        let mut data = data();
+        set_word(&mut data, 4, 4);
+        set_word(&mut data, 8, 5);
+        // Empty authored lists isolate the scenery's tile/pairing contracts.
+        for list in [
+            0x251c, 0x2570, 0x2384, 0x238c, 0x3c22, 0x3c3e, 0x3c9a, 0x3c56, 0x6000,
+        ] {
+            set_word(&mut data, list, 0x0101);
+            set_word(&mut data, list + 2, 0xffff);
+        }
+        for pointer in [0x263c, 0x263a, 0x2638, 0x2636] {
+            set_word(&mut data, pointer, 0x6000);
+        }
+        data[0x3cae] = 1;
+        data[0x3aea..0x3b12].fill(0x55);
+        data[0x3cca..0x3cd3].copy_from_slice(&[0, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0]);
+        data[0x3caa..0x3cae].fill(0xff);
+        data[0x3cf3..0x3d03].fill(0xff);
+        let mut screen = Framebuffer::default();
+        draw_cheese_room(&mut data, &mut screen).unwrap();
+        assert_eq!((word(&data, 0x2650), data[0x2652]), (264, 96));
+        assert_eq!(word(&data, 0x2ae5), 0xfd2c);
+        assert_eq!(
+            screen.read_rect(0x0506, Dimensions(0x0801)).unwrap(),
+            [0x55; 16]
+        );
+        assert_eq!(
+            &data[0x3ce3..0x3cf3],
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
+        );
+        assert_eq!(&data[0x3cf3..0x3d03], &[0; 16]);
+        assert_eq!((word(&data, 0x3cbf), word(&data, 0x3cc1)), (0x1a46, 17));
+        assert_eq!(&data[0x000e..0x0012], &[0; 4]);
+        // The final AND mask preserves black background pixels; a transparent
+        // copy of this all-ones fixture would incorrectly paint them white.
+        assert_eq!(
+            screen.read_rect(0x08ec, Dimensions(0x0102)).unwrap(),
+            [0; 4]
+        );
+    }
+
+    #[test]
+    fn cheese_broom_uses_its_own_external_acceptance_gate() {
+        let mut data = data();
+        set_word(&mut data, 4, 4);
+        set_word(&mut data, 0x32fa, 3);
+        set_word(&mut data, 0x327d, 100);
+        data[0x327f] = 100;
+        set_word(&mut data, 0x579, 100);
+        data[0x57b] = 100;
+        assert!(
+            advance_broom(&mut data, &mut Framebuffer::default(), 2)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            advance_broom(&mut data, &mut Framebuffer::default(), 3)
+                .unwrap()
+                .unwrap()
+                .contact
+        );
+        assert_eq!(word(&data, 0x328c), 3);
     }
 
     #[test]

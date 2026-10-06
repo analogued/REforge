@@ -134,6 +134,57 @@ mod tests {
     }
 
     #[test]
+    fn cheese_hole_marker_follows_original_support_indices_and_transition_clear() {
+        for (index, marker) in [(38, 0), (39, 1), (54, 16), (55, 0)] {
+            let mut data = room_tables();
+            crate::assets::set_word(&mut data, 4, 4);
+            crate::assets::set_word(&mut data, 0x1271, index);
+            data[0x1029 + usize::from(index)] = 88;
+            crate::assets::set_word(&mut data, 0x10e9 + usize::from(index) * 2, 120);
+            crate::assets::set_word(&mut data, 0x11a9 + usize::from(index) * 2, 24);
+            let mut player = Player::at_alley_floor(139);
+            player.y = 91;
+            player.vertical_coordinate = 141;
+            player.vertical_direction = 1;
+            player.band_state = 2;
+            let outcome = player.update(Controls::default(), &data).unwrap();
+            assert!(outcome.landed && !outcome.edge_reset);
+            assert_eq!((player.x, player.y, player.hole_marker), (139, 88, marker));
+            player.write_data(&mut data).unwrap();
+            assert_eq!(data[0x39e0], marker);
+            player.update(Controls { x: 0, y: -1 }, &data).unwrap();
+            player.write_data(&mut data).unwrap();
+            assert_eq!(data[0x39e0], 0);
+        }
+    }
+
+    #[test]
+    fn cheese_transfer_gates_movement_and_preserves_marker_until_support_checks() {
+        let mut data = room_tables();
+        crate::assets::set_word(&mut data, 4, 4);
+        data[0x39e1] = 6;
+        data[0x39e0] = 9;
+        let mut player = Player::at_alley_floor(120);
+        player.y = 88;
+        player.vertical_coordinate = 138;
+        player.vertical_direction = 1;
+        player.hole_marker = 9;
+        let before = player.clone();
+        let outcome = player.update(Controls { x: 1, y: -1 }, &data).unwrap();
+        assert_eq!(outcome.draw, Draw::Keep);
+        assert_eq!(
+            (player.x, player.y, player.phase, player.vertical_direction),
+            (before.x, before.y, before.phase, before.vertical_direction)
+        );
+        player.write_data(&mut data).unwrap();
+        assert_eq!(data[0x39e0], 9);
+        data[0x39e1] = 0;
+        player.check_support(&data).unwrap();
+        player.write_data(&mut data).unwrap();
+        assert_eq!(data[0x39e0], 0);
+    }
+
+    #[test]
     fn room_exit_is_a_request_without_a_landing_or_fence_reset() {
         let data = room_tables();
         let mut player = Player::at_alley_floor(248);
@@ -620,6 +671,8 @@ pub struct Player {
     airborne_sprite: Sprite,
     last_support: Support,
     room_exit_requested: bool,
+    /// Scene-four support-table hole identity at DS:39e0 (zero off a hole).
+    hole_marker: u8,
 }
 
 fn word(data: &[u8], offset: usize) -> u16 {
@@ -692,14 +745,15 @@ impl Player {
             },
             last_support: Support::Floor,
             room_exit_requested: false,
+            hole_marker: 0,
         }
     }
 
     /// Import state from a data-segment capture. No original data is embedded.
     pub fn from_data(data: &[u8]) -> Result<Self, &'static str> {
         Self::check_data(data)?;
-        if !matches!(word(data, 4), 0 | 5 | 7) {
-            return Err("player core supports the alley, birdcage and hearts scenes only");
+        if !matches!(word(data, 4), 0 | 4 | 5 | 7) {
+            return Err("player core supports the alley, cheese, birdcage and hearts scenes only");
         }
         Ok(Self {
             x: word(data, 0x579),
@@ -729,6 +783,7 @@ impl Player {
             },
             last_support: Support::None,
             room_exit_requested: false,
+            hole_marker: data.get(0x39e0).copied().unwrap_or(0),
         })
     }
 
@@ -766,6 +821,9 @@ impl Player {
         ] {
             data[offset] = value;
         }
+        if data.len() > 0x39e0 {
+            data[0x39e0] = self.hole_marker;
+        }
         Ok(())
     }
 
@@ -796,7 +854,7 @@ impl Player {
     fn check_data(data: &[u8]) -> Result<(), &'static str> {
         if data.len() < 0x1028 {
             Err("external data segment is too short for alley player tables")
-        } else if matches!(word(data, 4), 5 | 7) && data.len() < crate::assets::DATA_LENGTH {
+        } else if matches!(word(data, 4), 4 | 5 | 7) && data.len() < crate::assets::DATA_LENGTH {
             Err("external data segment is too short for room player tables")
         } else {
             Ok(())
@@ -814,7 +872,7 @@ impl Player {
         if !(-1..=1).contains(&controls.x) || !(-1..=1).contains(&controls.y) {
             return Err("control directions must be -1, 0, or 1");
         }
-        if self.alternate_animation != 0 && !matches!(word(data, 4), 5 | 7) {
+        if self.alternate_animation != 0 && !matches!(word(data, 4), 4 | 5 | 7) {
             return Err("collision-effect animation is outside the player core");
         }
         let mut outcome = UpdateOutcome {
@@ -825,6 +883,11 @@ impl Player {
             bin_contact_checked: false,
             forced_controls: None,
         };
+        // CS:092d..0939 gates all movement during a paired-hole transfer.
+        // Its sprite and background are owned by the separate room helper.
+        if word(data, 4) == 4 && data[0x39e1] != 0 {
+            return Ok(outcome);
+        }
         if data.get(0x1cb8).copied().unwrap_or(0) != 0 {
             return Ok(outcome);
         }
@@ -1026,6 +1089,7 @@ impl Player {
     fn initialize_transition_sprite(&mut self, data: &[u8]) {
         self.phase = 1;
         self.support_state = 0;
+        self.hole_marker = 0;
         let direction = self.horizontal_direction.wrapping_add(1).wrapping_mul(2);
         let index = usize::from(direction) + if self.vertical_direction == 255 { 0 } else { 6 };
         self.airborne_sprite = Sprite {
@@ -1184,6 +1248,9 @@ impl Player {
         if word(data, 4) == 0 {
             return Ok(self.check_alley_support(data));
         }
+        if word(data, 4) != 7 {
+            self.hole_marker = 0;
+        }
         let check = if word(data, 4) == 7 {
             crate::hearts::resolve_support(data, self)
         } else {
@@ -1197,6 +1264,9 @@ impl Player {
             self.support_state = hit.state;
             if hit.state != 0 {
                 self.x &= 0xfffc;
+            }
+            if word(data, 4) == 4 && (39..55).contains(&hit.index) {
+                self.hole_marker = (hit.index - 38) as u8;
             }
             Ok(Support::RoomTable)
         } else {

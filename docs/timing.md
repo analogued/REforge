@@ -136,6 +136,32 @@ See DOSBox-X's [video setup](https://github.com/joncampbell123/dosbox-x/blob/mas
 [status-port test](https://github.com/joncampbell123/dosbox-x/blob/master/src/hardware/vga_misc.cpp),
 and [PIT implementation](https://github.com/joncampbell123/dosbox-x/blob/master/src/hardware/timer.cpp).
 
+### Cheese room schedule
+
+Scene 4 polls controls, expires the room tone, attempts a player update, advances
+the paired-hole transfer, advances one collectible mouse slot, advances the
+broom, and checks scene termination, in that order. Both ordinary rooms retain
+floor tracking and the shared support, broom, scoring and window-return rules.
+
+The mouse scheduler accepts changed BIOS ticks and cycles four slots. Slot three
+leaves its tick unlatched, allowing the following slot-zero call in the same
+tick. Consumed slots remain inactive. Visibility phases, hole relocation,
+proximity rejection and avoidance use external tables and the shared generator.
+Only a visible mouse in a phase below 20 can be collected. The fourth collection
+sets ordinary-room success.
+
+A hole transfer requires Alt, a support-derived hole marker, no active alternate
+player animation, no broom overlap, and at least twelve wrapping BIOS ticks
+since the previous transfer. Its seven drawing steps are gated by changed BIOS
+ticks. The player timing gate still runs during the animation, but the movement
+body is suppressed; mouse and broom work continues. The normal cat image stays
+hidden until the next player draw after the destination background is saved.
+Hole pairing depends on difficulty modulo four, using the executable's tables.
+
+Active mouse and transfer drawing costs are provisional allowances, separate
+from these original gates. Silent audio and omitted sound random consumers mean
+a matching seed alone does not synchronize an original full-game run.
+
 ### Birdcage room schedule
 
 Scene 5 runs controls and pending-tone expiration, cage motion (`45ab`), bird
@@ -158,7 +184,8 @@ reset the player acceptance gate and logical controls.
 
 The candidate selector uses the shared generator, difficulty weighting and
 two-entry room history; it avoids a third consecutive identical candidate.
-The current dispatch maps ordinary candidates to scene 5. Candidate history is
+The current dispatch retains scene 4 candidates and maps other ordinary
+candidates to scene 5 until their rooms are implemented. Candidate history is
 therefore not a history of actual ordinary destinations. Success preserves
 the pending-bonus flag; the next eligible window selects scene 7 without
 advancing the selector's random state or ordinary candidate history.

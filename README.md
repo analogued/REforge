@@ -2,7 +2,8 @@
 
 An early Rust reconstruction of **Alley Cat** for modern desktop systems,
 initially targeting Linux. The current program supports alley movement,
-nonlethal actors, window entry, the birdcage room and the hearts bonus scene.
+nonlethal actors, window entry, the cheese and birdcage rooms, and the hearts
+bonus scene.
 It is not a complete game.
 A public recreation name has not been chosen.
 
@@ -43,6 +44,7 @@ other keys, including arrows, leave it paused. Pause shortcuts are ignored while
 Alt, Ctrl or Super is held, and held-key repeats do not toggle pause. Losing or
 regaining window focus does not change the pause state. Ctrl+Q or closing the
 window exits, including while paused.
+In the cheese room, hold Alt at a hole to travel to its paired hole.
 In the hearts scene, gifts are picked up automatically on contact; hold Alt
 to place a carried gift near the cat's current position.
 
@@ -70,10 +72,10 @@ The default seed is `0xfa59`.
 These controls are diagnostic setup options; startup and difficulty selection
 screens are not implemented.
 
-`--scene birdcage` starts directly in the birdcage room for testing; the default
-is `--scene alley`. Room actors and transitions use the default timed runner.
-`--scene hearts` starts directly in the hearts scene with one gift. This scene
-requires default windowed timing or `--headless --timed`.
+`--scene cheese` and `--scene birdcage` start directly in those rooms for testing;
+the default is `--scene alley`. Room actors and transitions use the default timed runner.
+`--scene hearts` starts directly in the hearts scene with one gift. Cheese and
+hearts require default windowed timing or `--headless --timed`.
 `--scene completion` previews the birdcage scoring presentation and returns to
 the alley, without playing the objective. This preview requires default windowed
 timing or `--headless --timed`.
@@ -84,7 +86,7 @@ The implemented slice includes seeded alley initialization, CGA bank addressing,
 sprite composition and background restoration, and player movement on the floor,
 dumpsters, and occupied upper platforms. Ground decorations use the original's
 weighted random selection and external sprites. Current score, high score and
-three starting lives use the original digit glyphs. Mouse catches and birdcage
+three starting lives use the original digit glyphs. Mouse catches and ordinary-room
 completion award points. Hearts completion also awards points and an extra
 life, capped at nine; life loss is not implemented.
 
@@ -107,11 +109,20 @@ Actor sprites and motion tables come from the required original executable.
 Windows open, hold and close with the original invocation-count, retrace and
 BIOS-tick gates. New openings require the cat to be above the fence, as in the
 original. A descending cat touching an eligible open window enters a room.
-Ordinary destinations currently lead to the birdcage room. The original candidate
-selector is retained separately, but its weighted choices and recent-room
-history do not determine the playable ordinary destination yet. Completing it
+Ordinary candidates for the cheese room retain that destination; other ordinary
+candidates currently lead to the birdcage room. The original weighted selector
+and recent-room history are retained separately from this temporary restriction
+to implemented rooms. Completing either room
 makes the next eligible window display the female cat and lead to the hearts
 scene. Projectiles remain disabled.
+
+In the cheese room, collect four mice as they emerge from the holes. Their
+visibility, avoidance and relocation use the original shared random generator
+and tick gates. The sixteen holes are paired by difficulty; hold Alt while
+standing at one to travel to its partner. The cat disappears and emerges there
+through a timed animation while the mice and broom continue updating. Cheese
+supports, floor tracks and the broom use the ordinary-room rules. Collecting
+the fourth mouse starts the shared scoring presentation and alley return.
 
 In the birdcage room, push the cage off its shelf and catch the released bird.
 Furniture supports, cage pushing/falling, bird movement, floor tracks and the
@@ -163,7 +174,7 @@ virtual BIOS/PIT clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle
 movement. The reference is DOSBox-X normal CPU core at fixed 240 cycles. Loop
 costs are fitted approximations; original-PC timing fidelity is not established.
-Birdcage and hearts execution costs are provisional and have not been independently
+Cheese, birdcage and hearts execution costs are provisional and have not been independently
 calibrated against the fixed-240 reference.
 Rendering refresh does not determine game ticks. See
 [timing contracts](docs/timing.md) for the schedule and its limits.
@@ -196,7 +207,7 @@ retrace, polling, acceptance, actor-divider events, scene changes and blocking w
 In headless runs it requires `--timed`; in windowed runs it uses default timing.
 
 `--trace`, `--dump-cga`, and `--dump-ppm` write player-state CSV including the
-original scene number (0 for alley, 5 for birdcage, 7 for hearts), the final
+original scene number (0 for alley, 4 for cheese, 5 for birdcage, 7 for hearts), the final
 16384-byte packed framebuffer, and a 320×200 PPM image respectively. Use paths
 outside the repository: these outputs contain original graphics or reference
 evidence. Output files must not already exist. See `--help` for all options.

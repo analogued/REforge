@@ -16,7 +16,7 @@ const HELP: &str = "Alley Cat — game reconstruction
 Usage: alley-cat --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
-  --scene NAME            Start in alley, birdcage, hearts or completion
+  --scene NAME            Start in alley, cheese, birdcage, hearts or completion
   --scale N               Initial window multiplier, 1..16 (default: 4)
   --seed N                Initial random seed, decimal or 0xHEX (default: 0xfa59)
   --difficulty N          Alley layout difficulty 0..7 (default: 0)
@@ -33,8 +33,9 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
 
 Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
 Ctrl+Q or closing the window quits.
-Gifts are picked up automatically; Alt places a carried gift in the hearts room.
-Ordinary windows lead to birdcage; after success, the next leads to hearts.
+Alt uses paired holes in cheese and places a carried gift in the hearts room.
+Gifts are picked up automatically.
+Ordinary windows lead to cheese or birdcage; after success, the next leads to hearts.
 Lethal alley actors and audio are absent.
 Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
@@ -43,6 +44,7 @@ Your original executable is required; original data is never bundled.";
 enum StartScene {
     Alley,
     Birdcage,
+    Cheese,
     Hearts,
     Completion,
 }
@@ -125,9 +127,14 @@ fn options() -> Result<Option<Options>, String> {
                 result.scene = match value.as_str() {
                     "alley" => StartScene::Alley,
                     "birdcage" => StartScene::Birdcage,
+                    "cheese" => StartScene::Cheese,
                     "hearts" => StartScene::Hearts,
                     "completion" => StartScene::Completion,
-                    _ => return Err("Scene must be alley, birdcage, hearts or completion".into()),
+                    _ => {
+                        return Err(
+                            "Scene must be alley, cheese, birdcage, hearts or completion".into(),
+                        );
+                    }
                 }
             }
             "--scale" => result.scale = integer(&value)?,
@@ -270,6 +277,12 @@ fn run() -> Result<(), String> {
     match options.scene {
         StartScene::Alley => {}
         StartScene::Birdcage => alley.enter_birdcage(0)?,
+        StartScene::Cheese => {
+            if options.step_hz.is_some() || (options.headless && !options.timed) {
+                return Err("Cheese play requires default timing or --headless --timed".into());
+            }
+            alley.enter_cheese(0)?;
+        }
         StartScene::Hearts => {
             if options.step_hz.is_some() || (options.headless && !options.timed) {
                 return Err("Hearts play requires default timing or --headless --timed".into());

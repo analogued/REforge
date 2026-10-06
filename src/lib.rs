@@ -7,6 +7,7 @@ pub mod assets;
 mod bin_cat;
 mod birdcage;
 pub mod cga;
+mod cheese;
 mod clothes;
 mod completion;
 mod decoration;

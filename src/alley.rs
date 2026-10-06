@@ -162,10 +162,10 @@ impl Alley {
     }
 
     pub fn update(&mut self, controls: Controls) -> Result<UpdateOutcome, String> {
-        let image = if matches!(self.scene(), 5 | 7) {
+        let image = if matches!(self.scene(), 4 | 5 | 7) {
             let image = self.compositor.suspend(&mut self.screen)?;
             self.player.write_data(&mut self.data)?;
-            if self.scene() == 5 && self.player.floor_track_due(controls) {
+            if matches!(self.scene(), 4 | 5) && self.player.floor_track_due(controls) {
                 self.data[0x56e] = controls.x as u8;
                 crate::room::record_floor_track(&mut self.data, &mut self.screen)?;
             }
@@ -251,7 +251,7 @@ impl Alley {
         &self.presented
     }
 
-    /// Original scene numbers: alley zero, birdcage five, hearts seven.
+    /// Original scene numbers: alley zero, cheese four, birdcage five, hearts seven.
     pub fn scene(&self) -> u16 {
         word(&self.data, 4)
     }
@@ -361,6 +361,35 @@ impl Alley {
         self.setup_birdcage()
     }
 
+    /// Enter the cheese room directly for diagnostic play.
+    pub fn enter_cheese(&mut self, tick: u16) -> Result<(), String> {
+        self.player.write_data(&mut self.data)?;
+        set_word(&mut self.data, 1, self.player.x);
+        self.data[3] = self.player.y;
+        set_word(&mut self.data, 0x410, tick);
+        self.data[0x419] = 1;
+        self.setup_cheese()
+    }
+
+    fn setup_cheese(&mut self) -> Result<(), String> {
+        self.completion = None;
+        self.hearts_completion = None;
+        set_word(&mut self.data, 4, 4);
+        set_word(&mut self.data, 6, 0);
+        self.compositor = PlayerCompositor::default();
+        self.bin_image = None;
+        self.mouse_effect = None;
+        crate::room::draw_cheese_room(&mut self.data, &mut self.screen)?;
+        crate::room::initialize_room_player(&mut self.data, 4)?;
+        crate::room::initialize_broom(&mut self.data)?;
+        crate::cheese::initialize(&mut self.data, &mut self.screen)?;
+        self.data[0x1cb8] = 0;
+        self.data[0x1cbf] = 0;
+        self.player = Player::from_data(&self.data)?;
+        self.reset_sound_state();
+        self.compose_actors()
+    }
+
     /// Enter scene seven directly for diagnostic play, saving the same return
     /// coordinates as a window entry. Normal progression enters via a window.
     pub fn enter_hearts(&mut self, tick: u16) -> Result<(), String> {
@@ -435,6 +464,37 @@ impl Alley {
         Ok(result)
     }
 
+    pub(crate) fn advance_cheese_mice(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::cheese::MouseStep, String> {
+        self.room_actor(|data, screen| crate::cheese::advance_mice(data, screen, tick))
+    }
+
+    pub(crate) fn advance_cheese_transfer(
+        &mut self,
+        tick: u16,
+    ) -> Result<crate::cheese::TransferStep, String> {
+        let image = self.compositor.suspend(&mut self.screen)?;
+        self.player.write_data(&mut self.data)?;
+        let step = crate::cheese::advance_transfer(&mut self.data, &mut self.screen, tick)?;
+        self.player.apply_actor_state(&self.data)?;
+        // The hole animation owns the image until its final background-save.
+        // The next accepted player call supplies the visible cat again.
+        if !step.started && !step.active && !step.finished {
+            if let Some((dimensions, source)) = image {
+                self.compositor.draw(
+                    &mut self.screen,
+                    pixel_offset(self.player.x, self.player.y),
+                    dimensions,
+                    &source,
+                )?;
+            }
+        }
+        self.compose_actors()?;
+        Ok(step)
+    }
+
     pub(crate) fn advance_room_cage(
         &mut self,
         tick: u16,
@@ -499,11 +559,14 @@ impl Alley {
                 return Ok(false);
             }
             self.player.write_data(&mut self.data)?;
-            // Preserve ordinary candidate history while routing its room set
-            // to the birdcage. The pending-bonus override retains scene seven.
+            // Preserve ordinary candidate history. Unimplemented candidates
+            // currently route to birdcage; cheese and the hearts override retain
+            // their original scene numbers.
             let candidate = crate::windows::select_room(&mut self.data, &self.player, tick)?;
             if candidate == 7 {
                 self.setup_hearts(tick)?;
+            } else if candidate == 4 {
+                self.setup_cheese()?;
             } else {
                 self.setup_birdcage()?;
             }

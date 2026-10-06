@@ -48,6 +48,34 @@ fn sprite_file(pixel: u8) -> Vec<u8> {
     file
 }
 
+fn program_file() -> Vec<u8> {
+    let mut image = vec![0; 0xa500];
+    image[mach3::rules::DATA_SEGMENT_OFFSET + 0x04ac..mach3::rules::DATA_SEGMENT_OFFSET + 0x04af]
+        .copy_from_slice(&[1, 2, 3]);
+    for index in 0..21 {
+        image[mach3::rules::DATA_SEGMENT_OFFSET + 0x0a3e + 50 * index] = 0xcf;
+    }
+    let size = image.len() as u16;
+    image.extend(size.to_le_bytes());
+    image.push(0xb3);
+    let stub_offset = image.len().div_ceil(16) * 16;
+    image.resize(stub_offset, 255);
+    image.extend([0; 16]);
+    image[stub_offset + 12..stub_offset + 14].copy_from_slice(&(size / 16).to_le_bytes());
+    image[stub_offset + 14..stub_offset + 16].copy_from_slice(&0x4252_u16.to_le_bytes());
+    let mut header = vec![0; 32];
+    for (offset, value) in [
+        (0, 0x5a4d_u16),
+        (8, 2),
+        (20, 16),
+        (22, (stub_offset / 16) as u16),
+    ] {
+        header[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+    header.extend(image);
+    header
+}
+
 #[test]
 fn renders_both_formats_and_protects_existing_files() {
     let directory = TestDirectory::new();
@@ -86,6 +114,7 @@ fn opening_export_preserves_existing_directories_and_rejects_unsupported_steps()
     fs::write(directory.0.join("data3"), vec![0; 16_000]).unwrap();
     fs::write(directory.0.join("data4"), sprite_file(0)).unwrap();
     fs::write(directory.0.join("data5"), sprite_file(255)).unwrap();
+    fs::write(directory.0.join("mach3.exe"), program_file()).unwrap();
     let export = |steps: &str, destination: &str| {
         Command::new(env!("CARGO_BIN_EXE_mach3-opening"))
             .args(["--steps", steps])

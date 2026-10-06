@@ -98,11 +98,10 @@ impl Ending {
         world[1].active = true;
         world[1].rect = player.shadow.rect;
         // Shot source selection runs even when the two slots remain inactive.
-        world[2] = empty_record(2, player_projectile_source(400), 400, -100, 254);
-        world[3] = empty_record(3, player_projectile_source(700), 700, -100, 254);
-        for slot in [2, 3, 28] {
-            world[slot].lateral = state.static_lateral;
+        for shot in state.weapon.shots {
+            world[shot.slot] = shot;
         }
+        world[28].lateral = state.static_lateral;
         for record in state.enemies {
             world[record.slot] = record;
         }
@@ -158,6 +157,10 @@ impl Ending {
 
     pub fn frame(&self) -> &Frame {
         &self.frame
+    }
+
+    pub fn special_snapshots(&self) -> [super::SpecialState; 5] {
+        self.special.snapshots()
     }
 
     pub fn snapshot(&self) -> EndingSnapshot {
@@ -424,16 +427,6 @@ fn title_source(depth: i16, title: EndingTitle) -> usize {
     }
 }
 
-fn player_projectile_source(depth: i16) -> usize {
-    if depth < 100 {
-        21
-    } else if depth > 160 {
-        23
-    } else {
-        22
-    }
-}
-
 fn score_digits(score: u32, x: i32, y: i32) -> [Draw; 6] {
     let mut divisor = 100_000;
     std::array::from_fn(|index| {
@@ -569,8 +562,8 @@ mod tests {
         let mut ending = Ending::new_with_best(&assets, &state, &frame, 123_457).unwrap();
         assert_eq!(ending.snapshot().world[0].rect.x_bytes, 40);
         assert_eq!(ending.snapshot().world[1].rect.x_bytes, 37);
-        assert_eq!(ending.snapshot().world[2].resolved_sprite, 23);
-        assert_eq!(ending.snapshot().world[3].resolved_sprite, 23);
+        assert_eq!(ending.snapshot().world[2].resolved_sprite, 22);
+        assert_eq!(ending.snapshot().world[3].resolved_sprite, 22);
         let order = ending.snapshot().full_world_order;
         let position = |slot| order.iter().position(|value| *value == slot).unwrap();
         for slot in 23..=27 {

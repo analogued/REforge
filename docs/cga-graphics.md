@@ -143,7 +143,7 @@ for ordinary drawing comes from the object's width, including the initial
 `mach3-frame` uses the Rust implementation directly; it needs no emulator state
 or captured pixel input. See the [README](../README.md#rust-renderer) for commands.
 It implements the verified initial scene only. The alternate background is
-decoded, but later scene selection and procedural drawing remain unimplemented.
+decoded; gameplay selects both bases and draws procedural gates and goal panels.
 
 `StartupFrames` also decodes `data1` and `data6` using the CGA bank layout.
 The optional `mach3-viewer` presents those frames and the initial scene through

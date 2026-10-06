@@ -4,7 +4,9 @@
 use mach3::{
     Error,
     assets::GraphicsAssets,
-    opening::{Ending, LAST_BODY, Opening, STEERING_LAST_BODY, Steering},
+    opening::{
+        Ending, LAST_BODY, Opening, STEERING_LAST_BODY, ScriptRules, SessionState, Steering,
+    },
     startup::StartupFrames,
 };
 use std::{
@@ -17,9 +19,9 @@ use std::{
 const HELP: &str = "Usage: mach3-opening [--steps 0..836] [--ending] [--inputs input.tsv] [--subframes] <assets-directory> <new-output-directory>\n\n\
 Export the no-input opening from the initial frame through the requested body.\n\
 Writes numbered CGA frames and state/object TSV tables; output directory must be new.\n\
-Default: 836 bodies, including the complete first no-input run. No audio or player controls.\n\
+Default: 836 bodies, including the complete first no-input run. Audio is deferred.\n\
 --ending: also export the first title pair and selected return intro image.\n\
---inputs: held steering TSV (body, update, mask); defaults to a 90-body prefix.\n\
+--inputs: held action TSV (body, update, mask); defaults to 90 bodies, explicit --steps permits up to 836.\n\
 --subframes: also export the three displayed passes as NNN-1.cga through NNN-3.cga.";
 
 fn new_file(path: impl AsRef<Path>) -> Result<BufWriter<std::fs::File>, Error> {
@@ -71,10 +73,8 @@ fn run() -> Result<(), Error> {
     };
     let mut input_changes = std::collections::BTreeMap::new();
     if let Some(path) = &input_path {
-        if include_ending || (steps_set && steps > STEERING_LAST_BODY) {
-            return Err(Error::InvalidData(
-                "steering export supports up to 90 bodies and excludes --ending".into(),
-            ));
+        if include_ending {
+            return Err(Error::InvalidData("input export excludes --ending".into()));
         }
         if !steps_set {
             steps = STEERING_LAST_BODY;
@@ -95,13 +95,13 @@ fn run() -> Result<(), Error> {
                 .collect::<Option<Vec<_>>>()
                 .filter(|row| {
                     row.len() == 3
-                        && (1..=90).contains(&row[0])
+                        && (1..=LAST_BODY).contains(&row[0])
                         && (1..=3).contains(&row[1])
-                        && row[2] <= 15
+                        && row[2] <= 31
                 })
                 .ok_or_else(|| {
                     Error::InvalidData(
-                        "input rows require body 1..90, update 1..3, mask 0..15".into(),
+                        "input rows require body 1..836, update 1..3, mask 0..31".into(),
                     )
                 })?;
             let key = (row[0], row[1]);
@@ -118,6 +118,7 @@ fn run() -> Result<(), Error> {
                     down: row[2] & 2 != 0,
                     left: row[2] & 4 != 0,
                     right: row[2] & 8 != 0,
+                    fire: row[2] & 16 != 0,
                 },
             );
         }
@@ -132,16 +133,21 @@ fn run() -> Result<(), Error> {
         return Err(Error::InvalidData(HELP.into()));
     };
     let assets = GraphicsAssets::load(&directory)?;
-    let mut opening = if input_path.is_some() {
-        Opening::with_steering(&assets)?
-    } else {
-        Opening::new(&assets)?
-    };
+    let program = mach3::rules::load_program(&directory)?;
+    let rules = ScriptRules::from_data_segment(&program[mach3::rules::DATA_SEGMENT_OFFSET..])?;
+    let mut session = SessionState::default();
+    session.select_intro();
+    let mut opening = Opening::from_game_start(&assets, rules, session.begin_game(), steps)?;
     let mut held_input = Steering::default();
     fs::create_dir(&destination)?;
     let mut state = new_file(destination.join("state.tsv"))?;
     let mut terrain = new_file(destination.join("terrain.tsv"))?;
     let mut enemies = new_file(destination.join("enemies.tsv"))?;
+    let mut weapon = new_file(destination.join("weapon.tsv"))?;
+    writeln!(
+        weapon,
+        "body\tcounter\tslot\tdepth\tlateral\theight_world\tactive\trequested\tresolved\tx\ty\twidth\theight\tphase"
+    )?;
     let mut player = new_file(destination.join("player.tsv"))?;
     let mut special = new_file(destination.join("special.tsv"))?;
     writeln!(
@@ -189,6 +195,26 @@ fn run() -> Result<(), Error> {
             }
         }
         let snapshot = opening.snapshot();
+        for shot in snapshot.weapon.shots {
+            writeln!(
+                weapon,
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                body,
+                snapshot.weapon.counter,
+                shot.slot,
+                shot.depth,
+                shot.lateral,
+                shot.height,
+                u8::from(shot.active),
+                shot.requested_sprite,
+                shot.resolved_sprite,
+                shot.rect.x_bytes,
+                shot.rect.y,
+                shot.rect.width_bytes,
+                shot.rect.height,
+                shot.phase
+            )?;
+        }
         for (position, slot) in snapshot.full_world_order.into_iter().enumerate() {
             writeln!(full_order, "{body}\t{position}\t{slot}")?;
         }
@@ -325,6 +351,7 @@ fn run() -> Result<(), Error> {
         frame.write_all(&opening.frame().to_cga())?;
         frame.flush()?;
     }
+    weapon.flush()?;
     state.flush()?;
     terrain.flush()?;
     enemies.flush()?;

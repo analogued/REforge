@@ -23,6 +23,7 @@ pub struct TerrainSnapshot {
 pub(crate) struct Terrain {
     slots: [TerrainSnapshot; 8],
     kinds: [TerrainKind; 8],
+    data_segment: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -37,6 +38,8 @@ enum TerrainKind {
 pub(crate) struct TerrainCollision {
     pub fuel: u16,
     pub points: u16,
+    /// Ascending-record awards; zero entries are unused.
+    pub awards: [u16; 8],
     pub damage: u16,
 }
 
@@ -68,11 +71,21 @@ impl Terrain {
                 animation_phase: 0,
             }),
             kinds: [TerrainKind::Type0; 8],
+            data_segment: None,
         }
     }
 
     /// Advance every terrain row before collision and source resolution.
+    #[cfg(test)]
     pub(crate) fn update_half_step(&mut self, player: [i16; 3]) -> u16 {
+        self.update_half_step_at_speed(player, 28)
+    }
+
+    pub(crate) fn update_half_step_at_speed(
+        &mut self,
+        player: [i16; 3],
+        forward_speed: i16,
+    ) -> u16 {
         let mut fuel = 0_u16;
         for (slot, kind) in self.slots.iter_mut().zip(self.kinds) {
             if !slot.active {
@@ -81,14 +94,14 @@ impl Terrain {
             match slot.movement {
                 2 => {
                     slot.requested_sprite = sprite_choice(slot.depth, slot.phase, kind);
-                    if proximity_effect(slot, kind, player) {
+                    if proximity_effect_at_speed(slot, kind, player, forward_speed) {
                         if matches!(kind, TerrainKind::Type1) {
                             fuel = fuel.wrapping_add(512);
                         }
-                        start_effect(slot);
+                        start_effect_at_speed(slot, forward_speed);
                     }
                     // A newly converted effect still applies this half-step's delta.
-                    slot.depth -= 28;
+                    slot.depth = slot.depth.wrapping_sub(forward_speed);
                     if slot.depth <= player[0] {
                         slot.active = false;
                         if slot.movement != 2 {
@@ -97,7 +110,7 @@ impl Terrain {
                     }
                 }
                 3 | 252 => {
-                    let sprite = effect_sprite(slot, kind);
+                    let sprite = effect_sprite_from_data(slot, kind, self.data_segment.as_deref());
                     if sprite == 0 {
                         slot.active = false;
                     } else {
@@ -118,6 +131,7 @@ impl Terrain {
 
     /// Collision uses the preceding resolved sources and ascending slot order.
     /// Grace gates damage only; collection/conversion still occur during grace.
+    #[cfg(test)]
     pub(crate) fn player_collision(
         &mut self,
         assets: &GraphicsAssets,
@@ -125,6 +139,18 @@ impl Terrain {
         player_sprite: usize,
         collidable: bool,
         can_damage: bool,
+    ) -> Result<Option<TerrainCollision>, Error> {
+        self.player_collision_at_speed(assets, player, player_sprite, collidable, can_damage, 28)
+    }
+
+    pub(crate) fn player_collision_at_speed(
+        &mut self,
+        assets: &GraphicsAssets,
+        player: [i16; 3],
+        player_sprite: usize,
+        collidable: bool,
+        can_damage: bool,
+        forward_speed: i16,
     ) -> Result<Option<TerrainCollision>, Error> {
         if !collidable {
             return Ok(None);
@@ -169,8 +195,14 @@ impl Terrain {
                     if matches!(kind, TerrainKind::Type1) {
                         effects.fuel = effects.fuel.wrapping_add(512);
                         effects.points = effects.points.wrapping_add(400);
+                        let next = effects
+                            .awards
+                            .iter_mut()
+                            .find(|value| **value == 0)
+                            .expect("at most one award per terrain record");
+                        *next = 400;
                     }
-                    start_effect(slot);
+                    start_effect_at_speed(slot, forward_speed);
                 }
                 if can_damage {
                     break;
@@ -223,17 +255,29 @@ impl Terrain {
     }
 
     /// Recycle after rendering and event processing, preserving resolved draw state.
+    #[cfg(test)]
     pub(crate) fn recycle(&mut self, selector: u16, random: &mut Random) -> Result<(), Error> {
         self.recycle_at(selector, random, 0)
     }
 
+    #[cfg(test)]
     pub(crate) fn recycle_at(
         &mut self,
         selector: u16,
         random: &mut Random,
         player_lateral: i16,
     ) -> Result<(), Error> {
-        if !matches!(selector, 0 | 2 | 3 | 5 | 6 | 7 | 9) {
+        self.recycle_at_speed(selector, random, player_lateral, 28)
+    }
+
+    pub(crate) fn recycle_at_speed(
+        &mut self,
+        selector: u16,
+        random: &mut Random,
+        player_lateral: i16,
+        forward_speed: i16,
+    ) -> Result<(), Error> {
+        if selector > 9 {
             return Err(Error::InvalidData(format!(
                 "unsupported opening terrain selector {selector}"
             )));
@@ -244,19 +288,26 @@ impl Terrain {
             }
             slot.lateral = ((random.next_word() & 0x7ff) as i16 - 1024)
                 .wrapping_sub(player_lateral.wrapping_mul(2));
-            slot.depth = 916 + index as i16 * 112;
+            slot.depth = forward_speed
+                .wrapping_mul(32 + index as i16 * 4)
+                .wrapping_add(20);
             slot.movement = 2;
             match selector {
                 0 => {
                     self.kinds[index] = TerrainKind::Type0;
                     slot.active = false;
                 }
+                1 => {
+                    self.kinds[index] = TerrainKind::Type0;
+                    slot.active = true;
+                }
                 2 => {
                     self.kinds[index] = TerrainKind::Type1;
                     slot.active = true;
                 }
-                3 => {
-                    self.kinds[index] = if random.next_word() & 3 == 0 {
+                3 | 4 => {
+                    let mask = if selector == 3 { 3 } else { 7 };
+                    self.kinds[index] = if random.next_word() & mask == 0 {
                         TerrainKind::Type1
                     } else {
                         TerrainKind::Type0
@@ -280,6 +331,11 @@ impl Terrain {
                     self.kinds[index] = TerrainKind::Type3;
                     slot.active = true;
                 }
+                8 if index <= 4 => {
+                    self.kinds[index] = TerrainKind::Type3;
+                    slot.active = true;
+                }
+                8 => slot.active = false,
                 9 => {
                     self.kinds[index] = if index <= 4 {
                         TerrainKind::Type2
@@ -307,10 +363,84 @@ impl Terrain {
             slot
         })
     }
+
+    /// A shot converts solid terrain and awards both conversion and hit points.
+    /// It neither refuels the player nor retires the projectile.
+    pub(crate) fn shot_collision(&mut self, slot: usize, forward_speed: i16) -> Result<u16, Error> {
+        let Some(index) = slot.checked_sub(15).filter(|index| *index < 8) else {
+            return Err(Error::InvalidData(format!("invalid terrain slot {slot}")));
+        };
+        if !matches!(self.kinds[index], TerrainKind::Type0 | TerrainKind::Type1) {
+            return Ok(0);
+        }
+        start_effect_at_speed(&mut self.slots[index], forward_speed);
+        Ok(900)
+    }
+
+    /// The new-game initializer retains resources, geometry, kinds and extents.
+    pub(crate) fn reset_for_game(&mut self) {
+        for (index, slot) in self.slots.iter_mut().enumerate() {
+            slot.active = false;
+            slot.movement = 0;
+            slot.depth = 1000 + index as i16 * 100;
+        }
+    }
+
+    pub(crate) fn restore_snapshots(
+        &mut self,
+        snapshots: [TerrainSnapshot; 8],
+    ) -> Result<(), Error> {
+        let mut kinds = [TerrainKind::Type0; 8];
+        for (kind, snapshot) in kinds.iter_mut().zip(snapshots) {
+            *kind = match snapshot.kind {
+                0 => TerrainKind::Type0,
+                1 => TerrainKind::Type1,
+                2 => TerrainKind::Type2,
+                3 => TerrainKind::Type3,
+                _ => return Err(Error::InvalidData("invalid retained terrain kind".into())),
+            };
+        }
+        self.slots = snapshots;
+        self.kinds = kinds;
+        self.reset_for_game();
+        Ok(())
+    }
+
+    /// Far shot effects can index beyond the nominal explosion sequence into
+    /// subsequent program data. Preserve that original lookup from external DS.
+    pub(crate) fn set_data_segment(&mut self, data: &[u8]) {
+        self.data_segment = Some(data.to_vec());
+    }
+
+    /// Command 46 places eight obstacles immediately before its goal panels.
+    /// Requested and resolved resources remain until the ordinary update pass.
+    pub(crate) fn spawn_goal_barrier(&mut self, forward_speed: i16, difficulty: u16) {
+        for (index, slot) in self.slots.iter_mut().enumerate() {
+            slot.depth = if difficulty == 0 {
+                944_i16.wrapping_sub(forward_speed.wrapping_mul(4))
+            } else {
+                944
+            };
+            slot.active = true;
+            slot.lateral = -600 + 75 * index as i16;
+            slot.movement = 2;
+            self.kinds[index] = TerrainKind::Type0;
+        }
+    }
 }
 
+#[cfg(test)]
 fn proximity_effect(slot: &TerrainSnapshot, kind: TerrainKind, player: [i16; 3]) -> bool {
-    if slot.depth >= player[0].wrapping_add(56) || player[2] >= 60 {
+    proximity_effect_at_speed(slot, kind, player, 28)
+}
+
+fn proximity_effect_at_speed(
+    slot: &TerrainSnapshot,
+    kind: TerrainKind,
+    player: [i16; 3],
+    forward_speed: i16,
+) -> bool {
+    if slot.depth >= player[0].wrapping_add(forward_speed.wrapping_mul(2)) || player[2] >= 60 {
         return false;
     }
     match kind {
@@ -326,12 +456,20 @@ fn proximity_effect(slot: &TerrainSnapshot, kind: TerrainKind, player: [i16; 3])
     }
 }
 
-fn start_effect(slot: &mut TerrainSnapshot) {
-    slot.movement = if slot.depth < 56 { 252 } else { 3 };
+fn start_effect_at_speed(slot: &mut TerrainSnapshot, forward_speed: i16) {
+    slot.movement = if slot.depth < forward_speed.wrapping_mul(2) {
+        252
+    } else {
+        3
+    };
     slot.animation_phase = 0;
 }
 
-fn effect_sprite(slot: &TerrainSnapshot, kind: TerrainKind) -> usize {
+fn effect_sprite_from_data(
+    slot: &TerrainSnapshot,
+    kind: TerrainKind,
+    data_segment: Option<&[u8]>,
+) -> usize {
     let frame = usize::from(slot.animation_phase / 2);
     if slot.movement == 252 {
         let first = if matches!(kind, TerrainKind::Type1) {
@@ -345,6 +483,12 @@ fn effect_sprite(slot: &TerrainSnapshot, kind: TerrainKind) -> usize {
             0
         }
     } else {
+        if let Some(data) = data_segment {
+            let offset = 0x0562_u16
+                .wrapping_add(((slot.depth >> 5) as u16).wrapping_mul(10))
+                .wrapping_add(frame as u16);
+            return usize::from(data.get(usize::from(offset)).copied().unwrap_or(0));
+        }
         let row = slot.depth >> 5;
         let sequence: &[usize] = match row {
             0..=2 => &[69, 61, 69, 67, 65, 64],
@@ -483,6 +627,92 @@ fn sprite_choice(depth: i16, phase: u8, kind: TerrainKind) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn additional_selectors_keep_their_random_consumption_and_excluded_kind() {
+        let mut terrain = Terrain::new();
+        let mut random = Random::default();
+        terrain.recycle_at_speed(1, &mut random, 17, 40).unwrap();
+        let state = terrain.snapshots();
+        assert!(state.iter().all(|slot| slot.active && slot.kind == 0));
+        assert_eq!(
+            state.map(|slot| slot.depth),
+            [1300, 1460, 1620, 1780, 1940, 2100, 2260, 2420]
+        );
+        terrain.reset_for_game();
+        terrain.recycle_at_speed(8, &mut random, -17, 28).unwrap();
+        let state = terrain.snapshots();
+        assert!(state[..5].iter().all(|slot| slot.active && slot.kind == 3));
+        assert!(state[5..].iter().all(|slot| !slot.active && slot.kind == 0));
+        let mut expected_random = Random::default();
+        for _ in 0..16 {
+            expected_random.next_word();
+        }
+        assert_eq!(random.state(), expected_random.state());
+        terrain.reset_for_game();
+        terrain.recycle_at_speed(4, &mut random, 0, 28).unwrap();
+        for _ in 0..16 {
+            expected_random.next_word();
+        }
+        assert_eq!(random.state(), expected_random.state());
+        assert!(
+            terrain
+                .snapshots()
+                .iter()
+                .all(|slot| slot.active && slot.kind <= 1)
+        );
+    }
+
+    #[test]
+    fn far_shot_effect_reads_following_external_data_and_retains_it_on_reset() {
+        let mut terrain = Terrain::new();
+        let mut data = vec![0; 0x10000];
+        data[0x562 + 20 * 10] = 86;
+        data[0x562 + 20 * 10 + 1] = 87;
+        terrain.set_data_segment(&data);
+        terrain.spawn_goal_barrier(28, 1);
+        terrain.slots[0].depth = 640;
+        terrain.shot_collision(15, 28).unwrap();
+        terrain.update_half_step_at_speed([14, 1000, 1000], 28);
+        assert_eq!(terrain.slots[0].requested_sprite, 86);
+        assert_eq!(terrain.slots[0].depth, 640);
+        terrain.update_half_step_at_speed([14, 1000, 1000], 28);
+        terrain.update_half_step_at_speed([14, 1000, 1000], 28);
+        assert_eq!(terrain.slots[0].requested_sprite, 87);
+        terrain.restore_snapshots(terrain.snapshots()).unwrap();
+        assert_eq!(terrain.data_segment.unwrap()[0x562 + 20 * 10], 86);
+    }
+
+    #[test]
+    fn speed_changes_conversion_and_goal_obstacle_spacing_without_resolving_sources() {
+        let mut terrain = Terrain::new();
+        terrain.spawn_goal_barrier(40, 0);
+        assert!(
+            terrain
+                .slots
+                .iter()
+                .all(|slot| slot.depth == 784 && slot.active)
+        );
+        assert_eq!(
+            terrain.slots.map(|slot| slot.lateral),
+            [-600, -525, -450, -375, -300, -225, -150, -75]
+        );
+        terrain.slots[0].depth = 79;
+        terrain.slots[0].requested_sprite = 54;
+        assert_eq!(terrain.shot_collision(15, 40).unwrap(), 900);
+        assert_eq!(terrain.slots[0].movement, 252);
+        assert_eq!(terrain.slots[0].requested_sprite, 54);
+        terrain.slots[1].depth = 80;
+        assert_eq!(terrain.shot_collision(16, 40).unwrap(), 900);
+        assert_eq!(terrain.slots[1].movement, 3);
+        terrain.spawn_goal_barrier(56, 1);
+        assert!(terrain.slots.iter().all(|slot| slot.depth == 944));
+        terrain.reset_for_game();
+        assert_eq!(terrain.slots[0].requested_sprite, 54);
+        assert_eq!(terrain.slots[0].lateral, -600);
+        assert!(!terrain.slots[0].active);
+        assert_eq!(terrain.slots[0].movement, 0);
+    }
     use crate::assets::Sprite;
 
     fn assets() -> GraphicsAssets {
@@ -562,7 +792,7 @@ mod tests {
         assert_eq!(slot.rect.y, 140);
         assert!(slot.active);
         assert_eq!(random.next_word(), 0xbe90);
-        assert!(terrain.recycle(8, &mut random).is_err());
+        assert!(terrain.recycle(10, &mut random).is_err());
     }
 
     #[test]
@@ -815,6 +1045,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!((effect.fuel, effect.points), (1024, 800));
+        assert_eq!(effect.awards, [400, 400, 0, 0, 0, 0, 0, 0]);
         assert!(immune.slots[..2].iter().all(|slot| slot.movement == 252));
         let mut vulnerable = setup();
         let effect = vulnerable

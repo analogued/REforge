@@ -2,10 +2,9 @@
 
 Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
-Status: Rust graphics decoding and a windowed, no-input opening preview,
-including terrain changes, nine enemy encounters, collision responses, life recovery,
-and the post-game title sequence.
-Later gameplay remains under investigation.
+Status: bounded Rust gameplay recreation with steering, shooting, encounter
+progression, collision responses, and retained-session restarts.
+Audio and unrestricted gameplay remain deferred.
 
 The main implementation language is **Rust**. Supporting tools and investigation
 scripts may use other languages. Other platform versions are outside the initial
@@ -73,41 +72,30 @@ to the compiler and system loader:
 cargo run --features viewer --bin mach3-viewer -- /path/to/assets
 ```
 
-It reads `DATA1` and `DATA6` as the splash and intro. Fresh Space presses advance
-to the opening, which then runs 836 no-input game-loop bodies using graphics
-from `DATA2` through `DATA5`. Terrain moves, the HUD updates, and the first
-nine enemy encounters appear, with seeking projectiles. The fifth wave contains
-two craft with separate shadows and a shared projectile. The second enemy steers
-into the player, triggering hit and explosion animations. Life loss restores
-fuel and resumes flight. The third enemy orbits before seeking the player;
-the fourth keeps its lateral orbit and fixed height. Ground effects can also
-damage the craft. A later section mixes terrain families and adds procedural
-gates with their own projection and crossing rules. The sixth encounter follows
-a scripted sweep; the seventh uses staggered sweep phases around a center that
-follows the player. It then enters fuel-bearing terrain and starts a three-craft
-seeking wave, followed by a three-craft wave that seeks at near depths.
-After the final death, the frozen scene displays animated Game Over and High Score
-presentations. The first pair completes before Space can return to the intro
-path, whose image selection uses the retained random stream. This no-input run
-selects the splash artwork. The viewer holds there; another game within that
-stream remains unsupported.
-Escape or window close exits.
+Supply the game resource directory, including `MACH3.EXE` and `DATA1` through
+`DATA6`. The executable supplies externally decoded encounter scripts and
+resource tables; the recreation does not execute DOS code. Fresh Space presses
+advance the splash and intro. After game over, the title pair completes before
+Space returns to the selected intro; another fresh press starts the next game
+with retained random state and best score.
 
-Use `--step` to advance one body or post-game animation step per fresh Space
-press after entering gameplay, or `--static` to retain the initial scene. Held or repeated Space does not skip
-manual steps. Animated playback displays all three original render passes per
-body, sampling steering at each pass. The default pace is approximately 36.41
-passes per second (12.14 bodies per second), derived from the game's timer logic;
-`--period-ms 1..5000` overrides the whole-body interval. Original startup timing
-and exact DOS CPU-dependent pacing are not reproduced. Firing, later encounters, and audio remain deferred.
+Use `--controls` to steer with arrows or S/X/B/N and fire with Space or keypad 5.
+The interactive preview still stops after 90 completed loop bodies. No-input
+playback retains its 836-body bound. Each body displays three passes, with player
+input sampled separately at each pass. The default pace is approximately 36.41
+passes per second; `--period-ms 1..5000` overrides the whole-body interval.
+Original CPU-dependent pacing and audio are not reproduced.
 
-Use `--controls` for a 90-body steering preview. Arrow keys move the craft;
-release slows it down, and diagonal inputs combine both axes. Movement includes
-camera changes, world displacement, banking, and the HUD indicators. This
-controlled prefix holds its final frame; the full no-input mode still reaches
-game over and the return intro. `--controls --step` samples held directions
-when Space advances a body. Losing focus releases held controls.
+F1 pauses: release it, then press and release another gameplay key to resume.
+Holding F1 at the pause decision ends the game after the current body completes.
+F2 toggles the retained sound preference; synthesis is deferred. F3 switches
+between color and the original 640-by-200 one-bit interpretation of the same
+video bytes. Held function keys follow the original polling behavior and can
+repeat their action. Escape or window close exits the viewer.
 
+Use `--step` for one body or title step per fresh **Enter** press after entering
+gameplay, or `--static` to retain the initial scene. Space remains Fire during
+manual gameplay. Losing focus releases held controls.
 The default window is 960 by 720 (3x). `--scale 1..16` sets its initial scale;
 scale 8 gives 2560 by 1920:
 
@@ -128,7 +116,7 @@ For reproducible frame and state export without SDL3:
 cargo run --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
 ```
 
-This writes frames `000.cga` through `836.cga` plus state, player, object, and
+This writes frames `000.cga` through `836.cga` plus state, player, weapon, object, and
 drawing-order TSV tables. Add `--subframes` to also write each body's three
 displayed passes as `NNN-1.cga` through `NNN-3.cga`. The numbered boundary frames
 and TSV tables retain their whole-body meaning. Add `--ending` to export the first
@@ -138,11 +126,11 @@ uses the decoded assets and interpreted update rules; it does not load captured
 frames, emulator state, or a replay.
 
 For a deterministic steering replay, add `--inputs /path/to/inputs.tsv`.
-The default becomes 90 bodies; `--steps 0..90` selects a shorter prefix.
+The default becomes 90 bodies; explicit `--steps 0..836` permits longer bounded investigations.
 The TSV header is `body`, `update`, `mask`, separated by tabs. Each row changes
-the held state at body 1–90 and player update 1–3. Masks combine Up=1, Down=2,
-Left=4, Right=8; zero releases all directions. Rows must be strictly ordered,
-and the state persists until the next row. Steering export excludes `--ending`.
+the held state at body 1–836 and player update 1–3. Masks combine Up=1, Down=2,
+Left=4, Right=8, Fire=16; zero releases all actions. Rows must be strictly ordered,
+and the state persists until the next row. Input export excludes `--ending`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for formatting and commit conventions.
 

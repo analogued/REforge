@@ -9,6 +9,7 @@ pub struct Steering {
     pub down: bool,
     pub left: bool,
     pub right: bool,
+    pub fire: bool,
 }
 
 impl Steering {
@@ -17,6 +18,7 @@ impl Steering {
             | ((self.down as u16) << 1)
             | ((self.left as u16) << 2)
             | ((self.right as u16) << 3)
+            | ((self.fire as u16) << 4)
     }
 }
 
@@ -97,6 +99,14 @@ impl Player {
         Ok(player)
     }
 
+    pub(crate) fn end_game(&mut self) {
+        self.state.game_over = true;
+    }
+
+    pub(crate) fn add_lives(&mut self, count: u8) {
+        self.state.lives = self.state.lives.saturating_add(count).min(6);
+    }
+
     pub(crate) fn can_damage(&self) -> bool {
         self.state.phase == 0 && self.state.grace >= 4
     }
@@ -131,6 +141,7 @@ impl Player {
                 left: lateral > 30,
                 up: height < -30,
                 down: height > 30,
+                fire: false,
             }
         } else {
             steering
@@ -656,7 +667,8 @@ mod tests {
                 up: true,
                 down: true,
                 left: true,
-                right: true
+                right: true,
+                fire: false
             }
             .bits(),
             15

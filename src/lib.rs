@@ -5,6 +5,7 @@
 pub mod assets;
 pub mod frame;
 pub mod opening;
+pub mod rules;
 pub mod scene;
 pub mod startup;
 #[cfg(feature = "viewer")]

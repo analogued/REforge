@@ -223,7 +223,7 @@ the formation to three seeking craft; their shared projectile and target still
 update in ascending slot order. The ninth uses the same randomized formation
 initialization as the first wave. At old depths of at least 240 it retains
 lateral position and height while moving forward by 22 units per half-step.
-Below depth 240 it seeks the player. Alternate modes remain unsupported.
+Below depth 240 it seeks the player. Alternate modes select the corresponding shadow family.
 
 Camera height changes with the player's response movement. The terrain strip
 position and vertical projection origin are cached by the first render pass;
@@ -263,7 +263,7 @@ The viewer offers an interval override and manual stepping.
 ## Player steering
 
 `2277` polls held inputs three times per body. Original Up/S, Down/X, Left/B,
-and Right/N map to bits 1, 2, 4, and 8. The native viewer exposes arrow keys.
+and Right/N map to bits 1, 2, 4, and 8. The native viewer exposes these aliases and arrow keys.
 Up and Right acceleration run before Down and Left. Opposing directions remain
 separate bits and suppress friction; at the positive speed limit the negative
 operation wins. Release reduces each velocity toward zero by one per update.
@@ -288,8 +288,8 @@ The first injected key in that capture reached the keyboard handler after the
 first player poll; a separate poll trace establishes samples zero, Left, Left.
 `advance_with_inputs` and the exporter's input TSV support exact per-poll replay;
 animated playback samples held state separately at each pass. Manual stepping
-samples the same held state for all three updates in a body. Full controlled
-gameplay, firing, and a second run remain to be implemented and verified.
+samples the same held state for all three updates in a body. The interactive controlled preview remains capped at 90 bodies. Longer bounded
+exports exercise additional actions while that cap is retained.
 
 ## Game over and return
 
@@ -315,6 +315,61 @@ values below four and raw `DATA1` otherwise. The verified no-input run selects
 image selection; it does not replay the entire fresh-process startup.
 
 `Ending` implements the title stages, best-score retention, frozen projection,
-and return image choice. The viewer uses Space for return and holds the chosen
-image. Firing, another game in the existing random stream,
-additional encounter commands, and audio remain unsupported.
+and return image choice. The viewer uses Space for return; the next fresh press
+starts another game with the continuing random stream and retained best score.
+Audio remains deferred.
+
+
+## Shooting and progression
+
+Space/keypad 5 supplies Fire bit 16. Weapon updates run after collision on the
+first and third player polls. Two player slots alternate when the other shot
+has passed depth 130. New shots start fifteen depth units beyond the player;
+forward motion adds `(depth >> 4) + 22`, and depth above 300 retires them.
+A signed firing counter limits sustained fire and controls the right HUD bar.
+Its clamp occurs on HUD updates, so it feeds back into later weapon updates.
+The near list is selected before weapon motion; a newly spawned near shot can
+retain its preceding projection until the next eligible resolution.
+
+Player shots destroy ordinary craft variants 0, 1, 2, and 5 for 1,500 points,
+and variant 6 for 2,600. They cancel the shared enemy projectile. Terrain kinds
+0 and 1 convert to effects for 900 points without consuming the player shot or
+granting fuel. An active source continues its ascending target scan even after
+a hit clears its activity. Damage responses replace Fire along with directions.
+
+`ScriptRules` reads the 21 scripts and their two progression edges from the
+expanded external program data. The maintained decoder expands the reverse-RLE
+load image without executing or relocating it. Normal endings follow edge zero;
+entering a goal follows edge one. Both reset the cursor and clear primary and
+special activity while retaining the random stream and current terrain selector.
+The parser preserves signed, wrapping delay arithmetic, including several
+commands in a single invocation at higher difficulty.
+
+The implementation handles the enemy command families, all terrain selectors,
+procedural special modes, continuous gate recycling, palette/background
+selection, and acceleration/deceleration of the three world speeds. Scene
+changes produce seven expanding viewport draws over a frozen world. Difficulty
+remains a wrapping word; patrol and effect resources use the external data rather
+than an invented upper-level clamp. A resource retry cycle that would stall the
+original is reported instead of hanging the native viewer. These later paths
+have static analysis and synthetic algorithm tests; runtime comparisons cover
+the complete first no-input game and targeted controlled prefixes.
+
+## Session and gameplay controls
+
+A new game resets gameplay counters, speeds, lives, and active records but keeps
+the generator, best score, display mode, and sound preference. Object reset is
+partial: unused coordinates, subtypes, and resolved projection fields can survive
+until subsequent allocation or resolution. `SessionState` carries those fields
+between the ending and `Opening::from_game_start`.
+
+The original polls gameplay controls at body entry and at each of its three
+player updates. F2 toggles its sound flag after four active polls; F3 switches
+on each active poll. Mode 6 displays the same video bytes as 640 one-bit pixels
+per row. Both modes fill a 4:3 display.
+
+F1 enters a release/press/release pause handshake with two timer waits before
+press detection and two before the decision. The decision samples whether F1
+is still held; that requests game over, while other input resumes. The current
+committed body completes before the exit flag is observed. Native Enter stepping
+is a development control, separate from the original Fire input.

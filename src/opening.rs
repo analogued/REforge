@@ -1,12 +1,16 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Bounded, no-input opening simulation using interpreted game-state updates.
+//! Bounded gameplay simulation using interpreted game-state updates.
 
 mod ending;
 mod enemy;
 mod hud;
 mod player;
+mod presentation;
+mod progression;
+mod session;
 mod special;
 mod terrain;
+mod weapon;
 
 use crate::{
     Error,
@@ -19,8 +23,15 @@ pub use ending::{Ending, EndingSnapshot, EndingStage, EndingTitle};
 pub use enemy::EnemySnapshot as EnemyState;
 pub use hud::HudSnapshot as HudState;
 pub use player::{PlayerSnapshot as PlayerState, Steering};
+pub use presentation::TransitionFrame;
+pub use progression::{ScriptCommand, ScriptRules};
+pub use session::{
+    Controls, DisplayMode, GameStart, HeldKeys, InputPoll, KeyboardState, PauseControl, PauseEvent,
+    PauseState, Preferences, RetainedWorld, SessionState,
+};
 pub use special::SpecialSnapshot as SpecialState;
 pub use terrain::TerrainSnapshot as TerrainState;
+pub use weapon::WeaponSnapshot as WeaponState;
 
 #[derive(Clone, Debug)]
 pub struct Snapshot {
@@ -31,12 +42,19 @@ pub struct Snapshot {
     pub strip_y: usize,
     pub vertical_origin: i32,
     pub random: [u16; 3],
+    pub script_index: u16,
+    pub difficulty: u16,
+    pub progression: u16,
+    pub speeds: [i16; 3],
+    pub speed_mode: u16,
+    pub palette_family: u8,
     pub script_cursor: u16,
     pub script_delay: u16,
     pub terrain_selector: u16,
     pub primary_count: u16,
     pub hud: HudState,
     pub player: PlayerState,
+    pub weapon: WeaponState,
     pub terrain: [TerrainState; 8],
     pub enemies: [EnemyState; 11],
     pub enemy_target: [i16; 2],
@@ -54,10 +72,24 @@ pub struct Opening {
     body_limit: u16,
     static_lateral: i16,
     random: Random,
+    rules: Option<ScriptRules>,
+    script_index: u16,
+    difficulty: u16,
+    progression: u16,
+    speeds: [i16; 3],
+    speed_mode: u16,
+    strip_family: usize,
+    strip_cycle: usize,
+    alternate_background: bool,
+    overlay: u16,
+    layer: u16,
+    palette_family: u8,
+    distance_hint: i16,
     hud: hud::Hud,
     terrain: terrain::Terrain,
     enemy: enemy::Enemy,
     player: player::Player,
+    weapon: weapon::Weapon,
     special: special::Special,
     strip_y: usize,
     vertical_origin: i32,
@@ -68,6 +100,10 @@ pub struct Opening {
     world_order: Vec<usize>,
     full_world_order: Vec<usize>,
     frame: Frame,
+    selected_layer: u16,
+    remembered_draws: [Option<scene::Draw>; 29],
+    remembered_requests: [usize; 29],
+    transitions: Vec<TransitionFrame>,
 }
 
 impl Opening {
@@ -81,10 +117,24 @@ impl Opening {
             body_limit: LAST_BODY,
             static_lateral: 0,
             random,
+            rules: None,
+            script_index: 0,
+            difficulty: 0,
+            progression: 1,
+            speeds: [28, 22, 16],
+            speed_mode: 0,
+            strip_family: 0,
+            strip_cycle: 2,
+            alternate_background: false,
+            overlay: 0,
+            layer: 0,
+            palette_family: 1,
+            distance_hint: 2400,
             hud: hud::Hud::new(assets)?,
             terrain: terrain::Terrain::new(),
             enemy: enemy::Enemy::new(assets)?,
             player: player::Player::new(assets)?,
+            weapon: weapon::Weapon::new(assets)?,
             special: special::Special::new(),
             strip_y: 92,
             vertical_origin: 106,
@@ -99,6 +149,10 @@ impl Opening {
                 .collect(),
             full_world_order: (0..29).collect(),
             frame: scene::initial_frame(assets)?,
+            selected_layer: 0,
+            remembered_draws: [None; 29],
+            remembered_requests: [0; 29],
+            transitions: Vec::new(),
         };
         let depths = opening.world_depths();
         opening.sort_full_world(&depths);
@@ -110,6 +164,68 @@ impl Opening {
         let mut opening = Self::new(assets)?;
         opening.body_limit = STEERING_LAST_BODY;
         Ok(opening)
+    }
+
+    /// Construct a bounded game using external encounter rules and retained session state.
+    pub fn from_game_start(
+        assets: &GraphicsAssets,
+        rules: ScriptRules,
+        start: GameStart,
+        limit: u16,
+    ) -> Result<Self, Error> {
+        let mut opening = Self::new(assets)?;
+        opening.random = Random {
+            words: start.random,
+        };
+        opening.script_index = start.script_index;
+        opening.body_limit = limit;
+        opening.terrain.set_data_segment(rules.data_segment());
+        opening.rules = Some(rules);
+        opening.enemy.reset_for_game(assets)?;
+        if let Some(world) = start.retained_world {
+            opening.enemy = enemy::Enemy::restore_snapshots(
+                std::array::from_fn(|i| world.records[i + 4]),
+                assets,
+            )?;
+            opening.terrain.restore_snapshots(std::array::from_fn(|i| {
+                let row = world.records[i + 15];
+                TerrainState {
+                    slot: row.slot,
+                    depth: row.depth,
+                    lateral: row.lateral,
+                    active: row.active,
+                    movement: row.movement,
+                    kind: row.variant,
+                    animation_phase: row.animation_phase,
+                    requested_sprite: row.requested_sprite,
+                    resolved_sprite: row.resolved_sprite,
+                    rect: row.rect,
+                    phase: row.phase,
+                }
+            }))?;
+            opening.special.restore_snapshots(world.special);
+            opening.weapon.restore([world.records[2], world.records[3]]);
+            opening.static_lateral = world.records[28].lateral;
+        }
+        // Initialization resolves and projects the reset records before its first
+        // displayed frame. Retained unused coordinates and animation fields survive.
+        opening.weapon.project(assets, true, 106, 0)?;
+        opening.enemy.project(assets, true, 106, 0)?;
+        opening.terrain.project(assets, true, 106, 0)?;
+        opening.special.project(true, 106, 0)?;
+        opening.full_world_order = (0..29).collect();
+        let depths = opening.world_depths();
+        opening.sort_full_world(&depths);
+        opening.sort_world(&depths);
+        Ok(opening)
+    }
+
+    pub fn request_game_over(&mut self) {
+        self.player.end_game();
+    }
+
+    pub fn palette_family(&self) -> u8 {
+        self.palette_family
     }
 
     pub fn frame(&self) -> &Frame {
@@ -131,16 +247,23 @@ impl Opening {
             body: self.body,
             render_pass: self.render_pass,
             static_lateral: self.static_lateral,
-            strip_index: (2 + 3 - usize::from(self.body % 3)) % 3,
+            strip_index: self.strip_family * 3 + self.strip_cycle,
             strip_y: self.strip_y,
             vertical_origin: self.vertical_origin,
             random: self.random.state(),
+            script_index: self.script_index,
+            difficulty: self.difficulty,
+            progression: self.progression,
+            speeds: self.speeds,
+            speed_mode: self.speed_mode,
+            palette_family: self.palette_family,
             script_cursor: self.script_cursor,
             script_delay: self.script_delay,
             terrain_selector: self.terrain_selector,
             primary_count: self.primary_count,
             hud: self.hud.snapshot(),
             player: self.player.snapshot(),
+            weapon: self.weapon.snapshot(),
             terrain: self.terrain.snapshots(),
             enemies: self.enemy.snapshots(),
             enemy_target: self.enemy.target(),
@@ -205,7 +328,25 @@ impl Opening {
             self.sort_world(&first_depths);
             self.sort_full_world(&first_depths);
             self.hud.set_orientation(self.player.snapshot().orientation);
-            self.hud.update(self.body, &mut self.random);
+            self.hud.set_progression(self.progression);
+            self.hud.set_score_multiplier(1);
+            if let Some(rules) = &self.rules {
+                self.hud
+                    .set_marker_styles(assets, rules.marker_styles(self.difficulty)?)?;
+            }
+            let effects = self.hud.update_with_weapon(
+                self.body,
+                &mut self.random,
+                self.weapon.snapshot().counter,
+            )?;
+            if let Some(counter) = effects.weapon_counter {
+                self.weapon.set_counter(counter);
+            }
+            if let Some(damage) = effects.damage {
+                self.player.hit(damage);
+            }
+            self.advance_strip();
+            self.advance_speed();
             self.render_pass = 1;
         } else {
             self.advance_player(input)?;
@@ -216,186 +357,326 @@ impl Opening {
             self.render_pass += 1;
         }
         self.render(assets)?;
+        self.hud
+            .set_score_multiplier(if self.selected_layer == 1 { 4 } else { 1 });
         if self.render_pass != 3 {
             return Ok(true);
         }
         self.player.finish_body();
 
         // Event creation and recycling happen after the last framebuffer write.
-        if !self.enemy.active() {
-            let old_delay = self.script_delay;
-            self.script_delay += 1;
-            if old_delay >= 20 {
-                self.script_delay = 1; // Non-wave handler repeats the delay gate once.
-                match self.script_cursor {
-                    0 => self.terrain_selector = 5,
-                    1 => {} // Palette-family 1 is already active.
-                    2 => {
-                        self.enemy.spawn_command(
-                            0x91,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                        )?;
-                        self.script_delay = 0;
+        if self.overlay != 0 {
+            self.overlay = self.overlay.wrapping_add(1);
+            if self.overlay > 80 {
+                self.overlay = 0;
+                self.queue_transition(assets)?;
+            }
+        }
+        if self.rules.is_some() {
+            self.parse_commands(assets)?;
+        } else {
+            if !self.enemy.active() {
+                let old_delay = self.script_delay;
+                self.script_delay += 1;
+                if old_delay >= 20 {
+                    self.script_delay = 1; // Non-wave handler repeats the delay gate once.
+                    match self.script_cursor {
+                        0 => self.terrain_selector = 5,
+                        1 => {} // Palette-family 1 is already active.
+                        2 => {
+                            self.enemy.spawn_command(
+                                0x91,
+                                &mut self.random,
+                                self.player.snapshot().coordinates[1],
+                                usize::from(self.primary_count),
+                            )?;
+                            self.script_delay = 0;
+                        }
+                        3 => self.terrain_selector = 7,
+                        4 => {
+                            self.enemy.spawn_command(
+                                0x84,
+                                &mut self.random,
+                                0,
+                                usize::from(self.primary_count),
+                            )?;
+                            self.script_delay = 0;
+                        }
+                        5 => self.terrain_selector = 6,
+                        6 => {
+                            self.enemy.spawn_command(
+                                0x8e,
+                                &mut self.random,
+                                self.player.snapshot().coordinates[1],
+                                usize::from(self.primary_count),
+                            )?;
+                            self.script_delay = 0;
+                        }
+                        7 => self.terrain_selector = 3,
+                        8 => {
+                            self.enemy.spawn_command(
+                                0x8a,
+                                &mut self.random,
+                                self.player.snapshot().coordinates[1],
+                                usize::from(self.primary_count),
+                            )?;
+                            self.script_delay = 0;
+                        }
+                        9 => self.terrain_selector = 7,
+                        10 => {
+                            self.random.next_word();
+                            self.primary_count += 1;
+                        }
+                        11 => {
+                            self.enemy.spawn_command(
+                                0x88,
+                                &mut self.random,
+                                self.player.snapshot().coordinates[1],
+                                usize::from(self.primary_count),
+                            )?;
+                            self.script_delay = 0;
+                        }
+                        12 => self.terrain_selector = 9,
+                        13 => self.special.spawn_command_40(&mut self.random, 28, false),
+                        14 => {
+                            self.enemy.spawn_command(
+                                0x97,
+                                &mut self.random,
+                                self.player.snapshot().coordinates[1],
+                                usize::from(self.primary_count),
+                            )?;
+                            self.script_delay = 0;
+                        }
+                        15 => self.terrain_selector = 9,
+                        16 => self.special.spawn_command_40(&mut self.random, 28, false),
+                        17 => {
+                            self.enemy.spawn_command(
+                                0x96,
+                                &mut self.random,
+                                self.player.snapshot().coordinates[1],
+                                usize::from(self.primary_count),
+                            )?;
+                            self.script_delay = 0;
+                        }
+                        18 => self.terrain_selector = 2,
+                        19 => {
+                            self.random.next_word();
+                            self.primary_count += 1;
+                        }
+                        20 => {
+                            self.enemy.spawn_command(
+                                0x84,
+                                &mut self.random,
+                                self.player.snapshot().coordinates[1],
+                                usize::from(self.primary_count),
+                            )?;
+                            self.script_delay = 0;
+                        }
+                        21 => self.terrain_selector = 2,
+                        22 => {
+                            self.enemy.spawn_command(
+                                0x92,
+                                &mut self.random,
+                                self.player.snapshot().coordinates[1],
+                                usize::from(self.primary_count),
+                            )?;
+                            self.script_delay = 0;
+                        }
+                        _ => return Err(Error::InvalidData("unsupported opening command".into())),
                     }
-                    3 => self.terrain_selector = 7,
-                    4 => {
-                        self.enemy.spawn_command(
-                            0x84,
-                            &mut self.random,
-                            0,
-                            usize::from(self.primary_count),
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    5 => self.terrain_selector = 6,
-                    6 => {
-                        self.enemy.spawn_command(
-                            0x8e,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    7 => self.terrain_selector = 3,
-                    8 => {
-                        self.enemy.spawn_command(
-                            0x8a,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    9 => self.terrain_selector = 7,
-                    10 => {
-                        self.random.next_word();
-                        self.primary_count += 1;
-                    }
-                    11 => {
-                        self.enemy.spawn_command(
-                            0x88,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    12 => self.terrain_selector = 9,
-                    13 => self.special.spawn_command_40(&mut self.random, 28, false),
-                    14 => {
-                        self.enemy.spawn_command(
-                            0x97,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    15 => self.terrain_selector = 9,
-                    16 => self.special.spawn_command_40(&mut self.random, 28, false),
-                    17 => {
-                        self.enemy.spawn_command(
-                            0x96,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    18 => self.terrain_selector = 2,
-                    19 => {
-                        self.random.next_word();
-                        self.primary_count += 1;
-                    }
-                    20 => {
-                        self.enemy.spawn_command(
-                            0x84,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    21 => self.terrain_selector = 2,
-                    22 => {
-                        self.enemy.spawn_command(
-                            0x92,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    _ => return Err(Error::InvalidData("unsupported opening command".into())),
+                    self.script_cursor += 1;
                 }
-                self.script_cursor += 1;
             }
         }
         let lateral = self.player.snapshot().coordinates[1];
-        if lateral == 0 {
-            self.terrain
-                .recycle(self.terrain_selector, &mut self.random)?;
-        } else {
-            self.terrain
-                .recycle_at(self.terrain_selector, &mut self.random, lateral)?;
-        }
+        self.terrain.recycle_at_speed(
+            self.terrain_selector,
+            &mut self.random,
+            lateral,
+            self.speeds[0],
+        )?;
+        self.special.recycle_continuous(
+            &mut self.random,
+            self.speeds[0],
+            self.overlay.wrapping_add(self.layer) as i16 > 0,
+        );
         Ok(true)
     }
 
+    fn presentation(&self) -> presentation::Presentation {
+        presentation::Presentation {
+            alternate_background: self.alternate_background,
+            layer: self.layer,
+            overlay_counter: self.overlay,
+        }
+    }
+
+    pub(crate) fn queue_transition(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
+        self.hud
+            .set_score_multiplier(if self.layer == 1 { 4 } else { 1 });
+        let frames = self.presentation().transition_frames(
+            assets,
+            &self.frame,
+            self.snapshot().strip_index,
+            self.strip_y,
+            |frame, clip| self.draw_world(assets, frame, clip),
+        )?;
+        if let Some(last) = frames.last() {
+            self.frame = last.frame.clone();
+        }
+        self.transitions.extend(frames);
+        self.remembered_draws = self.world_draws();
+        self.remembered_requests = self.world_requests();
+        Ok(())
+    }
+
+    pub fn take_transitions(&mut self) -> Vec<TransitionFrame> {
+        std::mem::take(&mut self.transitions)
+    }
+
     fn render(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
-        let background = scene::background_at(assets, self.snapshot().strip_index, self.strip_y)?;
-        let viewport = Rect {
-            x_bytes: 4,
-            y: 44,
-            width_bytes: 72,
-            height: 114,
-        };
-        let mut packed = if self.render_pass == 1 {
-            let mut packed = background.packed().to_vec();
-            // Incremental indicator masks paint over their preceding pixels.
-            for y in 13..20 {
-                for x in [28, 47] {
-                    let start = y * 80 + x;
-                    packed[start..start + 6]
-                        .copy_from_slice(&self.frame.packed()[start..start + 6]);
+        let state = self.presentation();
+        let strip = self.snapshot().strip_index;
+        let viewport = presentation::VIEWPORT;
+        if self.render_pass == 1 {
+            self.selected_layer = state.world_layer();
+        }
+        let background = presentation::Presentation {
+            layer: self.selected_layer,
+            overlay_counter: 0,
+            ..state
+        }
+        .background(assets, strip, self.strip_y, self.render_pass)?;
+        let mut frame = self.frame.clone();
+        if self.render_pass == 1 {
+            // HUD writes have their own normal background layer. Retain indicator
+            // pixels because their masks deliberately update the preceding frame.
+            let hud_background = state.background_with_layer(assets, strip, self.strip_y, 0)?;
+            let mut packed = frame.packed().to_vec();
+            for y in 0..200 {
+                for x in 0..80 {
+                    if (44..158).contains(&y) && (4..76).contains(&x) {
+                        continue;
+                    }
+                    if (13..20).contains(&y) && ((28..34).contains(&x) || (47..53).contains(&x)) {
+                        continue;
+                    }
+                    packed[y * 80 + x] = hud_background.packed()[y * 80 + x];
                 }
             }
-            packed
-        } else {
-            // Only the viewport changes between passes. In particular, changed
-            // HUD indicator masks must not be applied a second or third time.
-            self.frame.packed().to_vec()
-        };
-        for y in viewport.y..viewport.y + viewport.height as i32 {
-            let start = y as usize * 80 + viewport.x_bytes as usize;
-            packed[start..start + viewport.width_bytes]
-                .copy_from_slice(&background.packed()[start..start + viewport.width_bytes]);
+            frame = Frame::from_packed(&packed)?;
         }
-        let mut frame = Frame::from_packed(&packed)?;
-        self.draw_world(assets, &mut frame, viewport)?;
-        // Viewport corner masks participate in every pass; only the HUD is
-        // incremental and restricted to the first pass.
-        let hud_draws = if self.render_pass == 1 {
-            self.hud.draws()
+        let current = self.world_draws();
+        let requests = self.world_requests();
+        if self.render_pass == 1 {
+            presentation::restore_background(&mut frame, &background, viewport)?;
+            self.draw_world(assets, &mut frame, viewport)?;
+            self.remembered_draws = current;
+            self.remembered_requests = requests;
         } else {
-            Vec::new()
-        };
-        for draw in scene::initial_draws()
-            .into_iter()
-            .skip(2)
-            .take(4)
-            .chain(hud_draws)
-        {
-            let sprite = assets.sprites.get(draw.resolved_sprite).ok_or_else(|| {
-                Error::InvalidData(format!("missing sprite {}", draw.resolved_sprite))
-            })?;
-            frame.draw_sprite(sprite, draw.rect)?;
+            let mut near = [false; 29];
+            near[0] = true;
+            near[1] = true;
+            if self.render_pass == 3 {
+                near[2] = self.weapon.near(0);
+                near[3] = self.weapon.near(1);
+                for record in self.enemy.snapshots() {
+                    near[record.slot] = record.depth < 70 && record.movement != 1;
+                }
+                for record in self.terrain.snapshots() {
+                    near[record.slot] = record.depth < 70 && record.movement != 1;
+                }
+            }
+            let mut regions = Vec::new();
+            for (slot, &included) in near.iter().enumerate() {
+                if !included {
+                    continue;
+                }
+                let unchanged = match (current[slot], self.remembered_draws[slot]) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => {
+                        a.rect.x_bytes == b.rect.x_bytes
+                            && a.rect.y == b.rect.y
+                            && requests[slot] == self.remembered_requests[slot]
+                    }
+                    _ => false,
+                };
+                if !unchanged {
+                    for draw in [current[slot], self.remembered_draws[slot]]
+                        .into_iter()
+                        .flatten()
+                    {
+                        if let Some(clip) = presentation::dirty_region(draw.rect, viewport) {
+                            regions.push(clip);
+                        }
+                    }
+                }
+                self.remembered_draws[slot] = current[slot];
+                self.remembered_requests[slot] = requests[slot];
+            }
+            for &clip in &regions {
+                presentation::restore_background(&mut frame, &background, clip)?;
+            }
+            for clip in regions {
+                self.draw_world(assets, &mut frame, clip)?;
+            }
+        }
+        if self.render_pass == 1 {
+            for draw in self.hud.draws() {
+                let sprite = assets.sprites.get(draw.resolved_sprite).ok_or_else(|| {
+                    Error::InvalidData(format!("missing sprite {}", draw.resolved_sprite))
+                })?;
+                frame.draw_sprite(sprite, draw.rect)?;
+            }
         }
         self.frame = frame;
         Ok(())
+    }
+
+    fn world_requests(&self) -> [usize; 29] {
+        let mut requests = [0; 29];
+        let player = self.player.snapshot();
+        requests[0] = player.requested_sprite;
+        requests[1] = player.shadow.resolved_sprite;
+        for shot in self.weapon.snapshot().shots {
+            requests[shot.slot] = shot.requested_sprite;
+        }
+        for record in self.enemy.snapshots() {
+            requests[record.slot] = record.requested_sprite;
+        }
+        for record in self.terrain.snapshots() {
+            requests[record.slot] = record.requested_sprite;
+        }
+        requests
+    }
+
+    fn world_draws(&self) -> [Option<scene::Draw>; 29] {
+        let mut draws = [None; 29];
+        let [shadow, craft] = self.player.draws();
+        draws[0] = Some(craft);
+        draws[1] = Some(shadow);
+        for shot in self.weapon.snapshot().shots {
+            if shot.active {
+                draws[shot.slot] = Some(shot.draw());
+            }
+        }
+        for state in self.enemy.snapshots() {
+            if state.active {
+                draws[state.slot] = Some(scene::Draw {
+                    resolved_sprite: state.resolved_sprite,
+                    rect: state.rect,
+                });
+            }
+        }
+        for state in self.terrain.snapshots() {
+            if state.active {
+                draws[state.slot] = Some(scene::Draw {
+                    resolved_sprite: state.resolved_sprite,
+                    rect: state.rect,
+                });
+            }
+        }
+        draws
     }
 
     fn draw_world(
@@ -404,45 +685,18 @@ impl Opening {
         frame: &mut Frame,
         viewport: Rect,
     ) -> Result<(), Error> {
-        let [player_shadow, player_craft] = self.player.draws();
-        for draw in std::iter::once(player_shadow).chain(self.enemy.shadow_draws()) {
-            draw_clipped(assets, frame, draw, viewport)?;
-        }
-        let enemies = self.enemy.snapshots();
-        let terrain = self.terrain.snapshots();
-        for &slot in &self.world_order {
-            let (active, draw) = match slot {
-                4..=9 => {
-                    let state = enemies[slot - 4];
-                    (
-                        state.active,
-                        scene::Draw {
-                            resolved_sprite: state.resolved_sprite,
-                            rect: state.rect,
-                        },
-                    )
-                }
-                15..=22 => {
-                    let state = terrain[slot - 15];
-                    (
-                        state.active,
-                        scene::Draw {
-                            resolved_sprite: state.resolved_sprite,
-                            rect: state.rect,
-                        },
-                    )
-                }
-                23..=27 => {
-                    self.special.draw_slot(frame, slot, viewport)?;
-                    continue;
-                }
-                _ => unreachable!("unsupported world slot"),
-            };
-            if active {
+        let draws = self.world_draws();
+        for &slot in &self.full_world_order {
+            if (23..=27).contains(&slot) {
+                self.special.draw_slot(frame, slot, viewport)?;
+            } else if let Some(draw) = draws[slot] {
                 draw_clipped(assets, frame, draw, viewport)?;
             }
         }
-        draw_clipped(assets, frame, player_craft, viewport)
+        for draw in scene::initial_draws().into_iter().skip(2).take(4) {
+            draw_clipped(assets, frame, draw, viewport)?;
+        }
+        Ok(())
     }
 
     fn world_depths(&self) -> Vec<(usize, i16, u8)> {
@@ -465,8 +719,8 @@ impl Opening {
             .chain([
                 (0, self.player.snapshot().coordinates[0], 255),
                 (1, self.player.snapshot().coordinates[0] + 1, 0),
-                (2, 400, 254),
-                (3, 700, 254),
+                (2, self.weapon.snapshot().shots[0].depth, 254),
+                (3, self.weapon.snapshot().shots[1].depth, 254),
                 (28, 0, 0),
             ])
             .collect()
@@ -498,11 +752,19 @@ impl Opening {
         full_projection: bool,
     ) -> Result<(), Error> {
         let player = self.player.snapshot();
-        self.enemy
-            .update_half_step(&mut self.random, player.coordinates);
-        let collected_fuel = self.terrain.update_half_step(player.coordinates);
+        let context = self.enemy_context()?;
+        let effects = self.enemy.update_half_step_with_context(
+            &mut self.random,
+            player.coordinates,
+            context,
+        )?;
+        self.apply_enemy_effects(effects);
+        let collected_fuel = self
+            .terrain
+            .update_half_step_at_speed(player.coordinates, self.speeds[0]);
         self.hud.add_fuel(collected_fuel);
-        self.special.update_half_step(player.coordinates[0], 28);
+        self.special
+            .update_half_step(player.coordinates[0], self.speeds[0]);
         // All motion precedes collision, which sees the previous resolved sources.
         let collisions = self.enemy.player_collisions(
             assets,
@@ -517,21 +779,26 @@ impl Opening {
             match collision {
                 enemy::EnemyCollision::Projectile => self.player.hit(1),
                 enemy::EnemyCollision::Craft(slot) => {
-                    self.hud.add_points(1000);
+                    if self.enemy.snapshots()[slot - 4].variant != 2 {
+                        self.hud.add_points(1000);
+                    }
                     self.enemy.explode_craft(slot)?;
                     self.player.hit(2);
                 }
             }
         }
-        if let Some(collision) = self.terrain.player_collision(
+        if let Some(collision) = self.terrain.player_collision_at_speed(
             assets,
             player.coordinates,
             player.resolved_sprite,
             self.player.snapshot().phase == 0,
             self.player.can_damage(),
+            self.speeds[0],
         )? {
             self.hud.add_fuel(collision.fuel);
-            self.hud.add_points(collision.points);
+            for points in collision.awards {
+                self.hud.add_points(points);
+            }
             self.player.hit(collision.damage);
         }
         if let Some(collision) = self.special.player_collision(
@@ -541,15 +808,35 @@ impl Opening {
             self.player.snapshot().phase == 0,
             self.player.can_damage(),
         )? {
-            self.hud.add_points(collision.points);
+            for points in collision.awards {
+                self.hud.add_points(points);
+            }
+            if let Some(transition) = collision.transition {
+                match transition {
+                    special::SpecialTransition::Normal => self.change_stage(false),
+                    special::SpecialTransition::Alternate => self.change_stage(true),
+                }
+                self.queue_transition(assets)?;
+                self.follow_edge(true)?;
+            }
             if let Some(damage) = collision.damage {
                 self.player.hit(damage);
             }
         }
+        self.collide_weapon(assets)?;
+        let player = self.player.snapshot();
+        self.weapon
+            .advance(player.effective_input & 16 != 0, player.coordinates);
         if full_projection {
             self.strip_y = (92 + (player.horizon >> 3)) as usize;
             self.vertical_origin = 106 + i32::from(player.horizon >> 4);
         }
+        self.weapon.project(
+            assets,
+            full_projection,
+            self.vertical_origin,
+            self.player.snapshot().horizon,
+        )?;
         self.enemy.project(
             assets,
             full_projection,
@@ -569,6 +856,239 @@ impl Opening {
         )
     }
 
+    fn collide_weapon(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
+        for index in 0..2 {
+            if !self.weapon.snapshot().shots[index].active {
+                continue;
+            }
+            // Activity is tested once for the source. Consuming a shot does not
+            // stop the original scan of overlapping target records.
+            for slot in 4..=9 {
+                let target = self.enemy.snapshots()[slot - 4];
+                if !target.active || !self.weapon.overlaps(assets, index, target)? {
+                    continue;
+                }
+                if slot == 4 {
+                    self.weapon.deactivate(index);
+                    self.enemy.deactivate_projectile();
+                } else if (4..251).contains(&target.movement)
+                    && (target.variant < 3 || matches!(target.variant, 5 | 6))
+                {
+                    self.weapon.deactivate(index);
+                    self.hud
+                        .add_points(if target.variant == 6 { 2600 } else { 1500 });
+                    self.enemy.hit_by_weapon(slot)?;
+                }
+            }
+            for target in self.terrain.snapshots() {
+                if !target.active || target.movement != 2 || target.kind >= 2 {
+                    continue;
+                }
+                let enemy = EnemyState {
+                    slot: target.slot,
+                    depth: target.depth,
+                    lateral: target.lateral,
+                    height: -100,
+                    active: target.active,
+                    movement: target.movement,
+                    variant: target.kind,
+                    animation_phase: target.animation_phase,
+                    requested_sprite: target.requested_sprite,
+                    resolved_sprite: target.resolved_sprite,
+                    rect: target.rect,
+                    phase: target.phase,
+                };
+                if self.weapon.overlaps(assets, index, enemy)?
+                    && self.terrain.shot_collision(target.slot, self.speeds[0])? != 0
+                {
+                    self.hud.add_points(400);
+                    self.hud.add_points(500);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn enemy_context(&self) -> Result<enemy::EnemyContext, Error> {
+        Ok(enemy::EnemyContext {
+            speeds: self.speeds,
+            difficulty: self.difficulty as i16,
+            alternate_shadows: self.overlay.wrapping_add(self.layer) as i16 > 0,
+            horizon: self.player.snapshot().horizon,
+            patrol_sources: self
+                .rules
+                .as_ref()
+                .map(|rules| rules.patrol_sources(self.difficulty))
+                .transpose()?,
+        })
+    }
+
+    fn apply_enemy_effects(&mut self, effects: enemy::EnemyEffects) {
+        self.hud.add_points(effects.points);
+        self.player.add_lives(effects.lives);
+        self.hud.set_lives(self.player.snapshot().lives);
+        self.difficulty = self.difficulty.wrapping_add(u16::from(effects.difficulty));
+        if let Some(distance) = effects.distance_hint {
+            self.distance_hint = self.distance_hint.min(distance);
+        }
+    }
+
+    fn advance_strip(&mut self) {
+        self.strip_cycle = if self.strip_cycle == 0 {
+            2
+        } else {
+            self.strip_cycle - 1
+        };
+        let horizon = self.player.snapshot().horizon;
+        self.strip_y = (92 + (horizon >> 3)) as usize;
+        self.vertical_origin = 106 + i32::from(horizon >> 4);
+    }
+
+    fn advance_speed(&mut self) {
+        match self.speed_mode {
+            1 if self.speeds[0] < 56 => self
+                .speeds
+                .iter_mut()
+                .for_each(|speed| *speed = speed.wrapping_add(1)),
+            2 if self.speeds[0] > 28 => self
+                .speeds
+                .iter_mut()
+                .for_each(|speed| *speed = speed.wrapping_sub(2)),
+            2 => {
+                self.speeds = [28, 22, 16];
+                self.speed_mode = 0;
+            }
+            _ => {}
+        }
+    }
+
+    fn change_stage(&mut self, alternate: bool) {
+        self.strip_family = usize::from(alternate);
+        if !alternate {
+            self.alternate_background = false;
+        }
+        self.advance_strip();
+        self.layer = if alternate { 2 } else { 0 };
+    }
+
+    fn follow_edge(&mut self, goal: bool) -> Result<(), Error> {
+        self.script_index = self
+            .rules
+            .as_ref()
+            .ok_or_else(|| Error::InvalidData("progression requires external rules".into()))?
+            .progression(self.script_index, goal)?;
+        self.progression = self.progression.wrapping_add(1);
+        self.script_cursor = 0;
+        self.enemy.clear_primary();
+        self.special.clear_active();
+        Ok(())
+    }
+
+    fn parse_commands(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
+        // Negative delays permit several commands in one invocation. Detect a
+        // resource cycle which would stall the original, instead of hanging UI.
+        let mut visited = std::collections::HashSet::new();
+        while !self.enemy.active() {
+            let old = self.script_delay as i16;
+            self.script_delay = self.script_delay.wrapping_add(1);
+            if old < progression::delay_threshold(self.difficulty) {
+                break;
+            }
+            if !visited.insert((self.script_index, self.script_cursor, self.difficulty)) {
+                return Err(Error::InvalidData(
+                    "encounter command cycle stalls without an active wave".into(),
+                ));
+            }
+            self.script_delay = 0;
+            let command = self
+                .rules
+                .as_ref()
+                .expect("external parser rules")
+                .next(self.script_index, self.script_cursor)?;
+            self.script_cursor = self.script_cursor.wrapping_add(1);
+            match command {
+                ScriptCommand::Terrain(selector) => self.terrain_selector = selector,
+                ScriptCommand::Special(command) => {
+                    let spawned = self.special.spawn_command(
+                        command,
+                        &mut self.random,
+                        self.speeds[0],
+                        self.overlay.wrapping_add(self.layer) as i16 > 0,
+                    )?;
+                    if let Some(selector) = spawned.terrain_selector {
+                        self.terrain_selector = selector;
+                    }
+                    if spawned.goal_barrier {
+                        self.terrain
+                            .spawn_goal_barrier(self.speeds[0], self.difficulty);
+                    }
+                }
+                ScriptCommand::Enemy(command) => {
+                    let context = self.enemy_context()?;
+                    let effects = self.enemy.spawn_command_with_context(
+                        command,
+                        &mut self.random,
+                        self.player.snapshot().coordinates,
+                        usize::from(self.primary_count),
+                        context,
+                    )?;
+                    self.apply_enemy_effects(effects);
+                }
+                ScriptCommand::Control(command) => match command {
+                    0xc0..=0xc2 | 0xc4 | 0xc8 | 0xc9 => {}
+                    0xc3 => {
+                        self.random.next_word();
+                        self.hud.add_points(3000);
+                    }
+                    0xc5 => self.speed_mode = 1,
+                    0xc6 => self.speed_mode = 2,
+                    0xc7 => {
+                        self.overlay = 0;
+                        self.queue_transition(assets)?;
+                    }
+                    0xca => {
+                        self.script_cursor = 0;
+                        self.script_index = self.random.next_word() & 3;
+                    }
+                    0xcb => {
+                        self.change_stage(true);
+                        self.queue_transition(assets)?;
+                    }
+                    0xcc => {
+                        self.change_stage(false);
+                        self.queue_transition(assets)?;
+                    }
+                    0xcd => self.palette_family = 1,
+                    0xce => self.palette_family = 0,
+                    0xcf => self.follow_edge(false)?,
+                    0xd0 | 0xd1 => {
+                        self.strip_family = usize::from(command - 0xd0);
+                        self.advance_strip();
+                    }
+                    0xd2 | 0xd3 => self.strip_family = usize::from(command - 0xd0),
+                    0xd4 => {
+                        self.random.next_word();
+                        self.primary_count = self.primary_count.wrapping_add(1);
+                    }
+                    0xd5 | 0xd6 => {
+                        self.alternate_background = command == 0xd6;
+                        self.strip_family = if self.alternate_background { 3 } else { 0 };
+                        self.overlay = 0;
+                        self.layer = 0;
+                        self.advance_strip();
+                        self.queue_transition(assets)?;
+                    }
+                    _ => {
+                        return Err(Error::InvalidData(format!(
+                            "unknown control command {command:#x}"
+                        )));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+
     fn advance_player(&mut self, input: Steering) -> Result<(), Error> {
         let reset_fuel = if input.bits() == 0 {
             self.player.update_no_input()?
@@ -584,6 +1104,7 @@ impl Opening {
             .snapshot()
             .update_lateral_velocity
             .wrapping_mul(-8);
+        self.weapon.shift_lateral(delta);
         self.enemy.shift_lateral(delta);
         self.terrain.shift_lateral(delta);
         self.special.shift_lateral(delta);
@@ -919,5 +1440,196 @@ mod tests {
             .1 = 100;
         opening.sort_world(&depths);
         assert_eq!(opening.world_order[0], 22);
+    }
+    fn synthetic_rules(commands: &[u8]) -> ScriptRules {
+        let mut data = vec![0; 65536];
+        data[0x04ac..0x04af].copy_from_slice(&[1, 2, 3]);
+        for index in 0..21 {
+            let at = 0x0a3e + 50 * index;
+            data[at..at + commands.len()].copy_from_slice(commands);
+            data[at + commands.len()] = 0xcf;
+            data[0x0e58 + 4 * index..0x0e5a + 4 * index]
+                .copy_from_slice(&(((index + 1) % 21) as u16).to_le_bytes());
+            data[0x0e5a + 4 * index..0x0e5c + 4 * index]
+                .copy_from_slice(&(index as u16).to_le_bytes());
+        }
+        ScriptRules::from_data_segment(&data).unwrap()
+    }
+
+    #[test]
+    fn new_game_reprojects_reset_shots_and_preserves_unused_enemy_coordinates() {
+        let assets = synthetic_assets();
+        let previous = Opening::new(&assets).unwrap();
+        let ending = Ending::new(&assets, &previous.snapshot(), previous.frame()).unwrap();
+        let mut session = SessionState::default();
+        session.remember_ending(&ending.snapshot(), ending.special_snapshots());
+        let world = session.retained_world.as_mut().unwrap();
+        world.records[5].depth = 692;
+        for shot in &mut world.records[2..4] {
+            shot.requested_sprite = 23;
+            shot.resolved_sprite = 23;
+            shot.rect.x_bytes = 17;
+        }
+        let start = session.begin_game();
+        let expected_random = start.random;
+        let game = Opening::from_game_start(&assets, synthetic_rules(&[0x85]), start, 90).unwrap();
+        let state = game.snapshot();
+        assert_eq!(state.random, expected_random);
+        assert_eq!(state.enemies[1].depth, 692);
+        assert!(!state.enemies[1].active);
+        for shot in state.weapon.shots {
+            assert_eq!(shot.requested_sprite, 22);
+            assert_eq!(shot.resolved_sprite, 22);
+            assert_eq!(shot.rect.x_bytes, 128);
+            assert!(!shot.active);
+        }
+    }
+
+    #[test]
+    fn external_parser_preserves_delay_and_continues_after_non_wave_commands() {
+        let assets = synthetic_assets();
+        let mut game = Opening::from_game_start(
+            &assets,
+            synthetic_rules(&[1, 0xc5, 0x85]),
+            GameStart {
+                script_index: 2,
+                random: [0; 3],
+                retained_world: None,
+            },
+            90,
+        )
+        .unwrap();
+        for _ in 0..20 {
+            game.advance(&assets).unwrap();
+        }
+        assert_eq!((game.script_cursor, game.terrain_selector), (0, 0));
+        game.advance(&assets).unwrap();
+        assert_eq!(
+            (game.script_cursor, game.terrain_selector, game.script_delay),
+            (1, 1, 1)
+        );
+        for _ in 0..20 {
+            game.advance(&assets).unwrap();
+        }
+        assert_eq!(game.speed_mode, 1);
+        assert_eq!(game.speeds, [28, 22, 16]);
+        game.advance(&assets).unwrap();
+        assert_eq!(game.speeds, [29, 23, 17]);
+        assert_eq!(game.script_index, 2);
+    }
+
+    #[test]
+    fn negative_delay_can_execute_several_commands_and_follow_both_edges() {
+        let assets = synthetic_assets();
+        let mut game = Opening::from_game_start(
+            &assets,
+            synthetic_rules(&[1, 0xc5, 0x85]),
+            GameStart {
+                script_index: 2,
+                random: [0; 3],
+                retained_world: None,
+            },
+            90,
+        )
+        .unwrap();
+        game.difficulty = 3;
+        game.parse_commands(&assets).unwrap();
+        assert_eq!(game.script_cursor, 3);
+        assert!(game.enemy.active());
+        assert_eq!(game.speed_mode, 1);
+        game.follow_edge(true).unwrap();
+        assert_eq!(
+            (game.script_index, game.script_cursor, game.progression),
+            (2, 0, 2)
+        );
+        assert!(!game.enemy.active());
+        game.follow_edge(false).unwrap();
+        assert_eq!(
+            (game.script_index, game.script_cursor, game.progression),
+            (3, 0, 3)
+        );
+    }
+
+    #[test]
+    fn speed_limits_and_deceleration_keep_the_three_speeds_in_step() {
+        let assets = synthetic_assets();
+        let mut game = Opening::new(&assets).unwrap();
+        game.speed_mode = 1;
+        for _ in 0..40 {
+            game.advance_speed();
+        }
+        assert_eq!(game.speeds, [56, 50, 44]);
+        game.speed_mode = 2;
+        for _ in 0..14 {
+            game.advance_speed();
+        }
+        assert_eq!(game.speeds, [28, 22, 16]);
+        game.advance_speed();
+        assert_eq!(game.speed_mode, 0);
+        game.request_game_over();
+        assert!(game.complete());
+    }
+    #[test]
+    fn weapon_hits_destroy_craft_pay_score_and_leave_other_slots_available() {
+        let assets = synthetic_assets();
+        let mut game = Opening::new(&assets).unwrap();
+        game.enemy
+            .spawn_command(0x84, &mut game.random, 0, 1)
+            .unwrap();
+        let target = game.enemy.snapshots()[1];
+        let mut shots = game.weapon.snapshot().shots;
+        shots[0].active = true;
+        shots[0].depth = target.depth;
+        shots[0].lateral = target.lateral;
+        shots[0].height = target.height;
+        game.weapon.restore(shots);
+        game.collide_weapon(&assets).unwrap();
+        assert!(!game.weapon.snapshot().shots[0].active);
+        assert_eq!(game.enemy.snapshots()[1].movement, 3);
+        assert_eq!(game.hud.snapshot().pending_score, 1500);
+        game.collide_weapon(&assets).unwrap();
+        assert_eq!(game.hud.snapshot().pending_score, 1500);
+    }
+
+    #[test]
+    fn weapon_terrain_conversion_does_not_consume_the_projectile_or_collect_fuel() {
+        let assets = synthetic_assets();
+        let mut game = Opening::new(&assets).unwrap();
+        game.terrain.spawn_goal_barrier(28, 0);
+        let target = game.terrain.snapshots()[0];
+        let mut shots = game.weapon.snapshot().shots;
+        shots[0].active = true;
+        shots[0].depth = target.depth;
+        shots[0].lateral = target.lateral;
+        shots[0].height = -100;
+        game.weapon.restore(shots);
+        let fuel = game.hud.snapshot().fuel;
+        game.collide_weapon(&assets).unwrap();
+        assert!(game.weapon.snapshot().shots[0].active);
+        assert_eq!(game.terrain.snapshots()[0].movement, 3);
+        assert_eq!(game.hud.snapshot().pending_score, 900);
+        assert_eq!(game.hud.snapshot().fuel, fuel);
+    }
+    #[test]
+    fn extra_life_awards_fill_only_missing_symbols_and_terrain_awards_cap_separately() {
+        let assets = synthetic_assets();
+        let mut game = Opening::new(&assets).unwrap();
+        game.apply_enemy_effects(enemy::EnemyEffects {
+            lives: 1,
+            difficulty: 1,
+            ..Default::default()
+        });
+        assert_eq!((game.player.snapshot().lives, game.difficulty), (6, 1));
+        game.terrain.spawn_goal_barrier(28, 0);
+        let target = game.terrain.snapshots()[0];
+        let mut shots = game.weapon.snapshot().shots;
+        shots[0].active = true;
+        shots[0].depth = target.depth;
+        shots[0].lateral = target.lateral;
+        shots[0].height = -100;
+        game.weapon.restore(shots);
+        game.hud.add_points(31_900);
+        game.collide_weapon(&assets).unwrap();
+        assert_eq!(game.hud.snapshot().pending_score, 32_000);
     }
 }

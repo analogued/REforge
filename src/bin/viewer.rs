@@ -12,10 +12,11 @@ Space: splash -> intro -> opening. Escape or window close: exit.\n\
 Default window scale: 3 (960x720); CGA pixels are displayed at 4:3.\n\
 Opening animates 836 no-input loop bodies, then Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
---step: fresh Space presses advance one body or title step. --static: show initial scene only.\n\
---controls: arrows steer during a verified 90-body preview. Firing is deferred.\n\
+--step: fresh Enter presses advance one body or title step. --static: show initial scene only.\n\
+--controls: arrows or S/X/B/N steer; Space or keypad5 fires, with a 90-body cap.\n\
 Default pace: about 36.41 displayed passes/s (12.14 bodies/s); --period-ms sets the body interval.\n\
-Original intro timing, full controlled gameplay, later enemy behavior, and audio remain deferred.";
+F1 pauses/ends game, F2 toggles sound preference, F3 switches color/monochrome.\n\
+Original intro timing, unrestricted gameplay, and audio remain deferred.";
 
 fn run() -> Result<(), String> {
     let mut args = env::args_os().skip(1).peekable();
@@ -79,8 +80,13 @@ fn run() -> Result<(), String> {
     let (Some(directory), None) = (directory, args.next()) else {
         return Err(HELP.into());
     };
-    let frames = StartupFrames::load(directory).map_err(|error| error.to_string())?;
-    mach3::viewer::run_with_options(&frames, options)
+    let frames = StartupFrames::load(&directory).map_err(|error| error.to_string())?;
+    let program = mach3::rules::load_program(&directory).map_err(|error| error.to_string())?;
+    let rules = mach3::opening::ScriptRules::from_data_segment(
+        &program[mach3::rules::DATA_SEGMENT_OFFSET..],
+    )
+    .map_err(|error| error.to_string())?;
+    mach3::viewer::run_with_rules(&frames, options, rules)
 }
 
 fn main() -> std::process::ExitCode {

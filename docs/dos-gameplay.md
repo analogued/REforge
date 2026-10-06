@@ -72,6 +72,14 @@ and the initial threshold, its first events are:
 | 569 | Terrain selector 9 is selected again |
 | 589 | A second group of five procedural gates is created |
 | 609 | Seventh encounter starts two craft on staggered relative sweeps |
+| 645 | Second sweep craft collides with the player and becomes an explosion |
+| 648 | First sweep craft reaches the terminal row and retires |
+| 652 | Second sweep craft's explosion clears |
+| 655 | Fifth player death completes; one life remains |
+| 659 | The fifth removed life icon resolves on the bottom HUD update |
+| 672 | Terrain selector becomes 2; recycled rows use the fuel-bearing family |
+| 692 | Formation count increases to three |
+| 712 | Eighth encounter starts three seeking craft |
 
 These counts are logical loop positions, not durations. Newly created objects
 may receive their resolved sprite and projected rectangle in subsequent updates.
@@ -98,7 +106,7 @@ raw state, and comparison reports remain external to the repository.
 ## Rust opening simulation
 
 `Opening` implements the opening without keyboard input through completed body
-630. It updates the HUD, recycles and projects terrain, and starts seven enemy
+720. It updates the HUD, recycles and projects terrain, and starts eight enemy
 encounters. The generator runs from fresh startup state; branch decisions consume
 its results in the original order. Source resolution remains separate from
 requested sprite selection.
@@ -110,6 +118,9 @@ before collision checks. Collision uses signed inclusive bounds
 from previously resolved descriptors; the target's extent is used on both sides
 of the height test. Near-list source resolution includes objects at depth below
 70, including inactive records whose projected rectangles move offscreen.
+Perspective lookup uses the depth's low ten bits and treats the scale word as
+signed, including for a projectile created at negative terminal depth. Source
+resolution still precedes projection.
 
 The second enemy steers by half the remaining coordinate difference, capped at
 30 units per axis per half-step. Its collision changes it to a stationary
@@ -163,7 +174,9 @@ fuel without points. Fuel can exceed its normal maximum until the next
 consumption call clamps it to 3,583. Player response phase blocks collision
 dispatch, while post-death grace blocks only damage; target collection and
 conversion can still occur during grace. Far effects have no player collision
-handler. Kind-1 collection, far effects, and immune overlap paths are covered by
+handler. Selector 2 assigns kind 1 to every recycled row with one lateral-placement
+random call, preserving live rows. It does not consume a separate kind-selection
+word. Kind-1 collection, far effects, and immune overlap paths are covered by
 static inspection and authored synthetic tests; this no-input batch exercises
 kind-0 near effects.
 
@@ -195,9 +208,13 @@ advances a shared center toward the current player by at most four units per
 axis per half-step. Its row coordinates are offset by that center and a fixed
 lateral formation spacing. Both variants preserve the row's depth and source
 request rather than applying the ordinary forward delta. Forward retirement
-clears the animation phase while retaining the requested source. Terminal
-retirement is covered by static inspection and synthetic tests; alternate modes
-remain unsupported.
+clears the animation phase while retaining the requested source. In the seventh
+encounter, the second craft collides before its terminal row while the first
+reaches depth -50 and retires. That terminal update still copies shadow state
+and consumes its three firing/targeting words before retirement. A projectile
+created there retires at the next world update. The eighth encounter increases
+the formation to three seeking craft; their shared projectile and target still
+update in ascending slot order. Alternate modes remain unsupported.
 
 Camera height changes with the player's response movement. The terrain strip
 position and vertical projection origin are cached by the first render pass;
@@ -210,7 +227,7 @@ depth. Inactive records still participate.
 The initial HUD indicator artwork is preserved.
 
 Native frames and checked HUD, player, terrain, enemy, gate, target, camera,
-random state, and retained drawing order match the original at every completed-body boundary from 0 through 630.
+random state, and retained drawing order match the original at every completed-body boundary from 0 through 720.
 The simulation uses interpreted rules and decoded resources. It does not load
 captured frames or state and does not reproduce every intermediate framebuffer
 write within a body.
@@ -224,7 +241,7 @@ The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
 The viewer offers an interval override and manual stepping.
 
-The simulation holds after the current verified batch of 630 bodies. This is a
+The simulation holds after the current verified batch of 720 bodies. This is a
 comparison checkpoint, not a randomness barrier. Subsequent encounter commands
 need further implementation and validation. Keyboard movement and firing,
 restart within an existing random stream, and audio are unsupported.

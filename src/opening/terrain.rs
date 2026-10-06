@@ -218,7 +218,7 @@ impl Terrain {
 
     /// Recycle after rendering and event processing, preserving resolved draw state.
     pub(crate) fn recycle(&mut self, selector: u16, random: &mut Random) -> Result<(), Error> {
-        if !matches!(selector, 0 | 3 | 5 | 6 | 7 | 9) {
+        if !matches!(selector, 0 | 2 | 3 | 5 | 6 | 7 | 9) {
             return Err(Error::InvalidData(format!(
                 "unsupported opening terrain selector {selector}"
             )));
@@ -234,6 +234,10 @@ impl Terrain {
                 0 => {
                     self.kinds[index] = TerrainKind::Type0;
                     slot.active = false;
+                }
+                2 => {
+                    self.kinds[index] = TerrainKind::Type1;
+                    slot.active = true;
                 }
                 3 => {
                     self.kinds[index] = if random.next_word() & 3 == 0 {
@@ -651,6 +655,64 @@ mod tests {
             assert!(slot.active);
         }
         assert_eq!(random.state(), reference.state());
+    }
+
+    #[test]
+    fn selector_two_allocates_fuel_rows_without_kind_randomness_and_preserves_live_rows() {
+        let mut terrain = Terrain::new();
+        let mut random = Random::default();
+        let mut reference = Random::default();
+        terrain.recycle(2, &mut random).unwrap();
+        for slot in terrain.snapshots() {
+            let expected_lateral = (reference.next_word() & 2047) as i16 - 1024;
+            assert_eq!(slot.lateral, expected_lateral);
+            assert_eq!(slot.kind, 1);
+            assert_eq!(slot.movement, 2);
+            assert!(slot.active);
+            assert_eq!(
+                slot.requested_sprite,
+                if slot.slot == 15 { 106 } else { 105 }
+            );
+            assert_eq!(slot.resolved_sprite, 0);
+        }
+        assert_eq!(random.state(), reference.state());
+
+        terrain.kinds[0] = TerrainKind::Type2;
+        let live_lateral = terrain.slots[0].lateral;
+        terrain.slots[3].active = false;
+        terrain.slots[3].phase = 3;
+        terrain.slots[3].resolved_sprite = 156;
+        terrain.slots[3].animation_phase = 9;
+        terrain.slots[3].rect.y = 140;
+        let expected_lateral = (reference.next_word() & 2047) as i16 - 1024;
+        terrain.recycle(2, &mut random).unwrap();
+        assert_eq!(random.state(), reference.state());
+        let snapshots = terrain.snapshots();
+        assert_eq!(snapshots[0].kind, 2);
+        assert_eq!(snapshots[0].lateral, live_lateral);
+        assert_eq!(snapshots[3].kind, 1);
+        assert_eq!(snapshots[3].depth, 1252);
+        assert_eq!(snapshots[3].lateral, expected_lateral);
+        assert_eq!(snapshots[3].requested_sprite, 113);
+        assert_eq!(snapshots[3].resolved_sprite, 156);
+        assert_eq!(snapshots[3].animation_phase, 9);
+        assert_eq!(snapshots[3].rect.y, 140);
+    }
+
+    #[test]
+    fn selector_two_fuel_collection_uses_existing_near_effect_without_repeat_collection() {
+        let mut terrain = Terrain::new();
+        terrain.recycle(2, &mut Random::default()).unwrap();
+        terrain.slots[0].depth = 48;
+        terrain.slots[0].lateral = 0;
+        assert_eq!(terrain.update_half_step([14, 0, -28]), 512);
+        assert_eq!(terrain.slots[0].movement, 252);
+        assert_eq!(terrain.slots[0].depth, 20);
+        assert_eq!(terrain.slots[0].requested_sprite, 110);
+        assert_eq!(terrain.update_half_step([14, 0, -28]), 0);
+        assert_eq!(terrain.slots[0].requested_sprite, 118);
+        assert_eq!(terrain.slots[0].depth, 20);
+        assert_eq!(terrain.slots[0].animation_phase, 1);
     }
 
     #[test]

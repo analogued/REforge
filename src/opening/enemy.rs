@@ -62,7 +62,9 @@ impl EnemySnapshot {
             self.rect.x_bytes = 128;
             return Ok(());
         }
-        let scale = (64 * 32768) / (i32::from(self.depth) + 64);
+        // The original perspective table wraps its index to ten bits and
+        // multiplies the resulting word as signed, including index zero.
+        let scale = i32::from(((64 * 32768) / (i32::from(self.depth & 1023) + 64)) as i16);
         let horizontal = (scale * i32::from(self.lateral)) >> 16;
         self.phase = (horizontal & 3) as u8;
         self.rect.x_bytes = 40 + (horizontal >> 2) - i32::from(sprite.descriptor[5]);
@@ -1362,5 +1364,33 @@ mod tests {
         ];
         assert_eq!(enemy.target(), target);
         assert_eq!(random.state(), expected.state());
+    }
+
+    #[test]
+    fn negative_depth_projection_wraps_the_table_index_and_resolves_the_source() {
+        let mut assets = assets();
+        assets.sprites[1].descriptor[5..].fill(0);
+        for (depth, lateral, height, origin, camera, expected) in [
+            (-50, -160, -28, 107, 18, (38, 109, 3)),
+            (-64, 128, 64, 100, 0, (41, 98, 0)),
+            (-1024, 128, 64, 100, 0, (24, 132, 0)),
+        ] {
+            let mut slot = EnemySnapshot::new(4, 0, depth, height);
+            slot.lateral = lateral;
+            slot.active = true;
+            slot.requested_sprite = 1;
+            slot.project(&assets, origin, camera).unwrap();
+            assert_eq!((slot.rect.x_bytes, slot.rect.y, slot.phase), expected);
+            assert_eq!(slot.resolved_sprite, 1);
+            assert_eq!((slot.rect.width_bytes, slot.rect.height), (4, 7));
+
+            slot.active = false;
+            slot.depth -= 28;
+            slot.requested_sprite = 0;
+            slot.project(&assets, 200, 100).unwrap();
+            assert_eq!(slot.rect.x_bytes, 128);
+            assert_eq!((slot.rect.y, slot.phase), (expected.1, expected.2));
+            assert_eq!(slot.resolved_sprite, 0);
+        }
     }
 }

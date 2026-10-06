@@ -9,7 +9,7 @@ use std::{env, path::PathBuf};
 
 const HELP: &str = "Usage: mach3-viewer [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000] <assets-directory>\n\n\
 Space: splash -> intro -> opening. Escape or window close: exit.\n\
-Default window scale: 3; resizing preserves integer pixel scaling.\n\
+Default window scale: 3 (960x720); CGA pixels are displayed at 4:3.\n\
 Opening animates 836 no-input loop bodies, then Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
 --step: fresh Space presses advance one body or title step. --static: show initial scene only.\n\

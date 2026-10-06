@@ -14,6 +14,9 @@ use crate::{
     startup::{Presentation, Screen, StartupFrames},
 };
 
+// CGA mode 4 stores 320x200 pixels but fills a 4:3 display (pixel aspect 5:6).
+const DISPLAY_HEIGHT: u32 = 240;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Playback {
     #[default]
@@ -95,12 +98,12 @@ fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
 }
 
 fn destination(width: u32, height: u32) -> Option<FRect> {
-    let scale = (width / WIDTH as u32).min(height / HEIGHT as u32);
+    let scale = (width / WIDTH as u32).min(height / DISPLAY_HEIGHT);
     if scale == 0 {
         return None;
     }
     let scaled_width = WIDTH as u32 * scale;
-    let scaled_height = HEIGHT as u32 * scale;
+    let scaled_height = DISPLAY_HEIGHT * scale;
     Some(FRect::new(
         ((width - scaled_width) / 2) as f32,
         ((height - scaled_height) / 2) as f32,
@@ -162,14 +165,14 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
         .window(
             title(Screen::Splash),
             WIDTH as u32 * scale,
-            HEIGHT as u32 * scale,
+            DISPLAY_HEIGHT * scale,
         )
         .position_centered()
         .resizable()
         .build()
         .map_err(|error| error.to_string())?;
     window
-        .set_minimum_size(WIDTH as u32, HEIGHT as u32)
+        .set_minimum_size(WIDTH as u32, DISPLAY_HEIGHT)
         .map_err(|error| error.to_string())?;
     let mut canvas = sdl3::render::create_renderer(window, Some(c"software"))
         .map_err(|error| error.to_string())?;
@@ -403,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn software_texture_preserves_pixels_and_letterboxes_integer_scale() {
+    fn software_texture_corrects_cga_aspect_and_letterboxes() {
         // A software surface exercises the renderer without opening a desktop window.
         let surface = Surface::new(800, 600, PixelFormat::RGB24).unwrap();
         let mut canvas = surface.into_canvas().unwrap();
@@ -427,11 +430,13 @@ mod tests {
             .unwrap();
         let actual = readback.with_lock(|bytes| bytes.to_vec());
         let mut expected = vec![0; 800 * 600 * 3];
-        // Integer scale 2 fits, centered inside 800x600 with black borders.
-        for y in 0..400 {
+        // A 640x480 image fits, centered inside 800x600. Source pixels are
+        // 20% taller than wide, sampled at destination pixel centers.
+        for y in 0..480 {
             for x in 0..640 {
-                let source = ((y / 2) * WIDTH + x / 2) * 3;
-                let destination = ((y + 100) * 800 + x + 80) * 3;
+                let source_y = (2 * y + 1) * HEIGHT / (2 * 480);
+                let source = (source_y * WIDTH + x / 2) * 3;
+                let destination = ((y + 60) * 800 + x + 80) * 3;
                 expected[destination..destination + 3].copy_from_slice(&rgb[source..source + 3]);
             }
         }

@@ -107,15 +107,18 @@ controlled prefix holds its final frame; the full no-input mode still reaches
 game over and the return intro. `--controls --step` samples held directions
 when Space advances a body. Losing focus releases held controls.
 
-The default window is 960 by 600 (3x). `--scale 1..16` sets its initial scale:
+The default window is 960 by 720 (3x). `--scale 1..16` sets its initial scale;
+scale 8 gives 2560 by 1920:
 
 ```sh
 cargo run --features viewer --bin mach3-viewer -- --scale 2 /path/to/assets
 ```
 
-Resizing keeps pixels sharp with integer nearest-neighbor scaling and centered
-black borders. The viewer preserves the source's 320-by-200 proportions; CRT
-pixel-aspect correction is not applied. See [dependency notices](docs/dependencies.md).
+The 320-by-200 CGA framebuffer is displayed at 4:3, with pixels 20% taller
+than wide. Window dimensions use 320-by-240 display units multiplied by the
+selected scale. Resizing uses nearest-neighbor sampling with centered black
+borders and preserves 4:3. Source rows can occupy different numbers of screen
+rows because of the pixel-aspect correction. See [dependency notices](docs/dependencies.md).
 After Cargo has fetched the locked dependencies, these commands can use `--offline`.
 
 For reproducible frame and state export without SDL3:

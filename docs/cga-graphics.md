@@ -8,6 +8,9 @@ in [DOS startup](dos-startup.md).
 The copy length is `0x3f40` bytes. A visible mode-4 frame is 320 by 200 pixels,
 with four two-bit pixels per byte and 80 bytes per scanline. Even scanlines
 occupy the bank at offset zero; odd scanlines occupy the bank at `0x2000`.
+These framebuffer coordinates fill a 4:3 display, with a pixel width-to-height
+ratio of 5:6. The viewer applies that correction when presenting frames;
+framebuffer exports retain the original 320-by-200 grid.
 For pixel `(x, y)`:
 
 ```text

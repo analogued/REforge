@@ -7,6 +7,8 @@ use crate::assets::{
 };
 use crate::cga::{Dimensions, Framebuffer, PlayerCompositor, pixel_offset};
 use crate::decoration::{award_points, draw_ground_objects, draw_hud, initialize_score_state};
+#[cfg(feature = "dev-tools")]
+use crate::dev_tools::{Actor, DevOptions};
 use crate::mice::{Blend, Contact, Image, Mice};
 use crate::player::{Controls, Draw, Player, UpdateOutcome};
 use std::path::Path;
@@ -54,6 +56,8 @@ pub struct Alley {
     /// Original candidate history remains separate in the external runtime data.
     ordinary_rooms: [u16; 2],
     air_warning: u8,
+    #[cfg(feature = "dev-tools")]
+    dev_options: DevOptions,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -71,6 +75,51 @@ pub(crate) struct BinAdvance {
 }
 
 impl Alley {
+    /// Configure development overrides before play or diagnostic scene entry.
+    /// Suppression also retires images already drawn in the current scene.
+    #[cfg(feature = "dev-tools")]
+    pub fn set_dev_options(&mut self, options: DevOptions) -> Result<(), String> {
+        self.dev_options = options;
+        self.apply_actor_overrides()
+    }
+
+    #[cfg(feature = "dev-tools")]
+    fn apply_actor_overrides(&mut self) -> Result<(), String> {
+        let options = self.dev_options;
+        let scene = self.scene();
+        if scene == 0 {
+            if options.actor_disabled(Actor::BinCat) {
+                self.data[0x1d59] = 0;
+                self.bin_image = None;
+            }
+            if options.actor_disabled(Actor::AlleyMice) {
+                self.mouse_effect = None;
+            }
+            return self.compose_actors();
+        }
+        self.room_actor(|data, screen| {
+            if matches!(scene, 1 | 3..=5) && options.actor_disabled(Actor::Broom) {
+                crate::room::restore_broom(data, screen)?;
+                data[0x3286] = 1;
+            }
+            if scene == 3 && options.actor_disabled(Actor::Spider) {
+                crate::bookcase::remove_spider(data, screen)?;
+            }
+            if scene == 2 && options.actor_disabled(Actor::Eels) {
+                crate::fishbowl::remove_eels(data, screen)?;
+            }
+            if scene == 7 {
+                if options.actor_disabled(Actor::HeartsRivals) {
+                    crate::hearts::remove_rivals(data, screen)?;
+                }
+                if options.actor_disabled(Actor::HeartsArrows) {
+                    crate::hearts::remove_arrow(data, screen)?;
+                }
+            }
+            Ok(())
+        })
+    }
+
     pub fn machine(&self) -> Machine {
         self.machine
     }
@@ -122,6 +171,8 @@ impl Alley {
             hearts_completion: None,
             ordinary_rooms: [0; 2],
             air_warning: 0,
+            #[cfg(feature = "dev-tools")]
+            dev_options: DevOptions::default(),
         }
     }
 
@@ -163,6 +214,8 @@ impl Alley {
             hearts_completion: None,
             ordinary_rooms: [0; 2],
             air_warning: 0,
+            #[cfg(feature = "dev-tools")]
+            dev_options: DevOptions::default(),
         };
         // The first accepted neutral update establishes the original idle image.
         alley.update(Controls::default())?;
@@ -170,6 +223,10 @@ impl Alley {
     }
 
     pub fn update(&mut self, controls: Controls) -> Result<UpdateOutcome, String> {
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::BinCat) {
+            self.data[0x1d59] = 0;
+        }
         let image = if matches!(self.scene(), 1 | 3..=5 | 7) {
             let image = self.compositor.suspend(&mut self.screen)?;
             self.player.write_data(&mut self.data)?;
@@ -278,6 +335,14 @@ impl Alley {
             dimensions,
             sprite_bytes(&self.data, sprite.source, dimensions)?,
         )?;
+        #[cfg(feature = "dev-tools")]
+        {
+            let disabled = self.dev_options.actor_disabled(Actor::Eels);
+            self.room_actor(|data, screen| {
+                crate::fishbowl::contacts_dev(data, screen, tick, disabled)
+            })?;
+        }
+        #[cfg(not(feature = "dev-tools"))]
         self.room_actor(|data, screen| crate::fishbowl::contacts(data, screen, tick))?;
         Ok(UpdateOutcome {
             draw: step.draw,
@@ -317,6 +382,10 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<crate::hearts::HeartStep, String> {
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::HeartsArrows) {
+            return Ok(crate::hearts::HeartStep::default());
+        }
         self.room_actor(|data, screen| crate::hearts::advance_arrow(data, screen, tick))
     }
 
@@ -331,14 +400,34 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<crate::hearts::HeartStep, String> {
-        self.room_actor(|data, screen| crate::hearts::place_item(data, screen, tick))
+        #[cfg(feature = "dev-tools")]
+        {
+            let disabled = self.dev_options.actor_disabled(Actor::HeartsRivals);
+            self.room_actor(|data, screen| {
+                crate::hearts::place_item_dev(data, screen, tick, disabled)
+            })
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        {
+            self.room_actor(|data, screen| crate::hearts::place_item(data, screen, tick))
+        }
     }
 
     pub(crate) fn advance_hearts_cat(
         &mut self,
         tick: u16,
     ) -> Result<crate::hearts::HeartStep, String> {
-        self.room_actor(|data, screen| crate::hearts::advance_cat(data, screen, tick))
+        #[cfg(feature = "dev-tools")]
+        {
+            let disabled = self.dev_options.actor_disabled(Actor::HeartsRivals);
+            self.room_actor(|data, screen| {
+                crate::hearts::advance_cat_dev(data, screen, tick, disabled)
+            })
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        {
+            self.room_actor(|data, screen| crate::hearts::advance_cat(data, screen, tick))
+        }
     }
 
     fn reset_sound_state(&mut self) {
@@ -367,6 +456,7 @@ impl Alley {
 
     /// Preview the ordinary birdcage success presentation without playing its
     /// objective. This diagnostic uses the same return path as a bird capture.
+    #[cfg(any(feature = "dev-tools", test))]
     pub fn enter_completion(&mut self, tick: u16) -> Result<(), String> {
         self.enter_birdcage(tick)?;
         self.data[0x553] = 1;
@@ -396,6 +486,7 @@ impl Alley {
     }
 
     /// Enter the currently supported room directly for diagnostic play.
+    #[cfg(any(feature = "dev-tools", test))]
     pub fn enter_birdcage(&mut self, tick: u16) -> Result<(), String> {
         self.player.write_data(&mut self.data)?;
         set_word(&mut self.data, 1, self.player.x);
@@ -406,6 +497,7 @@ impl Alley {
     }
 
     /// Enter the furnished fishbowl room directly for diagnostic play.
+    #[cfg(any(feature = "dev-tools", test))]
     pub fn enter_fishbowl(&mut self, tick: u16) -> Result<(), String> {
         self.player.write_data(&mut self.data)?;
         set_word(&mut self.data, 1, self.player.x);
@@ -434,6 +526,7 @@ impl Alley {
     }
 
     /// Direct underwater preview preserves the same alley return coordinates.
+    #[cfg(any(feature = "dev-tools", test))]
     pub fn enter_underwater(&mut self, tick: u16) -> Result<(), String> {
         self.player.write_data(&mut self.data)?;
         set_word(&mut self.data, 1, self.player.x);
@@ -452,6 +545,13 @@ impl Alley {
         self.bin_image = None;
         self.mouse_effect = None;
         crate::fishbowl::draw_underwater(&mut self.data, &mut self.screen)?;
+        #[cfg(feature = "dev-tools")]
+        crate::fishbowl::initialize_underwater_dev(
+            &mut self.data,
+            &mut self.screen,
+            self.dev_options.actor_disabled(Actor::Eels),
+        )?;
+        #[cfg(not(feature = "dev-tools"))]
         crate::fishbowl::initialize_underwater(&mut self.data, &mut self.screen)?;
         crate::swimming::initialize_player(&mut self.data, tick)?;
         self.data[0x1cb8] = 0;
@@ -462,6 +562,7 @@ impl Alley {
     }
 
     /// Enter the bookcase room directly for diagnostic play.
+    #[cfg(any(feature = "dev-tools", test))]
     pub fn enter_bookcase(&mut self, tick: u16) -> Result<(), String> {
         self.player.write_data(&mut self.data)?;
         set_word(&mut self.data, 1, self.player.x);
@@ -483,6 +584,10 @@ impl Alley {
         crate::room::initialize_room_player(&mut self.data, 3)?;
         crate::room::initialize_broom(&mut self.data)?;
         crate::bookcase::initialize(&mut self.data, &mut self.screen)?;
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::Spider) {
+            crate::bookcase::remove_spider(&mut self.data, &mut self.screen)?;
+        }
         self.data[0x1cb8] = 0;
         self.data[0x1cbf] = 0;
         self.player = Player::from_data(&self.data)?;
@@ -491,6 +596,7 @@ impl Alley {
     }
 
     /// Enter the cheese room directly for diagnostic play.
+    #[cfg(any(feature = "dev-tools", test))]
     pub fn enter_cheese(&mut self, tick: u16) -> Result<(), String> {
         self.player.write_data(&mut self.data)?;
         set_word(&mut self.data, 1, self.player.x);
@@ -521,6 +627,7 @@ impl Alley {
 
     /// Enter scene seven directly for diagnostic play, saving the same return
     /// coordinates as a window entry. Normal progression enters via a window.
+    #[cfg(any(feature = "dev-tools", test))]
     pub fn enter_hearts(&mut self, tick: u16) -> Result<(), String> {
         self.player.write_data(&mut self.data)?;
         set_word(&mut self.data, 1, self.player.x);
@@ -539,6 +646,14 @@ impl Alley {
         self.compositor = PlayerCompositor::default();
         self.bin_image = None;
         self.mouse_effect = None;
+        #[cfg(feature = "dev-tools")]
+        crate::hearts::initialize_dev(
+            &mut self.data,
+            &mut self.screen,
+            tick,
+            self.dev_options.actor_disabled(Actor::HeartsRivals),
+        )?;
+        #[cfg(not(feature = "dev-tools"))]
         crate::hearts::initialize(&mut self.data, &mut self.screen, tick)?;
         crate::room::initialize_room_player(&mut self.data, 7)?;
         self.data[0x1cb8] = 0;
@@ -604,7 +719,17 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<crate::fishbowl::ActorStep, String> {
-        self.room_actor(|data, screen| crate::fishbowl::advance_actors(data, screen, tick))
+        #[cfg(feature = "dev-tools")]
+        {
+            let disabled = self.dev_options.actor_disabled(Actor::Eels);
+            self.room_actor(|data, screen| {
+                crate::fishbowl::advance_actors_dev(data, screen, tick, disabled)
+            })
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        {
+            self.room_actor(|data, screen| crate::fishbowl::advance_actors(data, screen, tick))
+        }
     }
 
     pub(crate) fn advance_water_surface(
@@ -618,21 +743,55 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<crate::bookcase::SpiderStep, String> {
-        self.room_actor(|data, screen| crate::bookcase::advance_spider(data, screen, tick))
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::Spider) {
+            return Ok(crate::bookcase::SpiderStep::default());
+        }
+        #[cfg(feature = "dev-tools")]
+        {
+            let disabled = self.dev_options.actor_disabled(Actor::Broom);
+            self.room_actor(|data, screen| {
+                crate::bookcase::advance_spider_dev(data, screen, tick, disabled)
+            })
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        {
+            self.room_actor(|data, screen| crate::bookcase::advance_spider(data, screen, tick))
+        }
     }
 
     pub(crate) fn advance_bookcase_targets(
         &mut self,
         tick: u16,
     ) -> Result<crate::bookcase::TargetStep, String> {
-        self.room_actor(|data, screen| crate::bookcase::advance_targets(data, screen, tick))
+        #[cfg(feature = "dev-tools")]
+        {
+            let disabled = self.dev_options.actor_disabled(Actor::Spider);
+            self.room_actor(|data, screen| {
+                crate::bookcase::advance_targets_dev(data, screen, tick, disabled)
+            })
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        {
+            self.room_actor(|data, screen| crate::bookcase::advance_targets(data, screen, tick))
+        }
     }
 
     pub(crate) fn advance_cheese_mice(
         &mut self,
         tick: u16,
     ) -> Result<crate::cheese::MouseStep, String> {
-        self.room_actor(|data, screen| crate::cheese::advance_mice(data, screen, tick))
+        #[cfg(feature = "dev-tools")]
+        {
+            let disabled = self.dev_options.actor_disabled(Actor::Broom);
+            self.room_actor(|data, screen| {
+                crate::cheese::advance_mice_dev(data, screen, tick, disabled)
+            })
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        {
+            self.room_actor(|data, screen| crate::cheese::advance_mice(data, screen, tick))
+        }
     }
 
     pub(crate) fn advance_cheese_transfer(
@@ -641,6 +800,14 @@ impl Alley {
     ) -> Result<crate::cheese::TransferStep, String> {
         let image = self.compositor.suspend(&mut self.screen)?;
         self.player.write_data(&mut self.data)?;
+        #[cfg(feature = "dev-tools")]
+        let step = crate::cheese::advance_transfer_dev(
+            &mut self.data,
+            &mut self.screen,
+            tick,
+            self.dev_options.actor_disabled(Actor::Broom),
+        )?;
+        #[cfg(not(feature = "dev-tools"))]
         let step = crate::cheese::advance_transfer(&mut self.data, &mut self.screen, tick)?;
         self.player.apply_actor_state(&self.data)?;
         // The hole animation owns the image until its final background-save.
@@ -684,6 +851,10 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<Option<crate::room::BroomUpdate>, String> {
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::Broom) {
+            return Ok(None);
+        }
         self.room_actor(|data, screen| crate::room::advance_broom(data, screen, tick))
     }
 
@@ -859,7 +1030,10 @@ impl Alley {
         if self.scene() != 0 {
             return Ok(());
         }
-        if let Some(image) = self.bin_image {
+        let bin_image = self.bin_image;
+        #[cfg(feature = "dev-tools")]
+        let bin_image = bin_image.filter(|_| !self.dev_options.actor_disabled(Actor::BinCat));
+        if let Some(image) = bin_image {
             self.draw_actor(Image {
                 source: image.source,
                 dimensions: image.dimensions.0,
@@ -867,11 +1041,17 @@ impl Alley {
                 blend: Blend::ZeroTransparent,
             })?;
         }
-        for image in (*self.mice.images()).into_iter().flatten() {
-            self.draw_actor(image)?;
-        }
-        if let Some(image) = self.mouse_effect {
-            self.draw_actor(image)?;
+        #[cfg(feature = "dev-tools")]
+        let show_mice = !self.dev_options.actor_disabled(Actor::AlleyMice);
+        #[cfg(not(feature = "dev-tools"))]
+        let show_mice = true;
+        if show_mice {
+            for image in (*self.mice.images()).into_iter().flatten() {
+                self.draw_actor(image)?;
+            }
+            if let Some(image) = self.mouse_effect {
+                self.draw_actor(image)?;
+            }
         }
         Ok(())
     }
@@ -881,6 +1061,10 @@ impl Alley {
         tick: u16,
         retrace: bool,
     ) -> Result<Option<BinAdvance>, String> {
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::BinCat) {
+            return Ok(None);
+        }
         let started = self.data[0x1d59] == 0;
         let previous_rows = (word(&self.data, 0x1d66) >> 8) as u8;
         let Some(update) = crate::bin_cat::advance(&mut self.data, &self.player, tick, retrace)?
@@ -912,6 +1096,10 @@ impl Alley {
     }
 
     pub(crate) fn advance_mice(&mut self, tick: u16) -> Result<MouseAdvance, String> {
+        #[cfg(feature = "dev-tools")]
+        if self.dev_options.actor_disabled(Actor::AlleyMice) {
+            return Ok(MouseAdvance::default());
+        }
         let Some(update) = self.mice.advance(&mut self.data, &self.player, tick)? else {
             return Ok(MouseAdvance::default());
         };

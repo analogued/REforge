@@ -177,6 +177,38 @@ pub(crate) fn advance_mice(
     screen: &mut Framebuffer,
     tick: u16,
 ) -> Result<MouseStep, String> {
+    advance_mice_inner(
+        data,
+        screen,
+        tick,
+        #[cfg(feature = "dev-tools")]
+        false,
+    )
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn advance_mice_dev(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_broom: bool,
+) -> Result<MouseStep, String> {
+    if !disable_broom {
+        return advance_mice(data, screen, tick);
+    }
+    advance_mice_inner(data, screen, tick, true)
+}
+
+fn advance_mice_inner(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    #[cfg(feature = "dev-tools")] disable_broom: bool,
+) -> Result<MouseStep, String> {
+    #[cfg(feature = "dev-tools")]
+    let broom_enabled = !disable_broom;
+    #[cfg(not(feature = "dev-tools"))]
+    let broom_enabled = true;
     check(data)?;
     if tick == word(data, 0x3edc) {
         return Ok(MouseStep::default());
@@ -196,7 +228,7 @@ pub(crate) fn advance_mice(
     }
     let mut contact = mouse_contact(data, slot);
     if !contact {
-        if broom_contact(data, slot) {
+        if broom_enabled && broom_contact(data, slot) {
             return Ok(result);
         }
         if data[0x3eb6 + slot] == 0 {
@@ -259,7 +291,7 @@ pub(crate) fn advance_mice(
     let dest = pixel_offset(word(data, 0x3ecc + slot * 2), data[0x3ed4 + slot]);
     set_word(data, 0x3de4, dest);
     result.drew = restore_mouse(data, screen, slot)?;
-    if broom_contact(data, slot) {
+    if broom_enabled && broom_contact(data, slot) {
         return Ok(result);
     }
     if source == 0 {
@@ -280,6 +312,38 @@ pub(crate) fn advance_transfer(
     screen: &mut Framebuffer,
     tick: u16,
 ) -> Result<TransferStep, String> {
+    advance_transfer_inner(
+        data,
+        screen,
+        tick,
+        #[cfg(feature = "dev-tools")]
+        false,
+    )
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn advance_transfer_dev(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_broom: bool,
+) -> Result<TransferStep, String> {
+    if !disable_broom {
+        return advance_transfer(data, screen, tick);
+    }
+    advance_transfer_inner(data, screen, tick, true)
+}
+
+fn advance_transfer_inner(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    #[cfg(feature = "dev-tools")] disable_broom: bool,
+) -> Result<TransferStep, String> {
+    #[cfg(feature = "dev-tools")]
+    let broom_enabled = !disable_broom;
+    #[cfg(not(feature = "dev-tools"))]
+    let broom_enabled = true;
     check(data)?;
     let mut result = TransferStep {
         active: data[0x39e1] != 0,
@@ -293,7 +357,7 @@ pub(crate) fn advance_transfer(
         if data[0x584] != 0
             || data[0x69a] != 0
             || data[0x39e0] == 0
-            || overlap(broom_rect(data), player_rect(data))
+            || (broom_enabled && overlap(broom_rect(data), player_rect(data)))
             || tick.wrapping_sub(word(data, 0x3d18)) < 12
         {
             return Ok(result);
@@ -323,7 +387,7 @@ pub(crate) fn advance_transfer(
         result.started = true;
         result.player_changed = true;
     }
-    if data[0x1cbf] == 0 {
+    if broom_enabled && data[0x1cbf] == 0 {
         crate::room::restore_broom(data, screen)?;
     }
     data[0x39e1] = data[0x39e1].wrapping_sub(2);
@@ -342,7 +406,7 @@ pub(crate) fn advance_transfer(
     }
     let source = offset.wrapping_add(word(data, 0x3d06 + usize::from(countdown)));
     copy_sprite(data, screen, source, dest, Dimensions(0x1002))?;
-    if data[0x1cbf] == 0 {
+    if broom_enabled && data[0x1cbf] == 0 {
         crate::room::draw_broom(data, screen)?;
     }
     set_word(data, 0x3d16, tick);
@@ -359,6 +423,115 @@ pub(crate) fn advance_transfer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn development_false_adapters_preserve_mouse_and_transfer_state_and_pixels() {
+        let (mut data, mut screen) = fixture();
+        set_word(&mut data, 0x3eda, 3);
+        data[0x3eb6] = 10;
+        data[0x3eae] = 1;
+        let mut alternate = data.clone();
+        let mut alternate_screen = screen.clone();
+        assert_eq!(
+            advance_mice(&mut data, &mut screen, 1).unwrap(),
+            advance_mice_dev(&mut alternate, &mut alternate_screen, 1, false).unwrap()
+        );
+        assert_eq!(data, alternate);
+        assert_eq!(screen.bytes(), alternate_screen.bytes());
+
+        let (mut data, mut screen) = fixture();
+        data[0x39e0] = 1;
+        data[0x1cbf] = 0;
+        set_word(&mut data, 0x3260, 0x6000);
+        data[0x6000..0x6078].fill(0xff);
+        set_word(&mut data, 0x3284, pixel_offset(100, 100));
+        let mut alternate = data.clone();
+        let mut alternate_screen = screen.clone();
+        for tick in 12..=18 {
+            assert_eq!(
+                advance_transfer(&mut data, &mut screen, tick).unwrap(),
+                advance_transfer_dev(&mut alternate, &mut alternate_screen, tick, false).unwrap()
+            );
+            assert_eq!(data, alternate);
+            assert_eq!(screen.bytes(), alternate_screen.bytes());
+        }
+        assert_eq!(data[0x39e1], 0);
+        assert_eq!(data[0x3286], 0);
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn disabled_broom_cannot_block_mouse_phase_or_its_new_image() {
+        for (broom_x, broom_y, expected_normal_phase) in [(100, 100, 10), (8, 51, 9)] {
+            let (mut data, mut screen) = fixture();
+            set_word(&mut data, 0x3eda, 3);
+            set_word(&mut data, 0x3ecc, 100);
+            data[0x3ed4] = 100;
+            data[0x3eb6] = 10;
+            data[0x3eae] = 1;
+            set_word(&mut data, 0x327d, broom_x);
+            data[0x327f] = broom_y;
+            let mut alternate = data.clone();
+            let mut alternate_screen = screen.clone();
+            let normal = advance_mice(&mut data, &mut screen, 1).unwrap();
+            let unblocked =
+                advance_mice_dev(&mut alternate, &mut alternate_screen, 1, true).unwrap();
+            assert!(normal.accepted && !normal.drew);
+            assert_eq!(data[0x3eb6], expected_normal_phase);
+            assert!(unblocked.accepted && unblocked.drew);
+            assert_eq!((alternate[0x3eb6], alternate[0x3eae]), (9, 0));
+            assert_eq!(word(&alternate, 0x3ea6), pixel_offset(8, 51));
+            assert_eq!(
+                alternate_screen
+                    .read_rect(pixel_offset(8, 51), Dimensions(0x0c02))
+                    .unwrap(),
+                vec![0; 48]
+            );
+            assert_eq!((alternate[0x552], alternate[0x1f80]), (0, 3));
+        }
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn disabled_broom_allows_transfer_without_restoring_or_redrawing_its_image() {
+        let (mut data, mut screen) = fixture();
+        data[0x39e0] = 1;
+        data[0x1cbf] = 0;
+        set_word(&mut data, 0x579, 100);
+        data[0x57b] = 100;
+        set_word(&mut data, 0x327d, 100);
+        data[0x327f] = 100;
+        let broom_dest = pixel_offset(100, 100);
+        data[0x3286] = 0;
+        set_word(&mut data, 0x3282, broom_dest);
+        set_word(&mut data, 0x3284, broom_dest);
+        set_word(&mut data, 0x3260, 0x6000);
+        data[0x6000..0x6078].fill(0xff);
+        data[0x31e8..0x3260].fill(0x11);
+        let unchanged_broom_state = data[0x327a..0x328e].to_vec();
+        assert!(
+            !advance_transfer(&mut data.clone(), &mut screen.clone(), 12)
+                .unwrap()
+                .accepted
+        );
+        for tick in 12..=18 {
+            let step = advance_transfer_dev(&mut data, &mut screen, tick, true).unwrap();
+            assert!(step.accepted && step.drew);
+            assert_eq!(step.started, tick == 12);
+            assert_eq!(step.finished, tick == 18);
+            assert_eq!(
+                screen.read_rect(broom_dest, Dimensions(0x1e02)).unwrap(),
+                vec![0xaa; 120]
+            );
+            assert_eq!(data[0x31e8..0x3260], [0x11; 120]);
+            assert_eq!(data[0x327a..0x328e], unchanged_broom_state);
+        }
+        assert_eq!(
+            (word(&data, 0x579), data[0x57b], data[0x39e1], data[0x1f80]),
+            (232, 96, 0, 3)
+        );
+    }
 
     fn fixture() -> (Vec<u8>, Framebuffer) {
         let mut data = vec![0; DATA_LENGTH];

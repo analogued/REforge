@@ -9,6 +9,7 @@ description = "An early Alley Cat reconstruction for modern desktop systems"
 [features]
 default = ["sdl"]
 sdl = []
+dev-tools = []
 
 [dependencies]
 sha2 = { version = "=0.11.0", default-features = false }

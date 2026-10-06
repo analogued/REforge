@@ -394,9 +394,174 @@ pub(crate) fn contacts(
     Ok(result)
 }
 
+/// Development-only suppression also clears any eel images already on screen.
+/// Positions and directions remain available if a later scene enables eels.
+#[cfg(feature = "dev-tools")]
+pub(crate) fn remove_eels(data: &mut [u8], screen: &mut Framebuffer) -> Result<bool, String> {
+    check(data)?;
+    let mut drew = false;
+    for slot in 12..24 {
+        drew |= restore_actor(data, screen, slot)?;
+        data[0x34a7 + slot] = 1;
+        data[0x348f + slot] = 1;
+    }
+    Ok(drew)
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn initialize_underwater_dev(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    disable_eels: bool,
+) -> Result<(), String> {
+    initialize_underwater(data, screen)?;
+    if disable_eels {
+        remove_eels(data, screen)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn advance_actors_dev(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_eels: bool,
+) -> Result<ActorStep, String> {
+    if !disable_eels {
+        return advance_actors(data, screen, tick);
+    }
+    let erased = remove_eels(data, screen)?;
+    let mut result = advance_actors(data, screen, tick)?;
+    result.drew |= erased;
+    Ok(result)
+}
+
+/// With eels disabled, collection still scans every fish and retains the
+/// objective and timeout rules. Its contact count cannot reactivate an eel.
+#[cfg(feature = "dev-tools")]
+pub(crate) fn contacts_dev(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_eels: bool,
+) -> Result<ContactStep, String> {
+    if !disable_eels {
+        return contacts(data, screen, tick);
+    }
+    let mut result = ContactStep {
+        drew: remove_eels(data, screen)?,
+        ..ContactStep::default()
+    };
+    set_word(data, 0x3511, 0);
+    data[0x351b] = 0;
+    for slot in 0..12 {
+        set_word(data, 0x3511, slot as u16);
+        if data[0x34a7 + slot] != 0
+            || !overlap(
+                (
+                    word(data, 0x3447 + slot * 2),
+                    data[0x3477 + slot],
+                    word(data, 0x3513),
+                    data[0x3517],
+                ),
+                player_rect(data),
+            )
+        {
+            continue;
+        }
+        data[0x351b] = data[0x351b].wrapping_add(1);
+        result.contacts += 1;
+        result.collected += 1;
+        if data[0] != 0 {
+            set_word(data, 0x5923, 0x0425);
+            data[0x5920] = 2;
+            set_word(data, 0x5921, tick);
+        }
+        result.drew |= restore_actor(data, screen, slot)?;
+        data[0x34a7 + slot] = 1;
+        data[0x3410] = data[0x3410].wrapping_sub(1);
+        if data[0x3410] == 0 && data[0x5f3] == 0 {
+            data[0x553] = 1;
+        }
+    }
+    set_word(data, 0x3511, 24);
+    result.success = data[0x553] != 0;
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn disabled_eels_are_erased_and_never_move_contact_or_reactivate() {
+        let (mut data, mut screen) = fixture();
+        place_contact(&mut data, 12);
+        data[0x348f + 12] = 0;
+        let dest = pixel_offset(100, 100);
+        set_word(&mut data, 0x34bf + 24, dest);
+        screen
+            .copy_rect(dest, Dimensions(0x0202), &[0xff; 8])
+            .unwrap();
+        assert!(remove_eels(&mut data, &mut screen).unwrap());
+        assert_eq!(
+            screen.read_rect(dest, Dimensions(0x0202)).unwrap(),
+            vec![0x55; 8]
+        );
+        let positions = data[0x3447 + 24..0x3477].to_vec();
+        let directions = data[0x3417 + 12..0x342f].to_vec();
+        let random = word(&data, 0x2ae5);
+        set_word(&mut data, 0x3415, 11);
+        let actor = advance_actors_dev(&mut data, &mut screen, 1, true).unwrap();
+        assert!(actor.accepted && !actor.drew);
+        assert_eq!(word(&data, 0x2ae5), random);
+        place_contact(&mut data, 0);
+        data[0x3410] = 1;
+        let step = contacts_dev(&mut data, &mut screen, 2, true).unwrap();
+        assert_eq!(
+            (
+                step.collected,
+                step.contacts,
+                step.hazard_contacts,
+                step.success
+            ),
+            (1, 1, 0, true)
+        );
+        assert_eq!(data[0x34b3..0x34bf], [1; 12]);
+        assert_eq!(data[0x349b..0x34a7], [1; 12]);
+        assert_eq!(data[0x3447 + 24..0x3477], positions);
+        assert_eq!(data[0x3417 + 12..0x342f], directions);
+        assert_eq!((data[0x552], data[0x1f80]), (0, 3));
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn development_initialization_retains_fish_and_false_wrappers_match_defaults() {
+        let (mut data, mut screen) = fixture();
+        initialize_underwater_dev(&mut data, &mut screen, true).unwrap();
+        assert_eq!((data[0x3410], &data[0x34a7..0x34b3]), (12, &[0; 12][..]));
+        assert_eq!(data[0x34b3..0x34bf], [1; 12]);
+        let (mut original, mut pixels) = fixture();
+        let (mut alternate, mut alternate_pixels) = fixture();
+        initialize_underwater(&mut original, &mut pixels).unwrap();
+        initialize_underwater_dev(&mut alternate, &mut alternate_pixels, false).unwrap();
+        assert_eq!(original, alternate);
+        assert_eq!(pixels.bytes(), alternate_pixels.bytes());
+        assert_eq!(
+            advance_actors(&mut original, &mut pixels, 1).unwrap(),
+            advance_actors_dev(&mut alternate, &mut alternate_pixels, 1, false).unwrap()
+        );
+        assert_eq!(original, alternate);
+        assert_eq!(pixels.bytes(), alternate_pixels.bytes());
+        assert_eq!(
+            contacts(&mut original, &mut pixels, 2).unwrap(),
+            contacts_dev(&mut alternate, &mut alternate_pixels, 2, false).unwrap()
+        );
+        assert_eq!(original, alternate);
+        assert_eq!(pixels.bytes(), alternate_pixels.bytes());
+    }
 
     fn fixture() -> (Vec<u8>, Framebuffer) {
         let mut data = vec![0; DATA_LENGTH];

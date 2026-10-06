@@ -116,6 +116,21 @@ pub(crate) fn advance_targets(
     screen: &mut Framebuffer,
     tick: u16,
 ) -> Result<TargetStep, String> {
+    advance_targets_inner(
+        data,
+        screen,
+        tick,
+        #[cfg(feature = "dev-tools")]
+        false,
+    )
+}
+
+fn advance_targets_inner(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    #[cfg(feature = "dev-tools")] disable_spider: bool,
+) -> Result<TargetStep, String> {
     check(data)?;
     if tick == word(data, 0x37b8) {
         return Ok(TargetStep::default());
@@ -138,6 +153,11 @@ pub(crate) fn advance_targets(
             data[0x5920] = 2;
             set_word(data, 0x5921, tick);
         }
+        #[cfg(feature = "dev-tools")]
+        if !disable_spider {
+            restore_spider(data, screen)?;
+        }
+        #[cfg(not(feature = "dev-tools"))]
         restore_spider(data, screen)?;
         set_word(data, 0x37b0 + offset, 0);
         data[0x0e..0x4e].fill(0xaa);
@@ -155,6 +175,11 @@ pub(crate) fn advance_targets(
         // CS:1124 refreshes the player background after erasing the plant.
         // PlayerCompositor owns that buffer in the authored runtime.
         data[0x583] = 0;
+        #[cfg(feature = "dev-tools")]
+        if !disable_spider {
+            draw_spider(data, screen)?;
+        }
+        #[cfg(not(feature = "dev-tools"))]
         draw_spider(data, screen)?;
         result.drew = true;
         result.collected = true;
@@ -173,6 +198,21 @@ pub(crate) fn advance_spider(
     screen: &mut Framebuffer,
     tick: u16,
 ) -> Result<SpiderStep, String> {
+    advance_spider_inner(
+        data,
+        screen,
+        tick,
+        #[cfg(feature = "dev-tools")]
+        false,
+    )
+}
+
+fn advance_spider_inner(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    #[cfg(feature = "dev-tools")] disable_broom: bool,
+) -> Result<SpiderStep, String> {
     check(data)?;
     if tick.wrapping_sub(word(data, 0x39c8)) < 2 {
         return Ok(SpiderStep::default());
@@ -182,7 +222,11 @@ pub(crate) fn advance_spider(
         accepted: true,
         ..SpiderStep::default()
     };
-    if broom_contact(data) {
+    #[cfg(feature = "dev-tools")]
+    let broom_enabled = !disable_broom;
+    #[cfg(not(feature = "dev-tools"))]
+    let broom_enabled = true;
+    if broom_enabled && broom_contact(data) {
         return Ok(result);
     }
     result.contact = spider_contact(data);
@@ -233,7 +277,7 @@ pub(crate) fn advance_spider(
         };
         data[0x3966] = y;
     }
-    if broom_contact(data) {
+    if broom_enabled && broom_contact(data) {
         set_word(data, 0x3964, old_x);
         data[0x3966] = old_y;
         return Ok(result);
@@ -251,9 +295,107 @@ pub(crate) fn advance_spider(
     Ok(result)
 }
 
+#[cfg(feature = "dev-tools")]
+pub(crate) fn remove_spider(data: &mut [u8], screen: &mut Framebuffer) -> Result<bool, String> {
+    check(data)?;
+    let drew = data[0x396a] == 0;
+    restore_spider(data, screen)?;
+    data[0x396a] = 1;
+    Ok(drew)
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn advance_targets_dev(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_spider: bool,
+) -> Result<TargetStep, String> {
+    if !disable_spider {
+        return advance_targets(data, screen, tick);
+    }
+    let erased = if disable_spider {
+        remove_spider(data, screen)?
+    } else {
+        false
+    };
+    let mut result = advance_targets_inner(data, screen, tick, disable_spider)?;
+    result.drew |= erased;
+    Ok(result)
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn advance_spider_dev(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_broom: bool,
+) -> Result<SpiderStep, String> {
+    if !disable_broom {
+        return advance_spider(data, screen, tick);
+    }
+    advance_spider_inner(data, screen, tick, true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn collecting_plants_cannot_redraw_a_disabled_spider() {
+        let (mut data, mut screen) = fixture();
+        draw_spider(&mut data, &mut screen).unwrap();
+        set_word(&mut data, 0x579, 208);
+        data[0x57b] = 24;
+        let step = advance_targets_dev(&mut data, &mut screen, 1, true).unwrap();
+        assert!(step.collected && step.drew);
+        assert_eq!(data[0x396a], 1);
+        assert_eq!(
+            screen
+                .read_rect(pixel_offset(280, 8), Dimensions(0x0e03))
+                .unwrap(),
+            vec![0xaa; 84]
+        );
+        assert!(!remove_spider(&mut data, &mut screen).unwrap());
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn disabled_broom_cannot_stop_or_roll_back_the_spider() {
+        for broom_x in [264, 263] {
+            let (mut data, mut screen) = fixture();
+            set_word(&mut data, 0x327d, broom_x);
+            data[0x327f] = 8;
+            let step = advance_spider_dev(&mut data, &mut screen, 2, true).unwrap();
+            assert!(step.accepted && step.drew);
+            assert_eq!(word(&data, 0x3964), 276);
+        }
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn development_false_wrappers_preserve_default_bookcase_state_and_pixels() {
+        let (mut data, mut screen) = fixture();
+        let mut alternate = data.clone();
+        let mut alternate_screen = screen.clone();
+        assert_eq!(
+            advance_spider(&mut data, &mut screen, 2).unwrap(),
+            advance_spider_dev(&mut alternate, &mut alternate_screen, 2, false).unwrap()
+        );
+        assert_eq!(data, alternate);
+        assert_eq!(screen.bytes(), alternate_screen.bytes());
+        set_word(&mut data, 0x579, 208);
+        set_word(&mut alternate, 0x579, 208);
+        data[0x57b] = 24;
+        alternate[0x57b] = 24;
+        assert_eq!(
+            advance_targets(&mut data, &mut screen, 3).unwrap(),
+            advance_targets_dev(&mut alternate, &mut alternate_screen, 3, false).unwrap()
+        );
+        assert_eq!(data, alternate);
+        assert_eq!(screen.bytes(), alternate_screen.bytes());
+    }
 
     fn fixture() -> (Vec<u8>, Framebuffer) {
         let mut data = vec![0; DATA_LENGTH];

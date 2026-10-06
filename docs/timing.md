@@ -290,8 +290,8 @@ audio synthesis or random draws from these presentation helpers.
 
 The original sets scene zero before presentation. The recreation's scene
 diagnostic remains five until the alley has been initialized; a dedicated
-completion state blocks all room work meanwhile. `--scene completion` starts
-this sequence directly for testing. The pending bonus flag survives alley
+completion state blocks all room work meanwhile. With `dev-tools`,
+`--scene completion` starts this sequence directly for testing. The pending bonus flag survives alley
 return and selects the hearts scene at the next eligible window entry.
 
 ### Hearts scene schedule and progression
@@ -420,6 +420,7 @@ including the final tick check. Completion resumes after the interrupted actor
 batch without advancing its divider again. Effect polling has an approximate
 execution cost; the elapsed-tick exit and random predicate are retained.
 
+The following diagnostic controls require a build with `dev-tools`.
 `--step-hz` explicitly selects the former uniform diagnostic movement scheduler.
 Untimed headless execution also advances accepted movement bodies directly.
 These accepted-update diagnostic modes do not advance scenery or actor schedules.

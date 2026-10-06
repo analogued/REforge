@@ -81,10 +81,19 @@ cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --no-default-features
 cargo clippy --locked --all-targets --no-default-features -- -D warnings
+cargo test --locked --features dev-tools
+cargo clippy --locked --all-targets --features dev-tools -- -D warnings
+cargo test --locked --no-default-features --features dev-tools
+cargo clippy --locked --all-targets --no-default-features --features dev-tools -- -D warnings
 ```
 
-The default build requires SDL3; the headless build does not. Unit tests use
-synthetic data and do not require original game files. Runtime checks need the
+The default build requires SDL3. Headless diagnostic runs require
+`--no-default-features --features dev-tools` and do not need SDL3. The normal
+CLI excludes testing options; verify both the normal and development feature
+combinations when changing CLI or test switches. Development help is available
+with `cargo run --locked --features dev-tools -- --help`.
+
+Unit tests use synthetic data and do not require original game files. Runtime checks need the
 supported external executable described in the README. Keep captures and raw
 comparison evidence outside Git, with input hashes and reproduction metadata.
 Compare reconstructed routines and accepted movement updates against the

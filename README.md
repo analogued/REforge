@@ -66,22 +66,58 @@ supported; game timing still follows the virtual PIT/video clocks. Composite
 monitor simulation is not implemented. Raw framebuffer and PPM exports remain
 320×200 for data comparisons.
 
-`--seed` selects a nonzero 16-bit random seed, in decimal or `0xHEX` notation.
-The default seed is `0xfa59`.
-`--difficulty` accepts 0 through 7 and affects the initial alley layout.
-These controls are diagnostic setup options; startup and difficulty selection
-screens are not implemented.
+`--difficulty` accepts 0 through 7 and sets the initial difficulty. Startup
+and difficulty selection screens are not implemented. Normal builds accept
+`--original`, `--machine`, `--scale`, `--difficulty` and `--help`.
 
+## Development tools
+
+Testing options are compiled only with the `dev-tools` Cargo feature:
+
+```sh
+cargo run --locked --release --features dev-tools -- \
+  --original /path/to/CAT.EXE --scene underwater
+```
+
+Without that feature, their parser branches, option fields, diagnostic runners
+and export helpers are excluded; passing a testing flag reports an unknown
+option. `cargo run --locked --features dev-tools -- --help` lists the development
+options alongside the player options.
+
+`--seed` selects a nonzero 16-bit random seed, in decimal or `0xHEX` notation.
+The internal default remains `0xfa59` in both builds.
 `--scene fishbowl`, `--scene bookcase`, `--scene cheese` and `--scene birdcage`
 start directly in those rooms for testing; the default is `--scene alley`.
-Room actors and transitions
-use the default timed runner. `--scene hearts` starts directly in the hearts
-scene with one gift. `--scene underwater` starts inside the fishbowl.
-Fishbowl, underwater, bookcase, cheese and hearts require default windowed timing
-or `--headless --timed`.
+Room actors and transitions use the default timed runner. `--scene hearts`
+starts directly in the hearts scene with one gift. `--scene underwater` starts
+inside the fishbowl. Fishbowl, underwater, bookcase, cheese and hearts require
+default windowed timing or `--headless --timed`.
 `--scene completion` previews the birdcage scoring presentation and returns to
-the alley, without playing the objective. This preview requires default windowed
+the alley, without playing the objective. It also requires default windowed
 timing or `--headless --timed`.
+
+`--disable-actors NAMES` removes selected actor sprites and skips their updates
+and interactions. Accepts `all`, `none`, or a comma-separated list:
+`alley-dog`, `room-dog`, `window-projectiles`, `milk-dogs`, `spider`, `eels`,
+`bin-cat`, `alley-mice`, `broom`, `hearts-arrows`, `hearts-rivals`.
+Fish remain enabled when eels are disabled, and room objectives remain playable.
+`hearts-rivals` excludes the goal cat. Overrides are configured at startup;
+initial placement may still consume randomness and shared schedulers retain
+skipped opportunities. Later timing and random consumption can differ from an
+unmodified run.
+The currently absent dog and projectile identifiers are placeholders.
+
+`--disable-damage SOURCES` accepts `all`, `none`, or a comma-separated list:
+`alley-dog`, `room-dog`, `window-projectiles`, `milk-dogs`, `spider`, `eels`, `air`.
+It records the selection for future damage implementation; damage is still
+unimplemented, so choosing `none` does not enable lethal gameplay.
+`--infinite-lives` likewise records a future setting while life loss is absent.
+Requests involving these placeholders print a concise startup notice.
+
+Repeated disable flags replace the previous selection, so the last value wins.
+Whitespace around list entries is accepted; unknown names and mixed `all`/`none`
+lists are rejected. With no development switches, gameplay follows the same
+nonlethal defaults as a normal build.
 
 ## Current behavior
 
@@ -205,15 +241,15 @@ calibrated against the fixed-240 reference.
 Rendering refresh does not determine game ticks. See
 [timing contracts](docs/timing.md) for the schedule and its limits.
 
-`--step-hz 36.413` explicitly selects the earlier evenly spaced diagnostic
+With `dev-tools`, `--step-hz 36.413` explicitly selects the earlier evenly spaced diagnostic
 accepted-update mode. It bypasses the original player timing gates.
 
-## Headless use
+## Headless development use
 
-A headless build needs no SDL library:
+Headless diagnostics require `dev-tools` and need no SDL library:
 
 ```sh
-cargo run --locked --no-default-features -- \
+cargo run --locked --no-default-features --features dev-tools -- \
   --original /path/to/CAT.EXE --headless --steps 60
 ```
 

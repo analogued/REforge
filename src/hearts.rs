@@ -452,6 +452,20 @@ fn restore_arrow(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String
     Ok(())
 }
 
+/// Development-only retirement removes an active image and its interaction
+/// flag. An inactive arrow's old buffer may already have been restored.
+#[cfg(feature = "dev-tools")]
+pub(crate) fn remove_arrow(data: &mut [u8], screen: &mut Framebuffer) -> Result<bool, String> {
+    check(data)?;
+    let drew = data[0x70f2] != 0 && data[0x70f7] == 0;
+    if data[0x70f2] != 0 {
+        restore_arrow(data, screen)?;
+    }
+    data[0x70f2] = 0;
+    data[0x70f7] = 1;
+    Ok(drew)
+}
+
 fn draw_arrow(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
     let mut source = (word(data, 0x70f0) & 0x01e0).wrapping_add(0x6f30);
     if data[0x70f6] != 0xff {
@@ -701,9 +715,249 @@ pub(crate) fn place_item(
     Ok(result)
 }
 
+/// Remove only the six rival images. The goal cat and the caller's current
+/// scratch record remain intact; hidden records also exclude gift interaction.
+#[cfg(feature = "dev-tools")]
+pub(crate) fn remove_rivals(data: &mut [u8], screen: &mut Framebuffer) -> Result<bool, String> {
+    check(data)?;
+    let scratch = data[0x4548..0x4554].to_vec();
+    let mut drew = false;
+    for index in 0..6 {
+        let address = record_address(data, index)?;
+        load_cat(data, index)?;
+        drew |= restore_cat(data, screen)?;
+        data[0x454e] = 1;
+        set_word(data, 0x454f, 0xffff);
+        save_cat(data, index)?;
+        debug_assert_eq!(data[address + 6], 1);
+    }
+    data[0x4548..0x4554].copy_from_slice(&scratch);
+    Ok(drew)
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn initialize_dev(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_rivals: bool,
+) -> Result<(), String> {
+    initialize(data, screen, tick)?;
+    if disable_rivals {
+        remove_rivals(data, screen)?;
+    }
+    Ok(())
+}
+
+/// Keep the native grouped scheduler, including its skipped opportunities, but
+/// process movement and player contact only for the goal cat when requested.
+#[cfg(feature = "dev-tools")]
+pub(crate) fn advance_cat_dev(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_rivals: bool,
+) -> Result<HeartStep, String> {
+    if !disable_rivals {
+        return advance_cat(data, screen, tick);
+    }
+    let erased = remove_rivals(data, screen)?;
+    if tick == word(data, 0x45b8) {
+        return Ok(HeartStep {
+            drew: erased,
+            ..HeartStep::default()
+        });
+    }
+    let next = word(data, 0x45b6).wrapping_add(1);
+    let index = if next >= 7 { 0 } else { next };
+    if index == 6 {
+        let mut result = advance_cat(data, screen, tick)?;
+        result.drew |= erased;
+        return Ok(result);
+    }
+    set_word(data, 0x45b6, index);
+    if [0, 1, 4].contains(&index) {
+        set_word(data, 0x45b8, tick);
+    }
+    Ok(HeartStep {
+        accepted: true,
+        drew: erased,
+        ..HeartStep::default()
+    })
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn place_item_dev(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_rivals: bool,
+) -> Result<HeartStep, String> {
+    if !disable_rivals {
+        return place_item(data, screen, tick);
+    }
+    let erased = remove_rivals(data, screen)?;
+    let mut result = place_item(data, screen, tick)?;
+    result.drew |= erased;
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn removing_arrows_restores_active_images_and_clears_cat_interactions() {
+        let mut data = data();
+        let mut screen = Framebuffer::default();
+        screen.fill_visible(0x55);
+        data[0x70f2] = 1;
+        data[0x70f7] = 0;
+        set_word(&mut data, 0x70f3, 100);
+        data[0x70f5] = 100;
+        let offset = pixel_offset(100, 100);
+        set_word(&mut data, 0x70f8, offset);
+        data[0x70cc..0x70ec].fill(0x33);
+        screen
+            .copy_rect(offset, Dimensions(0x0802), &[0xff; 32])
+            .unwrap();
+        set_word(&mut data, 0x4548, 100);
+        data[0x454b] = 100;
+        assert!(cat_arrow_contact(&data));
+        assert!(remove_arrow(&mut data, &mut screen).unwrap());
+        assert!(!cat_arrow_contact(&data));
+        assert_eq!((data[0x70f2], data[0x70f7]), (0, 1));
+        assert_eq!(
+            screen.read_rect(offset, Dimensions(0x0802)).unwrap(),
+            vec![0x33; 32]
+        );
+        screen
+            .copy_rect(offset, Dimensions(0x0802), &[0x11; 32])
+            .unwrap();
+        data[0x70f7] = 0;
+        assert!(!remove_arrow(&mut data, &mut screen).unwrap());
+        assert_eq!(
+            screen.read_rect(offset, Dimensions(0x0802)).unwrap(),
+            vec![0x11; 32]
+        );
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn removing_rivals_erases_only_their_images_and_preserves_goal_and_scratch() {
+        let mut data = data();
+        let mut screen = Framebuffer::default();
+        screen.fill_visible(0x55);
+        for index in 0..7 {
+            let record = record_address(&data, index).unwrap();
+            let offset = pixel_offset(40 + index as u16 * 32, 80);
+            set_word(&mut data, record + 4, offset);
+            data[record + 6] = 0;
+            screen
+                .copy_rect(offset, Dimensions(0x0c03), &[0xff; 72])
+                .unwrap();
+        }
+        let scratch = data[0x4548..0x4554].to_vec();
+        let goal = record_address(&data, 6).unwrap();
+        let goal_record = data[goal..goal + 12].to_vec();
+        assert!(remove_rivals(&mut data, &mut screen).unwrap());
+        assert_eq!(data[0x4548..0x4554], scratch);
+        assert_eq!(data[goal..goal + 12], goal_record);
+        for index in 0..7 {
+            let record = record_address(&data, index).unwrap();
+            let pixels = screen
+                .read_rect(word(&data, record + 4), Dimensions(0x0c03))
+                .unwrap();
+            assert_eq!(pixels, vec![if index == 6 { 0xff } else { 0x55 }; 72]);
+            if index != 6 {
+                assert_eq!((data[record + 6], word(&data, record + 7)), (1, 0xffff));
+            }
+        }
+        assert!(!remove_rivals(&mut data, &mut screen).unwrap());
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn disabled_rivals_skip_motion_and_contact_but_goal_contact_still_succeeds() {
+        let mut data = data();
+        let mut screen = Framebuffer::default();
+        initialize_dev(&mut data, &mut screen, 1, true).unwrap();
+        let rival_records = data[0x4554..0x459c].to_vec();
+        let random = word(&data, 0x2ae5);
+        set_word(&mut data, 0x45b8, 0);
+        let step = advance_cat_dev(&mut data, &mut screen, 2, true).unwrap();
+        assert!(step.accepted && !step.drew && !step.player_changed);
+        assert_eq!(data[0x4554..0x459c], rival_records);
+        assert_eq!(word(&data, 0x2ae5), random);
+        let goal = record_address(&data, 6).unwrap();
+        set_word(&mut data, goal, 200);
+        data[goal + 3] = 120;
+        set_word(&mut data, goal + 7, 0);
+        set_word(&mut data, 0x45b6, 5);
+        let step = advance_cat_dev(&mut data, &mut screen, 3, true).unwrap();
+        assert!(step.accepted && step.success);
+        assert_eq!(data[0x553], 1);
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn absent_rivals_cannot_consume_placed_gifts_and_goal_still_can() {
+        for goal_overlaps in [false, true] {
+            let mut data = data();
+            let mut screen = Framebuffer::default();
+            screen.fill_visible(0x55);
+            set_word(&mut data, 0x2e8d, 0);
+            set_word(&mut data, 0x579, 100);
+            data[0x57b] = 175;
+            for index in 0..7 {
+                let record = record_address(&data, index).unwrap();
+                set_word(
+                    &mut data,
+                    record,
+                    if index == 6 && !goal_overlaps {
+                        264
+                    } else {
+                        100
+                    },
+                );
+                data[record + 3] = 179;
+                set_word(&mut data, record + 7, 0);
+            }
+            let result = place_item_dev(&mut data, &mut screen, 10, true).unwrap();
+            assert!(result.item_changed);
+            assert_eq!(data[0x2b72], if goal_overlaps { 0 } else { 1 });
+            for index in 0..6 {
+                let record = record_address(&data, index).unwrap();
+                assert_eq!(word(&data, record + 7), 0xffff);
+            }
+        }
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn development_false_wrappers_preserve_default_hearts_state_and_pixels() {
+        let mut data = data();
+        let mut screen = Framebuffer::default();
+        let mut alternate = data.clone();
+        let mut alternate_screen = screen.clone();
+        initialize(&mut data, &mut screen, 5).unwrap();
+        initialize_dev(&mut alternate, &mut alternate_screen, 5, false).unwrap();
+        assert_eq!(data, alternate);
+        assert_eq!(screen.bytes(), alternate_screen.bytes());
+        assert_eq!(
+            advance_cat(&mut data, &mut screen, 6).unwrap(),
+            advance_cat_dev(&mut alternate, &mut alternate_screen, 6, false).unwrap()
+        );
+        assert_eq!(data, alternate);
+        assert_eq!(screen.bytes(), alternate_screen.bytes());
+        assert_eq!(
+            place_item(&mut data, &mut screen, 6).unwrap(),
+            place_item_dev(&mut alternate, &mut alternate_screen, 6, false).unwrap()
+        );
+        assert_eq!(data, alternate);
+        assert_eq!(screen.bytes(), alternate_screen.bytes());
+    }
 
     fn data() -> Vec<u8> {
         let mut data = vec![0; DATA_LENGTH];

@@ -12,6 +12,8 @@ mod cheese;
 mod clothes;
 mod completion;
 mod decoration;
+#[cfg(feature = "dev-tools")]
+pub mod dev_tools;
 mod fishbowl;
 mod font;
 mod hearts;

@@ -62,11 +62,12 @@ with its original comment markers.
 The optional original-game recorder uses the separately configured DOSBox-X
 Observer component. Its generic observer and emulator adapter are maintained
 outside this repository; `capture/mach3.toml` supplies this game's layout.
-The component's C++ observer and adapter are GPL-2.0-only; its Python tools have
+The component's C++ observer and adapter are GPL-2.0-or-later; its Python tools have
 no selected license yet. Its builder retains DOSBox-X's complete GPL version 2
 `COPYING` and original per-file notices in an external checkout and records the
 tested revision. The patched upstream files allow GPL version 2 or later;
-the combined observer/emulator is distributed under GPL version 2.
+the permitted license versions for the combined executable depend on all
+included components. The observer adds no GPLv2-only restriction.
 No emulator executable or upstream source is redistributed here. The upstream
 emulator uses SDL2; the Rust recreation continues to use SDL3. Redistribution of
 an integrated emulator must follow upstream and applicable observer terms.

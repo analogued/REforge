@@ -85,7 +85,7 @@ raw state, and comparison reports remain external to the repository.
 ## Rust opening simulation
 
 `Opening` implements the opening without keyboard input through completed body
-360. It updates the HUD, recycles and projects terrain, and starts four enemy
+450. It updates the HUD, recycles and projects terrain, and starts five enemy
 waves. The generator runs from fresh startup state; branch decisions consume
 its results in the original order. Source resolution remains separate from
 requested sprite selection.
@@ -118,6 +118,15 @@ targets use the current player position plus independent random offsets from
 -32 through 31, including after recovery. The fourth enemy follows the same lateral wave at
 every depth, keeps its initial height zero, and never switches to seeking.
 
+The fifth encounter contains two craft. The formation-count command consumes
+one random word before increasing the count. Each craft starts at depth
+1,600 minus 100 times its index within the formation and keeps its own cached
+source, projection, shadow, and explosion state. Both axes continue orbiting
+at near depths. Craft update in ascending slot order, sharing the orbital
+center, projectile slot, and target. Each moving craft consumes three random
+words, even while the projectile is already active. A collision converts only
+the identified craft; script progression waits until every primary is inactive.
+
 Terrain selector 6 activates only slots 15 through 19 when recycled. Excluded
 slots retain their prior kind and phase and still consume random words while
 inactive. Life icons resolve every eighth body at phase three. The first death
@@ -149,12 +158,14 @@ Camera height changes with the player's response movement. The terrain strip
 position and vertical projection origin are cached by the first render pass;
 subsequent projections use the current camera height. Shadows precede ordinary
 objects, world and player sprites clip to the viewport, and distant objects
-retain the first pass's drawing order between updates. The depth-sorted list
-persists across bodies, so equal-depth objects keep their preceding order.
+retain the first pass's drawing order between updates. The sorted list persists
+across bodies. Entries with movement subtype zero keep their order in a prefix;
+other entries sort by descending depth, retaining their preceding order at equal
+depth. Inactive records still participate.
 The initial HUD indicator artwork is preserved.
 
 Native frames and checked HUD, player, terrain, enemy, target, camera, and random
-state match the original at every completed-body boundary from 0 through 360.
+state match the original at every completed-body boundary from 0 through 450.
 The simulation uses interpreted rules and decoded resources. It does not load
 captured frames or state and does not reproduce every intermediate framebuffer
 write within a body.
@@ -168,7 +179,7 @@ The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
 The viewer offers an interval override and manual stepping.
 
-The simulation holds after the current verified batch of 360 bodies. This is a
+The simulation holds after the current verified batch of 450 bodies. This is a
 comparison checkpoint, not a randomness barrier. Subsequent encounter commands
 need further implementation and validation. Keyboard movement and firing,
 restart within an existing random stream, and audio are unsupported.

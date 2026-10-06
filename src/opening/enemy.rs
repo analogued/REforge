@@ -11,6 +11,7 @@ pub struct EnemySnapshot {
     pub lateral: i16,
     pub height: i16,
     pub active: bool,
+    pub movement: u8,
     pub requested_sprite: usize,
     pub resolved_sprite: usize,
     pub rect: Rect,
@@ -25,6 +26,7 @@ impl EnemySnapshot {
             lateral: 0,
             height,
             active: false,
+            movement: if slot == 4 { 253 } else { 0 },
             requested_sprite: sprite,
             resolved_sprite: sprite,
             rect: Rect {
@@ -76,7 +78,7 @@ impl EnemySnapshot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EnemyCollision {
     Projectile,
-    Craft,
+    Craft(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,77 +87,80 @@ enum Motion {
     Seeking,
     Orbit,
     LateralOrbit,
+    FullOrbit,
 }
 
 #[derive(Debug)]
 pub(crate) struct Enemy {
     bullet: EnemySnapshot,
-    craft: EnemySnapshot,
-    shadow: EnemySnapshot,
+    crafts: [EnemySnapshot; 5],
+    shadows: [EnemySnapshot; 5],
     target: [i16; 2],
-    motion: Motion,
+    motions: [Motion; 5],
     orbit_center: [i16; 2],
-    craft_animation: Option<u8>,
+    craft_animations: [Option<u8>; 5],
 }
 
 impl Enemy {
     pub(crate) fn new(assets: &GraphicsAssets) -> Result<Self, Error> {
         let mut state = Self {
             bullet: EnemySnapshot::new(4, 22, 14, -100),
-            craft: EnemySnapshot::new(5, 0, 0, 0),
-            shadow: EnemySnapshot::new(10, 0, 0, 0),
+            crafts: std::array::from_fn(|i| EnemySnapshot::new(5 + i, 0, 0, 0)),
+            shadows: std::array::from_fn(|i| EnemySnapshot::new(10 + i, 0, 0, 0)),
             target: [0, 0],
-            motion: Motion::Fixed,
+            motions: [Motion::Fixed; 5],
             orbit_center: [0, -100],
-            craft_animation: None,
+            craft_animations: [None; 5],
         };
-        state.bullet.project(assets, 106, 0)?;
-        state.craft.project(assets, 106, 0)?;
-        state.shadow.project(assets, 106, 0)?;
+        state.project(assets, true, 106, 0)?;
         Ok(state)
     }
 
-    /// Primary script commands initialize world coordinates after rendering,
-    /// retaining the source and projection left by the previous wave.
+    /// Initialize the first count primary slots after rendering, retaining each
+    /// resolved source and projection. Original allocation stops at slot nine.
     pub(crate) fn spawn_command(
         &mut self,
         command: u8,
         random: &mut Random,
         player_lateral: i16,
+        count: usize,
     ) -> Result<(), Error> {
-        match command {
-            0x91 => {
-                self.craft.lateral = ((random.next_word() & 1023) as i16 - 512)
-                    .wrapping_sub(player_lateral.wrapping_mul(2));
-                self.craft.height = (random.next_word() & 255) as i16 - 50;
-            }
-            0x84 | 0x8e | 0x8a => {
-                self.craft.lateral = 0;
-                self.craft.height = 0;
-            }
+        let motion = match command {
+            0x91 => Motion::Fixed,
+            0x84 => Motion::Seeking,
+            0x8e => Motion::Orbit,
+            0x8a => Motion::LateralOrbit,
+            0x88 => Motion::FullOrbit,
             _ => {
                 return Err(Error::InvalidData(format!(
                     "unsupported enemy command {command:02x}"
                 )));
             }
-        }
-        self.motion = match command {
-            0x84 => Motion::Seeking,
-            0x8e => Motion::Orbit,
-            0x8a => Motion::LateralOrbit,
-            _ => Motion::Fixed,
         };
-        self.craft_animation = None;
-        self.craft.requested_sprite = 0;
-        self.craft.depth = 1600;
-        self.craft.active = true;
-        self.shadow.height = -115;
-        self.shadow.active = true;
+        for i in 0..count.min(5) {
+            let craft = &mut self.crafts[i];
+            if command == 0x91 {
+                craft.lateral = ((random.next_word() & 1023) as i16 - 512)
+                    .wrapping_sub(player_lateral.wrapping_mul(2));
+                craft.height = (random.next_word() & 255) as i16 - 50;
+            } else {
+                craft.lateral = 0;
+                craft.height = 0;
+            }
+            self.motions[i] = motion;
+            self.craft_animations[i] = None;
+            craft.requested_sprite = 0;
+            craft.movement = command & 63;
+            craft.depth = 1600 - 100 * i as i16;
+            craft.active = true;
+            self.shadows[i].height = -115;
+            self.shadows[i].active = true;
+        }
         Ok(())
     }
 
-    /// Slot order matters: a projectile can retire before its craft fires again,
-    /// and the companion copies coordinates before the primary delta is applied.
+    /// Slot order matters: the projectile precedes all craft. Each active craft
+    /// can fire into that shared slot and replaces the shared target afterwards.
     pub(crate) fn update_half_step(&mut self, random: &mut Random, player: [i16; 3]) {
         if self.bullet.active {
             self.bullet.requested_sprite = match size(self.bullet.depth) {
@@ -175,100 +180,115 @@ impl Enemy {
                 self.bullet.active = false;
             }
         }
-        if let Some(animation) = self.craft_animation.filter(|_| self.craft.active) {
-            let source = explosion_sprite(self.craft.depth, animation);
-            if source == 0 {
-                self.craft.active = false;
-            } else {
-                self.craft.requested_sprite = source;
-                self.craft_animation = Some(animation + 1);
-            }
-        } else if self.craft.active {
-            let steering = match self.motion {
-                Motion::Orbit if self.craft.depth >= 240 => self.orbit_delta(player, true),
-                Motion::LateralOrbit => self.orbit_delta(player, false),
-                Motion::Seeking | Motion::Orbit => [
-                    (player[1].wrapping_sub(self.craft.lateral) >> 1).clamp(-30, 30),
-                    (player[2].wrapping_sub(self.craft.height) >> 1).clamp(-30, 30),
-                ],
-                Motion::Fixed => [0, 0],
-            };
-            self.craft.requested_sprite = craft_sprite(self.craft.depth, self.craft.phase);
-            self.shadow.depth = self.craft.depth;
-            self.shadow.lateral = self.craft.lateral;
-            self.shadow.requested_sprite = shadow_sprite(self.craft.depth);
-            if random.next_word() & 1 != 0 && !self.bullet.active {
-                self.bullet.depth = self.craft.depth;
-                self.bullet.lateral = self.craft.lateral;
-                self.bullet.height = self.craft.height;
-                self.bullet.active = true;
-            }
-            self.target[0] = player[1].wrapping_add((random.next_word() & 63) as i16 - 32);
-            self.target[1] = player[2].wrapping_add((random.next_word() & 63) as i16 - 32);
-            self.craft.depth -= 22;
-            self.craft.lateral += steering[0];
-            self.craft.height += steering[1];
-            if self.craft.depth <= player[0] {
-                self.craft.active = false;
-                self.shadow.active = false;
-            }
+        for i in 0..5 {
+            self.update_craft(i, random, player);
         }
-        if !self.craft.active {
-            self.shadow.active = false;
+        // All shadow handlers run after all craft handlers.
+        for i in 0..5 {
+            if !self.crafts[i].active {
+                self.shadows[i].active = false;
+            }
         }
     }
 
-    fn orbit_delta(&mut self, player: [i16; 3], vertical_motion: bool) -> [i16; 2] {
+    fn update_craft(&mut self, i: usize, random: &mut Random, player: [i16; 3]) {
+        if !self.crafts[i].active {
+            return;
+        }
+        if let Some(animation) = self.craft_animations[i] {
+            let source = explosion_sprite(self.crafts[i].depth, animation);
+            if source == 0 {
+                self.crafts[i].active = false;
+            } else {
+                self.crafts[i].requested_sprite = source;
+                self.craft_animations[i] = Some(animation + 1);
+            }
+            return;
+        }
+        let steering = match self.motions[i] {
+            Motion::Orbit if self.crafts[i].depth >= 240 => self.orbit_delta(i, player, true),
+            Motion::FullOrbit => self.orbit_delta(i, player, true),
+            Motion::LateralOrbit => self.orbit_delta(i, player, false),
+            Motion::Seeking | Motion::Orbit => [
+                (player[1].wrapping_sub(self.crafts[i].lateral) >> 1).clamp(-30, 30),
+                (player[2].wrapping_sub(self.crafts[i].height) >> 1).clamp(-30, 30),
+            ],
+            Motion::Fixed => [0, 0],
+        };
+        let craft = &mut self.crafts[i];
+        let shadow = &mut self.shadows[i];
+        craft.requested_sprite = craft_sprite(craft.depth, craft.phase);
+        shadow.depth = craft.depth;
+        shadow.lateral = craft.lateral;
+        shadow.requested_sprite = shadow_sprite(craft.depth);
+        if random.next_word() & 1 != 0 && !self.bullet.active {
+            self.bullet.depth = craft.depth;
+            self.bullet.lateral = craft.lateral;
+            self.bullet.height = craft.height;
+            self.bullet.active = true;
+        }
+        self.target[0] = player[1].wrapping_add((random.next_word() & 63) as i16 - 32);
+        self.target[1] = player[2].wrapping_add((random.next_word() & 63) as i16 - 32);
+        craft.depth -= 22;
+        craft.lateral += steering[0];
+        craft.height += steering[1];
+        if craft.depth <= player[0] {
+            craft.active = false;
+            shadow.active = false;
+        }
+    }
+
+    fn orbit_delta(&mut self, i: usize, player: [i16; 3], vertical_motion: bool) -> [i16; 2] {
         self.orbit_center[0] += player[1].wrapping_sub(self.orbit_center[0]).clamp(-9, 9);
         self.orbit_center[1] += player[2].wrapping_sub(self.orbit_center[1]).clamp(-9, 9);
-        let phase = ((self.craft.depth & 1023) >> 4) as u8;
-        // Lateral changes inside movement, before companion copying and firing.
-        // The full orbit also stores height as a delta, applied after firing.
-        self.craft.lateral = self.orbit_center[0].wrapping_add(orbit_wave(phase) << 4);
+        let craft = &mut self.crafts[i];
+        let phase = ((craft.depth & 1023) >> 4) as u8;
+        // Lateral changes before companion copying and firing. Height is a delta.
+        craft.lateral = self.orbit_center[0].wrapping_add(orbit_wave(phase) << 4);
         let height_delta = if vertical_motion {
             self.orbit_center[1]
                 .wrapping_add(orbit_wave(phase.wrapping_add(16)) << 4)
                 .clamp(-100, 250)
-                .wrapping_sub(self.craft.height)
+                .wrapping_sub(craft.height)
         } else {
             0
         };
         [0, height_delta]
     }
 
-    /// Collision handler changes the primary to a stationary explosion, retaining
-    /// its current source until the next object update and hiding its companion.
-    pub(crate) fn explode_craft(&mut self) {
-        self.craft_animation = Some(0);
-        self.shadow.active = false;
+    /// Convert the identified primary to an explosion and hide its companion.
+    pub(crate) fn explode_craft(&mut self, slot: usize) -> Result<(), Error> {
+        let i = slot
+            .checked_sub(5)
+            .filter(|i| *i < 5)
+            .ok_or_else(|| Error::InvalidData(format!("invalid primary explosion slot {slot}")))?;
+        self.craft_animations[i] = Some(0);
+        self.crafts[i].movement = 3;
+        self.shadows[i].active = false;
+        Ok(())
     }
 
-    /// Collision runs before source resolution, using extents from the previously
-    /// resolved sprite. Only the target's height extent participates on that axis.
-    /// Candidates remain in slot order: the caller's grace gate blocks damage,
-    /// while score and target-conversion effects still run for an overlap.
+    /// Collision uses preceding resolved descriptors. Phase gates candidates;
+    /// damage grace is checked by the caller without suppressing target effects.
     pub(crate) fn player_collisions(
         &self,
         assets: &GraphicsAssets,
         player: [i16; 3],
         player_sprite: usize,
         collidable: bool,
-    ) -> Result<[Option<EnemyCollision>; 2], Error> {
-        let mut collisions = [None; 2];
+    ) -> Result<[Option<EnemyCollision>; 6], Error> {
+        let mut collisions = [None; 6];
         if !collidable {
             return Ok(collisions);
         }
         let player_source = assets.sprites.get(player_sprite).ok_or_else(|| {
             Error::InvalidData(format!("missing player collision sprite {player_sprite}"))
         })?;
-        for (index, (slot, collision)) in [
-            (self.bullet, EnemyCollision::Projectile),
-            (self.craft, EnemyCollision::Craft),
-        ]
-        .into_iter()
-        .enumerate()
+        for (index, slot) in std::iter::once(&self.bullet)
+            .chain(self.crafts.iter())
+            .enumerate()
         {
-            if !slot.active || (slot.slot == 5 && self.craft_animation.is_some()) {
+            if !slot.active || (index > 0 && self.craft_animations[index - 1].is_some()) {
                 continue;
             }
             let source = assets.sprites.get(slot.resolved_sprite).ok_or_else(|| {
@@ -294,15 +314,17 @@ impl Enemy {
             ) && player[2].wrapping_add(source.descriptor[0]) >= slot.height
                 && player[2] <= slot.height.wrapping_add(source.descriptor[0])
             {
-                collisions[index] = Some(collision);
+                collisions[index] = Some(if index == 0 {
+                    EnemyCollision::Projectile
+                } else {
+                    EnemyCollision::Craft(slot.slot)
+                });
             }
         }
         Ok(collisions)
     }
 
-    /// The final projection list contains every slot with depth strictly below 70,
-    /// including inactive slots. Source resolution still happens before activity
-    /// sends their rectangles offscreen.
+    /// Near projection includes inactive slots with depth strictly below 70.
     pub(crate) fn project(
         &mut self,
         assets: &GraphicsAssets,
@@ -310,7 +332,10 @@ impl Enemy {
         vertical_origin: i32,
         camera_height: i16,
     ) -> Result<(), Error> {
-        for slot in [&mut self.bullet, &mut self.craft, &mut self.shadow] {
+        for slot in std::iter::once(&mut self.bullet)
+            .chain(self.crafts.iter_mut())
+            .chain(self.shadows.iter_mut())
+        {
             if full_projection || slot.depth < 70 {
                 slot.project(assets, vertical_origin, camera_height)?;
             }
@@ -330,12 +355,19 @@ impl Enemy {
     }
 
     /// Subtype-zero shadows sort ahead of all ordinary world objects.
-    pub(crate) fn shadow_draw(&self) -> Option<Draw> {
-        self.shadow.active.then(|| self.shadow.draw())
+    pub(crate) fn shadow_draws(&self) -> impl Iterator<Item = Draw> + '_ {
+        self.shadows
+            .iter()
+            .filter(|shadow| shadow.active)
+            .map(|shadow| shadow.draw())
     }
 
-    pub(crate) fn snapshots(&self) -> [EnemySnapshot; 3] {
-        [self.bullet, self.craft, self.shadow]
+    pub(crate) fn snapshots(&self) -> [EnemySnapshot; 11] {
+        std::array::from_fn(|i| match i {
+            0 => self.bullet,
+            1..=5 => self.crafts[i - 1],
+            _ => self.shadows[i - 6],
+        })
     }
 
     pub(crate) fn target(&self) -> [i16; 2] {
@@ -343,7 +375,7 @@ impl Enemy {
     }
 
     pub(crate) fn active(&self) -> bool {
-        self.craft.active
+        self.crafts.iter().any(|craft| craft.active)
     }
 }
 
@@ -446,12 +478,12 @@ mod tests {
     #[test]
     fn seeking_precedes_target_update_and_shadow_observes_old_depth() {
         let mut enemy = Enemy::new(&assets()).unwrap();
-        enemy.craft.active = true;
-        enemy.craft.depth = 800;
-        enemy.craft.lateral = 174;
-        enemy.craft.height = 91;
-        enemy.craft.phase = 3;
-        enemy.shadow.active = true;
+        enemy.crafts[0].active = true;
+        enemy.crafts[0].depth = 800;
+        enemy.crafts[0].lateral = 174;
+        enemy.crafts[0].height = 91;
+        enemy.crafts[0].phase = 3;
+        enemy.shadows[0].active = true;
         enemy.bullet.active = true;
         enemy.bullet.depth = 900;
         enemy.bullet.lateral = 174;
@@ -469,18 +501,18 @@ mod tests {
             ),
             (872, 94, 11)
         );
-        assert_eq!(enemy.craft.depth, 778);
-        assert_eq!(enemy.shadow.depth, 800);
-        assert_eq!(enemy.craft.requested_sprite, 35);
-        assert_eq!(enemy.craft.resolved_sprite, 35);
+        assert_eq!(enemy.crafts[0].depth, 778);
+        assert_eq!(enemy.shadows[0].depth, 800);
+        assert_eq!(enemy.crafts[0].requested_sprite, 35);
+        assert_eq!(enemy.crafts[0].resolved_sprite, 35);
         assert_eq!(random.next_word(), 0x4293);
     }
 
     #[test]
     fn second_half_firing_retains_the_previous_projected_source() {
         let mut enemy = Enemy::new(&assets()).unwrap();
-        enemy.craft.active = true;
-        enemy.craft.depth = 800;
+        enemy.crafts[0].active = true;
+        enemy.crafts[0].depth = 800;
         let mut random = Random::default();
         enemy
             .advance_half_step(&assets(), &mut random, true)
@@ -500,25 +532,25 @@ mod tests {
         let mut enemy = Enemy::new(&assets).unwrap();
         enemy.bullet.active = true;
         enemy.bullet.depth = 42;
-        enemy.craft.active = true;
-        enemy.craft.depth = 36;
-        enemy.shadow.active = true;
+        enemy.crafts[0].active = true;
+        enemy.crafts[0].depth = 36;
+        enemy.shadows[0].active = true;
         enemy.update_half_step(&mut Random::default(), [14, 0, -100]);
         assert!(!enemy.bullet.active);
         assert_eq!(enemy.bullet.requested_sprite, 0);
-        assert!(!enemy.craft.active);
-        assert!(!enemy.shadow.active);
-        assert_eq!(enemy.craft.requested_sprite, 31);
+        assert!(!enemy.crafts[0].active);
+        assert!(!enemy.shadows[0].active);
+        assert_eq!(enemy.crafts[0].requested_sprite, 31);
         assert_eq!(
             enemy
                 .player_collisions(&assets, [14, 0, -100], 0, true)
                 .unwrap(),
-            [None; 2]
+            [None; 6]
         );
         enemy.project(&assets, false, 106, 0).unwrap();
         assert_eq!(enemy.bullet.resolved_sprite, 0);
-        assert_eq!(enemy.craft.resolved_sprite, 31);
-        assert_eq!(enemy.craft.rect.x_bytes, 128);
+        assert_eq!(enemy.crafts[0].resolved_sprite, 31);
+        assert_eq!(enemy.crafts[0].rect.x_bytes, 128);
     }
 
     #[test]
@@ -526,10 +558,10 @@ mod tests {
         let mut enemy = Enemy::new(&assets()).unwrap();
         enemy.bullet.active = true;
         enemy.bullet.depth = 42;
-        enemy.craft.active = true;
-        enemy.craft.depth = 100;
-        enemy.craft.lateral = 200;
-        enemy.craft.height = 50;
+        enemy.crafts[0].active = true;
+        enemy.crafts[0].depth = 100;
+        enemy.crafts[0].lateral = 200;
+        enemy.crafts[0].height = 50;
         let mut random = Random::default();
         random.next_word();
         random.next_word();
@@ -545,7 +577,7 @@ mod tests {
             (100, 200, 50)
         );
         assert_eq!(enemy.bullet.requested_sprite, 0);
-        assert_eq!(enemy.craft.depth, 78);
+        assert_eq!(enemy.crafts[0].depth, 78);
     }
 
     #[test]
@@ -579,7 +611,14 @@ mod tests {
             enemy
                 .player_collisions(&assets, [14, 0, -100], 13, true)
                 .unwrap(),
-            [Some(EnemyCollision::Projectile), None]
+            [
+                Some(EnemyCollision::Projectile),
+                None,
+                None,
+                None,
+                None,
+                None
+            ]
         );
         assert!(enemy.bullet.active);
         enemy.bullet.depth = 30;
@@ -587,7 +626,7 @@ mod tests {
             enemy
                 .player_collisions(&assets, [14, 0, -100], 13, true)
                 .unwrap(),
-            [None; 2]
+            [None; 6]
         );
         enemy.bullet.depth = 29;
         enemy.bullet.height = -98;
@@ -595,7 +634,7 @@ mod tests {
             enemy
                 .player_collisions(&assets, [14, 0, -100], 13, true)
                 .unwrap(),
-            [None; 2]
+            [None; 6]
         );
         enemy.bullet.height = -101;
         enemy.bullet.lateral = -1;
@@ -603,13 +642,20 @@ mod tests {
             enemy
                 .player_collisions(&assets, [14, 0, -100], 13, true)
                 .unwrap(),
-            [Some(EnemyCollision::Projectile), None]
+            [
+                Some(EnemyCollision::Projectile),
+                None,
+                None,
+                None,
+                None,
+                None
+            ]
         );
         assert_eq!(
             enemy
                 .player_collisions(&assets, [14, 0, -100], 13, false)
                 .unwrap(),
-            [None; 2]
+            [None; 6]
         );
     }
 
@@ -617,85 +663,93 @@ mod tests {
     fn primary_spawn_commands_consume_only_their_required_random_words() {
         let mut enemy = Enemy::new(&assets()).unwrap();
         let mut random = Random::default();
-        enemy.spawn_command(0x84, &mut random, 123).unwrap();
+        enemy.spawn_command(0x84, &mut random, 123, 1).unwrap();
         assert_eq!(random.state(), [0; 3]);
         assert_eq!(
-            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (
+                enemy.crafts[0].depth,
+                enemy.crafts[0].lateral,
+                enemy.crafts[0].height
+            ),
             (1600, 0, 0)
         );
-        enemy.spawn_command(0x91, &mut random, 123).unwrap();
-        assert_eq!(enemy.craft.lateral, (0x5630 & 1023) - 512 - 246);
-        assert_eq!(enemy.craft.height, (0xbe90_u16 & 255) as i16 - 50);
+        enemy.spawn_command(0x91, &mut random, 123, 1).unwrap();
+        assert_eq!(enemy.crafts[0].lateral, (0x5630 & 1023) - 512 - 246);
+        assert_eq!(enemy.crafts[0].height, (0xbe90_u16 & 255) as i16 - 50);
         assert_eq!(random.next_word(), 0x6338);
     }
     #[test]
     fn seeking_craft_fires_and_copies_shadow_before_steering_deltas() {
         let mut enemy = Enemy::new(&assets()).unwrap();
         let mut random = Random::default();
-        enemy.spawn_command(0x84, &mut random, 0).unwrap();
-        enemy.craft.lateral = 71;
+        enemy.spawn_command(0x84, &mut random, 0, 1).unwrap();
+        enemy.crafts[0].lateral = 71;
         for _ in 0..3 {
             random.next_word();
         }
         enemy.update_half_step(&mut random, [14, 0, -100]);
-        assert_eq!((enemy.craft.lateral, enemy.craft.height), (41, -30));
+        assert_eq!((enemy.crafts[0].lateral, enemy.crafts[0].height), (41, -30));
         assert_eq!((enemy.bullet.lateral, enemy.bullet.height), (71, 0));
         assert_eq!(enemy.bullet.depth, 1600);
-        assert_eq!(enemy.shadow.lateral, 71);
+        assert_eq!(enemy.shadows[0].lateral, 71);
         for _ in 0..7 {
             enemy.update_half_step(&mut random, [14, 0, -100]);
         }
-        assert_eq!(enemy.craft.height, -100);
+        assert_eq!(enemy.crafts[0].height, -100);
     }
 
     #[test]
     fn craft_explosion_retains_source_then_animates_without_movement_or_random() {
         let assets = assets();
         let mut enemy = Enemy::new(&assets).unwrap();
-        enemy.craft.active = true;
-        enemy.craft.depth = 16;
-        enemy.craft.height = -100;
-        enemy.craft.requested_sprite = 33;
-        enemy.craft.resolved_sprite = 33;
-        enemy.shadow.active = true;
-        enemy.explode_craft();
-        assert_eq!(enemy.craft.requested_sprite, 33);
-        assert!(!enemy.shadow.active);
+        enemy.crafts[0].active = true;
+        enemy.crafts[0].depth = 16;
+        enemy.crafts[0].height = -100;
+        enemy.crafts[0].requested_sprite = 33;
+        enemy.crafts[0].resolved_sprite = 33;
+        enemy.shadows[0].active = true;
+        enemy.explode_craft(5).unwrap();
+        assert_eq!(enemy.crafts[0].requested_sprite, 33);
+        assert!(!enemy.shadows[0].active);
         assert_eq!(
             enemy
                 .player_collisions(&assets, [14, 0, -100], 0, true)
                 .unwrap(),
-            [None; 2]
+            [None; 6]
         );
         let mut random = Random::default();
         for source in [69, 69, 61, 61, 69, 69, 67, 67, 65, 65, 64, 64] {
             enemy.update_half_step(&mut random, [14, 0, -100]);
-            assert!(enemy.craft.active);
-            assert_eq!(enemy.craft.requested_sprite, source);
-            assert_eq!((enemy.craft.depth, enemy.craft.height), (16, -100));
+            assert!(enemy.crafts[0].active);
+            assert_eq!(enemy.crafts[0].requested_sprite, source);
+            assert_eq!((enemy.crafts[0].depth, enemy.crafts[0].height), (16, -100));
             assert_eq!(random.state(), [0; 3]);
         }
         enemy.update_half_step(&mut random, [14, 0, -100]);
-        assert!(!enemy.craft.active);
-        assert_eq!(enemy.craft.requested_sprite, 64);
+        assert!(!enemy.crafts[0].active);
+        assert_eq!(enemy.crafts[0].requested_sprite, 64);
         enemy.project(&assets, false, 106, 0).unwrap();
-        assert_eq!(enemy.craft.rect.x_bytes, 128);
+        assert_eq!(enemy.crafts[0].rect.x_bytes, 128);
     }
 
     #[test]
     fn orbit_changes_lateral_before_firing_but_defers_height_until_after_firing() {
         let mut enemy = Enemy::new(&assets()).unwrap();
         let mut random = Random::default();
-        enemy.spawn_command(0x8e, &mut random, 50).unwrap();
+        enemy.spawn_command(0x8e, &mut random, 50, 1).unwrap();
         assert_eq!(random.state(), [0; 3]);
-        enemy.craft.depth = 1024;
+        enemy.crafts[0].depth = 1024;
         for _ in 0..3 {
             random.next_word();
         }
         enemy.update_half_step(&mut random, [14, 50, -28]);
         assert_eq!(enemy.orbit_center, [9, -91]);
         assert_eq!(
-            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (
+                enemy.crafts[0].depth,
+                enemy.crafts[0].lateral,
+                enemy.crafts[0].height
+            ),
             (1002, 9, 85)
         );
         assert_eq!(
@@ -706,7 +760,7 @@ mod tests {
             ),
             (1024, 9, 0)
         );
-        assert_eq!(enemy.shadow.lateral, 9);
+        assert_eq!(enemy.shadows[0].lateral, 9);
         assert!((18..=81).contains(&enemy.target[0]));
         assert!((-60..=3).contains(&enemy.target[1]));
     }
@@ -715,20 +769,28 @@ mod tests {
     fn orbit_switches_to_seeking_only_below_the_old_depth_threshold() {
         let mut enemy = Enemy::new(&assets()).unwrap();
         let mut random = Random::default();
-        enemy.spawn_command(0x8e, &mut random, 0).unwrap();
-        enemy.craft.depth = 240;
+        enemy.spawn_command(0x8e, &mut random, 0, 1).unwrap();
+        enemy.crafts[0].depth = 240;
         enemy.update_half_step(&mut random, [14, 50, -28]);
         assert_eq!(
-            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (
+                enemy.crafts[0].depth,
+                enemy.crafts[0].lateral,
+                enemy.crafts[0].height
+            ),
             (218, 185, -75)
         );
         enemy.update_half_step(&mut random, [14, 50, -28]);
         assert_eq!(
-            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (
+                enemy.crafts[0].depth,
+                enemy.crafts[0].lateral,
+                enemy.crafts[0].height
+            ),
             (196, 155, -52)
         );
         assert_eq!(enemy.orbit_center, [9, -91]);
-        enemy.spawn_command(0x8e, &mut random, 0).unwrap();
+        enemy.spawn_command(0x8e, &mut random, 0, 1).unwrap();
         assert_eq!(enemy.orbit_center, [9, -91]);
     }
 
@@ -736,12 +798,12 @@ mod tests {
     fn recovered_player_coordinates_drive_seeking_targets_and_retirement() {
         let mut enemy = Enemy::new(&assets()).unwrap();
         let mut random = Random::default();
-        enemy.spawn_command(0x84, &mut random, 0).unwrap();
+        enemy.spawn_command(0x84, &mut random, 0, 1).unwrap();
         enemy.update_half_step(&mut random, [28, 100, -28]);
-        assert_eq!((enemy.craft.lateral, enemy.craft.height), (30, -14));
+        assert_eq!((enemy.crafts[0].lateral, enemy.crafts[0].height), (30, -14));
         assert!((68..=131).contains(&enemy.target[0]));
         assert!((-60..=3).contains(&enemy.target[1]));
-        enemy.craft.active = false;
+        enemy.crafts[0].active = false;
         enemy.bullet.active = true;
         enemy.bullet.depth = 56;
         enemy.update_half_step(&mut random, [28, 100, -28]);
@@ -752,34 +814,42 @@ mod tests {
     fn orbit_height_clamps_before_the_world_delta_is_applied() {
         let mut enemy = Enemy::new(&assets()).unwrap();
         let mut random = Random::default();
-        enemy.spawn_command(0x8e, &mut random, 0).unwrap();
+        enemy.spawn_command(0x8e, &mut random, 0, 1).unwrap();
         enemy.orbit_center[1] = 200;
-        enemy.craft.depth = 1024;
+        enemy.crafts[0].depth = 1024;
         enemy.update_half_step(&mut random, [14, 0, 230]);
         assert_eq!(enemy.orbit_center[1], 209);
-        assert_eq!(enemy.craft.height, 250);
+        assert_eq!(enemy.crafts[0].height, 250);
         enemy.orbit_center[1] = -100;
-        enemy.craft.depth = 512;
+        enemy.crafts[0].depth = 512;
         enemy.update_half_step(&mut random, [14, 0, -100]);
-        assert_eq!(enemy.craft.height, -100);
+        assert_eq!(enemy.crafts[0].height, -100);
     }
     #[test]
     fn lateral_orbit_preserves_height_and_does_not_seek_at_near_depth() {
         let mut enemy = Enemy::new(&assets()).unwrap();
         let mut random = Random::default();
-        enemy.spawn_command(0x8a, &mut random, 0).unwrap();
+        enemy.spawn_command(0x8a, &mut random, 0, 1).unwrap();
         assert_eq!(random.state(), [0; 3]);
-        enemy.craft.depth = 128;
+        enemy.crafts[0].depth = 128;
         enemy.update_half_step(&mut random, [14, 50, -28]);
         assert_eq!(enemy.orbit_center, [9, -91]);
         assert_eq!(
-            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (
+                enemy.crafts[0].depth,
+                enemy.crafts[0].lateral,
+                enemy.crafts[0].height
+            ),
             (106, 137, 0)
         );
         enemy.update_half_step(&mut random, [14, 50, -28]);
         assert_eq!(enemy.orbit_center, [18, -82]);
         assert_eq!(
-            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (
+                enemy.crafts[0].depth,
+                enemy.crafts[0].lateral,
+                enemy.crafts[0].height
+            ),
             (84, 114, 0)
         );
     }
@@ -789,14 +859,18 @@ mod tests {
         let mut enemy = Enemy::new(&assets()).unwrap();
         let mut random = Random::default();
         enemy.orbit_center = [0, -28];
-        enemy.spawn_command(0x8a, &mut random, 0).unwrap();
-        enemy.craft.depth = 38;
+        enemy.spawn_command(0x8a, &mut random, 0, 1).unwrap();
+        enemy.crafts[0].depth = 38;
         for _ in 0..3 {
             random.next_word();
         }
         enemy.update_half_step(&mut random, [14, 0, -28]);
         assert_eq!(
-            (enemy.craft.depth, enemy.craft.lateral, enemy.craft.height),
+            (
+                enemy.crafts[0].depth,
+                enemy.crafts[0].lateral,
+                enemy.crafts[0].height
+            ),
             (16, 32, 0)
         );
         assert_eq!(
@@ -807,36 +881,211 @@ mod tests {
             ),
             (38, 32, 0)
         );
-        assert_eq!((enemy.shadow.depth, enemy.shadow.lateral), (38, 32));
-        assert!(enemy.craft.active);
+        assert_eq!((enemy.shadows[0].depth, enemy.shadows[0].lateral), (38, 32));
+        assert!(enemy.crafts[0].active);
     }
     #[test]
     fn collision_candidates_preserve_slot_order_for_grace_gated_damage() {
         let mut assets = assets();
         assets.sprites[13].descriptor[..3].copy_from_slice(&[32, 128, 15]);
         let mut enemy = Enemy::new(&assets).unwrap();
-        for slot in [&mut enemy.bullet, &mut enemy.craft] {
+        for slot in [&mut enemy.bullet, &mut enemy.crafts[0]] {
             slot.active = true;
             slot.depth = 29;
             slot.lateral = 128;
             slot.height = -99;
         }
         enemy.bullet.resolved_sprite = 64;
-        enemy.craft.resolved_sprite = 33;
+        enemy.crafts[0].resolved_sprite = 33;
         assert_eq!(
             enemy
                 .player_collisions(&assets, [14, 0, -100], 13, true)
                 .unwrap(),
             [
                 Some(EnemyCollision::Projectile),
-                Some(EnemyCollision::Craft)
+                Some(EnemyCollision::Craft(5)),
+                None,
+                None,
+                None,
+                None
             ]
         );
         assert_eq!(
             enemy
                 .player_collisions(&assets, [14, 0, -100], 13, false)
                 .unwrap(),
-            [None; 2]
+            [None; 6]
+        );
+    }
+    #[test]
+    fn formation_spawn_staggers_depth_and_retains_cached_projection() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.crafts[1].resolved_sprite = 32;
+        enemy.crafts[1].rect.y = 71;
+        enemy.spawn_command(0x88, &mut random, 100, 2).unwrap();
+        assert_eq!(random.state(), [0; 3]);
+        assert_eq!(enemy.crafts.map(|c| c.depth), [1600, 1500, 0, 0, 0]);
+        assert_eq!(
+            enemy.crafts.map(|c| c.active),
+            [true, true, false, false, false]
+        );
+        assert_eq!(
+            enemy.shadows.map(|c| c.active),
+            [true, true, false, false, false]
+        );
+        assert_eq!(enemy.crafts[1].requested_sprite, 0);
+        assert_eq!(enemy.crafts[1].movement, 8);
+        assert_eq!(enemy.crafts[1].resolved_sprite, 32);
+        assert_eq!(enemy.crafts[1].rect.y, 71);
+        assert_eq!(
+            enemy.snapshots().map(|c| c.slot),
+            [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        );
+        enemy.spawn_command(0x88, &mut random, 100, 20).unwrap();
+        assert_eq!(
+            enemy.crafts.map(|c| c.depth),
+            [1600, 1500, 1400, 1300, 1200]
+        );
+    }
+
+    #[test]
+    fn full_orbit_keeps_vertical_motion_below_the_seeking_threshold() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.orbit_center = [0, -28];
+        enemy.spawn_command(0x88, &mut random, 0, 1).unwrap();
+        enemy.crafts[0].depth = 128;
+        enemy.update_half_step(&mut random, [14, 0, -28]);
+        assert_eq!(
+            (
+                enemy.crafts[0].depth,
+                enemy.crafts[0].lateral,
+                enemy.crafts[0].height
+            ),
+            (106, 128, 100)
+        );
+    }
+
+    #[test]
+    fn formation_updates_shared_center_and_random_target_in_slot_order() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        let mut expected = Random::default();
+        enemy.spawn_command(0x88, &mut random, 0, 2).unwrap();
+        enemy.crafts[0].depth = 1024;
+        enemy.crafts[1].depth = 512;
+        enemy.bullet.active = true;
+        enemy.bullet.depth = 600;
+        enemy.update_half_step(&mut random, [14, 50, -28]);
+        for _ in 0..4 {
+            expected.next_word();
+        }
+        let lateral = 50 + (expected.next_word() & 63) as i16 - 32;
+        let height = -28 + (expected.next_word() & 63) as i16 - 32;
+        assert_eq!(random.state(), expected.state());
+        assert_eq!(enemy.target(), [lateral, height]);
+        assert_eq!(enemy.orbit_center, [18, -82]);
+        assert_eq!((enemy.crafts[0].lateral, enemy.crafts[0].height), (9, 85));
+        assert_eq!(
+            (enemy.crafts[1].lateral, enemy.crafts[1].height),
+            (18, -100)
+        );
+        assert_eq!(
+            (enemy.shadows[0].lateral, enemy.shadows[1].lateral),
+            (9, 18)
+        );
+    }
+
+    #[test]
+    fn secondary_explosion_preserves_other_craft_and_parser_activity() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        enemy.spawn_command(0x84, &mut random, 0, 2).unwrap();
+        enemy.crafts[1].depth = 16;
+        enemy.explode_craft(6).unwrap();
+        assert_eq!(enemy.crafts[1].movement, 3);
+        assert_eq!(enemy.crafts[0].movement, 4);
+        assert!(enemy.shadows[0].active);
+        assert!(!enemy.shadows[1].active);
+        for _ in 0..13 {
+            enemy.update_half_step(&mut random, [14, 0, -100]);
+        }
+        assert!(!enemy.crafts[1].active);
+        assert!(enemy.crafts[0].active);
+        assert!(enemy.active());
+        assert_eq!(enemy.shadow_draws().count(), 1);
+        enemy.crafts[0].active = false;
+        assert!(!enemy.active());
+        assert!(enemy.explode_craft(4).is_err());
+        assert!(enemy.explode_craft(10).is_err());
+    }
+    #[test]
+    fn later_craft_can_fire_into_shared_slot_before_its_steering_delta() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        let mut expected = Random::default();
+        enemy.spawn_command(0x84, &mut random, 0, 2).unwrap();
+        enemy.crafts[0].depth = 800;
+        enemy.crafts[0].lateral = 200;
+        enemy.crafts[0].height = 50;
+        enemy.crafts[1].depth = 700;
+        enemy.crafts[1].lateral = -40;
+        enemy.crafts[1].height = -10;
+        assert_eq!(expected.next_word() & 1, 0);
+        expected.next_word();
+        expected.next_word();
+        assert_eq!(expected.next_word() & 1, 1);
+        let lateral = (expected.next_word() & 63) as i16 - 32;
+        let height = -100 + (expected.next_word() & 63) as i16 - 32;
+        enemy.update_half_step(&mut random, [14, 0, -100]);
+        assert!(enemy.bullet.active);
+        assert_eq!(
+            (
+                enemy.bullet.depth,
+                enemy.bullet.lateral,
+                enemy.bullet.height
+            ),
+            (700, -40, -10)
+        );
+        assert_eq!(
+            (
+                enemy.crafts[1].depth,
+                enemy.crafts[1].lateral,
+                enemy.crafts[1].height
+            ),
+            (678, -20, -40)
+        );
+        assert_eq!(enemy.bullet.requested_sprite, 22);
+        assert_eq!(enemy.target(), [lateral, height]);
+        assert_eq!(random.state(), expected.state());
+    }
+
+    #[test]
+    fn all_primary_collision_candidates_identify_slots_and_skip_explosions() {
+        let mut assets = assets();
+        assets.sprites[13].descriptor[..3].copy_from_slice(&[32, 128, 15]);
+        let mut enemy = Enemy::new(&assets).unwrap();
+        for slot in std::iter::once(&mut enemy.bullet).chain(enemy.crafts.iter_mut()) {
+            slot.active = true;
+            slot.depth = 29;
+            slot.lateral = 128;
+            slot.height = -99;
+            slot.resolved_sprite = 33;
+        }
+        enemy.explode_craft(7).unwrap();
+        assert_eq!(
+            enemy
+                .player_collisions(&assets, [14, 0, -100], 13, true)
+                .unwrap(),
+            [
+                Some(EnemyCollision::Projectile),
+                Some(EnemyCollision::Craft(5)),
+                Some(EnemyCollision::Craft(6)),
+                None,
+                Some(EnemyCollision::Craft(8)),
+                Some(EnemyCollision::Craft(9)),
+            ]
         );
     }
 }

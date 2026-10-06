@@ -28,11 +28,13 @@ pub struct Snapshot {
     pub script_cursor: u16,
     pub script_delay: u16,
     pub terrain_selector: u16,
+    pub primary_count: u16,
     pub hud: HudState,
     pub player: PlayerState,
     pub terrain: [TerrainState; 8],
-    pub enemies: [EnemyState; 3],
+    pub enemies: [EnemyState; 11],
     pub enemy_target: [i16; 2],
+    pub world_order: [usize; 14],
 }
 
 /// No directional input, with bounded encounter and collision/damage updates.
@@ -49,6 +51,7 @@ pub struct Opening {
     script_cursor: u16,
     script_delay: u16,
     terrain_selector: u16,
+    primary_count: u16,
     world_order: Vec<usize>,
     frame: Frame,
 }
@@ -70,7 +73,8 @@ impl Opening {
             script_cursor: 0,
             script_delay: 0,
             terrain_selector: 0,
-            world_order: [4, 5].into_iter().chain(15..=22).collect(),
+            primary_count: 1,
+            world_order: (5..=9).chain(15..=22).chain(std::iter::once(4)).collect(),
             frame: scene::initial_frame(assets)?,
         })
     }
@@ -93,11 +97,13 @@ impl Opening {
             script_cursor: self.script_cursor,
             script_delay: self.script_delay,
             terrain_selector: self.terrain_selector,
+            primary_count: self.primary_count,
             hud: self.hud.snapshot(),
             player: self.player.snapshot(),
             terrain: self.terrain.snapshots(),
             enemies: self.enemy.snapshots(),
             enemy_target: self.enemy.target(),
+            world_order: std::array::from_fn(|i| self.world_order[i]),
         }
     }
 
@@ -116,17 +122,17 @@ impl Opening {
             .enemy
             .snapshots()
             .into_iter()
-            .take(2)
-            .map(|slot| (slot.slot, slot.depth))
+            .filter(|slot| slot.slot < 10)
+            .map(|slot| (slot.slot, slot.depth, slot.movement))
             .chain(
                 self.terrain
                     .snapshots()
                     .into_iter()
-                    .map(|slot| (slot.slot, slot.depth)),
+                    .map(|slot| (slot.slot, slot.depth, slot.movement)),
             )
             .collect();
-        // The original retains its sorted list. Equal-depth entries keep their
-        // preceding order, including when recycling changes another row's depth.
+        // Subtype-zero entries form a stable prefix. Other entries keep their
+        // preceding order at equal depth, including after another row recycles.
         self.sort_world(&first_depths);
         self.hud.update(self.body, &mut self.random);
         self.advance_player()?;
@@ -145,7 +151,7 @@ impl Opening {
             .enemy
             .snapshots()
             .into_iter()
-            .take(2)
+            .filter(|slot| slot.slot < 10)
             .filter(|slot| slot.active)
             .map(|slot| {
                 (
@@ -186,8 +192,7 @@ impl Opening {
         for draw in std::iter::once(player_shadow)
             .chain(
                 self.enemy
-                    .shadow_draw()
-                    .into_iter()
+                    .shadow_draws()
                     .chain(world.into_iter().map(|(_, draw)| draw)),
             )
             .chain(std::iter::once(player_craft))
@@ -221,12 +226,22 @@ impl Opening {
                     0 => self.terrain_selector = 5,
                     1 => {} // Palette-family 1 is already active.
                     2 => {
-                        self.enemy.spawn_command(0x91, &mut self.random, 0)?;
+                        self.enemy.spawn_command(
+                            0x91,
+                            &mut self.random,
+                            0,
+                            usize::from(self.primary_count),
+                        )?;
                         self.script_delay = 0;
                     }
                     3 => self.terrain_selector = 7,
                     4 => {
-                        self.enemy.spawn_command(0x84, &mut self.random, 0)?;
+                        self.enemy.spawn_command(
+                            0x84,
+                            &mut self.random,
+                            0,
+                            usize::from(self.primary_count),
+                        )?;
                         self.script_delay = 0;
                     }
                     5 => self.terrain_selector = 6,
@@ -235,6 +250,7 @@ impl Opening {
                             0x8e,
                             &mut self.random,
                             self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
                         )?;
                         self.script_delay = 0;
                     }
@@ -244,6 +260,21 @@ impl Opening {
                             0x8a,
                             &mut self.random,
                             self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                        )?;
+                        self.script_delay = 0;
+                    }
+                    9 => self.terrain_selector = 7,
+                    10 => {
+                        self.random.next_word();
+                        self.primary_count += 1;
+                    }
+                    11 => {
+                        self.enemy.spawn_command(
+                            0x88,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
                         )?;
                         self.script_delay = 0;
                     }
@@ -257,9 +288,13 @@ impl Opening {
         Ok(true)
     }
 
-    fn sort_world(&mut self, depths: &[(usize, i16)]) {
+    fn sort_world(&mut self, depths: &[(usize, i16, u8)]) {
         self.world_order.sort_by_key(|slot| {
-            std::cmp::Reverse(depths.iter().find(|(index, _)| index == slot).unwrap().1)
+            let (_, depth, movement) = depths.iter().find(|(index, _, _)| index == slot).unwrap();
+            (
+                *movement != 0,
+                std::cmp::Reverse(if *movement == 0 { 0 } else { *depth }),
+            )
         });
     }
 
@@ -286,9 +321,9 @@ impl Opening {
             }
             match collision {
                 enemy::EnemyCollision::Projectile => self.player.hit(1),
-                enemy::EnemyCollision::Craft => {
+                enemy::EnemyCollision::Craft(slot) => {
                     self.hud.add_points(1000);
-                    self.enemy.explode_craft();
+                    self.enemy.explode_craft(slot)?;
                     self.player.hit(2);
                 }
             }
@@ -332,7 +367,7 @@ impl Opening {
 }
 
 /// Final completed body of the currently verified, no-input opening batch.
-pub const LAST_BODY: u16 = 360;
+pub const LAST_BODY: u16 = 450;
 
 /// Three nominal 36.413 Hz timer units per completed loop body.
 /// Original CPU/render costs and startup timer transitions are not emulated.
@@ -398,7 +433,7 @@ mod tests {
         let assets = synthetic_assets();
         let mut opening = Opening::new(&assets).unwrap();
         assert_eq!(opening.frame(), &scene::initial_frame(&assets).unwrap());
-        for body in 1..=LAST_BODY {
+        for body in 1..=360 {
             assert!(opening.advance(&assets).unwrap());
             let state = opening.snapshot();
             assert_eq!(state.body, body);
@@ -449,6 +484,9 @@ mod tests {
                 }
             );
         }
+        while !opening.complete() {
+            opening.advance(&assets).unwrap();
+        }
         let final_frame = opening.frame().clone();
         let final_random = opening.snapshot().random;
         for _ in 0..3 {
@@ -461,17 +499,67 @@ mod tests {
     }
 
     #[test]
+    fn formation_count_command_consumes_one_word_and_waits_to_spawn() {
+        let assets = synthetic_assets();
+        let mut baseline = Opening::new(&assets).unwrap();
+        baseline.script_cursor = 9;
+        baseline.script_delay = 20;
+        baseline.terrain_selector = 7;
+        let mut formation = Opening::new(&assets).unwrap();
+        formation.script_cursor = 10;
+        formation.script_delay = 20;
+        formation.terrain_selector = 7;
+        baseline.advance(&assets).unwrap();
+        formation.advance(&assets).unwrap();
+        let mut expected_random = baseline.random;
+        expected_random.next_word();
+        assert_eq!(formation.random, expected_random);
+        assert_eq!(formation.primary_count, 2);
+        assert_eq!(formation.script_cursor, 11);
+        assert_eq!(formation.script_delay, 1);
+        assert!(!formation.enemy.active());
+        for _ in 0..20 {
+            formation.advance(&assets).unwrap();
+        }
+        let state = formation.snapshot();
+        assert_eq!(state.script_cursor, 12);
+        assert_eq!(state.script_delay, 0);
+        assert_eq!(state.enemies[1].depth, 1600);
+        assert_eq!(state.enemies[2].depth, 1500);
+        assert!(state.enemies[1].active && state.enemies[2].active);
+        assert!(state.enemies[6].active && state.enemies[7].active);
+    }
+
+    #[test]
+    fn zero_movement_entries_keep_order_until_their_movement_changes() {
+        let mut opening = Opening::new(&synthetic_assets()).unwrap();
+        opening.world_order = vec![4, 5, 6, 15];
+        opening.sort_world(&[(4, 100, 253), (5, 300, 0), (6, 900, 0), (15, 200, 2)]);
+        assert_eq!(opening.world_order, [5, 6, 15, 4]);
+        opening.sort_world(&[(4, 100, 253), (5, 300, 0), (6, 200, 8), (15, 200, 2)]);
+        assert_eq!(opening.world_order, [5, 6, 15, 4]);
+    }
+
+    #[test]
     fn equal_depth_objects_retain_their_order_from_the_preceding_pass() {
         let mut opening = Opening::new(&synthetic_assets()).unwrap();
         let mut depths: Vec<_> = opening
             .world_order
             .iter()
-            .map(|slot| (*slot, 100))
+            .map(|slot| (*slot, 100, 2))
             .collect();
-        depths.last_mut().unwrap().1 = 200;
+        depths
+            .iter_mut()
+            .find(|(slot, _, _)| *slot == 22)
+            .unwrap()
+            .1 = 200;
         opening.sort_world(&depths);
         assert_eq!(opening.world_order[0], 22);
-        depths.last_mut().unwrap().1 = 100;
+        depths
+            .iter_mut()
+            .find(|(slot, _, _)| *slot == 22)
+            .unwrap()
+            .1 = 100;
         opening.sort_world(&depths);
         assert_eq!(opening.world_order[0], 22);
     }

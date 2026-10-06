@@ -58,6 +58,8 @@ pub struct DevOptions {
     disabled_damage: u16,
     /// Reserved until life loss and re-entry have been implemented.
     pub infinite_lives: bool,
+    /// Restore the original one-tick window hold at internal difficulty six.
+    pub original_window_timing: bool,
 }
 
 fn parse_mask<T: Copy>(value: &str, choices: &[(&str, T)], kind: &str) -> Result<u16, String> {

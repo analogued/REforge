@@ -116,7 +116,9 @@ An active window advances one packed row per accepted step and holds at phase
 animation. Entry (`1b05`) requires a descending cat, no forced-fall latch,
 player Y below 96, and phase 5 through 24. The caller dispatches entry after
 the remaining actor batch, including any blocking mouse knockdown. Projectile
-launching and its random draws are omitted.
+launching and its random draws are omitted. The original one-tick hold at
+difficulty 6 is corrected to 18 ticks by default; development builds can
+restore it with `--original-window-timing`. See [deliberate deviations](deviations.md).
 
 `VirtualClock` uses integer rational time with a PIT input frequency of 1,193,182
 Hz and a channel-0 divisor of 65,536. The BIOS rate is consequently about 18.2065

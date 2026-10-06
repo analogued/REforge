@@ -4,11 +4,38 @@
 //!
 //! The caller supplies the player and scenery framebuffer. Projectiles are
 //! deliberately disabled: their launch block and random draws are omitted,
-//! while the window's original opening, timed hold and closing remain intact.
+//! while the opening and closing follow the original. The difficulty-six
+//! one-tick hold is corrected by default, with an optional development override.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 use crate::player::Player;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) enum HoldTiming {
+    #[default]
+    Corrected,
+    #[cfg(feature = "dev-tools")]
+    Original,
+}
+
+impl HoldTiming {
+    fn delay(self, data: &[u8], difficulty: usize) -> u16 {
+        let delay = word(data, 0x181e + difficulty * 2);
+        #[cfg(feature = "dev-tools")]
+        if matches!(self, Self::Original) {
+            return delay;
+        }
+        // Deliberate correction: the isolated one-tick entry at difficulty six
+        // makes windows close almost immediately. Eighteen ticks match the
+        // neighboring difficulties; the historical intended value is unknown.
+        if difficulty == 6 && delay == 1 {
+            18
+        } else {
+            delay
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Update {
@@ -83,6 +110,7 @@ pub(crate) fn advance(
     player: &Player,
     tick: u16,
     retrace: bool,
+    timing: HoldTiming,
 ) -> Result<Update, String> {
     check_data(data)?;
     data[0x166a] = data[0x166a].wrapping_sub(1);
@@ -138,7 +166,7 @@ pub(crate) fn advance(
             return Err("Window selection cannot find a nonoverlapping window".into());
         }
         data[0x1665] = 29;
-        let delay = word(data, 0x181e + difficulty * 2);
+        let delay = timing.delay(data, difficulty);
         set_word(data, 0x166c, delay);
         data[0x1670] = 1;
     }
@@ -288,31 +316,117 @@ mod tests {
     }
 
     #[test]
+    fn corrected_hold_changes_only_the_one_tick_difficulty_six_entry() {
+        for difficulty in 0..8 {
+            for bonus in [0, 1] {
+                let mut data = data();
+                set_word(&mut data, 8, difficulty);
+                data[0x418] = bonus;
+                let native_delay = if difficulty == 6 { 1 } else { 60 + difficulty };
+                set_word(
+                    &mut data,
+                    0x181e + usize::from(difficulty) * 2,
+                    native_delay,
+                );
+                set_word(&mut data, 0x2ae5, 0x10);
+                let mut player = Player::at_alley_floor(200);
+                player.y = 96;
+                let mut screen = Framebuffer::default();
+                advance(
+                    &mut data,
+                    &mut screen,
+                    &player,
+                    65530,
+                    false,
+                    HoldTiming::default(),
+                )
+                .unwrap();
+                let delay = if difficulty == 6 { 18 } else { native_delay };
+                assert_eq!(word(&data, 0x166c), delay);
+                assert_eq!(
+                    word(&data, 0x181e + usize::from(difficulty) * 2),
+                    native_delay
+                );
+                assert_eq!(data[0x1669], 8);
+                data[0x1665] = 16;
+                data[0x166a] = 1;
+                advance(
+                    &mut data,
+                    &mut screen,
+                    &player,
+                    65530,
+                    false,
+                    HoldTiming::default(),
+                )
+                .unwrap();
+                assert_eq!(data[0x1665], 15);
+                for (elapsed, phase) in [(delay - 1, 15), (delay, 14)] {
+                    data[0x166a] = 1;
+                    advance(
+                        &mut data,
+                        &mut screen,
+                        &player,
+                        65530u16.wrapping_add(elapsed),
+                        false,
+                        HoldTiming::default(),
+                    )
+                    .unwrap();
+                    assert_eq!(data[0x1665], phase);
+                }
+            }
+        }
+        let mut data = data();
+        set_word(&mut data, 0x181e + 6 * 2, 7);
+        assert_eq!(HoldTiming::default().delay(&data, 6), 7);
+    }
+
+    #[test]
     fn countdown_wraps_and_retrace_rejection_still_resets_it() {
         let mut data = data();
         let mut screen = Framebuffer::default();
         let player = Player::at_alley_floor(8);
         data[0x166a] = 0;
         assert!(
-            !advance(&mut data, &mut screen, &player, 1, false)
-                .unwrap()
-                .accepted
+            !advance(
+                &mut data,
+                &mut screen,
+                &player,
+                1,
+                false,
+                HoldTiming::default()
+            )
+            .unwrap()
+            .accepted
         );
         assert_eq!(data[0x166a], 255);
         data[0x166a] = 1;
         let seed = word(&data, 0x2ae5);
         assert!(
-            !advance(&mut data, &mut screen, &player, 1, true)
-                .unwrap()
-                .accepted
+            !advance(
+                &mut data,
+                &mut screen,
+                &player,
+                1,
+                true,
+                HoldTiming::default()
+            )
+            .unwrap()
+            .accepted
         );
         assert_eq!(data[0x166a], 13);
         assert_eq!(word(&data, 0x2ae5), seed);
         assert!(
-            advance(&mut data, &mut screen, &player, 1, false)
-                .unwrap()
-                .drawn_row
-                .is_none()
+            advance(
+                &mut data,
+                &mut screen,
+                &player,
+                1,
+                false,
+                HoldTiming::default()
+            )
+            .unwrap()
+            .drawn_row
+            .is_none()
         );
         assert_eq!(data[0x166a], 12);
     }
@@ -324,9 +438,16 @@ mod tests {
         let mut player = Player::at_alley_floor(8);
         let seed = word(&data, 0x2ae5);
         assert!(
-            advance(&mut data, &mut screen, &player, 1, false)
-                .unwrap()
-                .accepted
+            advance(
+                &mut data,
+                &mut screen,
+                &player,
+                1,
+                false,
+                HoldTiming::default()
+            )
+            .unwrap()
+            .accepted
         );
         assert_eq!(word(&data, 0x2ae5), seed);
         assert_eq!(data[0x1665], 0);
@@ -334,16 +455,31 @@ mod tests {
         data[0x166a] = 1;
         set_word(&mut data, 0x2ae5, 0x18);
         assert_eq!(
-            advance(&mut data, &mut screen, &player, 1, false)
-                .unwrap()
-                .drawn_row,
+            advance(
+                &mut data,
+                &mut screen,
+                &player,
+                1,
+                false,
+                HoldTiming::default()
+            )
+            .unwrap()
+            .drawn_row,
             None
         );
         assert_eq!(word(&data, 0x2ae5), 12);
         assert_eq!(data[0x1665], 0);
         data[0x166a] = 1;
         set_word(&mut data, 0x2ae5, 0x40);
-        let update = advance(&mut data, &mut screen, &player, 1, false).unwrap();
+        let update = advance(
+            &mut data,
+            &mut screen,
+            &player,
+            1,
+            false,
+            HoldTiming::default(),
+        )
+        .unwrap();
         assert_eq!(data[0x1665], 28);
         assert_eq!(data[0x1669], 0);
         assert_eq!(update.drawn_row, Some(38));
@@ -361,7 +497,15 @@ mod tests {
             player.y = 96;
             player.band_state = 1;
             let mut screen = Framebuffer::default();
-            advance(&mut data, &mut screen, &player, tick, false).unwrap();
+            advance(
+                &mut data,
+                &mut screen,
+                &player,
+                tick,
+                false,
+                HoldTiming::default(),
+            )
+            .unwrap();
             assert_eq!(data[0x1669], expected_id);
             assert_eq!(data[0x1677], u8::from(tick == 72 && bonus == 0));
             assert_eq!(word(&data, 0x2ae5), 8);
@@ -429,7 +573,15 @@ mod tests {
         let seed = word(&data, 0x2ae5);
         for phase in (16..=29).rev() {
             data[0x166a] = 1;
-            let update = advance(&mut data, &mut screen, &player, 65534, false).unwrap();
+            let update = advance(
+                &mut data,
+                &mut screen,
+                &player,
+                65534,
+                false,
+                HoldTiming::default(),
+            )
+            .unwrap();
             assert_eq!(data[0x1665], phase - 1);
             assert_eq!(update.drawn_row, Some(88 + phase - 15));
         }
@@ -437,16 +589,31 @@ mod tests {
         data[0x166a] = 1;
         let before = screen.bytes().to_vec();
         assert_eq!(
-            advance(&mut data, &mut screen, &player, 2, false)
-                .unwrap()
-                .drawn_row,
+            advance(
+                &mut data,
+                &mut screen,
+                &player,
+                2,
+                false,
+                HoldTiming::default()
+            )
+            .unwrap()
+            .drawn_row,
             None
         );
         assert_eq!(screen.bytes().as_slice(), before);
         assert_eq!(data[0x1673], 0);
         for phase in (1..=15).rev() {
             data[0x166a] = 1;
-            let update = advance(&mut data, &mut screen, &player, 50, false).unwrap();
+            let update = advance(
+                &mut data,
+                &mut screen,
+                &player,
+                50,
+                false,
+                HoldTiming::default(),
+            )
+            .unwrap();
             let row = 15 - phase;
             assert_eq!(update.drawn_row, Some(88 + row));
             assert_eq!(
@@ -469,7 +636,15 @@ mod tests {
         player.vertical_direction = 1;
         let mut screen = Framebuffer::default();
         let seed = word(&data, 0x2ae5);
-        let update = advance(&mut data, &mut screen, &player, 100, false).unwrap();
+        let update = advance(
+            &mut data,
+            &mut screen,
+            &player,
+            100,
+            false,
+            HoldTiming::default(),
+        )
+        .unwrap();
         assert!(update.contact_hold);
         assert_eq!(data[0x551], 1);
         assert_eq!(data[0x1665], 15);
@@ -478,7 +653,15 @@ mod tests {
         data[0x1669] = 0;
         set_word(&mut data, 0x1f32, 104);
         data[0x1f51] = 1; // Inactivity does not exempt this mouse rectangle.
-        let update = advance(&mut data, &mut screen, &player, 100, false).unwrap();
+        let update = advance(
+            &mut data,
+            &mut screen,
+            &player,
+            100,
+            false,
+            HoldTiming::default(),
+        )
+        .unwrap();
         assert!(update.contact_hold);
         assert_eq!((data[0x1665], data[0x1664]), (29, 1));
         assert_eq!(word(&data, 0x2ae5), seed);
@@ -492,7 +675,15 @@ mod tests {
         data[0x15e0 + 14 * 8..0x15e0 + 15 * 8].fill(0x35);
         let mut screen = Framebuffer::default();
         let player = Player::at_alley_floor(8);
-        advance(&mut data, &mut screen, &player, 1, false).unwrap();
+        advance(
+            &mut data,
+            &mut screen,
+            &player,
+            1,
+            false,
+            HoldTiming::default(),
+        )
+        .unwrap();
         assert_eq!(
             screen
                 .read_rect(pixel_offset(104, 102), Dimensions(0x0104))
@@ -501,7 +692,15 @@ mod tests {
         );
         active(&mut data, 1);
         data[0x2681 + 14 * 10..0x2681 + 14 * 10 + 8].fill(0x72);
-        advance(&mut data, &mut screen, &player, 1, false).unwrap();
+        advance(
+            &mut data,
+            &mut screen,
+            &player,
+            1,
+            false,
+            HoldTiming::default(),
+        )
+        .unwrap();
         assert_eq!(
             screen
                 .read_rect(pixel_offset(104, 102), Dimensions(0x0104))

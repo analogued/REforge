@@ -865,12 +865,20 @@ impl Alley {
     ) -> Result<crate::windows::Update, String> {
         let image = self.compositor.suspend(&mut self.screen)?;
         self.player.write_data(&mut self.data)?;
+        let timing = crate::windows::HoldTiming::default();
+        #[cfg(feature = "dev-tools")]
+        let timing = if self.dev_options.original_window_timing {
+            crate::windows::HoldTiming::Original
+        } else {
+            timing
+        };
         let update = crate::windows::advance(
             &mut self.data,
             &mut self.screen,
             &self.player,
             tick,
             retrace,
+            timing,
         )?;
         if let Some((dimensions, source)) = image {
             self.compositor.draw(
@@ -1232,6 +1240,42 @@ fn hardware_color(color: u8) -> [u8; 4] {
 mod tests {
     use super::*;
     use crate::assets::word;
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn original_window_timing_override_reaches_both_window_kinds() {
+        for bonus in [0, 1] {
+            for original in [false, true] {
+                let mut alley = Alley::synthetic();
+                let mut options = alley.dev_options;
+                options.original_window_timing = original;
+                alley.set_dev_options(options).unwrap();
+                set_word(&mut alley.data, 8, 6);
+                set_word(&mut alley.data, 0x181e + 6 * 2, 1);
+                set_word(&mut alley.data, 0x2ae5, 0x10);
+                set_word(&mut alley.data, 0x1658, 104);
+                alley.data[0x1662] = 88;
+                alley.data[0x166a] = 1;
+                alley.data[0x418] = bonus;
+                alley.player.x = 200;
+                alley.player.y = 96;
+                alley.advance_windows(65530, false).unwrap();
+                let delay = if original { 1 } else { 18 };
+                assert_eq!(word(&alley.data, 0x166c), delay);
+                assert_eq!(word(&alley.data, 0x181e + 6 * 2), 1);
+                alley.data[0x1665] = 16;
+                alley.data[0x166a] = 1;
+                alley.advance_windows(65530, false).unwrap();
+                for (elapsed, phase) in [(delay - 1, 15), (delay, 14)] {
+                    alley.data[0x166a] = 1;
+                    alley
+                        .advance_windows(65530u16.wrapping_add(elapsed), false)
+                        .unwrap();
+                    assert_eq!(alley.data[0x1665], phase);
+                }
+            }
+        }
+    }
 
     #[test]
     fn available_rooms_are_seeded_and_do_not_repeat_three_times() {

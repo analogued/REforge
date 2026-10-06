@@ -86,6 +86,12 @@ options alongside the player options.
 
 `--seed` selects a nonzero 16-bit random seed, in decimal or `0xHEX` notation.
 The internal default remains `0xfa59` in both builds.
+
+`--original-window-timing` restores the original one-tick window hold at
+difficulty 6. Both builds default to the corrected 18-tick hold. See
+[deliberate deviations](docs/deviations.md) for this fix and the pause-control
+usability change.
+
 `--scene fishbowl`, `--scene bookcase`, `--scene cheese` and `--scene birdcage`
 start directly in those rooms for testing; the default is `--scene alley`.
 Room actors and transitions use the default timed runner. `--scene hearts`

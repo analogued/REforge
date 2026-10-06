@@ -57,6 +57,7 @@ Development options (compiled with dev-tools):
   --disable-damage SOURCES  all, none or comma-separated damage identifiers
   --disable-actors NAMES    all, none or comma-separated actor identifiers
   --infinite-lives          Placeholder until life loss is implemented
+  --original-window-timing Restore the original difficulty-6 window hold
 
 Damage identifiers: alley-dog, room-dog, window-projectiles, milk-dogs, spider, eels, air.
 Actor identifiers: alley-dog, room-dog, window-projectiles, milk-dogs, spider, eels, bin-cat, alley-mice, broom, hearts-arrows, hearts-rivals.
@@ -166,6 +167,10 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
             }
             "--infinite-lives" => {
                 result.dev.switches.infinite_lives = true;
+                continue;
+            }
+            "--original-window-timing" => {
+                result.dev.switches.original_window_timing = true;
                 continue;
             }
             _ => {}
@@ -767,6 +772,7 @@ mod tests {
             "--disable-damage",
             "--disable-actors",
             "--infinite-lives",
+            "--original-window-timing",
         ] {
             assert_eq!(
                 parse(&[flag]).err(),
@@ -805,6 +811,7 @@ mod tests {
             "--disable-actors",
             "spider,broom",
             "--infinite-lives",
+            "--original-window-timing",
         ])
         .unwrap()
         .unwrap();
@@ -812,6 +819,7 @@ mod tests {
         assert_eq!(dev.seed, 0x1234);
         assert!(dev.scene == StartScene::Underwater);
         assert!(dev.headless && dev.timed && dev.switches.infinite_lives);
+        assert!(dev.switches.original_window_timing);
         assert_eq!(dev.steps, Some(12));
         assert_eq!(dev.script, Some(PathBuf::from("controls.csv")));
         assert_eq!(dev.trace, Some(PathBuf::from("states.csv")));

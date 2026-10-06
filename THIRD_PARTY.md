@@ -34,6 +34,22 @@ vendor SDL implementation code or a third-party Rust wrapper. SDL is used
 unmodified under its zlib license. A system package may supply another version;
 retain that version's notices if distributing its library with a build.
 
+### Scoring font
+
+`src/font.rs` adapts printable ASCII glyphs from SDL's
+[`src/render/SDL_render_debug_font.h` at release-3.4.16](https://github.com/libsdl-org/SDL/blob/release-3.4.16/src/render/SDL_render_debug_font.h).
+The upstream header credits Marcel Sondaar and International Business Machines
+(public domain VGA fonts), and marks the font definition Public Domain. Its SDL
+copyright and zlib notice are retained in the adapted file and below.
+
+The adaptation selects characters 32 through 126, adds a blank space glyph and
+converts the byte rows to a Rust table. Authored packing code renders these rows
+as CGA color three on color zero. No rows were copied from a game or BIOS dump.
+The same table works without SDL in headless builds; it adds no dependency.
+The upstream header's SHA-256 is
+`0c96157b6397485698ac07d20d33858e086c2752403f4d2f57a70acc26fa45df`.
+These retained notices do not select the license for authored project code.
+
 ## License notices
 
 The following text is taken from each locked package's `LICENSE-MIT` and the

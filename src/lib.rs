@@ -10,6 +10,7 @@ pub mod cga;
 mod clothes;
 mod completion;
 mod decoration;
+mod font;
 mod hearts;
 mod hearts_completion;
 mod mice;

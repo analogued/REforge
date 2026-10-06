@@ -191,8 +191,8 @@ The second pass uses the full sprite and reveals rows from Y176 upwards in
 16-pixel steps, stopping at `((2700-timeBonus)>>4)&f0`. Each row, including the
 last, is followed by a two-tick wait. Four award digits are then displayed at
 X144 and the cutoff Y, preserving leading zeros. The original `3a3a` prints
-through the BIOS font; the reconstruction adapts the executable's HUD digit
-ink to color three, retaining an explicit glyph-shape approximation.
+through the BIOS font; the reconstruction uses attributed SDL 8×8 digit glyphs
+in color three, matching the captured CGA/PCjr BIOS reference.
 
 The final `3a1c` loop samples a BIOS tick before waiting for retrace set. It
 sets logical background color zero to hardware green when sampled tick bit 2
@@ -249,8 +249,9 @@ restore the saved window coordinates and start descending. Presentation blocks
 gameplay throughout; pause freezes virtual time and quit remains responsive.
 
 Scene-specific palette tables, carried-gift background changes and presentation
-palette requests are independent of framebuffer memory. BIOS font lettering is
-approximated with executable HUD digits and authored multiplier-label letters.
+palette requests are independent of framebuffer memory. BIOS font lettering uses
+the attributed SDL 8×8 glyphs shared with the pause display; scoring characters
+match the captured CGA/PCjr BIOS font.
 Ambient sound random consumers, synthesis and sound busy-loop timing remain
 incomplete. Controlled helper/frame comparisons do not establish full original
 loop timing or random-stream equivalence.

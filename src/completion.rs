@@ -1,9 +1,9 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
-//! Ordinary-room success presentation, with external cat faces and digit glyphs.
+//! Ordinary-room success presentation, with external cat faces and BIOS-style text.
 //! Tick waits are independent of host rendering. Audio output remains deferred.
 
-use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
+use crate::assets::{DATA_LENGTH, set_word, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -135,27 +135,11 @@ fn draw_row(data: &mut [u8], screen: &mut Framebuffer, y: u16) -> Result<usize, 
     Ok(usize::from(word(data, 0x361c) as u8) * usize::from(word(data, 0x361c) >> 8) * 4)
 }
 
-pub(crate) fn digit(data: &[u8], value: u8) -> Result<Vec<u8>, String> {
+pub(crate) fn digit(value: u8) -> Result<[u8; 16], String> {
     if value > 9 {
         return Err("Completion score contains an invalid decimal digit".into());
     }
-    // The DOS presentation uses the BIOS ROM font, which is not in CAT.EXE.
-    // Reuse its external HUD glyph shape, in BIOS color three, as a visible
-    // approximation rather than bundling a third-party ROM font.
-    Ok(
-        sprite_bytes(data, 0x2720 + u16::from(value) * 16, Dimensions(0x0801))?
-            .iter()
-            .map(|byte| {
-                let mut output = 0;
-                for shift in [0, 2, 4, 6] {
-                    if byte & (3 << shift) == 0 {
-                        output |= 3 << shift;
-                    }
-                }
-                output
-            })
-            .collect(),
-    )
+    crate::font::character(b'0' + value)
 }
 
 impl Completion {
@@ -243,7 +227,7 @@ impl Completion {
             }
             Phase::Digits => {
                 for index in 3..7 {
-                    let pixels = digit(data, data[0x368d + index])?;
+                    let pixels = digit(data[0x368d + index])?;
                     screen.copy_rect(
                         pixel_offset(144 + (index as u16 - 3) * 8, data[0x369e]),
                         Dimensions(0x0801),
@@ -322,11 +306,15 @@ mod tests {
     }
 
     #[test]
-    fn score_glyph_adaptation_uses_black_ink_as_white_foreground() {
-        let mut data = data();
-        data[0x2720..0x2730].fill(0x1b);
-        assert_eq!(digit(&data, 0).unwrap(), vec![0xc0; 16]);
-        assert!(digit(&data, 10).is_err());
+    fn score_zero_matches_reference_shape_and_rejects_invalid_digits() {
+        assert_eq!(
+            digit(0).unwrap(),
+            [
+                0x3f, 0xf0, 0xf0, 0x3c, 0xf0, 0xfc, 0xf3, 0xfc, 0xff, 0x3c, 0xfc, 0x3c, 0x3f, 0xf0,
+                0, 0
+            ]
+        );
+        assert!(digit(10).is_err());
     }
 
     #[test]

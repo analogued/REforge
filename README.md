@@ -49,7 +49,8 @@ to place a carried gift near the cat's current position.
 Pause preserves the game state and virtual clock without catching up on resume.
 The overlay reads the original pause title from the executable and uses the
 original placement and palette color, with an updated hint for the toggle keys.
-Its lettering currently uses SDL's built-in font rather than the original BIOS font.
+Its lettering uses SDL's built-in 8×8 font. Scoring uses an attributed adaptation
+of the same glyphs, including in headless builds.
 
 `--machine pcjr` selects the PCjr palette and player countdown; the default is
 `cga`. Both modes use the same packed 320×200, four-colour framebuffer. Pixels
@@ -142,11 +143,12 @@ scene instead plays its neutral return animation, preserving score, lives,
 difficulty and the gift count. Both paths return at the saved window position.
 
 Scoring cat faces come from the executable. The original award lettering uses
-a BIOS ROM font absent from that file; the recreation adapts its external HUD
-digits to white instead, so numeral shapes remain an approximation. The black
-and color wipes follow the original expanding geometry; their execution costs
-are provisional. The hearts multiplier label also uses approximate authored
-letter shapes in place of the BIOS font. Scene-specific CGA/PCjr palette tables,
+a BIOS ROM font absent from that file. The recreation uses SDL's 8×8 glyphs for
+award digits and multiplier text; all characters used there match the captured
+DOSBox-X CGA/PCjr BIOS reference. This does not establish equality with every
+historical BIOS font. Font attribution is in [THIRD_PARTY.md](THIRD_PARTY.md).
+The black and color wipes follow the original expanding geometry; their execution
+costs are provisional. Scene-specific CGA/PCjr palette tables,
 carried-gift background changes and completion flashes are applied separately
 from packed framebuffer pixels. Audio remains silent.
 

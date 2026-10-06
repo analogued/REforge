@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
 //! Bonus-room return presentation. Original tables and sprites remain external;
-//! BIOS text uses an authored approximation, and speaker output is deferred.
+//! BIOS-style text uses the attributed SDL glyphs; speaker output is deferred.
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
@@ -162,43 +162,6 @@ fn award(data: &mut [u8], tick: u16) -> Result<(), String> {
     Ok(())
 }
 
-// Authored small letter shapes for the external multiplier label. The original
-// BIOS ROM is not part of CAT.EXE; these remain visibly approximate like digits.
-fn letter(character: u8) -> [u8; 7] {
-    match character {
-        b'B' => [30, 17, 17, 30, 17, 17, 30],
-        b'O' => [14, 17, 17, 17, 17, 17, 14],
-        b'N' => [17, 25, 25, 21, 19, 19, 17],
-        b'U' => [17, 17, 17, 17, 17, 17, 14],
-        b'S' => [15, 16, 16, 14, 1, 1, 30],
-        b'M' => [17, 27, 21, 21, 17, 17, 17],
-        b'L' => [16, 16, 16, 16, 16, 16, 31],
-        b'T' => [31, 4, 4, 4, 4, 4, 4],
-        b'I' => [14, 4, 4, 4, 4, 4, 14],
-        b'P' => [30, 17, 17, 30, 16, 16, 16],
-        b'E' => [31, 16, 16, 30, 16, 16, 31],
-        b'R' => [30, 17, 17, 30, 20, 18, 17],
-        b':' => [0, 4, 4, 0, 4, 4, 0],
-        _ => [0; 7],
-    }
-}
-
-fn text_character(data: &[u8], character: u8) -> Result<Vec<u8>, String> {
-    if character.is_ascii_digit() {
-        return crate::completion::digit(data, character - b'0');
-    }
-    let mut pixels = vec![0; 16];
-    for (row, bits) in letter(character).iter().enumerate() {
-        for x in 0..5 {
-            if bits & (1 << (4 - x)) != 0 {
-                let column = x + 1;
-                pixels[row * 2 + column / 4] |= 3 << (6 - 2 * (column % 4));
-            }
-        }
-    }
-    Ok(pixels)
-}
-
 fn score_frame(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, String> {
     let saved = screen.read_rect(0x08e4, Dimensions(0x0804))?;
     data[0x0e..0x4e].copy_from_slice(&saved);
@@ -208,7 +171,7 @@ fn score_frame(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, Strin
         screen.copy_rect(
             pixel_offset(144 + (index - 3) * 8, 56),
             Dimensions(0x0801),
-            &crate::completion::digit(data, data[0x368d + usize::from(index)])?,
+            &crate::completion::digit(data[0x368d + usize::from(index)])?,
         )?;
     }
     set_word(data, 0x36a0, 7);
@@ -216,7 +179,7 @@ fn score_frame(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, Strin
         screen.copy_rect(
             pixel_offset(80 + index as u16 * 8, 80),
             Dimensions(0x0801),
-            &text_character(data, data[0x370e + index])?,
+            &crate::font::character(data[0x370e + index])?,
         )?;
     }
     Ok(384)
@@ -611,8 +574,12 @@ mod tests {
 
     fn data() -> Vec<u8> {
         let mut data = vec![0; DATA_LENGTH];
+        data[0x370e..0x3722].copy_from_slice(b"BONUS MULTIPLIER: 01");
         set_word(&mut data, 0x36da, 0x6100);
         data[0x6100..0x6107].copy_from_slice(&[0, 0, 0, 1, 0, 0, 0]);
+        for index in 0..16 {
+            set_word(&mut data, 0x36ec + index * 2, 0x3130);
+        }
         for difficulty in 0..8 {
             set_word(
                 &mut data,

@@ -38,6 +38,13 @@ pub(crate) struct Special {
 }
 
 impl Special {
+    pub(crate) fn shift_lateral(&mut self, delta: i16) {
+        for record in &mut self.slots {
+            record.lateral = record.lateral.wrapping_add(delta);
+            record.coordinates[1] = record.lateral;
+        }
+    }
+
     pub(crate) fn from_snapshots(slots: [SpecialSnapshot; 5]) -> Self {
         Self { slots }
     }

@@ -18,7 +18,7 @@ use crate::{
 pub use ending::{Ending, EndingSnapshot, EndingStage, EndingTitle};
 pub use enemy::EnemySnapshot as EnemyState;
 pub use hud::HudSnapshot as HudState;
-pub use player::PlayerSnapshot as PlayerState;
+pub use player::{PlayerSnapshot as PlayerState, Steering};
 pub use special::SpecialSnapshot as SpecialState;
 pub use terrain::TerrainSnapshot as TerrainState;
 
@@ -41,12 +41,15 @@ pub struct Snapshot {
     pub special: [SpecialState; 5],
     pub world_order: [usize; 19],
     pub full_world_order: [usize; 29],
+    pub static_lateral: i16,
 }
 
-/// No directional input, with bounded encounter and collision/damage updates.
+/// Bounded encounter and collision/damage updates, with optional steering.
 #[derive(Debug)]
 pub struct Opening {
     body: u16,
+    body_limit: u16,
+    static_lateral: i16,
     random: Random,
     hud: hud::Hud,
     terrain: terrain::Terrain,
@@ -71,6 +74,8 @@ impl Opening {
         random.next_word(); // Fresh-process script selection: script zero.
         let mut opening = Self {
             body: 0,
+            body_limit: LAST_BODY,
+            static_lateral: 0,
             random,
             hud: hud::Hud::new(assets)?,
             terrain: terrain::Terrain::new(),
@@ -96,17 +101,25 @@ impl Opening {
         Ok(opening)
     }
 
+    /// A short controlled prefix, independently verified with held steering.
+    pub fn with_steering(assets: &GraphicsAssets) -> Result<Self, Error> {
+        let mut opening = Self::new(assets)?;
+        opening.body_limit = STEERING_LAST_BODY;
+        Ok(opening)
+    }
+
     pub fn frame(&self) -> &Frame {
         &self.frame
     }
 
     pub fn complete(&self) -> bool {
-        self.body == LAST_BODY || self.player.snapshot().game_over
+        self.body >= self.body_limit || self.player.snapshot().game_over
     }
 
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             body: self.body,
+            static_lateral: self.static_lateral,
             strip_index: (2 + 3 - usize::from(self.body % 3)) % 3,
             strip_y: self.strip_y,
             vertical_origin: self.vertical_origin,
@@ -128,11 +141,29 @@ impl Opening {
 
     /// Advance one completed loop body. Return false at the supported boundary.
     pub fn advance(&mut self, assets: &GraphicsAssets) -> Result<bool, Error> {
+        self.advance_with_input(assets, Steering::default())
+    }
+
+    /// Sample the same held directions at all three player updates in this body.
+    pub fn advance_with_input(
+        &mut self,
+        assets: &GraphicsAssets,
+        input: Steering,
+    ) -> Result<bool, Error> {
+        self.advance_with_inputs(assets, [input; 3])
+    }
+
+    /// Replay held-state samples at each of the three player polls.
+    pub fn advance_with_inputs(
+        &mut self,
+        assets: &GraphicsAssets,
+        inputs: [Steering; 3],
+    ) -> Result<bool, Error> {
         if self.complete() {
             return Ok(false);
         }
         self.body += 1;
-        self.advance_player()?;
+        self.advance_player(inputs[0])?;
         self.advance_world(assets, true)?;
         self.player.project(assets, self.vertical_origin)?;
         // Far-object ordering remains from the first render pass even when the
@@ -142,13 +173,23 @@ impl Opening {
         // preceding order at equal depth, including after another row recycles.
         self.sort_world(&first_depths);
         self.sort_full_world(&first_depths);
+        self.hud.set_orientation(self.player.snapshot().orientation);
         self.hud.update(self.body, &mut self.random);
-        self.advance_player()?;
+        self.advance_player(inputs[1])?;
         self.player.project(assets, self.vertical_origin)?;
-        self.advance_player()?;
+        self.advance_player(inputs[2])?;
         self.advance_world(assets, false)?;
         self.player.project(assets, self.vertical_origin)?;
-        let mut frame = scene::background_at(assets, self.snapshot().strip_index, self.strip_y)?;
+        let background = scene::background_at(assets, self.snapshot().strip_index, self.strip_y)?;
+        let mut packed = background.packed().to_vec();
+        // Incremental indicator masks paint over their preceding pixels.
+        for y in 13..20 {
+            for x in [28, 47] {
+                let start = y * 80 + x;
+                packed[start..start + 6].copy_from_slice(&self.frame.packed()[start..start + 6]);
+            }
+        }
+        let mut frame = Frame::from_packed(&packed)?;
         let viewport = Rect {
             x_bytes: 4,
             y: 44,
@@ -183,7 +224,7 @@ impl Opening {
                         self.enemy.spawn_command(
                             0x91,
                             &mut self.random,
-                            0,
+                            self.player.snapshot().coordinates[1],
                             usize::from(self.primary_count),
                         )?;
                         self.script_delay = 0;
@@ -283,8 +324,14 @@ impl Opening {
                 self.script_cursor += 1;
             }
         }
-        self.terrain
-            .recycle(self.terrain_selector, &mut self.random)?;
+        let lateral = self.player.snapshot().coordinates[1];
+        if lateral == 0 {
+            self.terrain
+                .recycle(self.terrain_selector, &mut self.random)?;
+        } else {
+            self.terrain
+                .recycle_at(self.terrain_selector, &mut self.random, lateral)?;
+        }
         Ok(true)
     }
 
@@ -459,11 +506,25 @@ impl Opening {
         )
     }
 
-    fn advance_player(&mut self) -> Result<(), Error> {
-        if self.player.update_no_input()? {
+    fn advance_player(&mut self, input: Steering) -> Result<(), Error> {
+        let reset_fuel = if input.bits() == 0 {
+            self.player.update_no_input()?
+        } else {
+            self.player.update(input)?
+        };
+        if reset_fuel {
             self.hud.reset_fuel();
             self.hud.set_lives(self.player.snapshot().lives);
         }
+        let delta = self
+            .player
+            .snapshot()
+            .update_lateral_velocity
+            .wrapping_mul(-8);
+        self.enemy.shift_lateral(delta);
+        self.terrain.shift_lateral(delta);
+        self.special.shift_lateral(delta);
+        self.static_lateral = self.static_lateral.wrapping_add(delta);
         Ok(())
     }
 }
@@ -483,6 +544,9 @@ fn draw_clipped(
 
 /// Final completed body of the currently verified, no-input opening batch.
 pub const LAST_BODY: u16 = 836;
+
+/// Verified prefix for steering-controlled playback.
+pub const STEERING_LAST_BODY: u16 = 90;
 
 /// Three nominal 36.413 Hz timer units per completed loop body.
 /// Original CPU/render costs and startup timer transitions are not emulated.

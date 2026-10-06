@@ -7,14 +7,15 @@ use mach3::{
 };
 use std::{env, path::PathBuf};
 
-const HELP: &str = "Usage: mach3-viewer [--scale 1..6] [--step|--static] [--period-ms 1..5000] <assets-directory>\n\n\
+const HELP: &str = "Usage: mach3-viewer [--scale 1..6] [--step|--static] [--controls] [--period-ms 1..5000] <assets-directory>\n\n\
 Space: splash -> intro -> opening. Escape or window close: exit.\n\
 Default window scale: 3; resizing preserves integer pixel scaling.\n\
 Opening animates 836 no-input loop bodies, then Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
 --step: fresh Space presses advance one body or title step. --static: show initial scene only.\n\
+--controls: arrows steer during a verified 90-body preview. Firing is deferred.\n\
 Default pace: about 12.14 bodies/s; --period-ms overrides it.\n\
-Original intro timing, player controls, later enemy behavior, and audio remain deferred.";
+Original intro timing, full controlled gameplay, later enemy behavior, and audio remain deferred.";
 
 fn run() -> Result<(), String> {
     let mut args = env::args_os().skip(1).peekable();
@@ -36,6 +37,10 @@ fn run() -> Result<(), String> {
                     .and_then(|arg| arg.to_str().and_then(|arg| arg.parse::<u32>().ok()))
                     .filter(|scale| (1..=6).contains(scale))
                     .ok_or_else(|| "--scale must be an integer between 1 and 6".to_string())?;
+            }
+            "--controls" => {
+                args.next();
+                options.controls = true;
             }
             "--step" | "--static" => {
                 if playback_set {
@@ -66,6 +71,9 @@ fn run() -> Result<(), String> {
             arg if arg.starts_with('-') => return Err(HELP.into()),
             _ => break,
         }
+    }
+    if options.controls && options.playback == Playback::Static {
+        return Err("--controls cannot be combined with --static".into());
     }
     let directory = args.next().map(PathBuf::from);
     let (Some(directory), None) = (directory, args.next()) else {

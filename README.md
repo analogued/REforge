@@ -98,8 +98,14 @@ press after entering gameplay, or `--static` to retain the initial scene. Held o
 manual steps. The default animation pace is approximately 12.14 bodies per
 second, derived from the game's timer logic; `--period-ms 1..5000` overrides
 the interval. Original startup timing and exact DOS CPU-dependent pacing are
-not reproduced. Keyboard movement/firing, later encounters, and audio remain
-deferred.
+not reproduced. Firing, later encounters, and audio remain deferred.
+
+Use `--controls` for a 90-body steering preview. Arrow keys move the craft;
+release slows it down, and diagonal inputs combine both axes. Movement includes
+camera changes, world displacement, banking, and the HUD indicators. This
+controlled prefix holds its final frame; the full no-input mode still reaches
+game over and the return intro. `--controls --step` samples held directions
+when Space advances a body. Losing focus releases held controls.
 
 The default window is 960 by 600 (3x). `--scale 1..6` sets its initial scale:
 
@@ -124,6 +130,13 @@ its state and drawing order, and the selected return intro image.
 `--steps 0..836` exports a shorter prefix. The directory must be new. Simulation
 uses the decoded assets and interpreted update rules; it does not load captured
 frames, emulator state, or a replay.
+
+For a deterministic steering replay, add `--inputs /path/to/inputs.tsv`.
+The default becomes 90 bodies; `--steps 0..90` selects a shorter prefix.
+The TSV header is `body`, `update`, `mask`, separated by tabs. Each row changes
+the held state at body 1–90 and player update 1–3. Masks combine Up=1, Down=2,
+Left=4, Right=8; zero releases all directions. Rows must be strictly ordered,
+and the state persists until the next row. Steering export excludes `--ending`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for formatting and commit conventions.
 

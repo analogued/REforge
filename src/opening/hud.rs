@@ -25,6 +25,8 @@ pub struct HudSnapshot {
 pub(crate) struct Hud {
     state: HudSnapshot,
     marker_dimensions: [(usize, usize); 3],
+    indicator_source: usize,
+    indicator_changed: bool,
 }
 
 impl Hud {
@@ -55,7 +57,20 @@ impl Hud {
                 lives_resolved: 6,
             },
             marker_dimensions,
+            indicator_source: 87,
+            indicator_changed: false,
         })
+    }
+
+    /// Select the indicators after the first player update in a completed body.
+    pub(crate) fn set_orientation(&mut self, orientation: i16) {
+        let source = if (1..=5).contains(&orientation) {
+            (90 - orientation) as usize
+        } else {
+            87
+        };
+        self.indicator_changed = source != self.indicator_source;
+        self.indicator_source = source;
     }
 
     /// Called once per completed body, before the event parser and terrain recycling.
@@ -135,10 +150,22 @@ impl Hud {
             draws.push(draw(70 + value as usize, 34 + digit * 2, 33, 2, 7));
             divisor /= 10;
         }
-        // Both indicators are first drawn with their initial sources. Later
-        // requests resolve to a transparent sprite and preserve this artwork.
-        draws.push(draw(85, 28, 13, 6, 7));
-        draws.push(draw(86, 47, 13, 6, 7));
+        // Preserve the initial artwork and masked pixels between selection
+        // changes; the caller retains each indicator's preceding rectangle.
+        draws.push(draw(
+            self.indicator_source,
+            if self.indicator_changed { 28 } else { 128 },
+            13,
+            6,
+            7,
+        ));
+        draws.push(draw(
+            self.indicator_source,
+            if self.indicator_changed { 47 } else { 128 },
+            13,
+            6,
+            7,
+        ));
         for x in [63, 2, 68, 7, 73, 12]
             .into_iter()
             .take(usize::from(self.state.lives_resolved))
@@ -223,8 +250,8 @@ mod tests {
         assert_eq!(draws.len(), 17);
         assert_eq!(draws[0].rect.width_bytes, 13);
         assert_eq!(draws[1].rect.width_bytes, 14);
-        assert_eq!(draws[8].resolved_sprite, 85);
-        assert_eq!(draws[9].resolved_sprite, 86);
+        assert_eq!(draws[8].resolved_sprite, 87);
+        assert_eq!(draws[9].resolved_sprite, 87);
         assert_eq!(draws[16].resolved_sprite, 0);
         assert_eq!(draws[16].rect.height, 2);
     }

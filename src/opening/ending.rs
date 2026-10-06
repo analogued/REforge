@@ -100,6 +100,9 @@ impl Ending {
         // Shot source selection runs even when the two slots remain inactive.
         world[2] = empty_record(2, player_projectile_source(400), 400, -100, 254);
         world[3] = empty_record(3, player_projectile_source(700), 700, -100, 254);
+        for slot in [2, 3, 28] {
+            world[slot].lateral = state.static_lateral;
+        }
         for record in state.enemies {
             world[record.slot] = record;
         }

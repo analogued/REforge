@@ -41,6 +41,12 @@ pub(crate) struct TerrainCollision {
 }
 
 impl Terrain {
+    pub(crate) fn shift_lateral(&mut self, delta: i16) {
+        for record in &mut self.slots {
+            record.lateral = record.lateral.wrapping_add(delta);
+        }
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             slots: std::array::from_fn(|index| TerrainSnapshot {
@@ -218,6 +224,15 @@ impl Terrain {
 
     /// Recycle after rendering and event processing, preserving resolved draw state.
     pub(crate) fn recycle(&mut self, selector: u16, random: &mut Random) -> Result<(), Error> {
+        self.recycle_at(selector, random, 0)
+    }
+
+    pub(crate) fn recycle_at(
+        &mut self,
+        selector: u16,
+        random: &mut Random,
+        player_lateral: i16,
+    ) -> Result<(), Error> {
         if !matches!(selector, 0 | 2 | 3 | 5 | 6 | 7 | 9) {
             return Err(Error::InvalidData(format!(
                 "unsupported opening terrain selector {selector}"
@@ -227,7 +242,8 @@ impl Terrain {
             if slot.active {
                 continue;
             }
-            slot.lateral = (random.next_word() & 0x7ff) as i16 - 1024;
+            slot.lateral = ((random.next_word() & 0x7ff) as i16 - 1024)
+                .wrapping_sub(player_lateral.wrapping_mul(2));
             slot.depth = 916 + index as i16 * 112;
             slot.movement = 2;
             match selector {

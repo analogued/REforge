@@ -4,7 +4,7 @@
 use mach3::{
     Error,
     assets::GraphicsAssets,
-    opening::{Ending, LAST_BODY, Opening},
+    opening::{Ending, LAST_BODY, Opening, STEERING_LAST_BODY, Steering},
     startup::StartupFrames,
 };
 use std::{
@@ -14,11 +14,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: mach3-opening [--steps 0..836] [--ending] <assets-directory> <new-output-directory>\n\n\
+const HELP: &str = "Usage: mach3-opening [--steps 0..836] [--ending] [--inputs input.tsv] <assets-directory> <new-output-directory>\n\n\
 Export the no-input opening from the initial frame through the requested body.\n\
 Writes numbered CGA frames and state/object TSV tables; output directory must be new.\n\
 Default: 836 bodies, including the complete first no-input run. No audio or player controls.\n\
---ending: also export the first title pair and selected return intro image.";
+--ending: also export the first title pair and selected return intro image.\n\
+--inputs: held steering TSV (body, update, mask); defaults to a 90-body prefix.";
 
 fn new_file(path: impl AsRef<Path>) -> Result<BufWriter<std::fs::File>, Error> {
     Ok(BufWriter::new(
@@ -36,8 +37,10 @@ fn run() -> Result<(), Error> {
         return Ok(());
     }
     let mut steps = LAST_BODY;
+    let mut steps_set = false;
     if args.peek().is_some_and(|arg| arg == "--steps") {
         args.next();
+        steps_set = true;
         steps = args
             .next()
             .and_then(|arg| arg.to_str().and_then(|arg| arg.parse::<u16>().ok()))
@@ -55,13 +58,81 @@ fn run() -> Result<(), Error> {
             "--ending requires the complete no-input run".into(),
         ));
     }
+    let input_path = if args.peek().is_some_and(|arg| arg == "--inputs") {
+        args.next();
+        Some(
+            args.next()
+                .map(PathBuf::from)
+                .ok_or_else(|| Error::InvalidData("--inputs requires a TSV file".into()))?,
+        )
+    } else {
+        None
+    };
+    let mut input_changes = std::collections::BTreeMap::new();
+    if let Some(path) = &input_path {
+        if include_ending || (steps_set && steps > STEERING_LAST_BODY) {
+            return Err(Error::InvalidData(
+                "steering export supports up to 90 bodies and excludes --ending".into(),
+            ));
+        }
+        if !steps_set {
+            steps = STEERING_LAST_BODY;
+        }
+        let text = fs::read_to_string(path)?;
+        let mut lines = text.lines();
+        if lines.next() != Some("body\tupdate\tmask") {
+            return Err(Error::InvalidData(
+                "input header must be body<TAB>update<TAB>mask".into(),
+            ));
+        }
+        let mut previous = None;
+        for line in lines {
+            let fields: Vec<_> = line.split('\t').collect();
+            let row = fields
+                .iter()
+                .map(|s| s.parse::<u16>().ok())
+                .collect::<Option<Vec<_>>>()
+                .filter(|row| {
+                    row.len() == 3
+                        && (1..=90).contains(&row[0])
+                        && (1..=3).contains(&row[1])
+                        && row[2] <= 15
+                })
+                .ok_or_else(|| {
+                    Error::InvalidData(
+                        "input rows require body 1..90, update 1..3, mask 0..15".into(),
+                    )
+                })?;
+            let key = (row[0], row[1]);
+            if previous.is_some_and(|old| old >= key) {
+                return Err(Error::InvalidData(
+                    "input rows must be strictly ordered".into(),
+                ));
+            }
+            previous = Some(key);
+            input_changes.insert(
+                key,
+                Steering {
+                    up: row[2] & 1 != 0,
+                    down: row[2] & 2 != 0,
+                    left: row[2] & 4 != 0,
+                    right: row[2] & 8 != 0,
+                },
+            );
+        }
+    }
     let directory = args.next().map(PathBuf::from);
     let destination = args.next().map(PathBuf::from);
     let (Some(directory), Some(destination), None) = (directory, destination, args.next()) else {
         return Err(Error::InvalidData(HELP.into()));
     };
     let assets = GraphicsAssets::load(&directory)?;
-    let mut opening = Opening::new(&assets)?;
+    let mut opening = if input_path.is_some() {
+        Opening::with_steering(&assets)?
+    } else {
+        Opening::new(&assets)?
+    };
+    let mut held_input = Steering::default();
     fs::create_dir(&destination)?;
     let mut state = new_file(destination.join("state.tsv"))?;
     let mut terrain = new_file(destination.join("terrain.tsv"))?;
@@ -82,7 +153,7 @@ fn run() -> Result<(), Error> {
     )?;
     writeln!(
         player,
-        "body\tdepth\tlateral\theight_world\trequested\tresolved\tx\ty\twidth\theight\tphase\tdamage\tanimation_row\tgrace\thorizon\tlives\tgame_over"
+        "body\tdepth\tlateral\theight_world\trequested\tresolved\tx\ty\twidth\theight\tphase\tdamage\tanimation_row\tgrace\thorizon\tlives\tgame_over\tvelocity_lateral\tvelocity_height\torientation\tvertical_band\tinput\tupdate_velocity"
     )?;
     writeln!(
         enemies,
@@ -94,7 +165,13 @@ fn run() -> Result<(), Error> {
     )?;
     for body in 0..=steps {
         if body > 0 {
-            opening.advance(&assets)?;
+            let inputs = std::array::from_fn(|i| {
+                if let Some(&change) = input_changes.get(&(body, i as u16 + 1)) {
+                    held_input = change;
+                }
+                held_input
+            });
+            opening.advance_with_inputs(&assets, inputs)?;
         }
         let snapshot = opening.snapshot();
         for (position, slot) in snapshot.full_world_order.into_iter().enumerate() {
@@ -161,7 +238,7 @@ fn run() -> Result<(), Error> {
         let p = snapshot.player;
         writeln!(
             player,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             body,
             p.coordinates[0],
             p.coordinates[1],
@@ -178,7 +255,13 @@ fn run() -> Result<(), Error> {
             p.grace,
             p.horizon,
             p.lives,
-            u8::from(p.game_over)
+            u8::from(p.game_over),
+            p.velocity[0],
+            p.velocity[1],
+            p.orientation,
+            p.vertical_band,
+            p.effective_input,
+            p.update_lateral_velocity
         )?;
         for slot in snapshot.terrain {
             writeln!(

@@ -10,7 +10,7 @@ use sdl3::{
 
 use crate::{
     frame::{HEIGHT, WIDTH},
-    opening::{BODY_PERIOD, Ending, Opening},
+    opening::{BODY_PERIOD, Ending, Opening, Steering},
     startup::{Presentation, Screen, StartupFrames},
 };
 
@@ -26,6 +26,7 @@ pub enum Playback {
 pub struct Options {
     pub scale: u32,
     pub playback: Playback,
+    pub controls: bool,
     pub body_period: std::time::Duration,
 }
 
@@ -34,6 +35,7 @@ impl Default for Options {
         Self {
             scale: 3,
             playback: Playback::Animated,
+            controls: false,
             body_period: BODY_PERIOD,
         }
     }
@@ -141,9 +143,17 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
     let mut opening = if options.playback == Playback::Static {
         None
     } else {
-        Some(Opening::new(frames.graphics()).map_err(|error| error.to_string())?)
+        Some(
+            if options.controls {
+                Opening::with_steering(frames.graphics())
+            } else {
+                Opening::new(frames.graphics())
+            }
+            .map_err(|error| error.to_string())?,
+        )
     };
     let mut next_body = None;
+    let mut steering = Steering::default();
     let mut ending: Option<Ending> = None;
     let mut returned_intro = None;
     let sdl = sdl3::init().map_err(|error| error.to_string())?;
@@ -182,6 +192,30 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
         let mut step = false;
         for event in events.poll_iter() {
             let was_scene = presentation.screen() == Screen::InitialScene;
+            if options.controls {
+                match &event {
+                    Event::KeyDown {
+                        keycode: Some(key), ..
+                    }
+                    | Event::KeyUp {
+                        keycode: Some(key), ..
+                    } => {
+                        let down = matches!(&event, Event::KeyDown { .. });
+                        match key {
+                            Keycode::Up => steering.up = down,
+                            Keycode::Down => steering.down = down,
+                            Keycode::Left => steering.left = down,
+                            Keycode::Right => steering.right = down,
+                            _ => {}
+                        }
+                    }
+                    Event::Window {
+                        win_event: WindowEvent::FocusLost,
+                        ..
+                    } => steering = Steering::default(),
+                    _ => {}
+                }
+            }
             let action = event_action(&mut presentation, event);
             if action == Action::Close {
                 return Ok(());
@@ -253,7 +287,7 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
                             .map_err(|error| error.to_string())?;
                         ending = Some(state);
                     } else if opening
-                        .advance(frames.graphics())
+                        .advance_with_input(frames.graphics(), steering)
                         .map_err(|error| error.to_string())?
                     {
                         texture
@@ -284,7 +318,11 @@ pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), 
                     } else if opening.complete() {
                         canvas
                             .window_mut()
-                            .set_title("Mach 3 — Final gameplay frame (Esc to close)")
+                            .set_title(if options.controls {
+                                "Mach 3 — Steering preview complete (Esc to close)"
+                            } else {
+                                "Mach 3 — Final gameplay frame (Esc to close)"
+                            })
                             .map_err(|error| error.to_string())?;
                         if !opening.snapshot().player.game_over {
                             next_body = None;

@@ -233,7 +233,7 @@ retain the first pass's drawing order between updates. The sorted list persists
 across bodies. Entries with movement subtype zero keep their order in a prefix;
 other entries sort by descending depth, retaining their preceding order at equal
 depth. Inactive records still participate.
-The initial HUD indicator artwork is preserved.
+The initial HUD indicator artwork is preserved until banking changes its selection.
 
 Native frames and checked HUD, player, terrain, enemy, gate, target, camera,
 random state, and retained drawing order match the original at every
@@ -250,6 +250,36 @@ transition make precise DOS elapsed time dependent on execution conditions.
 The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
 The viewer offers an interval override and manual stepping.
+
+## Player steering
+
+`2277` polls held inputs three times per body. Original Up/S, Down/X, Left/B,
+and Right/N map to bits 1, 2, 4, and 8. The native viewer exposes arrow keys.
+Up and Right acceleration run before Down and Left. Opposing directions remain
+separate bits and suppress friction; at the positive speed limit the negative
+operation wins. Release reduces each velocity toward zero by one per update.
+Lateral speed is limited to seven units, vertical speed to six. Position changes
+by four times velocity. Lateral bounds are -320 and 280; vertical movement
+preserves a nonnegative camera height and caps world height at 230 with signed
+integer rounding. Banking chooses among five orientations and three height bands.
+
+Each player update shifts every world record from 2 through 28 by negative eight
+times the clamped lateral velocity, including inactive records. New terrain and
+randomized enemies subtract twice the current player lateral position from their
+placement. HUD bank indicators update after the first player poll; changed
+selections paint masks over retained pixels rather than rebuilding their artwork.
+A damage response replaces held directions with recentering commands. All sixteen
+response rows are represented by authored pose/duration programs and a separate
+death program, verified against reachable original phases.
+
+The controlled prefix is verified through body 90 using held keys, releases,
+diagonals, opposite directions, coordinate limits, camera movement, and the first
+enemy spawn. All 91 completed-body frames and checked state match the original.
+The first injected key in that capture reached the keyboard handler after the
+first player poll; a separate poll trace establishes samples zero, Left, Left.
+`advance_with_inputs` and the exporter's input TSV support exact per-poll replay;
+the viewer samples its held state for a completed body. Full controlled gameplay,
+firing, and a second run remain to be implemented and verified.
 
 ## Game over and return
 
@@ -276,5 +306,5 @@ image selection; it does not replay the entire fresh-process startup.
 
 `Ending` implements the title stages, best-score retention, frozen projection,
 and return image choice. The viewer uses Space for return and holds the chosen
-image. Keyboard movement and firing, another game in the existing random stream,
+image. Firing, another game in the existing random stream,
 additional encounter commands, and audio remain unsupported.

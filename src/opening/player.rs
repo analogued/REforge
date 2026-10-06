@@ -1,7 +1,24 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! No-input craft movement and the opening's damage response.
+//! Craft steering, banking and damage response.
 
 use crate::{Error, assets::GraphicsAssets, frame::Rect, scene::Draw};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Steering {
+    pub up: bool,
+    pub down: bool,
+    pub left: bool,
+    pub right: bool,
+}
+
+impl Steering {
+    pub const fn bits(self) -> u16 {
+        self.up as u16
+            | ((self.down as u16) << 1)
+            | ((self.left as u16) << 2)
+            | ((self.right as u16) << 3)
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct PlayerSnapshot {
@@ -17,6 +34,13 @@ pub struct PlayerSnapshot {
     pub lives: u8,
     pub game_over: bool,
     pub shadow: Draw,
+    /// Lateral and vertical velocities after the response branch.
+    pub velocity: [i16; 2],
+    pub orientation: i16,
+    pub vertical_band: i16,
+    pub effective_input: u16,
+    /// Clamped lateral velocity applied to the world before response zeroing.
+    pub update_lateral_velocity: i16,
 }
 
 #[derive(Debug)]
@@ -24,6 +48,7 @@ pub(crate) struct Player {
     state: PlayerSnapshot,
     velocity: [i16; 2],
     orientation: i16,
+    vertical_band: i16,
     shadow: Draw,
 }
 
@@ -57,9 +82,15 @@ impl Player {
                 lives: 6,
                 game_over: false,
                 shadow,
+                velocity: [0, 0],
+                orientation: 3,
+                vertical_band: 2,
+                effective_input: 0,
+                update_lateral_velocity: 0,
             },
             velocity: [0, 0],
             orientation: 3,
+            vertical_band: 2,
             shadow,
         };
         player.project(assets, 106)?;
@@ -87,37 +118,32 @@ impl Player {
     /// the caller's fuel reset. Exhausting the last symbol allows one more
     /// recovery; a death with no symbol sets the exit flag for the next body.
     pub(crate) fn update_no_input(&mut self) -> Result<bool, Error> {
+        self.update(Steering::default())
+    }
+
+    pub(crate) fn update(&mut self, steering: Steering) -> Result<bool, Error> {
         let responding = self.state.phase != 0;
         let lateral = self.state.coordinates[1];
         let height = self.state.coordinates[2];
-        let input = if responding {
-            [
-                if lateral < -30 {
-                    1
-                } else if lateral > 30 {
-                    -1
-                } else {
-                    0
-                },
-                if height < -30 {
-                    1
-                } else if height > 30 {
-                    -1
-                } else {
-                    0
-                },
-            ]
+        let steering = if responding {
+            Steering {
+                right: lateral < -30,
+                left: lateral > 30,
+                up: height < -30,
+                down: height > 30,
+            }
         } else {
-            [0, 0]
+            steering
         };
-        self.velocity[1] = accelerate(self.velocity[1], input[1], 6);
+        self.state.effective_input = steering.bits();
+        self.velocity[1] = accelerate(self.velocity[1], steering.up, steering.down, 6);
         self.velocity[1] = self.velocity[1].max(-self.state.horizon);
         if height + self.velocity[1] * 4 > 230 {
             self.velocity[1] = (230 - height) >> 2;
         }
         self.state.coordinates[2] += self.velocity[1] * 4;
         self.state.horizon += self.velocity[1];
-        self.velocity[0] = accelerate(self.velocity[0], input[0], 7);
+        self.velocity[0] = accelerate(self.velocity[0], steering.right, steering.left, 7);
         if lateral + self.velocity[0] * 4 > 280 {
             self.velocity[0] = (280 - lateral) >> 2;
         }
@@ -125,6 +151,7 @@ impl Player {
             self.velocity[0] = (-320 - lateral) >> 2;
         }
         self.state.coordinates[1] += self.velocity[0] * 4;
+        self.state.update_lateral_velocity = self.velocity[0];
 
         let mut reset_fuel = false;
         if responding {
@@ -157,9 +184,9 @@ impl Player {
             self.orientation =
                 (((self.state.coordinates[1] + 450) >> 7) - self.velocity[0]).clamp(1, 5);
             let height = self.state.coordinates[2];
-            let vertical =
+            self.vertical_band =
                 (3 - ((height + 290 + (height >> 2)) >> 7) + self.velocity[1]).clamp(0, 2);
-            self.state.requested_sprite = (self.orientation + 5 * vertical) as usize;
+            self.state.requested_sprite = (self.orientation + 5 * self.vertical_band) as usize;
         }
         self.shadow.resolved_sprite = (self.orientation + 15) as usize;
         Ok(reset_fuel)
@@ -197,6 +224,9 @@ impl Player {
     pub(crate) fn snapshot(&self) -> PlayerSnapshot {
         PlayerSnapshot {
             shadow: self.shadow,
+            velocity: self.velocity,
+            orientation: self.orientation,
+            vertical_band: self.vertical_band,
             ..self.state
         }
     }
@@ -212,34 +242,223 @@ impl Player {
     }
 }
 
-fn accelerate(velocity: i16, input: i16, limit: i16) -> i16 {
-    if input == 0 {
-        velocity - velocity.signum()
-    } else {
-        (velocity + input).clamp(-limit, limit)
+fn accelerate(mut velocity: i16, positive: bool, negative: bool, limit: i16) -> i16 {
+    if positive && velocity < limit {
+        velocity += 1;
     }
+    if negative && velocity > -limit {
+        velocity -= 1;
+    }
+    if !positive && !negative {
+        velocity -= velocity.signum();
+    }
+    velocity
 }
 
+/// Roll programs describe durations on the same five-bank, three-height pose
+/// grid used by normal flight. The final bank-five, band-two pose precedes recovery.
 fn response_sprite(row: u16, phase: u16) -> Result<Option<usize>, Error> {
-    Ok(match (row, phase) {
-        (13, 1..=2) => Some(7),
-        (13, 3..=4) => Some(1),
-        (13, 5..=6) => Some(6),
-        (13, 7..=8) => Some(12),
-        (13, 9..=10) => Some(13),
-        (13, 11..=12) => Some(9),
-        (13, 13..=14) => Some(14),
-        (13, 15) | (16, 1) => Some(15),
-        (16, 2..=4) => Some(57),
-        (16, 5..=14) => Some(58 + usize::from((phase - 5) / 2)),
-        (16, 15) => Some(0),
-        (13 | 16, 16) => None,
-        _ => {
-            return Err(Error::InvalidData(format!(
-                "unsupported craft response row {row}, phase {phase}"
-            )));
-        }
-    })
+    if !(1..=16).contains(&row) || !(1..=16).contains(&phase) {
+        return Err(Error::InvalidData(format!(
+            "invalid craft response row {row}, phase {phase}"
+        )));
+    }
+    if row == 16 {
+        return Ok(match phase {
+            1 => Some(15),
+            2..=4 => Some(57),
+            5..=14 => Some(58 + usize::from((phase - 5) / 2)),
+            15 => Some(0),
+            _ => None,
+        });
+    }
+    // Row eleven adds two phases at bank one, band one before row one.
+    if row == 11 {
+        return if phase <= 2 {
+            Ok(Some(6))
+        } else {
+            response_sprite(1, phase - 2)
+        };
+    }
+    // Each run is (last phase, bank, height band), rather than an embedded
+    // frame-index lookup. Different starting poses reach recovery at different
+    // phases; padding after an original terminator is never executed.
+    let (runs, recovery): (&[(u16, usize, usize)], u16) = match row {
+        1 => (
+            &[
+                (2, 1, 0),
+                (4, 2, 0),
+                (6, 3, 0),
+                (8, 4, 0),
+                (10, 5, 0),
+                (12, 5, 1),
+            ],
+            14,
+        ),
+        2 => (
+            &[(2, 2, 0), (4, 3, 0), (6, 3, 1), (8, 4, 1), (10, 4, 2)],
+            12,
+        ),
+        3 => (
+            &[
+                (2, 3, 0),
+                (4, 2, 0),
+                (5, 2, 1),
+                (6, 3, 1),
+                (8, 4, 1),
+                (10, 5, 1),
+            ],
+            12,
+        ),
+        4 => (
+            &[
+                (1, 4, 0),
+                (3, 3, 0),
+                (5, 2, 1),
+                (7, 1, 1),
+                (9, 2, 1),
+                (11, 4, 1),
+                (13, 5, 1),
+            ],
+            15,
+        ),
+        5 => (
+            &[
+                (2, 4, 0),
+                (4, 3, 0),
+                (6, 2, 0),
+                (8, 1, 1),
+                (10, 2, 1),
+                (12, 4, 1),
+                (13, 5, 1),
+            ],
+            15,
+        ),
+        6 => (
+            &[
+                (2, 1, 0),
+                (4, 2, 0),
+                (5, 3, 0),
+                (6, 3, 1),
+                (8, 4, 1),
+                (10, 5, 1),
+                (12, 5, 0),
+                (13, 5, 1),
+            ],
+            15,
+        ),
+        7 => (
+            &[
+                (2, 2, 0),
+                (4, 1, 0),
+                (6, 1, 1),
+                (7, 2, 1),
+                (8, 3, 1),
+                (10, 3, 2),
+                (11, 4, 2),
+                (12, 4, 1),
+                (13, 5, 1),
+            ],
+            15,
+        ),
+        8 => (
+            &[
+                (2, 2, 1),
+                (4, 1, 0),
+                (6, 1, 1),
+                (8, 1, 2),
+                (9, 2, 2),
+                (10, 3, 2),
+                (11, 4, 2),
+                (13, 4, 1),
+                (14, 5, 1),
+            ],
+            16,
+        ),
+        9 => (
+            &[
+                (1, 3, 1),
+                (3, 2, 1),
+                (5, 2, 0),
+                (7, 3, 0),
+                (9, 4, 0),
+                (11, 5, 0),
+                (13, 5, 1),
+            ],
+            15,
+        ),
+        10 => (
+            &[
+                (2, 4, 1),
+                (3, 3, 1),
+                (5, 2, 0),
+                (7, 3, 0),
+                (9, 4, 0),
+                (11, 4, 1),
+                (13, 4, 2),
+            ],
+            15,
+        ),
+        12 => (
+            &[
+                (2, 2, 1),
+                (4, 1, 1),
+                (6, 2, 0),
+                (8, 3, 0),
+                (10, 4, 0),
+                (12, 4, 1),
+                (14, 4, 2),
+            ],
+            16,
+        ),
+        13 => (
+            &[
+                (2, 2, 1),
+                (4, 1, 0),
+                (6, 1, 1),
+                (8, 2, 2),
+                (10, 3, 2),
+                (12, 4, 1),
+                (14, 4, 2),
+            ],
+            16,
+        ),
+        14 => (
+            &[
+                (2, 3, 2),
+                (4, 2, 1),
+                (6, 2, 0),
+                (7, 3, 0),
+                (9, 4, 0),
+                (11, 5, 0),
+                (13, 5, 1),
+            ],
+            15,
+        ),
+        15 => (
+            &[
+                (2, 4, 2),
+                (4, 3, 2),
+                (6, 2, 2),
+                (8, 2, 1),
+                (10, 3, 0),
+                (12, 4, 0),
+                (13, 4, 1),
+                (14, 4, 2),
+            ],
+            16,
+        ),
+        _ => unreachable!("death and row-eleven rolls were handled above"),
+    };
+    if phase >= recovery {
+        Ok(None)
+    } else {
+        Ok(Some(
+            runs.iter()
+                .find(|run| phase <= run.0)
+                .map_or(15, |run| run.1 + 5 * run.2),
+        ))
+    }
 }
 
 fn project(
@@ -383,5 +602,135 @@ mod tests {
         assert!(!player.update_no_input().unwrap());
         assert!(player.snapshot().game_over);
         assert_eq!(player.snapshot().requested_sprite, 13);
+    }
+    #[test]
+    fn steering_accelerates_then_release_slows_and_updates_banking() {
+        let mut player = Player::new(&assets()).unwrap();
+        let right_up = Steering {
+            right: true,
+            up: true,
+            ..Steering::default()
+        };
+        for _ in 0..6 {
+            player.update(right_up).unwrap();
+        }
+        let state = player.snapshot();
+        assert_eq!(state.velocity, [6, 6]);
+        assert_eq!(state.coordinates, [14, 84, -16]);
+        assert_eq!(state.horizon, 21);
+        assert_eq!(
+            (
+                state.orientation,
+                state.vertical_band,
+                state.requested_sprite
+            ),
+            (1, 2, 11)
+        );
+        assert_eq!(state.effective_input, 9);
+        player.update(Steering::default()).unwrap();
+        let state = player.snapshot();
+        assert_eq!(state.velocity, [5, 5]);
+        assert_eq!(state.coordinates, [14, 104, 4]);
+        assert_eq!(state.horizon, 26);
+        assert_eq!(state.update_lateral_velocity, 5);
+    }
+
+    #[test]
+    fn opposing_keys_keep_momentum_except_at_positive_speed_limit() {
+        for limit in [6, 7] {
+            for velocity in -limit..=limit {
+                let expected = if velocity == limit {
+                    limit - 1
+                } else {
+                    velocity
+                };
+                assert_eq!(accelerate(velocity, true, true, limit), expected);
+                assert_eq!(
+                    accelerate(velocity, false, false, limit),
+                    velocity - velocity.signum()
+                );
+            }
+        }
+        assert_eq!(
+            Steering {
+                up: true,
+                down: true,
+                left: true,
+                right: true
+            }
+            .bits(),
+            15
+        );
+    }
+
+    #[test]
+    fn limits_clamp_velocity_before_world_translation_and_keep_floor_height() {
+        let mut player = Player::new(&assets()).unwrap();
+        let right_up = Steering {
+            right: true,
+            up: true,
+            ..Steering::default()
+        };
+        for _ in 0..100 {
+            player.update(right_up).unwrap();
+        }
+        let state = player.snapshot();
+        assert_eq!(state.coordinates, [14, 280, 228]);
+        assert_eq!(state.velocity, [0, 0]);
+        assert_eq!(state.update_lateral_velocity, 0);
+        assert_eq!(state.horizon, 82);
+        assert_eq!((state.orientation, state.vertical_band), (5, 0));
+        let left_down = Steering {
+            left: true,
+            down: true,
+            ..Steering::default()
+        };
+        for _ in 0..100 {
+            player.update(left_down).unwrap();
+        }
+        let state = player.snapshot();
+        assert_eq!(state.coordinates, [14, -320, -100]);
+        assert_eq!(state.velocity, [0, 0]);
+        assert_eq!(state.horizon, 0);
+        assert_eq!((state.orientation, state.vertical_band), (1, 2));
+    }
+
+    #[test]
+    fn every_flight_pose_can_respond_and_hit_input_is_replaced_by_recentering() {
+        for row in 1..=15 {
+            let mut player = Player::new(&assets()).unwrap();
+            player.state.requested_sprite = row;
+            player.state.coordinates[1] = -100;
+            player.hit(0);
+            player
+                .update(Steering {
+                    left: true,
+                    down: true,
+                    ..Steering::default()
+                })
+                .unwrap();
+            let state = player.snapshot();
+            assert_eq!(state.effective_input, 9);
+            assert_eq!(state.coordinates, [14, -96, -96]);
+            assert_eq!(state.velocity, [0, 0]);
+            assert_eq!(state.update_lateral_velocity, 1);
+            assert_eq!(state.orientation, 3);
+            assert_eq!(state.shadow.resolved_sprite, 18);
+            for _ in 0..15 {
+                if player.snapshot().phase == 0 {
+                    break;
+                }
+                assert!(!player.update(Steering::default()).unwrap());
+            }
+            let state = player.snapshot();
+            assert_eq!(state.phase, 0, "row {row} did not recover");
+            assert_eq!(state.requested_sprite, 15);
+            assert_eq!(state.lives, 6);
+            assert_eq!(state.damage, 0);
+            assert!(!state.game_over);
+        }
+        assert!(response_sprite(0, 1).is_err());
+        assert!(response_sprite(17, 1).is_err());
+        assert!(response_sprite(1, 0).is_err());
     }
 }

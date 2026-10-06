@@ -111,6 +111,15 @@ pub(crate) struct Enemy {
 }
 
 impl Enemy {
+    pub(crate) fn shift_lateral(&mut self, delta: i16) {
+        for record in std::iter::once(&mut self.bullet)
+            .chain(self.crafts.iter_mut())
+            .chain(self.shadows.iter_mut())
+        {
+            record.lateral = record.lateral.wrapping_add(delta);
+        }
+    }
+
     pub(crate) fn new(assets: &GraphicsAssets) -> Result<Self, Error> {
         let mut state = Self {
             bullet: EnemySnapshot::new(4, 22, 14, -100),

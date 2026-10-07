@@ -21,8 +21,10 @@
   Do not hard-code a user's paths or require a particular parent directory layout.
 - Preserve original inputs and persistent intermediate evidence. Put reproducible
   build/cache output in the configured working directory.
-- Put game-specific tools here. Shared REforge infrastructure belongs in root
-  `crates/` when demonstrated reuse justifies extraction.
+- Follow the root instructions for supporting RE tool/helper placement. Keep
+  private investigation scripts and profiles outside source Git; preserve frozen
+  evidence copies when promoting maintained working tools. Shared REforge runtime
+  infrastructure belongs in root `crates/` when reuse justifies extraction.
 - The RE method is a game-specific decision. This scaffold does not select one.
   Add project-specific instructions and build/test commands as they are established.
 - The repository-wide REforge license has not been chosen. Once chosen,

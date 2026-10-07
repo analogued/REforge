@@ -25,8 +25,11 @@
   Do not hard-code a user's paths or require a particular parent directory layout.
 - Preserve original inputs and persistent intermediate evidence. Put reproducible
   build/cache output in the configured working directory.
-- Keep game-specific code, tools, capture profiles and technical documentation
-  here under `games/mach-3/`. Extract demonstrated shared application facilities
+- Keep game-specific runtime code and technical documentation here under
+  `games/mach-3/`. Follow the root instructions for supporting RE tool/helper
+  placement: investigation scripts and checkpoint profiles are private by default,
+  with exact archived copies preserved independently of maintained working tools.
+  Extract demonstrated shared application facilities
   into the combined repository's `crates/`; preserve Mach 3 asset formats,
   gameplay, timing, randomness and input behavior.
 - The RE method is a game-specific decision. This scaffold does not select one.

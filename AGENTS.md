@@ -19,9 +19,17 @@
   build/cache output in the configured working directory.
 - Use Rust for the combined application, game library crates and shared runtime
   code. Use SDL3 for native presentation; supporting tools may use other languages.
-- Keep game code and tools under `games/<game-id>/`, shared crates under `crates/`,
+- Keep game runtime code under `games/<game-id>/`, shared crates under `crates/`,
   and application code under `app/`. Preserve each game's asset, timing and random
   rules; extract demonstrated common facilities rather than imposing one game loop.
+- Keep supporting game/engine-specific RE scripts and capture profiles outside
+  this source repository in configured private storage by default. Distinguish
+  maintained tools intended for future investigations from helpers bounded to
+  one question, dataset or milestone; repeated use alone does not decide scope.
+  Preserve exact script/configuration copies with archived evidence when promoting
+  a separate working version. Include contributor tools in source only through
+  a deliberate project decision; public builds/tests must not require private
+  tooling or captures.
 - Each worktree contains the whole repository and has its own branch. Coordinate
   shared changes, validate affected games and merge focused branches into `main`.
   Independent clones per game are not the development convention.

@@ -336,10 +336,9 @@ impl SessionState {
         }
     }
 
-    /// Explicit frontend input/focus reset, not an unconditional game restart.
-    pub fn clear_input(&mut self) {
+    /// Release frontend-held controls without cancelling the native pause handshake.
+    pub fn clear_held_keys(&mut self) {
         self.keyboard.clear();
-        self.pause = PauseControl::default();
     }
 
     fn next_word(&mut self) -> u16 {
@@ -369,7 +368,7 @@ mod tests {
         assert_ne!(session.random, first);
         session.update_best(5);
         assert_eq!(session.best_score, 123_456);
-        session.clear_input();
+        session.clear_held_keys();
         assert_eq!(
             session.controls.preferences.display_mode,
             DisplayMode::Monochrome

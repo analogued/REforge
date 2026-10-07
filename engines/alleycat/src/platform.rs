@@ -4,6 +4,8 @@
 
 use crate::alley::Machine;
 use crate::menu::MenuKey;
+#[cfg(test)]
+use reforge_sdl::sdl3::keyboard::Keycode;
 use reforge_sdl::sdl3::{
     event::{Event, WindowEvent},
     keyboard::{Mod, Scancode},
@@ -136,12 +138,7 @@ impl<'a> Window<'a> {
                     win_event: WindowEvent::CloseRequested,
                     ..
                 } => self.quit = true,
-                Event::KeyDown {
-                    scancode: Some(scancode),
-                    keymod,
-                    repeat,
-                    ..
-                } => presses.record_press(scancode, keymod.bits(), repeat),
+                Event::KeyDown { .. } => presses.record_event(&event),
                 _ => {}
             }
         }
@@ -218,12 +215,22 @@ fn modifier_key(scancode: Scancode) -> bool {
 }
 
 impl Input {
-    fn record_press(&mut self, scancode: Scancode, modifiers: u16, repeat: bool) {
-        match host_shortcut(scancode, Mod::from_bits_truncate(modifiers), repeat) {
+    fn record_event(&mut self, event: &Event) {
+        match host_shortcut(event) {
             Some(HostShortcut::Quit) => self.quit = true,
             Some(HostShortcut::TogglePause) => self.pause_pressed = true,
             None => {}
         }
+        let Event::KeyDown {
+            scancode: Some(scancode),
+            keymod,
+            repeat,
+            ..
+        } = event
+        else {
+            return;
+        };
+        let (scancode, modifiers, repeat) = (*scancode, keymod.bits(), *repeat);
         if !repeat && modifiers & CONTROL != 0 && modifiers & 0x0f00 == 0 {
             self.new_game_pressed |= scancode == Scancode::R;
             self.menu_pressed |= scancode == Scancode::M;
@@ -244,6 +251,19 @@ impl Input {
             }
             self.pause_pressed |= matches!(scancode, Scancode::Escape | Scancode::P);
         }
+    }
+    #[cfg(test)]
+    fn record_press(&mut self, scan: Scancode, modifiers: u16, repeat: bool) {
+        self.record_event(&Event::KeyDown {
+            timestamp: 0,
+            window_id: 1,
+            which: 0,
+            raw: 0,
+            scancode: Some(scan),
+            keycode: (scan == Scancode::Q).then_some(Keycode::Q),
+            keymod: Mod::from_bits_truncate(modifiers),
+            repeat,
+        });
     }
 }
 
@@ -331,6 +351,25 @@ mod tests {
             assert!(ignored.paused && !ignored.changed);
             assert_eq!(ignored.elapsed, Duration::ZERO);
         }
+    }
+
+    #[test]
+    fn quit_follows_the_layout_letter_instead_of_the_physical_q_position() {
+        let event = |scan, key| Event::KeyDown {
+            timestamp: 0,
+            window_id: 1,
+            which: 0,
+            raw: 0,
+            scancode: Some(scan),
+            keycode: Some(key),
+            keymod: Mod::LCTRLMOD,
+            repeat: false,
+        };
+        let mut input = Input::default();
+        input.record_event(&event(Scancode::Q, Keycode::A));
+        assert!(!input.quit);
+        input.record_event(&event(Scancode::A, Keycode::Q));
+        assert!(input.quit);
     }
 
     #[test]

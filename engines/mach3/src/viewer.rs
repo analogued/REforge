@@ -2,7 +2,7 @@
 //! SDL3 presentation of startup screens and live gameplay.
 
 use reforge_sdl::{FrameFormat, FrameTexture, HostPause, HostShortcut, Window, host_shortcut};
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 use reforge_sdl::sdl3::{
     event::{Event, WindowEvent},
@@ -66,18 +66,10 @@ fn title(screen: Screen) -> &'static str {
 }
 
 fn event_action(presentation: &mut Presentation, event: Event, host_paused: bool) -> Action {
-    if let Event::KeyDown {
-        scancode: Some(scan),
-        keymod,
-        repeat,
-        ..
-    } = &event
-    {
-        match host_shortcut(*scan, *keymod, *repeat) {
-            Some(HostShortcut::Quit) => return Action::Close,
-            Some(HostShortcut::TogglePause) => return Action::ToggleHostPause,
-            None => {}
-        }
+    match host_shortcut(&event) {
+        Some(HostShortcut::Quit) => return Action::Close,
+        Some(HostShortcut::TogglePause) => return Action::ToggleHostPause,
+        None => {}
     }
     match event {
         Event::Quit { .. }
@@ -183,9 +175,64 @@ fn control_event(session: &mut SessionState, event: &Event, gameplay: bool) {
         Event::Window {
             win_event: WindowEvent::FocusLost,
             ..
-        } => session.clear_input(),
+        } => session.clear_held_keys(),
         _ => {}
     }
+}
+
+/// Host repeat eligibility is separate from the reconstructed DOS scan-byte filter.
+#[derive(Default)]
+struct ControlInput {
+    fresh: BTreeSet<u8>,
+}
+
+impl ControlInput {
+    fn clear(&mut self, session: &mut SessionState) {
+        self.fresh.clear();
+        session.clear_held_keys();
+    }
+
+    fn handle(&mut self, session: &mut SessionState, event: &Event, gameplay: bool) {
+        match event {
+            Event::KeyDown {
+                keycode: Some(key),
+                repeat,
+                ..
+            } => {
+                if let Some(scan) = scan_for_key(*key) {
+                    if *repeat && !self.fresh.contains(&scan) {
+                        return;
+                    }
+                    if !repeat {
+                        self.fresh.insert(scan);
+                    }
+                }
+            }
+            Event::KeyUp {
+                keycode: Some(key), ..
+            } => {
+                if let Some(scan) = scan_for_key(*key) {
+                    self.fresh.remove(&scan);
+                }
+            }
+            Event::Window {
+                win_event: WindowEvent::FocusLost,
+                ..
+            } => self.fresh.clear(),
+            _ => {}
+        }
+        control_event(session, event, gameplay);
+    }
+}
+
+fn toggle_host_pause(
+    pause: &mut HostPause,
+    session: &mut SessionState,
+    input: &mut ControlInput,
+    now: std::time::Instant,
+) {
+    pause.toggle(now);
+    input.clear(session);
 }
 
 fn steering_from_mask(mask: u8, enabled: bool) -> Steering {
@@ -320,6 +367,7 @@ fn run_inner(
     let mut pending_step = false;
     let mut step_key_held = false;
     let mut host_pause = HostPause::default();
+    let mut input = ControlInput::default();
     let mut window = Window::new(title(Screen::Splash), WIDTH as u32, DISPLAY_HEIGHT, scale)?;
     let creator = window.texture_creator();
     let mut texture =
@@ -345,8 +393,12 @@ fn run_inner(
             }
             if action == Action::ToggleHostPause {
                 if was_scene {
-                    host_pause.toggle(std::time::Instant::now());
-                    session.clear_input();
+                    toggle_host_pause(
+                        &mut host_pause,
+                        &mut session,
+                        &mut input,
+                        std::time::Instant::now(),
+                    );
                     pending_step = false;
                     step_key_held = false;
                     repaint = true;
@@ -377,7 +429,7 @@ fn run_inner(
                 } => step_key_held = false,
                 _ => {}
             }
-            control_event(&mut session, &event, was_scene);
+            input.handle(&mut session, &event, was_scene);
             if action == Action::Space && was_scene {
                 if let Some(state) = ending.as_mut().filter(|state| state.can_return()) {
                     returned_intro = state.returned_intro_choice();
@@ -644,7 +696,7 @@ mod tests {
         assert_eq!(
             event_action(
                 &mut presentation,
-                event(Scancode::Q, Keycode::Q, Mod::RCTRLMOD, false),
+                event(Scancode::A, Keycode::Q, Mod::RCTRLMOD, false),
                 true
             ),
             Action::Close
@@ -683,6 +735,141 @@ mod tests {
                 which: 0,
                 raw: 0,
             }
+        }
+    }
+
+    fn key_event(key: Keycode, down: bool, repeat: bool) -> Event {
+        let mut event = space(down, repeat);
+        match &mut event {
+            Event::KeyDown { keycode, .. } | Event::KeyUp { keycode, .. } => *keycode = Some(key),
+            _ => unreachable!(),
+        }
+        event
+    }
+
+    #[test]
+    fn host_pause_and_focus_loss_preserve_every_native_pause_phase() {
+        use std::time::{Duration, Instant};
+        for phase in [
+            PauseState::Running,
+            PauseState::AwaitInitialRelease,
+            PauseState::WaitBeforePress(2),
+            PauseState::WaitBeforePress(1),
+            PauseState::AwaitPress,
+            PauseState::WaitBeforeDecision(2),
+            PauseState::WaitBeforeDecision(1),
+            PauseState::SampleDecision,
+            PauseState::AwaitFinalRelease,
+        ] {
+            let mut session = SessionState::default();
+            let mut input = ControlInput::default();
+            input.handle(&mut session, &key_event(Keycode::F1, true, false), true);
+            session.pause.state = phase;
+            session.controls.sound_poll_counter = 3;
+            let mut host = HostPause::default();
+            let start = Instant::now();
+            let deadline = start + Duration::from_millis(100);
+            toggle_host_pause(&mut host, &mut session, &mut input, start);
+            assert_eq!(session.pause.state, phase);
+            assert_eq!(
+                session.keyboard.held_keys(0),
+                crate::opening::HeldKeys::default()
+            );
+            assert_eq!(host.now(start + Duration::from_secs(60)), start);
+            toggle_host_pause(
+                &mut host,
+                &mut session,
+                &mut input,
+                start + Duration::from_secs(60),
+            );
+            assert_eq!(session.pause.state, phase);
+            assert_eq!(
+                deadline.duration_since(host.now(start + Duration::from_secs(60))),
+                Duration::from_millis(100)
+            );
+            input.handle(&mut session, &key_event(Keycode::F1, true, true), true);
+            assert!(!session.keyboard.held_keys(0).f1);
+            input.handle(
+                &mut session,
+                &Event::Window {
+                    timestamp: 0,
+                    window_id: 1,
+                    win_event: WindowEvent::FocusLost,
+                },
+                true,
+            );
+            assert_eq!(session.pause.state, phase);
+            assert_eq!(session.controls.sound_poll_counter, 3);
+        }
+    }
+
+    #[test]
+    fn cleared_native_pause_handshake_observes_releases_and_fresh_presses() {
+        let mut session = SessionState::default();
+        let mut input = ControlInput::default();
+        session.pause.state = PauseState::AwaitInitialRelease;
+        input.clear(&mut session);
+        let result = session.controls.poll(session.keyboard.held_keys(0));
+        session.pause.poll(result.mask);
+        assert_eq!(session.pause.state, PauseState::WaitBeforePress(2));
+        session.pause.tick();
+        session.pause.tick();
+        assert_eq!(session.pause.state, PauseState::AwaitPress);
+        input.handle(&mut session, &key_event(Keycode::F1, true, true), true);
+        let result = session.controls.poll(session.keyboard.held_keys(0));
+        session.pause.poll(result.mask);
+        assert_eq!(session.pause.state, PauseState::AwaitPress);
+        input.handle(&mut session, &key_event(Keycode::F1, false, false), true);
+        input.handle(&mut session, &key_event(Keycode::F1, true, false), true);
+        let result = session.controls.poll(session.keyboard.held_keys(0));
+        session.pause.poll(result.mask);
+        assert_eq!(session.pause.state, PauseState::WaitBeforeDecision(2));
+        // Clearing keys is a release, not a reset or a synthetic F1 press.
+        input.clear(&mut session);
+        session.pause.tick();
+        session.pause.tick();
+        assert_eq!(session.pause.poll(0), PauseEvent::None);
+        assert_eq!(session.pause.state, PauseState::AwaitFinalRelease);
+        assert_eq!(session.pause.poll(0), PauseEvent::Resumed);
+    }
+
+    #[test]
+    fn game_repeats_require_a_fresh_press_after_input_reset() {
+        for key in [
+            Keycode::S,
+            Keycode::X,
+            Keycode::B,
+            Keycode::N,
+            Keycode::Up,
+            Keycode::Down,
+            Keycode::Left,
+            Keycode::Right,
+            Keycode::Space,
+            Keycode::Kp5,
+            Keycode::F1,
+            Keycode::F2,
+            Keycode::F3,
+        ] {
+            let mut session = SessionState::default();
+            let mut input = ControlInput::default();
+            input.handle(&mut session, &key_event(key, true, false), true);
+            let held = session.keyboard.held_keys(0);
+            assert_ne!(held, crate::opening::HeldKeys::default());
+            input.clear(&mut session);
+            input.handle(&mut session, &key_event(key, true, true), true);
+            assert_eq!(
+                session.keyboard.held_keys(0),
+                crate::opening::HeldKeys::default()
+            );
+            input.handle(&mut session, &key_event(key, false, false), true);
+            input.handle(&mut session, &key_event(key, true, false), true);
+            input.handle(&mut session, &key_event(key, true, true), true);
+            assert_eq!(session.keyboard.held_keys(0), held);
+            input.handle(&mut session, &key_event(key, false, false), true);
+            assert_eq!(
+                session.keyboard.held_keys(0),
+                crate::opening::HeldKeys::default()
+            );
         }
     }
 

@@ -301,8 +301,10 @@ Repeated contact retains forced descent without repeating that charge.
 Projectile images and the hit effect are composed separately from scenery.
 
 Ordinary failure (`1bf0`/`1d76`) clears the saved window return, performs the
-black wipe and removes one life. It then reveals a masked cat face over 28
-changed ticks; dog failure at nonzero difficulty with lives remaining uses
+black wipe and removes one life. It cycles through the external bitmap messages
+"OUCH!", "ALAS!", "PITY!" and "ARGH!", revealing each over 28 changed ticks.
+Message selection is independent of the remaining life count; dog failure
+at nonzero difficulty with lives remaining uses
 the alternate eight-frame, four-tick dog presentation (`5be0`). The color wipe
 returns the cat through a ground-level alley entry. Success takes precedence
 when both success and failure flags are present. Zero lives holds the modern

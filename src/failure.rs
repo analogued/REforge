@@ -10,7 +10,7 @@ use crate::completion::{Wipe, Work};
 enum Phase {
     Black(Wipe),
     Begin,
-    Face { since: u16 },
+    Message { since: u16 },
     Dog { since: u16 },
     Fill(Wipe),
     Complete,
@@ -65,11 +65,11 @@ impl Failure {
                     set_word(data, 0x1c1b, 0x8080);
                     data[0x1c1d] = 28;
                     set_word(data, 0x1830, tick);
-                    work.bytes_drawn = draw_face(data, screen)?;
-                    self.phase = Phase::Face { since: tick };
+                    work.bytes_drawn = draw_message(data, screen)?;
+                    self.phase = Phase::Message { since: tick };
                 }
             }
-            Phase::Face { since } => {
+            Phase::Message { since } => {
                 if tick != *since {
                     *since = tick;
                     set_word(data, 0x1830, tick);
@@ -85,7 +85,7 @@ impl Failure {
                     if data[0x1c1d] == 0 {
                         self.phase = Phase::Fill(Wipe::new(self.center.0, self.center.1, 0xaa));
                     } else {
-                        work.bytes_drawn = draw_face(data, screen)?;
+                        work.bytes_drawn = draw_message(data, screen)?;
                     }
                 }
             }
@@ -143,7 +143,7 @@ fn copy(
     Ok(())
 }
 
-fn draw_face(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, String> {
+fn draw_message(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, String> {
     let source = sprite_bytes(data, word(data, 0x1c2e), Dimensions(0x0c08))?.to_vec();
     let mask = word(data, 0x1c1b).to_le_bytes();
     for (index, byte) in source.iter().enumerate() {

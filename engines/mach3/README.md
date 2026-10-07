@@ -68,17 +68,18 @@ The optional viewer requires SDL3 development and runtime libraries available
 to the compiler and system loader:
 
 ```sh
-cargo run -p mach3 --features viewer --bin mach3-viewer -- /path/to/assets
+cargo run -p mach3 --features viewer --bin mach3-viewer -- --original /path/to/assets
 ```
 
-Supply the game resource directory, including `MACH3.EXE` and `DATA1` through
-`DATA6`. The executable supplies externally decoded encounter scripts and
+Supply the game resource directory with `--original`, including `MACH3.EXE` and
+`DATA1` through `DATA6`. The executable supplies externally decoded encounter scripts and
 resource tables; the recreation does not execute DOS code. Fresh Space presses
 advance the splash and intro. After game over, the title pair completes before
 Space returns to the selected intro; another fresh press starts the next game
 with retained random state and best score.
 
 Use `--controls` to steer with arrows or S/X/B/N and fire with Space or keypad 5.
+It is a flag with no value; the data path belongs to `--original`.
 Live gameplay continues until game over, including when controls are disabled.
 Each body displays three passes, with player input sampled separately at each
 pass. The default pace is approximately 36.41
@@ -99,7 +100,7 @@ The default window is 960 by 720 (3x). `--scale 1..16` sets its initial scale;
 scale 8 gives 2560 by 1920:
 
 ```sh
-cargo run -p mach3 --features viewer --bin mach3-viewer -- --scale 2 /path/to/assets
+cargo run -p mach3 --features viewer --bin mach3-viewer -- --scale 2 --original /path/to/assets
 ```
 
 The 320-by-200 CGA framebuffer is displayed at 4:3, with pixels 20% taller

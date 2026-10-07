@@ -15,7 +15,7 @@ One Cargo workspace and lockfile cover the application and both engine crates.
 cargo build --locked --release -p reforge
 cargo run --locked --release -p reforge -- --list
 cargo run --locked --release -p reforge -- alley-cat --original /path/to/CAT.EXE
-cargo run --locked --release -p reforge -- mach-3 --controls /path/to/mach3-files
+cargo run --locked --release -p reforge -- mach-3 --controls --original /path/to/mach3-files
 ```
 
 The built application is `target/release/reforge`, unless `CARGO_TARGET_DIR`

@@ -107,11 +107,29 @@ mod tests {
             .contains("Scale")
         );
         #[cfg(feature = "sdl")]
-        assert!(
-            run(args(&["mach-3", "--scale", "0"]))
+        {
+            assert!(
+                run(args(&["mach-3", "--controls"]))
+                    .unwrap_err()
+                    .contains("--original")
+            );
+            assert!(
+                run(args(&["mach-3", "assets"]))
+                    .unwrap_err()
+                    .contains("--original")
+            );
+            assert!(
+                run(args(&[
+                    "mach-3",
+                    "--original",
+                    "missing-synthetic-input",
+                    "--scale",
+                    "0"
+                ]))
                 .unwrap_err()
                 .contains("--scale")
-        );
+            );
+        }
         #[cfg(not(feature = "sdl"))]
         assert!(
             run(args(&["mach-3"]))

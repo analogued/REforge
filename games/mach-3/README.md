@@ -13,18 +13,16 @@ scope; broader hardware support remains to be established.
 
 See [DOS startup](docs/dos-startup.md) for the verified entry path, expanded-image
 address conventions, initial graphics setup, and file access.
-See [CGA graphics](docs/cga-graphics.md) for screen layouts, gameplay composition,
-and decoder usage.
+See [CGA graphics](docs/cga-graphics.md) for screen layouts and gameplay composition.
 See [DOS opening gameplay](docs/dos-gameplay.md) for update order, encounter
 scripts, and repeatability.
-See [gameplay recordings](docs/gameplay-recordings.md) to record a manually played
-original game and compare its rendered pixels and modeled state with a Rust replay.
+See [gameplay recordings](docs/gameplay-recordings.md) for the Rust replay interface,
+recording format and synchronization rules.
 
 ## Game crate structure
 
 This crate lives at `games/mach-3/` in REforge. Its implementation is in `src/`,
-game-specific Python tools in `tools/`, synthetic tests in `tests/`, capture
-profile in `capture/`, and technical reference documentation in `docs/`.
+Rust integration tests in `tests/`, and technical reference documentation in `docs/`.
 Shared application facilities belong in the combined repository's `crates/`.
 Keep `docs/` for maintained implementation and reference documentation. Internal
 discussion, experiments, and planning notes live outside the source repository.
@@ -63,9 +61,6 @@ library. With the `viewer` feature, `mach3::cli::run(args)` accepts command-line
 arguments as `OsString` values, excluding the executable name, so REforge can
 dispatch the same viewer interface. See [CGA graphics](docs/cga-graphics.md) for
 the supported formats.
-
-The separate CGA decoder runs with Python 3.11 or later and has no external
-dependencies.
 
 ## Windowed opening preview
 

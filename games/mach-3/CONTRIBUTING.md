@@ -7,17 +7,6 @@ Rust requires version 1.85 or later and uses the repository's rustfmt settings.
 Keep game-specific formats, gameplay, timing, randomness and input behavior
 within this crate.
 
-## Python tools
-
-The maintained Python tools require Python 3.11 or later. The decoder uses only
-the standard library. From this game directory (`games/mach-3/`), run:
-
-```sh
-ruff format --config ruff.toml tools tests
-ruff check --config ruff.toml tools tests
-python3 -m unittest discover -s tests -v
-```
-
 Tests use authored synthetic data and must not import original game material.
 Preserve third-party style and notices, including the complete dependency terms
 in [dependency notices](docs/dependencies.md) and `docs/licenses/`.

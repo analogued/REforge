@@ -1,83 +1,25 @@
-# Gameplay recording and comparison
+# Gameplay recordings and native replay
 
-The recorder lets a manually played original game become a repeatable graphics
-test. It observes the original's sampled controls and each of its three CGA
-render passes, then replays those controls through the Rust implementation.
-Comparison uses all visible framebuffer pixels, palette selection, and display
-mode. It includes the seven expanding draws of scene transitions.
-
-Recording currently covers the first game, from its initial scene until game
-over or window close. Pauses, F1 quits, and F2/F3 polling are recorded. The
-post-game title sequence, subsequent games within a recording, startup timing,
-and audio comparison are outside this recording format's current replay scope.
-Use Space to advance startup normally before playing.
-
-## Setup
-
-Build the replay tool from the combined repository root:
+The Rust replay tool consumes an externally supplied recording of the original's
+sampled controls and render checkpoints. From the combined repository root:
 
 ```sh
 cargo build --locked -p mach3 --release --bin mach3-replay
-```
-
-Build DOSBox-X Observer using its separate component checkout and an external working directory:
-
-```sh
-python3 /path/to/dosbox-x-observer/tools/build_emulator.py --work-dir /path/to/emulator-build
-```
-
-The shared component owns the generic observer, emulator adapter, and minimal
-upstream patch. This repository supplies `capture/mach3.toml`, which defines the
-game's checkpoints and memory layouts. Build requirements and upstream revision
-are documented in that component. See [dependency notices](dependencies.md#capture-emulator).
-
-## Record and compare
-
-Run Python commands from `games/mach-3/`. Supply the replay executable from the
-combined workspace's configured Cargo target directory; with Cargo's default
-output path, it is `../../target/release/mach3-replay` from this game directory.
-
-```sh
-python3 tools/record_gameplay.py /path/to/game /path/to/new-recording \
-  --observer-tool /path/to/dosbox-x-observer/tools/observer.py \
-  --emulator /path/to/emulator-build/dosbox-x-observer \
-  --replay-binary /path/to/target/release/mach3-replay --scale 8
-```
-
-The supplied game directory needs the executable and game resources. The tool
-copies them into the recording's own working drive; only that copy is mounted.
-The recording directory must be new and should remain outside the source
-repository. Normal play runs at fixed 3,000 cycles on the normal CPU core;
-`--cycles N` changes that setting, and `--scale 1..16` changes the window size.
-
-Game over closes the capture window automatically. Closing it during gameplay
-also finishes recording. The tool then replays the captured input in Rust and
-writes `report/index.html`. A divergence report includes the original image,
-the recreation image, and a magenta pixel-difference image at the first mismatch,
-displayed at 4:3. It also records missing frames and differing palette or display
-mode. `report/mismatches.ndjson` lists all mismatching checkpoints. A partially
-completed native replay remains available if it ends early or encounters an
-unimplemented path.
-
-`state-report/summary.json` separately reports differences in modeled gameplay
-state, scene records, and drawing order. `state-report/comparisons.ndjson` retains
-every comparable field and identifies skipped fields. Pixel equality and state
-equality are separate results; inactive or stale fields can differ without changing
-the display. Missing native fields remain explicitly unmodeled. The recorder
-returns 1 if either comparison differs or replay is partial.
-
-Keep recordings even after fixing a discrepancy. To compare one again with an
-updated implementation, use new output directories:
-
-```sh
 /path/to/target/release/mach3-replay /path/to/game /path/to/recording/reference /path/to/new-replay
-python3 tools/compare_gameplay.py /path/to/recording/reference /path/to/new-replay \
-  /path/to/new-report --details
 ```
 
-The comparator exits with 0 for an exact match, 1 for divergence, or 2 for
-invalid input. The replay tool uses the same distinction for successful replay,
-a partial replay, and an invalid recording or tool error.
+The game directory must contain the original resources. The replay output directory
+must be new and outside the source and recording inputs. The tool returns 0 for a
+complete replay, 1 for differences or partial replay, and 2 for invalid input or
+tool errors. It exports graphics and modeled state for external comparison.
+Capture tooling and game-specific emulator profiles are maintained separately;
+a standalone source clone does not require them to build or test.
+
+Recording replay currently covers the first game, from its initial scene until
+game over or window close, including three ordinary render passes and seven
+scene-transition draws. Pauses, F1 quits and F2/F3 polling are represented.
+The post-game title sequence, subsequent games within one recording, startup
+timing and audio comparison remain outside this recording format's replay scope.
 
 ## Capture format and synchronization
 
@@ -126,22 +68,15 @@ resolved source pointers; `draw-order.tsv` records their full render order.
 at initialization and ordinary pass 3. Raw registers, pointers, and memory are
 diagnostic evidence, not replacement native state.
 
-`decode_gameplay_state.py` uses the captured sprite pointer table to produce
-`objects-normalized.tsv`. Null, unknown, and unavailable pointers remain distinct
-from a known sprite ID. The comparator skips only the unresolved sprite ID for
+`objects-normalized.tsv` augments captured records with sprite IDs resolved
+from the captured sprite pointer table. Null, unknown, and unavailable pointers
+remain distinct from a known sprite ID. The comparator skips only the unresolved sprite ID for
 such records and preserves the other fields. Rust exports its modeled state at
 the same ordinary render checkpoint, before end-of-body updates, and at queued
 transitions. It intentionally leaves absent model fields blank.
 
-To compare state again after a fresh replay:
-
-```sh
-python3 tools/compare_gameplay_state.py /path/to/recording/reference \
-  /path/to/new-replay /path/to/new-state-report
-```
-
-State comparison exits with 0 for equal comparable fields, 1 for differences or
-missing rows, and 2 for invalid input. It does not compare CPU registers against
-Rust, which does not emulate the CPU. Captured dumps and raw register state provide
+State comparisons are external diagnostics. The native replay exports modeled
+state for comparison, including explicit gaps in its current model. CPU registers
+are not compared against Rust, which does not emulate the CPU. Captured dumps and raw register state provide
 context for investigating a discrepancy; they do not guarantee that every cause
 can be diagnosed without additional targeted observations.

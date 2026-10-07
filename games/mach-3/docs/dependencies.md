@@ -61,7 +61,7 @@ with its original comment markers.
 
 The optional original-game recorder uses the separately configured DOSBox-X
 Observer component. Its generic observer and emulator adapter are maintained
-outside this repository; `capture/mach3.toml` supplies this game's layout.
+outside this repository, together with the game-specific capture profile.
 The component's C++ observer and adapter are GPL-2.0-or-later; its Python tools have
 no selected license yet. Its builder retains DOSBox-X's complete GPL version 2
 `COPYING` and original per-file notices in an external checkout and records the

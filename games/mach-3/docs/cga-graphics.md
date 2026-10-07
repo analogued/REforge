@@ -151,18 +151,3 @@ SDL3. Space manually advances the splash and intro, with held/repeated presses
 ignored. The viewer then runs the bounded [opening simulation](dos-gameplay.md#rust-opening-simulation),
 with optional manual body stepping or static presentation. It does not reproduce
 the original startup waits or audio-dependent intro control flow.
-
-For the separate Python video-memory decoder, run from the game crate directory (`games/mach-3/`)
-using external input and output paths:
-
-```sh
-python3 tools/decode_cga.py /path/to/screen.bin /path/to/screen.ppm
-```
-
-The input may be a splash asset or a video-memory dump starting at `b800:0000`.
-It must contain at least `0x3f40` bytes. The tool writes a 320-by-200 binary PPM
-image and refuses to replace an existing output or overwrite its input.
-Its default palette is the verified bright palette above. To decode a frame
-whose palette differs, pass four comma-separated six-digit RGB values with
-`--colors`. Mode 6, composite-color output, and other adapters are outside this
-decoder's scope.

@@ -1530,6 +1530,8 @@ impl Alley {
     }
 
     fn return_to_alley(&mut self) -> Result<(), String> {
+        // CS:2210 hides the cat; its previous rendered image must also disappear.
+        self.bin_image = None;
         self.milk_player_image = None;
         self.dog_image = None;
         self.projectile_image = None;
@@ -1836,6 +1838,53 @@ fn hardware_color(color: u8) -> [u8; 4] {
 mod tests {
     use super::*;
     use crate::assets::word;
+
+    #[test]
+    fn alley_reconstruction_discards_the_previous_bin_cat_image() {
+        for restart in [false, true] {
+            for (x, y, height) in [(24, 146, 1), (24, 130, 13), (100, 138, 9)] {
+                let mut alley = Alley::synthetic();
+                // Minimal terminated scenery/decoration lists, with authored pixels.
+                set_word(&mut alley.data, 0x28a2, 0xffff);
+                set_word(&mut alley.data, 0x5908, 0x7100);
+                set_word(&mut alley.data, 0x7100, 0xffff);
+                alley.data[0x1cf0..0x1d24].fill(0x55);
+                alley.data[0x1d59] = 13;
+                set_word(&mut alley.data, 0x1d5a, 400);
+                let dimensions = Dimensions((height << 8) | 2);
+                alley.bin_image = Some(crate::bin_cat::VisibleSprite {
+                    source: 0x1cf0,
+                    dimensions,
+                    offset: pixel_offset(x, y),
+                });
+                let previous_bin = alley.data[0x1028];
+                if restart {
+                    alley.data[0x1f80] = 0;
+                    alley.show_game_over().unwrap();
+                    alley.restart(0).unwrap();
+                } else {
+                    alley.return_to_alley().unwrap();
+                }
+                assert_eq!(alley.data[0x1d59], 0);
+                assert_eq!(word(&alley.data, 0x1d5a), 400);
+                assert_eq!(alley.data[0x1028], previous_bin);
+                // The inactive cat must contribute no pixels, even while the
+                // retrace/tick gates delay its next animation opportunity.
+                assert!(
+                    alley.framebuffer().bytes() == alley.screen.bytes(),
+                    "inactive bin cat added pixels after alley reconstruction"
+                );
+                assert!(alley.bin_image.is_none());
+                alley.advance_bin_cat(401, false).unwrap();
+                alley.advance_bin_cat(400, true).unwrap();
+                alley.compose_actors().unwrap();
+                assert!(
+                    alley.framebuffer().bytes() == alley.screen.bytes(),
+                    "inactive bin cat added pixels after alley reconstruction"
+                );
+            }
+        }
+    }
 
     #[test]
     fn drinking_recomposition_preserves_scenery_and_restores_the_normal_cat() {

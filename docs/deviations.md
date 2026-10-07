@@ -40,6 +40,16 @@ change pause state. Ctrl+Q and the window close button quit, including while
 paused. There is currently no development override for the original any-key
 resume behavior.
 
+## Splash and deferred menus
+
+The initial animated splash proceeds directly to gameplay until the original
+menus are implemented. Its data and virtual clock are separate from gameplay,
+so time spent watching it does not advance the fixed development gameplay seed.
+Original shared startup/menu state integration is deferred. Desktop shortcut
+combinations, modifier keys alone and held-key repeats do not dismiss the splash;
+a fresh ordinary key press does. Explicit development scene selection bypasses
+startup, while `--scene splash` previews only that presentation.
+
 ## Game over and restart
 
 After the final life is lost, the recreation holds an authored game-over screen

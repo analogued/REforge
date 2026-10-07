@@ -26,6 +26,7 @@ pub struct Input {
     pub quit: bool,
     pub pause_pressed: bool,
     pub restart_pressed: bool,
+    pub continue_pressed: bool,
 }
 
 /// Host pause bookkeeping shared by the normal and diagnostic runners.
@@ -283,6 +284,7 @@ impl Window {
                 quit: self.quit,
                 pause_pressed: presses.pause_pressed,
                 restart_pressed: presses.restart_pressed,
+                continue_pressed: presses.continue_pressed,
             }
         }
     }
@@ -357,6 +359,8 @@ impl Input {
             self.quit = true;
         }
         if !repeat && modifiers & ffi::KMOD_SHORTCUT == 0 {
+            // Modifier keys alone and desktop shortcuts do not dismiss startup.
+            self.continue_pressed |= !(224..=231).contains(&scancode);
             self.restart_pressed |= scancode == ffi::SCANCODE_R;
             self.pause_pressed |= matches!(
                 scancode,
@@ -508,6 +512,22 @@ mod tests {
         assert_eq!(std::mem::offset_of!(ffi::KeyboardEvent, scancode), 24);
         assert_eq!(std::mem::offset_of!(ffi::KeyboardEvent, modifiers), 32);
         assert_eq!(std::mem::offset_of!(ffi::KeyboardEvent, repeat), 37);
+    }
+
+    #[test]
+    fn startup_requires_a_fresh_key_without_desktop_shortcuts() {
+        for (scancode, modifiers, repeat, expected) in [
+            (44, 0, false, true), // Space.
+            (40, 0, false, true), // Return.
+            (44, 0, true, false),
+            (43, 0x0100, false, false),  // Alt+Tab.
+            (225, 0x0001, false, false), // Shift alone.
+            (ffi::SCANCODE_Q, ffi::KMOD_CTRL, false, false),
+        ] {
+            let mut input = Input::default();
+            input.record_press(scancode, modifiers, repeat);
+            assert_eq!(input.continue_pressed, expected);
+        }
     }
 }
 

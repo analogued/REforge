@@ -11,6 +11,10 @@ use alley_cat::player::Controls;
 use alley_cat::runtime::PassOutcome;
 #[cfg(any(feature = "sdl", feature = "dev-tools"))]
 use alley_cat::runtime::Runtime;
+#[cfg(any(feature = "sdl", feature = "dev-tools"))]
+use alley_cat::splash::Splash;
+#[cfg(any(feature = "sdl", feature = "dev-tools"))]
+use alley_cat::timing::{RetraceProfile, VirtualClock};
 #[cfg(feature = "dev-tools")]
 use std::fs::{self, File};
 #[cfg(feature = "dev-tools")]
@@ -32,6 +36,7 @@ Usage: alley-cat --original /path/to/CAT.EXE [options]
   --help                  Show this help
 
 Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
+Press a key to leave the animated splash and start play.
 Ctrl+Q or closing the window quits.
 R starts a new game after all lives are lost.
 Alt drinks milk, uses paired holes in cheese and places a carried gift in the hearts room.
@@ -44,7 +49,7 @@ Your original executable is required; original data is never bundled.";
 #[cfg(feature = "dev-tools")]
 const DEV_HELP: &str = "
 Development options (compiled with dev-tools):
-  --scene NAME            Start in alley, fishbowl, underwater, bookcase, cheese, birdcage, milk, hearts or completion
+  --scene NAME            Start in splash, alley, fishbowl, underwater, bookcase, cheese, birdcage, milk, hearts or completion
   --seed N                Random seed, decimal or 0xHEX (default: 0xfa59)
   --step-hz N             Diagnostic accepted updates/sec
   --headless              Run without a window
@@ -68,6 +73,7 @@ Damage suppression leaves actors active but makes their contacts harmless.";
 #[cfg(feature = "dev-tools")]
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum StartScene {
+    Splash,
     Alley,
     Birdcage,
     Bookcase,
@@ -91,6 +97,7 @@ struct Options {
 #[cfg(feature = "dev-tools")]
 struct DiagnosticOptions {
     scene: StartScene,
+    scene_selected: bool,
     seed: u16,
     step_hz: Option<f64>,
     headless: bool,
@@ -109,6 +116,7 @@ impl Default for DiagnosticOptions {
     fn default() -> Self {
         Self {
             scene: StartScene::Alley,
+            scene_selected: false,
             seed: DEFAULT_SEED,
             step_hz: None,
             headless: false,
@@ -195,7 +203,9 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
             "--seed" => result.dev.seed = integer(&value()?)?,
             #[cfg(feature = "dev-tools")]
             "--scene" => {
+                result.dev.scene_selected = true;
                 result.dev.scene = match value()?.as_str() {
+                    "splash" => StartScene::Splash,
                     "alley" => StartScene::Alley,
                     "birdcage" => StartScene::Birdcage,
                     "bookcase" => StartScene::Bookcase,
@@ -205,7 +215,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
                     "milk" => StartScene::Milk,
                     "hearts" => StartScene::Hearts,
                     "completion" => StartScene::Completion,
-                    _ => return Err("Scene must be alley, fishbowl, underwater, bookcase, cheese, birdcage, milk, hearts or completion".into()),
+                    _ => return Err("Scene must be splash, alley, fishbowl, underwater, bookcase, cheese, birdcage, milk, hearts or completion".into()),
                 }
             }
             #[cfg(feature = "dev-tools")]
@@ -245,6 +255,14 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
     #[cfg(feature = "dev-tools")]
     {
         let dev = &result.dev;
+        if dev.scene == StartScene::Splash
+            && (dev.script.is_some()
+                || dev.trace.is_some()
+                || dev.timing_trace.is_some()
+                || dev.step_hz.is_some())
+        {
+            return Err("Splash preview does not use gameplay scripts, traces or --step-hz".into());
+        }
         if dev.script.is_some() && !dev.headless {
             return Err("--script requires --headless".into());
         }
@@ -376,18 +394,34 @@ fn run() -> Result<(), String> {
     #[cfg(not(feature = "dev-tools"))]
     let seed = DEFAULT_SEED;
     let alley = Alley::load(&options.original, seed, options.difficulty, options.machine)?;
+    #[cfg(any(feature = "sdl", feature = "dev-tools"))]
+    let splash = {
+        #[cfg(feature = "dev-tools")]
+        let enabled = options.dev.scene == StartScene::Splash
+            || (!options.dev.headless && !options.dev.scene_selected);
+        #[cfg(not(feature = "dev-tools"))]
+        let enabled = true;
+        if enabled {
+            let assets = alley_cat::assets::Assets::load(&options.original)?;
+            let mut data = assets.runtime_data();
+            alley_cat::assets::set_word(&mut data, 0x2ae5, seed);
+            Some(Splash::new(&data, options.machine)?)
+        } else {
+            None
+        }
+    };
     #[cfg(feature = "dev-tools")]
     {
         let mut alley = alley;
         alley.set_dev_options(options.dev.switches)?;
-        run_development(&mut alley, options.scale, options.dev)
+        run_development(&mut alley, options.scale, options.dev, splash)
     }
     #[cfg(not(feature = "dev-tools"))]
     {
         #[cfg(feature = "sdl")]
         {
             let mut alley = alley;
-            interactive(&mut alley, options.scale)
+            interactive(&mut alley, options.scale, splash)
         }
         #[cfg(not(feature = "sdl"))]
         {
@@ -402,10 +436,18 @@ fn run_development(
     alley: &mut Alley,
     scale: u16,
     options: DiagnosticOptions,
+    splash: Option<Splash>,
 ) -> Result<(), String> {
     #[cfg(not(feature = "sdl"))]
     let _ = scale;
     match options.scene {
+        StartScene::Splash => {
+            return splash_preview(
+                splash.ok_or("Splash preview was not initialized")?,
+                scale,
+                options,
+            );
+        }
         StartScene::Alley => {}
         StartScene::Birdcage => alley.enter_birdcage(0)?,
         StartScene::Fishbowl | StartScene::Underwater => {
@@ -508,9 +550,16 @@ fn run_development(
     } else {
         #[cfg(feature = "sdl")]
         if let Some(rate) = options.step_hz {
-            interactive_diagnostic(alley, scale, rate, options.steps, &mut trace)?;
+            interactive_diagnostic(alley, scale, splash, rate, options.steps, &mut trace)?;
         } else {
-            interactive(alley, scale, options.steps, &mut trace, &mut timing_trace)?;
+            interactive(
+                alley,
+                scale,
+                splash,
+                options.steps,
+                &mut trace,
+                &mut timing_trace,
+            )?;
         }
         #[cfg(not(feature = "sdl"))]
         return Err(
@@ -540,10 +589,120 @@ fn run_development(
     Ok(())
 }
 
+#[cfg(any(feature = "sdl", feature = "dev-tools"))]
+fn advance_splash(
+    splash: &mut Splash,
+    clock: &mut VirtualClock,
+    key_pressed: bool,
+) -> Result<(), String> {
+    // Original gates use virtual BIOS/retrace time. These loop/drawing costs
+    // reuse the existing fixed-240 fit; splash-specific costs are provisional.
+    let costs = alley_cat::runtime::ReferenceCosts::dosbox_x_240(splash.machine());
+    clock.advance_nanos(costs.prelude);
+    let sample = clock.sample();
+    let step = splash.advance(sample.bios.tick_low, sample.retrace, key_pressed)?;
+    clock.advance_nanos(costs.player_gate + costs.player_countdown);
+    if step.player_accepted {
+        clock.advance_nanos(costs.player_walk);
+    } else if step.redrawn {
+        clock.advance_nanos(costs.window_work);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "sdl")]
+fn present_splash(
+    window: &mut alley_cat::platform::Window,
+    splash: &mut Splash,
+    ticks: Option<usize>,
+) -> Result<bool, String> {
+    use std::time::{Duration, Instant};
+    let mut clock = VirtualClock::new(RetraceProfile::for_machine(splash.machine()));
+    let mut previous = Instant::now();
+    let mut next_present = previous;
+    let mut target_nanos = 0;
+    window.present(&splash.rgba())?;
+    while !splash.finished()
+        && ticks.is_none_or(|limit| usize::from(clock.bios_sample().tick_low) < limit)
+    {
+        let input = window.poll_input();
+        if input.quit {
+            return Ok(false);
+        }
+        let now = Instant::now();
+        target_nanos += now
+            .duration_since(previous)
+            .min(Duration::from_millis(100))
+            .as_nanos();
+        previous = now;
+        let mut key_pressed = input.continue_pressed;
+        while !splash.finished() && (clock.elapsed_nanos() < target_nanos || key_pressed) {
+            advance_splash(splash, &mut clock, key_pressed)?;
+            key_pressed = false;
+        }
+        if now >= next_present {
+            window.present(&splash.rgba())?;
+            next_present = now + Duration::from_millis(16);
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    window.present(&splash.rgba())?;
+    Ok(true)
+}
+
+#[cfg(feature = "dev-tools")]
+fn splash_preview(
+    mut splash: Splash,
+    scale: u16,
+    options: DiagnosticOptions,
+) -> Result<(), String> {
+    if options.headless {
+        let mut clock = VirtualClock::new(RetraceProfile::for_machine(splash.machine()));
+        let ticks = options.steps.unwrap_or(60);
+        while !splash.finished() && usize::from(clock.bios_sample().tick_low) < ticks {
+            advance_splash(&mut splash, &mut clock, false)?;
+        }
+    } else {
+        #[cfg(feature = "sdl")]
+        {
+            let mut window = alley_cat::platform::Window::new(
+                "Alley Cat — splash",
+                WIDTH as u32,
+                HEIGHT as u32,
+                u32::from(scale),
+            )?;
+            present_splash(&mut window, &mut splash, options.steps)?;
+        }
+        #[cfg(not(feature = "sdl"))]
+        {
+            let _ = scale;
+            return Err(
+                "This build has no window backend; use --headless or enable the sdl feature".into(),
+            );
+        }
+    }
+    if let Some(path) = options.cga {
+        let mut file = File::create_new(path).map_err(|error| error.to_string())?;
+        file.write_all(splash.framebuffer().bytes())
+            .map_err(|error| error.to_string())?;
+    }
+    if let Some(path) = options.ppm {
+        let mut file = BufWriter::new(File::create_new(path).map_err(|error| error.to_string())?);
+        write!(file, "P6\n{WIDTH} {HEIGHT}\n255\n").map_err(|error| error.to_string())?;
+        for rgba in splash.rgba().chunks_exact(4) {
+            file.write_all(&rgba[..3])
+                .map_err(|error| error.to_string())?;
+        }
+        file.flush().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg(feature = "sdl")]
 fn interactive(
     alley: &mut Alley,
     scale: u16,
+    splash: Option<Splash>,
     #[cfg(feature = "dev-tools")] steps: Option<usize>,
     #[cfg(feature = "dev-tools")] trace: &mut Option<BufWriter<File>>,
     #[cfg(feature = "dev-tools")] timing_trace: &mut Option<BufWriter<File>>,
@@ -557,6 +716,11 @@ fn interactive(
         HEIGHT as u32,
         u32::from(scale),
     )?;
+    if let Some(mut splash) = splash {
+        if !present_splash(&mut window, &mut splash, None)? {
+            return Ok(());
+        }
+    }
     let mut runtime = Runtime::new(alley.machine());
     let start = Instant::now();
     let mut pause_clock = PauseClock::new(start);
@@ -644,6 +808,7 @@ fn interactive(
 fn interactive_diagnostic(
     alley: &mut Alley,
     scale: u16,
+    splash: Option<Splash>,
     step_hz: f64,
     steps: Option<usize>,
     trace: &mut Option<BufWriter<File>>,
@@ -656,6 +821,11 @@ fn interactive_diagnostic(
         HEIGHT as u32,
         u32::from(scale),
     )?;
+    if let Some(mut splash) = splash {
+        if !present_splash(&mut window, &mut splash, None)? {
+            return Ok(());
+        }
+    }
     let period = Duration::from_secs_f64(1.0 / step_hz);
     // Original 1200 latches directions at intervals of at least two BIOS ticks,
     // independently of player acceptance and presentation.
@@ -945,6 +1115,50 @@ mod tests {
         .unwrap()
         .unwrap();
         assert!(options.dev.scene == StartScene::Milk);
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn explicit_scenes_bypass_startup_and_splash_accepts_frame_exports() {
+        let default = parse(&["--original", "example.exe"]).unwrap().unwrap();
+        assert!(!default.dev.scene_selected);
+        for scene in ["alley", "splash"] {
+            let options = parse(&[
+                "--original",
+                "example.exe",
+                "--scene",
+                scene,
+                "--headless",
+                "--steps",
+                "72",
+                "--dump-cga",
+                "title.cga",
+            ])
+            .unwrap()
+            .unwrap();
+            assert!(options.dev.scene_selected);
+            assert_eq!(options.dev.steps, Some(72));
+            assert_eq!(options.dev.cga, Some(PathBuf::from("title.cga")));
+        }
+        for extra in [
+            vec!["--script", "controls.csv"],
+            vec!["--trace", "player.csv"],
+            vec!["--trace-timing", "timing.csv"],
+            vec!["--step-hz", "36"],
+        ] {
+            let mut args = vec![
+                "--original",
+                "example.exe",
+                "--scene",
+                "splash",
+                "--headless",
+            ];
+            args.extend(extra);
+            assert_eq!(
+                parse(&args).err(),
+                Some("Splash preview does not use gameplay scripts, traces or --step-hz".into())
+            );
+        }
     }
 
     #[cfg(feature = "dev-tools")]

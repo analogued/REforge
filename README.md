@@ -39,6 +39,13 @@ From this repository:
 cargo run --locked --release -- --original /path/to/CAT.EXE
 ```
 
+Launch starts with the original animated splash: a cat enters and walks along
+the fence, and the copyright artwork alternates between SynSoft and IBM.
+Press a key to continue, or wait for the original first-entry timeout of about
+47 seconds. Desktop shortcuts, modifier keys alone and held-key repeats do not
+dismiss it. The menu is not implemented yet, so the splash proceeds directly to
+gameplay. Ctrl+Q or window close quits during the splash as well.
+
 Use the arrow keys to move and jump. Esc, P and Pause/Break toggle pause;
 other keys, including arrows, leave it paused. Pause shortcuts are ignored while
 Alt, Ctrl or Super is held, and held-key repeats do not toggle pause. Losing or
@@ -67,8 +74,8 @@ supported; game timing still follows the virtual PIT/video clocks. Composite
 monitor simulation is not implemented. Raw framebuffer and PPM exports remain
 320×200 for data comparisons.
 
-`--difficulty` accepts 0 through 7 and sets the initial difficulty. Startup
-and difficulty selection screens are not implemented. Normal builds accept
+`--difficulty` accepts 0 through 7 and sets the initial difficulty. Instructions,
+input selection and difficulty selection menus are not implemented. Normal builds accept
 `--original`, `--machine`, `--scale`, `--difficulty` and `--help`.
 
 ## Development tools
@@ -84,6 +91,13 @@ Without that feature, their parser branches, option fields, diagnostic runners
 and export helpers are excluded; passing a testing flag reports an unknown
 option. `cargo run --locked --features dev-tools -- --help` lists the development
 options alongside the player options.
+
+An explicit `--scene` bypasses startup; use `--scene alley` to start gameplay
+immediately. `--scene splash` previews only the title screen. In that preview,
+`--steps N` limits virtual BIOS ticks instead of accepted player updates, and
+`--dump-cga`/`--dump-ppm` export the final title frame. Gameplay scripts, traces
+and `--step-hz` are not available for splash previews. Headless gameplay runs
+continue to bypass the splash by default.
 
 `--seed` selects a nonzero 16-bit random seed, in decimal or `0xHEX` notation.
 The internal default remains `0xfa59` in both builds.
@@ -261,7 +275,9 @@ nearer alley edge. Its speaker effect is silent. The timed runner blocks game
 work until seven BIOS ticks have elapsed and advances the effect's shared random
 state through its original call-count algorithm, using approximate loop costs.
 
-Startup menus and audio output are absent. Windowed execution uses a
+The splash uses a separate copy of the executable data. Watching it does not
+advance the fixed gameplay seed; shared startup/menu state integration remains
+deferred. Startup menus and audio output are absent. Windowed execution uses a
 virtual BIOS/PIT clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle
 movement. The reference is DOSBox-X normal CPU core at fixed 240 cycles. Loop

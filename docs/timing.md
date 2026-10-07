@@ -446,6 +446,31 @@ Ambient sound random consumers, synthesis and sound busy-loop timing remain
 incomplete. Controlled helper/frame comparisons do not establish full original
 loop timing or random-stream equivalence.
 
+### Initial splash
+
+The first title presentation (`5cb0`) draws the external title artwork over its
+fence, sidewalk and bin scenery (`2a30`). The cat starts at X0/Y96 with the
+original clipped edge entrance. Its automatic direction routine (`5dd4`)
+turns inward at X32/X288 and considers a shared-generator direction choice
+after 18 BIOS ticks in the interior. Retrace must be set before the existing
+32/16-call player gate is even entered. Movement and sprite tables remain the
+same as the alley's; the title supplies horizontal step four.
+
+Copyright drawing (`5e3b`) alternates the two external bitmap entries at
+`6a8f`. SynSoft appears first; a changed elapsed interval of 36 BIOS ticks
+selects IBM, then alternates back. A fresh key make dismisses the title after
+the animation opportunity. The first entry expires strictly after the external
+`56da` duration plus six ticks: with the supported input, elapsed tick 852
+continues and tick 853 exits. Copyright updates precede this expiry test.
+The silent music-sequence index follows its tick gate; no samples are produced.
+
+The host uses the virtual BIOS/retrace clock and provisional loop/drawing costs
+from the fixed-240 profile. Exact splash playback cadence is not established.
+Presentation has a separate data copy and does not advance the gameplay seed
+or clock; integrating the original shared startup/menu state remains deferred.
+Explicit development scene previews bypass startup. In a splash preview, finite
+limits count virtual BIOS ticks and frame exports contain the splash itself.
+
 ### Reference execution costs
 
 The execution-cost profile is fitted to guest-time measurements from DOSBox-X

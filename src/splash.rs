@@ -1,0 +1,556 @@
+// Copyright (c) 2026 analogued. Project license has not yet been selected.
+
+//! The original first title screen, using a separate external-data copy.
+//!
+//! A call to `advance` represents one pass through the title loop. Its BIOS
+//! tick and retrace samples are supplied by the caller; this module has no host
+//! clock. Menus and sound output are separate from this presentation.
+
+use crate::alley::Machine;
+use crate::assets::{DATA_LENGTH, idle_sources, next_random, set_word, sprite_bytes, word};
+use crate::cga::{Dimensions, Framebuffer, PlayerCompositor, pixel_offset};
+use crate::player::{Controls, Draw, Player};
+use crate::timing::{BiosSample, PlayerGate};
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SplashStep {
+    pub finished: bool,
+    pub player_accepted: bool,
+    pub redrawn: bool,
+}
+
+pub struct Splash {
+    data: Vec<u8>,
+    machine: Machine,
+    framebuffer: Framebuffer,
+    player: Player,
+    compositor: PlayerCompositor,
+    gate: PlayerGate,
+    finished: bool,
+}
+
+impl Splash {
+    pub fn new(external_data: &[u8], machine: Machine) -> Result<Self, String> {
+        Self::with_start_tick(external_data, machine, 0)
+    }
+
+    /// A nonzero external seed permits controlled native comparisons. The
+    /// executable's uninitialized zero seed uses the existing startup default.
+    pub fn with_start_tick(
+        external_data: &[u8],
+        machine: Machine,
+        tick: u16,
+    ) -> Result<Self, String> {
+        if external_data.len() < DATA_LENGTH {
+            return Err("Executable splash data segment is truncated".into());
+        }
+        let mut data = external_data.to_vec();
+        if word(&data, 0x2ae5) == 0 {
+            set_word(&mut data, 0x2ae5, 0xfa59);
+        }
+        data[0x697] = if machine == Machine::Pcjr { 0xfd } else { 0xfc };
+        set_word(&mut data, 4, 0);
+        set_word(&mut data, 8, 0);
+        set_word(&mut data, 0x6df8, 0);
+        data[0x41a] = 0;
+        data[0] = 0xff;
+        crate::decoration::initialize_score_state(&mut data)?;
+        let mut framebuffer = Framebuffer::default();
+        draw_scenery(&mut data, &mut framebuffer)?;
+        for (source, destination, dimensions) in [
+            (0x6152, 0x00bd, 0x1d0b),
+            (0x63d0, 0x069e, 0x160e),
+            (0x6638, 0x0a78, 0x0c03),
+            (0x6680, 0x0ca8, 0x080e),
+            (0x6760, 0x1d6e, 0x0b0c),
+            (0x6868, 0x1dec, 0x0804),
+        ] {
+            blit(&data, &mut framebuffer, source, destination, dimensions)?;
+        }
+        set_word(&mut data, 0x6a8d, 0);
+        draw_copyright(&mut data, &mut framebuffer)?;
+
+        // CS:070d's entry state, followed by the title's Y96 overrides. Other
+        // movement fields retain their executable initialization values.
+        for (offset, value) in [
+            (0x579, 0),
+            (0x55f, pixel_offset(0, 180)),
+            (0x561, 0x0b03),
+            (0x572, 2),
+            (0x554, 0),
+            (0x57d, 0),
+            (0x684, 0),
+        ] {
+            set_word(&mut data, offset, value);
+        }
+        for (offset, value) in [
+            (0x56e, 1),
+            (0x558, 3),
+            (0x559, 12),
+            (0x57b, 96),
+            (0x57c, 146),
+            (0x576, 1),
+            (0x571, 0),
+            (0x55b, 0),
+            (0x550, 0),
+            (0x55c, 0),
+            (0x55a, 0),
+            (0x583, 0),
+            (0x698, 0),
+            (0x699, 0),
+            (0x551, 0),
+            (0x584, 0),
+            (0x552, 0),
+            (0x553, 0),
+            (0x127c, 0),
+            (0x1665, 0),
+            (0x1673, 0),
+            (0x1677, 0),
+            (0x1678, 0),
+            (0x1cbf, 0),
+            (0x1cc0, 0),
+            (0x1cc1, 0),
+            (0x1cb8, 0),
+            (0x1cc8, 0xb1),
+            (0x6a8a, 0),
+        ] {
+            data[offset] = value;
+        }
+        set_word(&mut data, 0x166c, 9);
+        set_word(&mut data, 0x1ce1, 0);
+        data[0x1f80] = 9;
+        crate::decoration::draw_hud(&mut data, &mut framebuffer)?;
+        let make_counter = word(&data, 0x693);
+        set_word(&mut data, 0x6150, make_counter);
+        for offset in [0x6a8b, 0x5322, 0x6a93] {
+            set_word(&mut data, offset, tick);
+        }
+        set_word(&mut data, 0x6a88, tick.wrapping_sub(48));
+        set_word(&mut data, 0x5320, 0);
+        let player = Player::from_data(&data).map_err(str::to_owned)?;
+        Ok(Self {
+            data,
+            machine,
+            framebuffer,
+            player,
+            compositor: PlayerCompositor::default(),
+            gate: PlayerGate::default(),
+            finished: false,
+        })
+    }
+
+    /// Advance one original title-loop opportunity. `key_pressed` represents a
+    /// fresh key make event, rather than a held key or a key release.
+    pub fn advance(
+        &mut self,
+        tick: u16,
+        retrace: bool,
+        key_pressed: bool,
+    ) -> Result<SplashStep, String> {
+        let mut step = SplashStep {
+            finished: self.finished,
+            ..SplashStep::default()
+        };
+        if self.finished {
+            return Ok(step);
+        }
+        if tick.wrapping_sub(word(&self.data, 0x6a93)) >= 36 {
+            set_word(&mut self.data, 0x6a93, tick);
+            draw_copyright(&mut self.data, &mut self.framebuffer)?;
+            step.redrawn = true;
+        }
+        // First entry alone has this strict timeout. The later attract loop
+        // resets its song baseline instead; it belongs to the deferred menus.
+        if tick.wrapping_sub(word(&self.data, 0x6a8b)) > word(&self.data, 0x56da).wrapping_add(6) {
+            self.finished = true;
+            step.finished = true;
+            return Ok(step);
+        }
+        self.advance_music_sequence(tick)?;
+        self.choose_direction(tick);
+        // CS:5e1c tests retrace before even entering the player acceptance gate.
+        if retrace {
+            self.player.horizontal_step = 4;
+            let accepted = self.gate.attempt(
+                BiosSample {
+                    tick_low: tick,
+                    ax: 0,
+                },
+                self.machine,
+                0,
+                self.player.horizontal_direction as i8,
+                self.player.vertical_direction as i8,
+                retrace,
+            );
+            set_word(&mut self.data, 0x684, self.gate.countdown);
+            if let Some(acceptance) = accepted {
+                set_word(&mut self.data, 0x57d, acceptance.tick_low);
+                set_word(&mut self.data, 0x57f, acceptance.ax);
+                let outcome = self
+                    .player
+                    .update(
+                        Controls {
+                            x: self.data[0x698] as i8,
+                            y: 0,
+                        },
+                        &self.data,
+                    )
+                    .map_err(str::to_owned)?;
+                step.player_accepted = true;
+                step.redrawn |= self.draw_player(outcome.draw)?;
+                self.player
+                    .write_data(&mut self.data)
+                    .map_err(str::to_owned)?;
+            } else {
+                set_word(&mut self.data, 0x572, 4);
+            }
+        }
+        if key_pressed {
+            self.finished = true;
+        }
+        step.finished = self.finished;
+        Ok(step)
+    }
+
+    fn choose_direction(&mut self, tick: u16) {
+        if self.player.x <= 32 {
+            self.data[0x698] = 1;
+        } else if self.player.x >= 288 {
+            self.data[0x698] = 0xff;
+        } else if tick.wrapping_sub(word(&self.data, 0x6a88)) >= 18 {
+            set_word(&mut self.data, 0x6a88, tick);
+            let random = next_random(&mut self.data) as u8;
+            self.data[0x698] = if random > 0xa0 {
+                0
+            } else if random & 1 == 0 {
+                0xff
+            } else {
+                1
+            };
+        }
+    }
+
+    fn advance_music_sequence(&mut self, tick: u16) -> Result<(), String> {
+        if self.data[0] != 0 && tick != word(&self.data, 0x5322) {
+            set_word(&mut self.data, 0x5322, tick);
+            let position = word(&self.data, 0x5320);
+            let tone = *self
+                .data
+                .get(0x538c + usize::from(position))
+                .ok_or("Splash music sequence exceeds external data")?;
+            if tone != 0x66 {
+                set_word(&mut self.data, 0x5320, position.wrapping_add(1));
+            }
+        }
+        Ok(())
+    }
+
+    fn draw_player(&mut self, draw: Draw) -> Result<bool, String> {
+        let offset = pixel_offset(self.player.x, self.player.y);
+        match draw {
+            Draw::Keep => return Ok(false),
+            Draw::Erase => self.compositor.restore(&mut self.framebuffer)?,
+            Draw::Idle => {
+                let (top, bottom) = idle_sources(&mut self.data);
+                self.compositor.draw_idle(
+                    &mut self.framebuffer,
+                    offset,
+                    sprite_bytes(&self.data, top, Dimensions(0x0602))?,
+                    sprite_bytes(&self.data, bottom, Dimensions(0x0602))?,
+                )?;
+            }
+            Draw::Sprite(sprite) => self.compositor.draw(
+                &mut self.framebuffer,
+                offset,
+                Dimensions(sprite.dimensions),
+                sprite_bytes(&self.data, sprite.source, Dimensions(sprite.dimensions))?,
+            )?,
+            Draw::StridedSprite {
+                sprite,
+                stride_bytes,
+            } => {
+                let dimensions = Dimensions(sprite.dimensions);
+                let width = dimensions.width_bytes();
+                let mut bytes = Vec::with_capacity(dimensions.len());
+                for row in 0..dimensions.rows() {
+                    let start = usize::from(sprite.source) + row * stride_bytes;
+                    bytes.extend_from_slice(
+                        self.data
+                            .get(start..start + width)
+                            .ok_or("Splash entry sprite exceeds external data")?,
+                    );
+                }
+                self.compositor
+                    .draw(&mut self.framebuffer, offset, dimensions, &bytes)?;
+            }
+        }
+        set_word(&mut self.data, 0x55f, offset);
+        Ok(true)
+    }
+
+    pub fn framebuffer(&self) -> &Framebuffer {
+        &self.framebuffer
+    }
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+    pub fn player(&self) -> &Player {
+        &self.player
+    }
+    pub fn machine(&self) -> Machine {
+        self.machine
+    }
+    pub fn finished(&self) -> bool {
+        self.finished
+    }
+
+    pub fn rgba(&self) -> Vec<u8> {
+        let colors = self.machine.colors();
+        self.framebuffer
+            .indices()
+            .into_iter()
+            .flat_map(|index| colors[usize::from(index)])
+            .collect()
+    }
+}
+
+fn blit(
+    data: &[u8],
+    screen: &mut Framebuffer,
+    source: u16,
+    destination: u16,
+    dimensions: u16,
+) -> Result<(), String> {
+    let dimensions = Dimensions(dimensions);
+    screen.copy_rect(
+        destination,
+        dimensions,
+        sprite_bytes(data, source, dimensions)?,
+    )
+}
+
+fn draw_copyright(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
+    let counter = word(data, 0x6a8d).wrapping_add(2);
+    set_word(data, 0x6a8d, counter);
+    blit(
+        data,
+        screen,
+        word(data, 0x6a8f + usize::from(counter & 2)),
+        0x1d38,
+        0x0c0a,
+    )
+}
+
+/// CS:2a30 shares the alley's sidewalk/fence/bin art, omitting all clothes.
+fn draw_scenery(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
+    screen.fill_visible(0xaa);
+    let mut previous = data[0x2ac4];
+    for destination in (0x1040..0x1090).step_by(2) {
+        let selected = loop {
+            let selected = next_random(data) & 0x30;
+            if selected as u8 != previous {
+                break selected;
+            }
+        };
+        previous = selected as u8;
+        blit(data, screen, 0x2904 + selected, destination, 0x0801)?;
+    }
+    let ground: Vec<u8> = [0x55, 0x56].into_iter().cycle().take(0x0a00).collect();
+    screen.copy_bytes(0x1180, ground.len(), 1, &ground)?;
+    screen.copy_bytes(0x3180, ground.len(), 1, &ground)?;
+    for source in (0x2944..0x296c).step_by(10) {
+        for _ in 0..9 {
+            let destination = (next_random(data) & 0x0776) + 0x12c0;
+            blit(data, screen, source, destination, 0x0501)?;
+        }
+    }
+    for _ in 0..5 {
+        let destination = (next_random(data) & 0x3e) + 0x3a98;
+        blit(data, screen, 0x296c, destination, 0x0501)?;
+    }
+    data[0x2ac4] = 0;
+    let dimensions = word(data, 0x28a0);
+    let width = usize::from(dimensions as u8);
+    let rows = usize::from(dimensions >> 8);
+    let mut list = 0x28a2;
+    loop {
+        let entry = data
+            .get(list..list + 4)
+            .ok_or("Unterminated splash fence list")?;
+        let source = usize::from(u16::from_le_bytes([entry[0], entry[1]]));
+        if source == 0xffff {
+            break;
+        }
+        let destination = u16::from_le_bytes([entry[2], entry[3]]);
+        let bytes = data
+            .get(source..source + width * rows)
+            .ok_or("Splash fence rectangle exceeds external data")?;
+        screen.copy_bytes(destination, width, rows, bytes)?;
+        list += 4;
+    }
+    blit(data, screen, word(data, 0x2ad1), 0x1902, 0x0801)?;
+    let mut list = 0x2a86 + usize::from(data[0x2ab3]);
+    loop {
+        let entry = data
+            .get(list..list + 2)
+            .ok_or("Unterminated splash bin list")?;
+        let destination = u16::from_le_bytes([entry[0], entry[1]]);
+        if destination == 0 {
+            break;
+        }
+        blit(data, screen, 0x2976, destination, 0x0c05)?;
+        let mut middle = destination.wrapping_add(0x1e0);
+        for _ in 0..if destination < 0x1720 { 3 } else { 2 } {
+            blit(data, screen, 0x29ee, middle, 0x0804)?;
+            middle = middle.wrapping_add(0x140);
+        }
+        blit(data, screen, 0x2a2e, middle, 0x0b04)?;
+        list += 2;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn synthetic_data() -> Vec<u8> {
+        let mut data = vec![0; DATA_LENGTH];
+        set_word(&mut data, 0x28a0, 0x0802);
+        set_word(&mut data, 0x28a2, 0xffff);
+        set_word(&mut data, 0x6a8f, 0x68a8);
+        set_word(&mut data, 0x6a91, 0x6998);
+        data[0x68a8..0x68a8 + 240].fill(0x55);
+        data[0x6998..0x6998 + 240].fill(0xff);
+        data[0x538c] = 0x66;
+        set_word(&mut data, 0x56da, 846);
+        for offset in (0x0f7a..0x0faa).step_by(2) {
+            set_word(&mut data, offset, 0x1800);
+        }
+        data[0x1800..0x1880].fill(0x55);
+        data
+    }
+
+    #[test]
+    fn external_data_and_gameplay_seed_are_untouched() {
+        let mut data = synthetic_data();
+        set_word(&mut data, 0x2ae5, 0x1234);
+        let before = data.clone();
+        let mut splash = Splash::new(&data, Machine::Cga).unwrap();
+        for tick in 1..100 {
+            splash.advance(tick, true, false).unwrap();
+        }
+        assert_eq!(data, before);
+        let again = Splash::new(&data, Machine::Cga).unwrap();
+        let repeated = Splash::new(&data, Machine::Cga).unwrap();
+        assert_eq!(again.framebuffer().bytes(), repeated.framebuffer().bytes());
+        assert_eq!(again.data(), repeated.data());
+    }
+
+    #[test]
+    fn copyright_starts_with_second_external_image_and_alternates_at_36_ticks() {
+        let mut splash = Splash::new(&synthetic_data(), Machine::Cga).unwrap();
+        let image = |splash: &Splash| {
+            splash
+                .framebuffer()
+                .read_rect(0x1d38, Dimensions(0x0c0a))
+                .unwrap()
+        };
+        assert_eq!(image(&splash), vec![0xff; 240]);
+        assert!(!splash.advance(35, false, false).unwrap().redrawn);
+        assert_eq!(image(&splash), vec![0xff; 240]);
+        assert!(splash.advance(36, false, false).unwrap().redrawn);
+        assert_eq!(image(&splash), vec![0x55; 240]);
+        assert!(!splash.advance(36, false, false).unwrap().redrawn);
+        splash.advance(72, false, false).unwrap();
+        assert_eq!(image(&splash), vec![0xff; 240]);
+    }
+
+    #[test]
+    fn initial_timeout_is_strict_and_copyright_runs_before_exit() {
+        let mut data = synthetic_data();
+        set_word(&mut data, 0x56da, 29);
+        let mut splash = Splash::new(&data, Machine::Cga).unwrap();
+        assert!(!splash.advance(35, true, false).unwrap().finished);
+        let step = splash.advance(36, true, false).unwrap();
+        assert!(step.finished && step.redrawn && !step.player_accepted);
+        let final_data = splash.data().to_vec();
+        let final_frame = splash.framebuffer().bytes().to_vec();
+        assert_eq!(
+            splash.advance(100, true, true).unwrap(),
+            SplashStep {
+                finished: true,
+                ..SplashStep::default()
+            }
+        );
+        assert_eq!(splash.data(), final_data);
+        assert_eq!(splash.framebuffer().bytes().as_slice(), final_frame);
+    }
+
+    #[test]
+    fn key_make_exits_after_the_last_player_opportunity() {
+        let mut splash = Splash::new(&synthetic_data(), Machine::Pcjr).unwrap();
+        let step = splash.advance(1, true, true).unwrap();
+        assert!(step.finished && step.player_accepted);
+        assert_eq!(splash.player().entry_delay, 11);
+    }
+
+    #[test]
+    fn title_retrace_gate_does_not_count_rejected_opportunities() {
+        for (machine, countdown) in [(Machine::Cga, 32), (Machine::Pcjr, 16)] {
+            let mut splash = Splash::new(&synthetic_data(), machine).unwrap();
+            assert!(!splash.advance(1, false, false).unwrap().player_accepted);
+            assert!(splash.advance(1, true, false).unwrap().player_accepted);
+            assert_eq!(word(splash.data(), 0x684), countdown);
+            for _ in 0..100 {
+                splash.advance(1, false, false).unwrap();
+            }
+            assert_eq!(word(splash.data(), 0x684), countdown);
+            for _ in 1..countdown {
+                assert!(!splash.advance(1, true, false).unwrap().player_accepted);
+            }
+            assert!(splash.advance(1, true, false).unwrap().player_accepted);
+            assert!(!splash.advance(1, true, false).unwrap().player_accepted);
+        }
+    }
+
+    #[test]
+    fn cat_entry_waits_twelve_accepted_updates_then_reveals_cropped_sprite() {
+        let mut splash = Splash::new(&synthetic_data(), Machine::Cga).unwrap();
+        let initial = splash.framebuffer().bytes().to_vec();
+        for tick in 1..=12 {
+            let step = splash.advance(tick, true, false).unwrap();
+            assert!(step.player_accepted && !step.redrawn);
+        }
+        assert_eq!(splash.framebuffer().bytes().as_slice(), initial);
+        let step = splash.advance(13, true, false).unwrap();
+        assert!(step.player_accepted && step.redrawn);
+        assert_eq!((splash.player().x, splash.player().y), (0, 96));
+        assert_eq!(splash.player().entry_state, 2);
+        assert_eq!(word(splash.data(), 0x561), 0x0b01);
+        splash.advance(14, true, false).unwrap();
+        assert_eq!(word(splash.data(), 0x561), 0x0b02);
+        splash.advance(15, true, false).unwrap();
+        assert_eq!(splash.player().entry_state, 0);
+        assert_eq!(word(splash.data(), 0x561), 0x0b03);
+        assert_eq!(splash.player().y, 96);
+    }
+
+    #[test]
+    fn copyright_and_timeout_subtractions_wrap_like_bios_words() {
+        let mut splash =
+            Splash::with_start_tick(&synthetic_data(), Machine::Cga, u16::MAX - 10).unwrap();
+        assert!(!splash.advance(24, false, false).unwrap().redrawn);
+        assert!(splash.advance(25, false, false).unwrap().redrawn);
+        assert!(!splash.advance(841, false, false).unwrap().finished);
+        assert!(splash.advance(842, false, false).unwrap().finished);
+    }
+
+    #[test]
+    fn truncated_data_and_invalid_external_rectangles_are_rejected() {
+        assert!(Splash::new(&[0; 20], Machine::Cga).is_err());
+        let mut data = synthetic_data();
+        set_word(&mut data, 0x6a91, 0x7100);
+        assert!(Splash::new(&data, Machine::Cga).is_err());
+    }
+}

@@ -37,4 +37,4 @@
 - Authored game code follows the combined repository's licensing decision, which
   remains undecided. Keep full project license text at the repository root once
   chosen. Preserve game dependency notices and third-party license texts in
-  `docs/dependencies.md` and `docs/licenses/`.
+  `docs/dependencies.md` and the shared SDL crate's notice files.

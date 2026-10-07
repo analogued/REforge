@@ -1,13 +1,12 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! SDL3 presentation of startup screens and live gameplay.
 
+use reforge_sdl::{FrameFormat, FrameTexture, Window};
 use std::collections::VecDeque;
 
-use sdl3::{
+use reforge_sdl::sdl3::{
     event::{Event, WindowEvent},
     keyboard::Keycode,
-    pixels::{Color, PixelFormat},
-    render::{Canvas, FRect, RenderTarget, ScaleMode, Texture},
 };
 
 use crate::{
@@ -101,33 +100,6 @@ fn event_action(presentation: &mut Presentation, event: Event) -> Action {
 #[cfg(test)]
 fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
     event_action(presentation, event) != Action::Close
-}
-
-fn destination(width: u32, height: u32) -> Option<FRect> {
-    let scale = (width / WIDTH as u32).min(height / DISPLAY_HEIGHT);
-    if scale == 0 {
-        return None;
-    }
-    let scaled_width = WIDTH as u32 * scale;
-    let scaled_height = DISPLAY_HEIGHT * scale;
-    Some(FRect::new(
-        ((width - scaled_width) / 2) as f32,
-        ((height - scaled_height) / 2) as f32,
-        scaled_width as f32,
-        scaled_height as f32,
-    ))
-}
-
-fn paint<T: RenderTarget>(canvas: &mut Canvas<T>, texture: &Texture<'_>) -> Result<(), String> {
-    canvas.set_draw_color(Color::RGB(0, 0, 0));
-    canvas.clear();
-    let (width, height) = canvas.output_size().map_err(|error| error.to_string())?;
-    if let Some(rect) = destination(width, height) {
-        canvas
-            .copy(texture, None, rect)
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
 }
 
 /// Open a resizable nearest-neighbor viewer. No audio subsystem is initialized.
@@ -333,45 +305,23 @@ fn run_inner(
     let mut quit_after_body_entry = false;
     let mut pending_step = false;
     let mut step_key_held = false;
-    let sdl = sdl3::init().map_err(|error| error.to_string())?;
-    let video = sdl.video().map_err(|error| error.to_string())?;
-    let mut window = video
-        .window(
-            title(Screen::Splash),
-            WIDTH as u32 * scale,
-            DISPLAY_HEIGHT * scale,
-        )
-        .position_centered()
-        .resizable()
-        .build()
-        .map_err(|error| error.to_string())?;
-    window
-        .set_minimum_size(WIDTH as u32, DISPLAY_HEIGHT)
-        .map_err(|error| error.to_string())?;
-    let mut canvas = sdl3::render::create_renderer(window, Some(c"software"))
-        .map_err(|error| error.to_string())?;
-    let creator = canvas.texture_creator();
-    let mut texture = creator
-        .create_texture_streaming(PixelFormat::RGB24, WIDTH as u32 * 2, HEIGHT as u32)
-        .map_err(|error| error.to_string())?;
-    texture.set_scale_mode(ScaleMode::Nearest);
+    let mut window = Window::new(title(Screen::Splash), WIDTH as u32, DISPLAY_HEIGHT, scale)?;
+    let creator = window.texture_creator();
+    let mut texture =
+        FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
     let mut presentation = Presentation::default();
     let mut shown = presentation.screen();
     texture
-        .update(
-            None,
-            &display_rgb(frames.frame(shown), DisplayMode::Color, color_family),
-            WIDTH * 6,
-        )
+        .update(&display_rgb(
+            frames.frame(shown),
+            DisplayMode::Color,
+            color_family,
+        ))
         .map_err(|error| error.to_string())?;
-    paint(&mut canvas, &texture)?;
-    if !canvas.present() {
-        return Err(sdl3::get_error().to_string());
-    }
-    let mut events = sdl.event_pump().map_err(|error| error.to_string())?;
+    window.present(&texture)?;
     loop {
         let mut repaint = false;
-        for event in events.poll_iter() {
+        for event in window.poll_events() {
             repaint |= matches!(event, Event::Window { .. });
             let was_scene = presentation.screen() == Screen::InitialScene;
             match &event {
@@ -566,15 +516,11 @@ fn run_inner(
                 frames.frame(shown)
             };
             texture
-                .update(
-                    None,
-                    &display_rgb(
-                        frame,
-                        session.controls.preferences.display_mode,
-                        color_family,
-                    ),
-                    WIDTH * 6,
-                )
+                .update(&display_rgb(
+                    frame,
+                    session.controls.preferences.display_mode,
+                    color_family,
+                ))
                 .map_err(|error| error.to_string())?;
             let caption = if session.pause.state != PauseState::Running {
                 "REforge — Mach 3 — Paused (release keys, then F1 to end game or another key to resume)"
@@ -591,14 +537,8 @@ fn run_inner(
             } else {
                 "REforge — Mach 3 — Opening (F1 to pause, Esc to close)"
             };
-            canvas
-                .window_mut()
-                .set_title(caption)
-                .map_err(|error| error.to_string())?;
-            paint(&mut canvas, &texture)?;
-            if !canvas.present() {
-                return Err(sdl3::get_error().to_string());
-            }
+            window.set_title(caption)?;
+            window.present(&texture)?;
         }
         let poll_interval = std::time::Duration::from_millis(4);
         let deadline = transitions.deadline.or_else(|| {
@@ -618,7 +558,7 @@ fn run_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sdl3::{keyboard::Mod, surface::Surface};
+    use reforge_sdl::sdl3::keyboard::Mod;
 
     fn space(down: bool, repeat: bool) -> Event {
         if down {
@@ -821,48 +761,5 @@ mod tests {
         assert!(playback.advance(now + unit * 7, unit));
         assert!(!playback.active());
         assert_eq!(playback.deadline, None);
-    }
-
-    #[test]
-    fn software_texture_corrects_cga_aspect_and_letterboxes() {
-        // A software surface exercises the renderer without opening a desktop window.
-        let surface = Surface::new(800, 600, PixelFormat::RGB24).unwrap();
-        let mut canvas = surface.into_canvas().unwrap();
-        let creator = canvas.texture_creator();
-        let mut texture = creator
-            .create_texture_streaming(PixelFormat::RGB24, 320, 200)
-            .unwrap();
-        texture.set_scale_mode(ScaleMode::Nearest);
-        let mut rgb = vec![0; WIDTH * HEIGHT * 3];
-        for pixel in rgb.chunks_exact_mut(3) {
-            pixel.copy_from_slice(&[85, 255, 255]);
-        }
-        rgb[..3].copy_from_slice(&[255, 85, 255]);
-        rgb[WIDTH * HEIGHT * 3 - 3..].copy_from_slice(&[255, 255, 255]);
-        texture.update(None, &rgb, WIDTH * 3).unwrap();
-        paint(&mut canvas, &texture).unwrap();
-        let readback = canvas
-            .read_pixels(None)
-            .unwrap()
-            .convert_format(PixelFormat::RGB24)
-            .unwrap();
-        let actual = readback.with_lock(|bytes| bytes.to_vec());
-        let mut expected = vec![0; 800 * 600 * 3];
-        // A 640x480 image fits, centered inside 800x600. Source pixels are
-        // 20% taller than wide, sampled at destination pixel centers.
-        for y in 0..480 {
-            for x in 0..640 {
-                let source_y = (2 * y + 1) * HEIGHT / (2 * 480);
-                let source = (source_y * WIDTH + x / 2) * 3;
-                let destination = ((y + 60) * 800 + x + 80) * 3;
-                expected[destination..destination + 3].copy_from_slice(&rgb[source..source + 3]);
-            }
-        }
-        assert_eq!(actual.len(), expected.len());
-        let first_difference = actual.iter().zip(&expected).position(|(a, b)| a != b);
-        assert!(
-            first_difference.is_none(),
-            "rendered RGB differs at byte {first_difference:?}"
-        );
     }
 }

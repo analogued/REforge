@@ -1,0 +1,2 @@
+# Preserve retained upstream notices byte-for-byte.
+docs/licenses/** -text -whitespace

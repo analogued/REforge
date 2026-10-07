@@ -8,11 +8,12 @@ description = "An early Alley Cat reconstruction for modern desktop systems"
 
 [features]
 default = ["sdl"]
-sdl = []
+sdl = ["dep:reforge_sdl"]
 dev-tools = []
 
 [dependencies]
 sha2 = { version = "=0.11.0", default-features = false }
+reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

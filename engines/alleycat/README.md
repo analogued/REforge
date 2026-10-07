@@ -31,10 +31,9 @@ See the [application README](../../README.md) for the combined build and
 [contributing guide](CONTRIBUTING.md) for this game's validation commands.
 
 Install Rust 1.85 or newer with Cargo, and an SDL3 development package providing
-the native `SDL3` library. The window backend was checked against SDL 3.4.16 on
-Linux. It uses a small authored C interface; no Rust SDL binding crate or SDL
-image/font/mixer extension is required. Cargo fetches `sha2` and its locked
-dependencies for executable verification.
+the native `SDL3` library. The [shared window backend](../../crates/reforge_sdl/README.md)
+uses the `sdl3` Rust wrapper; SDL image/font/mixer extensions are not required.
+Cargo fetches `sha2` and its locked dependencies for executable verification.
 
 From the combined repository root:
 
@@ -78,7 +77,10 @@ have a 5:6 width-to-height ratio: the initial 1280×960 window displays them at
 4:3, with nearest-neighbor sampling and no CRT shader. `--scale N` selects an
 initial window size of `320*N` × `240*N`, with a default multiplier of 4 and
 accepted values from 1 through 16. Use `--scale 3` for 960×720.
-Resizing or maximizing preserves 4:3 with black bars as needed.
+Resizing or maximizing uses integer multiples of the 320×240 display area,
+preserving 4:3 with black bars as needed. SDL selects the renderer; vsync is
+requested by default and falls back with a warning when unsupported. Presentation
+sync does not replace the virtual game clock.
 Host display vsync is requested when
 supported; game timing still follows the virtual PIT/video clocks. Composite
 monitor simulation is not implemented. Raw framebuffer and PPM exports remain

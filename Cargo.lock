@@ -6,6 +6,7 @@ version = 4
 name = "alleycat"
 version = "0.1.0"
 dependencies = [
+ "reforge_sdl",
  "sha2",
 ]
 
@@ -77,7 +78,7 @@ checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
 name = "mach3"
 version = "0.1.0"
 dependencies = [
- "sdl3",
+ "reforge_sdl",
 ]
 
 [[package]]
@@ -93,6 +94,13 @@ dependencies = [
  "alleycat",
  "mach3",
  "sha2",
+]
+
+[[package]]
+name = "reforge_sdl"
+version = "0.1.0"
+dependencies = [
+ "sdl3",
 ]
 
 [[package]]

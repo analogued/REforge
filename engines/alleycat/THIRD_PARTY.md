@@ -28,12 +28,11 @@ builds. This does not select a license for authored project code.
 
 ## SDL3
 
-The window backend links the system SDL3 library. The initial implementation was
-checked against SDL 3.4.16. `src/platform.rs` contains a small authored interface
-matching the [SDL3 C API](https://wiki.libsdl.org/SDL3/FrontPage); it does not
-vendor SDL implementation code or a third-party Rust wrapper. SDL is used
-unmodified under its zlib license. A system package may supply another version;
-retain that version's notices if distributing its library with a build.
+The window backend uses REforge's [shared SDL3 crate](../../crates/reforge_sdl/README.md),
+which calls the `sdl3` Rust wrapper and dynamically links the system SDL3 library.
+The shared crate retains the wrapper, generated bindings and transitive dependency
+[notices and full license texts](../../crates/reforge_sdl/docs/dependencies.md).
+No SDL runtime implementation is vendored here.
 
 ### Scoring font
 

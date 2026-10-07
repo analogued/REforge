@@ -7,10 +7,10 @@ publish = false
 description = "Verified DOS Mach 3 graphics reconstruction"
 
 [features]
-viewer = ["dep:sdl3"]
+viewer = ["dep:reforge_sdl"]
 
 [dependencies]
-sdl3 = { version = "=0.20.0", optional = true, default-features = false }
+reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
 
 [[bin]]
 name = "mach3-frame"

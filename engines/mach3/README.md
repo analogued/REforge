@@ -97,7 +97,11 @@ Use `--step` for one body or title step per fresh **Enter** press after entering
 gameplay, or `--static` to retain the initial scene. Space remains Fire during
 manual gameplay. Losing focus releases held controls.
 The default window is 960 by 720 (3x). `--scale 1..16` sets its initial scale;
-scale 8 gives 2560 by 1920:
+scale 8 gives 2560 by 1920. The [shared SDL3 backend](../../crates/reforge_sdl/README.md)
+lets SDL select an available renderer and requests vsync, continuing with a
+warning if unsupported. Resizing preserves 4:3 at integer multiples of 320×240
+with black margins. Nearest-neighbour sampling keeps colours discrete;
+Mach 3 retains its 640×200 texture for both colour and monochrome output:
 
 ```sh
 cargo run -p mach3 --features viewer --bin mach3-viewer -- --scale 2 --original /path/to/assets
@@ -138,4 +142,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for formatting and commit conventions.
 
 Authored code follows [REforge's repository license decision](../../README.md#license),
 which remains undecided. Preserve the complete third-party notices in
-[dependency notices](docs/dependencies.md) and `docs/licenses/`.
+the [dependency notices](docs/dependencies.md).

@@ -63,19 +63,20 @@ binaries for headless work. These tools continue to be available with
 - `app/`: the `reforge` application, release detection and option catalog.
 - `engines/alleycat/`: the `alleycat` engine library and legacy game binary.
 - `engines/mach3/`: the `mach3` engine library and its viewer/export/replay binaries.
-- `crates/`: shared facilities as demonstrated reuse justifies extraction.
+- `crates/reforge_sdl/`: shared SDL3 windows, events and frame presentation.
 
 Game-specific gameplay, asset formats, timing and randomness stay in their own
 engine crates. Engine IDs, Cargo packages and Rust crate names use `alleycat`
 and `mach3`; game catalog IDs remain `alley-cat` and `mach-3`. An engine can
-support multiple games when their implementation is shared. Shared presentation
-and audio can be extracted incrementally.
+support multiple games when their implementation is shared. Both engines use
+the shared SDL3 backend; their pixel decoding and palettes remain engine-specific.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for style, commits and validation.
 
 ## License
 
 The repository-wide project license has not been selected; no project license
 is granted yet. Existing third-party terms and attribution remain in
-[Alley Cat notices](engines/alleycat/THIRD_PARTY.md) and
-[Mach 3 notices](engines/mach3/docs/dependencies.md), with their license texts.
+[Alley Cat notices](engines/alleycat/THIRD_PARTY.md),
+[Mach 3 notices](engines/mach3/docs/dependencies.md), and
+[shared SDL3 notices](crates/reforge_sdl/docs/dependencies.md), with their license texts.
 Original game data is not included or licensed by this repository.

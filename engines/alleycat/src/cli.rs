@@ -684,12 +684,15 @@ fn splash_preview(
     } else {
         #[cfg(feature = "sdl")]
         {
-            let mut window = alleycat::platform::Window::new(
+            let display = alleycat::platform::Display::new(
                 "REforge — Alley Cat splash",
-                WIDTH as u32,
-                HEIGHT as u32,
+                320,
+                240,
                 u32::from(scale),
             )?;
+            let creator = display.texture_creator();
+            let mut window =
+                alleycat::platform::Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
             present_splash(&mut window, &mut splash, options.steps)?;
         }
         #[cfg(not(feature = "sdl"))]
@@ -767,12 +770,10 @@ fn interactive(
     use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
 
-    let mut window = Window::new(
-        "REforge — Alley Cat",
-        WIDTH as u32,
-        HEIGHT as u32,
-        u32::from(scale),
-    )?;
+    let display =
+        alleycat::platform::Display::new("REforge — Alley Cat", 320, 240, u32::from(scale))?;
+    let creator = display.texture_creator();
+    let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
     if let Some(mut startup) = startup {
         if !present_splash(&mut window, &mut startup.splash, None)?
             || !present_menu(&mut window, alley, startup.difficulty_override)?
@@ -898,12 +899,10 @@ fn interactive_diagnostic(
 ) -> Result<(), String> {
     use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
-    let mut window = Window::new(
-        "REforge — Alley Cat",
-        WIDTH as u32,
-        HEIGHT as u32,
-        u32::from(scale),
-    )?;
+    let display =
+        alleycat::platform::Display::new("REforge — Alley Cat", 320, 240, u32::from(scale))?;
+    let creator = display.texture_creator();
+    let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
     if let Some(mut startup) = startup {
         if !present_splash(&mut window, &mut startup.splash, None)?
             || !present_menu(&mut window, alley, startup.difficulty_override)?

@@ -9,7 +9,7 @@ within this crate.
 
 Tests use authored synthetic data and must not import original game material.
 Preserve third-party style and notices, including the complete dependency terms
-in [dependency notices](docs/dependencies.md) and `docs/licenses/`.
+linked from [dependency notices](docs/dependencies.md).
 
 ## Rust validation
 
@@ -35,8 +35,8 @@ the standalone `mach3-viewer` binary. Dependencies are recorded in the root
 `Cargo.lock` and [dependency notices](docs/dependencies.md). Once Cargo has
 fetched them, use `--offline` for local checks and builds.
 
-The viewer's software-rendering test uses an offscreen surface and requires no
-desktop display. Tests use synthetic resources; private captures and original
+Shared presentation tests (`cargo test --locked -p reforge_sdl`) use offscreen
+surfaces and require no desktop display. Tests use synthetic resources; private captures and original
 assets must not become test fixtures. Set `CARGO_TARGET_DIR` when build output
 belongs in a separately configured working directory. Shared application changes
 must also validate affected games as described in the root contributing guide.

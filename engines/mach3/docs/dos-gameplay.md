@@ -271,11 +271,19 @@ corners outside either individual placement.
 The three screens before the waits at `0698`, `06dc`, and the end-of-body code
 at `0733` match original captures throughout the 90-body steering prefix.
 
-The viewer presents each pass at a nominal interval of about 27.463 ms,
-retaining about 82.388 ms per body: three units of the approximately 36.413 Hz
-counter. The timer helper accumulates the PIT divisor twice per IRQ and increments the counter on
-carry. Original rendering cost, discarded timer phase, and the startup timer
-transition make precise DOS elapsed time dependent on execution conditions.
+The viewer schedules each ordinary pass at a nominal interval of about
+27.463 ms, retaining about 82.388 ms per body: three units of the approximately
+36.413 Hz counter. When presentation is slower, due ordinary passes advance in
+order before presenting the latest image. Each pass still runs its input polls,
+state changes, composition and random draws; only intermediate presentations
+are omitted. Catch-up processes at most 64 passes before repumping host events,
+retaining remaining deadline debt without another presentation wait. Native
+pause and blocking transitions stop ordinary catch-up. Each transition and
+ending frame retains its own visible wait rather than being skipped to spend
+ordinary timing debt. The timer helper accumulates the PIT divisor twice per
+IRQ and increments the counter on carry. Original rendering cost, discarded
+timer phase, and the startup timer transition make precise DOS elapsed time
+dependent on execution conditions.
 The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
 The viewer offers an interval override and manual stepping.
@@ -393,3 +401,11 @@ press detection and two before the decision. The decision samples whether F1
 is still held; that requests game over, while other input resumes. The current
 committed body completes before the exit flag is observed. Native Enter stepping
 is a development control, separate from the original Fire input.
+
+The modern host pause preserves the native F1 phase and its pending waits.
+Clearing frontend-held controls is observed as a release at the next native
+sample; it does not restart the handshake. OS repeats cannot repopulate cleared
+controls before a fresh press. Host events are drained before held state is
+sampled: a short press/release pair can end before a game poll and be missed.
+The viewer does not emulate hardware keyboard transport or exact event-arrival
+timing; externally scripted per-poll input is a separate replay interface.

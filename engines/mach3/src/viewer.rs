@@ -341,6 +341,189 @@ impl TransitionPlayback {
     }
 }
 
+/// Mach 3's scheduling state is independent of how often SDL presents a frame.
+struct GamePlayback {
+    session: SessionState,
+    opening: Option<Opening>,
+    ending: Option<Ending>,
+    next_frame: Option<std::time::Instant>,
+    pause_tick: Option<std::time::Instant>,
+    transitions: TransitionPlayback,
+    body_polled: bool,
+    quit_after_body_entry: bool,
+    pending_step: bool,
+    color_family: u8,
+}
+
+impl Default for GamePlayback {
+    fn default() -> Self {
+        Self {
+            session: SessionState::default(),
+            opening: None,
+            ending: None,
+            next_frame: None,
+            pause_tick: None,
+            transitions: TransitionPlayback::default(),
+            body_polled: false,
+            quit_after_body_entry: false,
+            pending_step: false,
+            color_family: 1,
+        }
+    }
+}
+
+impl GamePlayback {
+    fn ordinary_due(&self, options: Options, now: std::time::Instant) -> bool {
+        options.playback == Playback::Animated
+            && self.ending.is_none()
+            && !self.transitions.active()
+            && self.session.pause.state == PauseState::Running
+            && self
+                .opening
+                .as_ref()
+                .is_some_and(|opening| !opening.complete())
+            && self.next_frame.is_some_and(|deadline| now >= deadline)
+    }
+
+    fn advance(
+        &mut self,
+        assets: &GraphicsAssets,
+        options: Options,
+        now: std::time::Instant,
+    ) -> Result<bool, String> {
+        let mut repaint = false;
+        let unit = options.body_period / 3;
+        let transition_was_active = self.transitions.active();
+        if self.transitions.advance(now, unit) {
+            repaint = true;
+            if !self.transitions.active() {
+                self.next_frame = Some(now + unit);
+            }
+        }
+        // Each intentional transition retains its own displayed wait. Do not
+        // spend ordinary-frame catch-up debt inside that blocking sequence.
+        if transition_was_active {
+            return Ok(repaint);
+        }
+        if self.session.pause.state != PauseState::Running {
+            if pause_waiting(self.session.pause.state) {
+                if self.pause_tick.is_some_and(|deadline| now >= deadline) {
+                    self.session.pause.tick();
+                    self.pause_tick = Some(now + unit);
+                }
+            } else {
+                let result = self
+                    .session
+                    .controls
+                    .poll(self.session.keyboard.held_keys(0));
+                repaint |= result.display_toggled;
+                match self.session.pause.poll(result.mask) {
+                    PauseEvent::EndGame => self.quit_after_body_entry = true,
+                    PauseEvent::Resumed => self.next_frame = Some(now),
+                    _ => {}
+                }
+                if pause_waiting(self.session.pause.state) {
+                    self.pause_tick = Some(now + unit);
+                }
+            }
+        }
+        // Catch up ordinary passes before one presentation. Bound each batch
+        // for event responsiveness; preserve any remaining deadline debt.
+        for _ in 0..64 {
+            if self.transitions.active() || self.session.pause.state != PauseState::Running {
+                break;
+            }
+            let timed = options.playback == Playback::Animated
+                && self.next_frame.is_some_and(|deadline| now >= deadline);
+            if !self.pending_step && !timed {
+                break;
+            }
+            let Some(opening) = self.opening.as_mut() else {
+                break;
+            };
+            repaint = true;
+            if let Some(ending) = self.ending.as_mut() {
+                ending.advance(assets).map_err(|error| error.to_string())?;
+                self.pending_step = false;
+            } else if opening.complete() && opening.snapshot().player.game_over {
+                self.ending = Some(
+                    Ending::new_with_best(
+                        assets,
+                        &opening.snapshot(),
+                        opening.frame(),
+                        self.session.best_score,
+                    )
+                    .map_err(|error| error.to_string())?,
+                );
+                self.pending_step = false;
+            } else if !opening.complete() {
+                if opening.at_body_boundary() && !self.body_polled {
+                    let result = self
+                        .session
+                        .controls
+                        .poll(self.session.keyboard.held_keys(0));
+                    repaint |= result.display_toggled;
+                    self.body_polled = true;
+                    self.session.pause.poll(result.mask);
+                }
+                if self.session.pause.state == PauseState::Running {
+                    let passes = if options.playback == Playback::Step {
+                        3 - if opening.at_body_boundary() {
+                            0
+                        } else {
+                            opening.snapshot().render_pass
+                        }
+                    } else {
+                        1
+                    };
+                    for _ in 0..passes {
+                        repaint |= advance_game_pass(
+                            opening,
+                            assets,
+                            &mut self.session,
+                            options.controls,
+                            &mut self.quit_after_body_entry,
+                        )?;
+                        self.transitions
+                            .append(opening.take_transitions(), now, unit);
+                        if self.transitions.active() {
+                            break;
+                        }
+                    }
+                    if opening.at_body_boundary() {
+                        self.body_polled = false;
+                    }
+                    self.pending_step =
+                        options.playback == Playback::Step && !opening.at_body_boundary();
+                }
+            } else {
+                self.pending_step = false;
+            }
+            self.color_family = opening.palette_family();
+            let period = self
+                .ending
+                .as_ref()
+                .map_or(unit, |state| options.body_period * state.wait_units() / 3);
+            self.next_frame = if opening.complete()
+                && !opening.snapshot().player.game_over
+                && self.ending.is_none()
+            {
+                None
+            } else if self.ending.is_some() || !timed {
+                // Ending frames carry deliberate visible waits, like transitions.
+                Some(now + period)
+            } else {
+                self.next_frame.map(|deadline| deadline + period)
+            };
+            if self.ending.is_some() || opening.complete() || options.playback != Playback::Animated
+            {
+                break;
+            }
+        }
+        Ok(repaint)
+    }
+}
+
 fn run_inner(
     frames: &StartupFrames,
     options: Options,
@@ -353,18 +536,9 @@ fn run_inner(
     if options.body_period.is_zero() || options.body_period > std::time::Duration::from_secs(5) {
         return Err("opening period must be greater than zero and at most five seconds".into());
     }
-    let mut session = SessionState::default();
-    session.select_intro(); // First intro consumes exactly one random word.
-    let mut opening: Option<Opening> = None;
-    let mut color_family = 1;
-    let mut ending: Option<Ending> = None;
+    let mut game = GamePlayback::default();
+    game.session.select_intro(); // First intro consumes exactly one random word.
     let mut returned_intro = None;
-    let mut next_frame = None;
-    let mut pause_tick = None;
-    let mut transitions = TransitionPlayback::default();
-    let mut body_polled = false;
-    let mut quit_after_body_entry = false;
-    let mut pending_step = false;
     let mut step_key_held = false;
     let mut host_pause = HostPause::default();
     let mut input = ControlInput::default();
@@ -378,7 +552,7 @@ fn run_inner(
         .update(&display_rgb(
             frames.frame(shown),
             DisplayMode::Color,
-            color_family,
+            game.color_family,
         ))
         .map_err(|error| error.to_string())?;
     window.present(&texture)?;
@@ -395,11 +569,11 @@ fn run_inner(
                 if was_scene {
                     toggle_host_pause(
                         &mut host_pause,
-                        &mut session,
+                        &mut game.session,
                         &mut input,
                         std::time::Instant::now(),
                     );
-                    pending_step = false;
+                    game.pending_step = false;
                     step_key_held = false;
                     repaint = true;
                 }
@@ -415,7 +589,7 @@ fn run_inner(
                     ..
                 } => {
                     if !step_key_held {
-                        pending_step |= was_scene && options.playback == Playback::Step;
+                        game.pending_step |= was_scene && options.playback == Playback::Step;
                     }
                     step_key_held = true;
                 }
@@ -429,13 +603,14 @@ fn run_inner(
                 } => step_key_held = false,
                 _ => {}
             }
-            input.handle(&mut session, &event, was_scene);
+            input.handle(&mut game.session, &event, was_scene);
             if action == Action::Space && was_scene {
-                if let Some(state) = ending.as_mut().filter(|state| state.can_return()) {
+                if let Some(state) = game.ending.as_mut().filter(|state| state.can_return()) {
                     returned_intro = state.returned_intro_choice();
-                    session.remember_ending(&state.snapshot(), state.special_snapshots());
+                    game.session
+                        .remember_ending(&state.snapshot(), state.special_snapshots());
                     presentation.return_to_intro();
-                    next_frame = None;
+                    game.next_frame = None;
                 }
             }
         }
@@ -453,11 +628,11 @@ fn run_inner(
             shown = presentation.screen();
             repaint = true;
             if shown == Screen::Intro {
-                color_family = 1; // Repeat entry selects palette family1 before intro.
+                game.color_family = 1; // Repeat entry selects palette family1 before intro.
             }
             if shown == Screen::InitialScene && options.playback != Playback::Static {
-                let start = session.begin_game();
-                opening = Some(
+                let start = game.session.begin_game();
+                game.opening = Some(
                     if let Some(rules) = &rules {
                         Opening::for_play(frames.graphics(), rules.clone(), start)
                     } else if options.controls {
@@ -467,138 +642,34 @@ fn run_inner(
                     }
                     .map_err(|error| error.to_string())?,
                 );
-                color_family = opening.as_ref().unwrap().palette_family();
-                ending = None;
-                transitions = TransitionPlayback::default();
+                game.color_family = game.opening.as_ref().unwrap().palette_family();
+                game.ending = None;
+                game.transitions = TransitionPlayback::default();
                 returned_intro = None;
-                body_polled = false;
-                quit_after_body_entry = false;
-                pending_step = false;
-                next_frame =
+                game.body_polled = false;
+                game.quit_after_body_entry = false;
+                game.pending_step = false;
+                game.next_frame =
                     Some(host_pause.now(std::time::Instant::now()) + options.body_period / 3);
             }
         }
         let now = host_pause.now(std::time::Instant::now());
-        let transition_was_active = transitions.active();
-        if transitions.advance(now, options.body_period / 3) {
-            repaint = true;
-            if !transitions.active() {
-                next_frame = Some(now + options.body_period / 3);
-            }
-        }
-        // Pause's busy input polls are separate from its two timed waits.
-        if !transition_was_active && session.pause.state != PauseState::Running {
-            if pause_waiting(session.pause.state) {
-                if pause_tick.is_some_and(|deadline| now >= deadline) {
-                    session.pause.tick();
-                    pause_tick = Some(now + options.body_period / 3);
-                }
-            } else {
-                let result = session.controls.poll(session.keyboard.held_keys(0));
-                repaint |= result.display_toggled;
-                match session.pause.poll(result.mask) {
-                    PauseEvent::EndGame => quit_after_body_entry = true,
-                    PauseEvent::Resumed => next_frame = Some(now),
-                    _ => {}
-                }
-                if pause_waiting(session.pause.state) {
-                    pause_tick = Some(now + options.body_period / 3);
-                }
-            }
-        }
-        if shown == Screen::InitialScene
-            && !transition_was_active
-            && session.pause.state == PauseState::Running
-        {
-            let timed = options.playback == Playback::Animated
-                && next_frame.is_some_and(|deadline| now >= deadline);
-            if pending_step || timed {
-                if let Some(opening) = &mut opening {
-                    repaint = true;
-                    if let Some(ending) = &mut ending {
-                        ending
-                            .advance(frames.graphics())
-                            .map_err(|error| error.to_string())?;
-                        pending_step = false;
-                    } else if opening.complete() && opening.snapshot().player.game_over {
-                        ending = Some(
-                            Ending::new_with_best(
-                                frames.graphics(),
-                                &opening.snapshot(),
-                                opening.frame(),
-                                session.best_score,
-                            )
-                            .map_err(|error| error.to_string())?,
-                        );
-                        pending_step = false;
-                    } else if !opening.complete() {
-                        if opening.at_body_boundary() && !body_polled {
-                            let result = session.controls.poll(session.keyboard.held_keys(0));
-                            repaint |= result.display_toggled;
-                            body_polled = true;
-                            session.pause.poll(result.mask);
-                        }
-                        if session.pause.state == PauseState::Running {
-                            let passes = if options.playback == Playback::Step {
-                                3 - if opening.at_body_boundary() {
-                                    0
-                                } else {
-                                    opening.snapshot().render_pass
-                                }
-                            } else {
-                                1
-                            };
-                            for _ in 0..passes {
-                                repaint |= advance_game_pass(
-                                    opening,
-                                    frames.graphics(),
-                                    &mut session,
-                                    options.controls,
-                                    &mut quit_after_body_entry,
-                                )?;
-                                transitions.append(
-                                    opening.take_transitions(),
-                                    now,
-                                    options.body_period / 3,
-                                );
-                                if transitions.active() {
-                                    break;
-                                }
-                            }
-                            if opening.at_body_boundary() {
-                                body_polled = false;
-                            }
-                            pending_step =
-                                options.playback == Playback::Step && !opening.at_body_boundary();
-                        }
-                    } else {
-                        pending_step = false;
-                    }
-                    color_family = opening.palette_family();
-                    let period = ending.as_ref().map_or(options.body_period / 3, |state| {
-                        options.body_period * state.wait_units() / 3
-                    });
-                    next_frame = if opening.complete()
-                        && !opening.snapshot().player.game_over
-                        && ending.is_none()
-                    {
-                        None
-                    } else if timed {
-                        next_frame.map(|deadline| deadline + period)
-                    } else {
-                        Some(now + period)
-                    };
-                }
+        if shown == Screen::InitialScene {
+            repaint |= game.advance(frames.graphics(), options, now)?;
+            // Repump events before the next bounded catch-up batch. Presenting
+            // here would add another vsync wait while ordinary work is overdue.
+            if game.ordinary_due(options, now) {
+                continue;
             }
         }
         if repaint {
             let frame = if shown == Screen::InitialScene {
-                transitions
+                game.transitions
                     .frames
                     .front()
                     .map(|step| &step.frame)
-                    .or_else(|| ending.as_ref().map(Ending::frame))
-                    .or_else(|| opening.as_ref().map(Opening::frame))
+                    .or_else(|| game.ending.as_ref().map(Ending::frame))
+                    .or_else(|| game.opening.as_ref().map(Opening::frame))
                     .unwrap_or_else(|| frames.frame(shown))
             } else if shown == Screen::Intro {
                 returned_intro
@@ -609,19 +680,19 @@ fn run_inner(
             texture
                 .update(&display_rgb(
                     frame,
-                    session.controls.preferences.display_mode,
-                    color_family,
+                    game.session.controls.preferences.display_mode,
+                    game.color_family,
                 ))
                 .map_err(|error| error.to_string())?;
-            let caption = if session.pause.state != PauseState::Running {
+            let caption = if game.session.pause.state != PauseState::Running {
                 "REforge — Mach 3 — Paused (release keys, then F1 to end game or another key to resume)"
             } else if shown != Screen::InitialScene {
                 title(shown)
-            } else if ending.as_ref().is_some_and(Ending::can_return) {
+            } else if game.ending.as_ref().is_some_and(Ending::can_return) {
                 "REforge — Mach 3 — Game Over / High Score (Space to return, Esc to close)"
-            } else if ending.is_some() {
+            } else if game.ending.is_some() {
                 "REforge — Mach 3 — Game Over / High Score (Esc to close)"
-            } else if opening.as_ref().is_some_and(Opening::complete) {
+            } else if game.opening.as_ref().is_some_and(Opening::complete) {
                 "REforge — Mach 3 — Preview complete (Esc to close)"
             } else if options.playback == Playback::Step {
                 "REforge — Mach 3 — Opening (Enter to step, F1 to pause, Esc to close)"
@@ -632,9 +703,10 @@ fn run_inner(
             window.present(&texture)?;
         }
         let poll_interval = std::time::Duration::from_millis(4);
-        let deadline = transitions.deadline.or_else(|| {
-            next_frame.filter(|_| {
-                options.playback == Playback::Animated && session.pause.state == PauseState::Running
+        let deadline = game.transitions.deadline.or_else(|| {
+            game.next_frame.filter(|_| {
+                options.playback == Playback::Animated
+                    && game.session.pause.state == PauseState::Running
             })
         });
         let delay = deadline.map_or(poll_interval, |deadline| {
@@ -902,6 +974,224 @@ mod tests {
                 win_event: WindowEvent::CloseRequested
             }
         ));
+    }
+
+    fn synthetic_assets() -> GraphicsAssets {
+        GraphicsAssets {
+            primary: vec![0x55; 28_960],
+            alternate: vec![0; 16_000],
+            sprites: (0..190)
+                .map(|_| crate::assets::Sprite {
+                    width_bytes: 14,
+                    height: 37,
+                    descriptor: [0; 7],
+                    color: vec![0; 14 * 37],
+                    mask: vec![255; 14 * 37],
+                })
+                .collect(),
+        }
+    }
+
+    fn running_playback(
+        assets: &GraphicsAssets,
+        start: std::time::Instant,
+        options: Options,
+    ) -> GamePlayback {
+        GamePlayback {
+            opening: Some(Opening::new(assets).unwrap()),
+            next_frame: Some(start + options.body_period / 3),
+            ..GamePlayback::default()
+        }
+    }
+
+    fn pass_count(game: &GamePlayback) -> u32 {
+        let state = game.opening.as_ref().unwrap().snapshot();
+        if state.body == 0 {
+            0
+        } else {
+            u32::from(state.body - 1) * 3 + u32::from(state.render_pass)
+        }
+    }
+
+    #[test]
+    fn ordinary_simulation_matches_at_15_30_60_and_120_presentations_per_second() {
+        use std::time::{Duration, Instant};
+        let assets = synthetic_assets();
+        let options = Options {
+            controls: true,
+            ..Options::default()
+        };
+        let start = Instant::now();
+        let end = start + Duration::from_secs(1);
+        let unit = options.body_period / 3;
+        let mut reference = running_playback(&assets, start, options);
+        for scan in [0x4d, 0x39, 0x3c] {
+            reference.session.keyboard.apply_scan(scan);
+        }
+        // Reference processes exactly one due original pass per call.
+        let passes = (Duration::from_secs(1).as_nanos() / unit.as_nanos()) as u32;
+        for pass in 1..=passes {
+            reference
+                .advance(&assets, options, start + unit * pass)
+                .unwrap();
+        }
+        assert_eq!(pass_count(&reference), passes);
+        assert!(passes > 30);
+        for fps in [15, 30, 60, 120] {
+            let mut game = running_playback(&assets, start, options);
+            for scan in [0x4d, 0x39, 0x3c] {
+                game.session.keyboard.apply_scan(scan);
+            }
+            // Simulate blocking presentation by advancing the host clock between
+            // calls to the exact same scheduling path used by the SDL viewer.
+            for frame in 1..=fps {
+                let now = start + Duration::from_nanos(1_000_000_000 * frame / fps);
+                game.advance(&assets, options, now).unwrap();
+                assert!(!game.transitions.active());
+            }
+            assert_eq!(pass_count(&game), passes, "presentation rate {fps}");
+            // Snapshot has no PartialEq; its Debug covers every reconstructed field.
+            assert_eq!(
+                format!("{:?}", game.opening.as_ref().unwrap().snapshot()),
+                format!("{:?}", reference.opening.as_ref().unwrap().snapshot())
+            );
+            assert_eq!(
+                game.opening.as_ref().unwrap().frame(),
+                reference.opening.as_ref().unwrap().frame()
+            );
+            assert_eq!(
+                game.session.controls.preferences,
+                reference.session.controls.preferences
+            );
+            assert_eq!(
+                game.session.controls.sound_poll_counter,
+                reference.session.controls.sound_poll_counter
+            );
+            assert_eq!(game.next_frame, reference.next_frame);
+            assert!(game.next_frame.unwrap() > end);
+        }
+    }
+
+    #[test]
+    fn bounded_catch_up_keeps_debt_without_changing_step_or_static_playback() {
+        use std::time::Instant;
+        let assets = synthetic_assets();
+        let options = Options::default();
+        let start = Instant::now();
+        let late = start + options.body_period / 3 * 100;
+        let mut game = running_playback(&assets, start, options);
+        game.advance(&assets, options, late).unwrap();
+        assert_eq!(pass_count(&game), 64);
+        assert!(game.ordinary_due(options, late));
+        assert!(game.next_frame.unwrap() <= late);
+        game.advance(&assets, options, late).unwrap();
+        assert_eq!(pass_count(&game), 100);
+        assert!(!game.ordinary_due(options, late));
+        assert!(game.next_frame.unwrap() > late);
+        for playback in [Playback::Step, Playback::Static] {
+            let options = Options {
+                playback,
+                ..options
+            };
+            let mut game = running_playback(&assets, start, options);
+            assert!(!game.advance(&assets, options, late).unwrap());
+            assert_eq!(pass_count(&game), 0);
+            if playback == Playback::Step {
+                game.pending_step = true;
+                assert!(game.advance(&assets, options, late).unwrap());
+                assert_eq!(pass_count(&game), 3);
+                assert!(!game.advance(&assets, options, late).unwrap());
+                assert_eq!(pass_count(&game), 3);
+            }
+        }
+    }
+
+    #[test]
+    fn catch_up_stops_for_native_pause_and_preserves_transition_waits() {
+        use std::time::Instant;
+        let assets = synthetic_assets();
+        let options = Options::default();
+        let start = Instant::now();
+        let unit = options.body_period / 3;
+        let late = start + unit * 100;
+        let mut paused = running_playback(&assets, start, options);
+        paused.session.keyboard.apply_scan(0x3b);
+        paused.advance(&assets, options, late).unwrap();
+        assert_eq!(paused.session.pause.state, PauseState::AwaitInitialRelease);
+        assert_eq!(pass_count(&paused), 0);
+        let mut game = running_playback(&assets, start, options);
+        let frame = game.opening.as_ref().unwrap().frame().clone();
+        game.transitions.append(
+            [2, 5]
+                .into_iter()
+                .map(|wait_count| TransitionFrame {
+                    frame: frame.clone(),
+                    clip: crate::frame::Rect {
+                        x_bytes: 0,
+                        y: 0,
+                        width_bytes: 1,
+                        height: 1,
+                    },
+                    wait_count,
+                    before_pass: false,
+                    palette_family: 1,
+                    state: None,
+                })
+                .collect(),
+            start,
+            unit,
+        );
+        game.advance(&assets, options, late).unwrap();
+        assert_eq!(game.transitions.frames.len(), 1);
+        assert_eq!(game.transitions.deadline, Some(late + unit * 5));
+        assert_eq!(pass_count(&game), 0);
+        game.advance(&assets, options, late + unit * 4).unwrap();
+        assert_eq!(game.transitions.frames.len(), 1);
+        game.advance(&assets, options, late + unit * 5).unwrap();
+        assert!(!game.transitions.active());
+        assert_eq!(game.next_frame, Some(late + unit * 6));
+        assert_eq!(pass_count(&game), 0);
+        game.advance(&assets, options, late + unit * 6).unwrap();
+        assert_eq!(pass_count(&game), 1);
+    }
+
+    #[test]
+    fn ending_frames_keep_their_visible_waits_instead_of_catching_up() {
+        use std::time::Instant;
+        let assets = synthetic_assets();
+        let options = Options::default();
+        let start = Instant::now();
+        let unit = options.body_period / 3;
+        let mut game = running_playback(&assets, start, options);
+        let opening = game.opening.as_mut().unwrap();
+        opening.request_game_over();
+        for _ in 0..3 {
+            opening
+                .advance_subframe(&assets, Steering::default())
+                .unwrap();
+        }
+        let mut expected =
+            Ending::new_with_best(&assets, &opening.snapshot(), opening.frame(), 0).unwrap();
+        game.advance(&assets, options, start + unit * 100).unwrap();
+        assert!(game.ending.is_some());
+        let next = game.next_frame.unwrap();
+        game.advance(&assets, options, next - std::time::Duration::from_nanos(1))
+            .unwrap();
+        assert_eq!(
+            format!("{:?}", game.ending.as_ref().unwrap().snapshot()),
+            format!("{:?}", expected.snapshot())
+        );
+        expected.advance(&assets).unwrap();
+        let late = next + unit * 100;
+        game.advance(&assets, options, late).unwrap();
+        assert_eq!(
+            format!("{:?}", game.ending.as_ref().unwrap().snapshot()),
+            format!("{:?}", expected.snapshot())
+        );
+        assert_eq!(
+            game.next_frame,
+            Some(late + options.body_period * expected.wait_units() / 3)
+        );
     }
 
     #[test]

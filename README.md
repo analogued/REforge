@@ -275,16 +275,17 @@ costs are provisional. Scene-specific CGA/PCjr palette tables,
 carried-gift background changes and completion flashes are applied separately
 from packed framebuffer pixels. Audio remains silent.
 
-The player starts settled on the floor, bypassing the original entry animation.
-Falling behind the fence hides the cat and starts a clipped re-entry from the
-nearer alley edge. Its speaker effect is silent. The timed runner blocks game
+Starting through the menu or restarting runs the clipped alley-edge entry
+animation. Direct development starts bypass this initial entry. Falling behind
+the fence hides the cat and starts a clipped re-entry from the nearer alley edge.
+Its speaker effect is silent. The timed runner blocks game
 work until seven BIOS ticks have elapsed and advances the effect's shared random
 state through its original call-count algorithm, using approximate loop costs.
 
 The splash uses a separate copy of the executable data. Watching it does not
-advance the fixed gameplay seed; shared startup/menu state integration remains
-deferred. Startup menus and audio output are absent. Windowed execution uses a
-virtual BIOS/PIT clock, two-tick control
+advance the fixed gameplay seed; shared startup state integration remains
+deferred. Audio output is absent. Windowed execution uses a virtual BIOS/PIT
+clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle
 movement. The reference is DOSBox-X normal CPU core at fixed 240 cycles. Loop
 costs are fitted approximations; original-PC timing fidelity is not established.

@@ -1,5 +1,5 @@
 [package]
-name = "alley-cat"
+name = "alleycat"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
@@ -19,3 +19,7 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"
+
+[[bin]]
+name = "alley-cat"
+path = "src/main.rs"

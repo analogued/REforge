@@ -35,7 +35,7 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
                         .map_err(|_| "Alley Cat arguments must be UTF-8".to_string())
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            alley_cat::cli::run(args)
+            alleycat::cli::run(args)
         }
         Some("mach-3") => {
             #[cfg(feature = "sdl")]

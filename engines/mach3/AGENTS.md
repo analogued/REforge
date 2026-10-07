@@ -16,7 +16,7 @@
   variant comparisons out of the README and repository docs. Record them with
   external private evidence. Repository docs should describe maintained tools,
   implementation, and verified technical findings useful in a standalone clone.
-- This game crate contains authored project source and documented RE knowledge.
+- This engine crate contains authored project source and documented RE knowledge.
   Original game files and raw generated evidence are external inputs. Keep them
   outside Git unless a specific redistribution basis has been established.
 - These instructions must remain usable in a standalone clone. Do not require
@@ -26,7 +26,7 @@
 - Preserve original inputs and persistent intermediate evidence. Put reproducible
   build/cache output in the configured working directory.
 - Keep game-specific runtime code and technical documentation here under
-  `games/mach-3/`. Follow the root instructions for supporting RE tool/helper
+  `engines/mach3/`. Follow the root instructions for supporting RE tool/helper
   placement: investigation scripts and checkpoint profiles are private by default,
   with exact archived copies preserved independently of maintained working tools.
   Extract demonstrated shared application facilities

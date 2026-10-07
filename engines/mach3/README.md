@@ -1,6 +1,6 @@
 # Mach 3
 
-Game crate for [REforge](../../README.md), recreating the **DOS version of Mach 3**,
+The `mach3` engine crate for [REforge](../../README.md) recreates the **DOS version of Mach 3**,
 released in 1987 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
 Status: Rust gameplay recreation with steering, shooting, encounter
 progression, collision responses, and retained-session restarts.
@@ -19,9 +19,9 @@ scripts, and repeatability.
 See [gameplay recordings](docs/gameplay-recordings.md) for the Rust replay interface,
 recording format and synchronization rules.
 
-## Game crate structure
+## Engine crate structure
 
-This crate lives at `games/mach-3/` in REforge. Its implementation is in `src/`,
+This crate lives at `engines/mach3/` in REforge. Its implementation is in `src/`,
 Rust integration tests in `tests/`, and technical reference documentation in `docs/`.
 Shared application facilities belong in the combined repository's `crates/`.
 Keep `docs/` for maintained implementation and reference documentation. Internal

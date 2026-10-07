@@ -1,7 +1,7 @@
 # REforge
 
 Rust reconstructions of DOS games for modern desktop systems, currently
-[Alley Cat](games/alley-cat/README.md) and [Mach 3](games/mach-3/README.md).
+[Alley Cat](engines/alleycat/README.md) and [Mach 3](engines/mach3/README.md).
 Each game requires its original files, supplied separately. REforge reads their
 assets and tables and implements the reconstructed behavior natively.
 The games are still in development; audio remains unimplemented.
@@ -9,7 +9,7 @@ The games are still in development; audio remains unimplemented.
 ## Build and run
 
 Install Rust 1.85 or newer, Cargo and SDL3 development/runtime libraries.
-One Cargo workspace and lockfile cover the application and both game crates.
+One Cargo workspace and lockfile cover the application and both engine crates.
 
 ```sh
 cargo build --locked --release -p reforge
@@ -41,18 +41,21 @@ binaries for headless work. These tools continue to be available with
 ## Source organization
 
 - `app/`: the `reforge` application and game selection.
-- `games/alley-cat/`: the `alley-cat` library and legacy game binary.
-- `games/mach-3/`: the `mach3` library and its viewer/export/replay binaries.
+- `engines/alleycat/`: the `alleycat` engine library and legacy game binary.
+- `engines/mach3/`: the `mach3` engine library and its viewer/export/replay binaries.
 - `crates/`: shared facilities as demonstrated reuse justifies extraction.
 
 Game-specific gameplay, asset formats, timing and randomness stay in their own
-crates. Shared presentation and audio can be extracted incrementally.
+engine crates. Engine IDs, Cargo packages and Rust crate names use `alleycat`
+and `mach3`; the player game IDs remain `alley-cat` and `mach-3`. An engine can
+support multiple games when their implementation is shared. Shared presentation
+and audio can be extracted incrementally.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for style, commits and validation.
 
 ## License
 
 The repository-wide project license has not been selected; no project license
 is granted yet. Existing third-party terms and attribution remain in
-[Alley Cat notices](games/alley-cat/THIRD_PARTY.md) and
-[Mach 3 notices](games/mach-3/docs/dependencies.md), with their license texts.
+[Alley Cat notices](engines/alleycat/THIRD_PARTY.md) and
+[Mach 3 notices](engines/mach3/docs/dependencies.md), with their license texts.
 Original game data is not included or licensed by this repository.

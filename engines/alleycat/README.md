@@ -5,7 +5,7 @@ initially targeting Linux. The current program supports alley movement,
 alley and room actors, damage, window entry, the fishbowl, bookcase, cheese, birdcage and milk rooms,
 and the hearts bonus scene.
 It is not a complete game.
-Alley Cat is the `alley-cat` game crate in **REforge**.
+Alley Cat is the `alleycat` engine crate in **REforge**.
 
 ## Original game required
 

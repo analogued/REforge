@@ -2,7 +2,7 @@
 
 //! Alley rendering and accepted player updates, independent of host presentation.
 
-extern crate self as alley_cat;
+extern crate self as alleycat;
 
 pub mod alley;
 pub mod assets;

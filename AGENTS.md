@@ -17,11 +17,14 @@
   Do not hard-code a user's paths or require a particular parent directory layout.
 - Preserve original inputs and persistent intermediate evidence. Put reproducible
   build/cache output in the configured working directory.
-- Use Rust for the combined application, game library crates and shared runtime
+- Use Rust for the combined application, engine library crates and shared runtime
   code. Use SDL3 for native presentation; supporting tools may use other languages.
-- Keep game runtime code under `games/<game-id>/`, shared crates under `crates/`,
+- Keep reconstructed engine code under `engines/<engine-id>/`, shared crates under `crates/`,
   and application code under `app/`. Preserve each game's asset, timing and random
   rules; extract demonstrated common facilities rather than imposing one game loop.
+- Keep engine IDs distinct from player game IDs. Engine IDs, Cargo package names
+  and Rust crate names align; one engine can support multiple games. Shared video
+  or sound hardware alone does not establish a shared game engine.
 - Keep supporting game/engine-specific RE scripts and capture profiles outside
   this source repository in configured private storage by default. Distinguish
   maintained tools intended for future investigations from helpers bounded to
@@ -34,7 +37,7 @@
   shared changes, validate affected games and merge focused branches into `main`.
   Independent clones per game are not the development convention.
 - Read applicable instructions and validation requirements in each affected
-  game crate. The RE method and external data requirements are game-specific.
+  engine crate. The RE method and external data requirements are game-specific.
 - All games require external original data. Do not bundle extracted assets or
   substitute recreated data to make the application standalone.
 - The license is a project-specific decision and has not been chosen. Once chosen,

@@ -1,8 +1,8 @@
 # Contributing to Alley Cat
 
 Follow [REforge's contributing guide](../../CONTRIBUTING.md) for formatting,
-commit conventions, licensing and shared validation. This game is the `alley-cat`
-package in the combined Cargo workspace, using its root lockfile. Rust requires
+commit conventions, licensing and shared validation. This game is the `alleycat`
+engine package in the combined Cargo workspace, using its root lockfile. Rust requires
 version 1.85 or newer. Keep game-specific assets, behavior, timing and randomness
 within this crate. Preserve imported code attribution and license notices.
 
@@ -13,14 +13,14 @@ validation when relevant. For changes to the Rust implementation, run from the c
 
 ```sh
 cargo fmt --all -- --check
-cargo test --locked -p alley-cat
-cargo clippy --locked -p alley-cat --all-targets -- -D warnings
-cargo test --locked -p alley-cat --no-default-features
-cargo clippy --locked -p alley-cat --all-targets --no-default-features -- -D warnings
-cargo test --locked -p alley-cat --features dev-tools
-cargo clippy --locked -p alley-cat --all-targets --features dev-tools -- -D warnings
-cargo test --locked -p alley-cat --no-default-features --features dev-tools
-cargo clippy --locked -p alley-cat --all-targets --no-default-features --features dev-tools -- -D warnings
+cargo test --locked -p alleycat
+cargo clippy --locked -p alleycat --all-targets -- -D warnings
+cargo test --locked -p alleycat --no-default-features
+cargo clippy --locked -p alleycat --all-targets --no-default-features -- -D warnings
+cargo test --locked -p alleycat --features dev-tools
+cargo clippy --locked -p alleycat --all-targets --features dev-tools -- -D warnings
+cargo test --locked -p alleycat --no-default-features --features dev-tools
+cargo clippy --locked -p alleycat --all-targets --no-default-features --features dev-tools -- -D warnings
 ```
 
 The default build requires SDL3. Headless diagnostic runs require

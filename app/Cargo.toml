@@ -8,12 +8,12 @@ description = "REforge game reconstructions for modern desktop systems"
 
 [features]
 default = ["sdl"]
-sdl = ["alley-cat/sdl", "mach3/viewer"]
-dev-tools = ["alley-cat/dev-tools"]
+sdl = ["alleycat/sdl", "mach3/viewer"]
+dev-tools = ["alleycat/dev-tools"]
 
 [dependencies]
-alley-cat = { path = "../games/alley-cat", default-features = false }
-mach3 = { path = "../games/mach-3", default-features = false }
+alleycat = { path = "../engines/alleycat", default-features = false }
+mach3 = { path = "../engines/mach3", default-features = false }
 
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"

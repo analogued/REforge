@@ -1,20 +1,20 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
-use alley_cat::alley::{Alley, Machine};
+use alleycat::alley::{Alley, Machine};
 #[cfg(any(feature = "sdl", feature = "dev-tools"))]
-use alley_cat::cga::{HEIGHT, WIDTH};
+use alleycat::cga::{HEIGHT, WIDTH};
 #[cfg(feature = "dev-tools")]
-use alley_cat::dev_tools::DevOptions;
+use alleycat::dev_tools::DevOptions;
 #[cfg(any(feature = "sdl", feature = "dev-tools"))]
-use alley_cat::player::Controls;
+use alleycat::player::Controls;
 #[cfg(feature = "dev-tools")]
-use alley_cat::runtime::PassOutcome;
+use alleycat::runtime::PassOutcome;
 #[cfg(any(feature = "sdl", feature = "dev-tools"))]
-use alley_cat::runtime::Runtime;
+use alleycat::runtime::Runtime;
 #[cfg(any(feature = "sdl", feature = "dev-tools"))]
-use alley_cat::splash::Splash;
+use alleycat::splash::Splash;
 #[cfg(any(feature = "sdl", feature = "dev-tools"))]
-use alley_cat::timing::{RetraceProfile, VirtualClock};
+use alleycat::timing::{RetraceProfile, VirtualClock};
 #[cfg(feature = "dev-tools")]
 use std::fs::{self, File};
 #[cfg(feature = "dev-tools")]
@@ -366,7 +366,7 @@ fn timing_row(
     output: &mut impl Write,
     index: usize,
     event: &PassOutcome,
-    selection: alley_cat::alley::SelectionTraceState,
+    selection: alleycat::alley::SelectionTraceState,
 ) -> Result<(), String> {
     writeln!(
         output,
@@ -412,9 +412,9 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
         #[cfg(not(feature = "dev-tools"))]
         let enabled = true;
         if enabled {
-            let assets = alley_cat::assets::Assets::load(&options.original)?;
+            let assets = alleycat::assets::Assets::load(&options.original)?;
             let mut data = assets.runtime_data();
-            alley_cat::assets::set_word(&mut data, 0x2ae5, seed);
+            alleycat::assets::set_word(&mut data, 0x2ae5, seed);
             Some(Startup {
                 splash: Splash::new(&data, options.machine)?,
                 #[cfg(feature = "sdl")]
@@ -611,7 +611,7 @@ fn advance_splash(
 ) -> Result<(), String> {
     // Original gates use virtual BIOS/retrace time. These loop/drawing costs
     // reuse the existing fixed-240 fit; splash-specific costs are provisional.
-    let costs = alley_cat::runtime::ReferenceCosts::dosbox_x_240(splash.machine());
+    let costs = alleycat::runtime::ReferenceCosts::dosbox_x_240(splash.machine());
     clock.advance_nanos(costs.prelude);
     let sample = clock.sample();
     let step = splash.advance(sample.bios.tick_low, sample.retrace, key_pressed)?;
@@ -626,7 +626,7 @@ fn advance_splash(
 
 #[cfg(feature = "sdl")]
 fn present_splash(
-    window: &mut alley_cat::platform::Window,
+    window: &mut alleycat::platform::Window,
     splash: &mut Splash,
     ticks: Option<usize>,
 ) -> Result<bool, String> {
@@ -679,7 +679,7 @@ fn splash_preview(
     } else {
         #[cfg(feature = "sdl")]
         {
-            let mut window = alley_cat::platform::Window::new(
+            let mut window = alleycat::platform::Window::new(
                 "REforge — Alley Cat splash",
                 WIDTH as u32,
                 HEIGHT as u32,
@@ -714,7 +714,7 @@ fn splash_preview(
 
 #[cfg(feature = "sdl")]
 fn present_menu(
-    window: &mut alley_cat::platform::Window,
+    window: &mut alleycat::platform::Window,
     alley: &mut Alley,
     difficulty: Option<u16>,
 ) -> Result<bool, String> {
@@ -739,7 +739,7 @@ fn present_menu(
 
 #[cfg(feature = "sdl")]
 fn present_game_over(
-    window: &mut alley_cat::platform::Window,
+    window: &mut alleycat::platform::Window,
     alley: &mut Alley,
 ) -> Result<bool, String> {
     let mut splash = alley.game_over_splash()?;
@@ -759,7 +759,7 @@ fn interactive(
     #[cfg(feature = "dev-tools")] trace: &mut Option<BufWriter<File>>,
     #[cfg(feature = "dev-tools")] timing_trace: &mut Option<BufWriter<File>>,
 ) -> Result<(), String> {
-    use alley_cat::platform::{PauseClock, PauseOverlay, Window};
+    use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
 
     let mut window = Window::new(
@@ -891,7 +891,7 @@ fn interactive_diagnostic(
     steps: Option<usize>,
     trace: &mut Option<BufWriter<File>>,
 ) -> Result<(), String> {
-    use alley_cat::platform::{PauseClock, PauseOverlay, Window};
+    use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
     let mut window = Window::new(
         "REforge — Alley Cat",
@@ -1058,7 +1058,7 @@ mod tests {
             scene: 7,
             scene_changed: true,
         };
-        let selection = alley_cat::alley::SelectionTraceState {
+        let selection = alleycat::alley::SelectionTraceState {
             last_room: 5,
             previous_room: 5,
             random_state: 64089,
@@ -1196,13 +1196,13 @@ mod tests {
             !options
                 .dev
                 .switches
-                .actor_disabled(alley_cat::dev_tools::Actor::AlleyDog)
+                .actor_disabled(alleycat::dev_tools::Actor::AlleyDog)
         );
         assert!(
             !options
                 .dev
                 .switches
-                .damage_disabled(alley_cat::dev_tools::Damage::AlleyDog)
+                .damage_disabled(alleycat::dev_tools::Damage::AlleyDog)
         );
     }
 

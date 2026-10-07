@@ -76,8 +76,8 @@ Run `cargo fmt --all -- --check`,
 `cargo clippy --locked --workspace --all-targets -- -D warnings`, plus the
 feature/build combinations required by the affected crates. Package-scoped
 checks can aid development; shared changes must validate affected games.
-See [Alley Cat checks](games/alley-cat/CONTRIBUTING.md) and
-[Mach 3 checks](games/mach-3/CONTRIBUTING.md) for their feature matrices and tools.
+See [Alley Cat checks](engines/alleycat/CONTRIBUTING.md) and
+[Mach 3 checks](engines/mach3/CONTRIBUTING.md) for their feature matrices and tools.
 For application CLI changes, test and lint `-p reforge` with default features,
 `--no-default-features`, `--features dev-tools`, and both options combined.
 Release optimization (`--release`) is independent of the opt-in `dev-tools`

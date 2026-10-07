@@ -1,4 +1,4 @@
 [workspace]
-members = ["app", "games/alley-cat", "games/mach-3"]
+members = ["app", "engines/alleycat", "engines/mach3"]
 default-members = ["app"]
 resolver = "3"

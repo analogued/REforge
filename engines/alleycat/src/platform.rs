@@ -11,7 +11,7 @@ use reforge_sdl::sdl3::{
     render::FRect,
 };
 pub use reforge_sdl::{FrameCreator, Window as Display};
-use reforge_sdl::{FrameFormat, FrameTexture};
+use reforge_sdl::{FrameFormat, FrameTexture, HostShortcut, host_shortcut};
 use std::time::{Duration, Instant};
 
 const CONTROL: u16 = Mod::LCTRLMOD.bits() | Mod::RCTRLMOD.bits();
@@ -219,8 +219,10 @@ fn modifier_key(scancode: Scancode) -> bool {
 
 impl Input {
     fn record_press(&mut self, scancode: Scancode, modifiers: u16, repeat: bool) {
-        if scancode == Scancode::Q && modifiers & CONTROL != 0 {
-            self.quit = true;
+        match host_shortcut(scancode, Mod::from_bits_truncate(modifiers), repeat) {
+            Some(HostShortcut::Quit) => self.quit = true,
+            Some(HostShortcut::TogglePause) => self.pause_pressed = true,
+            None => {}
         }
         if !repeat && modifiers & CONTROL != 0 && modifiers & 0x0f00 == 0 {
             self.new_game_pressed |= scancode == Scancode::R;
@@ -240,8 +242,7 @@ impl Input {
                     _ => MenuKey::Other,
                 });
             }
-            self.pause_pressed |=
-                matches!(scancode, Scancode::Escape | Scancode::P | Scancode::Pause);
+            self.pause_pressed |= matches!(scancode, Scancode::Escape | Scancode::P);
         }
     }
 }

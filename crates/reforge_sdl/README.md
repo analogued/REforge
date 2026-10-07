@@ -1,8 +1,14 @@
 # Shared SDL3 presentation
 
 `reforge_sdl` owns SDL3 windows, renderer setup, event pumping and reusable
-streaming frame textures for REforge's engines. Each engine retains its input
-mapping, pixel decoding, palettes and game clock. RGB24 and RGBA32 inputs are
+streaming frame textures for REforge's engines. It also defines the common
+initial display multiplier (4), Ctrl+Q quit and
+Pause/Break toggle recognition. Engines decide when pausing is available and
+retain their own additional bindings. Pause repeats and desktop modifier
+combinations are ignored. The optional host pause timeline freezes deadlines
+without synthesizing DOS input or changing an engine's original pause state.
+Each engine retains its input mapping, pixel decoding, palettes and game clock.
+RGB24 and RGBA32 inputs are
 accepted without changing the engine framebuffer format.
 
 The backend uses the pinned `sdl3` Rust wrapper and the installed native SDL3

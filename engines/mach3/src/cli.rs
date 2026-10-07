@@ -9,14 +9,14 @@ use std::{ffi::OsString, path::PathBuf};
 
 const HELP: &str = "Usage: reforge --original <assets-directory> [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATA6.\n\
-Space: splash -> intro -> opening. Escape or window close: exit.\n\
-Default window scale: 3 (960x720); CGA pixels are displayed at 4:3.\n\
+Space: splash -> intro -> opening. Ctrl+Q, Escape or window close: exit.\n\
+Default window scale: 4 (1280x960); CGA pixels are displayed at 4:3.\n\
 Gameplay continues until game over, then displays Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
 --step: fresh Enter presses advance one body or title step. --static: show initial scene only.\n\
 --controls: flag with no value; arrows or S/X/B/N steer; Space or keypad5 fires. Gameplay has no loop cap.\n\
 Default pace: about 36.41 displayed passes/s (12.14 bodies/s); --period-ms sets the body interval.\n\
-F1 pauses/ends game, F2 toggles sound preference, F3 switches color/monochrome.\n\
+Pause/Break toggles host pause. F1 retains original pause/end-game behavior; F2 toggles sound preference, F3 switches color/monochrome.\n\
 Original intro timing, exact CPU-dependent pacing, and audio remain deferred.";
 
 /// Run the Mach 3 viewer with arguments excluding the executable name.

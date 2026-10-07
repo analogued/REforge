@@ -49,7 +49,7 @@ const SPECS: &[Spec] = &[
         game: None,
         value: Value::Integer(1, 16),
         dev: false,
-        description: "Window multiplier, 1..16 (Alley Cat default 4; Mach 3 default 3)",
+        description: "Window multiplier, 1..16 (default 4 for both games)",
     },
     Spec {
         name: "--help",

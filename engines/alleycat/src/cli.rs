@@ -156,6 +156,10 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
     let mut result = Options {
         original: PathBuf::new(),
         machine: Machine::Cga,
+        // Headless builds keep the same CLI default without linking SDL.
+        #[cfg(feature = "sdl")]
+        scale: reforge_sdl::DEFAULT_SCALE as u16,
+        #[cfg(not(feature = "sdl"))]
         scale: 4,
         difficulty: 0,
         difficulty_selected: false,

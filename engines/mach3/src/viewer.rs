@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! SDL3 presentation of startup screens and live gameplay.
 
-use reforge_sdl::{FrameFormat, FrameTexture, Window};
+use reforge_sdl::{FrameFormat, FrameTexture, HostPause, HostShortcut, Window, host_shortcut};
 use std::collections::VecDeque;
 
 use reforge_sdl::sdl3::{
@@ -41,7 +41,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            scale: 3,
+            scale: reforge_sdl::DEFAULT_SCALE,
             playback: Playback::Animated,
             controls: false,
             body_period: BODY_PERIOD,
@@ -54,6 +54,7 @@ enum Action {
     Continue,
     Space,
     Close,
+    ToggleHostPause,
 }
 
 fn title(screen: Screen) -> &'static str {
@@ -64,7 +65,20 @@ fn title(screen: Screen) -> &'static str {
     }
 }
 
-fn event_action(presentation: &mut Presentation, event: Event) -> Action {
+fn event_action(presentation: &mut Presentation, event: Event, host_paused: bool) -> Action {
+    if let Event::KeyDown {
+        scancode: Some(scan),
+        keymod,
+        repeat,
+        ..
+    } = &event
+    {
+        match host_shortcut(*scan, *keymod, *repeat) {
+            Some(HostShortcut::Quit) => return Action::Close,
+            Some(HostShortcut::TogglePause) => return Action::ToggleHostPause,
+            None => {}
+        }
+    }
     match event {
         Event::Quit { .. }
         | Event::Window {
@@ -80,7 +94,7 @@ fn event_action(presentation: &mut Presentation, event: Event) -> Action {
             repeat,
             ..
         } => {
-            if presentation.space_down(repeat) {
+            if !host_paused && presentation.space_down(repeat) {
                 return Action::Space;
             }
         }
@@ -99,7 +113,7 @@ fn event_action(presentation: &mut Presentation, event: Event) -> Action {
 
 #[cfg(test)]
 fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
-    event_action(presentation, event) != Action::Close
+    event_action(presentation, event, false) != Action::Close
 }
 
 /// Open a resizable nearest-neighbor viewer. No audio subsystem is initialized.
@@ -305,6 +319,7 @@ fn run_inner(
     let mut quit_after_body_entry = false;
     let mut pending_step = false;
     let mut step_key_held = false;
+    let mut host_pause = HostPause::default();
     let mut window = Window::new(title(Screen::Splash), WIDTH as u32, DISPLAY_HEIGHT, scale)?;
     let creator = window.texture_creator();
     let mut texture =
@@ -324,6 +339,23 @@ fn run_inner(
         for event in window.poll_events() {
             repaint |= matches!(event, Event::Window { .. });
             let was_scene = presentation.screen() == Screen::InitialScene;
+            let action = event_action(&mut presentation, event.clone(), host_pause.is_paused());
+            if action == Action::Close {
+                return Ok(());
+            }
+            if action == Action::ToggleHostPause {
+                if was_scene {
+                    host_pause.toggle(std::time::Instant::now());
+                    session.clear_input();
+                    pending_step = false;
+                    step_key_held = false;
+                    repaint = true;
+                }
+                continue;
+            }
+            if host_pause.is_paused() {
+                continue;
+            }
             match &event {
                 Event::KeyDown {
                     keycode: Some(Keycode::Return),
@@ -346,10 +378,6 @@ fn run_inner(
                 _ => {}
             }
             control_event(&mut session, &event, was_scene);
-            let action = event_action(&mut presentation, event);
-            if action == Action::Close {
-                return Ok(());
-            }
             if action == Action::Space && was_scene {
                 if let Some(state) = ending.as_mut().filter(|state| state.can_return()) {
                     returned_intro = state.returned_intro_choice();
@@ -358,6 +386,16 @@ fn run_inner(
                     next_frame = None;
                 }
             }
+        }
+        if host_pause.is_paused() {
+            if repaint {
+                window.set_title(
+                    "REforge — Mach 3 — Paused (Pause/Break to continue, Ctrl+Q to close)",
+                )?;
+                window.present(&texture)?;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(4));
+            continue;
         }
         if presentation.screen() != shown {
             shown = presentation.screen();
@@ -384,10 +422,11 @@ fn run_inner(
                 body_polled = false;
                 quit_after_body_entry = false;
                 pending_step = false;
-                next_frame = Some(std::time::Instant::now() + options.body_period / 3);
+                next_frame =
+                    Some(host_pause.now(std::time::Instant::now()) + options.body_period / 3);
             }
         }
-        let now = std::time::Instant::now();
+        let now = host_pause.now(std::time::Instant::now());
         let transition_was_active = transitions.active();
         if transitions.advance(now, options.body_period / 3) {
             repaint = true;
@@ -548,7 +587,7 @@ fn run_inner(
         });
         let delay = deadline.map_or(poll_interval, |deadline| {
             deadline
-                .saturating_duration_since(std::time::Instant::now())
+                .saturating_duration_since(host_pause.now(std::time::Instant::now()))
                 .min(poll_interval)
         });
         std::thread::sleep(delay);
@@ -559,6 +598,67 @@ fn run_inner(
 mod tests {
     use super::*;
     use reforge_sdl::sdl3::keyboard::Mod;
+
+    #[test]
+    fn global_shortcuts_do_not_change_native_pause_or_advance_while_host_paused() {
+        use reforge_sdl::sdl3::keyboard::Scancode;
+        let event = |scan, key, mods, repeat| Event::KeyDown {
+            timestamp: 0,
+            window_id: 1,
+            which: 0,
+            raw: 0,
+            scancode: Some(scan),
+            keycode: Some(key),
+            keymod: mods,
+            repeat,
+        };
+        let mut presentation = Presentation::default();
+        assert_eq!(
+            event_action(&mut presentation, space(true, false), true),
+            Action::Continue
+        );
+        assert_eq!(presentation.screen(), Screen::Splash);
+        let mut session = SessionState::default();
+        let pause = event(Scancode::Pause, Keycode::Pause, Mod::NOMOD, false);
+        assert_eq!(
+            event_action(&mut presentation, pause.clone(), false),
+            Action::ToggleHostPause
+        );
+        // Pause/Break is a host action, not an F1 make/break alias.
+        control_event(&mut session, &pause, true);
+        assert_eq!(
+            session.keyboard.held_keys(0),
+            crate::opening::HeldKeys::default()
+        );
+        assert_eq!(session.pause.state, PauseState::Running);
+        for (mods, repeat) in [(Mod::NOMOD, true), (Mod::LALTMOD, false)] {
+            assert_eq!(
+                event_action(
+                    &mut presentation,
+                    event(Scancode::Pause, Keycode::Pause, mods, repeat),
+                    true
+                ),
+                Action::Continue
+            );
+        }
+        assert_eq!(
+            event_action(
+                &mut presentation,
+                event(Scancode::Q, Keycode::Q, Mod::RCTRLMOD, false),
+                true
+            ),
+            Action::Close
+        );
+        assert_eq!(
+            event_action(
+                &mut presentation,
+                event(Scancode::Q, Keycode::Q, Mod::NOMOD, false),
+                false
+            ),
+            Action::Continue
+        );
+        assert_eq!(Options::default().scale, reforge_sdl::DEFAULT_SCALE);
+    }
 
     fn space(down: bool, repeat: bool) -> Event {
         if down {

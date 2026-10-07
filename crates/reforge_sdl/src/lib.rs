@@ -5,6 +5,11 @@
 //! dimensions. Resizing uses integer display multiples and nearest sampling.
 
 pub use sdl3;
+mod input;
+pub use input::{HostPause, HostShortcut, host_shortcut};
+
+/// Initial multiplier of the aspect-corrected display area for every engine.
+pub const DEFAULT_SCALE: u32 = 4;
 
 use sdl3::{
     event::Event,

@@ -91,12 +91,18 @@ Holding F1 at the pause decision ends the game after the current body completes.
 F2 toggles the retained sound preference; synthesis is deferred. F3 switches
 between color and the original 640-by-200 one-bit interpretation of the same
 video bytes. Held function keys follow the original polling behavior and can
-repeat their action. Escape or window close exits the viewer.
+repeat their action. Ctrl+Q, Escape or window close exits the viewer.
+Pause/Break toggles a separate modern host pause during gameplay, including
+transitions and game-over animation. Repeats and Alt/Ctrl/Super combinations
+are ignored; other keys and focus changes do not resume it. Paused time is
+excluded from presentation and simulation deadlines, and held game controls
+are cleared on each toggle. This does not feed an F1 event to the DOS key table;
+the original F1 pause/end-game sequence remains available independently.
 
 Use `--step` for one body or title step per fresh **Enter** press after entering
 gameplay, or `--static` to retain the initial scene. Space remains Fire during
 manual gameplay. Losing focus releases held controls.
-The default window is 960 by 720 (3x). `--scale 1..16` sets its initial scale;
+The default window is 1280 by 960 (4x). `--scale 1..16` sets its initial scale;
 scale 8 gives 2560 by 1920. The [shared SDL3 backend](../../crates/reforge_sdl/README.md)
 lets SDL select an available renderer and requests vsync, continuing with a
 warning if unsupported. Resizing preserves 4:3 at integer multiples of 320×240

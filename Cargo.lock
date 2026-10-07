@@ -92,6 +92,7 @@ version = "0.1.0"
 dependencies = [
  "alleycat",
  "mach3",
+ "sha2",
 ]
 
 [[package]]

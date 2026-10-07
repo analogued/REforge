@@ -7,7 +7,8 @@ executable at runtime and are not redistributed here.
 
 ## Cargo dependencies
 
-`sha2` verifies the supported executable's SHA-256 digest. `Cargo.lock` records
+`sha2` verifies the supported executable's SHA-256 digest and is also used by
+REforge's release detector. `Cargo.lock` records
 its resolved dependency graph; all nine packages below declare `MIT OR
 Apache-2.0`. The MIT option is used here. These are unmodified Cargo dependencies,
 not vendored source. Their notices are retained below for distribution alongside

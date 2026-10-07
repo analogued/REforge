@@ -27,7 +27,7 @@ The default build requires SDL3. Headless diagnostic runs require
 `--no-default-features --features dev-tools` and do not need SDL3. The normal
 CLI excludes testing options; verify both the normal and development feature
 combinations when changing CLI or test switches. Development help is available
-with `cargo run --locked -p reforge --features dev-tools -- alley-cat --help`.
+with `cargo run --locked -p reforge --features dev-tools -- --original /path/to/CAT.EXE --help`.
 
 Unit tests use synthetic data and do not require original game files. Runtime checks need the
 supported external executable described in the README. Keep captures and raw

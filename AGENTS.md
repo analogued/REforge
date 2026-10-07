@@ -25,6 +25,12 @@
 - Keep engine IDs distinct from player game IDs. Engine IDs, Cargo package names
   and Rust crate names align; one engine can support multiple games. Shared video
   or sound hardware alone does not establish a shared game engine.
+- REforge selects games/releases through `--original <file-or-directory>`. Keep
+  verified filename/size/hash records in the application detection catalog and
+  application options in its option catalog. Check engine-parser compatibility
+  when adding options. Invalid, unavailable and other-game options warn and are
+  ignored; essential original-data failures remain errors. Do not add required
+  command-line game selectors or use private originals as test fixtures.
 - Keep supporting game/engine-specific RE scripts and capture profiles outside
   this source repository in configured private storage by default. Distinguish
   maintained tools intended for future investigations from helpers bounded to

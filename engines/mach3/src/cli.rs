@@ -7,7 +7,7 @@ use crate::{
 };
 use std::{ffi::OsString, path::PathBuf};
 
-const HELP: &str = "Usage: reforge mach-3 --original <assets-directory> [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATA6.\n\
 Space: splash -> intro -> opening. Escape or window close: exit.\n\
 Default window scale: 3 (960x720); CGA pixels are displayed at 4:3.\n\
@@ -35,6 +35,11 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
     crate::viewer::run_with_rules(&frames, options, rules)
+}
+
+/// Validate the viewer argument contract without loading original data or SDL.
+pub fn validate_arguments(args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    parse_args(args).map(|_| ())
 }
 
 fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, Options)>, String> {

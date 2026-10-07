@@ -35,7 +35,7 @@ struct Startup {
 
 const HELP: &str = "Alley Cat — game reconstruction
 
-Usage: reforge alley-cat --original /path/to/CAT.EXE [options]
+Usage: reforge --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
   --scale N               Initial window multiplier, 1..16 (default: 4)
@@ -392,6 +392,11 @@ fn timing_row(
         u8::from(selection.pending_hearts),
     )
     .map_err(|error| error.to_string())
+}
+
+/// Validate the engine argument contract without loading original data or SDL.
+pub fn validate_arguments(args: impl IntoIterator<Item = String>) -> Result<(), String> {
+    parse_options(args).map(|_| ())
 }
 
 /// Run Alley Cat with arguments supplied by the application or legacy binary.

@@ -39,7 +39,7 @@ dependencies for executable verification.
 From the combined repository root:
 
 ```sh
-cargo run --locked -p reforge --release -- alley-cat --original /path/to/CAT.EXE
+cargo run --locked -p reforge --release -- --original /path/to/CAT.EXE
 ```
 
 Launch starts with the original animated splash: a cat enters and walks along
@@ -94,14 +94,15 @@ accept
 Testing options are compiled only with the `dev-tools` Cargo feature:
 
 ```sh
-cargo run --locked -p reforge --release --features dev-tools -- alley-cat \
+cargo run --locked -p reforge --release --features dev-tools -- \
   --original /path/to/CAT.EXE --scene underwater
 ```
 
 Without that feature, their parser branches, option fields, diagnostic runners
-and export helpers are excluded; passing a testing flag reports an unknown
-option. `cargo run --locked -p reforge --features dev-tools -- alley-cat --help` lists the development
-options alongside the player options.
+and export helpers are excluded; REforge warns that a testing flag requires
+a dev-tools build and ignores it. Run
+`cargo run --locked -p reforge --features dev-tools -- --original /path/to/CAT.EXE --help`
+to list development options alongside player options.
 
 An explicit `--scene` bypasses the splash and menu; use `--scene alley` to start
 gameplay immediately. `--scene splash` previews only the title screen. In that preview,
@@ -309,7 +310,7 @@ accepted-update mode. It bypasses the original player timing gates.
 Headless diagnostics require `dev-tools` and need no SDL library:
 
 ```sh
-cargo run --locked -p reforge --no-default-features --features dev-tools -- alley-cat \
+cargo run --locked -p reforge --no-default-features --features dev-tools -- \
   --original /path/to/CAT.EXE --headless --steps 60
 ```
 

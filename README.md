@@ -14,13 +14,33 @@ One Cargo workspace and lockfile cover the application and both engine crates.
 ```sh
 cargo build --locked --release -p reforge
 cargo run --locked --release -p reforge -- --list
-cargo run --locked --release -p reforge -- alley-cat --original /path/to/CAT.EXE
-cargo run --locked --release -p reforge -- mach-3 --controls --original /path/to/mach3-files
+cargo run --locked --release -p reforge -- --original /path/to/CAT.EXE
+cargo run --locked --release -p reforge -- --controls --original /path/to/mach3-files
 ```
 
 The built application is `target/release/reforge`, unless `CARGO_TARGET_DIR`
-selects another output path. Run `reforge <game> --help` for game-specific options.
+selects another output path. Run `reforge --original <path> --help` for game-specific options.
 See each game's README for supported input versions, controls and current limits.
+
+`--original` accepts a game directory or a required original file. For Alley Cat,
+it locates `CAT.EXE`; for Mach 3, it locates `MACH3.EXE` and `DATA1` through `DATA6`
+in the same directory. Detection checks case-insensitive DOS filenames, then
+exact file sizes, then SHA-256 hashes. The catalog currently contains one verified
+reference per game; its reference IDs do not claim a historical version number.
+Additional releases can have separate file records and select the same engine.
+
+A directory matching both games is ambiguous; select a required original file
+inside it instead. Missing, incomplete, unknown or mismatched data stops startup.
+Unrelated extra files are allowed. Renamed required files are not detected.
+
+Unknown options, options for another game, unavailable development options and
+invalid/missing values produce warnings and are ignored. A bad repeated value
+retains the previous valid value or engine default. Recognized options consume
+only their own values; a missing value does not swallow the next option. Supported
+options can appear before or after `--original`, including `--option=value`.
+Conflicting modes produce warnings and are reduced to a valid configuration.
+Original-data and runtime I/O failures remain errors. Engine-specific standalone
+diagnostic binaries keep their own stricter interfaces.
 
 Use `--features dev-tools` to include Alley Cat's development scene selector,
 fixed-seed controls, actor/damage switches and diagnostics. Optimization is
@@ -30,7 +50,7 @@ player/development split remains to be defined as its reconstruction progresses.
 
 ```sh
 cargo run --locked --release -p reforge --features dev-tools -- \
-  alley-cat --original /path/to/CAT.EXE --scene cheese --disable-damage all
+  --original /path/to/CAT.EXE --scene cheese --disable-damage all
 ```
 
 `--no-default-features` omits window support. Alley Cat headless diagnostics also
@@ -40,14 +60,14 @@ binaries for headless work. These tools continue to be available with
 
 ## Source organization
 
-- `app/`: the `reforge` application and game selection.
+- `app/`: the `reforge` application, release detection and option catalog.
 - `engines/alleycat/`: the `alleycat` engine library and legacy game binary.
 - `engines/mach3/`: the `mach3` engine library and its viewer/export/replay binaries.
 - `crates/`: shared facilities as demonstrated reuse justifies extraction.
 
 Game-specific gameplay, asset formats, timing and randomness stay in their own
 engine crates. Engine IDs, Cargo packages and Rust crate names use `alleycat`
-and `mach3`; the player game IDs remain `alley-cat` and `mach-3`. An engine can
+and `mach3`; game catalog IDs remain `alley-cat` and `mach-3`. An engine can
 support multiple games when their implementation is shared. Shared presentation
 and audio can be extracted incrementally.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for style, commits and validation.

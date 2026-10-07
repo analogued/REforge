@@ -340,8 +340,7 @@ evidence. Output files must not already exist. See `--help` for all options.
 ## Development and licensing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for validation, formatting, and commit
-conventions, and [the analysis tool](tools/README.md) for read-only executable
-reconnaissance. Development does not require a particular parent workspace.
+conventions. Development does not require a particular parent workspace.
 
 REforge's repository-wide license has not been selected; no project license is granted yet.
 Dependency attribution and license notices are in

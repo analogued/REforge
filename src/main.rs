@@ -46,7 +46,7 @@ Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
 Press a key to leave the animated splash, then select K/H/T/A in the skill menu.
 Ctrl+Q or closing the window quits.
 Ctrl+R restarts; Ctrl+M returns to the skill menu.
-R starts a new game after all lives are lost.
+After the last life, the animated title returns; press a key to play again at the selected skill.
 Alt drinks milk, uses paired holes in cheese and places a carried gift in the hearts room.
 Gifts are picked up automatically.
 Ordinary windows lead to fishbowl, bookcase, cheese, birdcage or milk; after success, the next leads to hearts.
@@ -741,6 +741,19 @@ fn present_menu(
 }
 
 #[cfg(feature = "sdl")]
+fn present_game_over(
+    window: &mut alley_cat::platform::Window,
+    alley: &mut Alley,
+) -> Result<bool, String> {
+    let mut splash = alley.game_over_splash()?;
+    if !present_splash(window, &mut splash, None)? {
+        return Ok(false);
+    }
+    alley.start_after_game_over(&splash)?;
+    Ok(true)
+}
+
+#[cfg(feature = "sdl")]
 fn interactive(
     alley: &mut Alley,
     scale: u16,
@@ -781,11 +794,23 @@ fn interactive(
         if steps.is_some_and(|limit| index >= limit) {
             break;
         }
+        if alley.game_over() {
+            if !present_game_over(&mut window, alley)? {
+                return Ok(());
+            }
+            runtime = Runtime::new(alley.machine());
+            target_nanos = 0;
+            let now = Instant::now();
+            pause_clock = PauseClock::new(now);
+            next_present = now;
+            window.present(&alley.rgba())?;
+            continue;
+        }
         let input = window.poll_input();
         if input.quit {
             break;
         }
-        let restarting = input.new_game_pressed || (input.restart_pressed && alley.game_over());
+        let restarting = input.new_game_pressed;
         if input.menu_pressed {
             if !present_menu(&mut window, alley, None)? {
                 break;
@@ -828,7 +853,7 @@ fn interactive(
         // Discard excess host stalls without resetting guest timer phases.
         let elapsed = pause.elapsed.min(Duration::from_millis(100));
         target_nanos += elapsed.as_nanos();
-        while runtime.clock.elapsed_nanos() < target_nanos {
+        while runtime.clock.elapsed_nanos() < target_nanos && !alley.game_over() {
             #[cfg(feature = "dev-tools")]
             if steps.is_some_and(|limit| index >= limit) {
                 break;
@@ -897,11 +922,24 @@ fn interactive_diagnostic(
     let mut index = 0;
     window.present(&alley.rgba())?;
     while steps.is_none_or(|steps| index < steps) {
+        if alley.game_over() {
+            if !present_game_over(&mut window, alley)? {
+                return Ok(());
+            }
+            let now = Instant::now();
+            deadline = now + period;
+            next_control_poll = now;
+            controls = Controls::default();
+            pause_clock = PauseClock::new(now);
+            next_present = now;
+            window.present(&alley.rgba())?;
+            continue;
+        }
         let input = window.poll_input();
         if input.quit {
             break;
         }
-        let restarting = input.new_game_pressed || (input.restart_pressed && alley.game_over());
+        let restarting = input.new_game_pressed;
         if input.menu_pressed {
             if !present_menu(&mut window, alley, None)? {
                 break;

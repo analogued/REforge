@@ -1,6 +1,6 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
-//! The original first title screen, using a separate external-data copy.
+//! The original first and post-game title screens, using an external-data copy.
 //!
 //! A call to `advance` represents one pass through the title loop. Its BIOS
 //! tick and retrace samples are supplied by the caller; this module has no host
@@ -26,6 +26,8 @@ pub struct Splash {
     player: Player,
     compositor: PlayerCompositor,
     gate: PlayerGate,
+    repeated: bool,
+    pending_key: bool,
     finished: bool,
 }
 
@@ -41,20 +43,42 @@ impl Splash {
         machine: Machine,
         tick: u16,
     ) -> Result<Self, String> {
+        Self::build(external_data, machine, tick, false)
+    }
+
+    /// Return to the title using the completed game's score, selected skill,
+    /// sound flag, room history and shared random state. This entry repeats the
+    /// title sequence until a fresh key make event.
+    pub fn after_game_over(
+        external_data: &[u8],
+        machine: Machine,
+        tick: u16,
+    ) -> Result<Self, String> {
+        Self::build(external_data, machine, tick, true)
+    }
+
+    fn build(
+        external_data: &[u8],
+        machine: Machine,
+        tick: u16,
+        repeated: bool,
+    ) -> Result<Self, String> {
         if external_data.len() < DATA_LENGTH {
             return Err("Executable splash data segment is truncated".into());
         }
         let mut data = external_data.to_vec();
-        if word(&data, 0x2ae5) == 0 {
+        if !repeated && word(&data, 0x2ae5) == 0 {
             set_word(&mut data, 0x2ae5, 0xfa59);
         }
         data[0x697] = if machine == Machine::Pcjr { 0xfd } else { 0xfc };
         set_word(&mut data, 4, 0);
         set_word(&mut data, 8, 0);
-        set_word(&mut data, 0x6df8, 0);
-        data[0x41a] = 0;
-        data[0] = 0xff;
-        crate::decoration::initialize_score_state(&mut data)?;
+        data[0x41a] = u8::from(repeated);
+        if !repeated {
+            set_word(&mut data, 0x6df8, 0);
+            data[0] = 0xff;
+            crate::decoration::initialize_score_state(&mut data)?;
+        }
         let mut framebuffer = Framebuffer::default();
         draw_scenery(&mut data, &mut framebuffer)?;
         for (source, destination, dimensions) in [
@@ -119,6 +143,7 @@ impl Splash {
         set_word(&mut data, 0x166c, 9);
         set_word(&mut data, 0x1ce1, 0);
         data[0x1f80] = 9;
+        data[0x1f81] = 0xff;
         crate::decoration::draw_hud(&mut data, &mut framebuffer)?;
         let make_counter = word(&data, 0x693);
         set_word(&mut data, 0x6150, make_counter);
@@ -135,6 +160,8 @@ impl Splash {
             player,
             compositor: PlayerCompositor::default(),
             gate: PlayerGate::default(),
+            repeated,
+            pending_key: false,
             finished: false,
         })
     }
@@ -154,14 +181,27 @@ impl Splash {
         if self.finished {
             return Ok(step);
         }
+        // The original compares its cumulative make counter to the entry
+        // baseline. A sequence reset leaves an untested make event pending.
+        self.pending_key |= key_pressed;
         if tick.wrapping_sub(word(&self.data, 0x6a93)) >= 36 {
             set_word(&mut self.data, 0x6a93, tick);
             draw_copyright(&mut self.data, &mut self.framebuffer)?;
             step.redrawn = true;
         }
-        // First entry alone has this strict timeout. The later attract loop
-        // resets its song baseline instead; it belongs to the deferred menus.
-        if tick.wrapping_sub(word(&self.data, 0x6a8b)) > word(&self.data, 0x56da).wrapping_add(6) {
+        let elapsed = tick.wrapping_sub(word(&self.data, 0x6a8b));
+        let duration = word(&self.data, 0x56da);
+        if self.repeated && elapsed >= duration.wrapping_add(72) {
+            for offset in [0x6a8b, 0x5322, 0x6a93] {
+                set_word(&mut self.data, offset, tick);
+            }
+            set_word(&mut self.data, 0x6a88, tick.wrapping_sub(48));
+            set_word(&mut self.data, 0x5320, 0);
+            // CS:5dd4 restarts at the BIOS sample before music, movement and
+            // key testing. The caller supplies that new sample on its next pass.
+            return Ok(step);
+        }
+        if !self.repeated && elapsed > duration.wrapping_add(6) {
             self.finished = true;
             step.finished = true;
             return Ok(step);
@@ -205,7 +245,7 @@ impl Splash {
                 set_word(&mut self.data, 0x572, 4);
             }
         }
-        if key_pressed {
+        if self.pending_key {
             self.finished = true;
         }
         step.finished = self.finished;
@@ -388,7 +428,8 @@ fn draw_scenery(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String>
         screen.copy_bytes(destination, width, rows, bytes)?;
         list += 4;
     }
-    blit(data, screen, word(data, 0x2ad1), 0x1902, 0x0801)?;
+    let skill = usize::from(word(data, 0x6df8) & 3);
+    blit(data, screen, word(data, 0x2ad1 + skill * 2), 0x1902, 0x0801)?;
     let mut list = 0x2a86 + usize::from(data[0x2ab3]);
     loop {
         let entry = data
@@ -416,6 +457,7 @@ mod tests {
 
     fn synthetic_data() -> Vec<u8> {
         let mut data = vec![0; DATA_LENGTH];
+        set_word(&mut data, 0x2ae5, 0xfa59);
         set_word(&mut data, 0x28a0, 0x0802);
         set_word(&mut data, 0x28a2, 0xffff);
         set_word(&mut data, 0x6a8f, 0x68a8);
@@ -485,6 +527,90 @@ mod tests {
         );
         assert_eq!(splash.data(), final_data);
         assert_eq!(splash.framebuffer().bytes().as_slice(), final_frame);
+    }
+
+    #[test]
+    fn post_game_title_preserves_run_state_and_refreshes_the_nine_lives_glyph() {
+        let mut data = synthetic_data();
+        set_word(&mut data, 0x2ae5, 0x1234);
+        set_word(&mut data, 4, 6);
+        set_word(&mut data, 8, 7);
+        set_word(&mut data, 0x6df8, 3);
+        set_word(&mut data, 0x2ad1, 0x2800);
+        set_word(&mut data, 0x2ad7, 0x2810);
+        data[0x2800..0x2810].fill(0x33);
+        data[0x2810..0x2820].fill(0xcc);
+        set_word(&mut data, 0x41d, 5);
+        set_word(&mut data, 0x41f, 1);
+        data[0] = 0;
+        data[0x1f80] = 0;
+        data[0x1f81] = 9;
+        data[0x1f82..0x1f89].copy_from_slice(&[0, 1, 2, 3, 4, 5, 6]);
+        data[0x1f89..0x1f90].copy_from_slice(&[0, 9, 8, 7, 6, 5, 4]);
+        let nine = 0x2720 + 9 * 16;
+        data[nine..nine + 16].fill(0x77);
+        let before = data.clone();
+        let mut expected_random = data.clone();
+        draw_scenery(&mut expected_random, &mut Framebuffer::default()).unwrap();
+
+        let mut splash = Splash::after_game_over(&data, Machine::Pcjr, 100).unwrap();
+        assert_eq!(data, before);
+        assert_eq!(splash.data()[0x1f82..0x1f90], before[0x1f82..0x1f90]);
+        assert_eq!(word(splash.data(), 0x6df8), 3);
+        assert_eq!(word(splash.data(), 0x41d), 5);
+        assert_eq!(word(splash.data(), 0x41f), 1);
+        assert_eq!(word(splash.data(), 0x2ae5), word(&expected_random, 0x2ae5));
+        assert_eq!(word(splash.data(), 4), 0);
+        assert_eq!(word(splash.data(), 8), 0);
+        assert_eq!(splash.data()[0x41a], 1);
+        assert_eq!(splash.data()[0x1f80..0x1f82], [9, 9]);
+        assert_eq!(
+            splash
+                .framebuffer()
+                .read_rect(0x1902, Dimensions(0x0801))
+                .unwrap(),
+            vec![0xcc; 16]
+        );
+        assert_eq!(
+            splash
+                .framebuffer()
+                .read_rect(0x1260, Dimensions(0x0801))
+                .unwrap(),
+            vec![0x77; 16]
+        );
+        splash.advance(101, false, false).unwrap();
+        assert_eq!(splash.data()[0], 0);
+        assert_eq!(word(splash.data(), 0x5322), 100);
+    }
+
+    #[test]
+    fn post_game_timeout_restarts_before_testing_the_pending_key_on_the_next_pass() {
+        let mut splash = Splash::after_game_over(&synthetic_data(), Machine::Cga, 100).unwrap();
+        assert!(!splash.advance(1017, false, false).unwrap().finished);
+        let player = splash.player().clone();
+        let step = splash.advance(1018, true, true).unwrap();
+        assert!(!step.finished && !step.player_accepted);
+        assert_eq!(splash.player().entry_delay, player.entry_delay);
+        for offset in [0x6a8b, 0x5322, 0x6a93] {
+            assert_eq!(word(splash.data(), offset), 1018);
+        }
+        assert_eq!(word(splash.data(), 0x6a88), 970);
+        assert_eq!(word(splash.data(), 0x5320), 0);
+        assert!(splash.advance(1019, true, false).unwrap().finished);
+    }
+
+    #[test]
+    fn post_game_title_cycles_across_bios_word_wrap_and_keys_exit_early() {
+        let mut splash =
+            Splash::after_game_over(&synthetic_data(), Machine::Pcjr, u16::MAX - 10).unwrap();
+        assert!(!splash.advance(906, false, false).unwrap().finished);
+        assert!(!splash.advance(907, false, false).unwrap().finished);
+        assert_eq!(word(splash.data(), 0x6a8b), 907);
+        assert_eq!(word(splash.data(), 0x6a88), 859);
+        assert!(splash.advance(908, false, true).unwrap().finished);
+
+        let mut early = Splash::after_game_over(&synthetic_data(), Machine::Cga, 10).unwrap();
+        assert!(early.advance(11, true, true).unwrap().finished);
     }
 
     #[test]

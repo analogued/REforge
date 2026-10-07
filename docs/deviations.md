@@ -59,11 +59,12 @@ replaying the splash. An explicit `--difficulty` skips the skill question and
 shows controls with a separate key-to-start wait. Menu waits ignore desktop
 shortcuts, modifier keys alone and held-key repeats.
 
-## Game over and restart
+## Manual restart state
 
-After the final life is lost, the recreation holds an authored game-over screen
-and accepts R to start another run. The original returns to its startup/menu
-sequence automatically. Restart retains the high score and
-development controls and resets score, lives, initial difficulty and initial
-seed. Ctrl+Q and window close remain available. This is the current desktop
-replacement for that menu flow; there is no development override.
+Ctrl+R and selecting a new run through Ctrl+M reset the initial development seed
+and ordinary-room selection history for reproducible testing. The original
+seeds and clears this history only at first startup. Automatic last-life returns
+to the title retain the shared random state and room history, as in the original.
+The title waits for a fresh key press and keeps the selected skill; it does not
+repeat the menu questions. Desktop shortcut filtering applies to this later
+title as well. Ctrl+Q and window close remain available throughout.

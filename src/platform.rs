@@ -26,7 +26,6 @@ pub struct Input {
     pub alt: bool,
     pub quit: bool,
     pub pause_pressed: bool,
-    pub restart_pressed: bool,
     pub continue_pressed: bool,
     pub menu_key: Option<MenuKey>,
     pub menu_pressed: bool,
@@ -287,7 +286,6 @@ impl Window {
                 alt: held(ffi::SCANCODE_LALT) || held(ffi::SCANCODE_RALT),
                 quit: self.quit,
                 pause_pressed: presses.pause_pressed,
-                restart_pressed: presses.restart_pressed,
                 continue_pressed: presses.continue_pressed,
                 menu_key: presses.menu_key,
                 menu_pressed: presses.menu_pressed,
@@ -383,7 +381,6 @@ impl Input {
                     _ => MenuKey::Other,
                 });
             }
-            self.restart_pressed |= scancode == ffi::SCANCODE_R;
             self.pause_pressed |= matches!(
                 scancode,
                 ffi::SCANCODE_ESCAPE | ffi::SCANCODE_P | ffi::SCANCODE_PAUSE
@@ -504,22 +501,6 @@ mod tests {
     }
 
     #[test]
-    fn restart_requires_fresh_unmodified_r_and_leaves_pause_unchanged() {
-        for (modifiers, repeated, expected) in [
-            (0, false, true),
-            (0, true, false),
-            (0x0100, false, false),
-            (0x0040, false, false),
-            (0x0400, false, false),
-        ] {
-            let mut input = Input::default();
-            input.record_press(ffi::SCANCODE_R, modifiers, repeated);
-            assert_eq!(input.restart_pressed, expected);
-            assert!(!input.pause_pressed && !input.quit);
-        }
-    }
-
-    #[test]
     fn quit_requires_control_and_keyboard_abi_matches_sdl3() {
         let mut plain = Input::default();
         plain.record_press(ffi::SCANCODE_Q, 0, false);
@@ -582,7 +563,7 @@ mod tests {
             let mut input = Input::default();
             input.record_press(ffi::SCANCODE_R, control, false);
             assert!(input.new_game_pressed);
-            assert!(!input.restart_pressed && !input.pause_pressed);
+            assert!(!input.pause_pressed);
         }
         for (modifiers, repeat) in [(0, false), (0x0040, true), (0x0140, false)] {
             let mut input = Input::default();

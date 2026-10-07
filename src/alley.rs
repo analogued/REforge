@@ -151,6 +151,28 @@ impl Alley {
         self.game_over
     }
 
+    /// Native last-life return: promote the score before drawing the title.
+    pub fn game_over_splash(&mut self) -> Result<crate::splash::Splash, String> {
+        if !self.game_over {
+            return Err("The current run has not ended".into());
+        }
+        self.promote_high_score();
+        crate::splash::Splash::after_game_over(&self.data, self.machine, 0)
+    }
+
+    /// Resume after the later title without reseeding or clearing room history.
+    pub fn start_after_game_over(&mut self, splash: &crate::splash::Splash) -> Result<(), String> {
+        if !self.game_over
+            || !splash.finished()
+            || splash.machine() != self.machine
+            || splash.data()[0x41a] == 0
+        {
+            return Err("A completed game-over title is required".into());
+        }
+        set_word(&mut self.data, 0x2ae5, word(splash.data(), 0x2ae5));
+        self.reset_run(0, false)
+    }
+
     /// Build the keyboard menu from the external executable's text tables.
     pub fn menu(&self, difficulty: Option<u16>) -> Result<crate::menu::Menu, String> {
         match difficulty {
@@ -171,26 +193,38 @@ impl Alley {
 
     /// Begin a new run, preserving the high score and configured development controls.
     pub fn restart(&mut self, tick: u16) -> Result<(), String> {
+        self.reset_run(tick, true)
+    }
+
+    fn promote_high_score(&mut self) {
         if self.data[0x1f82..0x1f89] > self.data[0x1f89..0x1f90] {
             let score = self.data[0x1f82..0x1f89].to_vec();
             self.data[0x1f89..0x1f90].copy_from_slice(&score);
         }
+    }
+
+    fn reset_run(&mut self, tick: u16, fresh_random: bool) -> Result<(), String> {
+        self.promote_high_score();
         self.data[0x1f82..0x1f89].fill(0);
         self.data[0x1f80] = 3;
         self.data[0x418] = 0;
         self.data[0x419] = 0;
+        self.data[0x41b] = 0;
+        self.data[0x41c] = 0;
         self.data[0x552] = 0;
         self.data[0x553] = 0;
         for (offset, value) in [
             (8, self.initial_difficulty),
-            (0x2ae5, self.initial_seed),
             (0x414, 0),
             (0x1c30, 0),
             (0x412, tick),
-            (0x41d, 0xffff),
-            (0x41f, 0xffff),
         ] {
             set_word(&mut self.data, offset, value);
+        }
+        if fresh_random {
+            set_word(&mut self.data, 0x2ae5, self.initial_seed);
+            set_word(&mut self.data, 0x41d, 0xffff);
+            set_word(&mut self.data, 0x41f, 0xffff);
         }
         self.game_over = false;
         self.failure = None;
@@ -225,24 +259,14 @@ impl Alley {
         }
     }
 
-    fn show_game_over(&mut self) -> Result<(), String> {
+    fn finish_run(&mut self) {
         self.game_over = true;
         self.damage_effect = None;
         self.dog_image = None;
         self.projectile_image = None;
-        self.screen.fill_visible(0);
-        for (y, text) in [(88, "GAME OVER"), (104, "R TO START A NEW GAME")] {
-            let x = (320 - text.len() as u16 * 8) / 2;
-            for (index, byte) in text.bytes().enumerate() {
-                self.screen.copy_rect(
-                    pixel_offset(x + index as u16 * 8, y),
-                    Dimensions(0x0801),
-                    &crate::font::character(byte)?,
-                )?;
-            }
-        }
+        // The host returns to the title immediately; retain the last native
+        // presentation for headless callers instead of drawing an authored screen.
         self.presented = self.screen.clone();
-        Ok(())
     }
 
     pub(crate) fn dying(&self) -> bool {
@@ -270,7 +294,7 @@ impl Alley {
                 self.player = Player::from_data(&self.data)?;
                 draw_hud(&mut self.data, &mut self.screen)?;
                 if self.data[0x1f80] == 0 {
-                    self.show_game_over()?;
+                    self.finish_run();
                 }
             }
             EffectKind::Spider => crate::bookcase::finish_spider_failure(&mut self.data)?,
@@ -385,7 +409,7 @@ impl Alley {
             }
             draw_hud(&mut self.data, &mut self.screen)?;
             if self.data[0x1f80] == 0 {
-                self.show_game_over()?;
+                self.finish_run();
                 return Ok(drawn);
             }
         }
@@ -945,7 +969,7 @@ impl Alley {
             self.hearts_completion = None;
             self.failure = None;
             if self.data[0x1f80] == 0 {
-                self.show_game_over()?;
+                self.finish_run();
             } else {
                 self.return_to_alley()?;
             }
@@ -1861,6 +1885,59 @@ mod tests {
     use crate::assets::word;
 
     #[test]
+    fn later_title_promotes_score_and_resumes_without_reseeding_or_clearing_history() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut alley = Alley::synthetic();
+            alley.machine = machine;
+            alley.initial_difficulty = 3;
+            set_word(&mut alley.data, 0x28a2, 0xffff);
+            set_word(&mut alley.data, 0x590e, 0x7100);
+            set_word(&mut alley.data, 0x7100, 0xffff);
+            set_word(&mut alley.data, 0x6df8, 3);
+            set_word(&mut alley.data, 8, 7);
+            set_word(&mut alley.data, 0x2ae5, 0xbeef);
+            set_word(&mut alley.data, 0x41d, 6);
+            set_word(&mut alley.data, 0x41f, 3);
+            alley.data[0x1f82] = 2;
+            alley.data[0x1f89] = 1;
+            alley.data[0x1f80] = 0;
+            assert!(alley.game_over_splash().is_err());
+            alley.screen.fill_visible(0x55);
+            alley.finish_run();
+            assert!(
+                alley.framebuffer().bytes()[..8000]
+                    .iter()
+                    .all(|&byte| byte == 0x55)
+            );
+            let mut splash = alley.game_over_splash().unwrap();
+            assert_eq!(splash.data()[0x1f82], 2);
+            assert_eq!(splash.data()[0x1f89], 2);
+            assert_eq!(splash.data()[0x1f80], 9);
+            assert_eq!(word(splash.data(), 0x6df8), 3);
+            assert!(alley.start_after_game_over(&splash).is_err());
+            splash.advance(1, false, true).unwrap();
+            let mut expected_data = alley.data.clone();
+            set_word(&mut expected_data, 8, 3);
+            set_word(&mut expected_data, 0x2ae5, word(splash.data(), 0x2ae5));
+            let mut expected_frame = Framebuffer::default();
+            initialize_alley(&mut expected_data, &mut expected_frame).unwrap();
+            draw_ground_objects(&mut expected_data, &mut expected_frame).unwrap();
+            alley.start_after_game_over(&splash).unwrap();
+            assert!(!alley.game_over());
+            assert_eq!(word(&alley.data, 8), 3);
+            assert_eq!(alley.data[0x1f80], 3);
+            assert_eq!(alley.data[0x1f82..0x1f89], [0; 7]);
+            assert_eq!(alley.data[0x1f89], 2);
+            assert_eq!((word(&alley.data, 0x41d), word(&alley.data, 0x41f)), (6, 3));
+            assert_eq!(word(&alley.data, 0x2ae5), word(&expected_data, 0x2ae5));
+            assert_eq!(
+                (alley.player.entry_state, alley.player.entry_delay),
+                (3, 12)
+            );
+        }
+    }
+
+    #[test]
     fn menu_selection_sets_starting_skill_and_preserves_high_score_on_restart() {
         let mut alley = Alley::synthetic();
         set_word(&mut alley.data, 0x28a2, 0xffff);
@@ -1911,7 +1988,7 @@ mod tests {
                 let previous_bin = alley.data[0x1028];
                 if restart {
                     alley.data[0x1f80] = 0;
-                    alley.show_game_over().unwrap();
+                    alley.finish_run();
                     alley.restart(0).unwrap();
                 } else {
                     alley.return_to_alley().unwrap();

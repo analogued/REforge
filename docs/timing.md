@@ -307,8 +307,8 @@ Message selection is independent of the remaining life count; dog failure
 at nonzero difficulty with lives remaining uses
 the alternate eight-frame, four-tick dog presentation (`5be0`). The color wipe
 returns the cat through a ground-level alley entry. Success takes precedence
-when both success and failure flags are present. Zero lives holds the modern
-game-over screen; R restarts, as described in [deviations](deviations.md).
+when both success and failure flags are present. Zero lives returns to the later
+animated title, described below. Headless runs stop at this last-life boundary.
 
 `--disable-damage` bypasses each selected response while leaving ordinary actor
 motion and rendering active. `--disable-actors` skips the corresponding actor;
@@ -466,10 +466,31 @@ The silent music-sequence index follows its tick gate; no samples are produced.
 
 The host uses the virtual BIOS/retrace clock and provisional loop/drawing costs
 from the fixed-240 profile. Exact splash playback cadence is not established.
-Presentation has a separate data copy and does not advance the gameplay seed
-or clock; integrating the original shared startup state remains deferred.
+The first presentation has a separate data copy and does not advance the gameplay
+seed or clock; integrating the full original shared startup state remains deferred.
 Explicit development scene previews bypass startup. In a splash preview, finite
 limits count virtual BIOS ticks and frame exports contain the splash itself.
+
+### Last-life return to the title
+
+The main loop returns through `0081` after the final life. High-score comparison
+(`2690`) happens before title drawing. The later `5cb0` entry preserves current
+score, high score, selected skill (`6df8`), sound flag, shared random state and
+ordinary-room history. Its scenery uses difficulty zero and the selected-skill
+fence sign; the title's lives display is nine.
+
+Unlike the first entry, this title never expires. At elapsed duration `56da`
+plus 72 ticks (918 with the supported input), it resets the title, music and
+copyright time baselines before considering movement or key dismissal on the
+next pass. The cumulative key make remains pending across that reset.
+
+A fresh key exits; the previously initialized menu flag (`41a`) skips `5ee5`.
+The next run copies the selected skill to active difficulty, clears current
+score and progression, sets three lives and starts the clipped alley entry.
+It retains high score, room history and the random state advanced by title
+scenery and animation. Host pacing and pause state restart at this boundary.
+The development CLI's initial difficulty override is retained for subsequent
+runs. Sound synthesis and omitted sound random consumers remain limitations.
 
 ### Keyboard menu
 

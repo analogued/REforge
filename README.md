@@ -55,8 +55,10 @@ Alt, Ctrl or Super is held, and held-key repeats do not toggle pause. Losing or
 regaining window focus does not change the pause state. Ctrl+Q or closing the
 window exits, including while paused. Ctrl+R starts a new run, and Ctrl+M returns
 to the skill menu to select a new run. Both also work while paused. After losing
-all lives, press R to start a new run with the initial difficulty and seed;
-the high score is retained.
+all lives, the high score is updated and the animated title returns. This later
+title waits for a fresh key press, then starts another run at the selected skill
+without repeating the menu. It resets the score and gives three lives, retaining
+the high score, shared random state and ordinary-room selection history.
 In the cheese room, hold Alt at a hole to travel to its paired hole.
 In the hearts scene, gifts are picked up automatically on contact; hold Alt
 to place a carried gift near the cat's current position.
@@ -282,9 +284,11 @@ Its speaker effect is silent. The timed runner blocks game
 work until seven BIOS ticks have elapsed and advances the effect's shared random
 state through its original call-count algorithm, using approximate loop costs.
 
-The splash uses a separate copy of the executable data. Watching it does not
-advance the fixed gameplay seed; shared startup state integration remains
-deferred. Audio output is absent. Windowed execution uses a virtual BIOS/PIT
+The first splash uses a separate copy of the executable data. Watching it does
+not advance the fixed gameplay seed; full shared startup state integration
+remains deferred. The later game-over title carries the previous run's random
+state into its animation and back into the next run. Audio output is absent.
+Windowed execution uses a virtual BIOS/PIT
 clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle
 movement. The reference is DOSBox-X normal CPU core at fixed 240 cycles. Loop

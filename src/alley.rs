@@ -151,6 +151,24 @@ impl Alley {
         self.game_over
     }
 
+    /// Build the keyboard menu from the external executable's text tables.
+    pub fn menu(&self, difficulty: Option<u16>) -> Result<crate::menu::Menu, String> {
+        match difficulty {
+            Some(level) => crate::menu::Menu::with_difficulty(&self.data, self.machine, level),
+            None => crate::menu::Menu::new(&self.data, self.machine),
+        }
+    }
+
+    /// Apply the menu selection to this run and subsequent restarts.
+    pub fn start_new_game(&mut self, difficulty: u16, tick: u16) -> Result<(), String> {
+        if difficulty > 7 {
+            return Err("Difficulty must be 0..7".into());
+        }
+        self.initial_difficulty = difficulty;
+        set_word(&mut self.data, 0x6df8, difficulty & 3);
+        self.restart(tick)
+    }
+
     /// Begin a new run, preserving the high score and configured development controls.
     pub fn restart(&mut self, tick: u16) -> Result<(), String> {
         if self.data[0x1f82..0x1f89] > self.data[0x1f89..0x1f90] {
@@ -179,6 +197,9 @@ impl Alley {
         self.completion = None;
         self.hearts_completion = None;
         self.damage_effect = None;
+        // Host shortcuts can interrupt the timed mouse-contact presentation.
+        // Its runtime wait is discarded along with this run, so discard its image.
+        self.mouse_effect = None;
         self.return_to_alley()
     }
 
@@ -1838,6 +1859,36 @@ fn hardware_color(color: u8) -> [u8; 4] {
 mod tests {
     use super::*;
     use crate::assets::word;
+
+    #[test]
+    fn menu_selection_sets_starting_skill_and_preserves_high_score_on_restart() {
+        let mut alley = Alley::synthetic();
+        set_word(&mut alley.data, 0x28a2, 0xffff);
+        set_word(&mut alley.data, 0x5908, 0x7100);
+        set_word(&mut alley.data, 0x590e, 0x7100);
+        set_word(&mut alley.data, 0x7100, 0xffff);
+        alley.data[0x1f82] = 2;
+        alley.data[0x1f89] = 1;
+        alley.mouse_effect = Some(Image {
+            source: 0,
+            dimensions: 0x0801,
+            offset: 0,
+            blend: Blend::And,
+        });
+        alley.start_new_game(3, 42).unwrap();
+        assert!(alley.mouse_effect.is_none());
+        assert_eq!(word(&alley.data, 8), 3);
+        assert_eq!(word(&alley.data, 0x6df8), 3);
+        assert_eq!(alley.data[0x1f80], 3);
+        assert_eq!(alley.data[0x1f82..0x1f89], [0; 7]);
+        assert_eq!(alley.data[0x1f89], 2);
+        set_word(&mut alley.data, 8, 7);
+        alley.restart(0).unwrap();
+        assert_eq!(word(&alley.data, 8), 3);
+        assert_eq!(word(&alley.data, 0x6df8), 3);
+        assert!(alley.start_new_game(8, 0).is_err());
+        assert_eq!(alley.initial_difficulty, 3);
+    }
 
     #[test]
     fn alley_reconstruction_discards_the_previous_bin_cat_image() {

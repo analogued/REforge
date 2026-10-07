@@ -26,18 +26,26 @@ const BIOS_TICK_HZ: f64 = 18.2065;
 
 const DEFAULT_SEED: u16 = 0xfa59;
 
+#[cfg(any(feature = "sdl", feature = "dev-tools"))]
+struct Startup {
+    splash: Splash,
+    #[cfg(feature = "sdl")]
+    difficulty_override: Option<u16>,
+}
+
 const HELP: &str = "Alley Cat — game reconstruction
 
 Usage: alley-cat --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
   --scale N               Initial window multiplier, 1..16 (default: 4)
-  --difficulty N          Initial difficulty 0..7 (default: 0)
+  --difficulty N          Initial difficulty 0..7; skips the skill question
   --help                  Show this help
 
 Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
-Press a key to leave the animated splash and start play.
+Press a key to leave the animated splash, then select K/H/T/A in the skill menu.
 Ctrl+Q or closing the window quits.
+Ctrl+R restarts; Ctrl+M returns to the skill menu.
 R starts a new game after all lives are lost.
 Alt drinks milk, uses paired holes in cheese and places a carried gift in the hearts room.
 Gifts are picked up automatically.
@@ -90,6 +98,7 @@ struct Options {
     machine: Machine,
     scale: u16,
     difficulty: u16,
+    difficulty_selected: bool,
     #[cfg(feature = "dev-tools")]
     dev: DiagnosticOptions,
 }
@@ -153,6 +162,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
         machine: Machine::Cga,
         scale: 4,
         difficulty: 0,
+        difficulty_selected: false,
         #[cfg(feature = "dev-tools")]
         dev: DiagnosticOptions::default(),
     };
@@ -198,7 +208,10 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
                 }
             }
             "--scale" => result.scale = integer(&value()?)?,
-            "--difficulty" => result.difficulty = integer(&value()?)?,
+            "--difficulty" => {
+                result.difficulty = integer(&value()?)?;
+                result.difficulty_selected = true;
+            }
             #[cfg(feature = "dev-tools")]
             "--seed" => result.dev.seed = integer(&value()?)?,
             #[cfg(feature = "dev-tools")]
@@ -395,7 +408,7 @@ fn run() -> Result<(), String> {
     let seed = DEFAULT_SEED;
     let alley = Alley::load(&options.original, seed, options.difficulty, options.machine)?;
     #[cfg(any(feature = "sdl", feature = "dev-tools"))]
-    let splash = {
+    let startup = {
         #[cfg(feature = "dev-tools")]
         let enabled = options.dev.scene == StartScene::Splash
             || (!options.dev.headless && !options.dev.scene_selected);
@@ -405,7 +418,11 @@ fn run() -> Result<(), String> {
             let assets = alley_cat::assets::Assets::load(&options.original)?;
             let mut data = assets.runtime_data();
             alley_cat::assets::set_word(&mut data, 0x2ae5, seed);
-            Some(Splash::new(&data, options.machine)?)
+            Some(Startup {
+                splash: Splash::new(&data, options.machine)?,
+                #[cfg(feature = "sdl")]
+                difficulty_override: options.difficulty_selected.then_some(options.difficulty),
+            })
         } else {
             None
         }
@@ -414,14 +431,14 @@ fn run() -> Result<(), String> {
     {
         let mut alley = alley;
         alley.set_dev_options(options.dev.switches)?;
-        run_development(&mut alley, options.scale, options.dev, splash)
+        run_development(&mut alley, options.scale, options.dev, startup)
     }
     #[cfg(not(feature = "dev-tools"))]
     {
         #[cfg(feature = "sdl")]
         {
             let mut alley = alley;
-            interactive(&mut alley, options.scale, splash)
+            interactive(&mut alley, options.scale, startup)
         }
         #[cfg(not(feature = "sdl"))]
         {
@@ -436,14 +453,14 @@ fn run_development(
     alley: &mut Alley,
     scale: u16,
     options: DiagnosticOptions,
-    splash: Option<Splash>,
+    startup: Option<Startup>,
 ) -> Result<(), String> {
     #[cfg(not(feature = "sdl"))]
     let _ = scale;
     match options.scene {
         StartScene::Splash => {
             return splash_preview(
-                splash.ok_or("Splash preview was not initialized")?,
+                startup.ok_or("Splash preview was not initialized")?.splash,
                 scale,
                 options,
             );
@@ -550,12 +567,12 @@ fn run_development(
     } else {
         #[cfg(feature = "sdl")]
         if let Some(rate) = options.step_hz {
-            interactive_diagnostic(alley, scale, splash, rate, options.steps, &mut trace)?;
+            interactive_diagnostic(alley, scale, startup, rate, options.steps, &mut trace)?;
         } else {
             interactive(
                 alley,
                 scale,
-                splash,
+                startup,
                 options.steps,
                 &mut trace,
                 &mut timing_trace,
@@ -699,10 +716,35 @@ fn splash_preview(
 }
 
 #[cfg(feature = "sdl")]
+fn present_menu(
+    window: &mut alley_cat::platform::Window,
+    alley: &mut Alley,
+    difficulty: Option<u16>,
+) -> Result<bool, String> {
+    use std::time::Duration;
+    let mut menu = alley.menu(difficulty)?;
+    window.present(&menu.rgba())?;
+    loop {
+        let input = window.poll_input();
+        if input.quit {
+            return Ok(false);
+        }
+        if let Some(key) = input.menu_key {
+            if menu.press(key)? {
+                alley.start_new_game(menu.difficulty().ok_or("Menu has no skill selection")?, 0)?;
+                return Ok(true);
+            }
+            window.present(&menu.rgba())?;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+#[cfg(feature = "sdl")]
 fn interactive(
     alley: &mut Alley,
     scale: u16,
-    splash: Option<Splash>,
+    startup: Option<Startup>,
     #[cfg(feature = "dev-tools")] steps: Option<usize>,
     #[cfg(feature = "dev-tools")] trace: &mut Option<BufWriter<File>>,
     #[cfg(feature = "dev-tools")] timing_trace: &mut Option<BufWriter<File>>,
@@ -716,8 +758,10 @@ fn interactive(
         HEIGHT as u32,
         u32::from(scale),
     )?;
-    if let Some(mut splash) = splash {
-        if !present_splash(&mut window, &mut splash, None)? {
+    if let Some(mut startup) = startup {
+        if !present_splash(&mut window, &mut startup.splash, None)?
+            || !present_menu(&mut window, alley, startup.difficulty_override)?
+        {
             return Ok(());
         }
     }
@@ -741,10 +785,22 @@ fn interactive(
         if input.quit {
             break;
         }
-        if input.restart_pressed && alley.game_over() {
+        let restarting = input.new_game_pressed || (input.restart_pressed && alley.game_over());
+        if input.menu_pressed {
+            if !present_menu(&mut window, alley, None)? {
+                break;
+            }
+        } else if restarting {
             alley.restart(0)?;
+        }
+        if input.menu_pressed || restarting {
             runtime = Runtime::new(alley.machine());
             target_nanos = 0;
+            let now = Instant::now();
+            pause_clock = PauseClock::new(now);
+            next_present = now;
+            window.present(&alley.rgba())?;
+            continue;
         }
         let held = Controls {
             x: if input.left {
@@ -808,7 +864,7 @@ fn interactive(
 fn interactive_diagnostic(
     alley: &mut Alley,
     scale: u16,
-    splash: Option<Splash>,
+    startup: Option<Startup>,
     step_hz: f64,
     steps: Option<usize>,
     trace: &mut Option<BufWriter<File>>,
@@ -821,8 +877,10 @@ fn interactive_diagnostic(
         HEIGHT as u32,
         u32::from(scale),
     )?;
-    if let Some(mut splash) = splash {
-        if !present_splash(&mut window, &mut splash, None)? {
+    if let Some(mut startup) = startup {
+        if !present_splash(&mut window, &mut startup.splash, None)?
+            || !present_menu(&mut window, alley, startup.difficulty_override)?
+        {
             return Ok(());
         }
     }
@@ -842,6 +900,24 @@ fn interactive_diagnostic(
         let input = window.poll_input();
         if input.quit {
             break;
+        }
+        let restarting = input.new_game_pressed || (input.restart_pressed && alley.game_over());
+        if input.menu_pressed {
+            if !present_menu(&mut window, alley, None)? {
+                break;
+            }
+        } else if restarting {
+            alley.restart(0)?;
+        }
+        if input.menu_pressed || restarting {
+            let now = Instant::now();
+            deadline = now + period;
+            next_control_poll = now;
+            controls = Controls::default();
+            pause_clock = PauseClock::new(now);
+            next_present = now;
+            window.present(&alley.rgba())?;
+            continue;
         }
         let now = Instant::now();
         let pause = pause_clock.sample(now, input);
@@ -932,6 +1008,7 @@ mod tests {
         assert_eq!(options.original, PathBuf::from("example.exe"));
         assert_eq!(options.machine, Machine::Pcjr);
         assert_eq!((options.scale, options.difficulty), (3, 7));
+        assert!(options.difficulty_selected);
         assert!(parse(&["--help"]).unwrap().is_none());
     }
 

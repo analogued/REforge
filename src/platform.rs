@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::alley::Machine;
+use crate::menu::MenuKey;
 
 /// Host input sampled after draining SDL's event queue.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -27,6 +28,9 @@ pub struct Input {
     pub pause_pressed: bool,
     pub restart_pressed: bool,
     pub continue_pressed: bool,
+    pub menu_key: Option<MenuKey>,
+    pub menu_pressed: bool,
+    pub new_game_pressed: bool,
 }
 
 /// Host pause bookkeeping shared by the normal and diagnostic runners.
@@ -285,6 +289,9 @@ impl Window {
                 pause_pressed: presses.pause_pressed,
                 restart_pressed: presses.restart_pressed,
                 continue_pressed: presses.continue_pressed,
+                menu_key: presses.menu_key,
+                menu_pressed: presses.menu_pressed,
+                new_game_pressed: presses.new_game_pressed,
             }
         }
     }
@@ -358,9 +365,24 @@ impl Input {
         if scancode == ffi::SCANCODE_Q && modifiers & ffi::KMOD_CTRL != 0 {
             self.quit = true;
         }
+        if !repeat && modifiers & ffi::KMOD_CTRL != 0 && modifiers & 0x0f00 == 0 {
+            self.new_game_pressed |= scancode == ffi::SCANCODE_R;
+            self.menu_pressed |= scancode == ffi::SCANCODE_M;
+        }
         if !repeat && modifiers & ffi::KMOD_SHORTCUT == 0 {
             // Modifier keys alone and desktop shortcuts do not dismiss startup.
             self.continue_pressed |= !(224..=231).contains(&scancode);
+            if !(224..=231).contains(&scancode) {
+                // Keep the first fresh press so a queued second key cannot
+                // replace a skill choice or skip the newly revealed controls.
+                self.menu_key.get_or_insert(match scancode {
+                    ffi::SCANCODE_K => MenuKey::Kitten,
+                    ffi::SCANCODE_H => MenuKey::HouseCat,
+                    ffi::SCANCODE_T => MenuKey::Tomcat,
+                    ffi::SCANCODE_A => MenuKey::AlleyCat,
+                    _ => MenuKey::Other,
+                });
+            }
             self.restart_pressed |= scancode == ffi::SCANCODE_R;
             self.pause_pressed |= matches!(
                 scancode,
@@ -529,6 +551,46 @@ mod tests {
             assert_eq!(input.continue_pressed, expected);
         }
     }
+
+    #[test]
+    fn menu_choices_and_game_shortcuts_use_fresh_key_events() {
+        let mut queued = Input::default();
+        queued.record_press(ffi::SCANCODE_K, 0, false);
+        queued.record_press(40, 0, false);
+        assert_eq!(queued.menu_key, Some(MenuKey::Kitten));
+        for (scancode, expected) in [
+            (ffi::SCANCODE_K, MenuKey::Kitten),
+            (ffi::SCANCODE_H, MenuKey::HouseCat),
+            (ffi::SCANCODE_T, MenuKey::Tomcat),
+            (ffi::SCANCODE_A, MenuKey::AlleyCat),
+            (40, MenuKey::Other),
+        ] {
+            let mut input = Input::default();
+            input.record_press(scancode, 0, false);
+            assert_eq!(input.menu_key, Some(expected));
+            for (modifiers, repeat) in [(0, true), (0x0100, false), (0x0040, false)] {
+                let mut ignored = Input::default();
+                ignored.record_press(scancode, modifiers, repeat);
+                assert_eq!(ignored.menu_key, None);
+            }
+        }
+        for control in [0x0040, 0x0080] {
+            let mut input = Input::default();
+            input.record_press(ffi::SCANCODE_M, control, false);
+            assert!(input.menu_pressed);
+            assert!(!input.continue_pressed && !input.pause_pressed && !input.quit);
+            let mut input = Input::default();
+            input.record_press(ffi::SCANCODE_R, control, false);
+            assert!(input.new_game_pressed);
+            assert!(!input.restart_pressed && !input.pause_pressed);
+        }
+        for (modifiers, repeat) in [(0, false), (0x0040, true), (0x0140, false)] {
+            let mut input = Input::default();
+            input.record_press(ffi::SCANCODE_R, modifiers, repeat);
+            input.record_press(ffi::SCANCODE_M, modifiers, repeat);
+            assert!(!input.menu_pressed && !input.new_game_pressed);
+        }
+    }
 }
 
 // Small authored ABI declarations, checked against SDL3's public headers.
@@ -554,6 +616,11 @@ mod ffi {
     pub const SCANCODE_P: usize = 19;
     pub const SCANCODE_Q: usize = 20;
     pub const SCANCODE_R: usize = 21;
+    pub const SCANCODE_A: usize = 4;
+    pub const SCANCODE_H: usize = 11;
+    pub const SCANCODE_K: usize = 14;
+    pub const SCANCODE_M: usize = 16;
+    pub const SCANCODE_T: usize = 23;
     pub const SCANCODE_PAUSE: usize = 72;
     pub const SCANCODE_ESCAPE: usize = 41;
     pub const SCANCODE_RIGHT: usize = 79;

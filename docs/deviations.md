@@ -40,21 +40,30 @@ change pause state. Ctrl+Q and the window close button quit, including while
 paused. There is currently no development override for the original any-key
 resume behavior.
 
-## Splash and deferred menus
+## Startup and keyboard menu
 
-The initial animated splash proceeds directly to gameplay until the original
-menus are implemented. Its data and virtual clock are separate from gameplay,
-so time spent watching it does not advance the fixed development gameplay seed.
-Original shared startup/menu state integration is deferred. Desktop shortcut
+The initial animated splash leads to the skill menu and controls. Its data and
+virtual clock are separate from gameplay, so time spent watching it does not
+advance the fixed development gameplay seed.
+Original shared startup state integration is deferred. Desktop shortcut
 combinations, modifier keys alone and held-key repeats do not dismiss the splash;
 a fresh ordinary key press does. Explicit development scene selection bypasses
 startup, while `--scene splash` previews only that presentation.
+
+The joystick question is omitted; keyboard controls are always enabled.
+Controller support remains unimplemented. The menu retains the original skill
+choices and accumulating text layout. Its sound-toggle instruction is replaced
+with Ctrl+Q to quit while audio is absent; its pause instruction describes the
+toggle keys. Ctrl+R restarts and Ctrl+M opens the skill menu directly, without
+replaying the splash. An explicit `--difficulty` skips the skill question and
+shows controls with a separate key-to-start wait. Menu waits ignore desktop
+shortcuts, modifier keys alone and held-key repeats.
 
 ## Game over and restart
 
 After the final life is lost, the recreation holds an authored game-over screen
 and accepts R to start another run. The original returns to its startup/menu
-sequence, which is not yet implemented. Restart retains the high score and
+sequence automatically. Restart retains the high score and
 development controls and resets score, lives, initial difficulty and initial
 seed. Ctrl+Q and window close remain available. This is the current desktop
 replacement for that menu flow; there is no development override.

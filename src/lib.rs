@@ -20,6 +20,7 @@ mod fishbowl;
 mod font;
 mod hearts;
 mod hearts_completion;
+pub mod menu;
 mod mice;
 mod milk;
 #[cfg(feature = "sdl")]

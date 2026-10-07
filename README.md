@@ -43,15 +43,20 @@ Launch starts with the original animated splash: a cat enters and walks along
 the fence, and the copyright artwork alternates between SynSoft and IBM.
 Press a key to continue, or wait for the original first-entry timeout of about
 47 seconds. Desktop shortcuts, modifier keys alone and held-key repeats do not
-dismiss it. The menu is not implemented yet, so the splash proceeds directly to
-gameplay. Ctrl+Q or window close quits during the splash as well.
+dismiss it. The following menu omits the original joystick question. Select
+K (Kitten), H (House Cat), T (Tomcat), or A (Alley Cat); the controls then appear
+below the question. Press another key to start. These choices select initial
+internal difficulties 0 through 3; progression can reach 7.
+Ctrl+Q or window close quits during startup as well.
 
 Use the arrow keys to move and jump. Esc, P and Pause/Break toggle pause;
 other keys, including arrows, leave it paused. Pause shortcuts are ignored while
 Alt, Ctrl or Super is held, and held-key repeats do not toggle pause. Losing or
 regaining window focus does not change the pause state. Ctrl+Q or closing the
-window exits, including while paused. After losing all lives, press R to start
-a new run with the initial difficulty and seed; the high score is retained.
+window exits, including while paused. Ctrl+R starts a new run, and Ctrl+M returns
+to the skill menu to select a new run. Both also work while paused. After losing
+all lives, press R to start a new run with the initial difficulty and seed;
+the high score is retained.
 In the cheese room, hold Alt at a hole to travel to its paired hole.
 In the hearts scene, gifts are picked up automatically on contact; hold Alt
 to place a carried gift near the cat's current position.
@@ -74,8 +79,9 @@ supported; game timing still follows the virtual PIT/video clocks. Composite
 monitor simulation is not implemented. Raw framebuffer and PPM exports remain
 320×200 for data comparisons.
 
-`--difficulty` accepts 0 through 7 and sets the initial difficulty. Instructions,
-input selection and difficulty selection menus are not implemented. Normal builds accept
+`--difficulty` accepts 0 through 7 and sets the initial difficulty, skipping the
+skill question while retaining the controls and key-to-start wait. Normal builds
+accept
 `--original`, `--machine`, `--scale`, `--difficulty` and `--help`.
 
 ## Development tools
@@ -92,8 +98,8 @@ and export helpers are excluded; passing a testing flag reports an unknown
 option. `cargo run --locked --features dev-tools -- --help` lists the development
 options alongside the player options.
 
-An explicit `--scene` bypasses startup; use `--scene alley` to start gameplay
-immediately. `--scene splash` previews only the title screen. In that preview,
+An explicit `--scene` bypasses the splash and menu; use `--scene alley` to start
+gameplay immediately. `--scene splash` previews only the title screen. In that preview,
 `--steps N` limits virtual BIOS ticks instead of accepted player updates, and
 `--dump-cga`/`--dump-ppm` export the final title frame. Gameplay scripts, traces
 and `--step-hz` are not available for splash previews. Headless gameplay runs

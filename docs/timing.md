@@ -467,9 +467,30 @@ The silent music-sequence index follows its tick gate; no samples are produced.
 The host uses the virtual BIOS/retrace clock and provisional loop/drawing costs
 from the fixed-240 profile. Exact splash playback cadence is not established.
 Presentation has a separate data copy and does not advance the gameplay seed
-or clock; integrating the original shared startup/menu state remains deferred.
+or clock; integrating the original shared startup state remains deferred.
 Explicit development scene previews bypass startup. In a splash preview, finite
 limits count virtual BIOS ticks and frame exports contain the splash itself.
+
+### Keyboard menu
+
+The post-title routine (`5ee5`) clears the framebuffer, asks about joystick use,
+then displays the four skill choices. The recreation omits joystick setup and
+starts with the skill question. String pointers at `6d37` and cursor positions
+at `6d63` supply the external text and rows; `5e5b` forces column zero. BIOS
+teletype output uses color index two and 8×8 lettering, reproduced with the
+attributed font shared with scoring.
+
+K/H/T/A select `6df8` values 0/1/2/3. Startup copies the selected skill to the
+initial gameplay difficulty; subsequent progression changes difficulty without
+changing the selected-skill fence sign. Controls are appended beneath the skill
+question, and `5f97` waits for a new key make before returning. Invalid skill
+keys leave the question unchanged. These menu waits have no timeout and do not
+advance the reconstruction's gameplay clock or random stream.
+
+The host also accepts Ctrl+R to restart and Ctrl+M to select a new run, including
+while paused. Returning to play resets host pacing and pause state, preserving
+the high score and development controls. The two updated instruction rows and
+explicit CLI difficulty bypass are described in [deviations](deviations.md).
 
 ### Reference execution costs
 

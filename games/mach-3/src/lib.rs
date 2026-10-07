@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 
 pub mod assets;
+#[cfg(feature = "viewer")]
+pub mod cli;
 pub mod frame;
 pub mod opening;
 pub mod rules;

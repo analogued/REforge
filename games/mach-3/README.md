@@ -1,7 +1,7 @@
 # Mach 3
 
-Reverse-engineering project for the **DOS version of Mach 3**, released in 1987
-by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
+Game crate for [REforge](../../README.md), recreating the **DOS version of Mach 3**,
+released in 1987 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
 Status: Rust gameplay recreation with steering, shooting, encounter
 progression, collision responses, and retained-session restarts.
 Live gameplay has no loop cap. Audio remains deferred; later gameplay paths
@@ -20,15 +20,12 @@ scripts, and repeatability.
 See [gameplay recordings](docs/gameplay-recordings.md) to record a manually played
 original game and compare its rendered pixels and modeled state with a Rust replay.
 
-Target game: **Mach 3**. A public recreation name has not been chosen. When
-chosen, use it in this repository's documentation while keeping the target game
-clearly identified.
+## Game crate structure
 
-## Repository structure
-
-Starter directories are `src/`, `tools/`, `re/`, `tests/`, and `docs/`. Adapt them
-to the project when its needs become clear. Game-specific tools belong here;
-shared tools can have independent repositories elsewhere in the workspace.
+This crate lives at `games/mach-3/` in REforge. Its implementation is in `src/`,
+game-specific Python tools in `tools/`, synthetic tests in `tests/`, capture
+profile in `capture/`, and technical reference documentation in `docs/`.
+Shared application facilities belong in the combined repository's `crates/`.
 Keep `docs/` for maintained implementation and reference documentation. Internal
 discussion, experiments, and planning notes live outside the source repository.
 
@@ -42,10 +39,11 @@ with the private evidence rather than in repository documentation.
 ## Rust renderer
 
 Requires Rust 1.85 or later. Asset decoding and frame export use the standard
-library; the optional windowed viewer uses SDL3. From the repository root:
+library; the optional windowed viewer uses SDL3. Run Cargo commands below from
+the combined repository root; `-p mach3` selects this game package:
 
 ```sh
-cargo run --bin mach3-frame -- /path/to/assets /path/to/first-frame.ppm
+cargo run -p mach3 --bin mach3-frame -- /path/to/assets /path/to/first-frame.ppm
 ```
 
 The renderer reads `DATA2`, `DATA3`, `DATA4`, and `DATA5` from the supplied
@@ -54,14 +52,17 @@ verified initial scene into a 320-by-200 binary PPM. The output must be a new
 file. For a 16-KiB CGA framebuffer with unused bank bytes zeroed:
 
 ```sh
-cargo run --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
+cargo run -p mach3 --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
 ```
 
 This implements the fixed initial draw state, masked sprites, and frame export.
 The separate gameplay simulation implements live play and bounded frame exports;
 audio remains unimplemented.
 Asset decoding and frame composition are also available through the `mach3`
-library. See [CGA graphics](docs/cga-graphics.md) for the supported formats.
+library. With the `viewer` feature, `mach3::cli::run(args)` accepts command-line
+arguments as `OsString` values, excluding the executable name, so REforge can
+dispatch the same viewer interface. See [CGA graphics](docs/cga-graphics.md) for
+the supported formats.
 
 The separate CGA decoder runs with Python 3.11 or later and has no external
 dependencies.
@@ -72,7 +73,7 @@ The optional viewer requires SDL3 development and runtime libraries available
 to the compiler and system loader:
 
 ```sh
-cargo run --features viewer --bin mach3-viewer -- /path/to/assets
+cargo run -p mach3 --features viewer --bin mach3-viewer -- /path/to/assets
 ```
 
 Supply the game resource directory, including `MACH3.EXE` and `DATA1` through
@@ -103,7 +104,7 @@ The default window is 960 by 720 (3x). `--scale 1..16` sets its initial scale;
 scale 8 gives 2560 by 1920:
 
 ```sh
-cargo run --features viewer --bin mach3-viewer -- --scale 2 /path/to/assets
+cargo run -p mach3 --features viewer --bin mach3-viewer -- --scale 2 /path/to/assets
 ```
 
 The 320-by-200 CGA framebuffer is displayed at 4:3, with pixels 20% taller
@@ -116,7 +117,7 @@ After Cargo has fetched the locked dependencies, these commands can use `--offli
 For reproducible frame and state export without SDL3:
 
 ```sh
-cargo run --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
+cargo run -p mach3 --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
 ```
 
 This writes frames `000.cga` through `836.cga` plus state, player, weapon, object, and
@@ -139,6 +140,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for formatting and commit conventions.
 
 ## License
 
-The project's license has not been selected; none is granted by this scaffold.
-Once chosen, include the full text in `LICENSE`, identify and link it here, and
-add short copyright and SPDX license headers to authored code files.
+Authored code follows [REforge's repository license decision](../../README.md#license),
+which remains undecided. Preserve the complete third-party notices in
+[dependency notices](docs/dependencies.md) and `docs/licenses/`.

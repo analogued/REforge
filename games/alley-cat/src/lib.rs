@@ -2,6 +2,8 @@
 
 //! Alley rendering and accepted player updates, independent of host presentation.
 
+extern crate self as alley_cat;
+
 pub mod alley;
 pub mod assets;
 mod bin_cat;
@@ -9,6 +11,7 @@ mod birdcage;
 mod bookcase;
 pub mod cga;
 mod cheese;
+pub mod cli;
 mod clothes;
 mod completion;
 mod decoration;

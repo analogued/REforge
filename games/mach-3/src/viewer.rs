@@ -59,9 +59,9 @@ enum Action {
 
 fn title(screen: Screen) -> &'static str {
     match screen {
-        Screen::Splash => "Mach 3 — Splash (Space to advance)",
-        Screen::Intro => "Mach 3 — Intro (Space to advance)",
-        Screen::InitialScene => "Mach 3 — Initial scene (Esc to close)",
+        Screen::Splash => "REforge — Mach 3 — Splash (Space to advance)",
+        Screen::Intro => "REforge — Mach 3 — Intro (Space to advance)",
+        Screen::InitialScene => "REforge — Mach 3 — Initial scene (Esc to close)",
     }
 }
 
@@ -577,19 +577,19 @@ fn run_inner(
                 )
                 .map_err(|error| error.to_string())?;
             let caption = if session.pause.state != PauseState::Running {
-                "Mach 3 — Paused (release keys, then F1 to end game or another key to resume)"
+                "REforge — Mach 3 — Paused (release keys, then F1 to end game or another key to resume)"
             } else if shown != Screen::InitialScene {
                 title(shown)
             } else if ending.as_ref().is_some_and(Ending::can_return) {
-                "Mach 3 — Game Over / High Score (Space to return, Esc to close)"
+                "REforge — Mach 3 — Game Over / High Score (Space to return, Esc to close)"
             } else if ending.is_some() {
-                "Mach 3 — Game Over / High Score (Esc to close)"
+                "REforge — Mach 3 — Game Over / High Score (Esc to close)"
             } else if opening.as_ref().is_some_and(Opening::complete) {
-                "Mach 3 — Preview complete (Esc to close)"
+                "REforge — Mach 3 — Preview complete (Esc to close)"
             } else if options.playback == Playback::Step {
-                "Mach 3 — Opening (Enter to step, F1 to pause, Esc to close)"
+                "REforge — Mach 3 — Opening (Enter to step, F1 to pause, Esc to close)"
             } else {
-                "Mach 3 — Opening (F1 to pause, Esc to close)"
+                "REforge — Mach 3 — Opening (F1 to pause, Esc to close)"
             };
             canvas
                 .window_mut()

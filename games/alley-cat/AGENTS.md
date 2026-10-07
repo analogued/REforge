@@ -1,6 +1,7 @@
 # Repository instructions
 
-- Read and follow `CONTRIBUTING.md` for code style, commit messages, and validation.
+- Read the combined repository's root `AGENTS.md`, `CONTRIBUTING.md` and this
+  crate's `CONTRIBUTING.md` before game work.
 - Keep `docs/` focused on maintained implementation and reference documentation
   useful to users and contributors. Add documentation only when an actual need
   arises; an empty `docs/` is fine. Do not create a preset collection of documents.
@@ -20,10 +21,10 @@
   Do not hard-code a user's paths or require a particular parent directory layout.
 - Preserve original inputs and persistent intermediate evidence. Put reproducible
   build/cache output in the configured working directory.
-- Put game-specific tools here. Move reusable infrastructure to independent
-  repositories when a demonstrated common use justifies doing so.
+- Put game-specific tools here. Shared REforge infrastructure belongs in root
+  `crates/` when demonstrated reuse justifies extraction.
 - The RE method is a game-specific decision. This scaffold does not select one.
   Add project-specific instructions and build/test commands as they are established.
-- The license is a project-specific decision and has not been chosen. Once chosen,
-  keep its full text in `LICENSE`, state it in the README, and add short copyright
+- The repository-wide REforge license has not been chosen. Once chosen,
+  keep its full text in root `LICENSE`, state it in the README, and add short copyright
   and SPDX license headers to authored code files. Preserve third-party notices.

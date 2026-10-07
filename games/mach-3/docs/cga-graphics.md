@@ -152,7 +152,7 @@ ignored. The viewer then runs the bounded [opening simulation](dos-gameplay.md#r
 with optional manual body stepping or static presentation. It does not reproduce
 the original startup waits or audio-dependent intro control flow.
 
-For the separate Python video-memory decoder, run from the repository root
+For the separate Python video-memory decoder, run from the game crate directory (`games/mach-3/`)
 using external input and output paths:
 
 ```sh

@@ -1,6 +1,7 @@
-# Repository instructions
+# Mach 3 instructions
 
-- Read and follow `CONTRIBUTING.md` for code style, commit messages, and validation.
+- Read the combined repository's `../../AGENTS.md` and `../../CONTRIBUTING.md`,
+  then this game's `CONTRIBUTING.md` for additional validation requirements.
 - Use Rust for the main implementation. Supporting tools and investigation
   scripts may use whichever language suits their task. Use SDL3 for native
   presentation and input. Audio analysis is deferred.
@@ -15,7 +16,7 @@
   variant comparisons out of the README and repository docs. Record them with
   external private evidence. Repository docs should describe maintained tools,
   implementation, and verified technical findings useful in a standalone clone.
-- This repository contains authored project source and documented RE knowledge.
+- This game crate contains authored project source and documented RE knowledge.
   Original game files and raw generated evidence are external inputs. Keep them
   outside Git unless a specific redistribution basis has been established.
 - These instructions must remain usable in a standalone clone. Do not require
@@ -24,10 +25,13 @@
   Do not hard-code a user's paths or require a particular parent directory layout.
 - Preserve original inputs and persistent intermediate evidence. Put reproducible
   build/cache output in the configured working directory.
-- Put game-specific tools here. Move reusable infrastructure to independent
-  repositories when a demonstrated common use justifies doing so.
+- Keep game-specific code, tools, capture profiles and technical documentation
+  here under `games/mach-3/`. Extract demonstrated shared application facilities
+  into the combined repository's `crates/`; preserve Mach 3 asset formats,
+  gameplay, timing, randomness and input behavior.
 - The RE method is a game-specific decision. This scaffold does not select one.
   Add project-specific instructions and build/test commands as they are established.
-- The license is a project-specific decision and has not been chosen. Once chosen,
-  keep its full text in `LICENSE`, state it in the README, and add short copyright
-  and SPDX license headers to authored code files. Preserve third-party notices.
+- Authored game code follows the combined repository's licensing decision, which
+  remains undecided. Keep full project license text at the repository root once
+  chosen. Preserve game dependency notices and third-party license texts in
+  `docs/dependencies.md` and `docs/licenses/`.

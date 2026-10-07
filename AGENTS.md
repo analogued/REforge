@@ -25,8 +25,10 @@
 - Each worktree contains the whole repository and has its own branch. Coordinate
   shared changes, validate affected games and merge focused branches into `main`.
   Independent clones per game are not the development convention.
-- The RE method is a game-specific decision. This scaffold does not select one.
-  Add project-specific instructions and build/test commands as they are established.
+- Read applicable instructions and validation requirements in each affected
+  game crate. The RE method and external data requirements are game-specific.
+- All games require external original data. Do not bundle extracted assets or
+  substitute recreated data to make the application standalone.
 - The license is a project-specific decision and has not been chosen. Once chosen,
   keep its full text in `LICENSE`, state it in the README, and add short copyright
   and SPDX license headers to authored code files. Preserve third-party notices.

@@ -1,8 +1,8 @@
 # Dependencies and notices
 
 The optional `viewer` feature uses `sdl3 = "=0.20.0"` with default features
-disabled. `Cargo.lock` fixes the Rust dependencies below. The default library
-and frame renderer do not require them. No native runtime source is copied into
+disabled. The [root workspace lockfile](../../../Cargo.lock) fixes the Rust
+dependencies below. The default library and frame renderer do not require them. No native runtime source is copied into
 this repository.
 
 | Dependency | Locked version | Purpose | Upstream license; retained terms |
@@ -30,7 +30,7 @@ features.
 
 The unchanged [SDL3 Zlib notice](licenses/SDL3-Zlib.txt) is retained for the
 native runtime. The installed runtime version is controlled by the system,
-not `Cargo.lock`; `SDL-3.4.18` in the bindings crate version identifies the
+not the root `Cargo.lock`; `SDL-3.4.18` in the bindings crate version identifies the
 bindings' SDL version. The repository does not redistribute the system library
 or its dependencies.
 
@@ -40,7 +40,7 @@ Files under `licenses/` reproduce complete upstream license files and the
 complete HIDAPI source header without modifications, including upstream
 whitespace. Paths below are relative to the named crate archive unless an
 installed system path is given. Crate versions and checksums are recorded in
-`Cargo.lock`.
+the root `Cargo.lock`.
 
 | Retained file | Original file and source |
 | --- | --- |

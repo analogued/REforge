@@ -5,7 +5,7 @@ initially targeting Linux. The current program supports alley movement,
 alley and room actors, damage, window entry, the fishbowl, bookcase, cheese, birdcage and milk rooms,
 and the hearts bonus scene.
 It is not a complete game.
-A public recreation name has not been chosen.
+Alley Cat is the `alley-cat` game crate in **REforge**.
 
 ## Original game required
 
@@ -27,16 +27,19 @@ files and any generated captures outside this repository.
 
 ## Build and run
 
+See the [application README](../../README.md) for the combined build and
+[contributing guide](CONTRIBUTING.md) for this game's validation commands.
+
 Install Rust 1.85 or newer with Cargo, and an SDL3 development package providing
 the native `SDL3` library. The window backend was checked against SDL 3.4.16 on
 Linux. It uses a small authored C interface; no Rust SDL binding crate or SDL
 image/font/mixer extension is required. Cargo fetches `sha2` and its locked
 dependencies for executable verification.
 
-From this repository:
+From the combined repository root:
 
 ```sh
-cargo run --locked --release -- --original /path/to/CAT.EXE
+cargo run --locked -p reforge --release -- alley-cat --original /path/to/CAT.EXE
 ```
 
 Launch starts with the original animated splash: a cat enters and walks along
@@ -91,13 +94,13 @@ accept
 Testing options are compiled only with the `dev-tools` Cargo feature:
 
 ```sh
-cargo run --locked --release --features dev-tools -- \
+cargo run --locked -p reforge --release --features dev-tools -- alley-cat \
   --original /path/to/CAT.EXE --scene underwater
 ```
 
 Without that feature, their parser branches, option fields, diagnostic runners
 and export helpers are excluded; passing a testing flag reports an unknown
-option. `cargo run --locked --features dev-tools -- --help` lists the development
+option. `cargo run --locked -p reforge --features dev-tools -- alley-cat --help` lists the development
 options alongside the player options.
 
 An explicit `--scene` bypasses the splash and menu; use `--scene alley` to start
@@ -306,7 +309,7 @@ accepted-update mode. It bypasses the original player timing gates.
 Headless diagnostics require `dev-tools` and need no SDL library:
 
 ```sh
-cargo run --locked --no-default-features --features dev-tools -- \
+cargo run --locked -p reforge --no-default-features --features dev-tools -- alley-cat \
   --original /path/to/CAT.EXE --headless --steps 60
 ```
 
@@ -340,7 +343,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for validation, formatting, and commit
 conventions, and [the analysis tool](tools/README.md) for read-only executable
 reconnaissance. Development does not require a particular parent workspace.
 
-The project's license has not been selected; no project license is granted yet.
+REforge's repository-wide license has not been selected; no project license is granted yet.
 Dependency attribution and license notices are in
 [THIRD_PARTY.md](THIRD_PARTY.md). Those notices do not grant rights to the
 original game data.

@@ -23,7 +23,7 @@ is unavailable in normal builds. Development builds also use the correction
 unless that flag is supplied. For example:
 
 ```sh
-cargo run --locked --release --features dev-tools -- \
+cargo run --locked -p reforge --release --features dev-tools -- alley-cat \
   --original /path/to/CAT.EXE --difficulty 6 --original-window-timing
 ```
 

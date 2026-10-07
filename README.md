@@ -1,44 +1,58 @@
 # REforge
 
-Combined game reconstruction project. Status: source-layout scaffold only.
-The main implementation uses Rust and SDL3. Each game requires external original
-game data at runtime; do not bundle original or extracted assets.
+Rust reconstructions of DOS games for modern desktop systems, currently
+[Alley Cat](games/alley-cat/README.md) and [Mach 3](games/mach-3/README.md).
+Each game requires its original files, supplied separately. REforge reads their
+assets and tables and implements the reconstructed behavior natively.
+The games are still in development; audio remains unimplemented.
 
-## Source structure
+## Build and run
 
-The intended Cargo workspace contains one application under `app/`, separate
-library crates under `games/<game-id>/`, and shared crates under `crates/`.
-The workspace root will own `Cargo.toml` and a single `Cargo.lock`. The application
-depends on game crates; games depend on shared facilities; shared crates do not
-depend on game implementations.
+Install Rust 1.85 or newer, Cargo and SDL3 development/runtime libraries.
+One Cargo workspace and lockfile cover the application and both game crates.
 
-The scaffold reserves these directories without generating Cargo manifests,
-placeholder game code or a shared engine. Add actual crates and workspace
-membership as implementation begins. Extract shared code when demonstrated use
-justifies it. Game-specific assets, gameplay, timing and random algorithms remain
-owned by each game.
+```sh
+cargo build --locked --release -p reforge
+cargo run --locked --release -p reforge -- --list
+cargo run --locked --release -p reforge -- alley-cat --original /path/to/CAT.EXE
+cargo run --locked --release -p reforge -- mach-3 --controls /path/to/mach3-files
+```
 
-Keep game implementation/reference documentation beside its crate under
-`games/<game-id>/docs/` when needed. Root documentation covers the application and
-shared development; shared crates can document their own APIs. Discussion,
-experiments, audits and private analysis stay outside the source repository.
+The built application is `target/release/reforge`, unless `CARGO_TARGET_DIR`
+selects another output path. Run `reforge <game> --help` for game-specific options.
+See each game's README for supported input versions, controls and current limits.
 
-## Development
+Use `--features dev-tools` to include Alley Cat's development scene selector,
+fixed-seed controls, actor/damage switches and diagnostics. Optimization is
+independent: a release build can include these tools, while a normal build omits
+them. Mach 3 retains its existing viewer/replay diagnostic interfaces; their
+player/development split remains to be defined as its reconstruction progresses.
 
-Each development worktree contains this entire repository, on its own branch.
-Make focused commits and merge completed branches into `main`. One checkout can
-be used for sequential work; concurrent sessions should use distinct worktrees.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions and validation.
+```sh
+cargo run --locked --release -p reforge --features dev-tools -- \
+  alley-cat --original /path/to/CAT.EXE --scene cheese --disable-damage all
+```
 
-## External inputs
+`--no-default-features` omits window support. Alley Cat headless diagnostics also
+require `dev-tools`; Mach 3's package provides separate frame/opening/replay
+binaries for headless work. These tools continue to be available with
+`cargo run --locked -p mach3 --bin mach3-replay -- --help`.
 
-Original executables/assets, raw analysis, emulator state and reference captures
-remain outside this repository. Accept their paths through configuration without
-requiring any particular parent-directory layout or local manifest.
+## Source organization
+
+- `app/`: the `reforge` application and game selection.
+- `games/alley-cat/`: the `alley-cat` library and legacy game binary.
+- `games/mach-3/`: the `mach3` library and its viewer/export/replay binaries.
+- `crates/`: shared facilities as demonstrated reuse justifies extraction.
+
+Game-specific gameplay, asset formats, timing and randomness stay in their own
+crates. Shared presentation and audio can be extracted incrementally.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for style, commits and validation.
 
 ## License
 
-The combined project's license has not been selected; none is granted by this
-scaffold. Once chosen, put its full text in root `LICENSE`, identify it here, and
-add short copyright/SPDX headers to authored source. Preserve third-party notices
-and record compatible dependency and imported-code licenses within this repository.
+The repository-wide project license has not been selected; no project license
+is granted yet. Existing third-party terms and attribution remain in
+[Alley Cat notices](games/alley-cat/THIRD_PARTY.md) and
+[Mach 3 notices](games/mach-3/docs/dependencies.md), with their license texts.
+Original game data is not included or licensed by this repository.

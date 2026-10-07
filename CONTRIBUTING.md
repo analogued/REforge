@@ -10,8 +10,8 @@ and keeps LF on checkout, including on Windows. Add explicit `-text` rules for
 any fixtures or other files whose bytes must be preserved exactly. If a file
 needs another line-ending convention, keep its Git and editor rules consistent.
 
-The main implementation uses Rust, standard Rust naming and rustfmt. Once Cargo
-workspace members exist, format with `cargo fmt --all`. Supporting tools may use
+The implementation uses Rust, standard Rust naming and rustfmt.
+Format the workspace with `cargo fmt --all`. Supporting tools may use
 other languages with documented formatters. Add formatting checks when CI is
 introduced.
 
@@ -71,11 +71,18 @@ choice.
 
 ## Validation
 
-Once the Cargo workspace is established, run `cargo fmt --all -- --check`,
+Run `cargo fmt --all -- --check`,
 `cargo test --locked --workspace`, and
 `cargo clippy --locked --workspace --all-targets -- -D warnings`, plus the
 feature/build combinations required by the affected crates. Package-scoped
 checks can aid development; shared changes must validate affected games.
+See [Alley Cat checks](games/alley-cat/CONTRIBUTING.md) and
+[Mach 3 checks](games/mach-3/CONTRIBUTING.md) for their feature matrices and tools.
+For application CLI changes, test and lint `-p reforge` with default features,
+`--no-default-features`, `--features dev-tools`, and both options combined.
+Release optimization (`--release`) is independent of the opt-in `dev-tools`
+feature; normal builds exclude Alley Cat testing switches.
+
 Tests must use authored synthetic fixtures, with original-data comparisons
 stored externally. Document concrete commands and limitations as crates are added.
 

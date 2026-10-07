@@ -1,0 +1,19 @@
+[package]
+name = "reforge"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+description = "REforge game reconstructions for modern desktop systems"
+
+[features]
+default = ["sdl"]
+sdl = ["alley-cat/sdl", "mach3/viewer"]
+dev-tools = ["alley-cat/dev-tools"]
+
+[dependencies]
+alley-cat = { path = "../games/alley-cat", default-features = false }
+mach3 = { path = "../games/mach-3", default-features = false }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

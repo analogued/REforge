@@ -14,10 +14,10 @@ Use Space to advance startup normally before playing.
 
 ## Setup
 
-Build the replay tool:
+Build the replay tool from the combined repository root:
 
 ```sh
-cargo build --locked --release --bin mach3-replay
+cargo build --locked -p mach3 --release --bin mach3-replay
 ```
 
 Build DOSBox-X Observer using its separate component checkout and an external working directory:
@@ -33,11 +33,15 @@ are documented in that component. See [dependency notices](dependencies.md#captu
 
 ## Record and compare
 
+Run Python commands from `games/mach-3/`. Supply the replay executable from the
+combined workspace's configured Cargo target directory; with Cargo's default
+output path, it is `../../target/release/mach3-replay` from this game directory.
+
 ```sh
 python3 tools/record_gameplay.py /path/to/game /path/to/new-recording \
   --observer-tool /path/to/dosbox-x-observer/tools/observer.py \
   --emulator /path/to/emulator-build/dosbox-x-observer \
-  --replay-binary target/release/mach3-replay --scale 8
+  --replay-binary /path/to/target/release/mach3-replay --scale 8
 ```
 
 The supplied game directory needs the executable and game resources. The tool
@@ -66,7 +70,7 @@ Keep recordings even after fixing a discrepancy. To compare one again with an
 updated implementation, use new output directories:
 
 ```sh
-target/release/mach3-replay /path/to/game /path/to/recording/reference /path/to/new-replay
+/path/to/target/release/mach3-replay /path/to/game /path/to/recording/reference /path/to/new-replay
 python3 tools/compare_gameplay.py /path/to/recording/reference /path/to/new-replay \
   /path/to/new-report --details
 ```

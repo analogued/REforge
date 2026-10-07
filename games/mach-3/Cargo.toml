@@ -1,0 +1,30 @@
+[package]
+name = "mach3"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+description = "Verified DOS Mach 3 graphics reconstruction"
+
+[features]
+viewer = ["dep:sdl3"]
+
+[dependencies]
+sdl3 = { version = "=0.20.0", optional = true, default-features = false }
+
+[[bin]]
+name = "mach3-frame"
+path = "src/main.rs"
+
+[[bin]]
+name = "mach3-viewer"
+path = "src/bin/viewer.rs"
+required-features = ["viewer"]
+
+[[bin]]
+name = "mach3-opening"
+path = "src/bin/opening.rs"
+
+[[bin]]
+name = "mach3-replay"
+path = "src/bin/replay.rs"

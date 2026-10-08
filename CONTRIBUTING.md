@@ -21,21 +21,25 @@ exact contents matter.
 
 ## Commit messages
 
-Start the subject with an imperative verb and describe the change clearly.
+Start the description after any scope prefix with an imperative verb and
+describe the change clearly.
 Examples of suitable verbs include Add, Fix, Remove, Document, Set, Include,
 Tweak, and Make; this is not a restricted vocabulary.
 
-An optional `<scope>: <Message>` prefix can identify a subsystem or module when
-it helps readers scan the history. Use consistent scope names and capitalization
-within this repository. A game prefix such as `alley-cat:` or `mach-3:` is useful
-for changes confined to that game; use shared-area prefixes when appropriate.
+Use `<scope>: <Message>` when a change primarily belongs to one engine or
+shared area. Engine scopes match the source crate IDs: `alleycat:` and `mach3:`.
+Shared scopes such as `sdl:`, `app:` or `docs:` identify the relevant facility.
+Keep scope names and capitalization consistent. Broad changes spanning several
+areas can omit the prefix when no single scope usefully describes them.
 
 Illustrative subjects:
 
 ```text
-Add command-line help for the asset inspector
-tools: Include the input hash in inspection reports
-audio: Fix timer wraparound handling
+alleycat: Fix bin collision boundaries
+mach3: Add input timing traces
+sdl: Handle drawable size changes
+docs: Clarify commit scope prefixes
+Update workspace dependencies
 ```
 
 Aim for around 50 characters in the subject, including a prefix, without

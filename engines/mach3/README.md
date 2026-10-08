@@ -89,6 +89,11 @@ frame. It preserves original pass order and input-poll sites; slow presentation
 does not limit it to one pass per display refresh. Catch-up batches are bounded
 to keep processing host events, with remaining deadline debt retained. Blocking
 transition frames and ending frames retain their separate visible waits.
+Queued gameplay key transitions currently update one latest held-state table
+before catch-up. Under host stalls, that table can miss a press held at an
+overdue poll or apply a later press too early; input timestamps are not replayed
+against historical poll deadlines. Keeping every short tap would also change
+the intended held-key polling behavior.
 Original CPU-dependent pacing and audio are not reproduced.
 
 F1 pauses: release it, then press and release another gameplay key to resume.

@@ -6,7 +6,7 @@
 
 pub use sdl3;
 mod input;
-pub use input::{HostPause, HostShortcut, host_shortcut};
+pub use input::{EventClockSample, HostPause, HostShortcut, event_clock_sample, host_shortcut};
 
 /// Initial multiplier of the aspect-corrected display area for every engine.
 pub const DEFAULT_SCALE: u32 = 4;

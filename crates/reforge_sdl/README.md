@@ -9,6 +9,11 @@ and retain their own additional bindings. Pause repeats and desktop modifier
 combinations are ignored. The optional host pause timeline freezes deadlines
 without synthesizing DOS input or changing an engine's original pause state.
 Each engine retains its input mapping, pixel decoding, palettes and game clock.
+For diagnostics, `event_clock_sample()` brackets SDL’s nanosecond event clock
+with host `Instant` samples. Engines can record this clock correlation alongside
+events and their own deadlines. The helper does not translate timestamps, retain
+taps or decide when input becomes effective.
+
 RGB24 and RGBA32 inputs are accepted without changing the engine framebuffer
 format.
 
@@ -17,8 +22,8 @@ library. Renderer selection is delegated to SDL, allowing hardware acceleration
 where available. Vsync is requested by default; an unsupported request prints a
 warning and continues without sync. Presentation can block for display refresh;
 engines must advance due simulation work independently of presentation count.
-The wrapper does not expose a vsync setter, so that single call uses
-its generated SDL declarations with an isolated safety explanation.
+The wrapper does not expose a vsync setter or nanosecond tick access; these
+two calls use generated SDL declarations with isolated safety explanations.
 
 Both current engines use a 320×240 logical display area. Source images are
 stretched into that aspect-corrected area and sampled with nearest neighbours.

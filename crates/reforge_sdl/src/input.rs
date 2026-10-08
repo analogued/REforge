@@ -40,6 +40,30 @@ pub fn host_shortcut(event: &Event) -> Option<HostShortcut> {
     }
 }
 
+/// Correlates SDL event timestamps with the host scheduling clock. The SDL
+/// sample lies between `host` and `host + span`; this is a measured bracket,
+/// not a claim that the two clocks share an epoch or exact precision.
+#[derive(Clone, Copy, Debug)]
+pub struct EventClockSample {
+    pub host: Instant,
+    pub sdl_ns: u64,
+    pub span: Duration,
+}
+
+/// Call after SDL initialization. This only measures clocks; it does not pump
+/// events, translate their timestamps, or change an engine's timeline.
+pub fn event_clock_sample() -> EventClockSample {
+    let host = Instant::now();
+    // SAFETY: SDL_GetTicksNS has no pointer arguments and is thread-safe. The
+    // caller has initialized SDL; the return value uses SDL's event clock.
+    let sdl_ns = unsafe { sdl3::sys::timer::SDL_GetTicksNS() };
+    EventClockSample {
+        host,
+        sdl_ns,
+        span: host.elapsed(),
+    }
+}
+
 /// A host timeline that freezes while paused. Existing engine deadlines remain
 /// in that timeline, preserving their remaining waits without catching up.
 #[derive(Default)]

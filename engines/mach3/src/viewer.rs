@@ -4,6 +4,9 @@
 use reforge_sdl::{FrameFormat, FrameTexture, HostPause, HostShortcut, Window, host_shortcut};
 use std::collections::{BTreeSet, VecDeque};
 
+mod input_history;
+use input_history::{EventTime, InputHistory};
+
 #[cfg(feature = "dev-tools")]
 use crate::input_trace::{InputTrace, PollSite};
 
@@ -158,7 +161,7 @@ fn scan_for_key(key: Keycode) -> Option<u8> {
     })
 }
 
-fn control_event(session: &mut SessionState, event: &Event, gameplay: bool) {
+fn event_scan(event: &Event, gameplay: bool) -> Option<u8> {
     match event {
         Event::KeyDown {
             keycode: Some(key), ..
@@ -167,7 +170,7 @@ fn control_event(session: &mut SessionState, event: &Event, gameplay: bool) {
             keycode: Some(key), ..
         } => {
             if *key == Keycode::Space && !gameplay && matches!(event, Event::KeyDown { .. }) {
-                return;
+                return None;
             }
             if let Some(scan) = scan_for_key(*key) {
                 let raw = scan
@@ -176,14 +179,26 @@ fn control_event(session: &mut SessionState, event: &Event, gameplay: bool) {
                     } else {
                         0
                     };
-                session.keyboard.apply_scan(raw);
+                return Some(raw);
             }
         }
+        _ => {}
+    }
+    None
+}
+
+#[cfg(test)]
+fn control_event(session: &mut SessionState, event: &Event, gameplay: bool) {
+    if let Some(scan) = event_scan(event, gameplay) {
+        session.keyboard.apply_scan(scan);
+    } else if matches!(
+        event,
         Event::Window {
             win_event: WindowEvent::FocusLost,
             ..
-        } => session.clear_held_keys(),
-        _ => {}
+        }
+    ) {
+        session.clear_held_keys();
     }
 }
 
@@ -199,7 +214,7 @@ impl ControlInput {
         session.clear_held_keys();
     }
 
-    fn handle(&mut self, session: &mut SessionState, event: &Event, gameplay: bool) {
+    fn accept(&mut self, event: &Event) -> bool {
         match event {
             Event::KeyDown {
                 keycode: Some(key),
@@ -208,7 +223,7 @@ impl ControlInput {
             } => {
                 if let Some(scan) = scan_for_key(*key) {
                     if *repeat && !self.fresh.contains(&scan) {
-                        return;
+                        return false;
                     }
                     if !repeat {
                         self.fresh.insert(scan);
@@ -228,7 +243,52 @@ impl ControlInput {
             } => self.fresh.clear(),
             _ => {}
         }
-        control_event(session, event, gameplay);
+        true
+    }
+
+    #[cfg(test)]
+    fn handle(&mut self, session: &mut SessionState, event: &Event, gameplay: bool) {
+        if self.accept(event) {
+            control_event(session, event, gameplay);
+        }
+    }
+
+    fn receive(
+        &mut self,
+        session: &mut SessionState,
+        history: &mut InputHistory,
+        event: &Event,
+        gameplay: bool,
+        time: EventTime,
+    ) -> &'static str {
+        if matches!(
+            event,
+            Event::Window {
+                win_event: WindowEvent::FocusLost,
+                ..
+            }
+        ) {
+            self.clear(session);
+            history.reset(time);
+            return "focus_reset";
+        }
+        // Check the original host epoch before accepting its mapped timeline.
+        // Old SDL events must not become fresh input in the resumed epoch.
+        if !history.accepts(time.host) {
+            return "ignored_before_reset";
+        }
+        if !self.accept(event) {
+            return "ignored_repeat";
+        }
+        if let Some(scan) = event_scan(event, gameplay) {
+            if gameplay {
+                history.push(time.timeline, scan);
+                return "queued";
+            }
+            history.apply_until(session, time.now);
+            session.keyboard.apply_scan(scan);
+        }
+        "handled"
     }
 }
 
@@ -393,6 +453,7 @@ impl TransitionPlayback {
 /// Mach 3's scheduling state is independent of how often SDL presents a frame.
 struct GamePlayback {
     session: SessionState,
+    history: InputHistory,
     opening: Option<Opening>,
     ending: Option<Ending>,
     next_frame: Option<std::time::Instant>,
@@ -410,6 +471,7 @@ impl Default for GamePlayback {
     fn default() -> Self {
         Self {
             session: SessionState::default(),
+            history: InputHistory::default(),
             opening: None,
             ending: None,
             next_frame: None,
@@ -426,6 +488,57 @@ impl Default for GamePlayback {
 }
 
 impl GamePlayback {
+    fn begin_game(
+        &mut self,
+        assets: &GraphicsAssets,
+        rules: Option<&ScriptRules>,
+        options: &Options,
+        now: std::time::Instant,
+    ) -> Result<(), String> {
+        // Fold intro/ending input before initialization. Keep the engine's
+        // keyboard table and duplicate byte; do not restore a host snapshot.
+        self.history.apply_until(&mut self.session, now);
+        let start = self.session.begin_game();
+        self.opening = Some(
+            if let Some(rules) = rules {
+                Opening::for_play(assets, rules.clone(), start)
+            } else if options.controls {
+                Opening::with_steering(assets)
+            } else {
+                Opening::new(assets)
+            }
+            .map_err(|error| error.to_string())?,
+        );
+        self.color_family = self.opening.as_ref().unwrap().palette_family();
+        self.ending = None;
+        self.transitions = TransitionPlayback::default();
+        self.body_polled = false;
+        self.quit_after_body_entry = false;
+        self.pending_step = false;
+        self.next_frame = Some(now + options.body_period / 3);
+        #[cfg(feature = "dev-tools")]
+        if let Some(trace) = &mut self.trace {
+            trace.boundary("game_started", now, self.next_frame, &self.session, "");
+        }
+        Ok(())
+    }
+
+    fn toggle_host_pause(
+        &mut self,
+        pause: &mut HostPause,
+        input: &mut ControlInput,
+        received: std::time::Instant,
+    ) {
+        toggle_host_pause(pause, &mut self.session, input, received);
+        let now = pause.now(received);
+        self.history.reset(EventTime {
+            host: received,
+            timeline: now,
+            now,
+        });
+        self.pending_step = false;
+    }
+
     fn ordinary_due(&self, options: &Options, now: std::time::Instant) -> bool {
         options.playback == Playback::Animated
             && self.ending.is_none()
@@ -446,6 +559,16 @@ impl GamePlayback {
     ) -> Result<bool, String> {
         let mut repaint = false;
         let unit = options.body_period / 3;
+        // These intervals have deliberate waits, not ordinary deadline debt.
+        // Fold their scan history without manufacturing additional guest polls.
+        if options.playback != Playback::Animated
+            || self.transitions.active()
+            || self.ending.is_some()
+            || self.session.pause.state != PauseState::Running
+            || self.opening.as_ref().is_none_or(Opening::complete)
+        {
+            self.history.apply_until(&mut self.session, now);
+        }
         #[cfg(feature = "dev-tools")]
         if let Some(trace) = &mut self.trace {
             trace.boundary(
@@ -595,6 +718,8 @@ impl GamePlayback {
             let Some(opening) = self.opening.as_mut() else {
                 break;
             };
+            let poll_at = self.next_frame.filter(|_| timed).unwrap_or(now);
+            self.history.apply_until(&mut self.session, poll_at);
             repaint = true;
             if let Some(ending) = self.ending.as_mut() {
                 ending.advance(assets).map_err(|error| error.to_string())?;
@@ -747,6 +872,13 @@ impl GamePlayback {
                 break;
             }
         }
+        if self.transitions.active()
+            || self.ending.is_some()
+            || self.session.pause.state != PauseState::Running
+            || self.next_frame.is_none()
+        {
+            self.history.apply_until(&mut self.session, now);
+        }
         Ok(repaint)
     }
 }
@@ -802,6 +934,9 @@ fn run_inner(
     loop {
         let mut repaint = false;
         for event in window.poll_events() {
+            let clock = reforge_sdl::event_clock_sample();
+            let received = std::time::Instant::now();
+            let time = EventTime::sample(&event, clock, &host_pause, received);
             repaint |= matches!(event, Event::Window { .. });
             let was_scene = presentation.screen() == Screen::InitialScene;
             let action = event_action(&mut presentation, event.clone(), host_pause.is_paused());
@@ -815,13 +950,7 @@ fn run_inner(
             }
             if action == Action::ToggleHostPause {
                 if was_scene {
-                    toggle_host_pause(
-                        &mut host_pause,
-                        &mut game.session,
-                        &mut input,
-                        std::time::Instant::now(),
-                    );
-                    game.pending_step = false;
+                    game.toggle_host_pause(&mut host_pause, &mut input, received);
                     step_key_held = false;
                     repaint = true;
                 }
@@ -881,13 +1010,30 @@ fn run_inner(
                 } => step_key_held = false,
                 _ => {}
             }
-            input.handle(&mut game.session, &event, was_scene);
+            let disposition = input.receive(
+                &mut game.session,
+                &mut game.history,
+                &event,
+                was_scene,
+                time,
+            );
+            #[cfg(not(feature = "dev-tools"))]
+            let _ = disposition;
             #[cfg(feature = "dev-tools")]
             if let Some(trace) = &mut game.trace {
-                trace.event(&event, "handled", &host_pause, &game.session);
+                trace.event_with_input_time(
+                    &event,
+                    disposition,
+                    &host_pause,
+                    &game.session,
+                    (disposition == "queued")
+                        .then(|| game.history.queued_at())
+                        .flatten(),
+                );
             }
             if action == Action::Space && was_scene {
                 if let Some(state) = game.ending.as_mut().filter(|state| state.can_return()) {
+                    game.history.apply_until(&mut game.session, time.now);
                     returned_intro = state.returned_intro_choice();
                     game.session
                         .remember_ending(&state.snapshot(), state.special_snapshots());
@@ -927,36 +1073,13 @@ fn run_inner(
                 game.color_family = 1; // Repeat entry selects palette family1 before intro.
             }
             if shown == Screen::InitialScene && options.playback != Playback::Static {
-                let start = game.session.begin_game();
-                game.opening = Some(
-                    if let Some(rules) = &rules {
-                        Opening::for_play(frames.graphics(), rules.clone(), start)
-                    } else if options.controls {
-                        Opening::with_steering(frames.graphics())
-                    } else {
-                        Opening::new(frames.graphics())
-                    }
-                    .map_err(|error| error.to_string())?,
-                );
-                game.color_family = game.opening.as_ref().unwrap().palette_family();
-                game.ending = None;
-                game.transitions = TransitionPlayback::default();
+                game.begin_game(
+                    frames.graphics(),
+                    rules.as_ref(),
+                    &options,
+                    host_pause.now(std::time::Instant::now()),
+                )?;
                 returned_intro = None;
-                game.body_polled = false;
-                game.quit_after_body_entry = false;
-                game.pending_step = false;
-                game.next_frame =
-                    Some(host_pause.now(std::time::Instant::now()) + options.body_period / 3);
-                #[cfg(feature = "dev-tools")]
-                if let Some(trace) = &mut game.trace {
-                    trace.boundary(
-                        "game_started",
-                        host_pause.now(std::time::Instant::now()),
-                        game.next_frame,
-                        &game.session,
-                        "",
-                    );
-                }
             }
         }
         let now = host_pause.now(std::time::Instant::now());
@@ -1030,6 +1153,8 @@ fn run_inner(
 
 #[cfg(test)]
 mod tests {
+    mod input_history_cases;
+
     use super::*;
     use reforge_sdl::sdl3::keyboard::Mod;
 
@@ -1321,6 +1446,26 @@ mod tests {
         } else {
             u32::from(state.body - 1) * 3 + u32::from(state.render_pass)
         }
+    }
+
+    fn receive_at(
+        game: &mut GamePlayback,
+        input: &mut ControlInput,
+        event: &Event,
+        at: std::time::Instant,
+        received: std::time::Instant,
+    ) -> &'static str {
+        input.receive(
+            &mut game.session,
+            &mut game.history,
+            event,
+            true,
+            EventTime {
+                host: at,
+                timeline: at,
+                now: received,
+            },
+        )
     }
 
     #[test]
@@ -1754,7 +1899,7 @@ mod tests {
     }
     #[cfg(feature = "dev-tools")]
     #[test]
-    fn input_trace_exposes_stalled_poll_history_without_changing_simulation() {
+    fn input_tracing_preserves_historical_poll_results() {
         use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
         // Only this test initializes SDL in this test binary. No video device
         // or synthetic SDL device-state update is needed; ControlInput consumes
@@ -1811,10 +1956,10 @@ mod tests {
         };
         // All events are handled at P+10ms, after a deliberately overdue poll P.
         // Expected-at-P is a temporal reference, not a tap-retention policy.
-        for (label, press_delta, release_delta, expected_at_poll, observed) in [
-            ("before", -5, -1, 0, 0),
-            ("spanning", -5, 5, 8, 0),
-            ("after", 5, 20, 0, 8),
+        for (label, press_delta, release_delta, expected_at_poll) in [
+            ("before", -5, -1, 0),
+            ("spanning", -5, 5, 8),
+            ("after", 5, 20, 0),
         ] {
             let start = Instant::now();
             let path = folder.join(format!("{label}.tsv"));
@@ -1839,13 +1984,20 @@ mod tests {
                     } => *value = timestamp,
                     _ => unreachable!(),
                 }
-                input.handle(&mut game.session, &event, true);
-                plain_input.handle(&mut plain.session, &event, true);
-                game.trace.as_mut().unwrap().event(
+                let at = if delta < 0 {
+                    start + unit - Duration::from_millis((-delta) as u64)
+                } else {
+                    start + unit + Duration::from_millis(delta as u64)
+                };
+                let received = start + unit + Duration::from_millis(10);
+                receive_at(&mut game, &mut input, &event, at, received);
+                receive_at(&mut plain, &mut plain_input, &event, at, received);
+                game.trace.as_mut().unwrap().event_with_input_time(
                     &event,
-                    "handled",
+                    "queued",
                     &HostPause::default(),
                     &game.session,
+                    game.history.queued_at(),
                 );
             }
             let late = start + unit + Duration::from_millis(10);
@@ -1854,6 +2006,9 @@ mod tests {
             assert_same(&game, &plain);
             let rows = read_rows(&mut game, &path);
             assert!(rows.iter().all(|row| row.len() == 13));
+            assert!(rows.iter().filter(|row| row[1] == "event").all(|row| {
+                row[12].contains("disposition=queued") && row[12].contains("effective_input_ns=")
+            }));
             let polls = rows
                 .iter()
                 .filter(|row| row[1] == "poll")
@@ -1867,10 +2022,9 @@ mod tests {
                     row[4],
                     (unit + Duration::from_millis(10)).as_nanos().to_string()
                 );
-                assert_eq!(row[9], observed.to_string());
-                assert_eq!(row[11], observed.to_string());
+                assert_eq!(row[9], expected_at_poll.to_string());
+                assert_eq!(row[11], expected_at_poll.to_string());
             }
-            assert_eq!(expected_at_poll == observed, label == "before");
         }
 
         // A full late catch-up batch, function-key handling, native waits and

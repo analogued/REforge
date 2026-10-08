@@ -417,7 +417,10 @@ is a development control, separate from the original Fire input.
 The modern host pause preserves the native F1 phase and its pending waits.
 Clearing frontend-held controls is observed as a release at the next native
 sample; it does not restart the handshake. OS repeats cannot repopulate cleared
-controls before a fresh press. Host events are drained before held state is
-sampled: a short press/release pair can end before a game poll and be missed.
-The viewer does not emulate hardware keyboard transport or exact event-arrival
-timing; externally scripted per-poll input is a separate replay interface.
+controls before a fresh press. Received scan transitions are retained until
+their scheduled polls, so catch-up uses the historical keyboard state. A short
+press/release pair completed between polls can still be missed. Events delivered
+after an executed poll apply prospectively; no rollback is performed.
+The viewer does not emulate hardware keyboard transport or physical key timing;
+externally scripted per-poll input is a separate replay interface. See
+[input timing and tracing](input-tracing.md) for frontend boundary rules.

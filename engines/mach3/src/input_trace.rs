@@ -107,8 +107,8 @@ impl InputTrace {
         self.write(row.as_bytes());
     }
 
-    /// Record after frontend handling. `actions` shows the table's resulting
-    /// state, including ignored repeats, focus clears and host-pause filtering.
+    /// Record after receipt. Held columns show the currently consumed DOS table;
+    /// a `queued` event becomes effective at a later poll or boundary fold.
     pub fn event(
         &mut self,
         event: &Event,
@@ -116,7 +116,18 @@ impl InputTrace {
         pause: &HostPause,
         session: &SessionState,
     ) {
-        let (label, detail) = match event {
+        self.event_with_input_time(event, disposition, pause, session, None);
+    }
+
+    pub fn event_with_input_time(
+        &mut self,
+        event: &Event,
+        disposition: &str,
+        pause: &HostPause,
+        session: &SessionState,
+        effective: Option<Instant>,
+    ) {
+        let (label, mut detail) = match event {
             Event::KeyDown {
                 keycode,
                 scancode,
@@ -161,6 +172,9 @@ impl InputTrace {
             Event::Quit { .. } => ("quit", disposition.to_owned()),
             _ => return,
         };
+        if let Some(at) = effective {
+            detail.push_str(&format!(" effective_input_ns={}", self.relative(at)));
+        }
         let clock = event_clock_sample();
         self.row(
             "event",

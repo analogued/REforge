@@ -34,8 +34,8 @@ nanoseconds; reporting nanoseconds does not promise nanosecond precision.
 | `clock_span_ns` | Host time between the two samples bracketing that SDL reading. |
 | `event_sdl_ns` | Unmodified SDL event timestamp, in SDL's nanosecond clock. |
 | `deadline_ns` | Poll's ordinary-pass deadline or the boundary's new deadline, relative to the host origin in the pause-adjusted timeline. |
-| `actions` | Observed keyboard actions: Up=1, Down=2, Left=4, Right=8, Fire=16. |
-| `functions` | Observed function-key bits: F1=1, F2=2, F3=4. |
+| `actions` | Currently consumed DOS keyboard actions: Up=1, Down=2, Left=4, Right=8, Fire=16. |
+| `functions` | Currently consumed function-key bits: F1=1, F2=2, F3=4. |
 | `result_mask` | Actual result of `Controls::poll`, including its F1/F2/F3 priorities. |
 | `detail` | Named fields describing event identity, polling side effects or boundary state. |
 
@@ -57,8 +57,11 @@ transition/ending waits have their own scheduling policy.
 
 All delivered key-down/up events are recorded, including unmapped keys, modifiers,
 F1/F2/F3 and OS repeats. Rows retain layout-aware keycodes, physical scancodes,
-modifier bits and repeat status. The held columns show the resulting DOS keyboard
-table after frontend handling; a delivered event need not change that table.
+modifier bits and repeat status. The held columns show the consumed DOS keyboard
+table after frontend handling. A `queued` event has not yet changed that table;
+its `effective_input_ns` detail gives its eligibility time on the pause-adjusted
+timeline, including any ordering or prospective-delivery clamp. This value comes
+from the input mapper, whose clock sample precedes the recorder's separate sample.
 Host shortcuts and events ignored during host pause are identified explicitly.
 Focus/window events and quit events are also recorded. Desktop shortcuts consumed
 before SDL receives them cannot be captured.
@@ -93,10 +96,41 @@ Use actual poll deadlines as the reference. Under a delayed event pump:
 | Press before P, release after P | Held, even if processing occurs after release. |
 | Press after P | Released at P, even if the press is processed before overdue work. |
 
-The current frontend drains queued events before overdue work. These traces
-observe that behavior; they do not replay timestamped input or retain every tap.
-Synthetic tests cover all three histories through the real scheduling/poll path,
-plus equivalence of traced/untraced catch-up, F-key effects and deliberate waits.
-Those tests establish recorder placement and the host-sampling baseline, rather
-than original DOS input timing or physical keyboard latency. Native captures and
-original-program comparisons remain external evidence.
+The frontend retains received make/break bytes and applies eligible transitions
+before each ordinary pass's scheduled poll. Body entry and its first steering
+poll share that deadline; both retain their existing control processing. Scans
+pass through the reconstructed DOS keyboard handler, including duplicate-byte
+filtering, rather than restoring snapshots of held keys. F-key priorities,
+counters and palette effects remain at their original poll sites.
+
+The input mapper correlates SDL timestamps using the midpoint of a measured
+host/SDL sampling bracket, then removes completed host-pause time. Unknown zero,
+future or unrepresentable timestamps use receipt time; estimates never exceed
+receipt time. Equal or nonmonotonic timestamps keep receipt order. Transitions
+dated before an already executed poll become eligible at the next unexecuted
+poll. There is no rollback, added input latency or guarantee that SDL timestamps
+measure physical key changes accurately.
+
+## History boundaries
+
+Native F1 waits, displayed transitions, ending animation, static previews and
+manual stepping fold received history to the current scheduling time without
+adding ordinary control polls. Completed taps in those discarded intervals do
+not become delayed actions; keys still held remain held. New game initialization
+also folds history first, then uses the engine's existing session reset rules.
+Startup Space advances presentation without becoming a gameplay Fire make.
+
+Focus loss and each host-pause toggle clear pending history, frontend repeat
+eligibility and the DOS key table while preserving the native pause phase and
+control counters. Buffered events preceding the reset's host epoch are ignored.
+Host-pause toggles use their actual handling time as the cutoff, so events from
+the paused interval cannot reappear after resume. Focus loss uses its correlated
+event time as the cutoff and clears controls immediately. Host pause excludes
+elapsed paused time from existing deadlines; resuming introduces no catch-up for
+that interval. Quit and host-pause shortcuts are handled immediately.
+
+Synthetic tests cover historical input correctness separately from tracing
+transparency, including catch-up, late delivery, F-key effects and boundary
+resets. They establish frontend scheduling behavior, rather than original DOS
+input timing or physical keyboard latency. Native captures and original-program
+comparisons remain external evidence.

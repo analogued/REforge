@@ -4,6 +4,9 @@
 use reforge_sdl::{FrameFormat, FrameTexture, HostPause, HostShortcut, Window, host_shortcut};
 use std::collections::{BTreeSet, VecDeque};
 
+#[cfg(feature = "dev-tools")]
+use crate::input_trace::{InputTrace, PollSite};
+
 use reforge_sdl::sdl3::{
     event::{Event, WindowEvent},
     keyboard::Keycode,
@@ -30,12 +33,14 @@ pub enum Playback {
     Static,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Options {
     pub scale: u32,
     pub playback: Playback,
     pub controls: bool,
     pub body_period: std::time::Duration,
+    #[cfg(feature = "dev-tools")]
+    pub input_trace: Option<std::path::PathBuf>,
 }
 
 impl Default for Options {
@@ -45,6 +50,8 @@ impl Default for Options {
             playback: Playback::Animated,
             controls: false,
             body_period: BODY_PERIOD,
+            #[cfg(feature = "dev-tools")]
+            input_trace: None,
         }
     }
 }
@@ -275,14 +282,32 @@ fn display_rgb(frame: &Frame, mode: DisplayMode, family: u8) -> Vec<u8> {
     output
 }
 
-fn advance_game_pass(
+fn advance_game_pass_observed(
     opening: &mut Opening,
     assets: &GraphicsAssets,
     session: &mut SessionState,
     controls: bool,
     quit_after_body_entry: &mut bool,
+    #[cfg(feature = "dev-tools")] trace: &mut Option<InputTrace>,
+    #[cfg(feature = "dev-tools")] poll_time: (std::time::Instant, Option<std::time::Instant>),
 ) -> Result<bool, String> {
     let result = session.controls.poll(session.keyboard.held_keys(0));
+    #[cfg(feature = "dev-tools")]
+    if let Some(trace) = trace {
+        let state = opening.snapshot();
+        trace.poll(
+            PollSite {
+                label: "steering",
+                timeline: poll_time.0,
+                deadline: poll_time.1,
+                body: state.body,
+                pass: state.render_pass,
+                controls,
+            },
+            session,
+            result,
+        );
+    }
     opening
         .advance_subframe(assets, steering_from_mask(result.mask, controls))
         .map_err(|error| error.to_string())?;
@@ -293,6 +318,27 @@ fn advance_game_pass(
         *quit_after_body_entry = false;
     }
     Ok(result.display_toggled)
+}
+
+#[cfg(test)]
+fn advance_game_pass(
+    opening: &mut Opening,
+    assets: &GraphicsAssets,
+    session: &mut SessionState,
+    controls: bool,
+    quit_after_body_entry: &mut bool,
+) -> Result<bool, String> {
+    advance_game_pass_observed(
+        opening,
+        assets,
+        session,
+        controls,
+        quit_after_body_entry,
+        #[cfg(feature = "dev-tools")]
+        &mut None,
+        #[cfg(feature = "dev-tools")]
+        (std::time::Instant::now(), None),
+    )
 }
 
 fn pause_waiting(state: PauseState) -> bool {
@@ -353,6 +399,8 @@ struct GamePlayback {
     quit_after_body_entry: bool,
     pending_step: bool,
     color_family: u8,
+    #[cfg(feature = "dev-tools")]
+    trace: Option<InputTrace>,
 }
 
 impl Default for GamePlayback {
@@ -368,12 +416,14 @@ impl Default for GamePlayback {
             quit_after_body_entry: false,
             pending_step: false,
             color_family: 1,
+            #[cfg(feature = "dev-tools")]
+            trace: None,
         }
     }
 }
 
 impl GamePlayback {
-    fn ordinary_due(&self, options: Options, now: std::time::Instant) -> bool {
+    fn ordinary_due(&self, options: &Options, now: std::time::Instant) -> bool {
         options.playback == Playback::Animated
             && self.ending.is_none()
             && !self.transitions.active()
@@ -388,15 +438,51 @@ impl GamePlayback {
     fn advance(
         &mut self,
         assets: &GraphicsAssets,
-        options: Options,
+        options: &Options,
         now: std::time::Instant,
     ) -> Result<bool, String> {
         let mut repaint = false;
         let unit = options.body_period / 3;
+        #[cfg(feature = "dev-tools")]
+        if let Some(trace) = &mut self.trace {
+            trace.boundary(
+                "batch",
+                now,
+                self.next_frame,
+                &self.session,
+                if self.transitions.active() {
+                    "transition=true"
+                } else {
+                    "transition=false"
+                },
+            );
+        }
         let transition_was_active = self.transitions.active();
+        #[cfg(feature = "dev-tools")]
+        let previous_transition_deadline = self.transitions.deadline;
         if self.transitions.advance(now, unit) {
             repaint = true;
+            #[cfg(feature = "dev-tools")]
+            if let Some(trace) = &mut self.trace {
+                trace.rebase(
+                    "transition_frame_wait",
+                    now,
+                    previous_transition_deadline,
+                    self.transitions.deadline,
+                    &self.session,
+                );
+            }
             if !self.transitions.active() {
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut self.trace {
+                    trace.rebase(
+                        "transition_finished",
+                        now,
+                        self.next_frame,
+                        Some(now + unit),
+                        &self.session,
+                    );
+                }
                 self.next_frame = Some(now + unit);
             }
         }
@@ -409,6 +495,16 @@ impl GamePlayback {
             if pause_waiting(self.session.pause.state) {
                 if self.pause_tick.is_some_and(|deadline| now >= deadline) {
                     self.session.pause.tick();
+                    #[cfg(feature = "dev-tools")]
+                    if let Some(trace) = &mut self.trace {
+                        trace.rebase(
+                            "native_pause_tick",
+                            now,
+                            self.pause_tick,
+                            Some(now + unit),
+                            &self.session,
+                        );
+                    }
                     self.pause_tick = Some(now + unit);
                 }
             } else {
@@ -416,13 +512,61 @@ impl GamePlayback {
                     .session
                     .controls
                     .poll(self.session.keyboard.held_keys(0));
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut self.trace {
+                    let state = self.opening.as_ref().map(Opening::snapshot);
+                    trace.poll(
+                        PollSite {
+                            label: "native_pause",
+                            timeline: now,
+                            deadline: None,
+                            body: state.as_ref().map_or(0, |state| state.body),
+                            pass: state.as_ref().map_or(0, |state| state.render_pass),
+                            controls: options.controls,
+                        },
+                        &self.session,
+                        result,
+                    );
+                }
                 repaint |= result.display_toggled;
                 match self.session.pause.poll(result.mask) {
                     PauseEvent::EndGame => self.quit_after_body_entry = true,
-                    PauseEvent::Resumed => self.next_frame = Some(now),
+                    PauseEvent::Resumed => {
+                        #[cfg(feature = "dev-tools")]
+                        if let Some(trace) = &mut self.trace {
+                            trace.rebase(
+                                "native_pause_resumed",
+                                now,
+                                self.next_frame,
+                                Some(now),
+                                &self.session,
+                            );
+                        }
+                        self.next_frame = Some(now);
+                    }
                     _ => {}
                 }
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut self.trace {
+                    trace.boundary(
+                        "native_pause_phase",
+                        now,
+                        self.next_frame,
+                        &self.session,
+                        &format!("end_game_committed={}", self.quit_after_body_entry),
+                    );
+                }
                 if pause_waiting(self.session.pause.state) {
+                    #[cfg(feature = "dev-tools")]
+                    if let Some(trace) = &mut self.trace {
+                        trace.rebase(
+                            "native_pause_wait",
+                            now,
+                            self.pause_tick,
+                            Some(now + unit),
+                            &self.session,
+                        );
+                    }
                     self.pause_tick = Some(now + unit);
                 }
             }
@@ -462,9 +606,39 @@ impl GamePlayback {
                         .session
                         .controls
                         .poll(self.session.keyboard.held_keys(0));
+                    #[cfg(feature = "dev-tools")]
+                    if let Some(trace) = &mut self.trace {
+                        let state = opening.snapshot();
+                        trace.poll(
+                            PollSite {
+                                label: "body_entry",
+                                timeline: now,
+                                deadline: self
+                                    .next_frame
+                                    .filter(|_| options.playback == Playback::Animated),
+                                body: state.body,
+                                pass: state.render_pass,
+                                controls: options.controls,
+                            },
+                            &self.session,
+                            result,
+                        );
+                    }
                     repaint |= result.display_toggled;
                     self.body_polled = true;
                     self.session.pause.poll(result.mask);
+                    #[cfg(feature = "dev-tools")]
+                    if self.session.pause.state != PauseState::Running {
+                        if let Some(trace) = &mut self.trace {
+                            trace.boundary(
+                                "native_pause_phase",
+                                now,
+                                self.next_frame,
+                                &self.session,
+                                &format!("end_game_committed={}", self.quit_after_body_entry),
+                            );
+                        }
+                    }
                 }
                 if self.session.pause.state == PauseState::Running {
                     let passes = if options.playback == Playback::Step {
@@ -477,15 +651,35 @@ impl GamePlayback {
                         1
                     };
                     for _ in 0..passes {
-                        repaint |= advance_game_pass(
+                        repaint |= advance_game_pass_observed(
                             opening,
                             assets,
                             &mut self.session,
                             options.controls,
                             &mut self.quit_after_body_entry,
+                            #[cfg(feature = "dev-tools")]
+                            &mut self.trace,
+                            #[cfg(feature = "dev-tools")]
+                            (
+                                now,
+                                self.next_frame
+                                    .filter(|_| options.playback == Playback::Animated),
+                            ),
                         )?;
                         self.transitions
                             .append(opening.take_transitions(), now, unit);
+                        #[cfg(feature = "dev-tools")]
+                        if self.transitions.active() {
+                            if let Some(trace) = &mut self.trace {
+                                trace.boundary(
+                                    "transition_started",
+                                    now,
+                                    self.transitions.deadline,
+                                    &self.session,
+                                    "",
+                                );
+                            }
+                        }
                         if self.transitions.active() {
                             break;
                         }
@@ -504,6 +698,8 @@ impl GamePlayback {
                 .ending
                 .as_ref()
                 .map_or(unit, |state| options.body_period * state.wait_units() / 3);
+            #[cfg(feature = "dev-tools")]
+            let previous_deadline = self.next_frame;
             self.next_frame = if opening.complete()
                 && !opening.snapshot().player.game_over
                 && self.ending.is_none()
@@ -515,6 +711,24 @@ impl GamePlayback {
             } else {
                 self.next_frame.map(|deadline| deadline + period)
             };
+            #[cfg(feature = "dev-tools")]
+            if let Some(trace) = &mut self.trace {
+                if self.ending.is_some() || !timed || self.next_frame.is_none() {
+                    trace.rebase(
+                        if self.ending.is_some() {
+                            "ending_wait"
+                        } else if self.next_frame.is_none() {
+                            "preview_finished"
+                        } else {
+                            "step_wait"
+                        },
+                        now,
+                        previous_deadline,
+                        self.next_frame,
+                        &self.session,
+                    );
+                }
+            }
             if self.ending.is_some() || opening.complete() || options.playback != Playback::Animated
             {
                 break;
@@ -543,6 +757,22 @@ fn run_inner(
     let mut host_pause = HostPause::default();
     let mut input = ControlInput::default();
     let mut window = Window::new(title(Screen::Splash), WIDTH as u32, DISPLAY_HEIGHT, scale)?;
+    #[cfg(feature = "dev-tools")]
+    if let Some(path) = &options.input_trace {
+        game.trace = Some(InputTrace::create(path)?);
+        game.trace.as_mut().unwrap().boundary(
+            "startup",
+            std::time::Instant::now(),
+            None,
+            &game.session,
+            &format!(
+                "period_ns={} controls={} playback={:?}",
+                options.body_period.as_nanos(),
+                options.controls,
+                options.playback
+            ),
+        );
+    }
     let creator = window.texture_creator();
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
@@ -563,6 +793,11 @@ fn run_inner(
             let was_scene = presentation.screen() == Screen::InitialScene;
             let action = event_action(&mut presentation, event.clone(), host_pause.is_paused());
             if action == Action::Close {
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut game.trace {
+                    trace.event(&event, "close", &host_pause, &game.session);
+                    trace.flush()?;
+                }
                 return Ok(());
             }
             if action == Action::ToggleHostPause {
@@ -577,9 +812,39 @@ fn run_inner(
                     step_key_held = false;
                     repaint = true;
                 }
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut game.trace {
+                    trace.event(
+                        &event,
+                        if was_scene {
+                            "host_shortcut"
+                        } else {
+                            "ignored_outside_gameplay"
+                        },
+                        &host_pause,
+                        &game.session,
+                    );
+                    if was_scene {
+                        trace.boundary(
+                            if host_pause.is_paused() {
+                                "host_pause_started"
+                            } else {
+                                "host_pause_ended"
+                            },
+                            host_pause.now(std::time::Instant::now()),
+                            game.next_frame,
+                            &game.session,
+                            "held_cleared=true",
+                        );
+                    }
+                }
                 continue;
             }
             if host_pause.is_paused() {
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut game.trace {
+                    trace.event(&event, "ignored_host_pause", &host_pause, &game.session);
+                }
                 continue;
             }
             match &event {
@@ -604,15 +869,33 @@ fn run_inner(
                 _ => {}
             }
             input.handle(&mut game.session, &event, was_scene);
+            #[cfg(feature = "dev-tools")]
+            if let Some(trace) = &mut game.trace {
+                trace.event(&event, "handled", &host_pause, &game.session);
+            }
             if action == Action::Space && was_scene {
                 if let Some(state) = game.ending.as_mut().filter(|state| state.can_return()) {
                     returned_intro = state.returned_intro_choice();
                     game.session
                         .remember_ending(&state.snapshot(), state.special_snapshots());
                     presentation.return_to_intro();
+                    #[cfg(feature = "dev-tools")]
+                    if let Some(trace) = &mut game.trace {
+                        trace.rebase(
+                            "return_to_intro",
+                            host_pause.now(std::time::Instant::now()),
+                            game.next_frame,
+                            None,
+                            &game.session,
+                        );
+                    }
                     game.next_frame = None;
                 }
             }
+        }
+        #[cfg(feature = "dev-tools")]
+        if let Some(trace) = &mut game.trace {
+            trace.flush()?;
         }
         if host_pause.is_paused() {
             if repaint {
@@ -651,14 +934,28 @@ fn run_inner(
                 game.pending_step = false;
                 game.next_frame =
                     Some(host_pause.now(std::time::Instant::now()) + options.body_period / 3);
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut game.trace {
+                    trace.boundary(
+                        "game_started",
+                        host_pause.now(std::time::Instant::now()),
+                        game.next_frame,
+                        &game.session,
+                        "",
+                    );
+                }
             }
         }
         let now = host_pause.now(std::time::Instant::now());
         if shown == Screen::InitialScene {
-            repaint |= game.advance(frames.graphics(), options, now)?;
+            repaint |= game.advance(frames.graphics(), &options, now)?;
+            #[cfg(feature = "dev-tools")]
+            if let Some(trace) = &mut game.trace {
+                trace.flush()?;
+            }
             // Repump events before the next bounded catch-up batch. Presenting
             // here would add another vsync wait while ordinary work is overdue.
-            if game.ordinary_due(options, now) {
+            if game.ordinary_due(&options, now) {
                 continue;
             }
         }
@@ -995,7 +1292,7 @@ mod tests {
     fn running_playback(
         assets: &GraphicsAssets,
         start: std::time::Instant,
-        options: Options,
+        options: &Options,
     ) -> GamePlayback {
         GamePlayback {
             opening: Some(Opening::new(assets).unwrap()),
@@ -1024,7 +1321,7 @@ mod tests {
         let start = Instant::now();
         let end = start + Duration::from_secs(1);
         let unit = options.body_period / 3;
-        let mut reference = running_playback(&assets, start, options);
+        let mut reference = running_playback(&assets, start, &options);
         for scan in [0x4d, 0x39, 0x3c] {
             reference.session.keyboard.apply_scan(scan);
         }
@@ -1032,13 +1329,13 @@ mod tests {
         let passes = (Duration::from_secs(1).as_nanos() / unit.as_nanos()) as u32;
         for pass in 1..=passes {
             reference
-                .advance(&assets, options, start + unit * pass)
+                .advance(&assets, &options, start + unit * pass)
                 .unwrap();
         }
         assert_eq!(pass_count(&reference), passes);
         assert!(passes > 30);
         for fps in [15, 30, 60, 120] {
-            let mut game = running_playback(&assets, start, options);
+            let mut game = running_playback(&assets, start, &options);
             for scan in [0x4d, 0x39, 0x3c] {
                 game.session.keyboard.apply_scan(scan);
             }
@@ -1046,7 +1343,7 @@ mod tests {
             // calls to the exact same scheduling path used by the SDL viewer.
             for frame in 1..=fps {
                 let now = start + Duration::from_nanos(1_000_000_000 * frame / fps);
-                game.advance(&assets, options, now).unwrap();
+                game.advance(&assets, &options, now).unwrap();
                 assert!(!game.transitions.active());
             }
             assert_eq!(pass_count(&game), passes, "presentation rate {fps}");
@@ -1079,28 +1376,28 @@ mod tests {
         let options = Options::default();
         let start = Instant::now();
         let late = start + options.body_period / 3 * 100;
-        let mut game = running_playback(&assets, start, options);
-        game.advance(&assets, options, late).unwrap();
+        let mut game = running_playback(&assets, start, &options);
+        game.advance(&assets, &options, late).unwrap();
         assert_eq!(pass_count(&game), 64);
-        assert!(game.ordinary_due(options, late));
+        assert!(game.ordinary_due(&options, late));
         assert!(game.next_frame.unwrap() <= late);
-        game.advance(&assets, options, late).unwrap();
+        game.advance(&assets, &options, late).unwrap();
         assert_eq!(pass_count(&game), 100);
-        assert!(!game.ordinary_due(options, late));
+        assert!(!game.ordinary_due(&options, late));
         assert!(game.next_frame.unwrap() > late);
         for playback in [Playback::Step, Playback::Static] {
             let options = Options {
                 playback,
-                ..options
+                ..options.clone()
             };
-            let mut game = running_playback(&assets, start, options);
-            assert!(!game.advance(&assets, options, late).unwrap());
+            let mut game = running_playback(&assets, start, &options);
+            assert!(!game.advance(&assets, &options, late).unwrap());
             assert_eq!(pass_count(&game), 0);
             if playback == Playback::Step {
                 game.pending_step = true;
-                assert!(game.advance(&assets, options, late).unwrap());
+                assert!(game.advance(&assets, &options, late).unwrap());
                 assert_eq!(pass_count(&game), 3);
-                assert!(!game.advance(&assets, options, late).unwrap());
+                assert!(!game.advance(&assets, &options, late).unwrap());
                 assert_eq!(pass_count(&game), 3);
             }
         }
@@ -1114,12 +1411,12 @@ mod tests {
         let start = Instant::now();
         let unit = options.body_period / 3;
         let late = start + unit * 100;
-        let mut paused = running_playback(&assets, start, options);
+        let mut paused = running_playback(&assets, start, &options);
         paused.session.keyboard.apply_scan(0x3b);
-        paused.advance(&assets, options, late).unwrap();
+        paused.advance(&assets, &options, late).unwrap();
         assert_eq!(paused.session.pause.state, PauseState::AwaitInitialRelease);
         assert_eq!(pass_count(&paused), 0);
-        let mut game = running_playback(&assets, start, options);
+        let mut game = running_playback(&assets, start, &options);
         let frame = game.opening.as_ref().unwrap().frame().clone();
         game.transitions.append(
             [2, 5]
@@ -1141,17 +1438,17 @@ mod tests {
             start,
             unit,
         );
-        game.advance(&assets, options, late).unwrap();
+        game.advance(&assets, &options, late).unwrap();
         assert_eq!(game.transitions.frames.len(), 1);
         assert_eq!(game.transitions.deadline, Some(late + unit * 5));
         assert_eq!(pass_count(&game), 0);
-        game.advance(&assets, options, late + unit * 4).unwrap();
+        game.advance(&assets, &options, late + unit * 4).unwrap();
         assert_eq!(game.transitions.frames.len(), 1);
-        game.advance(&assets, options, late + unit * 5).unwrap();
+        game.advance(&assets, &options, late + unit * 5).unwrap();
         assert!(!game.transitions.active());
         assert_eq!(game.next_frame, Some(late + unit * 6));
         assert_eq!(pass_count(&game), 0);
-        game.advance(&assets, options, late + unit * 6).unwrap();
+        game.advance(&assets, &options, late + unit * 6).unwrap();
         assert_eq!(pass_count(&game), 1);
     }
 
@@ -1162,7 +1459,7 @@ mod tests {
         let options = Options::default();
         let start = Instant::now();
         let unit = options.body_period / 3;
-        let mut game = running_playback(&assets, start, options);
+        let mut game = running_playback(&assets, start, &options);
         let opening = game.opening.as_mut().unwrap();
         opening.request_game_over();
         for _ in 0..3 {
@@ -1172,10 +1469,10 @@ mod tests {
         }
         let mut expected =
             Ending::new_with_best(&assets, &opening.snapshot(), opening.frame(), 0).unwrap();
-        game.advance(&assets, options, start + unit * 100).unwrap();
+        game.advance(&assets, &options, start + unit * 100).unwrap();
         assert!(game.ending.is_some());
         let next = game.next_frame.unwrap();
-        game.advance(&assets, options, next - std::time::Duration::from_nanos(1))
+        game.advance(&assets, &options, next - std::time::Duration::from_nanos(1))
             .unwrap();
         assert_eq!(
             format!("{:?}", game.ending.as_ref().unwrap().snapshot()),
@@ -1183,7 +1480,7 @@ mod tests {
         );
         expected.advance(&assets).unwrap();
         let late = next + unit * 100;
-        game.advance(&assets, options, late).unwrap();
+        game.advance(&assets, &options, late).unwrap();
         assert_eq!(
             format!("{:?}", game.ending.as_ref().unwrap().snapshot()),
             format!("{:?}", expected.snapshot())
@@ -1338,5 +1635,230 @@ mod tests {
         assert!(playback.advance(now + unit * 7, unit));
         assert!(!playback.active());
         assert_eq!(playback.deadline, None);
+    }
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn input_trace_exposes_stalled_poll_history_without_changing_simulation() {
+        use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+        // Only this test initializes SDL in this test binary. No video device
+        // or synthetic SDL device-state update is needed; ControlInput consumes
+        // these authored events exactly as it consumes the frontend's events.
+        let _sdl = reforge_sdl::sdl3::init().unwrap();
+        let folder = std::env::temp_dir().join(format!(
+            "reforge-input-trace-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&folder).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(folder.clone());
+        let assets = synthetic_assets();
+        let options = Options {
+            controls: true,
+            ..Options::default()
+        };
+        let unit = options.body_period / 3;
+        let read_rows = |game: &mut GamePlayback, path: &std::path::Path| {
+            game.trace.as_mut().unwrap().flush().unwrap();
+            std::fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .skip(2)
+                .map(|line| line.split('\t').map(str::to_owned).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        };
+        let assert_same = |left: &GamePlayback, right: &GamePlayback| {
+            assert_eq!(
+                format!("{:?}", left.session),
+                format!("{:?}", right.session)
+            );
+            assert_eq!(
+                format!("{:?}", left.opening.as_ref().unwrap().snapshot()),
+                format!("{:?}", right.opening.as_ref().unwrap().snapshot())
+            );
+            assert_eq!(
+                left.opening.as_ref().unwrap().frame(),
+                right.opening.as_ref().unwrap().frame()
+            );
+            assert_eq!(left.next_frame, right.next_frame);
+            assert_eq!(left.pause_tick, right.pause_tick);
+            assert_eq!(left.body_polled, right.body_polled);
+            assert_eq!(left.quit_after_body_entry, right.quit_after_body_entry);
+        };
+        // All events are handled at P+10ms, after a deliberately overdue poll P.
+        // Expected-at-P is a temporal reference, not a tap-retention policy.
+        for (label, press_delta, release_delta, expected_at_poll, observed) in [
+            ("before", -5, -1, 0, 0),
+            ("spanning", -5, 5, 8, 0),
+            ("after", 5, 20, 0, 8),
+        ] {
+            let start = Instant::now();
+            let path = folder.join(format!("{label}.tsv"));
+            let mut game = running_playback(&assets, start, &options);
+            let mut plain = running_playback(&assets, start, &options);
+            game.trace = Some(InputTrace::create_at(&path, start).unwrap());
+            let mut input = ControlInput::default();
+            let mut plain_input = ControlInput::default();
+            let clock = reforge_sdl::event_clock_sample();
+            for (down, delta) in [(true, press_delta), (false, release_delta)] {
+                if delta > 10 {
+                    continue;
+                }
+                let mut event = key_event(Keycode::Right, down, false);
+                let timestamp = clock.sdl_ns + (unit.as_nanos() as i64 + delta * 1_000_000) as u64;
+                match &mut event {
+                    Event::KeyDown {
+                        timestamp: value, ..
+                    }
+                    | Event::KeyUp {
+                        timestamp: value, ..
+                    } => *value = timestamp,
+                    _ => unreachable!(),
+                }
+                input.handle(&mut game.session, &event, true);
+                plain_input.handle(&mut plain.session, &event, true);
+                game.trace.as_mut().unwrap().event(
+                    &event,
+                    "handled",
+                    &HostPause::default(),
+                    &game.session,
+                );
+            }
+            let late = start + unit + Duration::from_millis(10);
+            game.advance(&assets, &options, late).unwrap();
+            plain.advance(&assets, &options, late).unwrap();
+            assert_same(&game, &plain);
+            let rows = read_rows(&mut game, &path);
+            assert!(rows.iter().all(|row| row.len() == 13));
+            let polls = rows
+                .iter()
+                .filter(|row| row[1] == "poll")
+                .collect::<Vec<_>>();
+            assert_eq!(polls.len(), 2);
+            assert_eq!(polls[0][2], "body_entry");
+            assert_eq!(polls[1][2], "steering");
+            for row in polls {
+                assert_eq!(row[8], unit.as_nanos().to_string());
+                assert_eq!(
+                    row[4],
+                    (unit + Duration::from_millis(10)).as_nanos().to_string()
+                );
+                assert_eq!(row[9], observed.to_string());
+                assert_eq!(row[11], observed.to_string());
+            }
+            assert_eq!(expected_at_poll == observed, label == "before");
+        }
+
+        // A full late catch-up batch, function-key handling, native waits and
+        // transition waits must produce the same state with tracing enabled.
+        let start = Instant::now();
+        let path = folder.join("boundaries.tsv");
+        let mut game = running_playback(&assets, start, &options);
+        let mut plain = running_playback(&assets, start, &options);
+        game.trace = Some(InputTrace::create_at(&path, start).unwrap());
+        for scan in [0x4d, 0x39, 0x3c] {
+            game.session.keyboard.apply_scan(scan);
+            plain.session.keyboard.apply_scan(scan);
+        }
+        let late = start + unit * 100;
+        for _ in 0..2 {
+            game.advance(&assets, &options, late).unwrap();
+            plain.advance(&assets, &options, late).unwrap();
+            assert_same(&game, &plain);
+        }
+        let mut input = ControlInput::default();
+        let mut plain_input = ControlInput::default();
+        for key in [Keycode::F2, Keycode::F3, Keycode::F1] {
+            let event = key_event(key, true, false);
+            input.handle(&mut game.session, &event, true);
+            plain_input.handle(&mut plain.session, &event, true);
+            game.trace.as_mut().unwrap().event(
+                &event,
+                "handled",
+                &HostPause::default(),
+                &game.session,
+            );
+        }
+        let next = game.next_frame.unwrap();
+        game.advance(&assets, &options, next).unwrap();
+        plain.advance(&assets, &options, next).unwrap();
+        assert_same(&game, &plain);
+        game.session.clear_held_keys();
+        plain.session.clear_held_keys();
+        game.session.pause.state = PauseState::AwaitInitialRelease;
+        plain.session.pause.state = PauseState::AwaitInitialRelease;
+        for now in [next, next + unit, next + unit * 2] {
+            game.advance(&assets, &options, now).unwrap();
+            plain.advance(&assets, &options, now).unwrap();
+            assert_same(&game, &plain);
+        }
+        game.session.pause.state = PauseState::AwaitFinalRelease;
+        plain.session.pause.state = PauseState::AwaitFinalRelease;
+        game.advance(&assets, &options, next + unit * 3).unwrap();
+        plain.advance(&assets, &options, next + unit * 3).unwrap();
+        assert_same(&game, &plain);
+        let frame = game.opening.as_ref().unwrap().frame().clone();
+        let steps = [2, 5]
+            .into_iter()
+            .map(|wait_count| TransitionFrame {
+                frame: frame.clone(),
+                clip: crate::frame::Rect {
+                    x_bytes: 0,
+                    y: 0,
+                    width_bytes: 1,
+                    height: 1,
+                },
+                wait_count,
+                before_pass: false,
+                palette_family: 1,
+                state: None,
+            })
+            .collect::<Vec<_>>();
+        game.transitions.append(steps.clone(), late, unit);
+        plain.transitions.append(steps, late, unit);
+        for now in [late + unit * 20, late + unit * 25] {
+            game.advance(&assets, &options, now).unwrap();
+            plain.advance(&assets, &options, now).unwrap();
+            assert_same(&game, &plain);
+            assert_eq!(game.transitions.deadline, plain.transitions.deadline);
+        }
+        let rows = read_rows(&mut game, &path);
+        assert!(
+            rows.iter()
+                .any(|row| row[1] == "poll" && row[12].contains("sound_toggled=true"))
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row[1] == "poll" && row[12].contains("display_toggled=true"))
+        );
+        assert!(rows.iter().any(|row| row[1] == "event" && row[10] == "7"));
+        for label in [
+            "native_pause_wait",
+            "native_pause_tick",
+            "native_pause_resumed",
+            "transition_frame_wait",
+            "transition_finished",
+        ] {
+            assert!(rows.iter().any(|row| row[2] == label), "missing {label}");
+        }
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row[2] == "transition_frame_wait")
+                .count(),
+            2
+        );
+        for pair in rows.windows(2) {
+            assert!(pair[1][0].parse::<u64>().unwrap() > pair[0][0].parse::<u64>().unwrap());
+            assert!(pair[1][3].parse::<i128>().unwrap() >= pair[0][3].parse::<i128>().unwrap());
+            assert!(pair[1][5].parse::<u64>().unwrap() >= pair[0][5].parse::<u64>().unwrap());
+        }
     }
 }

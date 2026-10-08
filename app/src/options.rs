@@ -212,6 +212,13 @@ const SPECS: &[Spec] = &[
         dev: false,
         description: "Whole-body interval in milliseconds, 1..5000",
     },
+    Spec {
+        name: "--trace-input",
+        game: Some(Game::Mach3),
+        value: Value::Path,
+        dev: true,
+        description: "Write input diagnostic trace to a new file",
+    },
 ];
 
 pub fn takes_value(name: &str) -> Option<bool> {
@@ -252,6 +259,11 @@ fn validate(spec: &Spec, value: OsString, game: Game) -> Result<OsString, String
         }
         if game == Game::AlleyCat && value.to_str().is_none() {
             return Err("this engine requires UTF-8 diagnostic paths".into());
+        }
+        // The engine receives separate name/value arguments. Protect an
+        // explicitly inline filename beginning with '-' from its option gate.
+        if spec.name == "--trace-input" && is_option(&value) {
+            return Ok(std::path::PathBuf::from(".").join(value).into_os_string());
         }
         return Ok(value);
     }
@@ -670,6 +682,80 @@ mod tests {
             assert!(help(Some(Game::AlleyCat)).contains("--scene"));
         }
         accepted(&result, Game::AlleyCat);
+    }
+    #[test]
+    fn input_trace_is_mach3_development_only() {
+        assert_eq!(takes_value("--trace-input"), Some(true));
+        let result = prepare(args(&["--trace-input", "input trace.tsv"]), Game::Mach3);
+        #[cfg(not(feature = "dev-tools"))]
+        {
+            assert!(result.args.is_empty());
+            assert_eq!(result.warnings.len(), 1);
+            assert!(result.warnings[0].contains("requires a dev-tools build"));
+            assert!(!help(Some(Game::Mach3)).contains("--trace-input"));
+        }
+        #[cfg(feature = "dev-tools")]
+        {
+            assert_eq!(result.args, args(&["--trace-input", "input trace.tsv"]));
+            assert!(result.warnings.is_empty());
+            assert!(help(Some(Game::Mach3)).contains("--trace-input PATH [dev-tools]"));
+        }
+        accepted(&result, Game::Mach3);
+        let foreign = prepare(args(&["--trace-input", "trace.tsv"]), Game::AlleyCat);
+        assert!(foreign.args.is_empty());
+        assert_eq!(foreign.warnings.len(), 1);
+        assert!(foreign.warnings[0].contains("applies to Mach 3"));
+        assert!(!help(Some(Game::AlleyCat)).contains("--trace-input"));
+        assert!(!help(None).contains("--trace-input"));
+        accepted(&foreign, Game::AlleyCat);
+    }
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn inline_trace_filename_starting_with_dash_reaches_engine_as_a_path() {
+        let result = prepare(args(&["--trace-input=-trace.tsv"]), Game::Mach3);
+        assert_eq!(
+            result.args,
+            vec![
+                OsString::from("--trace-input"),
+                std::path::PathBuf::from(".")
+                    .join("-trace.tsv")
+                    .into_os_string()
+            ]
+        );
+        assert!(result.warnings.is_empty());
+        accepted(&result, Game::Mach3);
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn invalid_trace_paths_preserve_previous_path_and_following_options() {
+        let result = prepare(
+            args(&[
+                "--trace-input=trace.tsv",
+                "--trace-input=",
+                "--trace-input",
+                "--controls",
+            ]),
+            Game::Mach3,
+        );
+        assert_eq!(
+            result.args,
+            args(&["--trace-input", "trace.tsv", "--controls"])
+        );
+        assert_eq!(result.warnings.len(), 2);
+        assert!(result.warnings[0].contains("path must not be empty"));
+        assert!(result.warnings[1].contains("requires a value"));
+        accepted(&result, Game::Mach3);
+    }
+    #[cfg(all(feature = "dev-tools", unix))]
+    #[test]
+    fn input_trace_preserves_non_utf8_paths() {
+        use std::os::unix::ffi::OsStringExt;
+        let path = OsString::from_vec(b"trace-\xff.tsv".to_vec());
+        let result = prepare([OsString::from("--trace-input"), path.clone()], Game::Mach3);
+        assert_eq!(result.args, vec![OsString::from("--trace-input"), path]);
+        assert!(result.warnings.is_empty());
+        accepted(&result, Game::Mach3);
     }
     #[cfg(feature = "dev-tools")]
     #[test]

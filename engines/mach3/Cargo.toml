@@ -8,6 +8,7 @@ description = "Verified DOS Mach 3 graphics reconstruction"
 
 [features]
 viewer = ["dep:reforge_sdl"]
+dev-tools = []
 
 [dependencies]
 reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }

@@ -116,6 +116,18 @@ key still held across pause or focus loss.
 Use `--step` for one body or title step per fresh **Enter** press after entering
 gameplay, or `--static` to retain the initial scene. Space remains Fire during
 manual gameplay. Losing focus releases held controls.
+
+Development builds can record input diagnostics with `--trace-input PATH`:
+
+```sh
+cargo run -p reforge --features dev-tools -- --original /path/to/assets --controls --trace-input /path/to/new-input-trace.tsv
+```
+
+The output must be a new file; existing files are never overwritten. The
+option is available only with `dev-tools` and retains normal gameplay input
+behavior. For the standalone viewer, enable `--features viewer,dev-tools`.
+See [input tracing](docs/input-tracing.md) for the diagnostic format and limits.
+
 The default requested drawable size is 1280 by 960 pixels (4x). `--scale 1..16`
 sets its initial scale; scale 8 gives 2560 by 1920. The
 [shared SDL3 backend](../../crates/reforge_sdl/README.md)

@@ -9,7 +9,7 @@ description = "REforge game reconstructions for modern desktop systems"
 [features]
 default = ["sdl"]
 sdl = ["alleycat/sdl", "mach3/viewer"]
-dev-tools = ["alleycat/dev-tools"]
+dev-tools = ["alleycat/dev-tools", "mach3/dev-tools"]
 
 [dependencies]
 alleycat = { path = "../engines/alleycat", default-features = false }

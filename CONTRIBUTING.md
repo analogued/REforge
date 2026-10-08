@@ -81,7 +81,7 @@ See [Alley Cat checks](engines/alleycat/CONTRIBUTING.md) and
 For application CLI changes, test and lint `-p reforge` with default features,
 `--no-default-features`, `--features dev-tools`, and both options combined.
 Release optimization (`--release`) is independent of the opt-in `dev-tools`
-feature; normal builds exclude Alley Cat testing switches.
+feature; normal builds exclude engine testing and diagnostic switches.
 
 Tests must use authored synthetic fixtures, with original-data comparisons
 stored externally. Document concrete commands and limitations as crates are added.

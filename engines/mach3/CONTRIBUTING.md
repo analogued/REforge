@@ -19,6 +19,8 @@ From the combined repository root, run:
 cargo fmt --all -- --check
 cargo test --locked -p mach3
 cargo clippy --locked -p mach3 --all-targets -- -D warnings
+cargo test --locked -p mach3 --features dev-tools
+cargo clippy --locked -p mach3 --all-targets --features dev-tools -- -D warnings
 ```
 
 With SDL3 development and runtime libraries installed, also check the viewer:
@@ -26,6 +28,8 @@ With SDL3 development and runtime libraries installed, also check the viewer:
 ```sh
 cargo test --locked -p mach3 --features viewer
 cargo clippy --locked -p mach3 --all-targets --features viewer -- -D warnings
+cargo test --locked -p mach3 --features viewer,dev-tools
+cargo clippy --locked -p mach3 --all-targets --features viewer,dev-tools -- -D warnings
 ```
 
 Build the library, frame renderer, opening exporter and replay tool with
@@ -34,6 +38,12 @@ viewer. The `viewer` feature exposes `mach3::cli::run` for REforge dispatch and
 the standalone `mach3-viewer` binary. Dependencies are recorded in the root
 `Cargo.lock` and [dependency notices](docs/dependencies.md). Once Cargo has
 fetched them, use `--offline` for local checks and builds.
+
+The opt-in `dev-tools` feature enables input diagnostic tracing in viewer
+builds; it does not enable SDL3 by itself. Normal builds exclude `--trace-input`,
+including release builds unless `dev-tools` is explicitly enabled. Test all
+four combinations above when changing tracing or viewer input. REforge's
+`dev-tools` feature forwards this feature to Mach 3.
 
 Shared presentation tests (`cargo test --locked -p reforge_sdl`) use offscreen
 surfaces and require no desktop display. Tests use synthetic resources; private captures and original

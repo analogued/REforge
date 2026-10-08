@@ -6,6 +6,8 @@ pub mod assets;
 #[cfg(feature = "viewer")]
 pub mod cli;
 pub mod frame;
+#[cfg(all(feature = "viewer", feature = "dev-tools"))]
+mod input_trace;
 pub mod opening;
 pub mod rules;
 pub mod scene;

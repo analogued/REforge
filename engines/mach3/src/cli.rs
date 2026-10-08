@@ -19,13 +19,26 @@ Default pace: about 36.41 displayed passes/s (12.14 bodies/s); --period-ms sets 
 Pause/Break toggles host pause. F1 retains original pause/end-game behavior; F2 toggles sound preference, F3 switches color/monochrome.\n\
 Original intro timing, exact CPU-dependent pacing, and audio remain deferred.";
 
+fn help() -> String {
+    #[cfg(feature = "dev-tools")]
+    {
+        format!(
+            "{HELP}\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file."
+        )
+    }
+    #[cfg(not(feature = "dev-tools"))]
+    {
+        HELP.into()
+    }
+}
+
 /// Run the Mach 3 viewer with arguments excluding the executable name.
 ///
 /// The `viewer` feature provides this entry point for REforge and the standalone
 /// `mach3-viewer` binary.
 pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let Some((directory, options)) = parse_args(args)? else {
-        println!("{HELP}");
+        println!("{}", help());
         return Ok(());
     };
     let frames = StartupFrames::load(&directory).map_err(|error| error.to_string())?;
@@ -95,7 +108,15 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     })?;
                 options.body_period = std::time::Duration::from_millis(period);
             }
-            Some(value) if value.starts_with('-') => return Err(HELP.into()),
+            #[cfg(feature = "dev-tools")]
+            Some("--trace-input") => {
+                let path = args
+                    .next_if(|arg| !arg.to_string_lossy().starts_with('-'))
+                    .filter(|path| !path.is_empty())
+                    .ok_or_else(|| "--trace-input requires a nonempty output path".to_string())?;
+                options.input_trace = Some(PathBuf::from(path));
+            }
+            Some(value) if value.starts_with('-') => return Err(help()),
             _ => {
                 return Err(format!(
                     "Unexpected positional argument: {}. Supply the data directory with --original",
@@ -114,7 +135,7 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
 
 #[cfg(test)]
 mod tests {
-    use super::parse_args;
+    use super::{help, parse_args};
     use std::{ffi::OsString, path::PathBuf};
 
     fn args(values: &[&str]) -> impl Iterator<Item = OsString> {
@@ -178,6 +199,76 @@ mod tests {
         for flag in ["--help", "-h"] {
             assert!(parse_args(args(&[flag])).unwrap().is_none());
         }
+        assert_eq!(
+            help().contains("--trace-input"),
+            cfg!(feature = "dev-tools")
+        );
+    }
+
+    #[cfg(not(feature = "dev-tools"))]
+    #[test]
+    fn input_trace_is_excluded_from_normal_parser() {
+        assert!(
+            parse_args(args(&[
+                "--original",
+                "assets",
+                "--trace-input",
+                "trace.tsv"
+            ]))
+            .is_err()
+        );
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn trace_path_is_optional_and_independent_of_controls() {
+        let (_, defaults) = parse_args(args(&["--original", "assets"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(defaults.input_trace, None);
+        for values in [
+            &["--original", "assets", "--trace-input", "input trace.tsv"][..],
+            &["--trace-input", "input trace.tsv", "--original", "assets"][..],
+        ] {
+            let (_, options) = parse_args(args(values)).unwrap().unwrap();
+            assert_eq!(options.input_trace, Some(PathBuf::from("input trace.tsv")));
+            assert!(!options.controls);
+        }
+        for values in [
+            &["--original", "assets", "--trace-input"][..],
+            &["--original", "assets", "--trace-input", ""][..],
+            &["--original", "assets", "--trace-input", "--controls"][..],
+        ] {
+            assert!(
+                parse_args(args(values))
+                    .unwrap_err()
+                    .contains("--trace-input")
+            );
+        }
+        assert!(
+            parse_args(args(&["--trace-input", "trace.tsv"]))
+                .unwrap_err()
+                .contains("Missing required --original")
+        );
+    }
+
+    #[cfg(all(feature = "dev-tools", unix))]
+    #[test]
+    fn trace_path_preserves_non_utf8_paths() {
+        use std::os::unix::ffi::OsStringExt;
+        let path = OsString::from_vec(b"trace-\xff.tsv".to_vec());
+        let (_, options) = parse_args(
+            [
+                OsString::from("--original"),
+                OsString::from("assets"),
+                OsString::from("--trace-input"),
+                path.clone(),
+            ]
+            .into_iter(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(options.input_trace.unwrap().into_os_string(), path);
     }
 
     #[cfg(unix)]

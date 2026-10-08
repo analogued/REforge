@@ -597,9 +597,21 @@ script rows choose held directions by accepted-update index. `--trace-timing`
 records loop attempts and blocking-effect checks, including rejected movement.
 On player attempts the BIOS/PIT fields describe the BIOS-sample stage; retrace
 is sampled later, after the gate's execution allowance.
-The windowed runner uses monotonic host time only to pace virtual execution and
-discards excessive pause debt without resetting guest phases. Display refresh
-never supplies BIOS ticks.
+The windowed runner uses monotonic host time only to pace virtual execution.
+Each host sample adds at most 100 ms to the pacing target, discarding longer
+stalls without resetting guest phases. Catch-up yields after 256 complete
+passes or a 4 ms host time slice, whichever comes first; a single pass can
+overrun that slice. Pending work remains due. The runner polls events again
+before continuing and skips intermediate presentation and sleep while behind.
+These bounds affect host responsiveness, not guest execution costs or BIOS
+ticks. Display refresh never supplies BIOS ticks.
+
+Gameplay directions and Alt currently use the latest host held-state snapshot
+for each batch, sampled only when the original control gate permits. A completed
+tap between guest polls can legitimately be missed. During host stalls, however,
+the latest snapshot can lose a press held at an overdue poll or apply a later
+press too early. Catch-up retains this input-timing limitation; it does not latch
+every tap or replay timestamped transitions.
 
 The original keyboard pause (`5e70`) saves the BIOS tick count, displays the
 pause captions, waits for a later keyboard make event, then restores that count

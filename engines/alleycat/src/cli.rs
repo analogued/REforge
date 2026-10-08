@@ -763,6 +763,32 @@ fn present_game_over(
 }
 
 #[cfg(feature = "sdl")]
+const CATCH_UP_MAX_PASSES: usize = 256;
+#[cfg(feature = "sdl")]
+const CATCH_UP_TIME_SLICE: std::time::Duration = std::time::Duration::from_millis(4);
+
+/// Yield between complete guest passes; never fast-forward or discard work.
+/// A time slice also bounds slow-host batches, except for their final pass.
+#[cfg(feature = "sdl")]
+fn catch_up_batch(
+    mut elapsed: impl FnMut() -> std::time::Duration,
+    mut advance: impl FnMut() -> Result<bool, String>,
+) -> Result<usize, String> {
+    let mut passes = 0;
+    while passes < CATCH_UP_MAX_PASSES {
+        // Always permit one pass so an expensive pass cannot prevent progress.
+        if passes != 0 && elapsed() >= CATCH_UP_TIME_SLICE {
+            break;
+        }
+        if !advance()? {
+            break;
+        }
+        passes += 1;
+    }
+    Ok(passes)
+}
+
+#[cfg(feature = "sdl")]
 fn interactive(
     alley: &mut Alley,
     scale: u16,
@@ -860,27 +886,40 @@ fn interactive(
         // Discard excess host stalls without resetting guest timer phases.
         let elapsed = pause.elapsed.min(Duration::from_millis(100));
         target_nanos += elapsed.as_nanos();
-        while runtime.clock.elapsed_nanos() < target_nanos && !alley.game_over() {
-            #[cfg(feature = "dev-tools")]
-            if steps.is_some_and(|limit| index >= limit) {
-                break;
-            }
-            #[cfg(not(feature = "dev-tools"))]
-            runtime.advance_pass_with_action(alley, held, input.alt)?;
-            #[cfg(feature = "dev-tools")]
-            {
-                let event = runtime.advance_pass_with_action(alley, held, input.alt)?;
-                if let Some(output) = timing_trace.as_mut() {
-                    timing_row(output, pass, &event, alley.selection_trace_state())?;
+        let batch_start = Instant::now();
+        catch_up_batch(
+            || batch_start.elapsed(),
+            || {
+                if runtime.clock.elapsed_nanos() >= target_nanos || alley.game_over() {
+                    return Ok(false);
                 }
-                pass += 1;
-                if event.acceptance.is_some() {
-                    if let Some(output) = trace.as_mut() {
-                        trace_row(output, index, alley)?;
+                #[cfg(feature = "dev-tools")]
+                if steps.is_some_and(|limit| index >= limit) {
+                    return Ok(false);
+                }
+                #[cfg(not(feature = "dev-tools"))]
+                runtime.advance_pass_with_action(alley, held, input.alt)?;
+                #[cfg(feature = "dev-tools")]
+                {
+                    let event = runtime.advance_pass_with_action(alley, held, input.alt)?;
+                    if let Some(output) = timing_trace.as_mut() {
+                        timing_row(output, pass, &event, alley.selection_trace_state())?;
                     }
-                    index += 1;
+                    pass += 1;
+                    if event.acceptance.is_some() {
+                        if let Some(output) = trace.as_mut() {
+                            trace_row(output, index, alley)?;
+                        }
+                        index += 1;
+                    }
                 }
-            }
+                Ok(true)
+            },
+        )?;
+        if runtime.clock.elapsed_nanos() < target_nanos && !alley.game_over() {
+            // Retain debt and repump events immediately. Intermediate rendering
+            // and sleep must not make a slow catch-up batch fall further behind.
+            continue;
         }
         if now >= next_present {
             window.present(&alley.rgba())?;
@@ -1022,6 +1061,141 @@ fn interactive_diagnostic(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "sdl")]
+    #[test]
+    fn catch_up_yields_for_slow_passes_and_retains_pending_work() {
+        use std::cell::Cell;
+        use std::time::Duration;
+
+        let host_elapsed = Cell::new(Duration::ZERO);
+        let mut guest_nanos = 0;
+        let target = 100_000_000;
+        let mut batches = 0;
+        while guest_nanos < target {
+            host_elapsed.set(Duration::ZERO);
+            let passes = catch_up_batch(
+                || host_elapsed.get(),
+                || {
+                    if guest_nanos >= target {
+                        return Ok(false);
+                    }
+                    // Expensive host work advances only a short guest interval.
+                    host_elapsed.set(host_elapsed.get() + Duration::from_millis(2));
+                    guest_nanos += 50_000;
+                    Ok(true)
+                },
+            )
+            .unwrap();
+            assert_eq!(passes, 2);
+            batches += 1;
+            if batches == 1 {
+                assert_eq!(guest_nanos, 100_000);
+                assert!(guest_nanos < target);
+            }
+        }
+        assert_eq!(batches, 1000);
+        assert_eq!(guest_nanos, target);
+        // Even a single over-budget pass must complete before yielding.
+        let passes = catch_up_batch(
+            || Duration::from_secs(1),
+            || {
+                guest_nanos += 1;
+                Ok(true)
+            },
+        )
+        .unwrap();
+        assert_eq!(passes, 1);
+        assert_eq!(guest_nanos, target + 1);
+    }
+
+    #[cfg(feature = "sdl")]
+    #[test]
+    fn catch_up_pass_limit_stops_work_and_propagates_errors() {
+        use std::time::Duration;
+
+        let mut passes = 0;
+        assert_eq!(
+            catch_up_batch(
+                || Duration::ZERO,
+                || {
+                    passes += 1;
+                    Ok(true)
+                }
+            )
+            .unwrap(),
+            CATCH_UP_MAX_PASSES
+        );
+        assert_eq!(passes, CATCH_UP_MAX_PASSES);
+        assert_eq!(catch_up_batch(|| Duration::ZERO, || Ok(false)), Ok(0));
+        assert_eq!(
+            catch_up_batch(|| Duration::ZERO, || Err("failed guest pass".into())),
+            Err("failed guest pass".into())
+        );
+    }
+
+    #[cfg(feature = "sdl")]
+    #[test]
+    fn catch_up_batches_preserve_guest_passes_and_blocking_fence_wait() {
+        use std::time::Duration;
+
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            for falling in [false, true] {
+                let replay = |bounded: bool| {
+                    let mut alley = Alley::synthetic();
+                    if falling {
+                        alley.player.band_state = 2;
+                        alley.player.y = 108;
+                        alley.player.vertical_coordinate = 158;
+                        alley.player.vertical_direction = 1;
+                    }
+                    let mut runtime = Runtime::new(machine);
+                    let target = 600_000_000;
+                    let mut trace = Vec::new();
+                    let mut fence_waits = 0;
+                    let mut batches = 0;
+                    while runtime.clock.elapsed_nanos() < target {
+                        let mut advance = || {
+                            if runtime.clock.elapsed_nanos() >= target {
+                                return Ok(false);
+                            }
+                            let event = runtime.advance_pass_with_action(
+                                &mut alley,
+                                Controls { x: 1, y: 0 },
+                                false,
+                            )?;
+                            fence_waits += usize::from(event.fence_wait);
+                            trace.push(format!("{event:?};{:?}", alley.player));
+                            Ok(true)
+                        };
+                        if bounded {
+                            catch_up_batch(|| Duration::ZERO, advance).unwrap();
+                        } else {
+                            while advance().unwrap() {}
+                        }
+                        batches += 1;
+                    }
+                    (
+                        trace,
+                        alley.framebuffer().bytes().to_vec(),
+                        runtime.clock.elapsed_nanos(),
+                        fence_waits,
+                        batches,
+                    )
+                };
+                let reference = replay(false);
+                let bounded = replay(true);
+                assert_eq!(bounded.0, reference.0);
+                assert_eq!(bounded.1, reference.1);
+                assert_eq!(bounded.2, reference.2);
+                assert_eq!(bounded.3, reference.3);
+                if falling {
+                    assert!(bounded.3 > CATCH_UP_MAX_PASSES);
+                    assert!(bounded.4 > 1);
+                }
+            }
+        }
+    }
 
     fn parse(args: &[&str]) -> Result<Option<Options>, String> {
         parse_options(args.iter().map(|arg| (*arg).to_owned()))

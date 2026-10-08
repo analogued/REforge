@@ -454,6 +454,9 @@ pub fn replay_first_game(
                     )));
                 }
                 let poll = native_controls.poll(control.keys);
+                if poll.display_toggled {
+                    opening.reset_video_palette();
+                }
                 quit |= control.site == "pause-confirm" && poll.mask == 128;
                 control_cursor += 1;
                 if control.site == target_site {
@@ -608,6 +611,65 @@ mod tests {
             data[0x0a3f + 50 * index] = 0xcf;
         }
         ScriptRules::from_data_segment(&data).unwrap()
+    }
+
+    #[test]
+    fn replay_restores_palette_after_f3_without_copying_reference_metadata() {
+        let directory = std::env::temp_dir().join(format!(
+            "mach3-palette-replay-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let recording = directory.join("recording");
+        fs::create_dir_all(&recording).unwrap();
+        fs::write(
+            recording.join("games.tsv"),
+            "game\tscript\trng_a\trng_b\trng_c\n0\t0\t3\t7\t9\n",
+        )
+        .unwrap();
+        let mut inputs = String::from("seq\tgame\tbody\tpass\tmask\n");
+        let mut frames = String::from(
+            "seq\tgame\tbody\tpass\tkind\tpalette\tmode\n0\t0\t0\t0\tinitial\t99\t255\n",
+        );
+        let mut controls = String::from("seq\tgame\tbody\tsite\tf1\tf2\tf3\n");
+        let mut control_seq = 0;
+        for body in 1..=22 {
+            controls.push_str(&format!("{control_seq}\t0\t{body}\tbody\t0\t0\t0\n"));
+            control_seq += 1;
+            for pass in 1..=3 {
+                let seq = (body - 1) * 3 + pass - 1;
+                inputs.push_str(&format!("{seq}\t0\t{body}\t{pass}\t0\n"));
+                frames.push_str(&format!(
+                    "{}\t0\t{body}\t{pass}\tgameplay\t99\t255\n",
+                    seq + 1
+                ));
+                let f3 = u8::from(body == 22 && pass >= 2);
+                controls.push_str(&format!(
+                    "{control_seq}\t0\t{body}\tplayer{pass}\t0\t0\t{f3}\n"
+                ));
+                control_seq += 1;
+            }
+        }
+        fs::write(recording.join("inputs.tsv"), inputs).unwrap();
+        fs::write(recording.join("frames.tsv"), frames).unwrap();
+        fs::write(recording.join("controls.tsv"), controls).unwrap();
+        let mut data = synthetic_rules().data_segment().to_vec();
+        for index in 0..21 {
+            data[0x0a3e + 50 * index..0x0a40 + 50 * index].copy_from_slice(&[0xce, 0xcf]);
+        }
+        let rules = ScriptRules::from_data_segment(&data).unwrap();
+        let output = directory.join("output");
+        let report = replay_first_game(&synthetic_assets(), rules, &recording, &output).unwrap();
+        assert!(report.diagnostic.is_none());
+        assert_eq!((report.frames, report.inputs), (67, 66));
+        let metadata = fs::read_to_string(output.join("frames.tsv")).unwrap();
+        assert!(metadata.contains("64\t0\t22\t1\tgameplay\t0\t4\n"));
+        assert!(metadata.contains("65\t0\t22\t2\tgameplay\t1\t6\n"));
+        assert!(metadata.contains("66\t0\t22\t3\tgameplay\t1\t4\n"));
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

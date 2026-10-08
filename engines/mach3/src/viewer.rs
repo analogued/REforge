@@ -292,6 +292,9 @@ fn advance_game_pass_observed(
     #[cfg(feature = "dev-tools")] poll_time: (std::time::Instant, Option<std::time::Instant>),
 ) -> Result<bool, String> {
     let result = session.controls.poll(session.keyboard.held_keys(0));
+    if result.display_toggled {
+        opening.reset_video_palette();
+    }
     #[cfg(feature = "dev-tools")]
     if let Some(trace) = trace {
         let state = opening.snapshot();
@@ -512,6 +515,13 @@ impl GamePlayback {
                     .session
                     .controls
                     .poll(self.session.keyboard.held_keys(0));
+                if result.display_toggled {
+                    if let Some(opening) = &mut self.opening {
+                        opening.reset_video_palette();
+                    }
+                    // Native pause may remain active without an ordinary pass.
+                    self.color_family = 1;
+                }
                 #[cfg(feature = "dev-tools")]
                 if let Some(trace) = &mut self.trace {
                     let state = self.opening.as_ref().map(Opening::snapshot);
@@ -606,6 +616,9 @@ impl GamePlayback {
                         .session
                         .controls
                         .poll(self.session.keyboard.held_keys(0));
+                    if result.display_toggled {
+                        opening.reset_video_palette();
+                    }
                     #[cfg(feature = "dev-tools")]
                     if let Some(trace) = &mut self.trace {
                         let state = opening.snapshot();
@@ -1308,6 +1321,109 @@ mod tests {
         } else {
             u32::from(state.body - 1) * 3 + u32::from(state.render_pass)
         }
+    }
+
+    #[test]
+    fn f3_restores_palette_at_body_steering_and_native_pause_polls() {
+        use std::time::Instant;
+        let assets = synthetic_assets();
+        let options = Options::default();
+        let start = Instant::now();
+        let unit = options.body_period / 3;
+        let green_game = || {
+            let mut data = vec![0; 65536];
+            data[0x04ac..0x04af].copy_from_slice(&[1, 2, 3]);
+            for index in 0..21 {
+                data[0x0a3e + 50 * index..0x0a41 + 50 * index].copy_from_slice(&[0xce, 0xce, 0xcf]);
+            }
+            let rules = ScriptRules::from_data_segment(&data).unwrap();
+            let start_state = SessionState::default().begin_game();
+            let mut opening = Opening::for_play(&assets, rules, start_state).unwrap();
+            for _ in 0..21 {
+                opening.advance(&assets).unwrap();
+            }
+            assert_eq!(opening.palette_family(), 0);
+            GamePlayback {
+                opening: Some(opening),
+                color_family: 0,
+                next_frame: Some(start + unit),
+                ..GamePlayback::default()
+            }
+        };
+        for body_already_polled in [false, true] {
+            let mut game = green_game();
+            game.body_polled = body_already_polled;
+            game.session.keyboard.apply_scan(0x3d);
+            game.advance(&assets, &options, start + unit).unwrap();
+            assert_eq!(game.color_family, 1);
+            assert_eq!(game.opening.as_ref().unwrap().palette_family(), 1);
+            if !body_already_polled {
+                // A held F3 switches at body entry and again before steering.
+                assert_eq!(
+                    game.session.controls.preferences.display_mode,
+                    DisplayMode::Color
+                );
+                game.session.keyboard.apply_scan(0xbd);
+            }
+            game.advance(&assets, &options, start + unit * 2).unwrap();
+            assert_eq!(
+                game.session.controls.preferences.display_mode,
+                DisplayMode::Color
+            );
+            assert_eq!(game.color_family, 1);
+            game.session.keyboard.apply_scan(0xbd);
+            game.advance(&assets, &options, start + unit * 3).unwrap();
+            assert_eq!(game.color_family, 1);
+        }
+        let mut game = green_game();
+        let passes = pass_count(&game);
+        game.session.pause.state = PauseState::AwaitPress;
+        game.session.keyboard.apply_scan(0x3d);
+        for now in [start, start + unit] {
+            game.advance(&assets, &options, now).unwrap();
+            assert_eq!(game.session.pause.state, PauseState::AwaitPress);
+            assert_eq!(pass_count(&game), passes);
+            assert_eq!(game.color_family, 1);
+            assert_eq!(game.opening.as_ref().unwrap().palette_family(), 1);
+        }
+        assert_eq!(
+            game.session.controls.preferences.display_mode,
+            DisplayMode::Color
+        );
+        // A script write later in the same pass wins over the earlier F3 reset.
+        let mut game = green_game();
+        let opening = game.opening.as_mut().unwrap();
+        for _ in 0..19 {
+            opening.advance(&assets).unwrap();
+        }
+        for _ in 0..2 {
+            opening
+                .advance_subframe(&assets, Steering::default())
+                .unwrap();
+        }
+        game.body_polled = true;
+        game.session.controls.preferences.display_mode = DisplayMode::Monochrome;
+        game.session.keyboard.apply_scan(0x3d);
+        game.advance(&assets, &options, start + unit).unwrap();
+        assert_eq!(game.opening.as_ref().unwrap().snapshot().body, 41);
+        assert_eq!(
+            game.session.controls.preferences.display_mode,
+            DisplayMode::Color
+        );
+        assert_eq!(game.color_family, 0);
+        // F2's fourth active poll takes priority and performs no BIOS mode set.
+        let mut game = green_game();
+        game.body_polled = true;
+        game.session.controls.sound_poll_counter = 3;
+        game.session.keyboard.apply_scan(0x3c);
+        game.session.keyboard.apply_scan(0x3d);
+        game.advance(&assets, &options, start + unit).unwrap();
+        assert!(game.session.controls.preferences.sound_disabled);
+        assert_eq!(
+            game.session.controls.preferences.display_mode,
+            DisplayMode::Color
+        );
+        assert_eq!(game.color_family, 0);
     }
 
     #[test]

@@ -25,6 +25,10 @@ from pseudo-random helper `5572`. The script selector is `DS:b6ac`, byte cursor
 select terrain, formation, primary-wave, or control handling. Commands can
 change terrain, palette, wave types, and later script progression.
 
+The starting selector 0–3 chooses among four encounter sequences; it is not a
+level or difficulty number. A subsequent new game draws from the retained
+generator state after the previous gameplay, ending and intro selection.
+
 The parser requires primary object slots 5 through 9 to be inactive before it
 advances the delay. It compares the old delay against `20 - (DS:b6c6 << 3)`,
 increments it, and fetches a command when the threshold is met. After handling
@@ -395,6 +399,14 @@ The original polls gameplay controls at body entry and at each of its three
 player updates. F2 toggles its sound flag after four active polls; F3 switches
 on each active poll. Mode 6 displays the same video bytes as 640 one-bit pixels
 per row. Both modes fill a 4:3 display.
+
+F3 saves the framebuffer bytes, switches the BIOS mode and restores those bytes,
+but does not restore the palette register. Both CGA mode sets select family 1;
+returning to color therefore restores bright cyan/magenta/white until a later
+script command selects another palette. The viewer and recording replay apply
+this reset at the actual control poll, including native pause polls. Subsequent
+CD/CE commands select family 1/0 in execution order; the last script selection
+is not automatically reapplied after a mode switch.
 
 F1 enters a release/press/release pause handshake with two timer waits before
 press detection and two before the decision. The decision samples whether F1

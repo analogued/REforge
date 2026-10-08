@@ -247,6 +247,13 @@ impl Opening {
         self.palette_family
     }
 
+    /// Both CGA BIOS mode sets used by F3 select palette family 1. Keep this
+    /// effective register state until a later CD/CE command selects a palette.
+    /// The saved framebuffer bytes and gameplay state are unaffected.
+    pub fn reset_video_palette(&mut self) {
+        self.palette_family = 1;
+    }
+
     pub fn frame(&self) -> &Frame {
         &self.frame
     }
@@ -1491,6 +1498,32 @@ mod tests {
                 .copy_from_slice(&(index as u16).to_le_bytes());
         }
         ScriptRules::from_data_segment(&data).unwrap()
+    }
+
+    #[test]
+    fn mode_reset_persists_until_an_actual_palette_command() {
+        let assets = synthetic_assets();
+        let start = SessionState::default().begin_game();
+        let mut game = Opening::for_play(&assets, synthetic_rules(&[0xce, 0xce]), start).unwrap();
+        for _ in 0..21 {
+            game.advance(&assets).unwrap();
+        }
+        assert_eq!(game.palette_family(), 0);
+        let mut before = game.snapshot();
+        let pixels = game.frame().clone();
+        game.reset_video_palette();
+        assert_eq!(game.palette_family(), 1);
+        assert_eq!(game.frame(), &pixels);
+        before.palette_family = 1;
+        assert_eq!(format!("{:?}", game.snapshot()), format!("{before:?}"));
+        for _ in 0..19 {
+            game.advance(&assets).unwrap();
+            assert_eq!(game.palette_family(), 1);
+        }
+        // Even a repeated CE is a new register write, not a changed-value test.
+        game.advance(&assets).unwrap();
+        assert_eq!(game.snapshot().body, 41);
+        assert_eq!(game.palette_family(), 0);
     }
 
     #[test]

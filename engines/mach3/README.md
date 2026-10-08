@@ -111,10 +111,14 @@ key still held across pause or focus loss.
 Use `--step` for one body or title step per fresh **Enter** press after entering
 gameplay, or `--static` to retain the initial scene. Space remains Fire during
 manual gameplay. Losing focus releases held controls.
-The default requested window size is 1280 by 960 (4x). `--scale 1..16` sets its initial scale;
-scale 8 gives 2560 by 1920. The [shared SDL3 backend](../../crates/reforge_sdl/README.md)
-lets SDL select an available renderer and requests vsync, continuing with a
-warning if unsupported. Resizing preserves 4:3 at integer multiples of 320×240
+The default requested drawable size is 1280 by 960 pixels (4x). `--scale 1..16`
+sets its initial scale; scale 8 gives 2560 by 1920. The
+[shared SDL3 backend](../../crates/reforge_sdl/README.md)
+requests high pixel density and converts the initial pixel target to window
+coordinates using drawable density. Desktop constraints and compositor
+transformations can still affect the result. It lets SDL select an available
+renderer and requests vsync, continuing with a warning if unsupported.
+Resizing preserves 4:3 at integer multiples of 320×240
 with black margins. Nearest-neighbour sampling keeps colours discrete;
 Mach 3 retains its 640×200 texture for both colour and monochrome output:
 
@@ -123,7 +127,7 @@ cargo run -p mach3 --features viewer --bin mach3-viewer -- --scale 2 --original 
 ```
 
 The 320-by-200 CGA framebuffer is displayed at 4:3, with pixels 20% taller
-than wide. Window dimensions use 320-by-240 display units multiplied by the
+than wide. Initial drawable targets use 320-by-240 display units multiplied by the
 selected scale. Resizing uses nearest-neighbor sampling with centered black
 borders and preserves 4:3. Source rows can occupy different numbers of screen
 rows because of the pixel-aspect correction. See [dependency notices](docs/dependencies.md).

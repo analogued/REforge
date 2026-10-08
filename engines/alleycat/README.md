@@ -73,14 +73,17 @@ of the same glyphs, including in headless builds.
 
 `--machine pcjr` selects the PCjr palette and player countdown; the default is
 `cga`. Both modes use the same packed 320×200, four-colour framebuffer. Pixels
-have a 5:6 width-to-height ratio: the initial 1280×960 window displays them at
-4:3, with nearest-neighbor sampling and no CRT shader. `--scale N` selects an
-initial window size of `320*N` × `240*N`, with a default multiplier of 4 and
-accepted values from 1 through 16. Use `--scale 3` for 960×720.
+have a 5:6 width-to-height ratio: the initial 1280×960 drawable target displays
+them at 4:3, with nearest-neighbor sampling and no CRT shader. `--scale N` selects
+an initial drawable target of `320*N` × `240*N` pixels, with a default multiplier
+of 4 and accepted values from 1 through 16. Use `--scale 3` for 960×720.
 Resizing or maximizing uses integer multiples of the 320×240 display area,
-preserving 4:3 with black bars as needed. SDL selects the renderer; vsync is
-requested by default and falls back with a warning when unsupported. Presentation
-sync does not replace the virtual game clock.
+preserving 4:3 with black bars as needed. The
+[shared SDL3 backend](../../crates/reforge_sdl/README.md) requests high pixel density
+and compensates startup window coordinates for drawable density. The desktop
+can constrain window size or further transform the image. SDL selects the
+renderer; vsync is requested by default and falls back with a warning when
+unsupported. Presentation sync does not replace the virtual game clock.
 Host display vsync is requested when
 supported; game timing still follows the virtual PIT/video clocks. Composite
 monitor simulation is not implemented. Raw framebuffer and PPM exports remain

@@ -23,14 +23,30 @@ its generated SDL declarations with an isolated safety explanation.
 Both current engines use a 320×240 logical display area. Source images are
 stretched into that aspect-corrected area and sampled with nearest neighbours.
 Resizing chooses the largest integer display multiple that fits, centred with
-black margins. The minimum window size is one display multiple. This is integer
-scaling of the display area: the 320×200 source's vertical correction and Mach 3's
-640×200 monochrome image do not give every source pixel an identical square
-block, especially at small or odd display multipliers. At 320 pixels of output
+black margins. The requested minimum drawable size is one display multiple.
+This is integer scaling of the display area: the 320×200 source's vertical
+correction and Mach 3's 640×200 monochrome image do not give every source pixel
+an identical square block, especially at small or odd display multipliers. At 320 pixels of output
 width, monochrome columns must be discarded; odd display multipliers give them
-unequal widths. Window sizes are requested in platform window coordinates and
-may differ from physical output pixels under desktop DPI scaling. Nearest
-sampling selects source colours without blending; linear filtering would blend them.
+unequal widths. Nearest sampling selects source colours without blending;
+linear filtering would blend them.
+
+Windows request high pixel density. The initial multiplier targets drawable
+pixels: 4 requests a 1280×960 rendering area, regardless of the desktop's content
+scale. SDL's window pixel density converts that target to platform window
+coordinates; rounding upward can leave a few extra border pixels. A hidden
+window is sized before mapping, then its density is checked again after its
+first presentation. Desktop size constraints can still reduce the available
+area. The rendering area is not a guarantee about final physical monitor pixels:
+the compositor can apply further transformations.
+
+SDL renders the original-resolution texture directly into the drawable area;
+engines do not upload an enlarged image. SDL tracks drawable changes during
+resizing and monitor moves. Pixel-size/display events update the minimum window
+dimensions for the current density, but never restore the initial multiplier or
+resize the window merely because the game changes graphics modes. User resizing
+remains allowed, including a 320-pixel-wide game area that loses Mach 3 monochrome
+columns. No high-DPI-specific dependency or game-specific size restriction is used.
 
 Construct and use windows, texture creators and textures on the main thread.
 Keep a texture's creator alive until the texture is dropped, and present it only
@@ -44,6 +60,17 @@ RGB/RGBA pixel tests cover nearest sampling, aspect correction and integer
 letterboxing with offscreen software rendering. Engine checks cover input
 semantics. Native builds and runtime checks have been exercised on Linux;
 Windows and macOS have not yet been validated.
+
+Pixel-target tests cover whole and fractional densities. An opt-in window check
+exercises high-density flags, startup sizing, both texture formats and resizing:
+
+```sh
+cargo test --locked -p reforge_sdl high_density_window_pixel_size_and_user_resize -- --ignored --nocapture --test-threads=1
+```
+
+Run it on an otherwise idle desktop or with `SDL_VIDEODRIVER=dummy`. The native
+check expects space for the default rendering area. Dummy/software checks do not
+establish the compositor's final monitor-pixel mapping.
 
 Authored project code has no selected license yet. Preserve the
 [dependency notices and license texts](docs/dependencies.md) when distributing

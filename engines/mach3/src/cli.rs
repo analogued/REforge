@@ -10,7 +10,7 @@ use std::{ffi::OsString, path::PathBuf};
 const HELP: &str = "Usage: reforge --original <assets-directory> [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATA6.\n\
 Space: splash -> intro -> opening. Ctrl+Q, Escape or window close: exit.\n\
-Default window scale: 4 (1280x960); CGA pixels are displayed at 4:3.\n\
+Default drawable scale: 4 (1280x960 pixels); CGA pixels are displayed at 4:3.\n\
 Gameplay continues until game over, then displays Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
 --step: fresh Enter presses advance one body or title step. --static: show initial scene only.\n\

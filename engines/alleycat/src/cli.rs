@@ -38,7 +38,7 @@ const HELP: &str = "Alley Cat — game reconstruction
 Usage: reforge --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
-  --scale N               Initial window multiplier, 1..16 (default: 4)
+  --scale N               Initial drawable pixel multiplier, 1..16 (default: 4)
   --difficulty N          Initial difficulty 0..7; skips the skill question
   --help                  Show this help
 

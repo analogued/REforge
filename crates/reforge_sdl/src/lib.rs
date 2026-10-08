@@ -12,11 +12,11 @@ pub use input::{HostPause, HostShortcut, host_shortcut};
 pub const DEFAULT_SCALE: u32 = 4;
 
 use sdl3::{
-    event::Event,
+    event::{Event, WindowEvent},
     keyboard::KeyboardState,
     pixels::{Color, PixelFormat},
     render::{Canvas, RenderTarget, ScaleMode, Texture, TextureCreator, WindowCanvas},
-    video::WindowContext,
+    video::{Window as SdlWindow, WindowContext},
 };
 
 pub type FrameCreator = TextureCreator<WindowContext>;
@@ -85,11 +85,14 @@ impl<'a> FrameTexture<'a> {
 pub struct Window {
     canvas: WindowCanvas,
     events: sdl3::EventPump,
+    minimum_pixels: (u32, u32),
     _video: sdl3::VideoSubsystem,
     _sdl: sdl3::Sdl,
 }
 
 impl Window {
+    /// Request an initial drawable size of display dimensions times scale.
+    /// Desktop constraints can override sizing; later user resizes are retained.
     pub fn new(
         title: &str,
         display_width: u32,
@@ -116,11 +119,12 @@ impl Window {
             .window(title, width, height)
             .position_centered()
             .resizable()
+            .high_pixel_density()
+            .hidden()
             .build()
             .map_err(|error| error.to_string())?;
-        window
-            .set_minimum_size(display_width, display_height)
-            .map_err(|error| error.to_string())?;
+        let minimum_pixels = (display_width, display_height);
+        request_initial_pixel_size(&mut window, (width, height), minimum_pixels)?;
         // None lets SDL select a renderer supported by the host, including GPU backends.
         let mut canvas =
             sdl3::render::create_renderer(window, None).map_err(|error| error.to_string())?;
@@ -135,10 +139,23 @@ impl Window {
                 sdl3::get_error()
             );
         }
+        // Wayland needs a presented buffer before a window is mapped. Settle the
+        // initial display/density first, then compensate once more if mapping
+        // changed it. This startup-only sizing never fights later user resizes.
+        canvas.set_draw_color(Color::RGB(0, 0, 0));
+        canvas.clear();
+        if !canvas.window_mut().show() || !canvas.present() {
+            return Err(sdl3::get_error().to_string());
+        }
+        sync_window(canvas.window());
+        if request_initial_pixel_size(canvas.window_mut(), (width, height), minimum_pixels)? {
+            sync_window(canvas.window());
+        }
         let events = sdl.event_pump().map_err(|error| error.to_string())?;
         Ok(Self {
             canvas,
             events,
+            minimum_pixels,
             _video: video,
             _sdl: sdl,
         })
@@ -149,7 +166,21 @@ impl Window {
     }
 
     pub fn poll_events(&mut self) -> impl Iterator<Item = Event> + '_ {
-        self.events.poll_iter()
+        let window = self.canvas.window_mut();
+        let minimum_pixels = self.minimum_pixels;
+        self.events.poll_iter().inspect(move |event| {
+            if matches!(
+                event,
+                Event::Window {
+                    win_event: WindowEvent::PixelSizeChanged(..) | WindowEvent::DisplayChanged(..),
+                    ..
+                }
+            ) {
+                update_minimum_size(window, minimum_pixels).unwrap_or_else(|error| {
+                    eprintln!("REforge: cannot update window minimum: {error}");
+                });
+            }
+        })
     }
 
     pub fn keyboard_state(&self) -> KeyboardState<'_> {
@@ -186,6 +217,54 @@ impl Window {
     }
 }
 
+/// Convert drawable pixels to platform window coordinates. Round upward so a
+/// fractional density cannot reduce an integer presentation step by one pixel.
+fn window_size_for_pixels(pixels: (u32, u32), density: f32) -> Result<(u32, u32), String> {
+    if !density.is_finite() || density <= 0.0 {
+        return Err("invalid window pixel density".into());
+    }
+    let dimension = |pixels: u32| -> Result<u32, String> {
+        let units = (f64::from(pixels) / f64::from(density)).ceil();
+        if !(1.0..=f64::from(i32::MAX)).contains(&units) {
+            return Err("pixel-scaled window dimension is out of range".into());
+        }
+        Ok(units as u32)
+    };
+    Ok((dimension(pixels.0)?, dimension(pixels.1)?))
+}
+
+fn update_minimum_size(window: &mut SdlWindow, pixels: (u32, u32)) -> Result<(), String> {
+    let minimum = window_size_for_pixels(pixels, window.pixel_density())?;
+    if window.minimum_size() != minimum {
+        window
+            .set_minimum_size(minimum.0, minimum.1)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn request_initial_pixel_size(
+    window: &mut SdlWindow,
+    pixels: (u32, u32),
+    minimum_pixels: (u32, u32),
+) -> Result<bool, String> {
+    update_minimum_size(window, minimum_pixels)?;
+    let size = window_size_for_pixels(pixels, window.pixel_density())?;
+    if window.size() == size {
+        return Ok(false);
+    }
+    window
+        .set_size(size.0, size.1)
+        .map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+fn sync_window(window: &SdlWindow) {
+    if !window.sync() {
+        eprintln!("REforge: window sizing is still pending; using available drawable pixels");
+    }
+}
+
 fn configure<T: RenderTarget>(
     canvas: &mut Canvas<T>,
     width: u32,
@@ -214,11 +293,82 @@ mod tests {
     use sdl3::surface::Surface;
 
     #[test]
+    fn pixel_targets_compensate_density_and_round_up() {
+        for (pixels, density, expected) in [
+            ((1280, 960), 1.0, (1280, 960)),
+            ((1280, 960), 2.0, (640, 480)),
+            ((1280, 960), 1.25, (1024, 768)),
+            ((1280, 960), 1.5, (854, 640)),
+            ((1280, 960), 1.75, (732, 549)),
+            ((320, 240), 2.0, (160, 120)),
+            ((320, 240), 3.0, (107, 80)),
+        ] {
+            let size = window_size_for_pixels(pixels, density).unwrap();
+            assert_eq!(size, expected);
+            assert!(f64::from(size.0) * f64::from(density) >= f64::from(pixels.0));
+            assert!(f64::from(size.1) * f64::from(density) >= f64::from(pixels.1));
+        }
+        for density in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::MIN_POSITIVE] {
+            assert!(window_size_for_pixels((320, 240), density).is_err());
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a desktop or SDL_VIDEODRIVER=dummy; run with --test-threads=1"]
+    fn high_density_window_pixel_size_and_user_resize() {
+        for scale in [1, DEFAULT_SCALE] {
+            let mut display = Window::new("REforge display check", 320, 240, scale).unwrap();
+            let window = display.canvas.window();
+            assert_ne!(
+                window.window_flags().0 & sdl3::sys::video::SDL_WINDOW_HIGH_PIXEL_DENSITY.0,
+                0
+            );
+            let actual = window.size_in_pixels();
+            eprintln!(
+                "scale={scale}: window={:?}, drawable={actual:?}, density={}",
+                window.size(),
+                window.pixel_density()
+            );
+            assert!(actual.0 >= 320 * scale && actual.1 >= 240 * scale);
+            let creator = display.texture_creator();
+            for (width, format, bytes) in [(320, FrameFormat::Rgba, 4), (640, FrameFormat::Rgb, 3)]
+            {
+                let mut frame = FrameTexture::new(&creator, width, 200, format).unwrap();
+                frame
+                    .update(&vec![255; width as usize * 200 * bytes])
+                    .unwrap();
+                display.present(&frame).unwrap();
+            }
+            let size = window_size_for_pixels((640, 480), display.canvas.window().pixel_density())
+                .unwrap();
+            display
+                .canvas
+                .window_mut()
+                .set_size(size.0, size.1)
+                .unwrap();
+            assert!(display.canvas.window().sync());
+            display.poll_events().for_each(drop);
+            assert_eq!(display.canvas.window().size(), size);
+            assert!(display.canvas.window().size_in_pixels().0 >= 640);
+            let minimum =
+                window_size_for_pixels((320, 240), display.canvas.window().pixel_density())
+                    .unwrap();
+            assert_eq!(display.canvas.window().minimum_size(), minimum);
+        }
+    }
+
+    #[test]
     fn integer_aspect_correction_and_nearest_sampling_preserve_exact_pixels() {
         // Exercise the same presentation path without a desktop or original data.
-        for (output_width, output_height) in
-            [(320, 240), (640, 480), (800, 600), (960, 720), (1024, 768)]
-        {
+        for (output_width, output_height) in [
+            (320, 240),
+            (322, 241),
+            (640, 480),
+            (800, 600),
+            (960, 720),
+            (1024, 768),
+            (1280, 961),
+        ] {
             for (source_width, format) in [(320, FrameFormat::Rgba), (640, FrameFormat::Rgb)] {
                 let surface =
                     Surface::new(output_width, output_height, PixelFormat::RGB24).unwrap();
@@ -249,6 +399,7 @@ mod tests {
                     .unwrap()
                     .convert_format(PixelFormat::RGB24)
                     .unwrap();
+                let pitch = readback.pitch() as usize;
                 let actual = readback.with_lock(|pixels| pixels.to_vec());
                 let scale = (output_width / 320).min(output_height / 240) as usize;
                 let width = 320 * scale;
@@ -257,38 +408,39 @@ mod tests {
                 let top = (output_height as usize - height) / 2;
                 assert_eq!(readback.width(), output_width);
                 assert_eq!(readback.height(), output_height);
-                assert_eq!(
-                    actual.len(),
-                    output_width as usize * output_height as usize * 3
-                );
-                for (index, actual) in actual.chunks_exact(3).enumerate() {
-                    let x = index % output_width as usize;
-                    let y = index / output_width as usize;
-                    if x < left || y < top || x >= left + width || y >= top + height {
-                        assert_eq!(actual, [0, 0, 0], "letterbox at ({x}, {y})");
-                        continue;
+                assert_eq!(actual.len(), pitch * output_height as usize);
+                // RGB rows may include alignment padding at fractional-density
+                // window widths. Inspect visible pixels, not that padding.
+                for y in 0..output_height as usize {
+                    for x in 0..output_width as usize {
+                        let offset = y * pitch + x * 3;
+                        let actual = &actual[offset..offset + 3];
+                        if x < left || y < top || x >= left + width || y >= top + height {
+                            assert_eq!(actual, [0, 0, 0], "letterbox at ({x}, {y})");
+                            continue;
+                        }
+                        // At exact texel boundaries, nearest sampling can select either
+                        // neighbour (SDL's software scaler uses fixed-point arithmetic).
+                        // All other samples must match exactly; none may blend colours.
+                        let numerator_x = (2 * (x - left) + 1) * source_width as usize;
+                        let numerator_y = (2 * (y - top) + 1) * 200;
+                        let source_x = numerator_x / (2 * width);
+                        let source_y = numerator_y / (2 * height);
+                        let first_x =
+                            source_x.saturating_sub(usize::from(numerator_x % (2 * width) == 0));
+                        let first_y =
+                            source_y.saturating_sub(usize::from(numerator_y % (2 * height) == 0));
+                        let matches = (first_y..=source_y).any(|sy| {
+                            (first_x..=source_x).any(|sx| {
+                                let source = (sy * source_width as usize + sx) * bytes;
+                                actual == &pixels[source..source + 3]
+                            })
+                        });
+                        assert!(
+                            matches,
+                            "source width {source_width}, output {output_width}x{output_height} at ({x}, {y}): {actual:?}"
+                        );
                     }
-                    // At exact texel boundaries, nearest sampling can select either
-                    // neighbour (SDL's software scaler uses fixed-point arithmetic).
-                    // All other samples must match exactly; none may blend colours.
-                    let numerator_x = (2 * (x - left) + 1) * source_width as usize;
-                    let numerator_y = (2 * (y - top) + 1) * 200;
-                    let source_x = numerator_x / (2 * width);
-                    let source_y = numerator_y / (2 * height);
-                    let first_x =
-                        source_x.saturating_sub(usize::from(numerator_x % (2 * width) == 0));
-                    let first_y =
-                        source_y.saturating_sub(usize::from(numerator_y % (2 * height) == 0));
-                    let matches = (first_y..=source_y).any(|sy| {
-                        (first_x..=source_x).any(|sx| {
-                            let source = (sy * source_width as usize + sx) * bytes;
-                            actual == &pixels[source..source + 3]
-                        })
-                    });
-                    assert!(
-                        matches,
-                        "source width {source_width}, output {output_width}x{output_height} at ({x}, {y}): {actual:?}"
-                    );
                 }
             }
         }

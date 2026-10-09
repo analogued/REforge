@@ -4,8 +4,8 @@ The `mach3` engine crate for [REforge](../../README.md) recreates the **DOS vers
 released in 1987 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
 Status: Rust gameplay recreation with steering, shooting, encounter
 progression, collision responses, and retained-session restarts.
-Live gameplay has no loop cap. Audio remains deferred; later gameplay paths
-still need broader comparisons with the original.
+Live gameplay has no loop cap. Audio playback remains unimplemented;
+later gameplay paths still need broader comparisons with the original.
 
 The main implementation language is **Rust**. Supporting tools and investigation
 scripts may use other languages. Other platform versions are outside the initial
@@ -14,6 +14,8 @@ scope; broader hardware support remains to be established.
 See [DOS startup](docs/dos-startup.md) for the verified entry path, expanded-image
 address conventions, initial graphics setup, and file access.
 See [CGA graphics](docs/cga-graphics.md) for screen layouts and gameplay composition.
+See [DOS sound assets](docs/sound-assets.md) for sample encoding, speaker
+conversion, and executable music sequencing.
 See [DOS opening gameplay](docs/dos-gameplay.md) for update order, encounter
 scripts, and repeatability.
 See [native timing diagnostics](docs/timing-tracing.md) for the optional development

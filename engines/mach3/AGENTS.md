@@ -4,7 +4,7 @@
   then this game's `CONTRIBUTING.md` for additional validation requirements.
 - Use Rust for the main implementation. Supporting tools and investigation
   scripts may use whichever language suits their task. Use SDL3 for native
-  presentation and input. Audio analysis is deferred.
+  presentation and input. Audio playback remains unimplemented.
 - Keep `docs/` focused on maintained implementation and reference documentation
   useful to users and contributors. Add documentation only when an actual need
   arises; an empty `docs/` is fine. Do not create a preset collection of documents.

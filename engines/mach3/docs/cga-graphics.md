@@ -1,5 +1,11 @@
 # CGA graphics
 
+## Splash and intro asset format
+
+`data1` and `data6` are headerless 16,384-byte (`0x4000`) CGA framebuffer
+images. Their files contain no dimensions or palette metadata; video mode and
+palette come from the executable. Both screens use the same layout below.
+
 The initial screen is a direct copy of `data1` into CGA video memory at
 `b800:0000`. The copy routine is `6004`, called at `0808` and returning at
 `080b`; offsets are relative to the expanded program's code segment as described
@@ -22,14 +28,26 @@ Divisions are integer divisions. Each bank contains 100 visible rows, totaling
 8,000 bytes. The 192-byte gap before the second bank is not displayed. The last
 visible byte ends at `0x3f40`; bytes beyond it are not needed to decode the frame.
 
+| File offsets       | Contents                               |
+| ------------------ | -------------------------------------- |
+| `0000`–`1f3f`      | 100 even scanlines, 80 bytes each      |
+| `1f40`–`1fff`      | 192 bytes outside the visible image    |
+| `2000`–`3f3f`      | 100 odd scanlines, 80 bytes each       |
+| `3f40`–`3fff`      | 192 bytes outside the visible image    |
+
+Ranges are inclusive. The original copy reads the first `0x3f40` bytes,
+including the gap between banks. The decoder needs that prefix and ignores the
+final unused region; a file does not need to supply all `0x4000` bytes to decode
+the visible frame. This acceptance rule differs from the full stored file size.
+
 The verified initial color-select value is `0x30`, giving these RGB values:
 
 | Pixel index | RGB hexadecimal |
-| --- | --- |
-| 0 | `000000` |
-| 1 | `55ffff` |
-| 2 | `ff55ff` |
-| 3 | `ffffff` |
+| ----------- | --------------- |
+| 0           | `000000`        |
+| 1           | `55ffff`        |
+| 2           | `ff55ff`        |
+| 3           | `ffffff`        |
 
 The asset bytes, copied framebuffer, and decoder output have been compared with
 the emulator's rendered surface. All 64,000 RGB pixels match. Captures and
@@ -48,7 +66,8 @@ Space advanced the observed intro into gameplay. The return boundary is `03d1`.
 Initial scene rendering completes at `044a`, before another playback call and
 entry into the gameplay loop. No intro duration is asserted here: timer changes
 and debugger pauses make wall-clock measurements unsuitable for that purpose.
-Audio decoding and synthesis remain deferred.
+See [DOS sound assets](sound-assets.md) for the stored samples and verified
+digitized playback path. Audio synthesis remains unimplemented.
 
 ## Gameplay graphics resources
 
@@ -58,12 +77,12 @@ output bits 7 through 0 take input bits `3,7,2,6,1,5,0,4`, respectively. The
 converted byte contains four two-bit pixels in the same left-to-right order as
 video memory.
 
-| Resource | Converted contents |
-| --- | --- |
-| `data2` | 320-by-200 cockpit/background, followed by twelve 288-by-15 terrain strips |
-| `data3` | Alternate 320-by-200 cockpit/background with a starfield |
-| `data4` | Color pixels and descriptors for 190 sprites |
-| `data5` | Paired sprite masks with matching dimensions |
+| Resource | Converted contents                                                         |
+| -------- | -------------------------------------------------------------------------- |
+| `data2`  | 320-by-200 cockpit/background, followed by twelve 288-by-15 terrain strips |
+| `data3`  | Alternate 320-by-200 cockpit/background with a starfield                   |
+| `data4`  | Color pixels and descriptors for 190 sprites                               |
+| `data5`  | Paired sprite masks with matching dimensions                               |
 
 The first background occupies 16,000 bytes. Each terrain strip occupies 1,080
 bytes, with 72 bytes per row. The first strip starts at `0x3e80`; successive

@@ -4,8 +4,9 @@ The `mach3` engine crate for [REforge](../../README.md) recreates the **DOS vers
 released in 1987 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
 Status: Rust gameplay recreation with steering, shooting, encounter
 progression, collision responses, and retained-session restarts.
-Live gameplay has no loop cap. Audio playback remains unimplemented;
-later gameplay paths still need broader comparisons with the original.
+Live gameplay has no loop cap. Intro and pre-game sample execution is available
+as a separate development diagnostic; audible playback remains unimplemented.
+Later gameplay paths still need broader comparisons with the original.
 
 The main implementation language is **Rust**. Supporting tools and investigation
 scripts may use other languages. Other platform versions are outside the initial
@@ -15,7 +16,7 @@ See [DOS startup](docs/dos-startup.md) for the verified entry path, expanded-ima
 address conventions, initial graphics setup, and file access.
 See [CGA graphics](docs/cga-graphics.md) for screen layouts and gameplay composition.
 See [DOS sound assets](docs/sound-assets.md) for sample encoding, speaker
-conversion, and executable music sequencing.
+conversion, executable music sequencing, and the bounded sound diagnostic.
 See [DOS opening gameplay](docs/dos-gameplay.md) for update order, encounter
 scripts, and repeatability.
 See [native timing diagnostics](docs/timing-tracing.md) for the optional development
@@ -60,7 +61,7 @@ cargo run -p mach3 --bin mach3-frame -- --format cga /path/to/assets /path/to/fr
 
 This implements the fixed initial draw state, masked sprites, and frame export.
 The separate gameplay simulation implements live play and bounded frame exports;
-audio remains unimplemented.
+audible playback remains unimplemented.
 Asset decoding and frame composition are also available through the `mach3`
 library. With the `viewer` feature, `mach3::cli::run(args)` accepts command-line
 arguments as `OsString` values, excluding the executable name, so REforge can

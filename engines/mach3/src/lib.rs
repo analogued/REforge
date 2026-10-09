@@ -12,6 +12,7 @@ pub mod opening;
 pub mod rules;
 pub mod scene;
 pub mod session_capture;
+pub mod sound;
 pub mod startup;
 #[cfg(all(feature = "viewer", feature = "dev-tools"))]
 mod timing_trace;

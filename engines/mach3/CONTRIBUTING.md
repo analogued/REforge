@@ -39,10 +39,10 @@ the standalone `mach3-viewer` binary. Dependencies are recorded in the root
 `Cargo.lock` and [dependency notices](docs/dependencies.md). Once Cargo has
 fetched them, use `--offline` for local checks and builds.
 
-The opt-in `dev-tools` feature enables input and timing diagnostics in viewer
-builds; it does not enable SDL3 by itself. Normal builds exclude `--trace-input`
-and `--trace-timing`,
-including release builds unless `dev-tools` is explicitly enabled. Test all
+The opt-in `dev-tools` feature enables the `mach3-sound` bounded sound exporter
+and input and timing diagnostics in viewer builds; it does not enable SDL3 by
+itself. Normal builds exclude `--trace-input` and `--trace-timing`, including
+release builds unless `dev-tools` is explicitly enabled. Test all
 four combinations above when changing tracing or viewer input. REforge's
 `dev-tools` feature forwards this feature to Mach 3.
 

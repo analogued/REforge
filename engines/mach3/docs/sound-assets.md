@@ -1,7 +1,8 @@
 # DOS sound assets
 
 This reference describes the verified sample format and digitized playback path
-in the DOS program. Audio playback is not yet implemented in the Rust engine.
+in the DOS program. The Rust engine reconstructs the bounded intro and pre-game
+sample routines without audible playback or integration into the live viewer.
 Addresses are hexadecimal offsets in the expanded code segment; see
 [DOS startup](dos-startup.md) for relocation and data-segment conventions.
 
@@ -69,9 +70,36 @@ entry sets the source offset to the requested count, rather than `count - 1`;
 reconstruction must account for buffer contents at that boundary instead of
 assuming ordinary reversal of a sample slice.
 
+For the 15,500-byte reverse call, the source sequence is the byte at offset
+15,500, then asset offsets 15,499 through 1. Offset zero is omitted. The first
+byte is outside `datab`: the allocator at `5c2b` truncates the requested byte
+length to paragraphs, allocating 15,488 bytes for this resource, while the
+loader still writes all 15,500 bytes. The reverse entry reads the following DOS
+memory-control block. That byte is execution context, not asset padding; the
+Rust memory interface requires it explicitly rather than inventing a value.
+
+The handler inherits DI. Each interrupt increments it and masks it to one bit;
+the pointer and completed-byte counter advance only when the result is zero.
+An even initial DI produces two interrupts per byte. An odd initial DI advances
+the first byte after one interrupt. Completion is tested by the foreground,
+so the handler itself does not stop at the requested count.
+
+Setup first selects channel 2 mode 1 and writes two zero bytes, enables both
+speaker-control bits, then programs channel 0 divisor 60 and selects channel 2
+mode 0. Return restores the saved interrupt handlers and explicitly programs
+channel 0 mode 3 with divisor `4c68` (19,560); it does not restore a saved timer
+phase. This routine does not update the game's separately stored divisor.
+
+During playback, the temporary keyboard handler saves the latest raw make or
+break code and acknowledges the keyboard. A key does not abort the current
+sample. Return clears 65 ordinary keyboard-state words at `17c6` and returns the
+raw saved scan code. Either F2 make (`3c`) or break (`bc`) disables sound at
+return. When sound is already disabled, entry tail-jumps to the ordinary
+keyboard processor rather than playing a sample or manufacturing a zero result.
+
 ## Music sequencing
 
-The inspected intro sequence is encoded in executable calls and loops, starting
+The inspected intro sequence is encoded in unrolled executable calls, starting
 at `503f`, with a follow-on routine at `5308`. Those calls select sample buffers,
 counts, repetitions, and direction. This path does not load a separate song or
 pattern file. Samples are played serially by the synchronous routine.
@@ -83,6 +111,53 @@ sample. Sequencing, interruption, and effect priority belong to executable
 behavior; the PCM bytes alone do not specify them. Procedural gameplay sounds
 also program timers and speaker control directly, so these sample files are
 not a complete description of the game's audio.
+
+The first wrapper checks accumulated sample results between groups. Its first
+sample alone filters signed return values greater than 127. The four calls in
+the follow-on wrapper always execute, including after an early first-wrapper
+return. The outer intro routine can repeat this traversal after a timed input
+wait; that surrounding loop is separate from the bounded sequencer.
+
+## Reconstructed execution interface
+
+`mach3::sound::IntroProgram` decodes resource operands, lengths and group
+boundaries from the supplied expanded executable. `IntroSequence` advances
+using actual sample return values. `SamplePlayer` reconstructs setup, IRQ0 and
+IRQ1 processing, foreground completion and restoration. A caller supplies
+memory bytes, device reads and interrupt deliveries through `SampleMemory`
+and `SampleBus`.
+
+Every sample count write carries the original eight-bit byte, resource offset,
+playback identity and source-visit identity. Two writes for one byte share a
+visit; adjacent equal bytes remain separate visits. Out-of-asset bytes carry
+external-memory provenance. Device actions retain repeated writes, handler
+changes, interrupt-control effects and keyboard-state clearing. Rendering does
+not select samples or advance another cursor.
+
+The development exporter runs one intro traversal followed by the enabled
+pre-game sample:
+
+```sh
+cargo run -p mach3 --features dev-tools --bin mach3-sound -- --context /path/to/device-reads.tsv --external-byte DATAB:15500:VALUE /path/to/assets /path/to/new-output-directory
+```
+
+Replace `VALUE` with the boundary byte established for the execution being
+compared. The directory must supply `MACH3.EXE` and `DATA7` through `DATAH`.
+Names are case-insensitive. Device context has the tab-separated header
+`call`, `interrupt`, `port`, `value`. Calls start at 1. Each call needs a port
+`0x61` read at interrupt 0. Keyboard deliveries use paired `0x60`/`0x61` reads
+at increasing positive interrupt numbers, delivered before that numbered IRQ0.
+Values accept decimal or `0x` hexadecimal. Context supplies device reads, not
+sample counts or source bytes.
+
+The new output directory receives `calls.tsv`, `ports.tsv`, `effects.tsv` and
+`diagnostic.txt`. The export includes source annotations and entry-state
+snapshots. Its time column advances by 60 nominal PIT clocks per IRQ0; it is
+an algorithm diagnostic, not a PIT phase model or a match for CPU instruction
+timestamps. Saved vectors are explicitly synthetic. Sound-disabled ordinary
+keyboard continuation is exposed by the library and rejected by this bounded
+exporter. Host playback, live timer integration and procedural gameplay sound
+routines remain unimplemented.
 
 ## Corroboration and scope
 

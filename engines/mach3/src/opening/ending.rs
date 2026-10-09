@@ -189,7 +189,7 @@ impl Ending {
     }
 
     pub fn period(&self) -> std::time::Duration {
-        super::BODY_PERIOD * self.wait_units() / 3
+        super::BODY_PERIOD * self.wait_units() / 4
     }
 
     pub fn can_return(&self) -> bool {
@@ -574,6 +574,14 @@ mod tests {
         let mut steps = 0;
         while !ending.can_return() {
             let state = ending.snapshot();
+            assert_eq!(
+                ending.period().as_nanos(),
+                match state.stage {
+                    EndingStage::ScoreOverlay => 0,
+                    EndingStage::Pause => 164_776_206,
+                    _ => 54_925_402,
+                }
+            );
             let index = usize::from(state.title == EndingTitle::HighScore);
             match state.stage {
                 EndingStage::Approach => approach[index] += 1,

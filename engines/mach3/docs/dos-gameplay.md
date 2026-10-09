@@ -5,16 +5,19 @@ Code and data addresses follow [DOS startup](dos-startup.md).
 
 ## Update order
 
-The game loop starts at `04b7`, repeating at `04c2`. Each completed body calls
-the tick wait `7437` three times, updates player input through `2277` three
-times, and updates world objects through `2ae4` twice. Drawing is interleaved
-with those updates. `DS:b692` increments once per body and selects alternating
+The game loop starts at `04b7`, repeating at `04c2`. Each completed body has
+three ordinary calls to the tick wait `7437`, updates player input through
+`2277` three times, and updates world objects through `2ae4` twice. Pass one
+adds a fourth wait when its selected background layer matches the preceding
+pass-one layer. Drawing is interleaved with those updates. `DS:b692` increments
+once per body and selects alternating
 HUD update paths. Event processing (`1426`) and object recycling (`316d`) run
 at the end, before returning to `04c2`.
 
 Consequently, one loop body includes several updates and framebuffer writes.
-Its count is not a count of display refreshes. The tick wait polls and resets
-`DS:17bf`; these waits do not establish a native wall-clock rate by themselves.
+Its count is not a count of display refreshes. The tick wait polls and clears
+`DS:17bf`; the timer interrupt's counter accumulation establishes its nominal
+rate independently of the foreground instruction count.
 
 ## Encounter scripts
 
@@ -275,18 +278,48 @@ corners outside either individual placement.
 The three screens before the waits at `0698`, `06dc`, and the end-of-body code
 at `0733` match original captures throughout the 90-body steering prefix.
 
-The viewer schedules each ordinary pass at a nominal interval of about
-27.463 ms, retaining about 82.388 ms per body: three units of the approximately
-36.413 Hz counter. When presentation is slower, due ordinary passes advance in
-order before presenting the latest image. Each pass still runs its input polls,
-state changes, composition and random draws; only intermediate presentations
-are omitted. Catch-up processes at most 64 passes before repumping host events,
-retaining remaining deadline debt without another presentation wait. Native
-pause and blocking transitions stop ordinary catch-up. Each transition and
+### Timer pacing
+
+The timer helper accumulates the PIT divisor twice per IRQ and increments the
+counter on carry. With a timer input frequency of 1,193,182 Hz, one nominal
+counter unit is `65536 / (2 * 1193182)` seconds, approximately 27.463 ms.
+The default viewer body period represents four such units, approximately
+109.851 ms. It preserves three input/update passes rather than adding a fourth
+gameplay update.
+
+Pass one's ordinary wait precedes the player/world update and scratch
+composition. The selected layer is 1 when signed `DS:b698` is positive,
+otherwise `DS:b6aa`. The previous selected layer is cached separately and starts
+at zero. When these layers match, the call at `0550` adds one unit between
+composition (`0547 -> 61cc`) and the CGA copy (`0555 -> 60a0`). When they differ,
+the changed-layer drawing path skips this wait and updates the cached layer.
+Ignoring instruction execution time, the nominal unchanged-layer schedule is:
+
+| Relative timer unit | Input and update work         | Framebuffer publication |
+| ------------------- | ----------------------------- | ----------------------- |
+| 1                   | Pass one: player, full world   | Previous frame retained |
+| 2                   | No additional input poll      | Pass one                |
+| 3                   | Pass two: player              | Pass two                |
+| 4                   | Pass three: player, near world | Pass three              |
+
+The viewer retains a prepared pass-one image until its publication deadline;
+palette and display-mode effects follow their input processing independently.
+A layer-change body omits the publication wait and therefore takes three nominal
+units. `--period-ms` sets the four-unit body duration; all individual wait units
+scale with it. Manual stepping completes the same algorithms without timed waits.
+Publication models a completed framebuffer checkpoint; it does not reproduce
+the CGA display's scanout during individual region copies.
+
+When presentation is slower, due updates and publication events advance in
+order before presenting the latest published image. Each pass still runs its
+input polls, state changes, composition and random draws; only intermediate
+host presentations are omitted. Catch-up processes at most 64 scheduled events
+before repumping host events, retaining remaining deadline debt without another
+presentation wait. Native pause and blocking transitions stop ordinary catch-up.
+Each transition and
 ending frame retains its own visible wait rather than being skipped to spend
-ordinary timing debt. The timer helper accumulates the PIT divisor twice per
-IRQ and increments the counter on carry. Original rendering cost, discarded
-timer phase, and the startup timer transition make precise DOS elapsed time
+ordinary timing debt. Original rendering cost, discarded timer phase, and the
+startup timer transition make precise DOS elapsed time
 dependent on execution conditions.
 The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).

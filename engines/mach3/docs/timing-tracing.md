@@ -34,6 +34,12 @@ Rows are bounded by actual work and visible wait advancement:
   world updates, rendering, parser/recycle work and generation of transition
   images when applicable, but excludes input tracing and SDL presentation.
   Its body/pass and workload columns describe the state after the invocation.
+  It records preparation, which may precede pass-one publication by one timer
+  unit; it does not claim that this image is already visible.
+- `pass_publish` records publication of a prepared ordinary image. Its deadline
+  is the scheduled publication time; `delayed=true` identifies the separate
+  pass-one wait. This event does not poll input or update gameplay. Publication
+  exposes the indexed image to presentation; it does not measure monitor scanout.
 - `transition_wait` identifies advancement after an intentional transition
   deadline; its short host span measures queue advancement, not the wait itself.
 - `ending_start` brackets title initialization; `ending_step` brackets a title
@@ -44,7 +50,7 @@ Rows are bounded by actual work and visible wait advancement:
   detail identifies the screen and whether a transition, ending or host pause
   is active. Startup presentations have blank game and scene metadata.
 
-One catch-up batch can execute up to 64 ordinary passes before presenting.
+One catch-up batch can execute up to 64 ordinary scheduled events before presenting.
 Intentional title and transition waits keep their existing behavior and do not
 spend ordinary catch-up debt. Thus pass rows measure simulation work, while
 presentation rows measure separate display work. Neither claims monitor scanout

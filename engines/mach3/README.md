@@ -85,10 +85,15 @@ Use `--controls` to steer with arrows or S/X/B/N and fire with Space or keypad 5
 It is a flag with no value; the data path belongs to `--original`.
 Live gameplay continues until game over, including when controls are disabled.
 Each body computes three render passes, with player input sampled separately
-at each pass. The default pace is approximately 36.41
-passes per second; `--period-ms 1..5000` overrides the whole-body interval.
-Ordinary simulation catches up due render passes before presenting the latest
-frame. It preserves original pass order and input-poll sites; slow presentation
+at each pass. The default ordinary body takes approximately 109.851 ms,
+averaging 27.31 displayed passes per second. Pass one waits an additional timer
+unit between composition and display when the selected background layer remains
+unchanged; a layer-change body skips that wait. `--period-ms 1..5000` overrides
+the four-unit body duration. See [gameplay timing](docs/dos-gameplay.md#timer-pacing)
+for the update and display ordering.
+Ordinary simulation catches up due updates and publication events before
+presenting the latest published frame. It preserves original pass order and
+input-poll sites; slow presentation
 does not limit it to one pass per display refresh. Catch-up batches are bounded
 to keep processing host events, with remaining deadline debt retained. Blocking
 transition frames and ending frames retain their separate visible waits.

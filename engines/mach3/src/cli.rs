@@ -15,7 +15,7 @@ Gameplay continues until game over, then displays Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
 --step: fresh Enter presses advance one body or title step. --static: show initial scene only.\n\
 --controls: flag with no value; arrows or S/X/B/N steer; Space or keypad5 fires. Gameplay has no loop cap.\n\
-Default pace: about 36.41 displayed passes/s (12.14 bodies/s); --period-ms sets the body interval.\n\
+Default pace: about 27.31 displayed passes/s (9.10 ordinary bodies/s); --period-ms sets the body interval.\n\
 Pause/Break toggles host pause. F1 retains original pause/end-game behavior; F2 toggles sound preference, F3 switches color/monochrome.\n\
 Original intro timing, exact CPU-dependent pacing, and audio remain deferred.";
 

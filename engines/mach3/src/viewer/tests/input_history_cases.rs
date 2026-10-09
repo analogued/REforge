@@ -10,13 +10,13 @@ fn overdue_polls_use_received_history_and_match_punctual_execution() {
         controls: true,
         ..Options::default()
     };
-    let unit = options.body_period / 3;
+    let unit = options.body_period / 4;
     for lateness in [
         Duration::from_micros(100),
         Duration::from_millis(1),
         Duration::from_millis(10),
     ] {
-        for pass in 1..=2 {
+        for pass in [1, 3] {
             for (press, release, expected) in [(-2, -1, 0), (-2, 2, 8), (2, 4, 0)] {
                 let start = Instant::now();
                 let poll = start + unit * pass;
@@ -74,8 +74,9 @@ fn overdue_polls_use_received_history_and_match_punctual_execution() {
                         receive_at(&mut delayed, &mut delayed_input, event, *time, poll + unit);
                     }
                 }
-                punctual.advance(&assets, &options, poll + unit).unwrap();
-                delayed.advance(&assets, &options, poll + unit).unwrap();
+                let next_poll = poll + unit * if pass == 1 { 2 } else { 1 };
+                punctual.advance(&assets, &options, next_poll).unwrap();
+                delayed.advance(&assets, &options, next_poll).unwrap();
                 assert_eq!(
                     delayed
                         .opening
@@ -104,7 +105,7 @@ fn late_delivery_is_prospective_and_catch_up_repolls_keep_history_order() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 3;
+    let unit = options.body_period / 4;
     let mut game = running_playback(&assets, start, &options);
     let mut input = ControlInput::default();
     game.advance(&assets, &options, start + unit).unwrap();
@@ -119,7 +120,7 @@ fn late_delivery_is_prospective_and_catch_up_repolls_keep_history_order() {
         start + unit,
     );
     assert_eq!(game.opening.as_ref().unwrap().frame(), &first);
-    game.advance(&assets, &options, start + unit * 2).unwrap();
+    game.advance(&assets, &options, start + unit * 3).unwrap();
     assert_eq!(
         game.opening
             .as_ref()
@@ -137,7 +138,7 @@ fn late_delivery_is_prospective_and_catch_up_repolls_keep_history_order() {
         &mut game,
         &mut input,
         &key_event(Keycode::Right, true, false),
-        start + unit * 64,
+        start + unit * 63,
         late,
     );
     receive_at(
@@ -148,7 +149,7 @@ fn late_delivery_is_prospective_and_catch_up_repolls_keep_history_order() {
         late,
     );
     game.advance(&assets, &options, late).unwrap();
-    assert_eq!(pass_count(&game), 64);
+    assert_eq!(pass_count(&game), 48);
     assert_eq!(
         game.opening
             .as_ref()
@@ -160,7 +161,7 @@ fn late_delivery_is_prospective_and_catch_up_repolls_keep_history_order() {
     );
     assert!(game.ordinary_due(&options, late));
     game.advance(&assets, &options, late).unwrap();
-    assert_eq!(pass_count(&game), 100);
+    assert_eq!(pass_count(&game), 75);
     assert_eq!(
         game.opening
             .as_ref()
@@ -182,7 +183,7 @@ fn historical_f1_tap_enters_native_pause_without_replaying_its_release() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 3;
+    let unit = options.body_period / 4;
     let poll = start + unit;
     let late = poll + Duration::from_millis(10);
     let mut game = running_playback(&assets, start, &options);
@@ -217,7 +218,7 @@ fn historical_function_keys_keep_four_poll_priority_and_counter_rules() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 3;
+    let unit = options.body_period / 4;
     let mut delayed = running_playback(&assets, start, &options);
     let mut punctual = running_playback(&assets, start, &options);
     let mut delayed_input = ControlInput::default();
@@ -229,11 +230,11 @@ fn historical_function_keys_keep_four_poll_priority_and_counter_rules() {
             &mut delayed_input,
             &event,
             start,
-            start + unit * 3,
+            start + unit * 4,
         );
         receive_at(&mut punctual, &mut punctual_input, &event, start, start);
     }
-    for pass in 1..=3 {
+    for pass in 1..=4 {
         punctual
             .advance(&assets, &options, start + unit * pass)
             .unwrap();
@@ -242,7 +243,7 @@ fn historical_function_keys_keep_four_poll_priority_and_counter_rules() {
         .advance(
             &assets,
             &options,
-            start + unit * 3 + Duration::from_millis(10),
+            start + unit * 4 + Duration::from_millis(10),
         )
         .unwrap();
     assert_eq!(
@@ -282,7 +283,7 @@ fn frontend_resets_discard_history_and_reject_buffered_or_repeat_keys() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 3;
+    let unit = options.body_period / 4;
     for focus in [false, true] {
         let mut game = running_playback(&assets, start, &options);
         let mut input = ControlInput::default();
@@ -371,7 +372,7 @@ fn deliberate_waits_fold_taps_without_replaying_discarded_deadlines() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 3;
+    let unit = options.body_period / 4;
     let late = start + unit * 20;
     for boundary in ["transition", "native_resume", "ending", "step", "static"] {
         let mut options = options.clone();
@@ -466,7 +467,7 @@ fn transition_holds_and_new_session_preserve_current_scans_not_old_taps() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 3;
+    let unit = options.body_period / 4;
     let now = start + unit * 10;
     let mut game = running_playback(&assets, start, &options);
     let mut input = ControlInput::default();

@@ -107,6 +107,8 @@ pub struct Opening {
     pass_snapshot: Option<Box<Snapshot>>,
     updating_before_render: bool,
     selected_layer: u16,
+    previous_pass_one_layer: u16,
+    pass_one_wait: bool,
     last_background_layer: u16,
     remembered_draws: [Option<scene::Draw>; 29],
     remembered_requests: [usize; 29],
@@ -161,6 +163,8 @@ impl Opening {
             pass_snapshot: None,
             updating_before_render: false,
             selected_layer: 0,
+            previous_pass_one_layer: 0,
+            pass_one_wait: false,
             last_background_layer: 0,
             remembered_draws: [None; 29],
             remembered_requests: [0; 29],
@@ -585,6 +589,12 @@ impl Opening {
         Ok(())
     }
 
+    /// The extra one-unit wait before the first pass's CGA copy is skipped
+    /// when its selected background layer changes from the preceding body.
+    pub fn pass_one_wait_required(&self) -> bool {
+        self.render_pass == 1 && self.pass_one_wait
+    }
+
     pub fn take_transitions(&mut self) -> Vec<TransitionFrame> {
         std::mem::take(&mut self.transitions)
     }
@@ -595,6 +605,8 @@ impl Opening {
         let viewport = presentation::VIEWPORT;
         if self.render_pass == 1 {
             self.selected_layer = state.world_layer();
+            self.pass_one_wait = self.selected_layer == self.previous_pass_one_layer;
+            self.previous_pass_one_layer = self.selected_layer;
         }
         self.last_background_layer = self.selected_layer;
         let background = presentation::Presentation {
@@ -1185,9 +1197,9 @@ pub const LAST_BODY: u16 = 836;
 /// Verified prefix for steering-controlled playback.
 pub const STEERING_LAST_BODY: u16 = 90;
 
-/// Three nominal 36.413 Hz timer units per completed loop body.
+/// Four nominal 36.413 Hz timer units per ordinary completed loop body.
 /// Original CPU/render costs and startup timer transitions are not emulated.
-pub const BODY_PERIOD: std::time::Duration = std::time::Duration::from_nanos(82_388_102);
+pub const BODY_PERIOD: std::time::Duration = std::time::Duration::from_nanos(109_850_804);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Random {
@@ -1242,6 +1254,38 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn first_pass_wait_follows_selected_layer_changes_and_signed_overlay() {
+        let assets = synthetic_assets();
+        let mut game = Opening::new(&assets).unwrap();
+        game.render_pass = 1;
+        for (layer, overlay, alternate, expected) in [
+            (0, 0, false, true),
+            (0, 0, true, true), // Alternate picture alone is not the layer gate.
+            (2, 0, true, false),
+            (2, 0, true, true),
+            (2, 1, true, false), // Positive overlay selects layer1.
+            (2, 2, true, true),
+            (2, 0x8000, true, false), // Signed negative overlay restores layer2.
+            (2, 0xffff, true, true),
+            (0, 0, false, false),
+            (0, 0, false, true),
+        ] {
+            game.layer = layer;
+            game.overlay = overlay;
+            game.alternate_background = alternate;
+            game.render(&assets).unwrap();
+            assert_eq!(game.pass_one_wait_required(), expected);
+        }
+        game.render_pass = 2;
+        assert!(!game.pass_one_wait_required());
+        game.layer = 2;
+        game.render(&assets).unwrap();
+        game.render_pass = 1;
+        game.render(&assets).unwrap();
+        assert!(!game.pass_one_wait_required()); // Pass2 did not overwrite the body-local gate.
     }
 
     #[test]

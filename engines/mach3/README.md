@@ -16,6 +16,9 @@ address conventions, initial graphics setup, and file access.
 See [CGA graphics](docs/cga-graphics.md) for screen layouts and gameplay composition.
 See [DOS opening gameplay](docs/dos-gameplay.md) for update order, encounter
 scripts, and repeatability.
+See [native timing diagnostics](docs/timing-tracing.md) for the optional development
+trace of simulation execution, scheduling and presentation.
+
 See [gameplay recordings](docs/gameplay-recordings.md) for the Rust replay interface,
 recording format and synchronization rules.
 

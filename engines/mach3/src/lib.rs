@@ -13,6 +13,8 @@ pub mod rules;
 pub mod scene;
 pub mod session_capture;
 pub mod startup;
+#[cfg(all(feature = "viewer", feature = "dev-tools"))]
+mod timing_trace;
 #[cfg(feature = "viewer")]
 pub mod viewer;
 

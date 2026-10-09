@@ -219,6 +219,13 @@ const SPECS: &[Spec] = &[
         dev: true,
         description: "Write input diagnostic trace to a new file",
     },
+    Spec {
+        name: "--trace-timing",
+        game: Some(Game::Mach3),
+        value: Value::Path,
+        dev: true,
+        description: "Write simulation and presentation timing to a new file",
+    },
 ];
 
 pub fn takes_value(name: &str) -> Option<bool> {
@@ -262,7 +269,10 @@ fn validate(spec: &Spec, value: OsString, game: Game) -> Result<OsString, String
         }
         // The engine receives separate name/value arguments. Protect an
         // explicitly inline filename beginning with '-' from its option gate.
-        if spec.name == "--trace-input" && is_option(&value) {
+        if spec.game == Some(Game::Mach3)
+            && matches!(spec.name, "--trace-input" | "--trace-timing")
+            && is_option(&value)
+        {
             return Ok(std::path::PathBuf::from(".").join(value).into_os_string());
         }
         return Ok(value);
@@ -409,7 +419,11 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
     let mut warnings = Vec::new();
     while let Some(arg) = args.next() {
         let (name, inline) = split_option(&arg);
-        let Some(spec) = SPECS.iter().find(|spec| spec.name == name) else {
+        let Some(spec) = SPECS
+            .iter()
+            .find(|spec| spec.name == name && (spec.game.is_none() || spec.game == Some(game)))
+            .or_else(|| SPECS.iter().find(|spec| spec.name == name))
+        else {
             warnings.push(format!("unrecognized argument {arg:?}; ignored"));
             continue;
         };
@@ -602,6 +616,22 @@ mod tests {
         }
     }
     #[test]
+    fn shared_option_names_have_consistent_value_arity() {
+        // Essential argument extraction runs before game detection.
+        for spec in SPECS {
+            for other in SPECS.iter().filter(|other| other.name == spec.name) {
+                assert_eq!(
+                    matches!(spec.value, Value::Flag),
+                    matches!(other.value, Value::Flag)
+                );
+                if !std::ptr::eq(spec, other) {
+                    assert!(spec.game.is_some() && other.game.is_some());
+                    assert_ne!(spec.game, other.game);
+                }
+            }
+        }
+    }
+    #[test]
     fn catalog_option_names_match_engine_parsers() {
         for (source, game) in [
             (
@@ -626,7 +656,9 @@ mod tests {
                     }
                     let spec = SPECS
                         .iter()
-                        .find(|spec| spec.name == quoted)
+                        .find(|spec| {
+                            spec.name == quoted && (spec.game.is_none() || spec.game == Some(game))
+                        })
                         .unwrap_or_else(|| panic!("uncataloged {quoted}"));
                     assert!(spec.game.is_none() || spec.game == Some(game), "{quoted}");
                 }
@@ -684,78 +716,104 @@ mod tests {
         accepted(&result, Game::AlleyCat);
     }
     #[test]
-    fn input_trace_is_mach3_development_only() {
-        assert_eq!(takes_value("--trace-input"), Some(true));
-        let result = prepare(args(&["--trace-input", "input trace.tsv"]), Game::Mach3);
-        #[cfg(not(feature = "dev-tools"))]
-        {
-            assert!(result.args.is_empty());
-            assert_eq!(result.warnings.len(), 1);
-            assert!(result.warnings[0].contains("requires a dev-tools build"));
-            assert!(!help(Some(Game::Mach3)).contains("--trace-input"));
+    fn mach3_traces_are_development_only() {
+        for option in ["--trace-input", "--trace-timing"] {
+            assert_eq!(takes_value(option), Some(true));
+            let result = prepare(args(&[option, "trace.tsv"]), Game::Mach3);
+            #[cfg(not(feature = "dev-tools"))]
+            {
+                assert!(result.args.is_empty());
+                assert_eq!(result.warnings.len(), 1);
+                assert!(result.warnings[0].contains("requires a dev-tools build"));
+                assert!(!help(Some(Game::Mach3)).contains(option));
+            }
+            #[cfg(feature = "dev-tools")]
+            {
+                assert_eq!(result.args, args(&[option, "trace.tsv"]));
+                assert!(result.warnings.is_empty());
+                assert!(help(Some(Game::Mach3)).contains(&format!("{option} PATH [dev-tools]")));
+            }
+            accepted(&result, Game::Mach3);
+            let foreign = prepare(args(&[option, "trace.tsv"]), Game::AlleyCat);
+            if option == "--trace-input" {
+                assert!(foreign.args.is_empty());
+                assert_eq!(foreign.warnings.len(), 1);
+                assert!(foreign.warnings[0].contains("applies to Mach 3"));
+                assert!(!help(Some(Game::AlleyCat)).contains(option));
+            } else {
+                #[cfg(feature = "dev-tools")]
+                {
+                    assert_eq!(foreign.args, args(&[option, "trace.tsv"]));
+                    assert!(foreign.warnings.is_empty());
+                    assert!(
+                        help(Some(Game::AlleyCat)).contains("Write timed outer-loop events as CSV")
+                    );
+                    assert!(
+                        help(Some(Game::Mach3))
+                            .contains("Write simulation and presentation timing")
+                    );
+                }
+                #[cfg(not(feature = "dev-tools"))]
+                {
+                    assert!(foreign.args.is_empty());
+                    assert_eq!(foreign.warnings.len(), 1);
+                    assert!(foreign.warnings[0].contains("requires a dev-tools build"));
+                }
+            }
+            assert!(!help(None).contains(option));
+            accepted(&foreign, Game::AlleyCat);
         }
-        #[cfg(feature = "dev-tools")]
-        {
-            assert_eq!(result.args, args(&["--trace-input", "input trace.tsv"]));
-            assert!(result.warnings.is_empty());
-            assert!(help(Some(Game::Mach3)).contains("--trace-input PATH [dev-tools]"));
-        }
-        accepted(&result, Game::Mach3);
-        let foreign = prepare(args(&["--trace-input", "trace.tsv"]), Game::AlleyCat);
-        assert!(foreign.args.is_empty());
-        assert_eq!(foreign.warnings.len(), 1);
-        assert!(foreign.warnings[0].contains("applies to Mach 3"));
-        assert!(!help(Some(Game::AlleyCat)).contains("--trace-input"));
-        assert!(!help(None).contains("--trace-input"));
-        accepted(&foreign, Game::AlleyCat);
     }
     #[cfg(feature = "dev-tools")]
     #[test]
     fn inline_trace_filename_starting_with_dash_reaches_engine_as_a_path() {
-        let result = prepare(args(&["--trace-input=-trace.tsv"]), Game::Mach3);
-        assert_eq!(
-            result.args,
-            vec![
-                OsString::from("--trace-input"),
-                std::path::PathBuf::from(".")
-                    .join("-trace.tsv")
-                    .into_os_string()
-            ]
-        );
-        assert!(result.warnings.is_empty());
-        accepted(&result, Game::Mach3);
+        for option in ["--trace-input", "--trace-timing"] {
+            let result = prepare(args(&[&format!("{option}=-trace.tsv")]), Game::Mach3);
+            assert_eq!(
+                result.args,
+                vec![
+                    OsString::from(option),
+                    std::path::PathBuf::from(".")
+                        .join("-trace.tsv")
+                        .into_os_string()
+                ]
+            );
+            assert!(result.warnings.is_empty());
+            accepted(&result, Game::Mach3);
+        }
     }
 
     #[cfg(feature = "dev-tools")]
     #[test]
     fn invalid_trace_paths_preserve_previous_path_and_following_options() {
-        let result = prepare(
-            args(&[
-                "--trace-input=trace.tsv",
-                "--trace-input=",
-                "--trace-input",
-                "--controls",
-            ]),
-            Game::Mach3,
-        );
-        assert_eq!(
-            result.args,
-            args(&["--trace-input", "trace.tsv", "--controls"])
-        );
-        assert_eq!(result.warnings.len(), 2);
-        assert!(result.warnings[0].contains("path must not be empty"));
-        assert!(result.warnings[1].contains("requires a value"));
-        accepted(&result, Game::Mach3);
+        for option in ["--trace-input", "--trace-timing"] {
+            let result = prepare(
+                args(&[
+                    &format!("{option}=trace.tsv"),
+                    &format!("{option}="),
+                    option,
+                    "--controls",
+                ]),
+                Game::Mach3,
+            );
+            assert_eq!(result.args, args(&[option, "trace.tsv", "--controls"]));
+            assert_eq!(result.warnings.len(), 2);
+            assert!(result.warnings[0].contains("path must not be empty"));
+            assert!(result.warnings[1].contains("requires a value"));
+            accepted(&result, Game::Mach3);
+        }
     }
     #[cfg(all(feature = "dev-tools", unix))]
     #[test]
-    fn input_trace_preserves_non_utf8_paths() {
+    fn mach3_traces_preserve_non_utf8_paths() {
         use std::os::unix::ffi::OsStringExt;
         let path = OsString::from_vec(b"trace-\xff.tsv".to_vec());
-        let result = prepare([OsString::from("--trace-input"), path.clone()], Game::Mach3);
-        assert_eq!(result.args, vec![OsString::from("--trace-input"), path]);
-        assert!(result.warnings.is_empty());
-        accepted(&result, Game::Mach3);
+        for option in ["--trace-input", "--trace-timing"] {
+            let result = prepare([OsString::from(option), path.clone()], Game::Mach3);
+            assert_eq!(result.args, vec![OsString::from(option), path.clone()]);
+            assert!(result.warnings.is_empty());
+            accepted(&result, Game::Mach3);
+        }
     }
     #[cfg(feature = "dev-tools")]
     #[test]

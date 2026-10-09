@@ -23,7 +23,7 @@ fn help() -> String {
     #[cfg(feature = "dev-tools")]
     {
         format!(
-            "{HELP}\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file."
+            "{HELP}\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file."
         )
     }
     #[cfg(not(feature = "dev-tools"))]
@@ -115,6 +115,14 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     .filter(|path| !path.is_empty())
                     .ok_or_else(|| "--trace-input requires a nonempty output path".to_string())?;
                 options.input_trace = Some(PathBuf::from(path));
+            }
+            #[cfg(feature = "dev-tools")]
+            Some("--trace-timing") => {
+                let path = args
+                    .next_if(|arg| !arg.to_string_lossy().starts_with('-'))
+                    .filter(|path| !path.is_empty())
+                    .ok_or_else(|| "--trace-timing requires a nonempty output path".to_string())?;
+                options.timing_trace = Some(PathBuf::from(path));
             }
             Some(value) if value.starts_with('-') => return Err(help()),
             _ => {
@@ -217,6 +225,37 @@ mod tests {
             ]))
             .is_err()
         );
+    }
+
+    #[test]
+    fn timing_trace_option_is_feature_gated_and_requires_a_path() {
+        let valid = parse_args(args(&[
+            "--original",
+            "assets",
+            "--trace-timing",
+            "timing trace.tsv",
+        ]));
+        #[cfg(feature = "dev-tools")]
+        {
+            let (_, options) = valid.unwrap().unwrap();
+            assert_eq!(
+                options.timing_trace,
+                Some(PathBuf::from("timing trace.tsv"))
+            );
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        assert!(valid.is_err());
+        assert_eq!(
+            help().contains("--trace-timing"),
+            cfg!(feature = "dev-tools")
+        );
+        for values in [
+            &["--original", "assets", "--trace-timing"][..],
+            &["--original", "assets", "--trace-timing", ""][..],
+            &["--original", "assets", "--trace-timing", "--controls"][..],
+        ] {
+            assert!(parse_args(args(values)).is_err());
+        }
     }
 
     #[cfg(feature = "dev-tools")]

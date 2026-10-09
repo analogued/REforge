@@ -9,6 +9,8 @@ use input_history::{EventTime, InputHistory};
 
 #[cfg(feature = "dev-tools")]
 use crate::input_trace::{InputTrace, PollSite};
+#[cfg(feature = "dev-tools")]
+use crate::timing_trace::TimingTrace;
 
 use reforge_sdl::sdl3::{
     event::{Event, WindowEvent},
@@ -44,6 +46,8 @@ pub struct Options {
     pub body_period: std::time::Duration,
     #[cfg(feature = "dev-tools")]
     pub input_trace: Option<std::path::PathBuf>,
+    #[cfg(feature = "dev-tools")]
+    pub timing_trace: Option<std::path::PathBuf>,
 }
 
 impl Default for Options {
@@ -55,6 +59,8 @@ impl Default for Options {
             body_period: BODY_PERIOD,
             #[cfg(feature = "dev-tools")]
             input_trace: None,
+            #[cfg(feature = "dev-tools")]
+            timing_trace: None,
         }
     }
 }
@@ -342,6 +348,7 @@ fn display_rgb(frame: &Frame, mode: DisplayMode, family: u8) -> Vec<u8> {
     output
 }
 
+#[allow(clippy::too_many_arguments)]
 fn advance_game_pass_observed(
     opening: &mut Opening,
     assets: &GraphicsAssets,
@@ -349,6 +356,7 @@ fn advance_game_pass_observed(
     controls: bool,
     quit_after_body_entry: &mut bool,
     #[cfg(feature = "dev-tools")] trace: &mut Option<InputTrace>,
+    #[cfg(feature = "dev-tools")] timing: &mut Option<TimingTrace>,
     #[cfg(feature = "dev-tools")] poll_time: (std::time::Instant, Option<std::time::Instant>),
 ) -> Result<bool, String> {
     let result = session.controls.poll(session.keyboard.held_keys(0));
@@ -371,9 +379,23 @@ fn advance_game_pass_observed(
             result,
         );
     }
+    #[cfg(feature = "dev-tools")]
+    let host_start = timing.as_mut().map(TimingTrace::now);
     opening
         .advance_subframe(assets, steering_from_mask(result.mask, controls))
         .map_err(|error| error.to_string())?;
+    #[cfg(feature = "dev-tools")]
+    if let Some(trace) = timing {
+        let end = trace.now();
+        trace.span(
+            "pass",
+            poll_time.0,
+            poll_time.1,
+            (host_start.unwrap(), end),
+            Some(&opening.snapshot()),
+            "",
+        );
+    }
     // Pause ran after the original exit gate. Enter the committed body before
     // setting the flag so complete() permits its remaining two render passes.
     if *quit_after_body_entry {
@@ -397,6 +419,8 @@ fn advance_game_pass(
         session,
         controls,
         quit_after_body_entry,
+        #[cfg(feature = "dev-tools")]
+        &mut None,
         #[cfg(feature = "dev-tools")]
         &mut None,
         #[cfg(feature = "dev-tools")]
@@ -465,6 +489,8 @@ struct GamePlayback {
     color_family: u8,
     #[cfg(feature = "dev-tools")]
     trace: Option<InputTrace>,
+    #[cfg(feature = "dev-tools")]
+    timing: Option<TimingTrace>,
 }
 
 impl Default for GamePlayback {
@@ -483,6 +509,8 @@ impl Default for GamePlayback {
             color_family: 1,
             #[cfg(feature = "dev-tools")]
             trace: None,
+            #[cfg(feature = "dev-tools")]
+            timing: None,
         }
     }
 }
@@ -495,6 +523,8 @@ impl GamePlayback {
         options: &Options,
         now: std::time::Instant,
     ) -> Result<(), String> {
+        #[cfg(feature = "dev-tools")]
+        let timing_start = self.timing.as_mut().map(TimingTrace::now);
         // Fold intro/ending input before initialization. Keep the engine's
         // keyboard table and duplicate byte; do not restore a host snapshot.
         self.history.apply_until(&mut self.session, now);
@@ -516,6 +546,22 @@ impl GamePlayback {
         self.quit_after_body_entry = false;
         self.pending_step = false;
         self.next_frame = Some(now + options.body_period / 3);
+        #[cfg(feature = "dev-tools")]
+        if let Some(trace) = &mut self.timing {
+            let end = trace.now();
+            trace.begin_game();
+            trace.span(
+                "game_start",
+                now,
+                self.next_frame,
+                (timing_start.unwrap(), end),
+                Some(&self.opening.as_ref().unwrap().snapshot()),
+                &format!(
+                    "controls={} playback={:?}",
+                    options.controls, options.playback
+                ),
+            );
+        }
         #[cfg(feature = "dev-tools")]
         if let Some(trace) = &mut self.trace {
             trace.boundary("game_started", now, self.next_frame, &self.session, "");
@@ -586,8 +632,34 @@ impl GamePlayback {
         let transition_was_active = self.transitions.active();
         #[cfg(feature = "dev-tools")]
         let previous_transition_deadline = self.transitions.deadline;
+        #[cfg(feature = "dev-tools")]
+        let transition_start = self
+            .transitions
+            .deadline
+            .is_some_and(|deadline| now >= deadline)
+            .then(|| self.timing.as_mut().map(TimingTrace::now))
+            .flatten();
         if self.transitions.advance(now, unit) {
             repaint = true;
+            #[cfg(feature = "dev-tools")]
+            if let Some(trace) = &mut self.timing {
+                let end = trace.now();
+                trace.span(
+                    "transition_wait",
+                    now,
+                    previous_transition_deadline,
+                    (transition_start.unwrap(), end),
+                    self.opening.as_ref().map(Opening::snapshot).as_ref(),
+                    &format!(
+                        "remaining={} next_wait_count={}",
+                        self.transitions.frames.len(),
+                        self.transitions
+                            .frames
+                            .front()
+                            .map_or(0, |frame| frame.wait_count)
+                    ),
+                );
+            }
             #[cfg(feature = "dev-tools")]
             if let Some(trace) = &mut self.trace {
                 trace.rebase(
@@ -722,9 +794,35 @@ impl GamePlayback {
             self.history.apply_until(&mut self.session, poll_at);
             repaint = true;
             if let Some(ending) = self.ending.as_mut() {
+                #[cfg(feature = "dev-tools")]
+                let host_start = self.timing.as_mut().map(TimingTrace::now);
+                #[cfg(feature = "dev-tools")]
+                let previous_wait_units = ending.wait_units();
                 ending.advance(assets).map_err(|error| error.to_string())?;
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut self.timing {
+                    let end = trace.now();
+                    let state = ending.snapshot();
+                    trace.span(
+                        "ending_step",
+                        now,
+                        self.next_frame.filter(|_| timed),
+                        (host_start.unwrap(), end),
+                        Some(&opening.snapshot()),
+                        &format!(
+                            "title={:?} stage={:?} draw={} hold={} wait_units={} previous_wait_units={}",
+                            state.title,
+                            state.stage,
+                            state.draw_index,
+                            state.hold_tick,
+                            ending.wait_units(), previous_wait_units
+                        ),
+                    );
+                }
                 self.pending_step = false;
             } else if opening.complete() && opening.snapshot().player.game_over {
+                #[cfg(feature = "dev-tools")]
+                let host_start = self.timing.as_mut().map(TimingTrace::now);
                 self.ending = Some(
                     Ending::new_with_best(
                         assets,
@@ -734,6 +832,18 @@ impl GamePlayback {
                     )
                     .map_err(|error| error.to_string())?,
                 );
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut self.timing {
+                    let end = trace.now();
+                    trace.span(
+                        "ending_start",
+                        now,
+                        self.next_frame.filter(|_| timed),
+                        (host_start.unwrap(), end),
+                        Some(&opening.snapshot()),
+                        "wait_units=2",
+                    );
+                }
                 self.pending_step = false;
             } else if !opening.complete() {
                 if opening.at_body_boundary() && !self.body_polled {
@@ -797,6 +907,8 @@ impl GamePlayback {
                             &mut self.quit_after_body_entry,
                             #[cfg(feature = "dev-tools")]
                             &mut self.trace,
+                            #[cfg(feature = "dev-tools")]
+                            &mut self.timing,
                             #[cfg(feature = "dev-tools")]
                             (
                                 now,
@@ -918,11 +1030,17 @@ fn run_inner(
             ),
         );
     }
+    #[cfg(feature = "dev-tools")]
+    if let Some(path) = &options.timing_trace {
+        game.timing = Some(TimingTrace::create(path, options.body_period)?);
+    }
     let creator = window.texture_creator();
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
     let mut presentation = Presentation::default();
     let mut shown = presentation.screen();
+    #[cfg(feature = "dev-tools")]
+    let present_start = game.timing.as_mut().map(TimingTrace::now);
     texture
         .update(&display_rgb(
             frames.frame(shown),
@@ -931,6 +1049,22 @@ fn run_inner(
         ))
         .map_err(|error| error.to_string())?;
     window.present(&texture)?;
+    #[cfg(feature = "dev-tools")]
+    if let Some(trace) = &mut game.timing {
+        let end = trace.now();
+        trace.span(
+            "present",
+            host_pause.now(end),
+            None,
+            (present_start.unwrap(), end),
+            None,
+            &format!(
+                "screen={shown:?} controls={} playback={:?}",
+                options.controls, options.playback
+            ),
+        );
+        trace.flush()?;
+    }
     loop {
         let mut repaint = false;
         for event in window.poll_events() {
@@ -944,6 +1078,10 @@ fn run_inner(
                 #[cfg(feature = "dev-tools")]
                 if let Some(trace) = &mut game.trace {
                     trace.event(&event, "close", &host_pause, &game.session);
+                    trace.flush()?;
+                }
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut game.timing {
                     trace.flush()?;
                 }
                 return Ok(());
@@ -1089,6 +1227,10 @@ fn run_inner(
             if let Some(trace) = &mut game.trace {
                 trace.flush()?;
             }
+            #[cfg(feature = "dev-tools")]
+            if let Some(trace) = &mut game.timing {
+                trace.flush()?;
+            }
             // Repump events before the next bounded catch-up batch. Presenting
             // here would add another vsync wait while ordinary work is overdue.
             if game.ordinary_due(&options, now) {
@@ -1096,6 +1238,8 @@ fn run_inner(
             }
         }
         if repaint {
+            #[cfg(feature = "dev-tools")]
+            let present_start = game.timing.as_mut().map(TimingTrace::now);
             let frame = if shown == Screen::InitialScene {
                 game.transitions
                     .frames
@@ -1134,6 +1278,24 @@ fn run_inner(
             };
             window.set_title(caption)?;
             window.present(&texture)?;
+            #[cfg(feature = "dev-tools")]
+            if let Some(trace) = &mut game.timing {
+                let end = trace.now();
+                trace.span(
+                    "present",
+                    now,
+                    None,
+                    (present_start.unwrap(), end),
+                    game.opening.as_ref().map(Opening::snapshot).as_ref(),
+                    &format!(
+                        "screen={shown:?} transition={} ending={} host_paused={}",
+                        game.transitions.active(),
+                        game.ending.is_some(),
+                        host_pause.is_paused()
+                    ),
+                );
+                trace.flush()?;
+            }
         }
         let poll_interval = std::time::Duration::from_millis(4);
         let deadline = game.transitions.deadline.or_else(|| {
@@ -1630,6 +1792,107 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn timing_spans_observe_catch_up_and_blocking_waits_without_changing_state() {
+        use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+        let assets = synthetic_assets();
+        let options = Options::default();
+        let unit = options.body_period / 3;
+        let origin = Instant::now();
+        let path = std::env::temp_dir().join(format!(
+            "mach3-timing-viewer-{}-{}.tsv",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut ticks = 0;
+        let mut trace =
+            TimingTrace::create_with_clock(&path, options.body_period, origin, move || {
+                ticks += 1;
+                origin + Duration::from_micros(ticks)
+            })
+            .unwrap();
+        trace.begin_game();
+        let mut game = running_playback(&assets, origin, &options);
+        let mut plain = running_playback(&assets, origin, &options);
+        game.timing = Some(trace);
+        let late = origin + unit * 100;
+        game.advance(&assets, &options, late).unwrap();
+        plain.advance(&assets, &options, late).unwrap();
+        assert_eq!(pass_count(&game), 64);
+        assert_eq!(game.next_frame, plain.next_frame);
+        assert_eq!(
+            format!("{:?}", game.opening.as_ref().unwrap().snapshot()),
+            format!("{:?}", plain.opening.as_ref().unwrap().snapshot())
+        );
+        let frame = game.opening.as_ref().unwrap().frame().clone();
+        let steps = [2, 5]
+            .into_iter()
+            .map(|wait_count| TransitionFrame {
+                frame: frame.clone(),
+                clip: crate::frame::Rect {
+                    x_bytes: 0,
+                    y: 0,
+                    width_bytes: 1,
+                    height: 1,
+                },
+                wait_count,
+                before_pass: false,
+                palette_family: 1,
+                state: None,
+            })
+            .collect::<Vec<_>>();
+        game.transitions.append(steps.clone(), late, unit);
+        plain.transitions.append(steps, late, unit);
+        for at in [late + unit * 20, late + unit * 25] {
+            game.advance(&assets, &options, at).unwrap();
+            plain.advance(&assets, &options, at).unwrap();
+            assert_eq!(pass_count(&game), 64);
+            assert_eq!(game.transitions.deadline, plain.transitions.deadline);
+            assert_eq!(game.next_frame, plain.next_frame);
+            assert_eq!(
+                game.opening.as_ref().unwrap().frame(),
+                plain.opening.as_ref().unwrap().frame()
+            );
+        }
+        game.begin_game(&assets, None, &options, late + unit * 26)
+            .unwrap();
+        game.timing.as_mut().unwrap().flush().unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let rows: Vec<Vec<_>> = text
+            .lines()
+            .skip(2)
+            .map(|line| line.split('\t').collect())
+            .collect();
+        let passes: Vec<_> = rows.iter().filter(|row| row[2] == "pass").collect();
+        assert_eq!(passes.len(), 64);
+        assert_eq!(passes[0][3], "1");
+        assert_eq!(passes[0][4], "1");
+        assert_eq!(passes[0][5].parse::<u128>().unwrap(), unit.as_nanos());
+        assert_eq!(
+            passes[0][6].parse::<u128>().unwrap(),
+            (unit * 100).as_nanos()
+        );
+        for pass in passes {
+            assert_eq!(
+                pass[8].parse::<i128>().unwrap() - pass[7].parse::<i128>().unwrap(),
+                1000
+            );
+        }
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row[2] == "transition_wait")
+                .count(),
+            2
+        );
+        assert_eq!(rows.last().unwrap()[1], "1");
+        assert_eq!(rows.last().unwrap()[2], "game_start");
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn bounded_catch_up_keeps_debt_without_changing_step_or_static_playback() {
         use std::time::Instant;
@@ -1721,6 +1984,23 @@ mod tests {
         let start = Instant::now();
         let unit = options.body_period / 3;
         let mut game = running_playback(&assets, start, &options);
+        #[cfg(feature = "dev-tools")]
+        let path = std::env::temp_dir().join(format!(
+            "mach3-ending-timing-{}-{}.tsv",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        #[cfg(feature = "dev-tools")]
+        {
+            let mut trace =
+                TimingTrace::create_with_clock(&path, options.body_period, start, move || start)
+                    .unwrap();
+            trace.begin_game();
+            game.timing = Some(trace);
+        }
         let opening = game.opening.as_mut().unwrap();
         opening.request_game_over();
         for _ in 0..3 {
@@ -1750,6 +2030,19 @@ mod tests {
             game.next_frame,
             Some(late + options.body_period * expected.wait_units() / 3)
         );
+        #[cfg(feature = "dev-tools")]
+        {
+            game.timing.as_mut().unwrap().flush().unwrap();
+            let text = std::fs::read_to_string(&path).unwrap();
+            let kinds: Vec<_> = text
+                .lines()
+                .skip(2)
+                .map(|row| row.split('\t').nth(2).unwrap())
+                .collect();
+            assert_eq!(kinds, ["ending_start", "ending_step"]);
+            assert!(text.contains("previous_wait_units=2"));
+            std::fs::remove_file(path).unwrap();
+        }
     }
 
     #[test]

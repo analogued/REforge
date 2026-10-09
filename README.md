@@ -48,8 +48,8 @@ diagnostic binaries keep their own stricter interfaces.
 Use `--features dev-tools` to include Alley Cat's development scene selector,
 fixed-seed controls, actor/damage switches and diagnostics. Optimization is
 independent: a release build can include these tools, while a normal build omits
-them. Mach 3 retains its existing viewer/replay diagnostic interfaces; their
-player/development split remains to be defined as its reconstruction progresses.
+them. Mach 3's `--trace-input` and `--trace-timing` also require `dev-tools`.
+Its package provides separate frame, opening and recording replay binaries.
 
 ```sh
 cargo run --locked --release -p reforge --features dev-tools -- \

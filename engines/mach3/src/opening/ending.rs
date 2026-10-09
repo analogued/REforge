@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Post-game title zooms over the retained world and the best-score presentation.
 
-use super::{EnemyState, Random, Snapshot, special::Special};
+use super::{EnemyState, Random, Snapshot, presentation::Presentation, special::Special};
 use crate::{
     Error,
     assets::GraphicsAssets,
@@ -58,8 +58,10 @@ pub struct Ending {
     camera_height: i16,
     strip_index: usize,
     strip_y: usize,
+    presentation: Presentation,
     frame: Frame,
     returned_intro: Option<bool>,
+    prepared_draw: Option<bool>,
 }
 
 impl Ending {
@@ -148,8 +150,14 @@ impl Ending {
             camera_height: state.player.horizon,
             strip_index: state.strip_index,
             strip_y: state.strip_y,
+            presentation: Presentation {
+                alternate_background: state.alternate_background,
+                layer: state.background_layer,
+                overlay_counter: 0,
+            },
             frame: frame.clone(),
             returned_intro: None,
+            prepared_draw: None,
         };
         ending.begin_title(assets, EndingTitle::GameOver)?;
         Ok(ending)
@@ -205,27 +213,41 @@ impl Ending {
         let choice = self.random.next_word() & 7 < 4;
         self.state.random = self.random.state();
         self.returned_intro = Some(choice);
+        self.prepared_draw = None;
         Some(choice)
     }
 
     /// Advance one draw or hold wait. The world remains frozen during the titles.
     pub fn advance(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
+        self.prepare_next_step()?;
+        self.finish_prepared_step(assets)
+    }
+
+    /// Apply the next timer/stage step before its optional framebuffer draw.
+    /// Recorded input polls occur here: title depth changes precede polling, while
+    /// source resolution and projection follow a successful zero input result.
+    pub fn prepare_next_step(&mut self) -> Result<(), Error> {
         if self.returned_intro.is_some() {
             return Ok(());
+        }
+        if self.prepared_draw.is_some() {
+            return Err(Error::InvalidData(
+                "ending draw must finish before another step".into(),
+            ));
         }
         match self.state.stage {
             EndingStage::Approach => {
                 self.state.world[5].depth -= 28;
                 if self.state.world[5].depth > 40 {
                     self.state.draw_index += 1;
-                    self.render(assets, false)?;
+                    self.prepared_draw = Some(false);
                 } else if self.state.title == EndingTitle::HighScore {
                     self.state.stage = EndingStage::ScoreOverlay;
                     let rect = self.state.world[5].rect;
                     self.state.score_digits =
                         score_digits(self.state.best_score, rect.x_bytes + 1, rect.y + 28);
                     // The overlay resolves HUD sources without projecting the world.
-                    self.render_overlay(assets)?;
+                    self.prepared_draw = Some(true);
                 } else {
                     self.state.stage = EndingStage::Hold;
                     self.state.hold_tick = 1;
@@ -242,24 +264,44 @@ impl Ending {
                     self.state.stage = EndingStage::Departure;
                     self.state.draw_index = 0;
                     self.state.world[5].depth += 28;
-                    self.render(assets, false)?;
+                    self.prepared_draw = Some(false);
                 }
             }
             EndingStage::Departure => {
                 self.state.world[5].depth += 28;
                 if self.state.world[5].depth < 1000 {
                     self.state.draw_index += 1;
-                    self.render(assets, false)?;
+                    self.prepared_draw = Some(false);
                 } else if self.state.cycle == 0 {
                     if self.state.title == EndingTitle::HighScore {
                         self.state.cycle = 1;
                     }
-                    self.begin_title(assets, self.other_title())?;
+                    self.prepare_title(self.other_title());
                 } else {
                     self.state.stage = EndingStage::Pause;
                 }
             }
-            EndingStage::Pause => self.begin_title(assets, self.other_title())?,
+            EndingStage::Pause => self.prepare_title(self.other_title()),
+        }
+        Ok(())
+    }
+
+    /// Whether the prepared step will write a framebuffer, rather than only wait.
+    pub fn has_prepared_draw(&self) -> bool {
+        self.prepared_draw.is_some()
+    }
+
+    /// Resolve/project and draw a prepared step after its input poll accepted zero.
+    pub fn finish_prepared_step(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
+        if self.returned_intro.is_some() {
+            return Ok(());
+        }
+        if let Some(overlay) = self.prepared_draw.take() {
+            if overlay {
+                self.render_overlay(assets)?;
+            } else {
+                self.render(assets, false)?;
+            }
         }
         Ok(())
     }
@@ -272,6 +314,11 @@ impl Ending {
     }
 
     fn begin_title(&mut self, assets: &GraphicsAssets, title: EndingTitle) -> Result<(), Error> {
+        self.prepare_title(title);
+        self.finish_prepared_step(assets)
+    }
+
+    fn prepare_title(&mut self, title: EndingTitle) {
         self.state.title = title;
         self.state.stage = EndingStage::Approach;
         self.state.draw_index = 0;
@@ -293,7 +340,7 @@ impl Ending {
         if title == EndingTitle::HighScore {
             self.state.best_score = self.state.best_score.max(self.current_score);
         }
-        self.render(assets, false)
+        self.prepared_draw = Some(false);
     }
 
     fn sort_world(&mut self) {
@@ -331,7 +378,12 @@ impl Ending {
     }
 
     fn render_viewport(&mut self, assets: &GraphicsAssets, digits: bool) -> Result<(), Error> {
-        let mut viewport = scene::background_at(assets, self.strip_index, self.strip_y)?;
+        let mut viewport = self.presentation.background_with_layer(
+            assets,
+            self.strip_index,
+            self.strip_y,
+            self.presentation.layer,
+        )?;
         for slot in self.state.full_world_order {
             let record = self.state.world[slot];
             if record.movement == 1 {
@@ -552,6 +604,58 @@ mod tests {
         assert_eq!(ending.returned_intro_choice(), Some(true)); // Word5630 chooses DATA6.
         assert_eq!(ending.returned_intro_choice(), Some(true));
         assert_eq!(ending.snapshot().random, [9266, 21041, 22064]);
+    }
+
+    #[test]
+    fn title_compositor_retains_the_final_game_background_selection() {
+        let mut assets = assets();
+        assets.alternate.fill(0xaa);
+        let frame = Frame::from_packed(&vec![0xbb; FRAME_BYTES]).unwrap();
+        for (alternate, layer, base, strip) in [
+            (false, 0, 0x55, 0x55),
+            (true, 0, 0xaa, 0x55),
+            (false, 1, 0, 0),
+            (false, 2, 0, 0x55),
+        ] {
+            let mut state = snapshot(&assets);
+            state.alternate_background = alternate;
+            state.background_layer = layer;
+            let mut ending = Ending::new(&assets, &state, &frame).unwrap();
+            for _ in 0..2 {
+                assert_eq!(ending.frame().packed()[45 * ROW_BYTES + 4], base);
+                assert_eq!(
+                    ending.frame().packed()[state.strip_y * ROW_BYTES + 4],
+                    strip
+                );
+                assert_eq!(ending.frame().packed()[0], 0xbb);
+                ending.advance(&assets).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn interrupted_poll_changes_depth_without_projecting_or_drawing() {
+        let assets = assets();
+        let state = snapshot(&assets);
+        let frame = Frame::from_packed(&vec![0xaa; FRAME_BYTES]).unwrap();
+        let mut ending = Ending::new(&assets, &state, &frame).unwrap();
+        while !ending.can_return() {
+            ending.advance(&assets).unwrap();
+        }
+        let previous = ending.snapshot().world[5];
+        let pixels = ending.frame().packed().to_vec();
+        ending.prepare_next_step().unwrap();
+        assert_eq!(ending.snapshot().world[5].depth, previous.depth - 28);
+        assert_eq!(
+            ending.snapshot().world[5].resolved_sprite,
+            previous.resolved_sprite
+        );
+        assert_eq!(ending.snapshot().world[5].rect.y, previous.rect.y);
+        assert!(ending.returned_intro_choice().is_some());
+        ending.finish_prepared_step(&assets).unwrap();
+        ending.advance(&assets).unwrap();
+        assert_eq!(ending.snapshot().world[5].depth, previous.depth - 28);
+        assert_eq!(ending.frame().packed(), pixels);
     }
 
     #[test]

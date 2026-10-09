@@ -47,6 +47,9 @@ pub struct Snapshot {
     pub progression: u16,
     pub speeds: [i16; 3],
     pub speed_mode: u16,
+    /// Background selector retained by the most recent world compositor call.
+    pub background_layer: u16,
+    pub alternate_background: bool,
     pub palette_family: u8,
     pub script_cursor: u16,
     pub script_delay: u16,
@@ -104,6 +107,7 @@ pub struct Opening {
     pass_snapshot: Option<Box<Snapshot>>,
     updating_before_render: bool,
     selected_layer: u16,
+    last_background_layer: u16,
     remembered_draws: [Option<scene::Draw>; 29],
     remembered_requests: [usize; 29],
     transitions: Vec<TransitionFrame>,
@@ -157,6 +161,7 @@ impl Opening {
             pass_snapshot: None,
             updating_before_render: false,
             selected_layer: 0,
+            last_background_layer: 0,
             remembered_draws: [None; 29],
             remembered_requests: [0; 29],
             transitions: Vec::new(),
@@ -293,6 +298,8 @@ impl Opening {
             progression: self.progression,
             speeds: self.speeds,
             speed_mode: self.speed_mode,
+            background_layer: self.last_background_layer,
+            alternate_background: self.alternate_background,
             palette_family: self.palette_family,
             script_cursor: self.script_cursor,
             script_delay: self.script_delay,
@@ -553,6 +560,7 @@ impl Opening {
     }
 
     pub(crate) fn queue_transition(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
+        self.last_background_layer = self.layer;
         self.hud
             .set_score_multiplier(if self.layer == 1 { 4 } else { 1 });
         let mut frames = self.presentation().transition_frames(
@@ -588,6 +596,7 @@ impl Opening {
         if self.render_pass == 1 {
             self.selected_layer = state.world_layer();
         }
+        self.last_background_layer = self.selected_layer;
         let background = presentation::Presentation {
             layer: self.selected_layer,
             overlay_counter: 0,
@@ -1524,6 +1533,46 @@ mod tests {
         game.advance(&assets).unwrap();
         assert_eq!(game.snapshot().body, 41);
         assert_eq!(game.palette_family(), 0);
+    }
+
+    #[test]
+    fn transition_compositor_does_not_change_the_pinned_body_layer() {
+        let mut assets = synthetic_assets();
+        assets.primary.fill(0x55);
+        let mut game = Opening::new(&assets).unwrap();
+        game.advance_subframe(&assets, Steering::default()).unwrap();
+        assert_eq!(game.selected_layer, 0);
+        game.layer = 2;
+        game.queue_transition(&assets).unwrap();
+        assert_eq!(game.selected_layer, 0);
+        assert_eq!(game.snapshot().background_layer, 2);
+        assert_eq!(game.frame().packed()[140 * 80 + 37], 0);
+        for _ in 0..2 {
+            game.advance_subframe(
+                &assets,
+                Steering {
+                    right: true,
+                    ..Steering::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(game.selected_layer, 0);
+            assert_eq!(game.snapshot().background_layer, 0);
+            assert!(
+                game.frame()
+                    .packed()
+                    .chunks(80)
+                    .enumerate()
+                    .any(|(y, row)| {
+                        (44..158).contains(&y)
+                            && !(92..107).contains(&y)
+                            && row[4..76].contains(&0x55)
+                    })
+            );
+        }
+        game.advance_subframe(&assets, Steering::default()).unwrap();
+        assert_eq!(game.selected_layer, 2);
+        assert_eq!(game.snapshot().background_layer, 2);
     }
 
     #[test]

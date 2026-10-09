@@ -2,6 +2,9 @@
 //! Replay recorded poll results without consulting reference pixels or runtime dumps.
 
 mod diagnostics;
+mod lifecycle;
+
+pub use lifecycle::replay_session;
 
 use crate::{
     Error,
@@ -303,6 +306,7 @@ struct FrameWriter {
     table: BufWriter<File>,
     pixels: BufWriter<File>,
     seq: u64,
+    game: u64,
     limit: u64,
     diagnostics: diagnostics::Diagnostics,
 }
@@ -316,6 +320,7 @@ impl FrameWriter {
             table,
             pixels: new_file(&destination.join("frames.bin"))?,
             seq: 0,
+            game: 0,
             limit,
             diagnostics: diagnostics::Diagnostics::new(destination)?,
         })
@@ -324,7 +329,7 @@ impl FrameWriter {
     fn frame(
         &mut self,
         body: u16,
-        pass: u8,
+        pass: u16,
         kind: &str,
         palette: u8,
         mode: u8,
@@ -335,12 +340,13 @@ impl FrameWriter {
         }
         self.pixels.write_all(capture.0.packed())?;
         if let Some(state) = capture.1 {
-            self.diagnostics.frame(self.seq, body, pass, kind, state)?;
+            self.diagnostics
+                .frame(self.seq, self.game, body, pass, kind, state)?;
         }
         writeln!(
             self.table,
-            "{}\t0\t{body}\t{pass}\t{kind}\t{palette}\t{mode}",
-            self.seq
+            "{}\t{}\t{body}\t{pass}\t{kind}\t{palette}\t{mode}",
+            self.seq, self.game
         )?;
         self.seq = self
             .seq
@@ -490,7 +496,7 @@ pub fn replay_first_game(
         {
             writer.frame(
                 input.body,
-                (index % 7 + 1) as u8,
+                (index % 7 + 1) as u16,
                 "transition",
                 transition.palette_family,
                 mode,
@@ -499,7 +505,7 @@ pub fn replay_first_game(
         }
         writer.frame(
             input.body,
-            input.pass,
+            input.pass.into(),
             "gameplay",
             palette,
             mode,
@@ -512,7 +518,7 @@ pub fn replay_first_game(
         {
             writer.frame(
                 input.body,
-                (index % 7 + 1) as u8,
+                (index % 7 + 1) as u16,
                 "transition",
                 transition.palette_family,
                 mode,
@@ -583,7 +589,7 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    fn synthetic_assets() -> GraphicsAssets {
+    pub(super) fn synthetic_assets() -> GraphicsAssets {
         GraphicsAssets {
             primary: vec![0; 28_960],
             alternate: vec![0; 16_000],
@@ -603,7 +609,7 @@ mod tests {
         }
     }
 
-    fn synthetic_rules() -> ScriptRules {
+    pub(super) fn synthetic_rules() -> ScriptRules {
         let mut data = vec![0; 65536];
         data[0x04ac..0x04af].copy_from_slice(&[1, 2, 3]);
         for index in 0..21 {

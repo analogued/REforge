@@ -5,7 +5,7 @@ use super::new_file;
 use crate::{
     Error,
     frame::Rect,
-    opening::{EnemyState, Snapshot},
+    opening::{EndingSnapshot, EnemyState, SessionState, Snapshot, SpecialState},
 };
 use std::{
     fs::File,
@@ -17,6 +17,8 @@ pub(super) struct Diagnostics {
     state: BufWriter<File>,
     objects: BufWriter<File>,
     order: BufWriter<File>,
+    session: BufWriter<File>,
+    ending: BufWriter<File>,
 }
 
 impl Diagnostics {
@@ -33,7 +35,19 @@ impl Diagnostics {
         )?;
         let mut order = new_file(&destination.join("draw-order.tsv"))?;
         writeln!(order, "seq\tgame\tbody\tpass\tkind\tposition\tslot")?;
+        let mut session = new_file(&destination.join("session-state.tsv"))?;
+        writeln!(
+            session,
+            "seq\tgame\tbody\tpass\tkind\trng_a\trng_b\trng_c\tbest_score\tdisplay_mode\tsound_disabled\tsound_poll_counter\tintro_audio_enabled"
+        )?;
+        let mut ending = new_file(&destination.join("ending-state.tsv"))?;
+        writeln!(
+            ending,
+            "seq\tgame\tbody\tpass\tkind\ttitle\tstage\tdraw_index\thold_tick\tcycle\tbest_score\trng_a\trng_b\trng_c"
+        )?;
         Ok(Self {
+            session,
+            ending,
             state,
             objects,
             order,
@@ -43,12 +57,13 @@ impl Diagnostics {
     pub(super) fn frame(
         &mut self,
         seq: u64,
+        game: u64,
         body: u16,
-        pass: u8,
+        pass: u16,
         kind: &str,
         s: &Snapshot,
     ) -> Result<(), Error> {
-        let prefix = format!("{seq}\t0\t{body}\t{pass}\t{kind}");
+        let prefix = format!("{seq}\t{game}\t{body}\t{pass}\t{kind}");
         let values: [i64; 41] = [
             s.strip_index as i64,
             s.strip_y as i64,
@@ -147,7 +162,87 @@ impl Diagnostics {
         Ok(())
     }
 
+    pub(super) fn session(
+        &mut self,
+        prefix: &str,
+        random: [u16; 3],
+        session: &SessionState,
+    ) -> Result<(), Error> {
+        let mode = match session.controls.preferences.display_mode {
+            crate::opening::DisplayMode::Color => 4,
+            crate::opening::DisplayMode::Monochrome => 6,
+        };
+        writeln!(
+            self.session,
+            "{prefix}\t{}\t{}\t{}\t{}\t{mode}\t{}\t{}\t{}",
+            random[0],
+            random[1],
+            random[2],
+            session.best_score,
+            u8::from(session.controls.preferences.sound_disabled),
+            session.controls.sound_poll_counter,
+            u8::from(session.controls.preferences.intro_audio_enabled)
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn ending(
+        &mut self,
+        prefix: &str,
+        s: &EndingSnapshot,
+        special: [SpecialState; 5],
+    ) -> Result<(), Error> {
+        // Ending has a separate world model, not a gameplay Snapshot. Keep a
+        // keyed row for cross-phase comparisons and expose only known scalars.
+        write!(self.state, "{prefix}")?;
+        for index in 0..41 {
+            if (3..6).contains(&index) {
+                write!(self.state, "\t{}", s.random[index - 3])?;
+            } else {
+                write!(self.state, "\t")?;
+            }
+        }
+        writeln!(self.state)?;
+        writeln!(
+            self.ending,
+            "{prefix}\t{:?}\t{:?}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            s.title,
+            s.stage,
+            s.draw_index,
+            s.hold_tick,
+            s.cycle,
+            s.best_score,
+            s.random[0],
+            s.random[1],
+            s.random[2]
+        )?;
+        let mut records: [Record; 29] = std::array::from_fn(|index| {
+            let mut record = Record::default();
+            record.enemy(&s.world[index]);
+            record
+        });
+        for t in special {
+            for (index, extent) in t.extents.iter().enumerate() {
+                records[t.slot].put(3 + index, extent);
+            }
+            records[t.slot].put(15, t.scale);
+        }
+        for (slot, record) in records.iter().enumerate() {
+            write!(self.objects, "{prefix}\t{slot}")?;
+            for cell in &record.0 {
+                write!(self.objects, "\t{cell}")?;
+            }
+            writeln!(self.objects)?;
+        }
+        for (position, slot) in s.full_world_order.iter().enumerate() {
+            writeln!(self.order, "{prefix}\t{position}\t{slot}")?;
+        }
+        Ok(())
+    }
+
     pub(super) fn flush(&mut self) -> Result<(), Error> {
+        self.session.flush()?;
+        self.ending.flush()?;
         self.state.flush()?;
         self.objects.flush()?;
         self.order.flush()?;

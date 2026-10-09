@@ -6,9 +6,9 @@ use std::{env, path::PathBuf};
 
 const HELP: &str = "Usage: mach3-replay <assets-directory> <recording-directory> <new-output-directory>\n\
        mach3-replay --hook-signature <assets-directory>\n\n\
-Replay the first game's sampled manual inputs into packed CGA frames.\n\
+Replay sampled manual inputs and an optional session timeline into packed CGA frames.\n\
 Reads games.tsv, inputs.tsv, frame stop metadata, and optional controls.tsv; never reads reference pixels.\n\
-Exports initial/gameplay/transition frames; ending and subsequent games are deferred.\n\
+A timeline extends replay through ending titles, returned intro and subsequent games.\n\
 Display mode defaults to color (mode 4); audio is deferred.\n\
 --hook-signature prints the external executable bytes used to validate the capture hook.";
 
@@ -39,9 +39,15 @@ fn run() -> Result<bool, Error> {
         .get(rules::DATA_SEGMENT_OFFSET..)
         .ok_or_else(|| Error::InvalidData("truncated program data segment".into()))?;
     let rules = ScriptRules::from_data_segment(data)?;
-    let report = session_capture::replay_first_game(
+    let startup = if PathBuf::from(recording).join("timeline.tsv").exists() {
+        Some(mach3::startup::StartupFrames::load(&assets_directory)?)
+    } else {
+        None
+    };
+    let report = session_capture::replay_session(
         &assets,
         rules,
+        startup.as_ref(),
         &PathBuf::from(recording),
         &PathBuf::from(destination),
     )?;

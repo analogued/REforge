@@ -4,10 +4,14 @@
 
 mod assets;
 mod playback;
+mod procedural;
 mod sequence;
 
 pub use assets::{ByteOrigin, MemoryByte, Resource, SampleBytes, SampleMemory, SoundAssets};
 pub use playback::{SampleEnvironment, SamplePlayer, SampleSoundState, StartResult};
+pub use procedural::{
+    Effect, Handler, NoiseState, PreparedEffect, ProceduralProgram, ProceduralState, Ramp, Tone,
+};
 pub use sequence::{IntroCall, IntroProgram, IntroSequence};
 
 /// The actual arguments passed to the synchronous sample routine.

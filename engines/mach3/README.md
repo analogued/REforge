@@ -5,7 +5,8 @@ released in 1987 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/
 Status: Rust gameplay recreation with steering, shooting, encounter
 progression, collision responses, and retained-session restarts.
 Live gameplay has no loop cap. Intro and pre-game sample execution is available
-as a separate development diagnostic and a headless timer-driven continuation;
+as a separate development diagnostic and a headless timer-driven continuation.
+Procedural sound setup and interrupt routines are reconstructed in the library;
 audible playback remains unimplemented. The live viewer still uses nominal pacing.
 Later gameplay paths still need broader comparisons with the original.
 
@@ -17,7 +18,8 @@ See [DOS startup](docs/dos-startup.md) for the verified entry path, expanded-ima
 address conventions, initial graphics setup, and file access.
 See [CGA graphics](docs/cga-graphics.md) for screen layouts and gameplay composition.
 See [DOS sound assets](docs/sound-assets.md) for sample encoding, speaker
-conversion, executable music sequencing, and the bounded sound diagnostic,
+conversion, executable music sequencing, procedural tone/noise routines, and
+the bounded sound diagnostic,
 including shared PIT execution and the engine's interrupt/foreground boundary.
 See [DOS opening gameplay](docs/dos-gameplay.md) for update order, encounter
 scripts, and repeatability.

@@ -96,7 +96,7 @@ impl<O: FnMut(Stamp, ClockEvent)> Clock<O> {
     }
 
     /// An entered handler cannot be abandoned and then silently skipped.
-    pub(super) fn fail(&mut self, error: &Error) {
+    pub(crate) fn fail(&mut self, error: &Error) {
         if self.failure.is_none() {
             self.failure = Some(error.to_string());
         }

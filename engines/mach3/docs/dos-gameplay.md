@@ -353,9 +353,10 @@ The viewer offers an interval override and manual stepping.
 The headless `mach3::timer` execution layer reconstructs these counters and
 foreground waits against the shared PIT clock. It stops at interrupt entry,
 letting the engine execute the installed handler before further advancement.
-The live viewer still uses the nominal schedule above; procedural sound
-handlers and their gameplay invocation sites are not yet connected to this
-execution layer.
+The reconstructed [procedural sound handlers](sound-assets.md#procedural-sound)
+dispatch through this execution layer, including in-handler timer reprogramming.
+The live viewer still uses the nominal schedule above; gameplay sound invocation
+sites and the viewer are not yet connected to this execution layer.
 
 ## Player steering
 

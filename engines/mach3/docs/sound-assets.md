@@ -1,8 +1,9 @@
 # DOS sound assets
 
-This reference describes the verified sample format and digitized playback path
-in the DOS program. The Rust engine reconstructs the bounded intro and pre-game
-sample routines without audible playback or integration into the live viewer.
+This reference describes stored samples, digitized playback and procedural
+sound in the DOS program. The Rust engine reconstructs the bounded intro and
+pre-game sample routines and the procedural setup/IRQ0 routines, without audible
+playback or integration into the live viewer.
 Addresses are hexadecimal offsets in the expanded code segment; see
 [DOS startup](dos-startup.md) for relocation and data-segment conventions.
 
@@ -118,6 +119,121 @@ the follow-on wrapper always execute, including after an early first-wrapper
 return. The outer intro routine can repeat this traversal after a timed input
 wait; that surrounding loop is separate from the bounded sequencer.
 
+## Procedural sound
+
+The gameplay sound routines share priority arbitration at `74ad`. Requests use
+unsigned word comparison: a request is accepted when the current priority is
+greater than or equal to the requested priority. Lower values take precedence;
+equal requests can restart an effect. Request `00ff` is always accepted and sets
+the priority to `00ff`. Rejected setups leave state and hardware unchanged.
+
+| Setup  | Priority | IRQ0 handler | PIT0 divisor | Effect                              |
+| ------ | -------- | ------------ | ------------ | ----------------------------------- |
+| `74c0` | `00ff`   | `7532`       | `ffff`       | Default timer and speaker off       |
+| `74e8` | `0001`   | `7532`       | `9000`       | First tone table                    |
+| `75d1` | `0001`   | `761b`       | `d000`       | Second tone table                   |
+| `76f4` | `0005`   | `773e`       | `2600`       | Third tone table                    |
+| `77da` | `0004`   | `7824`       | `2600`       | Fourth tone table                   |
+| `78cc` | `0006`   | `79e7`       | Argument     | Masked noise                        |
+| `7925` | `0000`   | `7a58`       | `03a4`       | Unmasked noise and first timer ramp |
+| `795a` | `0002`   | `7a58`       | `0500`       | Unmasked noise and second ramp      |
+| `798f` | `0003`   | `7a58`       | `04a0`       | Unmasked noise and third ramp       |
+
+Every accepted setup programs channel 0 mode 3, writes its divisor and updates
+the game's stored divisor at `7b27`. Default setup installs its vector before
+device programming and clears speaker bits 0/1. Tone setup programs channel 0
+before installing its vector, programs channel 2 mode 3/count `0200`, then sets
+its own table cursor to 1. Noise/ramp setup resets the fourth tone cursor to zero
+and the noise cadence byte to 15 before installing its vector and programming
+channel 0. Ordinary setups contain no CLI/STI.
+
+The seed bytes, ramp group counter, software timer phase and wait counter survive
+effect changes. Default setup also retains every tone cursor. Normal setups
+enable speaker bits 0/1 only when the sound-disable word is zero.
+
+All six procedural IRQ0 handlers first execute the common timer-counter helper
+at `7b2b`, documented in [timer pacing](dos-gameplay.md#timer-pacing). Its returned
+AX is `sound_disable_word XOR ffff`. Exactly `ffff` therefore clears the speaker
+and skips sound work while still advancing gameplay counters. Other nonzero
+words disable the setup gate but do not take this IRQ skip branch. Each handler
+finishes with PIC end-of-interrupt and IRET; none restores a previous timer.
+
+### Tone divisor tables
+
+Tables are little-endian 16-bit PIT channel-2 counts in the expanded executable.
+Their bytes remain external game data. Normal playback skips entry zero,
+programs mode 3 and writes the selected divisor before testing termination.
+
+| Handler | Cursor word | Table start | Last advancing index | Repeated terminal index | Required words |
+| ------- | ----------- | ----------- | -------------------- | ----------------------- | -------------- |
+| `7532`  | `7581`      | `7583`      | 15                   | 16                      | 17             |
+| `761b`  | `766a`      | `766c`      | 45                   | 46                      | 47             |
+| `773e`  | `778a`      | `778c`      | 12                   | 13                      | 14             |
+| `7824`  | `7870`      | `7872`      | 40                   | 41                      | 42             |
+
+Termination uses signed word comparison. At the terminal index, the handler
+releases priority to `00ff` and keeps rewriting that entry on subsequent IRQs.
+The first two handlers also clear speaker bits 0/1; the other two leave them
+unchanged. The cursor and installed handler remain active. A zero cursor skips
+tone programming. The Rust loader validates table-addressing instructions and
+reads only the required prefixes; it rejects unsupported indices rather than
+clamping them or reading arbitrary instruction bytes.
+
+### Noise state and timer ramps
+
+Noise uses a cadence byte at `7b0a`, a persistent ramp group word at `7b0b`, and
+four seed bytes at `7b0d`–`7b10`. Three word reads overlap: A at `7b0d`, M at
+`7b0e`, and B at `7b0f`. Each active IRQ increments the cadence modulo 256.
+Regeneration runs when bit `10h` becomes set, then clears the cadence. With
+helper-return AX:
+
+```text
+AX = ((AX XOR A) + 2345h) modulo 65536
+AX = AX XOR M XOR B
+AX = AX AND db6dh                    # handler 79e7 only
+A  = AX
+B  = ((AX + 4567h) modulo 65536) XOR M
+```
+
+The final M read observes the byte just changed by storing A. Treating A, M and
+B as independent words changes the generator. Regeneration also programs channel
+2 mode 2/count 48. Every active noise IRQ then rotates A left by one bit, reads
+port `61h`, forces bit 0 on, replaces bit 1 with rotated A's bit 9, and preserves
+read bits 2–7. Repeated gate and timer writes remain executable operations.
+
+Handler `7a58` omits the mask and performs a timer ramp between regeneration and
+seed rotation. Ramp parameters are:
+
+| Setup  | Initial current | Limit  | Step   | IRQs per group |
+| ------ | --------------- | ------ | ------ | -------------- |
+| `7925` | `03a4`          | `06f8` | `0008` | 4              |
+| `795a` | `0500`          | `0868` | `0030` | 7              |
+| `798f` | `04a0`          | `0568` | `0004` | 3              |
+
+Each active IRQ increments the group word. A signed comparison at or above the
+group size clears it and adds the step to current modulo 65536. When signed
+current is below the limit, the handler reprograms channel 0 mode 3 and updates
+the stored divisor. Otherwise it releases priority without stopping the handler
+or changing that divisor. Current continues advancing beyond the limit; signed
+wrap can permit later timer writes. Current and the stored divisor are therefore
+distinct state. The group word is retained when another ramp is selected.
+
+`sound::ProceduralState` implements these routines with externally loaded
+`ProceduralProgram` tone tables. `timer_interrupt` consumes an explicitly
+delivered active IRQ; `dispatch` checks the vector against `timer::Clock` and
+applies the same actions to the shared device model. Device interrupts and
+reprogramming remain operational without an audio renderer.
+
+Setup exposes `prepare` followed by `PreparedEffect::finish` on the same state.
+This permits a previous handler to interrupt after the early cadence/parameter
+writes and before vector/device programming. `request` executes both stages
+atomically. The original can also interrupt before those early writes and within
+the later stage, including between PIT byte writes. Those finer instruction
+windows and setup return-register effects are not reconstructed by this API.
+Neither stage prescribes instruction delays; IRQ handlers retain the clock's
+ordered, zero-gap execution convention. Gameplay invocation sites are not yet
+connected to this procedural state in the live viewer.
+
 ## Reconstructed execution interface
 
 `mach3::sound::IntroProgram` decodes resource operands, lengths and group
@@ -187,8 +303,8 @@ snapshots. By default, its time column advances by 60 nominal PIT clocks per
 IRQ0, without executing a PIT. Saved vectors are explicitly synthetic.
 Sound-disabled ordinary
 keyboard continuation is exposed by the library and rejected by this bounded
-exporter. Host playback, live timer integration and procedural gameplay sound
-routines remain unimplemented.
+exporter. This exporter does not execute procedural gameplay sound. Host
+playback and live viewer timer integration remain unimplemented.
 
 Add `--device` to execute writes through the
 [shared PIT and speaker model](../../../crates/reforge_audio/README.md). IRQ0

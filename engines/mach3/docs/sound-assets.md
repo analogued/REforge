@@ -127,6 +127,37 @@ IRQ1 processing, foreground completion and restoration. A caller supplies
 memory bytes, device reads and interrupt deliveries through `SampleMemory`
 and `SampleBus`.
 
+`mach3::timer::SampleTask` runs that same sample algorithm as a suspended
+foreground continuation on `timer::Clock`. A simulation budget advances PIT
+events and dispatches the currently installed sample IRQ0/IRQ1 handlers;
+foreground return executes the restoration writes and leaves any remaining
+budget to the caller. No host sleep, audio renderer or second sample cursor
+drives it. Original sound-disabled entry still requires the ordinary keyboard
+continuation. Game counters and waits are documented in
+[timer pacing](dos-gameplay.md#timer-pacing).
+
+The clock orders operations and derived device edges and retains pending IRQ0/IRQ1
+requests, interrupt-enable state, in-service priority and saved interrupt flags.
+Repeated blocked requests coalesce; immediate OUT0 rises caused by writes also
+request IRQ0. IRET restores saved flags separately from PIC end-of-interrupt.
+The priority and non-specific EOI rules follow the fully nested mode described
+in Intel's [8259A datasheet](https://www.pcjs.org/documents/datasheets/intel/INTEL_8259A_PIC.pdf),
+page 15. Keyboard delivery uses an explicit single-byte latch and rejects overwriting
+an unread byte. Observation is optional and cannot choose sample progression.
+
+This is an unmasked IRQ0/IRQ1 execution subset. Initial pins and vectors are
+supplied explicitly; boot hardware state, other PIC IRQs, electrical INTA timing
+and spurious IRQ7, instruction gaps and
+setup-internal interrupt windows are not reconstructed. Handler operations are
+ordered at one whole-clock timestamp, and delivery occurs at caller execution
+boundaries. The sample continuation drains deliverable pending IRQs before
+foreground completion observes its counter and begins teardown. It does not
+model instruction interrupt shadows or acknowledge pulses. A source-read or
+handler error stops that clock permanently, rather than abandoning an entered
+interrupt and advancing silently. This deterministic approximation preserves
+meaningful ordering without claiming instruction-exact DOS timestamps. The live
+viewer has not yet adopted this clock and still omits audible playback.
+
 Every sample count write carries the original eight-bit byte, resource offset,
 playback identity and source-visit identity. Two writes for one byte share a
 visit; adjacent equal bytes remain separate visits. Out-of-asset bytes carry

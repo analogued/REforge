@@ -4,15 +4,15 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 publish = false
-description = "Verified DOS Mach 3 graphics reconstruction"
+description = "Reconstructed DOS Mach 3 engine"
 
 [features]
 viewer = ["dep:reforge_sdl"]
-dev-tools = ["dep:reforge_audio"]
+dev-tools = []
 
 [dependencies]
 reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
-reforge_audio = { path = "../../crates/reforge_audio", optional = true }
+reforge_audio = { path = "../../crates/reforge_audio" }
 
 [[bin]]
 name = "mach3-frame"

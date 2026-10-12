@@ -280,8 +280,33 @@ at `0733` match original captures throughout the 90-body steering prefix.
 
 ### Timer pacing
 
+The original software state is separate from PIT hardware state. Helper `7b19`
+stores the divisor at `CS:7b27` and writes channel 0. Helper `7b2b` adds that
+stored word to the phase at `CS:7b29` twice, incrementing `DS:17bf` on each
+16-bit carry. Both the phase and counter wrap. It performs these additions
+before checking the sound-disable word; disabling native sound does not stop
+gameplay timing. The phase survives handler changes and foreground waits.
+
+Wait routine `7437` loads only AL from its stack argument, preserving incoming
+AH. It waits until this unsigned AX is no greater than `DS:17bf`, then clears
+the **entire** counter, including excess units. It does not reset the software
+phase or PIT phase. An inherited nonzero counter can make a wait return
+immediately. Hardware count zero represents 65,536 clocks, whereas stored
+software divisor zero contributes zero to this helper.
+
+Digitized playback temporarily replaces IRQ0 with a handler that does not call
+`7b2b`, so its software phase and wait counter stop accumulating while PIT
+execution continues. Playback return restores the previous handler and writes
+hardware divisor 19,560 directly, leaving the stored divisor unchanged. Startup
+installs handler `7532` and stored divisor 65,535 before the intro. The pre-game
+sample occurs before entry into the main loop; body one inherits that handler,
+the post-sample hardware divisor and existing counter/phase. Its first accepted
+per-body setup later installs `79e7` and programs the body divisor through `7b19`.
+The `74c0` call after main-loop return is a post-game reset.
+
 The timer helper accumulates the PIT divisor twice per IRQ and increments the
-counter on carry. With a timer input frequency of 1,193,182 Hz, one nominal
+counter on carry. When hardware and stored divisors agree and interrupts are
+delivered without loss, a timer input frequency of 1,193,182 Hz gives one nominal
 counter unit is `65536 / (2 * 1193182)` seconds, approximately 27.463 ms.
 The default viewer body period represents four such units, approximately
 109.851 ms. It preserves three input/update passes rather than adding a fourth
@@ -324,6 +349,13 @@ dependent on execution conditions.
 The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
 The viewer offers an interval override and manual stepping.
+
+The headless `mach3::timer` execution layer reconstructs these counters and
+foreground waits against the shared PIT clock. It stops at interrupt entry,
+letting the engine execute the installed handler before further advancement.
+The live viewer still uses the nominal schedule above; procedural sound
+handlers and their gameplay invocation sites are not yet connected to this
+execution layer.
 
 ## Player steering
 

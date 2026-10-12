@@ -77,7 +77,7 @@ pub trait SampleBus {
     fn emit(&mut self, action: SoundAction);
 }
 
-fn write(bus: &mut impl SampleBus, port: u16, value: u8) {
+pub(crate) fn write(bus: &mut impl SampleBus, port: u16, value: u8) {
     bus.emit(SoundAction::Write {
         port,
         value,
@@ -85,7 +85,7 @@ fn write(bus: &mut impl SampleBus, port: u16, value: u8) {
     });
 }
 
-fn read(bus: &mut impl SampleBus, port: u16) -> u8 {
+pub(crate) fn read(bus: &mut impl SampleBus, port: u16) -> u8 {
     let value = bus.read_port(port);
     bus.emit(SoundAction::Read { port, value });
     value

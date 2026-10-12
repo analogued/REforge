@@ -8,10 +8,11 @@ description = "Verified DOS Mach 3 graphics reconstruction"
 
 [features]
 viewer = ["dep:reforge_sdl"]
-dev-tools = []
+dev-tools = ["dep:reforge_audio"]
 
 [dependencies]
 reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
+reforge_audio = { path = "../../crates/reforge_audio", optional = true }
 
 [[bin]]
 name = "mach3-frame"

@@ -4,7 +4,7 @@ Rust reconstructions of DOS games for modern desktop systems, currently
 [Alley Cat](engines/alleycat/README.md) and [Mach 3](engines/mach3/README.md).
 Each game requires its original files, supplied separately. REforge reads their
 assets and tables and implements the reconstructed behavior natively.
-The games are still in development; audio remains unimplemented.
+The games are still in development; audible playback remains unimplemented.
 
 ## Build and run
 
@@ -67,6 +67,8 @@ binaries for headless work. These tools continue to be available with
 - `engines/alleycat/`: the `alleycat` engine library and legacy game binary.
 - `engines/mach3/`: the `mach3` engine library and its viewer/export/replay binaries.
 - `crates/reforge_sdl/`: shared SDL3 windows, events and frame presentation.
+- `crates/reforge_audio/`: shared deterministic PIT and PC speaker devices,
+  before signal rendering or host playback.
 
 Game-specific gameplay, asset formats, timing and randomness stay in their own
 engine crates. Engine IDs, Cargo packages and Rust crate names use `alleycat`

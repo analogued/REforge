@@ -1,4 +1,4 @@
 [workspace]
-members = ["app", "engines/alleycat", "engines/mach3", "crates/reforge_sdl"]
+members = ["app", "engines/alleycat", "engines/mach3", "crates/reforge_sdl", "crates/reforge_audio"]
 default-members = ["app"]
 resolver = "3"

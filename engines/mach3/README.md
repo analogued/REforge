@@ -16,7 +16,8 @@ See [DOS startup](docs/dos-startup.md) for the verified entry path, expanded-ima
 address conventions, initial graphics setup, and file access.
 See [CGA graphics](docs/cga-graphics.md) for screen layouts and gameplay composition.
 See [DOS sound assets](docs/sound-assets.md) for sample encoding, speaker
-conversion, executable music sequencing, and the bounded sound diagnostic.
+conversion, executable music sequencing, and the bounded sound diagnostic,
+including its optional shared PIT and speaker execution.
 See [DOS opening gameplay](docs/dos-gameplay.md) for update order, encounter
 scripts, and repeatability.
 See [native timing diagnostics](docs/timing-tracing.md) for the optional development

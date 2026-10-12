@@ -8,6 +8,7 @@ use mach3::{
         SampleEnvironment, SamplePlayer, SampleSoundState, SoundAction, SoundAssets, StartResult,
     },
 };
+use reforge_audio::speaker::{Events, PcSpeaker};
 use std::{
     collections::{BTreeSet, VecDeque},
     env,
@@ -16,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: mach3-sound --context INPUT.tsv [--external-byte RESOURCE:OFFSET:VALUE ...] <assets-directory> <new-output-directory>\n\n\
+const HELP: &str = "Usage: mach3-sound [--device] --context INPUT.tsv [--external-byte RESOURCE:OFFSET:VALUE ...] <assets-directory> <new-output-directory>\n\n\
 Export one bounded intro traversal followed by its pre-game sample.\n\
 Context header: call<TAB>interrupt<TAB>port<TAB>value. Numbers are decimal or 0x hexadecimal.\n\
 Calls start at 1. Each call requires one port 0x61 read at interrupt 0.\n\
@@ -24,7 +25,10 @@ Keyboard events are paired port 0x60/0x61 reads at the same interrupt >=1,\n\
 delivered before that numbered IRQ0. Context contains device reads, not sample requests.\n\
 Writes calls.tsv, ports.tsv, effects.tsv and diagnostic.txt; destination must be new.\n\
 Nominal time advances by 60 PIT ticks per delivered IRQ0. This does not model\n\
-setup gaps, PIT phase, host time, foreground instruction timing or rendered audio.";
+setup gaps, PIT phase, host time, foreground instruction timing or rendered audio.\n\
+--device drives IRQ0 from the shared PIT, also writing device.tsv with pin/drive edges.\n\
+It uses explicit synthetic initial HIGH pins, whole-clock writes and zero instruction gaps;\n\
+port61 context supplies unmodeled upper read bits, with lower speaker bits checked.";
 
 fn invalid(message: impl Into<String>) -> Error {
     Error::InvalidData(message.into())
@@ -138,6 +142,45 @@ fn new_file(path: impl AsRef<Path>) -> Result<BufWriter<std::fs::File>, Error> {
     ))
 }
 
+struct DeviceTrace {
+    speaker: PcSpeaker,
+    rows: BufWriter<std::fs::File>,
+    sequence: u64,
+}
+
+impl DeviceTrace {
+    fn record(
+        &mut self,
+        events: Events,
+        call: u32,
+        interrupt: u32,
+        order: u64,
+    ) -> Result<(), Error> {
+        for edge in events.pit {
+            self.sequence += 1;
+            writeln!(
+                self.rows,
+                "{}\t{}\t{call}\t{interrupt}\t{order}\tpit\t{}\t{}",
+                self.sequence,
+                events.tick,
+                edge.channel,
+                u8::from(edge.high)
+            )?;
+        }
+        if let Some(edge) = events.drive {
+            self.sequence += 1;
+            writeln!(
+                self.rows,
+                "{}\t{}\t{call}\t{interrupt}\t{order}\tdrive\t\t{}",
+                self.sequence,
+                events.tick,
+                u8::from(edge.high)
+            )?;
+        }
+        Ok(())
+    }
+}
+
 struct DiagnosticBus<P: Write, E: Write> {
     reads: VecDeque<DeviceRead>,
     ports: P,
@@ -147,6 +190,7 @@ struct DiagnosticBus<P: Write, E: Write> {
     ticks: u64,
     order: u64,
     failure: Option<Error>,
+    device: Option<DeviceTrace>,
 }
 
 impl<P: Write, E: Write> DiagnosticBus<P, E> {
@@ -165,6 +209,7 @@ impl<P: Write, E: Write> DiagnosticBus<P, E> {
             ticks: 0,
             order: 0,
             failure: None,
+            device: None,
         })
     }
 
@@ -220,7 +265,31 @@ impl<P: Write, E: Write> DiagnosticBus<P, E> {
         }
         self.ports.flush()?;
         self.effects.flush()?;
+        if let Some(device) = &mut self.device {
+            device.rows.flush()?;
+        }
         Ok(())
+    }
+
+    fn await_device_irq0(&mut self) -> Result<(), Error> {
+        let device = self.device.as_mut().expect("device mode");
+        loop {
+            let deadline = device
+                .speaker
+                .pit()
+                .next_deadline()
+                .ok_or_else(|| invalid("sample timer has no next device deadline"))?;
+            let events = device
+                .speaker
+                .advance_to(deadline)
+                .map_err(|error| invalid(error.to_string()))?;
+            self.ticks = events.tick;
+            let irq0 = events.pit.iter().any(|edge| edge.channel == 0 && edge.high);
+            device.record(events, self.call, self.interrupt, self.order)?;
+            if irq0 {
+                return Ok(());
+            }
+        }
     }
 }
 
@@ -231,6 +300,17 @@ impl<P: Write, E: Write> SampleBus for DiagnosticBus<P, E> {
         }
         if let Some(read) = self.reads.front().copied() {
             if (read.call, read.interrupt, read.port) == (self.call, self.interrupt, port) {
+                if port == 0x61
+                    && self
+                        .device
+                        .as_ref()
+                        .is_some_and(|device| device.speaker.control() & 3 != read.value & 3)
+                {
+                    self.failure = Some(invalid(
+                        "port61 context disagrees with simulated speaker-control bits",
+                    ));
+                    return 0;
+                }
                 self.reads.pop_front();
                 return read.value;
             }
@@ -247,6 +327,23 @@ impl<P: Write, E: Write> SampleBus for DiagnosticBus<P, E> {
             return;
         }
         self.order += 1;
+        if let SoundAction::Write { port, value, .. } = action {
+            if let Some(device) = &mut self.device {
+                if (0x40..=0x43).contains(&port) || port == 0x61 {
+                    let result = device
+                        .speaker
+                        .write_port(port, value)
+                        .map_err(|error| invalid(error.to_string()))
+                        .and_then(|events| {
+                            device.record(events, self.call, self.interrupt, self.order)
+                        });
+                    if let Err(error) = result {
+                        self.failure = Some(error);
+                        return;
+                    }
+                }
+            }
+        }
         let result = match action {
             SoundAction::Read { port, value }
             | SoundAction::Write {
@@ -344,11 +441,16 @@ fn execute_call(
         if bus.interrupt > 2 * u32::from(call.request.count) {
             return Err(invalid("sample exceeded its bounded interrupt count"));
         }
+        if bus.device.is_some() {
+            bus.await_device_irq0()?;
+        }
         if bus.keyboard_due() {
             player.keyboard_interrupt(state, bus)?;
             bus.check()?;
         }
-        bus.ticks += 60;
+        if bus.device.is_none() {
+            bus.ticks += 60;
+        }
         player.timer_interrupt(memory, bus)?;
         bus.check()?;
     }
@@ -371,12 +473,18 @@ fn run() -> Result<(), Error> {
     let mut context_path = None;
     let mut external = Vec::new();
     let mut bound = BTreeSet::new();
+    let mut device_mode = false;
     while args
         .peek()
         .is_some_and(|arg| arg.to_str().is_some_and(|text| text.starts_with('-')))
     {
         let option = args.next().unwrap();
-        if option == "--context" {
+        if option == "--device" {
+            if device_mode {
+                return Err(invalid("--device may be specified only once"));
+            }
+            device_mode = true;
+        } else if option == "--context" {
             if context_path.is_some() {
                 return Err(invalid("--context may be specified only once"));
             }
@@ -428,12 +536,51 @@ fn run() -> Result<(), Error> {
         new_file(destination.join("ports.tsv"))?,
         new_file(destination.join("effects.tsv"))?,
     )?;
+    if device_mode {
+        let control = bus.reads.front().expect("validated device context").value;
+        let speaker = PcSpeaker::new(control, [true; 3]);
+        let mut rows = new_file(destination.join("device.tsv"))?;
+        writeln!(
+            rows,
+            "sequence\ttick\tcall\tinterrupt\taction_order\tkind\tchannel\thigh"
+        )?;
+        writeln!(
+            rows,
+            "1\t0\t0\t0\t0\tdrive-initial\t\t{}",
+            u8::from(speaker.drive())
+        )?;
+        for channel in 0..3 {
+            writeln!(
+                rows,
+                "{}\t0\t0\t0\t0\tpit-initial\t{channel}\t1",
+                channel + 2
+            )?;
+        }
+        bus.device = Some(DeviceTrace {
+            speaker,
+            rows,
+            sequence: 4,
+        });
+    }
     let mut description = new_file(destination.join("diagnostic.txt"))?;
     writeln!(
         description,
-        "Bounded reconstructed intro and pre-game sample execution.\nCalls are one-based; IRQ0 deliveries are one-based within each call.\nContext IRQ1 reads occur before the numbered IRQ0.\nNominal ticks advance only by 60 per IRQ0; setup gaps, device phase, host time and foreground instruction timing are unmodeled.\nGame CS and saved IRQ vectors are synthetic zero values.\nNo renderer or audio output is involved."
+        "Bounded reconstructed intro and pre-game sample execution.\nCalls are one-based; IRQ0 deliveries are one-based within each call.\nGame CS and saved IRQ vectors are synthetic zero values.\nNo renderer or audio output is involved."
     )?;
     description.flush()?;
+    if device_mode {
+        writeln!(
+            description,
+            "Device mode: IRQ0 dispatch follows shared binary 8254 mode-3 OUT0 rising edges.\nInitial pins are synthetic HIGH, channels unprogrammed, gates0/1 HIGH, gate2 from first port61 context.\nWrites occur after integer clock edges with no foreground/ISR instruction gaps.\nKeyboard context is delivered at the numbered IRQ0 edge before its handler.\nUpper port61 read bits remain external context; lower speaker bits are checked.\nThe nominal_pit_ticks column now records completed device clocks.\nNo PIC, interrupt-service latency, host clock or waveform/acoustic comparison is modeled."
+        )?;
+        description.flush()?;
+    } else {
+        writeln!(
+            description,
+            "Nominal mode: IRQ1 context precedes the numbered IRQ0.\nTicks advance only by 60 per IRQ0; device phase, setup gaps, host time and foreground instruction timing are unmodeled."
+        )?;
+        description.flush()?;
+    }
     let mut sequence = IntroSequence::new(&program);
     let mut state = SampleSoundState::default();
     let mut call_number = 0;
@@ -550,6 +697,110 @@ mod tests {
         assert_eq!(
             external_byte("DATAB:0x3c8c:0x33").unwrap(),
             (Resource::DataB, 15500, 51)
+        );
+    }
+
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new() -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "mach3-sample-device-{}-{time}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn device_irq_execution_preserves_sample_and_keyboard_operations_and_leaves_timer_running() {
+        let scratch = Scratch::new();
+        for resource in Resource::ALL {
+            let mut bytes = vec![0; resource.bytes()];
+            if resource == Resource::Data7 {
+                bytes[..3].copy_from_slice(&[128, 0, 255]);
+            }
+            fs::write(scratch.0.join(resource.name()), bytes).unwrap();
+        }
+        let assets = SoundAssets::load(&scratch.0).unwrap();
+        let memory = SampleBytes::new(&assets);
+        let reads = parse_context(
+            "call\tinterrupt\tport\tvalue\n1\t0\t97\t3\n1\t3\t96\t185\n1\t3\t97\t3\n",
+        )
+        .unwrap();
+        let mut nominal = DiagnosticBus::new(reads.clone(), Vec::new(), Vec::new()).unwrap();
+        let mut device = DiagnosticBus::new(reads, Vec::new(), Vec::new()).unwrap();
+        device.device = Some(DeviceTrace {
+            speaker: PcSpeaker::new(3, [true; 3]),
+            rows: new_file(scratch.0.join("device.tsv")).unwrap(),
+            sequence: 0,
+        });
+        let call = IntroCall {
+            request: mach3::sound::SampleRequest {
+                resource: Resource::Data7,
+                offset: 0,
+                count: 3,
+                reverse: false,
+            },
+            return_ip: 0,
+        };
+        let mut nominal_state = SampleSoundState::default();
+        let mut device_state = SampleSoundState::default();
+        nominal.begin_call(1).unwrap();
+        device.begin_call(1).unwrap();
+        assert_eq!(
+            execute_call(call, &mut nominal_state, 0, &memory, &mut nominal).unwrap(),
+            185
+        );
+        assert_eq!(
+            execute_call(call, &mut device_state, 0, &memory, &mut device).unwrap(),
+            185
+        );
+        nominal.finish().unwrap();
+        device.finish().unwrap();
+        assert_eq!(nominal.interrupt, device.interrupt);
+        assert_eq!(nominal_state.last_scan, device_state.last_scan);
+        assert_eq!(nominal_state.disabled, device_state.disabled);
+        assert_eq!(nominal_state.keyboard_words, device_state.keyboard_words);
+        fn without_ticks(bytes: &[u8]) -> Vec<Vec<String>> {
+            std::str::from_utf8(bytes)
+                .unwrap()
+                .lines()
+                .map(|line| {
+                    line.split('\t')
+                        .enumerate()
+                        .filter(|(i, _)| *i != 3)
+                        .map(|(_, s)| s.to_owned())
+                        .collect()
+                })
+                .collect()
+        }
+        assert_eq!(without_ticks(&nominal.ports), without_ticks(&device.ports));
+        assert_eq!(device.ticks, 361); // Load at1; rising OUT0 at61 then every60.
+        let trace = device.device.as_mut().unwrap();
+        let restored = trace.speaker.pit().channel(0).unwrap();
+        assert_eq!(restored.programmed_count, Some(0x4c68));
+        assert!(restored.pending_load);
+        assert!(!trace.speaker.drive());
+        // Foreground return did NOT stop channel2. Last count1 takes effect later.
+        let load = trace.speaker.advance_to(363).unwrap();
+        assert_eq!(load.tick, 362);
+        assert!(trace.speaker.advance_to(363).unwrap().drive.unwrap().high);
+        assert_eq!(
+            trace.speaker.pit().channel(0).unwrap().counter,
+            Some(0x4c66) // Mode3 decrements its even count by two per clock.
         );
     }
 }

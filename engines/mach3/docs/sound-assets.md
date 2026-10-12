@@ -152,12 +152,42 @@ sample counts or source bytes.
 
 The new output directory receives `calls.tsv`, `ports.tsv`, `effects.tsv` and
 `diagnostic.txt`. The export includes source annotations and entry-state
-snapshots. Its time column advances by 60 nominal PIT clocks per IRQ0; it is
-an algorithm diagnostic, not a PIT phase model or a match for CPU instruction
-timestamps. Saved vectors are explicitly synthetic. Sound-disabled ordinary
+snapshots. By default, its time column advances by 60 nominal PIT clocks per
+IRQ0, without executing a PIT. Saved vectors are explicitly synthetic.
+Sound-disabled ordinary
 keyboard continuation is exposed by the library and rejected by this bounded
 exporter. Host playback, live timer integration and procedural gameplay sound
 routines remain unimplemented.
+
+Add `--device` to execute writes through the
+[shared PIT and speaker model](../../../crates/reforge_audio/README.md). IRQ0
+then follows actual virtual channel-0 rising edges, and `device.tsv` records
+timer pins and speaker-drive changes. The `nominal_pit_ticks` column records
+completed device clocks in this mode. The first programmed divisor-60 cycle
+loads on the next clock and has its first rising edge at clock 61; subsequent
+rising edges are 60 clocks apart. Restoration writes begin a new timer phase
+rather than resetting an abstract elapsed-time counter.
+
+This bounded diagnostic starts with explicitly synthetic high timer output pins
+and unprogrammed counters. Sound begins enabled with zero saved scan and ordinary
+keyboard words. It does not execute the outer intro or the ordinary keyboard
+processing between intro and pre-game; its entry snapshots describe diagnostic
+state rather than a captured complete DOS session. All I/O within a handler is
+ordered at one integer timestamp with zero instruction gaps. Keyboard context is
+delivered at its numbered IRQ0 edge before that handler. The supplied port `61h` values retain
+unmodeled upper read bits; the lower two bits must agree with device state.
+Its phase and absolute times do not claim to match a DOSBox execution. There is
+no PIC or interrupt-service-latency model. The exporter stops at the pre-game
+foreground return; channel 2 can still complete its final pulse afterward.
+Digital drive changes remain distinct from acoustic output.
+
+Device rows use a monotonic `sequence` in addition to `tick`. `kind` distinguishes
+initial pins, PIT transitions and speaker-drive transitions; `channel` applies
+to PIT rows. `call`/`interrupt` identify the current diagnostic call and IRQ0
+delivery segment, not the source byte that caused an edge. For write-derived
+edges, `action_order` identifies that write; for clock-derived edges it records
+the last completed routine action. Source identity remains attached to the
+count writes in `ports.tsv`.
 
 ## Corroboration and scope
 

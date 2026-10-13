@@ -83,6 +83,10 @@ fn resources_with_count_one(count_one: bool) -> Resources {
 }
 
 fn rules() -> ScriptRules {
+    rules_with_commands(&[0])
+}
+
+fn rules_with_commands(commands: &[u8]) -> ScriptRules {
     let mut data = vec![0; 0x10000];
     for difficulty in 0..12 {
         let at = 0x04ac + difficulty * 3;
@@ -91,7 +95,9 @@ fn rules() -> ScriptRules {
     for index in 0..21 {
         // Empty terrain then a normal progression edge. The native renderer,
         // geometry and retained records still execute on each gameplay pass.
-        data[0x0a3e + index * 50..0x0a3e + index * 50 + 2].copy_from_slice(&[0, 0xcf]);
+        let at = 0x0a3e + index * 50;
+        data[at..at + commands.len()].copy_from_slice(commands);
+        data[at + commands.len()] = 0xcf;
         for choice in 0..2 {
             let offset = 0x0e58 + index * 4 + choice * 2;
             data[offset..offset + 2].copy_from_slice(&(index as u16).to_le_bytes());
@@ -506,4 +512,534 @@ fn second_tone_with_active_count_one_completes_on_controller_background_clock() 
     signal.borrow_mut().advance(simulation.clock.tick(), None);
     assert!(signal.borrow().error.is_none());
     assert!(signal.borrow().generated > 0);
+}
+
+fn ending_simulation(frames: &StartupFrames) -> Simulation {
+    let mut simulation = Simulation::new(frames, signal(CHUNK as u32)).unwrap();
+    let state = simulation.initial.take().unwrap();
+    let start = simulation.session.begin_game();
+    let game = Opening::for_play(frames.graphics(), rules(), start).unwrap();
+    simulation.visible = game.frame().clone();
+    simulation.phase = Phase::Ending {
+        ending: Box::new(Ending::pending_with_best(&game.snapshot(), game.frame(), 0)),
+        state: Box::new(state),
+        step: EndingStep::Entry {
+            initial: true,
+            poll_at: 0,
+        },
+    };
+    simulation
+}
+
+#[test]
+fn frontend_return_executes_exactly_one_reset_transaction() {
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    let state = simulation.initial.take().unwrap();
+    let mut game =
+        Opening::for_play(frames.graphics(), rules(), simulation.session.begin_game()).unwrap();
+    game.request_game_over();
+    let actions = Rc::new(RefCell::new(Vec::new()));
+    let log = actions.clone();
+    // Clone only the explicit bootstrap device/vector context, before input or
+    // interrupts have been delivered. Capture the full frontend return path.
+    simulation.clock = Clock::new(
+        simulation.clock.speaker().clone(),
+        simulation.clock.handlers(),
+        true,
+        Box::new(move |_, event| {
+            if let ClockEvent::Action(action) = event {
+                log.borrow_mut().push(action);
+            }
+        }),
+    );
+    simulation.phase = Phase::Playing(Box::new(
+        GameplayRuntime::begin(game, state, CS, 64, &simulation.clock).unwrap(),
+    ));
+    advance(
+        &mut simulation,
+        100_000,
+        &frames,
+        &resources,
+        &mut Vec::new(),
+    );
+    assert!(matches!(simulation.phase, Phase::Ending { .. }));
+    assert_eq!(
+        *actions.borrow(),
+        [
+            SoundAction::SetHandler {
+                irq: 0,
+                handler: FarPointer {
+                    segment: CS,
+                    offset: 0x7532
+                }
+            },
+            SoundAction::Write {
+                port: 0x43,
+                value: 0x36,
+                source: None
+            },
+            SoundAction::Write {
+                port: 0x40,
+                value: 0xff,
+                source: None
+            },
+            SoundAction::Write {
+                port: 0x40,
+                value: 0xff,
+                source: None
+            },
+            SoundAction::Read {
+                port: 0x61,
+                value: 0x60
+            },
+            SoundAction::Write {
+                port: 0x61,
+                value: 0x60,
+                source: None
+            },
+        ]
+    );
+}
+
+#[test]
+fn title_entry_waits_for_zero_mask_before_setup_or_drawing() {
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = ending_simulation(&frames);
+    let visible = simulation.visible.clone();
+    let before = match &simulation.phase {
+        Phase::Ending { ending, .. } => ending.snapshot(),
+        _ => unreachable!(),
+    };
+    simulation.receive(0, 0x39);
+    advance(
+        &mut simulation,
+        10_000,
+        &frames,
+        &resources,
+        &mut Vec::new(),
+    );
+    let Phase::Ending { ending, step, .. } = &simulation.phase else {
+        unreachable!()
+    };
+    assert!(matches!(step, EndingStep::Entry { initial: true, .. }));
+    assert_eq!(format!("{:?}", ending.snapshot()), format!("{before:?}"));
+    assert_eq!(simulation.visible, visible);
+    simulation.receive(simulation.clock.tick(), 0xb9);
+    while simulation.clock.tick() < 11_000 {
+        advance(
+            &mut simulation,
+            11_000,
+            &frames,
+            &resources,
+            &mut Vec::new(),
+        );
+    }
+    assert!(matches!(
+        &simulation.phase,
+        Phase::Ending {
+            step: EndingStep::Wait(_),
+            ..
+        }
+    ));
+    assert_eq!(simulation.visible, visible); // First draw still waits for two units.
+    until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+        s.visible != visible
+    });
+}
+
+#[test]
+fn mandatory_animation_skips_function_polls_but_next_title_entry_processes_them() {
+    use crate::opening::{EndingStage, EndingTitle};
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = ending_simulation(&frames);
+    let mut events = Vec::new();
+    advance(&mut simulation, 100, &frames, &resources, &mut events);
+    assert_eq!(simulation.state().controls.sound_poll_counter, 0);
+    // Make both keys after the first entry poll. Holding them does not poll on
+    // each mandatory approach, hold or departure; the next entry is different.
+    simulation.receive(simulation.clock.tick(), 0x3c);
+    simulation.receive(simulation.clock.tick(), 0x3d);
+    until(&mut simulation, &frames, &resources, &mut events, |s| {
+        matches!(&s.phase, Phase::Ending { ending, .. }
+            if ending.snapshot().title == EndingTitle::GameOver && ending.phase() == EndingStage::Departure)
+    });
+    assert_eq!(simulation.state().controls.sound_poll_counter, 0);
+    assert_eq!(simulation.display_mode(), DisplayMode::Color);
+    until(&mut simulation, &frames, &resources, &mut events, |s| {
+        matches!(&s.phase, Phase::Ending { ending, .. }
+            if ending.snapshot().title == EndingTitle::HighScore && ending.phase() == EndingStage::Departure)
+    });
+    assert_eq!(simulation.state().controls.sound_poll_counter, 1);
+    assert_eq!(simulation.display_mode(), DisplayMode::Monochrome);
+    let sites = events
+        .iter()
+        .filter_map(|(_, e)| match e {
+            GameplayEvent::InputPoll { site, .. } => Some(*site),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(sites, [0x26f1, 0x2864]);
+}
+
+#[test]
+fn pending_native_pause_f3_marks_unchanged_frame_for_repaint() {
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    enter_playing(&mut simulation, &frames, &resources);
+    simulation.receive(simulation.clock.tick(), 0x3b);
+    until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+        s.state().pause.state == PauseState::AwaitInitialRelease
+    });
+    let visible = simulation.visible.clone();
+    simulation.receive(simulation.clock.tick(), 0x3d);
+    for _ in 0..128 {
+        let target = simulation.clock.tick() + 1;
+        let mut events = Vec::new();
+        let dirty = simulation
+            .advance(target, &frames, &rules(), &resources, true, &mut events)
+            .unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|(_, e)| matches!(e, GameplayEvent::Published { .. }))
+        );
+        if simulation.display_mode() == DisplayMode::Monochrome {
+            assert!(dirty);
+            assert_eq!(simulation.visible, visible);
+            assert_ne!(simulation.state().pause.state, PauseState::Running);
+            return;
+        }
+    }
+    panic!("native pause did not consume F3");
+}
+
+#[test]
+fn palette_zero_survives_gameplay_return_and_title_animation() {
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    let state = simulation.initial.take().unwrap();
+    let mut game = Opening::for_play(
+        frames.graphics(),
+        rules_with_commands(&[0xce, 0xce]),
+        simulation.session.begin_game(),
+    )
+    .unwrap();
+    for _ in 0..21 {
+        game.advance(frames.graphics()).unwrap();
+    }
+    assert_eq!(game.palette_family(), 0);
+    let retained = game.frame().clone();
+    game.request_game_over();
+    simulation.visible = retained.clone();
+    simulation.palette_family = 0;
+    simulation.phase = Phase::Playing(Box::new(
+        GameplayRuntime::begin(game, state, CS, 64, &simulation.clock).unwrap(),
+    ));
+    advance(
+        &mut simulation,
+        100_000,
+        &frames,
+        &resources,
+        &mut Vec::new(),
+    );
+    assert!(matches!(simulation.phase, Phase::Ending { .. }));
+    assert_eq!(simulation.palette(), 0);
+    assert_eq!(simulation.visible, retained);
+    advance(
+        &mut simulation,
+        500_000,
+        &frames,
+        &resources,
+        &mut Vec::new(),
+    );
+    assert_eq!(simulation.palette(), 0);
+    // The original mode reset (F3) changes the palette at the next title entry.
+    simulation.receive(simulation.clock.tick(), 0x3d);
+    until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+        s.display_mode() == DisplayMode::Monochrome
+    });
+    assert_eq!(simulation.palette(), 1);
+}
+
+fn optional_ending(frames: &StartupFrames) -> Ending {
+    let mut session = SessionState::default();
+    let game = Opening::for_play(frames.graphics(), rules(), session.begin_game()).unwrap();
+    let mut ending = Ending::new(frames.graphics(), &game.snapshot(), game.frame()).unwrap();
+    while !ending.can_return() {
+        ending.advance(frames.graphics()).unwrap();
+    }
+    ending.prepare_next_step().unwrap();
+    assert_eq!(ending.snapshot().world[5].depth, 972);
+    ending
+}
+
+#[test]
+fn optional_poll_precedes_wait_and_draw_and_uses_any_nonzero_mask() {
+    fn run(budget: u64, break_at: Option<u64>) -> (String, Vec<(u64, GameplayEvent)>, bool, u64) {
+        let frames = frames();
+        let resources = resources();
+        let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+        let mut state = simulation.initial.take().unwrap();
+        let mut ending = optional_ending(&frames);
+        simulation.visible = ending.frame().clone();
+        simulation.receive(80_000, 0x4b); // Left: mask4, not Fire.
+        if let Some(at) = break_at {
+            simulation.receive(at, 0xcb);
+        }
+        let mut step = EndingStep::Poll;
+        let mut events = Vec::new();
+        let mut returned = false;
+        let mut dirty = false;
+        while simulation.clock.tick() < 140_000 {
+            let target = (simulation.clock.tick() + budget).min(140_000);
+            let (next, repaint, choice) = simulation
+                .advance_ending(
+                    &mut ending,
+                    &mut state,
+                    step,
+                    target,
+                    &EndingResources {
+                        frames: &frames,
+                        sound: &resources,
+                    },
+                    &mut events,
+                )
+                .unwrap();
+            step = next;
+            dirty |= repaint;
+            if choice.is_some() {
+                returned = true;
+                break;
+            }
+        }
+        // Input arriving during the wait cannot suppress its prepared draw.
+        assert!(dirty);
+        assert_eq!(ending.snapshot().world[5].depth, 944);
+        (
+            format!("{:?}", ending.snapshot()),
+            events,
+            returned,
+            simulation.clock.tick(),
+        )
+    }
+    let coarse = run(140_000, None);
+    assert!(coarse.2);
+    assert_eq!(coarse.3, 131_071);
+    assert_eq!(
+        coarse.1,
+        [
+            (
+                0,
+                GameplayEvent::InputPoll {
+                    site: 0x2736,
+                    mask: 0
+                }
+            ),
+            (
+                131_071,
+                GameplayEvent::InputPoll {
+                    site: 0x2736,
+                    mask: 4
+                }
+            ),
+        ]
+    );
+    assert_eq!(run(137, None), coarse);
+    let tap = run(140_000, Some(100_000));
+    assert!(!tap.2);
+    assert_eq!(
+        tap.1,
+        [
+            (
+                0,
+                GameplayEvent::InputPoll {
+                    site: 0x2736,
+                    mask: 0
+                }
+            ),
+            (
+                131_071,
+                GameplayEvent::InputPoll {
+                    site: 0x2736,
+                    mask: 0
+                }
+            ),
+        ]
+    );
+}
+
+#[test]
+fn intertitle_executes_separate_waits_and_release_before_setup() {
+    use crate::opening::EndingStage;
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    let mut state = simulation.initial.take().unwrap();
+    let mut ending = optional_ending(&frames);
+    ending.finish_prepared_step(frames.graphics()).unwrap();
+    while ending.phase() != EndingStage::Pause {
+        ending.advance(frames.graphics()).unwrap();
+    }
+    state.procedural.counters.units = 3;
+    let mut events = Vec::new();
+    let (_, _, returned) = simulation
+        .advance_ending(
+            &mut ending,
+            &mut state,
+            EndingStep::Intertitle {
+                second: false,
+                wait: Wait::from_call(1, 1),
+            },
+            200_000,
+            &EndingResources {
+                frames: &frames,
+                sound: &resources,
+            },
+            &mut events,
+        )
+        .unwrap();
+    assert!(returned.is_none());
+    // Wait1 clears the initial excess3. Wait5 then needs three IRQ0 calls;
+    // a merged Wait6 would consume the excess and return after two instead.
+    assert_eq!(
+        events,
+        [
+            (
+                196_606,
+                GameplayEvent::InputPoll {
+                    site: 0x2864,
+                    mask: 0
+                }
+            ),
+            (
+                196_606,
+                GameplayEvent::InputPoll {
+                    site: 0x28fd,
+                    mask: 0
+                }
+            ),
+        ]
+    );
+    assert_eq!(ending.snapshot().world[5].depth, 1000);
+}
+
+#[test]
+fn following_title_release_gate_defers_best_score_and_preserves_previous_image() {
+    use crate::opening::{EndingStage, EndingTitle};
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    let mut state = simulation.initial.take().unwrap();
+    let mut game = Opening::for_play(
+        frames.graphics(),
+        rules_with_commands(&[0xc3]),
+        simulation.session.begin_game(),
+    )
+    .unwrap();
+    for _ in 0..21 {
+        game.advance(frames.graphics()).unwrap();
+    }
+    let score = game.snapshot().hud.score;
+    assert!(score > 0);
+    let mut ending = Ending::new(frames.graphics(), &game.snapshot(), game.frame()).unwrap();
+    while ending.phase() != EndingStage::Departure || ending.snapshot().draw_index != 33 {
+        ending.advance(frames.graphics()).unwrap();
+    }
+    let visible = ending.frame().clone();
+    simulation.visible = visible.clone();
+    simulation.receive(0, 0x39);
+    let (step, dirty, returned) = simulation
+        .advance_ending(
+            &mut ending,
+            &mut state,
+            EndingStep::Finish,
+            10_000,
+            &EndingResources {
+                frames: &frames,
+                sound: &resources,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+    assert!(!dirty);
+    assert!(returned.is_none());
+    assert!(matches!(step, EndingStep::Entry { initial: false, .. }));
+    assert_eq!(ending.snapshot().title, EndingTitle::GameOver);
+    assert_eq!(ending.snapshot().best_score, 0);
+    assert_eq!(simulation.visible, visible);
+    simulation.receive(simulation.clock.tick(), 0xb9);
+    let (_, dirty, returned) = simulation
+        .advance_ending(
+            &mut ending,
+            &mut state,
+            step,
+            11_000,
+            &EndingResources {
+                frames: &frames,
+                sound: &resources,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+    assert!(!dirty);
+    assert!(returned.is_none());
+    assert_eq!(ending.snapshot().title, EndingTitle::HighScore);
+    assert_eq!(ending.snapshot().best_score, score);
+    assert_eq!(simulation.visible, visible);
+}
+
+#[test]
+fn score_overlay_is_drawn_before_hold_poll_without_consuming_timer_units() {
+    use crate::opening::{EndingStage, EndingTitle};
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    let mut state = simulation.initial.take().unwrap();
+    let mut ending = optional_ending(&frames);
+    ending.finish_prepared_step(frames.graphics()).unwrap();
+    while ending.snapshot().title != EndingTitle::HighScore
+        || ending.phase() != EndingStage::Approach
+        || ending.snapshot().draw_index != 34
+    {
+        ending.advance(frames.graphics()).unwrap();
+    }
+    ending.prepare_next_step().unwrap();
+    assert_eq!(ending.phase(), EndingStage::ScoreOverlay);
+    state.procedural.counters.units = 17;
+    state.keyboard.apply_scan(0x3b); // F1 returns at the later hold poll.
+    let mut events = Vec::new();
+    let (_, dirty, returned) = simulation
+        .advance_ending(
+            &mut ending,
+            &mut state,
+            EndingStep::Poll,
+            1,
+            &EndingResources {
+                frames: &frames,
+                sound: &resources,
+            },
+            &mut events,
+        )
+        .unwrap();
+    assert!(dirty);
+    assert!(returned.is_some());
+    assert_eq!(state.procedural.counters.units, 17);
+    assert_eq!(
+        events,
+        [(
+            0,
+            GameplayEvent::InputPoll {
+                site: 0x29fa,
+                mask: 128
+            }
+        )]
+    );
+    assert_eq!(simulation.visible, *ending.frame());
+    assert_eq!(ending.phase(), EndingStage::Hold);
 }

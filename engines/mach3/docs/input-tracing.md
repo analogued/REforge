@@ -20,9 +20,11 @@ option and omit the engine recorder; optimization and `dev-tools` are independen
 Normal animated viewing schedules raw scans on its PIT timeline. Gameplay
 observations use `boundary` rows labeled `pit_event`, with the exact simulation
 `tick` and `GameplayEvent` in `detail`. An `InputPoll` event carries its site and
-result mask there; the row's held-key columns describe state at the completed
-budget (`state_at_budget=true`), not a snapshot at that earlier event. Intro and
-pre-game sample handlers do not emit gameplay poll rows. The named `poll` labels
+result mask there. Ending entry and optional animation polls use the same event
+format with their reconstructed instruction sites. The row's held-key columns
+describe state at the completed budget (`state_at_budget=true`), not a snapshot
+at that earlier event. Intro and pre-game sample handlers do not emit gameplay
+poll rows. The named `poll` labels
 and nominal deadlines below describe the silent step/static/custom-period path.
 
 ## Records and clocks

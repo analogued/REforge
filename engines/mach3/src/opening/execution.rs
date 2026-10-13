@@ -170,6 +170,16 @@ impl GameplayTask {
         &self.state
     }
 
+    /// Discard saved scene-transition images after their compositor updates.
+    /// The current framebuffer, gameplay state and pending continuation remain
+    /// unchanged. A presenter that omits the intermediate steps must drain them
+    /// rather than retaining every transition for the lifetime of a game.
+    pub fn discard_transitions(&mut self) -> usize {
+        let count = self.game.transitions.len();
+        self.game.transitions.clear();
+        count
+    }
+
     /// Recover foreground state only after its typed return; a suspended pass
     /// or sample must not be dropped and then resumed as a fresh game.
     pub fn into_parts(self) -> Result<(Opening, GameplayState), Error> {

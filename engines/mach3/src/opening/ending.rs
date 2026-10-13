@@ -76,6 +76,13 @@ impl Ending {
         frame: &Frame,
         previous_best: u32,
     ) -> Result<Self, Error> {
+        let mut ending = Self::pending_with_best(state, frame, previous_best);
+        ending.begin_title(assets, EndingTitle::GameOver)?;
+        Ok(ending)
+    }
+
+    /// Live execution must finish the entry input gate before title setup/drawing.
+    pub(crate) fn pending_with_best(state: &Snapshot, frame: &Frame, previous_best: u32) -> Self {
         let mut world = std::array::from_fn(|slot| empty_record(slot, 0, 0, 0, 0));
         let player = state.player;
         world[0] = empty_record(
@@ -130,7 +137,7 @@ impl Ending {
         let random = Random {
             words: state.random,
         };
-        let mut ending = Self {
+        Self {
             state: EndingSnapshot {
                 title: EndingTitle::GameOver,
                 stage: EndingStage::Approach,
@@ -158,9 +165,38 @@ impl Ending {
             frame: frame.clone(),
             returned_intro: None,
             prepared_draw: None,
-        };
-        ending.begin_title(assets, EndingTitle::GameOver)?;
-        Ok(ending)
+        }
+    }
+
+    #[cfg(feature = "viewer")]
+    pub(crate) fn prepare_initial_title(&mut self) {
+        self.prepare_title(EndingTitle::GameOver);
+    }
+
+    #[cfg(feature = "viewer")]
+    pub(crate) fn prepare_following_title(&mut self) {
+        self.prepare_title(self.other_title());
+    }
+
+    #[cfg(feature = "viewer")]
+    pub(crate) fn finish_mandatory_title(&mut self) {
+        debug_assert!(self.next_step_starts_title());
+        self.state.world[5].depth += 28;
+        if self.state.title == EndingTitle::HighScore {
+            self.state.cycle = 1;
+        }
+    }
+
+    /// Title entry has an unconditional input-release gate before its mutation.
+    #[cfg(feature = "viewer")]
+    pub(crate) fn next_step_starts_title(&self) -> bool {
+        match self.state.stage {
+            EndingStage::Departure => {
+                self.state.cycle == 0 && self.state.world[5].depth + 28 >= 1000
+            }
+            EndingStage::Pause => true,
+            _ => false,
+        }
     }
 
     pub fn frame(&self) -> &Frame {

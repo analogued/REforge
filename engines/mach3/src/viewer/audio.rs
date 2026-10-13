@@ -37,6 +37,11 @@ pub(super) struct Resources {
     pub procedural: ProceduralProgram,
 }
 
+struct EndingResources<'a> {
+    frames: &'a StartupFrames,
+    sound: &'a Resources,
+}
+
 struct PcmBlock {
     start: u64,
     samples: Vec<i16>,
@@ -218,8 +223,17 @@ enum Phase {
     Ending {
         ending: Box<Ending>,
         state: Box<GameplayState>,
-        wait: Wait,
+        step: EndingStep,
     },
+}
+
+#[derive(Clone, Copy)]
+enum EndingStep {
+    Entry { initial: bool, poll_at: u64 },
+    Poll,
+    Wait(Wait),
+    Finish,
+    Intertitle { second: bool, wait: Wait },
 }
 struct Simulation {
     clock: DeviceClock,
@@ -228,6 +242,7 @@ struct Simulation {
     session: SessionState,
     visible: Frame,
     intro_choice: bool,
+    palette_family: u8,
     scans: VecDeque<(u64, u8)>,
 }
 impl Simulation {
@@ -269,6 +284,7 @@ impl Simulation {
             session,
             visible: frames.frame(Screen::Splash).clone(),
             intro_choice,
+            palette_family: 1,
             scans: VecDeque::new(),
         })
     }
@@ -279,6 +295,7 @@ impl Simulation {
         resources: &Resources,
     ) -> Result<(), String> {
         self.visible = frames.return_intro(self.intro_choice).clone();
+        self.palette_family = 1;
         self.phase = Phase::Intro(Box::new(
             IntroTask::begin(&resources.intro, state, CS, &self.clock)
                 .map_err(|e| e.to_string())?,
@@ -342,6 +359,7 @@ impl Simulation {
     ) -> Result<bool, String> {
         let memory = DosSampleMemory::new(&resources.samples, *b"MACH3\0\0\0");
         let mut repaint = false;
+        let display_before = (self.display_mode(), self.palette());
         let before = std::mem::discriminant(&self.phase);
         let mut assigned = Vec::new();
         let target = self.scans.front().map_or(target, |(at, _)| target.min(*at));
@@ -431,6 +449,7 @@ impl Simulation {
                         )
                         .map_err(|e| e.to_string())?;
                     runtime.synchronize_session(&mut self.session);
+                    self.palette_family = runtime.game().palette_family();
                     match progress {
                         GameplayProgress::Pending => {
                             self.phase = Phase::Playing(runtime);
@@ -442,28 +461,23 @@ impl Simulation {
                             self.phase = Phase::Playing(runtime);
                         }
                         GameplayProgress::Returned => {
-                            let (game, mut state) =
-                                runtime.into_parts().map_err(|e| e.to_string())?;
-                            // The caller at 0452 executes 74c0 after gameplay
-                            // returns, before title waits. Retain counters and
-                            // cursors while restoring the ordinary timer.
-                            state
-                                .procedural
-                                .request(Effect::Reset, CS, 0, &mut self.clock);
-                            self.clock.check().map_err(|e| e.to_string())?;
-                            let ending = Ending::new_with_best(
-                                frames.graphics(),
+                            let (game, state) = runtime.into_parts().map_err(|e| e.to_string())?;
+                            // GameplayTask already executes the caller's 0452
+                            // reset through Opening::return_sound exactly once.
+                            let ending = Ending::pending_with_best(
                                 &game.snapshot(),
                                 game.frame(),
                                 self.session.best_score,
-                            )
-                            .map_err(|e| e.to_string())?;
+                            );
                             self.visible = ending.frame().clone();
-                            let wait = Wait::from_call(0, ending.wait_units() as u16);
+                            let step = EndingStep::Entry {
+                                initial: true,
+                                poll_at: self.clock.tick(),
+                            };
                             self.phase = Phase::Ending {
                                 ending: Box::new(ending),
                                 state: Box::new(state),
-                                wait,
+                                step,
                             };
                             repaint = true;
                             break;
@@ -473,45 +487,34 @@ impl Simulation {
                 Phase::Ending {
                     mut ending,
                     mut state,
-                    wait,
+                    step,
                 } => {
-                    self.drain_background(&mut state, &resources.procedural)?;
-                    if !wait.poll(&mut state.procedural.counters) {
-                        self.advance_background(target, &mut state, &resources.procedural)?;
+                    let (next, dirty, returned) = self.advance_ending(
+                        &mut ending,
+                        &mut state,
+                        step,
+                        target,
+                        &EndingResources {
+                            frames,
+                            sound: resources,
+                        },
+                        events,
+                    )?;
+                    repaint |= dirty;
+                    if let Some(choice) = returned {
+                        self.session
+                            .remember_ending(&ending.snapshot(), ending.special_snapshots());
+                        self.intro_choice = choice;
+                        self.start_intro(*state, frames, resources)?;
+                        repaint = true;
+                    } else {
                         self.phase = Phase::Ending {
                             ending,
                             state,
-                            wait,
+                            step: next,
                         };
-                        // Revisit the foreground at its first satisfied wait,
-                        // before advancing past another interrupt boundary.
-                        if self.clock.tick() >= target {
-                            break;
-                        }
-                        continue;
                     }
-                    let poll = state.controls.poll(state.keyboard.held_keys(0));
-                    if ending.can_return() && poll.mask & 16 != 0 {
-                        if let Some(choice) = ending.returned_intro_choice() {
-                            self.session
-                                .remember_ending(&ending.snapshot(), ending.special_snapshots());
-                            self.intro_choice = choice;
-                            self.start_intro(*state, frames, resources)?;
-                            repaint = true;
-                            break;
-                        }
-                    }
-                    ending
-                        .advance(frames.graphics())
-                        .map_err(|e| e.to_string())?;
-                    self.visible = ending.frame().clone();
-                    repaint = true;
-                    let wait = Wait::from_call(0, ending.wait_units() as u16);
-                    self.phase = Phase::Ending {
-                        ending,
-                        state,
-                        wait,
-                    };
+                    break;
                 }
             }
             if self.clock.tick() >= target {
@@ -526,8 +529,170 @@ impl Simulation {
             }
         }
         self.sync_session();
+        repaint |= display_before != (self.display_mode(), self.palette());
         Ok(repaint)
     }
+    fn ending_poll(
+        &mut self,
+        state: &mut GameplayState,
+        site: u16,
+        events: &mut Vec<(u64, GameplayEvent)>,
+    ) -> u8 {
+        let poll = state.controls.poll(state.keyboard.held_keys(0));
+        if poll.display_toggled {
+            self.palette_family = 1;
+        }
+        events.push((
+            self.clock.tick(),
+            GameplayEvent::InputPoll {
+                site,
+                mask: poll.mask,
+            },
+        ));
+        poll.mask
+    }
+
+    fn advance_ending(
+        &mut self,
+        ending: &mut Ending,
+        state: &mut GameplayState,
+        mut step: EndingStep,
+        target: u64,
+        resources: &EndingResources<'_>,
+        events: &mut Vec<(u64, GameplayEvent)>,
+    ) -> Result<(EndingStep, bool, Option<bool>), String> {
+        use crate::opening::{EndingStage, EndingTitle};
+        let mut dirty = false;
+        loop {
+            self.drain_background(state, &resources.sound.procedural)?;
+            match step {
+                EndingStep::Entry { initial, poll_at } => {
+                    if self.clock.tick() < poll_at {
+                        self.advance_background(
+                            target.min(poll_at),
+                            state,
+                            &resources.sound.procedural,
+                        )?;
+                        if self.clock.tick() >= target {
+                            break;
+                        }
+                        continue;
+                    }
+                    let site = if initial || ending.snapshot().title == EndingTitle::HighScore {
+                        0x26f1
+                    } else {
+                        0x2864
+                    };
+                    if self.ending_poll(state, site, events) != 0 {
+                        // Busy-loop instruction costs remain approximated, as
+                        // in native pause. Device IRQs and received scans run.
+                        step = EndingStep::Entry {
+                            initial,
+                            poll_at: self.clock.tick().saturating_add(64),
+                        };
+                    } else {
+                        if initial {
+                            ending.prepare_initial_title();
+                        } else {
+                            ending.prepare_following_title();
+                        }
+                        step = EndingStep::Poll;
+                    }
+                }
+                EndingStep::Poll => {
+                    if ending.can_return() {
+                        let snapshot = ending.snapshot();
+                        let site = match (snapshot.title, snapshot.stage) {
+                            (EndingTitle::GameOver, EndingStage::Approach) => 0x2736,
+                            (EndingTitle::GameOver, EndingStage::Hold) => 0x27b8,
+                            (EndingTitle::GameOver, EndingStage::Departure) => 0x27ea,
+                            (EndingTitle::HighScore, EndingStage::Approach) => 0x28fd,
+                            (EndingTitle::HighScore, EndingStage::Hold) => 0x29fa,
+                            (EndingTitle::HighScore, EndingStage::Departure) => 0x2a2c,
+                            _ => unreachable!("only animation loops permit return"),
+                        };
+                        if self.ending_poll(state, site, events) != 0 {
+                            return Ok((step, dirty, ending.returned_intro_choice()));
+                        }
+                    }
+                    step = if ending.phase() == EndingStage::ScoreOverlay {
+                        // The score overlay has no input poll or timer wait.
+                        EndingStep::Finish
+                    } else {
+                        EndingStep::Wait(Wait::from_call(
+                            ending.wait_units() as u16,
+                            ending.wait_units() as u16,
+                        ))
+                    };
+                }
+                EndingStep::Wait(wait) => {
+                    if wait.poll(&mut state.procedural.counters) {
+                        step = EndingStep::Finish;
+                    } else {
+                        self.advance_background(target, state, &resources.sound.procedural)?;
+                        if self.clock.tick() >= target {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+                EndingStep::Finish => {
+                    if ending.has_prepared_draw() {
+                        ending
+                            .finish_prepared_step(resources.frames.graphics())
+                            .map_err(|e| e.to_string())?;
+                        self.visible = ending.frame().clone();
+                        dirty = true;
+                    }
+                    if ending.next_step_starts_title() {
+                        ending.finish_mandatory_title();
+                        step = EndingStep::Entry {
+                            initial: false,
+                            poll_at: self.clock.tick(),
+                        };
+                    } else {
+                        ending.prepare_next_step().map_err(|e| e.to_string())?;
+                        step = if ending.phase() == EndingStage::Pause {
+                            // The caller executes two distinct waits, clearing
+                            // excess software counter units after each.
+                            EndingStep::Intertitle {
+                                second: false,
+                                wait: Wait::from_call(1, 1),
+                            }
+                        } else {
+                            EndingStep::Poll
+                        };
+                    }
+                }
+                EndingStep::Intertitle { second, wait } => {
+                    if wait.poll(&mut state.procedural.counters) {
+                        step = if second {
+                            EndingStep::Entry {
+                                initial: false,
+                                poll_at: self.clock.tick(),
+                            }
+                        } else {
+                            EndingStep::Intertitle {
+                                second: true,
+                                wait: Wait::from_call(5, 5),
+                            }
+                        };
+                    } else {
+                        self.advance_background(target, state, &resources.sound.procedural)?;
+                        if self.clock.tick() >= target {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+            }
+            if self.clock.tick() >= target {
+                break;
+            }
+        }
+        Ok((step, dirty, None))
+    }
+
     fn drain_background(
         &mut self,
         state: &mut GameplayState,
@@ -626,10 +791,7 @@ impl Simulation {
         self.state().controls.preferences.display_mode
     }
     fn palette(&self) -> u8 {
-        match &self.phase {
-            Phase::Playing(runtime) => runtime.game().palette_family(),
-            _ => 1,
-        }
+        self.palette_family
     }
     fn caption(&self) -> &'static str {
         match &self.phase {

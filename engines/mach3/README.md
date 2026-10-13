@@ -91,8 +91,8 @@ the unconditional four-call tail. A zero-result traversal repeats after 500
 timer waits with ordinary input polls; it does not automatically start gameplay.
 The selected intro image stays visible until return. The first game image is
 then drawn before its pre-game sample runs. After game over, the first title
-pair completes before Space returns to the selected intro, with retained random
-state and best score.
+pair completes before Space or another nonzero gameplay input returns to the
+selected intro, with retained random state and best score.
 
 Use `--controls` to steer with arrows or S/X/B/N and fire with Space or keypad 5.
 It is a flag with no value; the data path belongs to `--original`.
@@ -109,7 +109,10 @@ presenting the latest published frame. It preserves original pass order and
 input-poll sites; slow presentation
 does not limit it to one pass per display refresh. Catch-up batches are bounded
 to keep processing host events, with remaining deadline debt retained. Ending
-frames retain their timer waits. Transition CPU delay loops remain untimed.
+frames retain their timer waits. Each title first polls until its input mask is
+zero; the mandatory pair skips animation polls but still processes F2/F3 at
+title entry. Transition CPU delay loops remain untimed, and the live runtime
+discards saved intermediate transition images at each budget boundary.
 Received gameplay key transitions are applied at their scheduled input polls,
 including during catch-up. A press held across a poll remains visible even if
 its release has already arrived; a tap completed between polls can still be

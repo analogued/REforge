@@ -5,6 +5,11 @@
 //! converts its host simulation budget to PIT ticks. This bridge retains the last
 //! published framebuffer while the foreground waits; audio observation remains
 //! on the same clock and cannot advance gameplay independently.
+//!
+//! Expanding scene changes keep their existing atomic compositor updates. Their
+//! saved intermediate images are discarded at each budget/publication boundary;
+//! only ordinary pass images are presented while transition CPU/retrace timing
+//! remains deferred. This prevents captures from accumulating during live play.
 
 #[cfg(test)]
 mod tests;
@@ -37,7 +42,8 @@ impl GameplayRuntime {
         clock: &Clock<O>,
     ) -> Result<Self, Error> {
         let visible = game.frame().clone();
-        let task = GameplayTask::begin(game, state, game_cs, pause_poll_period, clock)?;
+        let mut task = GameplayTask::begin(game, state, game_cs, pause_poll_period, clock)?;
+        task.discard_transitions();
         Ok(Self { task, visible })
     }
 
@@ -87,7 +93,9 @@ impl GameplayRuntime {
         clock: &mut Clock<O>,
         observe: &mut impl FnMut(u64, GameplayEvent),
     ) -> Result<GameplayProgress, Error> {
-        let progress = self.task.advance_until(target, resources, clock, observe)?;
+        let progress = self.task.advance_until(target, resources, clock, observe);
+        self.task.discard_transitions();
+        let progress = progress?;
         if matches!(progress, GameplayProgress::Published { .. }) {
             self.visible = self.task.game().pass_frame().clone();
         }

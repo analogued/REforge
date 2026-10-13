@@ -3,8 +3,8 @@
 use super::*;
 use crate::{
     assets::{GraphicsAssets, Sprite},
-    opening::{PauseEvent, PauseState},
-    sound::{ByteOrigin, Effect, FarPointer, MemoryByte, ProceduralProgram, Resource},
+    opening::{PauseEvent, PauseState, ScriptRules, execution::GameplayTask},
+    sound::{ByteOrigin, Effect, FarPointer, MemoryByte, ProceduralProgram, Resource, SoundAction},
 };
 use reforge_audio::speaker::PcSpeaker;
 use std::{cell::RefCell, rc::Rc};
@@ -66,11 +66,10 @@ fn program() -> ProceduralProgram {
     ProceduralProgram::from_expanded(&image).unwrap()
 }
 
-fn begin(
-    assets: &GraphicsAssets,
+fn context(
     log: Log,
     steering_enabled: bool,
-) -> (GameplayRuntime, Clock<impl FnMut(Stamp, ClockEvent)>) {
+) -> (GameplayState, Clock<impl FnMut(Stamp, ClockEvent)>) {
     let mut clock = Clock::new(
         PcSpeaker::new(0x60, [true; 3]),
         [
@@ -90,10 +89,18 @@ fn begin(
     state
         .procedural
         .request(Effect::Noise { divisor: 1850 }, CS, 0, &mut clock);
-    (
-        GameplayRuntime::begin(Opening::new(assets).unwrap(), state, CS, 64, &clock).unwrap(),
-        clock,
-    )
+    (state, clock)
+}
+
+fn begin(
+    assets: &GraphicsAssets,
+    log: Log,
+    steering_enabled: bool,
+) -> (GameplayRuntime, Clock<impl FnMut(Stamp, ClockEvent)>) {
+    let (state, clock) = context(log, steering_enabled);
+    let runtime =
+        GameplayRuntime::begin(Opening::new(assets).unwrap(), state, CS, 64, &clock).unwrap();
+    (runtime, clock)
 }
 
 #[derive(Debug, PartialEq)]
@@ -340,4 +347,179 @@ fn disabled_steering_keeps_function_keys_and_pause_resume_input() {
     ));
     assert_eq!(paused.state().pause.state, PauseState::Running);
     assert!(!paused.game().snapshot().player.game_over);
+}
+
+fn transition_game(assets: &GraphicsAssets) -> Opening {
+    let mut data = vec![0; 65_536];
+    data[0x04ac..0x04af].copy_from_slice(&[187, 188, 189]);
+    for index in 0..21 {
+        let at = 0x0a3e + 50 * index;
+        data[at..at + 5].copy_from_slice(&[0xd6, 0xd5, 0xcb, 0xcc, 0xcf]);
+    }
+    Opening::from_game_start(
+        assets,
+        ScriptRules::from_data_segment(&data).unwrap(),
+        SessionState::default().begin_game(),
+        90,
+    )
+    .unwrap()
+}
+
+#[test]
+fn live_scene_changes_discard_saved_steps_without_changing_publications_or_device_order() {
+    let mut assets = graphics();
+    assets.primary.fill(0x55);
+    assets.alternate.fill(0xaa);
+    let program = program();
+    let resources = GameplayResources {
+        graphics: &assets,
+        procedural: &program,
+        samples: &Memory,
+    };
+    let raw_log = Log::default();
+    let live_log = Log::default();
+    let (raw_state, mut raw_clock) = context(raw_log.clone(), false);
+    let (live_state, mut live_clock) = context(live_log.clone(), false);
+    let mut raw =
+        GameplayTask::begin(transition_game(&assets), raw_state, CS, 64, &raw_clock).unwrap();
+    let mut live =
+        GameplayRuntime::begin(transition_game(&assets), live_state, CS, 64, &live_clock).unwrap();
+    let mut changes = 0;
+    let mut raw_events = Vec::new();
+    let mut live_events = Vec::new();
+    loop {
+        let target = raw_clock.tick() + 10_000;
+        assert!(target < 30_000_000, "scene fixture did not finish");
+        let progress = raw
+            .advance_until(target, &resources, &mut raw_clock, &mut |tick, event| {
+                raw_events.push((tick, event))
+            })
+            .unwrap();
+        assert_eq!(
+            progress,
+            live.advance_until(target, &resources, &mut live_clock, &mut |tick, event| {
+                live_events.push((tick, event))
+            })
+            .unwrap()
+        );
+        assert_eq!(raw_clock.tick(), live_clock.tick());
+        assert_eq!(
+            format!("{:?}", raw.game().snapshot()),
+            format!("{:?}", live.game().snapshot())
+        );
+        assert_eq!(format!("{:?}", raw.state()), format!("{:?}", live.state()));
+        assert_eq!(raw.game().frame(), live.game().frame());
+        if let GameplayProgress::Published { .. } = progress {
+            assert_eq!(live.visible_frame(), raw.game().pass_frame());
+        }
+        let discarded = raw.discard_transitions();
+        if discarded != 0 {
+            assert_eq!(discarded, 7);
+            changes += 1;
+        }
+        assert_eq!(
+            live.task.discard_transitions(),
+            0,
+            "live retained transition images"
+        );
+        if progress == GameplayProgress::Returned {
+            break;
+        }
+    }
+    assert!(changes >= 4, "fixture must exercise several scene changes");
+    assert_eq!(raw_events, live_events);
+    assert_eq!(*raw_log.borrow(), *live_log.borrow());
+    let (mut game, _) = live.into_parts().unwrap();
+    assert!(game.take_transitions().is_empty());
+}
+
+#[test]
+fn native_return_executes_one_ordered_reset_transaction_even_when_polled_again() {
+    let assets = graphics();
+    let program = program();
+    let resources = GameplayResources {
+        graphics: &assets,
+        procedural: &program,
+        samples: &Memory,
+    };
+    let log = Log::default();
+    let (state, mut clock) = context(log.clone(), true);
+    let mut game = Opening::new(&assets).unwrap();
+    game.request_game_over();
+    let mut runtime = GameplayRuntime::begin(game, state, CS, 64, &clock).unwrap();
+    log.borrow_mut().clear();
+    let mut events = Vec::new();
+    assert_eq!(
+        runtime
+            .advance_until(1_000_000, &resources, &mut clock, &mut |tick, event| events
+                .push((tick, event)))
+            .unwrap(),
+        GameplayProgress::Returned
+    );
+    let transaction = log.borrow().clone();
+    let actions = transaction
+        .iter()
+        .filter_map(|(_, event)| match event {
+            ClockEvent::Action(action) => Some(*action),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actions,
+        [
+            SoundAction::SetHandler {
+                irq: 0,
+                handler: FarPointer {
+                    segment: CS,
+                    offset: 0x7532
+                }
+            },
+            SoundAction::Write {
+                port: 0x43,
+                value: 0x36,
+                source: None
+            },
+            SoundAction::Write {
+                port: 0x40,
+                value: 0xff,
+                source: None
+            },
+            SoundAction::Write {
+                port: 0x40,
+                value: 0xff,
+                source: None
+            },
+            SoundAction::Read {
+                port: 0x61,
+                value: 0x63
+            },
+            SoundAction::Write {
+                port: 0x61,
+                value: 0x60,
+                source: None
+            },
+        ]
+    );
+    assert_eq!(
+        runtime
+            .advance_until(2_000_000, &resources, &mut clock, &mut |tick, event| events
+                .push((tick, event)))
+            .unwrap(),
+        GameplayProgress::Returned
+    );
+    assert_eq!(*log.borrow(), transaction);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|(_, event)| matches!(
+                event,
+                GameplayEvent::Action(crate::sound::GameplayAction::Request {
+                    site: 0x0452,
+                    effect: Effect::Reset
+                })
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(clock.tick(), 0);
 }

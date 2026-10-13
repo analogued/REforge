@@ -374,7 +374,9 @@ interrupt and advancing silently. This deterministic approximation preserves
 meaningful ordering without claiming instruction-exact DOS timestamps. The live
 viewer uses this same clock through intro, pre-game, gameplay and ending waits.
 At gameplay return, the caller's `74c0` reset restores handler `7532`, programs
-divisor `ffff` and disables the speaker before the ending waits. It retains
+divisor `ffff` and disables the speaker before the ending waits. `GameplayTask`
+owns this reset through `Opening::return_sound`; the frontend does not repeat
+its ordered vector, timer and speaker transactions. The clock retains
 software counters, phase and tone cursors rather than constructing a fresh clock.
 
 Every sample count write carries the original eight-bit byte, resource offset,

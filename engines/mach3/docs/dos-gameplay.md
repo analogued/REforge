@@ -388,6 +388,9 @@ Normal animated viewing uses this device clock from intro through pre-game,
 gameplay and ending waits. `live::GameplayRuntime` retains the most recently
 published frame while a pending pass composes another. Host time supplies bounded
 PIT budgets of about 10 ms; overdue budgets continue after repumping SDL events.
+The live bridge discards saved intermediate scene-transition images at each
+budget or publication boundary, retaining the ordinary published pass image;
+transition delay-loop and retrace timing remain deferred.
 PC speaker synthesis observes the same device edges. Output failure or buffer
 recovery cannot change the guest continuation, PIT phase or random stream.
 Native F1 pause continues device execution; modern Pause/Break freezes both
@@ -441,18 +444,39 @@ best score relative to the retained closest title rectangle. Projection and
 stable drawing order include all 29 world slots; pixels outside the viewport
 retain the final gameplay frame. Audio during the hold remains deferred.
 
-The first title pair ignores return input. Further pairs repeat until a key
-returns control to the intro path at `03ae`. The random generator continues
+Every title begins with an ordinary input poll (`26f1` for Game Over, `2864`
+for High Score), repeated until its returned mask is zero. This gate precedes
+title setup, the first drawing wait and High Score's comparison. It can process
+F2/F3 even during the mandatory first pair; a zero mask does not necessarily
+mean that every physical key is released. Entry busy-loop polls use the live
+frontend's positive 64-PIT-clock interval, without modeling instruction cost.
+
+The mandatory first pair skips the optional ordinary polls in its approach,
+hold and departure loops. Conditional sample calls before the hold have their
+own keyboard behavior; that deferred sound path is distinct from animation polls.
+Later pairs poll before each two-unit animation wait, returning on any nonzero
+mask. Game Over uses sites `2736`, `27b8`, `27ea`; High Score uses `28fd`, `29fa`,
+`2a2c`. The score overlay has neither a poll nor a wait. Between repeated titles,
+the caller performs separate one- and five-unit waits, clearing excess software
+counter units after each, before the next entry gate.
+
+Return control follows the intro path at `03ae`. The random generator continues
 from the ending state: its next low-three-bit choice selects raw `DATA6` for
 values below four and raw `DATA1` otherwise. The verified no-input run selects
 `DATA1`, so the splash artwork appears on this return. This is the intro path's
 image selection; it does not replay the entire fresh-process startup.
 
 `Ending` implements the title stages, best-score retention, frozen projection,
-and return image choice. The viewer uses Space for return. Normal playback then
-runs the selected intro's sample/input continuation before starting another game
+and return image choice. In normal playback, Space or another nonzero gameplay
+input can return during an optional pair. It then runs the selected intro's
+sample/input continuation before starting another game
 with the continuing random stream and retained best score. Silent previews use
 another fresh Space press to advance that intro screen.
+
+The ending retains gameplay's palette family and display mode. An ordinary F3
+poll selects family 1 as in gameplay; crossing into the ending does not itself
+change the palette. The live viewer repaints palette or display-mode changes
+even when native pause leaves the framebuffer unchanged.
 
 
 ## Shooting and progression

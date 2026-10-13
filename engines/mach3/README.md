@@ -111,8 +111,11 @@ does not limit it to one pass per display refresh. Catch-up batches are bounded
 to keep processing host events, with remaining deadline debt retained. Ending
 frames retain their timer waits. Each title first polls until its input mask is
 zero; the mandatory pair skips animation polls but still processes F2/F3 at
-title entry. Transition CPU delay loops remain untimed, and the live runtime
-discards saved intermediate transition images at each budget boundary.
+title entry. Scene changes display seven expanding regions, each for about
+1/60 second. This normalizes the original CPU-dependent retrace polling;
+timer/audio and keyboard interrupts continue while gameplay is suspended.
+The mandatory Game Over hold plays its guarded sample; the mandatory High Score
+hold plays its sample only for a strictly improved best score.
 Received gameplay key transitions are applied at their scheduled input polls,
 including during catch-up. A press held across a poll remains visible even if
 its release has already arrived; a tap completed between polls can still be

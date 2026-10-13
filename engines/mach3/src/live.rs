@@ -6,10 +6,9 @@
 //! published framebuffer while the foreground waits; audio observation remains
 //! on the same clock and cannot advance gameplay independently.
 //!
-//! Expanding scene changes keep their existing atomic compositor updates. Their
-//! saved intermediate images are discarded at each budget/publication boundary;
-//! only ordinary pass images are presented while transition CPU/retrace timing
-//! remains deferred. This prevents captures from accumulating during live play.
+//! Expanding scene changes suspend the foreground and publish each region on
+//! the same device timeline. Their fixed intervals normalize the original
+//! CPU-dependent retrace polling; device and keyboard interrupts continue.
 
 #[cfg(test)]
 mod tests;
@@ -31,6 +30,7 @@ use crate::{
 pub struct GameplayRuntime {
     task: GameplayTask,
     visible: Frame,
+    visible_palette: u8,
 }
 
 impl GameplayRuntime {
@@ -42,9 +42,14 @@ impl GameplayRuntime {
         clock: &Clock<O>,
     ) -> Result<Self, Error> {
         let visible = game.frame().clone();
-        let mut task = GameplayTask::begin(game, state, game_cs, pause_poll_period, clock)?;
-        task.discard_transitions();
-        Ok(Self { task, visible })
+        let visible_palette = game.palette_family();
+        let task = GameplayTask::begin(game, state, game_cs, pause_poll_period, clock)?
+            .with_transition_period(reforge_audio::PIT_HZ / 60)?;
+        Ok(Self {
+            task,
+            visible,
+            visible_palette,
+        })
     }
 
     pub fn game(&self) -> &Opening {
@@ -57,6 +62,10 @@ impl GameplayRuntime {
 
     pub fn visible_frame(&self) -> &Frame {
         &self.visible
+    }
+
+    pub fn palette_family(&self) -> u8 {
+        self.visible_palette
     }
 
     /// Copy persistent controls back without changing session random state or
@@ -98,6 +107,14 @@ impl GameplayRuntime {
         let progress = progress?;
         if matches!(progress, GameplayProgress::Published { .. }) {
             self.visible = self.task.game().pass_frame().clone();
+            self.visible_palette = self.task.game().palette_family();
+        } else if matches!(progress, GameplayProgress::TransitionPublished { .. }) {
+            let frame = self.task.transition_frame().expect("published transition");
+            self.visible = frame.frame.clone();
+            self.visible_palette = frame.palette_family;
+        } else {
+            // Function-key changes remain visible during pending native pause.
+            self.visible_palette = self.task.game().palette_family();
         }
         Ok(progress)
     }

@@ -127,6 +127,7 @@ fn run_observed(chunk: u64, end: u64, observe: &mut dyn FnMut(Stamp, &ClockEvent
                     task.game().pass_frame().clone(),
                 )),
                 GameplayProgress::Returned => panic!("bounded prefix returned early"),
+                GameplayProgress::TransitionPublished { .. } => panic!("untimed task"),
             }
         }
     }

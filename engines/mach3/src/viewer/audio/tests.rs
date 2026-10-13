@@ -656,6 +656,11 @@ fn mandatory_animation_skips_function_polls_but_next_title_entry_processes_them(
     let frames = frames();
     let resources = resources();
     let mut simulation = ending_simulation(&frames);
+    let Phase::Ending { state, .. } = &mut simulation.phase else {
+        unreachable!()
+    };
+    // This check isolates ordinary animation polls from sample key clearing.
+    state.controls.preferences.intro_audio_enabled = false;
     let mut events = Vec::new();
     advance(&mut simulation, 100, &frames, &resources, &mut events);
     assert_eq!(simulation.state().controls.sound_poll_counter, 0);
@@ -723,7 +728,9 @@ fn palette_zero_survives_gameplay_return_and_title_animation() {
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-    let state = simulation.initial.take().unwrap();
+    let mut state = simulation.initial.take().unwrap();
+    // Retain F3 until the entry poll; active sample teardown clears held keys.
+    state.controls.preferences.intro_audio_enabled = false;
     let mut game = Opening::for_play(
         frames.graphics(),
         rules_with_commands(&[0xce, 0xce]),
@@ -1042,4 +1049,461 @@ fn score_overlay_is_drawn_before_hold_poll_without_consuming_timer_units() {
     );
     assert_eq!(simulation.visible, *ending.frame());
     assert_eq!(ending.phase(), EndingStage::Hold);
+}
+
+/// The renderer reaches the final approach or pending score overlay without
+/// advancing the device. Live execution then selects the sample at Finish.
+fn hold_entry(
+    frames: &StartupFrames,
+    title: crate::opening::EndingTitle,
+    score: u32,
+    best: u32,
+    optional: bool,
+) -> Ending {
+    use crate::opening::{EndingStage, EndingTitle};
+    let mut session = SessionState::default();
+    let game = Opening::for_play(frames.graphics(), rules(), session.begin_game()).unwrap();
+    let mut snapshot = game.snapshot();
+    snapshot.hud.score = score;
+    let mut ending =
+        Ending::new_with_best(frames.graphics(), &snapshot, game.frame(), best).unwrap();
+    while ending.snapshot().title != title
+        || ending.phase() != EndingStage::Approach
+        || ending.snapshot().draw_index != 34
+        || (optional && ending.snapshot().cycle == 0)
+    {
+        ending.advance(frames.graphics()).unwrap();
+    }
+    if title == EndingTitle::HighScore {
+        ending.prepare_next_step().unwrap();
+        assert_eq!(ending.phase(), EndingStage::ScoreOverlay);
+    }
+    ending
+}
+
+fn logged_ending_clock(simulation: &mut Simulation) -> Rc<RefCell<Vec<(Stamp, ClockEvent)>>> {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let observe = log.clone();
+    simulation.clock = Clock::new(
+        simulation.clock.speaker().clone(),
+        simulation.clock.handlers(),
+        true,
+        Box::new(move |stamp, event| observe.borrow_mut().push((stamp, event))),
+    );
+    log
+}
+
+#[test]
+fn mandatory_hold_samples_select_original_resources_and_preserve_publication() {
+    use crate::opening::{EndingStage, EndingTitle};
+    for (title, resource, count, site) in [
+        (EndingTitle::GameOver, Resource::Data9, 10_874, 0x27a4),
+        (EndingTitle::HighScore, Resource::Data7, 11_872, 0x29e6),
+    ] {
+        let frames = frames();
+        let resources = resources();
+        let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+        let mut state = simulation.initial.take().unwrap();
+        let mut ending = hold_entry(&frames, title, 123_456, 0, false);
+        let overlay_pending = ending.has_prepared_draw();
+        simulation.visible = ending.frame().clone();
+        let log = logged_ending_clock(&mut simulation);
+        let mut events = Vec::new();
+        let (step, dirty, returned) = simulation
+            .advance_ending(
+                &mut ending,
+                &mut state,
+                EndingStep::Finish,
+                0,
+                &EndingResources {
+                    frames: &frames,
+                    sound: &resources,
+                },
+                &mut events,
+            )
+            .unwrap();
+        assert!(matches!(step, EndingStep::Sample { .. }));
+        assert_eq!(dirty, overlay_pending);
+        assert_eq!(returned, None);
+        assert_eq!(simulation.visible, *ending.frame());
+        assert_eq!(ending.phase(), EndingStage::Hold);
+        assert_eq!(ending.snapshot().hold_tick, 1);
+        assert_eq!(state.next_playback, 1);
+        let request = SampleRequest {
+            resource,
+            offset: 0,
+            count,
+            reverse: false,
+        };
+        assert_eq!(
+            events,
+            [(
+                0,
+                GameplayEvent::Action(crate::sound::GameplayAction::IntroSample { site, request })
+            )]
+        );
+        assert!(log.borrow().iter().any(|(_, event)| *event
+            == ClockEvent::Action(SoundAction::SourceBegin {
+                playback: 0,
+                request
+            })));
+        assert_eq!(
+            simulation.clock.handlers(),
+            [
+                FarPointer {
+                    segment: CS,
+                    offset: 0x57a4
+                },
+                FarPointer {
+                    segment: CS,
+                    offset: 0x57cc
+                }
+            ]
+        );
+    }
+}
+
+#[test]
+fn ending_sample_guards_distinguish_equal_lower_optional_and_intro_disabled() {
+    use crate::opening::EndingTitle;
+    for (title, score, best, optional, intro, sound, expected) in [
+        (
+            EndingTitle::HighScore,
+            123_456,
+            123_456,
+            false,
+            true,
+            false,
+            false,
+        ),
+        (
+            EndingTitle::HighScore,
+            123_455,
+            123_456,
+            false,
+            true,
+            false,
+            false,
+        ),
+        (
+            EndingTitle::HighScore,
+            123_457,
+            123_456,
+            false,
+            true,
+            false,
+            true,
+        ),
+        (EndingTitle::HighScore, 999_999, 0, true, true, false, false),
+        (EndingTitle::GameOver, 999_999, 0, true, true, false, false),
+        (EndingTitle::GameOver, 0, 0, false, false, false, false),
+        (
+            EndingTitle::HighScore,
+            999_999,
+            0,
+            false,
+            false,
+            true,
+            false,
+        ),
+    ] {
+        let frames = frames();
+        let resources = resources();
+        let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+        let mut state = simulation.initial.take().unwrap();
+        state.controls.preferences.intro_audio_enabled = intro;
+        state.controls.preferences.sound_disabled = sound;
+        let mut ending = hold_entry(&frames, title, score, best, optional);
+        let mut events = Vec::new();
+        let (step, _, _) = simulation
+            .advance_ending(
+                &mut ending,
+                &mut state,
+                EndingStep::Finish,
+                0,
+                &EndingResources {
+                    frames: &frames,
+                    sound: &resources,
+                },
+                &mut events,
+            )
+            .unwrap();
+        assert_eq!(matches!(step, EndingStep::Sample { .. }), expected);
+        assert_eq!(
+            events.iter().any(|(_, event)| matches!(
+                event,
+                GameplayEvent::Action(crate::sound::GameplayAction::IntroSample { .. })
+            )),
+            expected
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|(_, event)| matches!(event, GameplayEvent::InputPoll { site: 0x73b2, .. }))
+        );
+    }
+}
+
+#[test]
+fn ordinary_sound_bypass_polls_once_and_ignores_mask_without_sample_teardown() {
+    use crate::opening::EndingTitle;
+    for title in [EndingTitle::GameOver, EndingTitle::HighScore] {
+        let frames = frames();
+        let resources = resources();
+        let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+        let mut state = simulation.initial.take().unwrap();
+        state.controls.preferences.sound_disabled = true;
+        state.keyboard.apply_scan(0x3b);
+        let mut ending = hold_entry(&frames, title, 1, 0, false);
+        let log = logged_ending_clock(&mut simulation);
+        let mut events = Vec::new();
+        let (step, _, returned) = simulation
+            .advance_ending(
+                &mut ending,
+                &mut state,
+                EndingStep::Finish,
+                0,
+                &EndingResources {
+                    frames: &frames,
+                    sound: &resources,
+                },
+                &mut events,
+            )
+            .unwrap();
+        assert!(matches!(step, EndingStep::Poll));
+        assert_eq!(returned, None);
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[1],
+            (
+                0,
+                GameplayEvent::InputPoll {
+                    site: 0x73b2,
+                    mask: 128
+                }
+            )
+        );
+        assert!(log.borrow().is_empty());
+        assert_eq!(state.next_playback, 0);
+        assert!(state.keyboard.held_keys(0).f1);
+    }
+}
+
+#[test]
+fn ending_sample_matches_direct_sample_task_hardware_transactions() {
+    use crate::opening::EndingTitle;
+    let frames = frames();
+    let resources = resources();
+    let memory = DosSampleMemory::new(&resources.samples, *b"MACH3\0\0\0");
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    let mut state = simulation.initial.take().unwrap();
+    state.di = 1; // Inherited ISR cursor parity changes the number of writes.
+    let speaker = simulation.clock.speaker().clone();
+    let handlers = simulation.clock.handlers();
+    let actual = logged_ending_clock(&mut simulation);
+    let expected = Rc::new(RefCell::new(Vec::new()));
+    let log = expected.clone();
+    let mut reference = Clock::new(speaker, handlers, true, move |stamp, event| {
+        log.borrow_mut().push((stamp, event))
+    });
+    let request = SampleRequest {
+        resource: Resource::Data9,
+        offset: 0,
+        count: 10_874,
+        reverse: false,
+    };
+    let mut reference_state = SampleSoundState::default();
+    let SampleStart::Playing(mut task) =
+        SampleTask::begin(0, request, &mut reference_state, CS, 1, &mut reference).unwrap()
+    else {
+        panic!()
+    };
+    assert!(matches!(
+        task.advance_until(2_000_000, &memory, &mut reference_state, &mut reference)
+            .unwrap(),
+        crate::timer::SampleProgress::Returned(0)
+    ));
+    let mut ending = hold_entry(&frames, EndingTitle::GameOver, 0, 0, false);
+    let (step, _, _) = simulation
+        .advance_ending(
+            &mut ending,
+            &mut state,
+            EndingStep::Finish,
+            reference.tick(),
+            &EndingResources {
+                frames: &frames,
+                sound: &resources,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+    assert!(!matches!(step, EndingStep::Sample { .. }));
+    assert_eq!(simulation.clock.tick(), reference.tick());
+    assert_eq!(*actual.borrow(), *expected.borrow());
+    assert_eq!(state.di, SamplePlayer::return_di());
+    assert_eq!(simulation.clock.handlers(), handlers);
+}
+
+#[test]
+fn ending_sample_input_boundaries_and_teardown_are_budget_partition_invariant() {
+    use crate::opening::EndingTitle;
+    type SampleOutcome = (Vec<(Stamp, ClockEvent)>, String, Vec<(u64, GameplayEvent)>);
+    fn run(budget: u64) -> SampleOutcome {
+        let frames = frames();
+        let resources = resources();
+        let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+        let mut state = simulation.initial.take().unwrap();
+        state.keyboard.apply_scan(0x4b);
+        state.controls.sound_poll_counter = 0xabcd;
+        let mut ending = hold_entry(&frames, EndingTitle::GameOver, 0, 0, false);
+        let log = logged_ending_clock(&mut simulation);
+        // Same-tick input also exercises the one-byte keyboard latch.
+        simulation.receive(60, 0x39);
+        simulation.receive(60, 0xb9);
+        simulation.receive(120, 0x3c);
+        let mut step = EndingStep::Finish;
+        let mut events = Vec::new();
+        while simulation.clock.tick() < 1_400_000 {
+            let target = (simulation.clock.tick() + budget).min(1_400_000);
+            let (next, _, returned) = simulation
+                .advance_ending(
+                    &mut ending,
+                    &mut state,
+                    step,
+                    target,
+                    &EndingResources {
+                        frames: &frames,
+                        sound: &resources,
+                    },
+                    &mut events,
+                )
+                .unwrap();
+            step = next;
+            assert_eq!(returned, None);
+        }
+        assert!(!matches!(step, EndingStep::Sample { .. }));
+        assert_eq!(state.next_playback, 1);
+        assert!(state.controls.preferences.sound_disabled);
+        assert_eq!(state.controls.sound_poll_counter, 0xab00);
+        assert_eq!(state.di, SamplePlayer::return_di());
+        assert_eq!(state.keyboard.held_keys(0).actions, 0);
+        assert!(
+            events
+                .iter()
+                .all(|(_, event)| !matches!(event, GameplayEvent::InputPoll { .. }))
+        );
+        let output = log.borrow().clone();
+        (output, format!("{state:?}"), events)
+    }
+    assert_eq!(run(1_400_000), run(37));
+}
+
+#[test]
+fn sample_irq0_priority_services_all_same_tick_scans_before_foreground() {
+    use crate::opening::EndingTitle;
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    let mut state = simulation.initial.take().unwrap();
+    let mut ending = hold_entry(&frames, EndingTitle::GameOver, 0, 0, false);
+    let (step, _, _) = simulation
+        .advance_ending(
+            &mut ending,
+            &mut state,
+            EndingStep::Finish,
+            0,
+            &EndingResources {
+                frames: &frames,
+                sound: &resources,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+    let log = logged_ending_clock(&mut simulation);
+    // Re-selecting mode3 after mode0 generates a pending timer request.
+    crate::sound::write(&mut simulation.clock, 0x43, 0x30);
+    crate::sound::write(&mut simulation.clock, 0x43, 0x36);
+    simulation.receive(0, 0x39);
+    simulation.receive(0, 0xb9);
+    let (step, _, _) = simulation
+        .advance_ending(
+            &mut ending,
+            &mut state,
+            step,
+            0,
+            &EndingResources {
+                frames: &frames,
+                sound: &resources,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+    let EndingStep::Sample {
+        state: sample_state,
+        ..
+    } = step
+    else {
+        panic!()
+    };
+    assert_eq!(sample_state.last_scan, 0xb9);
+    assert!(simulation.scans.is_empty());
+    let irqs = log
+        .borrow()
+        .iter()
+        .filter_map(|(_, event)| {
+            if let ClockEvent::Interrupt(irq) = event {
+                Some(irq.irq)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(irqs, [0, 1, 1]);
+    assert_eq!(simulation.clock.advance_to(0).unwrap(), Progress::Reached);
+}
+
+#[test]
+fn focus_reset_during_sample_discards_future_input_and_preserves_received_return_scan() {
+    use crate::opening::EndingTitle;
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    let mut state = simulation.initial.take().unwrap();
+    state.keyboard.apply_scan(0x4b);
+    simulation.phase = Phase::Ending {
+        ending: Box::new(hold_entry(&frames, EndingTitle::GameOver, 0, 0, false)),
+        state: Box::new(state),
+        step: EndingStep::Finish,
+    };
+    simulation.receive(60, 0x3c);
+    simulation.receive(120, 0x39);
+    advance(&mut simulation, 60, &frames, &resources, &mut Vec::new());
+    let Phase::Ending {
+        step: EndingStep::Sample { state, .. },
+        ..
+    } = &simulation.phase
+    else {
+        panic!()
+    };
+    assert_eq!(state.last_scan, 0x3c);
+    simulation.clear_input().unwrap();
+    assert!(simulation.scans.is_empty());
+    assert_eq!(simulation.state().keyboard.held_keys(0).actions, 0);
+    let Phase::Ending {
+        step: EndingStep::Sample { state, .. },
+        ..
+    } = &simulation.phase
+    else {
+        panic!()
+    };
+    assert_eq!(state.last_scan, 0x3c);
+    advance(
+        &mut simulation,
+        1_400_000,
+        &frames,
+        &resources,
+        &mut Vec::new(),
+    );
+    assert!(simulation.state().controls.preferences.sound_disabled);
+    assert_eq!(simulation.state().di, SamplePlayer::return_di());
 }

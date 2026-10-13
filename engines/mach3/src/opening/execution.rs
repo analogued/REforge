@@ -15,6 +15,7 @@ use std::collections::VecDeque;
 
 use super::{
     Controls, KeyboardState, Opening, PauseControl, PauseEvent, PauseState, Steering,
+    TransitionFrame,
     pass::{PassProgress, PassTask},
 };
 use crate::{
@@ -74,6 +75,7 @@ pub enum GameplayEvent {
     InputPoll { site: u16, mask: u8 },
     Pause(PauseEvent),
     Published { body: u16, pass: u8 },
+    TransitionPublished { body: u16, pass: u8, step: u8 },
     Returned,
 }
 
@@ -84,6 +86,12 @@ pub enum GameplayProgress {
     Published {
         body: u16,
         pass: u8,
+    },
+    /// An expanding scene region, before resuming the suspended foreground.
+    TransitionPublished {
+        body: u16,
+        pass: u8,
+        step: u8,
     },
     Returned,
 }
@@ -117,6 +125,15 @@ pub struct GameplayTask {
     scans: VecDeque<(u64, u8)>,
     scan_latched: bool,
     committed_tick: u64,
+    transition_period: Option<u64>,
+    transition: Option<TransitionPlayback>,
+    transition_frame: Option<TransitionFrame>,
+}
+
+struct TransitionPlayback {
+    frames: VecDeque<TransitionFrame>,
+    deadline: u64,
+    step: u8,
 }
 
 impl GameplayTask {
@@ -160,6 +177,9 @@ impl GameplayTask {
             scans: VecDeque::new(),
             scan_latched: false,
             committed_tick: clock.tick(),
+            transition_period: None,
+            transition: None,
+            transition_frame: None,
         })
     }
 
@@ -168,6 +188,26 @@ impl GameplayTask {
     }
     pub fn state(&self) -> &GameplayState {
         &self.state
+    }
+
+    /// Normalize each reveal region to a fixed simulation interval, independent
+    /// of CPU execution cost. Immediate/headless stepping remains the default.
+    /// Configure at task entry; earlier untimed captures are historical images.
+    pub fn with_transition_period(mut self, period: u64) -> Result<Self, Error> {
+        if period == 0 {
+            return Err(invalid("transition interval must be positive"));
+        }
+        if self.pass.is_some() || self.transition.is_some() {
+            return Err(invalid("configure transitions before executing a pass"));
+        }
+        self.discard_transitions();
+        self.transition_period = Some(period);
+        Ok(self)
+    }
+
+    /// The last region published by timed transition execution.
+    pub fn transition_frame(&self) -> Option<&TransitionFrame> {
+        self.transition_frame.as_ref()
     }
 
     /// Discard saved scene-transition images after their compositor updates.
@@ -287,7 +327,34 @@ impl GameplayTask {
                 self.dispatch(irq, resources, clock)?;
                 continue;
             }
-            if let Some(sample) = &mut self.sample {
+            if let Some(transition) = &mut self.transition {
+                if clock.tick() >= transition.deadline {
+                    if let Some(frame) = transition.frames.pop_front() {
+                        transition.step += 1;
+                        transition.deadline = clock
+                            .tick()
+                            .checked_add(self.transition_period.expect("timed transition"))
+                            .ok_or_else(|| invalid("transition deadline overflow"))?;
+                        let progress = GameplayProgress::TransitionPublished {
+                            body: self.game.body,
+                            pass: self.game.render_pass,
+                            step: transition.step,
+                        };
+                        self.transition_frame = Some(frame);
+                        observe(
+                            clock.tick(),
+                            GameplayEvent::TransitionPublished {
+                                body: self.game.body,
+                                pass: self.game.render_pass,
+                                step: transition.step,
+                            },
+                        );
+                        return Ok(progress);
+                    }
+                    self.transition = None;
+                    continue;
+                }
+            } else if let Some(sample) = &mut self.sample {
                 if let Some(last_scan) = sample.poll_return(&mut self.sample_state, clock)? {
                     self.sample = None;
                     self.state.keyboard.clear_table();
@@ -403,6 +470,7 @@ impl GameplayTask {
                             .expect("pending pass")
                             .publish(&mut self.game);
                         self.stage = Stage::RunPass;
+                        self.transition_frame = None;
                         let body = self.game.body;
                         let pass = self.game.render_pass;
                         observe(clock.tick(), GameplayEvent::Published { body, pass });
@@ -417,6 +485,9 @@ impl GameplayTask {
             let mut deadline = target;
             if let Some((tick, _)) = self.scans.front() {
                 deadline = deadline.min(*tick);
+            }
+            if let Some(transition) = &self.transition {
+                deadline = deadline.min(transition.deadline);
             }
             if self.sample.is_none()
                 && self.wait.is_none()
@@ -498,6 +569,15 @@ impl GameplayTask {
             PassProgress::Returned => {
                 self.pass = None;
                 self.stage = Stage::Start;
+            }
+            PassProgress::Transition => {
+                if self.transition_period.is_some() {
+                    self.transition = Some(TransitionPlayback {
+                        frames: self.game.take_transitions().into(),
+                        deadline: clock.tick(),
+                        step: 0,
+                    });
+                }
             }
         }
         Ok(())

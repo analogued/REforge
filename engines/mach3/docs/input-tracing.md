@@ -24,7 +24,10 @@ result mask there. Ending entry and optional animation polls use the same event
 format with their reconstructed instruction sites. The row's held-key columns
 describe state at the completed budget (`state_at_budget=true`), not a snapshot
 at that earlier event. Intro and pre-game sample handlers do not emit gameplay
-poll rows. The named `poll` labels
+poll rows. `TransitionPublished` events identify each live reveal region at its
+simulation tick; the intervening intervals add no foreground control polls.
+Ending sample selection emits `IntroSample` actions, and native sound-disable
+bypass emits an ordinary `73b2` poll. The named `poll` labels
 and nominal deadlines below describe the silent step/static/custom-period path.
 
 ## Records and clocks

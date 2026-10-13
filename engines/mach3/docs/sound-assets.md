@@ -326,7 +326,8 @@ through the device clock. It runs completion playback through the same sample
 cursor and executes its keyboard clear and disable effects before resuming the
 enemy update. Sound-disabled sample entry performs the ordinary keyboard poll;
 an unset application intro-audio flag skips that call altogether. Startup reset
-remains a lifecycle responsibility, and transition CPU delay loops remain untimed.
+remains a lifecycle responsibility. Live scene transitions use normalized region
+deadlines while device interrupts continue; CPU busy-loop costs remain untimed.
 Terrain collision scans finish
 their terrain mutations before delivering ordered contacts to the sink.
 Normal animated viewing uses this continuation; recording replay and
@@ -404,6 +405,13 @@ resume. Bounded recovery drops expired PCM and clears excessive queued data,
 without resetting the PIT or advancing gameplay from a device callback. Device
 failure warns and mutes host output; guest sample, procedural and wait execution
 continues on the same timeline.
+
+Ending playback uses this clock for the guarded mandatory Game Over `DATA9`
+sample and the strictly improved High Score `DATA7` sample before their hold
+waits. The wrappers' flags, ordinary sound-disable tail poll and sample keyboard
+teardown retain their gameplay effects. See
+[game-over execution](dos-gameplay.md#game-over-and-return) for call sites and
+selection rules.
 
 Pause/Break freezes host scheduling and queued playback together. Native F1
 retains the original keyboard handshake and PIT-driven waits; the device continues

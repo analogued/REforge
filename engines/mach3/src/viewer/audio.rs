@@ -9,9 +9,10 @@ use crate::{
     opening::execution::{GameplayEvent, GameplayProgress, GameplayResources, GameplayState},
     sound::{
         DosSampleMemory, Effect, FarPointer, IntroProgram, IntroProgress, IntroTask,
-        ProceduralProgram, SampleBus, SoundAction, SoundAssets,
+        ProceduralProgram, Resource, SampleBus, SamplePlayer, SampleRequest, SampleSoundState,
+        SoundAction, SoundAssets,
     },
-    timer::{Clock, ClockEvent, Progress, Stamp, Wait},
+    timer::{Clock, ClockEvent, Progress, SampleStart, SampleTask, Stamp, Wait},
 };
 use reforge_audio::{
     PIT_HZ,
@@ -227,13 +228,22 @@ enum Phase {
     },
 }
 
-#[derive(Clone, Copy)]
 enum EndingStep {
-    Entry { initial: bool, poll_at: u64 },
+    Entry {
+        initial: bool,
+        poll_at: u64,
+    },
     Poll,
     Wait(Wait),
     Finish,
-    Intertitle { second: bool, wait: Wait },
+    Sample {
+        task: SampleTask,
+        state: Box<SampleSoundState>,
+    },
+    Intertitle {
+        second: bool,
+        wait: Wait,
+    },
 }
 struct Simulation {
     clock: DeviceClock,
@@ -449,13 +459,14 @@ impl Simulation {
                         )
                         .map_err(|e| e.to_string())?;
                     runtime.synchronize_session(&mut self.session);
-                    self.palette_family = runtime.game().palette_family();
+                    self.palette_family = runtime.palette_family();
                     match progress {
                         GameplayProgress::Pending => {
                             self.phase = Phase::Playing(runtime);
                             break;
                         }
-                        GameplayProgress::Published { .. } => {
+                        GameplayProgress::Published { .. }
+                        | GameplayProgress::TransitionPublished { .. } => {
                             self.visible = runtime.visible_frame().clone();
                             repaint = true;
                             self.phase = Phase::Playing(runtime);
@@ -564,6 +575,28 @@ impl Simulation {
         use crate::opening::{EndingStage, EndingTitle};
         let mut dirty = false;
         loop {
+            // A sample owns the temporary IRQ vectors and sole source cursor.
+            // Drain its interrupts before the ordinary ending scheduler resumes.
+            if let EndingStep::Sample {
+                mut task,
+                state: mut sample_state,
+            } = step
+            {
+                let memory = DosSampleMemory::new(&resources.sound.samples, *b"MACH3\0\0\0");
+                if self.advance_ending_sample(target, &mut task, &mut sample_state, &memory)? {
+                    state.keyboard.clear_table();
+                    state.controls.sound_poll_counter &= 0xff00;
+                    state.controls.preferences.sound_disabled = sample_state.disabled;
+                    state.di = SamplePlayer::return_di();
+                    step = EndingStep::Poll;
+                } else {
+                    step = EndingStep::Sample {
+                        task,
+                        state: sample_state,
+                    };
+                    break;
+                }
+            }
             self.drain_background(state, &resources.sound.procedural)?;
             match step {
                 EndingStep::Entry { initial, poll_at } => {
@@ -651,8 +684,62 @@ impl Simulation {
                             poll_at: self.clock.tick(),
                         };
                     } else {
+                        let before = ending.phase();
                         ending.prepare_next_step().map_err(|e| e.to_string())?;
-                        step = if ending.phase() == EndingStage::Pause {
+                        let snapshot = ending.snapshot();
+                        let sample = snapshot.cycle == 0
+                            && ending.phase() == EndingStage::Hold
+                            && matches!(before, EndingStage::Approach | EndingStage::ScoreOverlay)
+                            && (snapshot.title == EndingTitle::GameOver || ending.new_best());
+                        step = if sample && state.controls.preferences.intro_audio_enabled {
+                            let (site, resource, count) = match snapshot.title {
+                                EndingTitle::GameOver => (0x27a4, Resource::Data9, 10_874),
+                                EndingTitle::HighScore => (0x29e6, Resource::Data7, 11_872),
+                            };
+                            let request = SampleRequest {
+                                resource,
+                                offset: 0,
+                                count,
+                                reverse: false,
+                            };
+                            events.push((
+                                self.clock.tick(),
+                                GameplayEvent::Action(crate::sound::GameplayAction::IntroSample {
+                                    site,
+                                    request,
+                                }),
+                            ));
+                            let mut sample_state = Box::new(SampleSoundState {
+                                disabled: state.controls.preferences.sound_disabled,
+                                ..SampleSoundState::default()
+                            });
+                            match SampleTask::begin(
+                                state.next_playback,
+                                request,
+                                &mut sample_state,
+                                CS,
+                                state.di,
+                                &mut self.clock,
+                            )
+                            .map_err(|e| e.to_string())?
+                            {
+                                SampleStart::Playing(task) => {
+                                    state.next_playback = state
+                                        .next_playback
+                                        .checked_add(1)
+                                        .ok_or("playback identity overflow")?;
+                                    EndingStep::Sample {
+                                        task,
+                                        state: sample_state,
+                                    }
+                                }
+                                SampleStart::RegularKeyboardPoll => {
+                                    // The wrapper ignores the return mask, including F1/Fire.
+                                    self.ending_poll(state, 0x73b2, events);
+                                    EndingStep::Poll
+                                }
+                            }
+                        } else if ending.phase() == EndingStage::Pause {
                             // The caller executes two distinct waits, clearing
                             // excess software counter units after each.
                             EndingStep::Intertitle {
@@ -663,6 +750,9 @@ impl Simulation {
                             EndingStep::Poll
                         };
                     }
+                }
+                EndingStep::Sample { .. } => {
+                    unreachable!("sample is serviced before ordinary IRQs")
                 }
                 EndingStep::Intertitle { second, wait } => {
                     if wait.poll(&mut state.procedural.counters) {
@@ -691,6 +781,80 @@ impl Simulation {
             }
         }
         Ok((step, dirty, None))
+    }
+
+    /// Stop at the scan deadline before allowing the sample to finish. A byte
+    /// received with IRQ0 is latched before its ISR; IRQ0 still precedes IRQ1.
+    fn advance_ending_sample(
+        &mut self,
+        target: u64,
+        task: &mut SampleTask,
+        state: &mut SampleSoundState,
+        memory: &DosSampleMemory<'_>,
+    ) -> Result<bool, String> {
+        let mut scan_latched = false;
+        loop {
+            if !scan_latched
+                && self
+                    .scans
+                    .front()
+                    .is_some_and(|(tick, _)| *tick <= self.clock.tick())
+            {
+                self.clock
+                    .keyboard_input(self.scans.pop_front().unwrap().1)
+                    .map_err(|e| e.to_string())?;
+                scan_latched = true;
+            }
+            match self
+                .clock
+                .advance_to(self.clock.tick())
+                .map_err(|e| e.to_string())?
+            {
+                Progress::Interrupt(irq) => {
+                    if irq.irq == 1 {
+                        scan_latched = false;
+                    }
+                    task.dispatch(irq, memory, state, &mut self.clock)
+                        .map_err(|e| e.to_string())?;
+                    continue;
+                }
+                Progress::Reached => {}
+            }
+            if task
+                .poll_return(state, &mut self.clock)
+                .map_err(|e| e.to_string())?
+                .is_some()
+            {
+                return Ok(true);
+            }
+            if self.clock.tick() >= target {
+                return Ok(false);
+            }
+            let deadline = self
+                .scans
+                .front()
+                .map_or(target, |(tick, _)| target.min(*tick));
+            let progress = self.clock.advance_to(deadline).map_err(|e| e.to_string())?;
+            // advance_to may already enter IRQ0 at the scan timestamp.
+            if !scan_latched
+                && self
+                    .scans
+                    .front()
+                    .is_some_and(|(tick, _)| *tick <= self.clock.tick())
+            {
+                self.clock
+                    .keyboard_input(self.scans.pop_front().unwrap().1)
+                    .map_err(|e| e.to_string())?;
+                scan_latched = true;
+            }
+            if let Progress::Interrupt(irq) = progress {
+                if irq.irq == 1 {
+                    scan_latched = false;
+                }
+                task.dispatch(irq, memory, state, &mut self.clock)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
     }
 
     fn drain_background(

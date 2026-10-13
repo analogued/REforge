@@ -378,8 +378,8 @@ absent from this executor and cannot determine how far gameplay advances.
 Foreground segments and handlers currently have zero instruction cost. Native
 pause's busy input loops use a caller-supplied positive polling interval in PIT
 clocks, rather than an emulated CPU speed. Stage-compositor CPU delay loops and
-individual framebuffer copies are not timed here; transition images retain the
-existing immediate stepping behavior. The speed adjustment retains its existing
+individual framebuffer copies are not timed here. Immediate stepping retains
+transition images without their live delays. The speed adjustment retains its existing
 pre-composition snapshot placement within an atomic pass. These approximations
 limit absolute timestamp comparisons with DOS execution; they do not introduce
 a separate nominal clock for the reconstructed waits.
@@ -388,14 +388,42 @@ Normal animated viewing uses this device clock from intro through pre-game,
 gameplay and ending waits. `live::GameplayRuntime` retains the most recently
 published frame while a pending pass composes another. Host time supplies bounded
 PIT budgets of about 10 ms; overdue budgets continue after repumping SDL events.
-The live bridge discards saved intermediate scene-transition images at each
-budget or publication boundary, retaining the ordinary published pass image;
-transition delay-loop and retrace timing remain deferred.
+The live bridge presents each scene-transition region at its simulation deadline,
+retaining the current image between publications. Region snapshots are consumed
+as they are presented rather than retained throughout the game.
 PC speaker synthesis observes the same device edges. Output failure or buffer
 recovery cannot change the guest continuation, PIT phase or random stream.
 Native F1 pause continues device execution; modern Pause/Break freezes both
 the guest timeline and queued host playback. Step/static/custom-period previews
 retain the nominal schedule above and remain silent.
+
+## Expanding scene transitions
+
+Routine `1edd` replaces the background through seven cumulative clipped regions,
+retaining the frozen world over them. Each draw calls `6147`, followed by
+`5bac` repeated `[10, 10, 10, 8, 5, 2, 2]` times. `5bac` polls bit 3 of CGA
+status port `03da` with interrupts disabled and a 30,000-iteration bound. It
+returns when retrace is already active; it does not require a fresh edge. Several
+calls can therefore complete in one retrace window. The repeat counts are not
+gameplay timer units, and the original duration depends on instruction/rendering
+cost and display phase.
+
+Normal live playback deliberately normalizes this sequence: each region remains
+published for `floor(PIT_HZ / 60)` clocks (19,886 at the configured frequency),
+giving about 116.7 ms for all seven. This is a CPU-independent presentation
+policy, not a reconstruction of exact original wall-clock duration. The original
+repeat counts remain in `TransitionFrame` for reference and silent preview use;
+live playback does not turn them into extra refresh edges or emulate busy-loop
+cost, interrupt masking or timeout behavior.
+
+Gameplay suspends at the actual transition call. Goal progression, weapon
+updates, subsequent script commands and their sound requests resume only after
+the last region's interval. PIT/audio and ordinary keyboard interrupts continue
+on the same timeline, without adding foreground control polls. Completed taps
+can still be missed by the next ordinary poll. Modern host pause freezes this
+timeline and preserves the pending region/deadline. Slow host presentation can
+omit intermediate displayed images, but cannot omit their simulation intervals
+or reorder the suspended foreground work.
 
 ## Player steering
 
@@ -442,7 +470,21 @@ departure draws from 48 through 972. Title sprite selection follows the original
 integer depth-size rule. High Score compares six decimal digits and draws the
 best score relative to the retained closest title rectangle. Projection and
 stable drawing order include all 29 world slots; pixels outside the viewport
-retain the final gameplay frame. Audio during the hold remains deferred.
+retain the final gameplay frame.
+
+Before its fifty hold waits, the mandatory Game Over title calls `4fff` at
+`27a4`, playing `DATA9` forward from offset zero for 10,874 bytes. The mandatory
+High Score title calls `4fb3` at `29e6` after drawing the score overlay, playing
+`DATA7` forward for 11,872 bytes only when the current score strictly exceeds
+the retained best score. Equal scores do not select that sample. Both wrappers
+require the application intro-audio flag (`DS:b666`); optional repeated titles
+omit these calls.
+
+These calls use the existing sample continuation and device clock. The visible
+approach/overlay remains while sample IRQs execute; hold waits begin after its
+teardown restores vectors/timer state and clears the ordinary key table. Native
+sound disable bypasses playback with an ordinary `73b2` poll whose return mask
+the ending ignores. Host mute or unavailable output does not bypass execution.
 
 Every title begins with an ordinary input poll (`26f1` for Game Over, `2864`
 for High Score), repeated until its returned mask is zero. This gate precedes
@@ -453,7 +495,7 @@ frontend's positive 64-PIT-clock interval, without modeling instruction cost.
 
 The mandatory first pair skips the optional ordinary polls in its approach,
 hold and departure loops. Conditional sample calls before the hold have their
-own keyboard behavior; that deferred sound path is distinct from animation polls.
+own keyboard behavior, distinct from animation polls.
 Later pairs poll before each two-unit animation wait, returning on any nonzero
 mask. Game Over uses sites `2736`, `27b8`, `27ea`; High Score uses `28fd`, `29fa`,
 `2a2c`. The score overlay has neither a poll nor a wait. Between repeated titles,

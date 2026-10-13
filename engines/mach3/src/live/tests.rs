@@ -143,6 +143,9 @@ fn run(chunk: u64) -> Run {
             {
                 GameplayProgress::Pending => break,
                 GameplayProgress::Published { .. } => images.push(runtime.visible_frame().clone()),
+                GameplayProgress::TransitionPublished { .. } => {
+                    images.push(runtime.visible_frame().clone())
+                }
                 GameplayProgress::Returned => panic!("prefix must remain in gameplay"),
             }
         }
@@ -273,6 +276,7 @@ fn native_pause_end_game_returns_only_after_three_published_passes() {
             .unwrap()
         {
             GameplayProgress::Published { body, pass } => publications.push((body, pass)),
+            GameplayProgress::TransitionPublished { .. } => {}
             GameplayProgress::Returned => break,
             GameplayProgress::Pending => panic!("game must return within budget"),
         }
@@ -365,8 +369,75 @@ fn transition_game(assets: &GraphicsAssets) -> Opening {
     .unwrap()
 }
 
+fn run_reveals(chunk: u64) -> Run {
+    let mut assets = graphics();
+    assets.primary.fill(0x55);
+    assets.alternate.fill(0xaa);
+    let procedural = program();
+    let resources = GameplayResources {
+        graphics: &assets,
+        procedural: &procedural,
+        samples: &Memory,
+    };
+    let log = Log::default();
+    let (state, mut clock) = context(log.clone(), true);
+    let mut runtime =
+        GameplayRuntime::begin(transition_game(&assets), state, CS, 64, &clock).unwrap();
+    for (tick, raw) in [
+        (2_750_000, 0x4b),
+        (2_810_000, 0xcb),
+        (2_840_000, 0x39),
+        (2_870_000, 0xb9),
+    ] {
+        runtime.schedule_scan(tick, raw, &clock).unwrap();
+    }
+    let mut gameplay = Vec::new();
+    let mut images = Vec::new();
+    while clock.tick() < 5_000_000 {
+        let target = (clock.tick() + chunk).min(5_000_000);
+        loop {
+            match runtime
+                .advance_until(target, &resources, &mut clock, &mut |t, e| {
+                    gameplay.push((t, e))
+                })
+                .unwrap()
+            {
+                GameplayProgress::Pending => break,
+                GameplayProgress::Published { .. }
+                | GameplayProgress::TransitionPublished { .. } => {
+                    images.push(runtime.visible_frame().clone())
+                }
+                GameplayProgress::Returned => panic!("prefix must remain in gameplay"),
+            }
+        }
+    }
+    assert!(
+        gameplay
+            .iter()
+            .any(|(_, e)| matches!(e, GameplayEvent::TransitionPublished { step: 7, .. }))
+    );
+    let state = format!("{:?}", runtime.state());
+    let world = format!("{:?}", runtime.game().snapshot());
+    drop(clock);
+    let device = Rc::try_unwrap(log).unwrap().into_inner();
+    Run {
+        device,
+        gameplay,
+        images,
+        state,
+        world,
+    }
+}
+
 #[test]
-fn live_scene_changes_discard_saved_steps_without_changing_publications_or_device_order() {
+fn reveal_deadlines_input_and_device_execution_are_invariant_under_host_budget_partitioning() {
+    let large = run_reveals(5_000_000);
+    assert_eq!(large, run_reveals(731));
+    assert_eq!(large, run_reveals(10_000));
+}
+
+#[test]
+fn live_scene_changes_consume_each_step_without_changing_executor_order() {
     let mut assets = graphics();
     assets.primary.fill(0x55);
     assets.alternate.fill(0xaa);
@@ -380,8 +451,10 @@ fn live_scene_changes_discard_saved_steps_without_changing_publications_or_devic
     let live_log = Log::default();
     let (raw_state, mut raw_clock) = context(raw_log.clone(), false);
     let (live_state, mut live_clock) = context(live_log.clone(), false);
-    let mut raw =
-        GameplayTask::begin(transition_game(&assets), raw_state, CS, 64, &raw_clock).unwrap();
+    let mut raw = GameplayTask::begin(transition_game(&assets), raw_state, CS, 64, &raw_clock)
+        .unwrap()
+        .with_transition_period(reforge_audio::PIT_HZ / 60)
+        .unwrap();
     let mut live =
         GameplayRuntime::begin(transition_game(&assets), live_state, CS, 64, &live_clock).unwrap();
     let mut changes = 0;
@@ -412,11 +485,17 @@ fn live_scene_changes_discard_saved_steps_without_changing_publications_or_devic
         if let GameplayProgress::Published { .. } = progress {
             assert_eq!(live.visible_frame(), raw.game().pass_frame());
         }
-        let discarded = raw.discard_transitions();
-        if discarded != 0 {
-            assert_eq!(discarded, 7);
-            changes += 1;
+        if let GameplayProgress::TransitionPublished { step, .. } = progress {
+            assert_eq!(live.visible_frame(), &raw.transition_frame().unwrap().frame);
+            assert_eq!(
+                live.palette_family(),
+                raw.transition_frame().unwrap().palette_family
+            );
+            if step == 7 {
+                changes += 1;
+            }
         }
+        assert_eq!(raw.discard_transitions(), 0);
         assert_eq!(
             live.task.discard_transitions(),
             0,
@@ -431,6 +510,85 @@ fn live_scene_changes_discard_saved_steps_without_changing_publications_or_devic
     assert_eq!(*raw_log.borrow(), *live_log.borrow());
     let (mut game, _) = live.into_parts().unwrap();
     assert!(game.take_transitions().is_empty());
+}
+
+#[test]
+fn reveal_publishes_seven_regions_while_interrupts_run_without_foreground_polls() {
+    let mut assets = graphics();
+    assets.primary.fill(0x55);
+    assets.alternate.fill(0xaa);
+    let procedural = program();
+    let resources = GameplayResources {
+        graphics: &assets,
+        procedural: &procedural,
+        samples: &Memory,
+    };
+    let log = Log::default();
+    let (state, mut clock) = context(log.clone(), false);
+    let mut runtime =
+        GameplayRuntime::begin(transition_game(&assets), state, CS, 64, &clock).unwrap();
+    let mut events = Vec::new();
+    loop {
+        let target = clock.tick() + 100_000;
+        assert!(target < 10_000_000);
+        if matches!(
+            runtime
+                .advance_until(target, &resources, &mut clock, &mut |t, e| events
+                    .push((t, e)))
+                .unwrap(),
+            GameplayProgress::TransitionPublished { step: 1, .. }
+        ) {
+            break;
+        }
+    }
+    let start = clock.tick();
+    let period = reforge_audio::PIT_HZ / 60;
+    let frozen = format!("{:?}", runtime.game().snapshot());
+    let preferences = runtime.state().controls.clone();
+    let counter = runtime.state().procedural.counters;
+    runtime.schedule_scan(start + 1, 0x3c, &clock).unwrap();
+    runtime
+        .schedule_scan(start + period / 2, 0xbc, &clock)
+        .unwrap();
+    events.clear();
+    let mut published = vec![(start, 1)];
+    loop {
+        let progress = runtime
+            .advance_until(start + period * 7, &resources, &mut clock, &mut |t, e| {
+                events.push((t, e))
+            })
+            .unwrap();
+        if let GameplayProgress::TransitionPublished { step, .. } = progress {
+            published.push((clock.tick(), step));
+        }
+        if clock.tick() >= start + period * 7 {
+            break;
+        }
+        assert!(matches!(
+            progress,
+            GameplayProgress::Pending | GameplayProgress::TransitionPublished { .. }
+        ));
+        assert_eq!(format!("{:?}", runtime.game().snapshot()), frozen);
+    }
+    assert_eq!(
+        published,
+        (0..7)
+            .map(|i| (start + period * i, i as u8 + 1))
+            .collect::<Vec<_>>()
+    );
+    assert!(events.iter().all(|(t,e)| *t >= start + period * 7 || !matches!(e, GameplayEvent::InputPoll { .. })));
+    assert_eq!(
+        format!("{:?}", runtime.state().controls),
+        format!("{preferences:?}")
+    );
+    assert!(!runtime.state().keyboard.held_keys(0).f2);
+    assert_ne!(runtime.state().procedural.counters, counter);
+    assert!(log.borrow().iter().any(|(stamp, event)| stamp.tick > start
+        && stamp.tick < start + period * 7
+        && matches!(
+            event,
+            ClockEvent::Action(SoundAction::Read { port: 0x60, .. })
+        )));
 }
 
 #[test]

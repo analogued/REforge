@@ -54,6 +54,7 @@ pub struct Ending {
     special: Special,
     random: Random,
     current_score: u32,
+    new_best: bool,
     vertical_origin: i32,
     camera_height: i16,
     strip_index: usize,
@@ -153,6 +154,7 @@ impl Ending {
             special: Special::from_snapshots(state.special),
             random,
             current_score,
+            new_best: false,
             vertical_origin: state.vertical_origin,
             camera_height: state.player.horizon,
             strip_index: state.strip_index,
@@ -209,6 +211,13 @@ impl Ending {
 
     pub fn snapshot(&self) -> EndingSnapshot {
         self.state.clone()
+    }
+
+    /// The original comparison marks only a strict improvement, before copying
+    /// score digits. Equal scores do not select the mandatory high-score sample.
+    #[cfg(feature = "viewer")]
+    pub(crate) fn new_best(&self) -> bool {
+        self.new_best
     }
 
     pub fn phase(&self) -> EndingStage {
@@ -374,6 +383,7 @@ impl Ending {
         record.lateral = 0;
         record.height = self.camera_height;
         if title == EndingTitle::HighScore {
+            self.new_best = self.current_score > self.state.best_score;
             self.state.best_score = self.state.best_score.max(self.current_score);
         }
         self.prepared_draw = Some(false);

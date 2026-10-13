@@ -387,6 +387,7 @@ impl Opening {
         let mut task = pass::PassTask::begin(self);
         loop {
             match task.resume(self, assets, input, sound)? {
+                pass::PassProgress::Transition => {}
                 pass::PassProgress::Action(action) => sound(action),
                 pass::PassProgress::Publish { .. } => task.publish(self),
                 pass::PassProgress::Returned => return Ok(true),
@@ -394,15 +395,11 @@ impl Opening {
         }
     }
 
-    fn finish_pass(
-        &mut self,
-        assets: &GraphicsAssets,
-        sound: &mut Foreground<'_>,
-    ) -> Result<(), Error> {
+    fn begin_finish_pass(&mut self, assets: &GraphicsAssets) -> Result<bool, Error> {
         self.hud
             .set_score_multiplier(if self.selected_layer == 1 { 4 } else { 1 });
         if self.render_pass != 3 {
-            return Ok(());
+            return Ok(false);
         }
         self.player.finish_body();
 
@@ -412,131 +409,132 @@ impl Opening {
             if self.overlay > 80 {
                 self.overlay = 0;
                 self.queue_transition(assets)?;
+                return Ok(true);
             }
         }
-        if self.rules.is_some() {
-            self.parse_commands(assets, sound)?;
-        } else {
-            if !self.enemy.active() {
-                let old_delay = self.script_delay;
-                self.script_delay += 1;
-                if old_delay >= 20 {
-                    self.script_delay = 1; // Non-wave handler repeats the delay gate once.
-                    match self.script_cursor {
-                        0 => self.terrain_selector = 5,
-                        1 => {} // Palette-family 1 is already active.
-                        2 => {
-                            self.enemy.spawn_command_with_sound(
-                                0x91,
-                                &mut self.random,
-                                self.player.snapshot().coordinates[1],
-                                usize::from(self.primary_count),
-                                sound,
-                            )?;
-                            self.script_delay = 0;
-                        }
-                        3 => self.terrain_selector = 7,
-                        4 => {
-                            self.enemy.spawn_command_with_sound(
-                                0x84,
-                                &mut self.random,
-                                0,
-                                usize::from(self.primary_count),
-                                sound,
-                            )?;
-                            self.script_delay = 0;
-                        }
-                        5 => self.terrain_selector = 6,
-                        6 => {
-                            self.enemy.spawn_command_with_sound(
-                                0x8e,
-                                &mut self.random,
-                                self.player.snapshot().coordinates[1],
-                                usize::from(self.primary_count),
-                                sound,
-                            )?;
-                            self.script_delay = 0;
-                        }
-                        7 => self.terrain_selector = 3,
-                        8 => {
-                            self.enemy.spawn_command_with_sound(
-                                0x8a,
-                                &mut self.random,
-                                self.player.snapshot().coordinates[1],
-                                usize::from(self.primary_count),
-                                sound,
-                            )?;
-                            self.script_delay = 0;
-                        }
-                        9 => self.terrain_selector = 7,
-                        10 => {
-                            self.random.next_word();
-                            self.primary_count += 1;
-                        }
-                        11 => {
-                            self.enemy.spawn_command_with_sound(
-                                0x88,
-                                &mut self.random,
-                                self.player.snapshot().coordinates[1],
-                                usize::from(self.primary_count),
-                                sound,
-                            )?;
-                            self.script_delay = 0;
-                        }
-                        12 => self.terrain_selector = 9,
-                        13 => self.special.spawn_command_40(&mut self.random, 28, false),
-                        14 => {
-                            self.enemy.spawn_command_with_sound(
-                                0x97,
-                                &mut self.random,
-                                self.player.snapshot().coordinates[1],
-                                usize::from(self.primary_count),
-                                sound,
-                            )?;
-                            self.script_delay = 0;
-                        }
-                        15 => self.terrain_selector = 9,
-                        16 => self.special.spawn_command_40(&mut self.random, 28, false),
-                        17 => {
-                            self.enemy.spawn_command_with_sound(
-                                0x96,
-                                &mut self.random,
-                                self.player.snapshot().coordinates[1],
-                                usize::from(self.primary_count),
-                                sound,
-                            )?;
-                            self.script_delay = 0;
-                        }
-                        18 => self.terrain_selector = 2,
-                        19 => {
-                            self.random.next_word();
-                            self.primary_count += 1;
-                        }
-                        20 => {
-                            self.enemy.spawn_command_with_sound(
-                                0x84,
-                                &mut self.random,
-                                self.player.snapshot().coordinates[1],
-                                usize::from(self.primary_count),
-                                sound,
-                            )?;
-                            self.script_delay = 0;
-                        }
-                        21 => self.terrain_selector = 2,
-                        22 => {
-                            self.enemy.spawn_command_with_sound(
-                                0x92,
-                                &mut self.random,
-                                self.player.snapshot().coordinates[1],
-                                usize::from(self.primary_count),
-                                sound,
-                            )?;
-                            self.script_delay = 0;
-                        }
-                        _ => return Err(Error::InvalidData("unsupported opening command".into())),
+        Ok(false)
+    }
+
+    fn finish_pass(&mut self, sound: &mut Foreground<'_>) -> Result<(), Error> {
+        if self.rules.is_none() && !self.enemy.active() {
+            let old_delay = self.script_delay;
+            self.script_delay += 1;
+            if old_delay >= 20 {
+                self.script_delay = 1; // Non-wave handler repeats the delay gate once.
+                match self.script_cursor {
+                    0 => self.terrain_selector = 5,
+                    1 => {} // Palette-family 1 is already active.
+                    2 => {
+                        self.enemy.spawn_command_with_sound(
+                            0x91,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                            sound,
+                        )?;
+                        self.script_delay = 0;
                     }
-                    self.script_cursor += 1;
+                    3 => self.terrain_selector = 7,
+                    4 => {
+                        self.enemy.spawn_command_with_sound(
+                            0x84,
+                            &mut self.random,
+                            0,
+                            usize::from(self.primary_count),
+                            sound,
+                        )?;
+                        self.script_delay = 0;
+                    }
+                    5 => self.terrain_selector = 6,
+                    6 => {
+                        self.enemy.spawn_command_with_sound(
+                            0x8e,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                            sound,
+                        )?;
+                        self.script_delay = 0;
+                    }
+                    7 => self.terrain_selector = 3,
+                    8 => {
+                        self.enemy.spawn_command_with_sound(
+                            0x8a,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                            sound,
+                        )?;
+                        self.script_delay = 0;
+                    }
+                    9 => self.terrain_selector = 7,
+                    10 => {
+                        self.random.next_word();
+                        self.primary_count += 1;
+                    }
+                    11 => {
+                        self.enemy.spawn_command_with_sound(
+                            0x88,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                            sound,
+                        )?;
+                        self.script_delay = 0;
+                    }
+                    12 => self.terrain_selector = 9,
+                    13 => self.special.spawn_command_40(&mut self.random, 28, false),
+                    14 => {
+                        self.enemy.spawn_command_with_sound(
+                            0x97,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                            sound,
+                        )?;
+                        self.script_delay = 0;
+                    }
+                    15 => self.terrain_selector = 9,
+                    16 => self.special.spawn_command_40(&mut self.random, 28, false),
+                    17 => {
+                        self.enemy.spawn_command_with_sound(
+                            0x96,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                            sound,
+                        )?;
+                        self.script_delay = 0;
+                    }
+                    18 => self.terrain_selector = 2,
+                    19 => {
+                        self.random.next_word();
+                        self.primary_count += 1;
+                    }
+                    20 => {
+                        self.enemy.spawn_command_with_sound(
+                            0x84,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                            sound,
+                        )?;
+                        self.script_delay = 0;
+                    }
+                    21 => self.terrain_selector = 2,
+                    22 => {
+                        self.enemy.spawn_command_with_sound(
+                            0x92,
+                            &mut self.random,
+                            self.player.snapshot().coordinates[1],
+                            usize::from(self.primary_count),
+                            sound,
+                        )?;
+                        self.script_delay = 0;
+                    }
+                    _ => return Err(Error::InvalidData("unsupported opening command".into())),
                 }
+                self.script_cursor += 1;
             }
         }
         let lateral = self.player.snapshot().coordinates[1];
@@ -818,13 +816,12 @@ impl Opening {
         });
     }
 
-    fn finish_world(
+    fn begin_finish_world(
         &mut self,
         assets: &GraphicsAssets,
-        full_projection: bool,
         effects: enemy::EnemyEffects,
         sound: &mut Foreground<'_>,
-    ) -> Result<(), Error> {
+    ) -> Result<pass::WorldCompletion, Error> {
         let player = self.player.snapshot();
         self.apply_enemy_effects(effects);
         let collected_fuel = self.terrain.update_half_step_at_speed_with_sound(
@@ -874,34 +871,53 @@ impl Opening {
                 }
             }
         }
-        if let Some(collision) = self.special.player_collision(
+        let collision = self.special.player_collision(
             assets,
             player.coordinates,
             player.resolved_sprite,
             self.player.snapshot().phase == 0,
             self.player.can_damage(),
-        )? {
-            for contact in collision.contacts.into_iter().flatten() {
-                match contact {
-                    special::SpecialContact::Award {
-                        site,
-                        points,
-                        transition,
-                    } => {
-                        sound::request(sound, site, Effect::Tone(Tone::First));
-                        self.hud.add_points(points);
-                        if let Some(transition) = transition {
-                            match transition {
-                                special::SpecialTransition::Normal => self.change_stage(false),
-                                special::SpecialTransition::Alternate => self.change_stage(true),
-                            }
-                            self.queue_transition(assets)?;
-                            self.follow_edge(true)?;
+        )?;
+        Ok(pass::WorldCompletion::new(
+            collision.map_or([None; 5], |collision| collision.contacts),
+        ))
+    }
+
+    /// Resume at the exact source point after each synchronous transition call.
+    fn resume_finish_world(
+        &mut self,
+        assets: &GraphicsAssets,
+        full_projection: bool,
+        task: &mut pass::WorldCompletion,
+        sound: &mut Foreground<'_>,
+    ) -> Result<bool, Error> {
+        if task.follow_goal {
+            self.follow_edge(true)?;
+            task.follow_goal = false;
+        }
+        while let Some(contact) = task.contacts.get(task.next_contact).copied() {
+            task.next_contact += 1;
+            let Some(contact) = contact else { continue };
+            match contact {
+                special::SpecialContact::Award {
+                    site,
+                    points,
+                    transition,
+                } => {
+                    sound::request(sound, site, Effect::Tone(Tone::First));
+                    self.hud.add_points(points);
+                    if let Some(transition) = transition {
+                        match transition {
+                            special::SpecialTransition::Normal => self.change_stage(false),
+                            special::SpecialTransition::Alternate => self.change_stage(true),
                         }
+                        self.queue_transition(assets)?;
+                        task.follow_goal = true;
+                        return Ok(true);
                     }
-                    special::SpecialContact::Damage(damage) => {
-                        self.player.hit_with_sound(damage, sound)
-                    }
+                }
+                special::SpecialContact::Damage(damage) => {
+                    self.player.hit_with_sound(damage, sound)
                 }
             }
         }
@@ -935,7 +951,8 @@ impl Opening {
             full_projection,
             self.vertical_origin,
             self.player.snapshot().horizon,
-        )
+        )?;
+        Ok(false)
     }
 
     #[cfg(test)]
@@ -1086,21 +1103,34 @@ impl Opening {
         Ok(())
     }
 
+    #[cfg(test)]
     fn parse_commands(
         &mut self,
         assets: &GraphicsAssets,
         sound: &mut Foreground<'_>,
     ) -> Result<(), Error> {
-        // Negative delays permit several commands in one invocation. Detect a
-        // resource cycle which would stall the original, instead of hanging UI.
-        let mut visited = std::collections::HashSet::new();
+        let mut task = pass::CommandTask::default();
+        while self.resume_commands(assets, &mut task, sound)? {}
+        Ok(())
+    }
+
+    fn resume_commands(
+        &mut self,
+        assets: &GraphicsAssets,
+        task: &mut pass::CommandTask,
+        sound: &mut Foreground<'_>,
+    ) -> Result<bool, Error> {
+        // Retain the cycle guard across transitions in a single parser invocation.
         while !self.enemy.active() {
             let old = self.script_delay as i16;
             self.script_delay = self.script_delay.wrapping_add(1);
             if old < progression::delay_threshold(self.difficulty) {
                 break;
             }
-            if !visited.insert((self.script_index, self.script_cursor, self.difficulty)) {
+            if !task
+                .visited
+                .insert((self.script_index, self.script_cursor, self.difficulty))
+            {
                 return Err(Error::InvalidData(
                     "encounter command cycle stalls without an active wave".into(),
                 ));
@@ -1154,6 +1184,7 @@ impl Opening {
                     0xc7 => {
                         self.overlay = 0;
                         self.queue_transition(assets)?;
+                        return Ok(true);
                     }
                     0xca => {
                         self.script_cursor = 0;
@@ -1162,10 +1193,12 @@ impl Opening {
                     0xcb => {
                         self.change_stage(true);
                         self.queue_transition(assets)?;
+                        return Ok(true);
                     }
                     0xcc => {
                         self.change_stage(false);
                         self.queue_transition(assets)?;
+                        return Ok(true);
                     }
                     0xcd => self.palette_family = 1,
                     0xce => self.palette_family = 0,
@@ -1186,6 +1219,7 @@ impl Opening {
                         self.layer = 0;
                         self.advance_strip();
                         self.queue_transition(assets)?;
+                        return Ok(true);
                     }
                     _ => {
                         return Err(Error::InvalidData(format!(
@@ -1195,7 +1229,7 @@ impl Opening {
                 },
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     fn finish_player(&mut self, reset_fuel: bool) {

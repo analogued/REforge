@@ -9,8 +9,8 @@ pub mod audio;
 mod input;
 pub use input::{EventClockSample, HostPause, HostShortcut, event_clock_sample, host_shortcut};
 
-/// Initial multiplier of the aspect-corrected display area for every engine.
-pub const DEFAULT_SCALE: u32 = 4;
+/// Used only when automatic startup sizing cannot query a usable desktop area.
+const AUTO_FALLBACK_SCALE: u32 = 4;
 
 use sdl3::{
     event::{Event, WindowEvent},
@@ -92,30 +92,42 @@ pub struct Window {
 }
 
 impl Window {
-    /// Request an initial drawable size of display dimensions times scale.
+    /// None requests the display's usable desktop area, ignoring decorations.
+    /// Some(scale) requests display dimensions times scale in drawable pixels.
     /// Desktop constraints can override sizing; later user resizes are retained.
     pub fn new(
         title: &str,
         display_width: u32,
         display_height: u32,
-        scale: u32,
+        scale: Option<u32>,
     ) -> Result<Self, String> {
-        if display_width == 0 || display_height == 0 || scale == 0 {
+        if display_width == 0 || display_height == 0 || scale == Some(0) {
             return Err("display dimensions and scale must be positive".into());
         }
         if title.contains('\0') {
             return Err("window title contains a NUL byte".into());
         }
         let width = display_width
-            .checked_mul(scale)
+            .checked_mul(scale.unwrap_or(1))
             .filter(|value| *value <= i32::MAX as u32)
             .ok_or("scaled window width is too large")?;
         let height = display_height
-            .checked_mul(scale)
+            .checked_mul(scale.unwrap_or(1))
             .filter(|value| *value <= i32::MAX as u32)
             .ok_or("scaled window height is too large")?;
         let sdl = sdl3::init().map_err(|error| error.to_string())?;
         let video = sdl.video().map_err(|error| error.to_string())?;
+        // Create auto windows at the primary display's reported work area so
+        // centering is based on the requested area, not a small bootstrap window.
+        // Re-query the window's selected display below and once after mapping.
+        let (width, height) = if scale.is_none() {
+            video
+                .get_primary_display()
+                .and_then(|display| display.get_usable_bounds())
+                .map_or((width, height), |bounds| (bounds.width(), bounds.height()))
+        } else {
+            (width, height)
+        };
         let mut window = video
             .window(title, width, height)
             .position_centered()
@@ -125,7 +137,7 @@ impl Window {
             .build()
             .map_err(|error| error.to_string())?;
         let minimum_pixels = (display_width, display_height);
-        request_initial_pixel_size(&mut window, (width, height), minimum_pixels)?;
+        request_initial_size(&mut window, minimum_pixels, scale)?;
         // None lets SDL select a renderer supported by the host, including GPU backends.
         let mut canvas =
             sdl3::render::create_renderer(window, None).map_err(|error| error.to_string())?;
@@ -149,7 +161,7 @@ impl Window {
             return Err(sdl3::get_error().to_string());
         }
         sync_window(canvas.window());
-        if request_initial_pixel_size(canvas.window_mut(), (width, height), minimum_pixels)? {
+        if request_initial_size(canvas.window_mut(), minimum_pixels, scale)? {
             sync_window(canvas.window());
         }
         let events = sdl.event_pump().map_err(|error| error.to_string())?;
@@ -244,13 +256,56 @@ fn update_minimum_size(window: &mut SdlWindow, pixels: (u32, u32)) -> Result<(),
     Ok(())
 }
 
-fn request_initial_pixel_size(
+/// Desktop bounds are window coordinates, while explicit multiples target
+/// drawable pixels. Do not convert auto bounds by density a second time.
+fn initial_window_size(
+    display_pixels: (u32, u32),
+    scale: Option<u32>,
+    density: f32,
+    usable: Option<(u32, u32)>,
+) -> Result<(u32, u32), String> {
+    if scale.is_none() {
+        if let Some((width, height)) = usable.filter(|&(w, h)| w > 0 && h > 0) {
+            let minimum = window_size_for_pixels(display_pixels, density)?;
+            return Ok((width.max(minimum.0), height.max(minimum.1)));
+        }
+    }
+    let multiplier = scale.unwrap_or(AUTO_FALLBACK_SCALE);
+    let dimension = |pixels: u32| {
+        pixels
+            .checked_mul(multiplier)
+            .filter(|&value| value > 0 && value <= i32::MAX as u32)
+            .ok_or_else(|| "scaled window dimension is out of range".to_string())
+    };
+    window_size_for_pixels(
+        (dimension(display_pixels.0)?, dimension(display_pixels.1)?),
+        density,
+    )
+}
+
+fn request_initial_size(
     window: &mut SdlWindow,
-    pixels: (u32, u32),
-    minimum_pixels: (u32, u32),
+    display_pixels: (u32, u32),
+    scale: Option<u32>,
 ) -> Result<bool, String> {
-    update_minimum_size(window, minimum_pixels)?;
-    let size = window_size_for_pixels(pixels, window.pixel_density())?;
+    update_minimum_size(window, display_pixels)?;
+    let usable = if scale.is_none() {
+        match window
+            .get_display()
+            .and_then(|display| display.get_usable_bounds())
+        {
+            Ok(bounds) => Some((bounds.width(), bounds.height())),
+            Err(error) => {
+                eprintln!(
+                    "REforge: cannot query usable desktop area: {error}; using scale {AUTO_FALLBACK_SCALE}"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let size = initial_window_size(display_pixels, scale, window.pixel_density(), usable)?;
     if window.size() == size {
         return Ok(false);
     }
@@ -294,6 +349,32 @@ mod tests {
     use sdl3::surface::Surface;
 
     #[test]
+    fn auto_uses_desktop_coordinates_and_explicit_scale_uses_drawable_pixels() {
+        for density in [1.0, 1.25, 1.5, 2.0] {
+            assert_eq!(
+                initial_window_size((320, 240), None, density, Some((1920, 1040))).unwrap(),
+                (1920, 1040)
+            );
+            assert_eq!(
+                initial_window_size((320, 240), Some(4), density, Some((1920, 1040))).unwrap(),
+                window_size_for_pixels((1280, 960), density).unwrap()
+            );
+            for usable in [None, Some((0, 0))] {
+                assert_eq!(
+                    initial_window_size((320, 240), None, density, usable).unwrap(),
+                    window_size_for_pixels((1280, 960), density).unwrap()
+                );
+            }
+        }
+        assert_eq!(
+            initial_window_size((320, 240), None, 2.0, Some((100, 100))).unwrap(),
+            (160, 120)
+        );
+        assert!(initial_window_size((320, 240), Some(0), 1.0, None).is_err());
+        assert!(initial_window_size((u32::MAX, 240), Some(16), 1.0, None).is_err());
+    }
+
+    #[test]
     fn pixel_targets_compensate_density_and_round_up() {
         for (pixels, density, expected) in [
             ((1280, 960), 1.0, (1280, 960)),
@@ -316,9 +397,61 @@ mod tests {
 
     #[test]
     #[ignore = "requires a desktop or SDL_VIDEODRIVER=dummy; run with --test-threads=1"]
+    fn auto_startup_preserves_integer_presentation_and_user_resize() {
+        let mut display = Window::new("REforge auto display check", 320, 240, None).unwrap();
+        assert_eq!(
+            display.canvas.logical_size(),
+            (
+                320,
+                240,
+                sdl3::sys::render::SDL_LOGICAL_PRESENTATION_INTEGER_SCALE
+            )
+        );
+        let window = display.canvas.window();
+        eprintln!(
+            "auto: usable={:?}, window={:?}, drawable={:?}, density={}",
+            window
+                .get_display()
+                .and_then(|display| display.get_usable_bounds()),
+            window.size(),
+            window.size_in_pixels(),
+            window.pixel_density()
+        );
+        let creator = display.texture_creator();
+        for (width, format, bytes) in [(320, FrameFormat::Rgba, 4), (640, FrameFormat::Rgb, 3)] {
+            let mut frame = FrameTexture::new(&creator, width, 200, format).unwrap();
+            frame
+                .update(&vec![255; width as usize * 200 * bytes])
+                .unwrap();
+            display.present(&frame).unwrap();
+        }
+        // Startup-only auto sizing must not undo later arbitrary window sizes.
+        let resized =
+            window_size_for_pixels((1000, 750), display.canvas.window().pixel_density()).unwrap();
+        display
+            .canvas
+            .window_mut()
+            .set_size(resized.0, resized.1)
+            .unwrap();
+        sync_window(display.canvas.window());
+        let actual = display.canvas.window().size();
+        display.poll_events().for_each(drop);
+        assert_eq!(display.canvas.window().size(), actual);
+        assert_eq!(
+            display.canvas.logical_size(),
+            (
+                320,
+                240,
+                sdl3::sys::render::SDL_LOGICAL_PRESENTATION_INTEGER_SCALE
+            )
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a desktop or SDL_VIDEODRIVER=dummy; run with --test-threads=1"]
     fn high_density_window_pixel_size_and_user_resize() {
-        for scale in [1, DEFAULT_SCALE] {
-            let mut display = Window::new("REforge display check", 320, 240, scale).unwrap();
+        for scale in [1, 4] {
+            let mut display = Window::new("REforge display check", 320, 240, Some(scale)).unwrap();
             let window = display.canvas.window();
             assert_ne!(
                 window.window_flags().0 & sdl3::sys::video::SDL_WINDOW_HIGH_PIXEL_DENSITY.0,

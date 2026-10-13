@@ -10,6 +10,7 @@ enum Value {
     Flag,
     Path,
     Integer(u64, u64),
+    Scale,
     Rate,
     Choice(&'static [&'static str]),
     Actors,
@@ -47,9 +48,9 @@ const SPECS: &[Spec] = &[
     Spec {
         name: "--scale",
         game: None,
-        value: Value::Integer(1, 16),
+        value: Value::Scale,
         dev: false,
-        description: "Initial drawable pixel multiplier, 1..16 (default 4 for both games)",
+        description: "Initial drawable pixel multiplier, auto|1..16 (default auto for both games)",
     },
     Spec {
         name: "--help",
@@ -303,6 +304,20 @@ fn validate(spec: &Spec, value: OsString, game: Game) -> Result<OsString, String
                 Some(number) => return Ok(number.to_string().into()),
                 None => return Err(format!("expected an integer between {min} and {max}")),
             }
+        }
+        Value::Scale => {
+            if text == "auto" {
+                return Ok(value);
+            }
+            let number = if let Some(hex) = text.strip_prefix("0x") {
+                u32::from_str_radix(hex, 16).ok()
+            } else {
+                text.parse::<u32>().ok()
+            };
+            return number
+                .filter(|number| (1..=16).contains(number))
+                .map(|number| number.to_string().into())
+                .ok_or_else(|| "expected auto or an integer between 1 and 16".into());
         }
         Value::Rate => {
             if !text
@@ -568,6 +583,59 @@ mod tests {
         }
     }
     #[test]
+    fn scale_defaults_are_left_to_engines_and_auto_is_forwarded() {
+        assert_eq!(takes_value("--scale"), Some(true));
+        assert!(help(None).contains("auto|1..16 (default auto for both games)"));
+        for game in [Game::AlleyCat, Game::Mach3] {
+            let defaults = prepare(args(&[]), game);
+            assert!(defaults.args.is_empty());
+            assert!(defaults.warnings.is_empty());
+            accepted(&defaults, game);
+            for input in [vec!["--scale", "auto"], vec!["--scale=auto"]] {
+                let result = prepare(args(&input), game);
+                assert_eq!(result.args, args(&["--scale", "auto"]));
+                assert!(result.warnings.is_empty());
+                accepted(&result, game);
+            }
+            for (value, expected) in [("1", "1"), ("16", "16"), ("0x4", "4")] {
+                let result = prepare(args(&["--scale", value]), game);
+                assert_eq!(result.args, args(&["--scale", expected]));
+                assert!(result.warnings.is_empty());
+                accepted(&result, game);
+            }
+            for (first, last) in [("auto", "3"), ("3", "auto")] {
+                let result = prepare(args(&["--scale", first, "--scale", last]), game);
+                assert_eq!(result.args, args(&["--scale", last]));
+                assert!(result.warnings.is_empty());
+                accepted(&result, game);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_scale_warns_and_retains_auto_fixed_or_engine_default() {
+        for game in [Game::AlleyCat, Game::Mach3] {
+            for value in ["0", "17", "-1", "1.5", "Auto", "", "0x", "4294967296"] {
+                for previous in [None, Some("auto"), Some("3")] {
+                    let mut input = Vec::new();
+                    if let Some(previous) = previous {
+                        input.extend(["--scale", previous]);
+                    }
+                    let invalid = format!("--scale={value}");
+                    input.push(&invalid);
+                    let result = prepare(args(&input), game);
+                    let expected = previous
+                        .map(|value| args(&["--scale", value]))
+                        .unwrap_or_default();
+                    assert_eq!(result.args, expected, "{value:?}");
+                    assert_eq!(result.warnings.len(), 1, "{value:?}");
+                    accepted(&result, game);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn invalid_values_and_foreign_options_warn_and_preserve_previous_values() {
         let result = prepare(
             args(&[
@@ -829,6 +897,7 @@ mod tests {
                     values.push(&numeric);
                 }
                 Value::Rate => values.push("1"),
+                Value::Scale => values.push("auto"),
                 Value::Choice(choices) => values.push(choices[0]),
                 Value::Actors | Value::Damage => values.push("none"),
             }

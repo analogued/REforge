@@ -9,10 +9,10 @@ use crate::{
 };
 use std::{ffi::OsString, path::PathBuf};
 
-const HELP: &str = "Usage: reforge --original <assets-directory> [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--step|--static] [--controls] [--period-ms 1..5000] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
-Default drawable scale: 4 (1280x960 pixels); CGA pixels are displayed at 4:3.\n\
+Default drawable scale: auto (fit the usable display); CGA pixels are displayed at 4:3.\n\
 Gameplay continues until game over, then displays Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
 --step: fresh Enter presses advance one body or title step. --static: show initial scene only.\n\
@@ -91,11 +91,20 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                 directory = Some(PathBuf::from(path));
             }
             Some("--scale") => {
-                options.scale = args
-                    .next()
-                    .and_then(|arg| arg.to_str().and_then(|arg| arg.parse::<u32>().ok()))
-                    .filter(|scale| (1..=16).contains(scale))
-                    .ok_or_else(|| "--scale must be an integer between 1 and 16".to_string())?;
+                let value = args.next().ok_or_else(|| {
+                    "--scale must be auto or an integer between 1 and 16".to_string()
+                })?;
+                options.scale = match value.to_str() {
+                    Some("auto") => None,
+                    value => Some(
+                        value
+                            .and_then(|value| value.parse::<u32>().ok())
+                            .filter(|scale| (1..=16).contains(scale))
+                            .ok_or_else(|| {
+                                "--scale must be auto or an integer between 1 and 16".to_string()
+                            })?,
+                    ),
+                };
             }
             Some("--controls") => {
                 options.controls = true;
@@ -187,6 +196,43 @@ mod tests {
     }
 
     #[test]
+    fn scale_defaults_to_auto_and_last_explicit_selection_wins() {
+        let (_, defaults) = parse_args(args(&["--original", "assets"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(defaults.scale, None);
+        assert!(help().contains("--scale auto|1..16"));
+        for (value, expected) in [("auto", None), ("1", Some(1)), ("16", Some(16))] {
+            let (_, options) = parse_args(args(&["--original", "assets", "--scale", value]))
+                .unwrap()
+                .unwrap();
+            assert_eq!(options.scale, expected);
+        }
+        for (first, last, expected) in [("auto", "3", Some(3)), ("3", "auto", None)] {
+            let (_, options) = parse_args(args(&[
+                "--original",
+                "assets",
+                "--scale",
+                first,
+                "--scale",
+                last,
+            ]))
+            .unwrap()
+            .unwrap();
+            assert_eq!(options.scale, expected);
+        }
+        for value in ["0", "17", "-1", "1.5", "Auto", "", "4294967296"] {
+            assert!(
+                parse_args(args(&["--original", "assets", "--scale", value]))
+                    .unwrap_err()
+                    .contains("--scale"),
+                "{value:?}"
+            );
+        }
+        assert!(parse_args(args(&["--original", "assets", "--scale"])).is_err());
+    }
+
+    #[test]
     fn original_path_and_controls_are_independent_in_either_order() {
         for values in [
             &[
@@ -207,7 +253,7 @@ mod tests {
             let (directory, options) = parse_args(args(values)).unwrap().unwrap();
             assert_eq!(directory, PathBuf::from("assets with spaces"));
             assert!(options.controls);
-            assert_eq!(options.scale, 2);
+            assert_eq!(options.scale, Some(2));
         }
         let (_, options) = parse_args(args(&["--original", "assets"]))
             .unwrap()

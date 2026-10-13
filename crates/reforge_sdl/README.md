@@ -2,8 +2,8 @@
 
 `reforge_sdl` owns SDL3 windows, renderer setup, event pumping and reusable
 streaming frame textures and queued audio output for REforge's engines. It also
-defines the common
-initial display multiplier (4), Ctrl+Q quit and Pause/Break toggle recognition.
+implements common startup sizing, Ctrl+Q quit and Pause/Break toggle recognition.
+Engines choose their default sizing mode; both current engines default to auto.
 Ctrl+Q follows the Q letter in the current keyboard layout, rather than the
 physical Q position on a US keyboard. Engines decide when pausing is available
 and retain their own additional bindings. Pause repeats and desktop modifier
@@ -37,14 +37,22 @@ width, monochrome columns must be discarded; odd display multipliers give them
 unequal widths. Nearest sampling selects source colours without blending;
 linear filtering would blend them.
 
-Windows request high pixel density. The initial multiplier targets drawable
-pixels: 4 requests a 1280×960 rendering area, regardless of the desktop's content
-scale. SDL's window pixel density converts that target to platform window
-coordinates; rounding upward can leave a few extra border pixels. A hidden
-window is sized before mapping, then its density is checked again after its
-first presentation. Desktop size constraints can still reduce the available
-area. The rendering area is not a guarantee about final physical monitor pixels:
-the compositor can apply further transformations.
+Windows request high pixel density. Auto requests the usable desktop area
+reported by SDL for the window's display, in platform window coordinates. It
+does not subtract window decorations, maximize the window or round the requested
+window dimensions to a display multiple. The desktop can constrain the request;
+integer presentation fits the game inside the actual drawable area. On backends
+without reserved-area information, SDL may report the full monitor bounds.
+If the display query fails, startup falls back to a fixed multiplier of 4.
+
+An explicit multiplier targets drawable pixels: 4 requests a 1280×960 rendering
+area, regardless of the desktop's content scale. SDL's window pixel density
+converts that target to platform window coordinates; rounding upward can leave
+a few extra border pixels. A hidden window is sized before mapping, then startup
+sizing is checked once more after its first presentation for the selected display
+and density. Desktop size constraints can still reduce the available area. The
+rendering area is not a guarantee about final physical monitor pixels: the
+compositor can apply further transformations.
 
 SDL renders the original-resolution texture directly into the drawable area;
 engines do not upload an enlarged image. SDL tracks drawable changes during
@@ -90,7 +98,7 @@ cargo test --locked -p reforge_sdl high_density_window_pixel_size_and_user_resiz
 ```
 
 Run it on an otherwise idle desktop or with `SDL_VIDEODRIVER=dummy`. The native
-check expects space for the default rendering area. Dummy/software checks do not
+check expects space for a 1280×960 rendering area. Dummy/software checks do not
 establish the compositor's final monitor-pixel mapping.
 
 Authored project code has no selected license yet. Preserve the

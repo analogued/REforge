@@ -38,7 +38,7 @@ const HELP: &str = "Alley Cat — game reconstruction
 Usage: reforge --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
-  --scale N               Initial drawable pixel multiplier, 1..16 (default: 4)
+  --scale auto|1..16       Initial drawable pixel multiplier (default: auto)
   --difficulty N          Initial difficulty 0..7; skips the skill question
   --help                  Show this help
 
@@ -96,7 +96,7 @@ enum StartScene {
 struct Options {
     original: PathBuf,
     machine: Machine,
-    scale: u16,
+    scale: Option<u32>,
     difficulty: u16,
     difficulty_selected: bool,
     #[cfg(feature = "dev-tools")]
@@ -156,11 +156,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
     let mut result = Options {
         original: PathBuf::new(),
         machine: Machine::Cga,
-        // Headless builds keep the same CLI default without linking SDL.
-        #[cfg(feature = "sdl")]
-        scale: reforge_sdl::DEFAULT_SCALE as u16,
-        #[cfg(not(feature = "sdl"))]
-        scale: 4,
+        scale: None,
         difficulty: 0,
         difficulty_selected: false,
         #[cfg(feature = "dev-tools")]
@@ -207,7 +203,14 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
                     _ => return Err("Machine must be cga or pcjr".into()),
                 }
             }
-            "--scale" => result.scale = integer(&value()?)?,
+            "--scale" => {
+                let value = value()?;
+                result.scale = if value == "auto" {
+                    None
+                } else {
+                    Some(u32::from(integer(&value)?))
+                };
+            }
             "--difficulty" => {
                 result.difficulty = integer(&value()?)?;
                 result.difficulty_selected = true;
@@ -259,8 +262,8 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
         }
     }
     result.original = original.ok_or("Supply --original /path/to/CAT.EXE")?;
-    if !(1..=16).contains(&result.scale) {
-        return Err("Scale must be between 1 and 16".into());
+    if result.scale.is_some_and(|scale| !(1..=16).contains(&scale)) {
+        return Err("Scale must be auto or an integer between 1 and 16".into());
     }
     if result.difficulty > 7 {
         return Err("Difficulty must be between 0 and 7".into());
@@ -457,7 +460,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
 #[cfg(feature = "dev-tools")]
 fn run_development(
     alley: &mut Alley,
-    scale: u16,
+    scale: Option<u32>,
     options: DiagnosticOptions,
     startup: Option<Startup>,
 ) -> Result<(), String> {
@@ -676,7 +679,7 @@ fn present_splash(
 #[cfg(feature = "dev-tools")]
 fn splash_preview(
     mut splash: Splash,
-    scale: u16,
+    scale: Option<u32>,
     options: DiagnosticOptions,
 ) -> Result<(), String> {
     if options.headless {
@@ -688,12 +691,8 @@ fn splash_preview(
     } else {
         #[cfg(feature = "sdl")]
         {
-            let display = alleycat::platform::Display::new(
-                "REforge — Alley Cat splash",
-                320,
-                240,
-                u32::from(scale),
-            )?;
+            let display =
+                alleycat::platform::Display::new("REforge — Alley Cat splash", 320, 240, scale)?;
             let creator = display.texture_creator();
             let mut window =
                 alleycat::platform::Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
@@ -791,7 +790,7 @@ fn catch_up_batch(
 #[cfg(feature = "sdl")]
 fn interactive(
     alley: &mut Alley,
-    scale: u16,
+    scale: Option<u32>,
     startup: Option<Startup>,
     #[cfg(feature = "dev-tools")] steps: Option<usize>,
     #[cfg(feature = "dev-tools")] trace: &mut Option<BufWriter<File>>,
@@ -800,8 +799,7 @@ fn interactive(
     use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
 
-    let display =
-        alleycat::platform::Display::new("REforge — Alley Cat", 320, 240, u32::from(scale))?;
+    let display = alleycat::platform::Display::new("REforge — Alley Cat", 320, 240, scale)?;
     let creator = display.texture_creator();
     let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
     if let Some(mut startup) = startup {
@@ -934,7 +932,7 @@ fn interactive(
 #[cfg(all(feature = "sdl", feature = "dev-tools"))]
 fn interactive_diagnostic(
     alley: &mut Alley,
-    scale: u16,
+    scale: Option<u32>,
     startup: Option<Startup>,
     step_hz: f64,
     steps: Option<usize>,
@@ -942,8 +940,7 @@ fn interactive_diagnostic(
 ) -> Result<(), String> {
     use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
-    let display =
-        alleycat::platform::Display::new("REforge — Alley Cat", 320, 240, u32::from(scale))?;
+    let display = alleycat::platform::Display::new("REforge — Alley Cat", 320, 240, scale)?;
     let creator = display.texture_creator();
     let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
     if let Some(mut startup) = startup {
@@ -1202,6 +1199,49 @@ mod tests {
     }
 
     #[test]
+    fn scale_defaults_to_auto_and_last_explicit_selection_wins() {
+        assert_eq!(
+            parse(&["--original", "example.exe"])
+                .unwrap()
+                .unwrap()
+                .scale,
+            None
+        );
+        assert!(HELP.contains("--scale auto|1..16"));
+        for (value, expected) in [
+            ("auto", None),
+            ("1", Some(1)),
+            ("16", Some(16)),
+            ("0x4", Some(4)),
+        ] {
+            let options = parse(&["--original", "example.exe", "--scale", value])
+                .unwrap()
+                .unwrap();
+            assert_eq!(options.scale, expected);
+        }
+        for (first, last, expected) in [("auto", "3", Some(3)), ("3", "auto", None)] {
+            let options = parse(&[
+                "--original",
+                "example.exe",
+                "--scale",
+                first,
+                "--scale",
+                last,
+            ])
+            .unwrap()
+            .unwrap();
+            assert_eq!(options.scale, expected);
+        }
+        for value in ["0", "17", "-1", "1.5", "Auto", "", "65536"] {
+            assert!(
+                parse(&["--original", "example.exe", "--scale", value]).is_err(),
+                "{value:?}"
+            );
+        }
+        assert!(parse(&["--original", "example.exe", "--scale"]).is_err());
+    }
+
+    #[test]
     fn player_options_remain_available() {
         let options = parse(&[
             "--original",
@@ -1217,7 +1257,7 @@ mod tests {
         .unwrap();
         assert_eq!(options.original, PathBuf::from("example.exe"));
         assert_eq!(options.machine, Machine::Pcjr);
-        assert_eq!((options.scale, options.difficulty), (3, 7));
+        assert_eq!((options.scale, options.difficulty), (Some(3), 7));
         assert!(options.difficulty_selected);
         assert!(parse(&["--help"]).unwrap().is_none());
     }

@@ -21,9 +21,15 @@ cargo run --locked --release -p reforge -- --controls --original /path/to/mach3-
 
 The built application is `target/release/reforge`, unless `CARGO_TARGET_DIR`
 selects another output path. Run `reforge --original <path> --help` for game-specific options.
-Both games request a 1280×960 window by default (4× the aspect-corrected 320×240 display
-area); `--scale 1..16` overrides it. Ctrl+Q quits either game, and Pause/Break
-toggles pause during gameplay. Each game retains its additional bindings.
+Both games default to `--scale auto`, requesting SDL's reported usable display
+area as an ordinary window's client size, without subtracting window decorations.
+SDL fits the image at an integer multiple of the aspect-corrected 320×240 display
+area, with black bars inside the window actually granted by the desktop.
+`--scale 1..16` requests a fixed drawable pixel multiplier; `--scale 4` requests
+1280×960 pixels. SDL may report the full monitor area when usable bounds are
+unavailable; an actual query error makes auto fall back to scale 4.
+Ctrl+Q quits either game, and Pause/Break toggles pause during gameplay.
+Each game retains its additional bindings.
 See each game's README for supported input versions, controls and current limits.
 
 `--original` accepts a game directory or a required original file. For Alley Cat,

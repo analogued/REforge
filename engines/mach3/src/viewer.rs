@@ -42,7 +42,8 @@ pub enum Playback {
 #[derive(Clone, Debug)]
 pub struct Options {
     pub f3_mode: crate::gameplay::F3Mode,
-    pub scale: u32,
+    /// None fits the usable display; Some requests a fixed drawable multiplier.
+    pub scale: Option<u32>,
     pub playback: Playback,
     pub controls: bool,
     pub audio_renderer: crate::sound::render::AudioRenderer,
@@ -57,7 +58,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             f3_mode: crate::gameplay::F3Mode::Press,
-            scale: reforge_sdl::DEFAULT_SCALE,
+            scale: None,
             playback: Playback::Animated,
             controls: false,
             audio_renderer: crate::sound::render::AudioRenderer::Speaker,
@@ -134,7 +135,7 @@ pub fn run(frames: &StartupFrames, scale: u32) -> Result<(), String> {
     run_with_options(
         frames,
         Options {
-            scale,
+            scale: Some(scale),
             ..Options::default()
         },
     )
@@ -166,8 +167,11 @@ pub fn run_with_sound(
         eprintln!("warning: step/static and custom-period diagnostics use silent nominal stepping");
         return run_inner(frames, options, Some(rules));
     }
-    if !(1..=16).contains(&options.scale) {
-        return Err("window scale must be between 1 and 16".into());
+    if options
+        .scale
+        .is_some_and(|scale| !(1..=16).contains(&scale))
+    {
+        return Err("window scale must be auto or an integer between 1 and 16".into());
     }
     realtime::run(
         frames,
@@ -1099,8 +1103,8 @@ fn run_inner(
     rules: Option<ScriptRules>,
 ) -> Result<(), String> {
     let scale = options.scale;
-    if !(1..=16).contains(&scale) {
-        return Err("window scale must be between 1 and 16".into());
+    if scale.is_some_and(|scale| !(1..=16).contains(&scale)) {
+        return Err("window scale must be auto or an integer between 1 and 16".into());
     }
     if options.body_period.is_zero() || options.body_period > std::time::Duration::from_secs(5) {
         return Err("opening period must be greater than zero and at most five seconds".into());
@@ -1480,7 +1484,7 @@ mod tests {
             ),
             Action::Continue
         );
-        assert_eq!(Options::default().scale, reforge_sdl::DEFAULT_SCALE);
+        assert_eq!(Options::default().scale, None);
     }
 
     fn space(down: bool, repeat: bool) -> Event {

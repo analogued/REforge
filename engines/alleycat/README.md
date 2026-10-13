@@ -73,16 +73,20 @@ of the same glyphs, including in headless builds.
 
 `--machine pcjr` selects the PCjr palette and player countdown; the default is
 `cga`. Both modes use the same packed 320×200, four-colour framebuffer. Pixels
-have a 5:6 width-to-height ratio: the initial 1280×960 drawable target displays
-them at 4:3, with nearest-neighbor sampling and no CRT shader. `--scale N` selects
-an initial drawable target of `320*N` × `240*N` pixels, with a default multiplier
-of 4 and accepted values from 1 through 16. Use `--scale 3` for 960×720.
-Resizing or maximizing uses integer multiples of the 320×240 display area,
-preserving 4:3 with black bars as needed. The
+have a 5:6 width-to-height ratio and are displayed at 4:3, with nearest-neighbor
+sampling and no CRT shader. The default `--scale auto` requests SDL's reported
+usable display area as an ordinary window's client size, without subtracting
+window decorations. SDL may report the full monitor area when usable bounds are
+unavailable; an actual query error makes auto fall back to scale 4.
+`--scale N`, from 1 through 16, selects an initial drawable target of
+`320*N` × `240*N` pixels. Use `--scale 3` for 960×720 or `--scale 4` for 1280×960.
+SDL fits the image at integer multiples of the 320×240 display area inside the
+actual granted window, preserving 4:3 with black bars as needed, including after
+resizing or maximizing. The
 [shared SDL3 backend](../../crates/reforge_sdl/README.md) requests high pixel density
-and compensates startup window coordinates for drawable density. The desktop
-can constrain window size or further transform the image. SDL selects the
-renderer; vsync is requested by default and falls back with a warning when
+and converts explicit pixel targets to window coordinates using drawable density.
+The desktop can constrain window size or further transform the image. SDL selects
+the renderer; vsync is requested by default and falls back with a warning when
 unsupported. Presentation sync does not replace the virtual game clock.
 Host display vsync is requested when
 supported; game timing still follows the virtual PIT/video clocks. Composite

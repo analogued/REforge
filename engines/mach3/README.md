@@ -185,15 +185,19 @@ option is available only with `dev-tools` and retains normal gameplay input
 behavior. For the standalone viewer, enable `--features viewer,dev-tools`.
 See [input tracing](docs/input-tracing.md) for the diagnostic format and limits.
 
-The default requested drawable size is 1280 by 960 pixels (4x). `--scale 1..16`
-sets its initial scale; scale 8 gives 2560 by 1920. The
-[shared SDL3 backend](../../crates/reforge_sdl/README.md)
-requests high pixel density and converts the initial pixel target to window
+The default `--scale auto` requests SDL's reported usable display area as an
+ordinary window's client size, without subtracting window decorations. SDL may
+report the full monitor area when usable bounds are unavailable; an actual query
+error makes auto fall back to scale 4. `--scale 1..16` requests a fixed initial
+drawable pixel multiplier; scale 4 gives 1280 by 960 pixels, and scale 8 gives
+2560 by 1920. The [shared SDL3 backend](../../crates/reforge_sdl/README.md)
+requests high pixel density and converts explicit pixel targets to window
 coordinates using drawable density. Desktop constraints and compositor
 transformations can still affect the result. It lets SDL select an available
 renderer and requests vsync, continuing with a warning if unsupported.
-Resizing preserves 4:3 at integer multiples of 320×240
-with black margins. Nearest-neighbour sampling keeps colours discrete;
+SDL fits the image at integer multiples of 320×240 inside the actual granted
+window, preserving 4:3 with black margins, including after resizing.
+Nearest-neighbour sampling keeps colours discrete;
 Mach 3 retains its 640×200 texture for both colour and monochrome output:
 
 ```sh
@@ -201,9 +205,9 @@ cargo run -p mach3 --features viewer --bin mach3-viewer -- --scale 2 --original 
 ```
 
 The 320-by-200 CGA framebuffer is displayed at 4:3, with pixels 20% taller
-than wide. Initial drawable targets use 320-by-240 display units multiplied by the
-selected scale. Resizing uses nearest-neighbor sampling with centered black
-borders and preserves 4:3. Source rows can occupy different numbers of screen
+than wide. Explicit numeric drawable targets use 320-by-240 display units
+multiplied by the selected scale. Resizing uses nearest-neighbor sampling with
+centered black borders and preserves 4:3. Source rows can occupy different numbers of screen
 rows because of the pixel-aspect correction. See [dependency notices](docs/dependencies.md).
 After Cargo has fetched the locked dependencies, these commands can use `--offline`.
 

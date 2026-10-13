@@ -66,6 +66,10 @@ struct ResultLog {
 }
 
 fn run(chunk: u64, end: u64) -> ResultLog {
+    run_observed(chunk, end, &mut |_, _| {})
+}
+
+fn run_observed(chunk: u64, end: u64, observe: &mut dyn FnMut(Stamp, &ClockEvent)) -> ResultLog {
     let assets = crate::opening::tests::synthetic_assets();
     let program = program();
     let resources = GameplayResources {
@@ -74,7 +78,20 @@ fn run(chunk: u64, end: u64) -> ResultLog {
         samples: &Memory,
     };
     let log = Log::default();
-    let (state, mut clock) = context(log.clone());
+    let captured = log.clone();
+    let mut clock = Clock::new(
+        PcSpeaker::new(0x60, [true; 3]),
+        [FarPointer::default(), keyboard_handler(0x1234)],
+        true,
+        |stamp, event| {
+            observe(stamp, &event);
+            captured.borrow_mut().push((stamp, event));
+        },
+    );
+    let mut state = GameplayState::default();
+    state
+        .procedural
+        .request(Effect::Noise { divisor: 1850 }, 0x1234, 0, &mut clock);
     let mut task =
         GameplayTask::begin(Opening::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
     for (tick, raw) in [
@@ -116,6 +133,7 @@ fn run(chunk: u64, end: u64) -> ResultLog {
     let state = format!("{:?}", task.state());
     let final_game = format!("{:?}", task.game().snapshot());
     drop(clock);
+    drop(captured);
     let clock = Rc::try_unwrap(log).unwrap().into_inner();
     ResultLog {
         clock,
@@ -148,6 +166,58 @@ fn chunk_sizes_and_host_stalls_preserve_state_pixels_and_ordered_device_transact
             ..
         })
     )));
+}
+
+#[cfg(feature = "dev-tools")]
+#[test]
+fn audio_rendering_rates_and_chunks_leave_gameplay_and_device_execution_identical() {
+    use reforge_audio::{
+        PIT_HZ,
+        render::{BlipRenderer, Config, SignalRenderer},
+    };
+    let end = 2_000_000;
+    let baseline = run(2_000_000, end);
+    let render = |rate, chunk| {
+        let mut renderer = BlipRenderer::new(
+            Config {
+                clock_hz: PIT_HZ as u32,
+                sample_rate: rate,
+                chunk_ticks: chunk,
+            },
+            0,
+            0,
+        )
+        .unwrap();
+        let mut pcm = Vec::new();
+        let game = run_observed(731, end, &mut |_, event| {
+            if let ClockEvent::Device(events) = event {
+                if let Some(edge) = events.drive {
+                    renderer
+                        .level_at(
+                            edge.tick,
+                            if edge.high { 8192 } else { 0 },
+                            &mut |samples| {
+                                pcm.extend_from_slice(samples);
+                                Ok(())
+                            },
+                        )
+                        .unwrap();
+                }
+            }
+        });
+        renderer
+            .finish_until(end, &mut |samples| {
+                pcm.extend_from_slice(samples);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(game, baseline);
+        assert!(pcm.iter().any(|sample| *sample != 0));
+        pcm
+    };
+    assert_eq!(render(48000, 11931), render(48000, 137));
+    render(44100, 10000);
+    render(96000, 4096);
 }
 
 #[test]

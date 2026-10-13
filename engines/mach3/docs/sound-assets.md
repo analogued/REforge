@@ -406,6 +406,24 @@ no PIC or interrupt-service-latency model. The exporter stops at the pre-game
 foreground return; channel 2 can still complete its final pulse afterward.
 Digital drive changes remain distinct from acoustic output.
 
+Add `--wav` alongside `--device` to render those actual drive edges into
+`speaker.wav`, using the shared replaceable
+[signal renderer](../../../crates/reforge_audio/README.md#replaceable-signal-rendering).
+The default is mono signed 16-bit PCM at 48,000 Hz; `--sample-rate HZ` selects a
+different rate and `--audio-chunk-ticks TICKS` selects an internal synthesis
+chunk bound (default 11,931 PIT clocks). Both accept positive decimal integers
+and require `--wav`. The backend checks rate and chunk limits before creating
+the output directory.
+
+The renderer uses nominal `PIT_HZ = 1,193,182`, maps drive LOW/HIGH to 0/8,192,
+and preserves filtering and fractional phase across chunks and sample calls.
+It follows the device events without selecting samples, changing interrupts or
+advancing an independent cursor. WAV output ends at the committed foreground
+return, with no added timer interval or filter tail. `diagnostic.txt` records
+its rate, gain and phase assumptions. This is a filtered digital speaker signal,
+not an enhanced interpretation of the eight-bit assets or a validated acoustic
+recording. Host playback and the live viewer remain silent.
+
 Device rows use a monotonic `sequence` in addition to `tick`. `kind` distinguishes
 initial pins, PIT transitions and speaker-drive transitions; `channel` applies
 to PIT rows. `call`/`interrupt` identify the current diagnostic call and IRQ0

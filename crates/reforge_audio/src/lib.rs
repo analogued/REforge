@@ -3,7 +3,9 @@
 #![forbid(unsafe_code)]
 
 pub mod pit;
+pub mod render;
 pub mod speaker;
+pub mod wav;
 
 /// Explicit nominal PC PIT clock frequency. Device execution uses integer clocks.
 pub const PIT_HZ: u64 = 1_193_182;

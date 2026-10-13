@@ -1,7 +1,8 @@
 # Shared PIT and PC speaker devices
 
-`reforge_audio` provides deterministic device execution before signal rendering
-or host audio output. It has no dependencies and does not execute game routines.
+`reforge_audio` provides deterministic device execution and optional offline
+signal rendering. Its default device implementation has no dependencies and
+does not execute game routines.
 Engines own sample selection, handlers, software counters and foreground waits.
 Using or discarding its output events leaves device execution identical.
 
@@ -68,7 +69,7 @@ emulation and analogue response are outside this subset. A machine adapter must
 provide those other read inputs where required. Clock setup/hold apertures and
 sub-clock instruction timing are not modeled; real gate races near clock edges
 are outside the declared timing convention. There is no 8253 odd-count variant,
-PCM renderer, audio device, or host buffer here yet.
+physical speaker-response model, audio device or host buffer here yet.
 
 Run `cargo test --locked -p reforge_audio` and
 `cargo clippy --locked -p reforge_audio --all-targets -- -D warnings` from the
@@ -78,5 +79,59 @@ reprogramming and invariance under different advancement chunks and speaker
 enable states. They establish the declared digital subset; they do not establish
 acoustic fidelity or emulator boot-state equivalence.
 
+## Replaceable signal rendering
+
+`render::SignalRenderer` accepts ordered level changes at absolute integer
+source-clock timestamps through `level_at`, then commits output through
+`finish_until`. A callback receives bounded blocks of mono signed 16-bit PCM.
+The caller may write, queue or discard them. Rendering observes execution;
+it does not advance devices, run handlers or choose game samples. Hardware
+writes, including repeated count writes, remain the responsibility of the
+simulation even when they produce no drive change.
+
+The optional `blip` feature exposes `BlipRenderer`, backed by the pinned Rust
+`blip_buf` dependency. `Config` supplies explicit source-clock frequency, output
+sample rate and maximum chunk length in source ticks. Output rates must be no
+higher than the source frequency; their ratio and chunk size are checked against
+the backend's arithmetic and 4,000-sample frame limit. The adapter conservatively
+permits fewer than 4,000 generated samples per internal chunk. It automatically
+splits longer intervals, so gameplay bodies need not fit one synthesis frame.
+For example, `PIT_HZ`, 48,000 Hz and 11,931 ticks produce approximately 10 ms
+chunks, independent of game-update boundaries.
+
+A renderer starts at an explicit epoch and initial level, with zero prior filter
+history. Levels range from −8,192 to +8,192 for synthesis headroom. Mapping
+speaker LOW/HIGH to 0/8,192 is a presentation gain choice, not a voltage or
+acoustic calibration. Same-tick changes retain caller order; a change at a chunk
+endpoint belongs at offset zero of the next chunk. Past timestamps and invalid
+levels are rejected before mutation. Output or backend errors permanently stop
+that renderer, since an output consumer may already have accepted part of a block.
+
+Chunk boundaries preserve fractional clock conversion and filter history;
+`clear()` is used only at initialization. The backend uses fixed-point conversion
+with a rounded rate factor, band-limited steps, a high-pass filter and signed
+16-bit output. Its synthesis kernel delays the signal by approximately eight
+output samples. This is a defined digital rendering path, not a measured physical
+speaker response. Finishing at a horizon emits only its committed interval;
+it does not invent later device time to flush the filter tail. A different
+renderer can receive the same timed levels before this backend's filtering.
+
+Host pause should freeze the simulation timeline and retain renderer state.
+Mute or disabled host output must still execute devices and handlers; callers
+can render and discard PCM to retain synthesis history. This crate does not
+choose host pause, buffering or underrun policies.
+
+`wav::WavWriter` streams mono PCM into a seekable RIFF/WAVE destination and
+patches its length on explicit `finish`. It rejects sizes beyond the 32-bit
+RIFF limit and does not synthesize or extend time.
+
+Also run `cargo test --locked -p reforge_audio --features blip` and
+`cargo clippy --locked -p reforge_audio --all-targets --features blip -- -D warnings`.
+Synthetic tests cover PCM equality across internal/external chunk partitions,
+several output rates, long silent intervals, repeated PWM operations, rendering
+near the timestamp limit, output failures, level headroom and WAV boundaries.
+Device results remain identical with different output rates.
+
 Authored code follows the repository-wide license decision, which remains
-undecided. No third-party implementation code is included.
+undecided. See [dependency notices](docs/dependencies.md) for the optional
+renderer dependency and its retained terms.

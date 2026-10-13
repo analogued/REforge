@@ -9,7 +9,8 @@ as a separate development diagnostic and a headless timer-driven continuation.
 Procedural sound setup, interrupt routines and gameplay invocation hooks are
 reconstructed in the library, with a budgeted headless gameplay continuation
 driven by the same PIT clock;
-audible playback remains unimplemented. The live viewer still uses nominal pacing.
+offline speaker WAV export is available through the development diagnostic.
+Live audio playback remains unimplemented; the viewer still uses nominal pacing.
 Later gameplay paths still need broader comparisons with the original.
 
 The main implementation language is **Rust**. Supporting tools and investigation

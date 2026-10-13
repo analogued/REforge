@@ -8,16 +8,25 @@ use mach3::{
         SampleEnvironment, SamplePlayer, SampleSoundState, SoundAction, SoundAssets, StartResult,
     },
 };
-use reforge_audio::speaker::{Events, PcSpeaker};
+use reforge_audio::{
+    render::{self, BlipRenderer, Config, SignalRenderer},
+    speaker::{Events, PcSpeaker},
+    wav::WavWriter,
+};
 use std::{
     collections::{BTreeSet, VecDeque},
     env,
-    fs::{self, OpenOptions},
+    ffi::OsString,
+    fs::{self, File, OpenOptions},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: mach3-sound [--device] --context INPUT.tsv [--external-byte RESOURCE:OFFSET:VALUE ...] <assets-directory> <new-output-directory>\n\n\
+const PIT_CLOCK_HZ: u32 = reforge_audio::PIT_HZ as u32;
+const DEFAULT_SAMPLE_RATE: u32 = 48_000;
+const DEFAULT_AUDIO_CHUNK_TICKS: u32 = 11_931;
+
+const HELP: &str = "Usage: mach3-sound [--device [--wav [--sample-rate HZ] [--audio-chunk-ticks TICKS]]] --context INPUT.tsv [--external-byte RESOURCE:OFFSET:VALUE ...] <assets-directory> <new-output-directory>\n\n\
 Export one bounded intro traversal followed by its pre-game sample.\n\
 Context header: call<TAB>interrupt<TAB>port<TAB>value. Numbers are decimal or 0x hexadecimal.\n\
 Calls start at 1. Each call requires one port 0x61 read at interrupt 0.\n\
@@ -28,7 +37,10 @@ Nominal time advances by 60 PIT ticks per delivered IRQ0. This does not model\n\
 setup gaps, PIT phase, host time, foreground instruction timing or rendered audio.\n\
 --device drives IRQ0 from the shared PIT, also writing device.tsv with pin/drive edges.\n\
 It uses explicit synthetic initial HIGH pins, whole-clock writes and zero instruction gaps;\n\
-port61 context supplies unmodeled upper read bits, with lower speaker bits checked.";
+port61 context supplies unmodeled upper read bits, with lower speaker bits checked.\n\
+--wav requires --device and writes offline mono 16-bit speaker.wav at 48000 Hz by default.\n\
+--sample-rate and --audio-chunk-ticks require --wav; both are positive decimal integers.\n\
+Audio chunks default to 11931 PIT ticks. No live audio playback is involved.";
 
 fn invalid(message: impl Into<String>) -> Error {
     Error::InvalidData(message.into())
@@ -146,6 +158,7 @@ struct DeviceTrace {
     speaker: PcSpeaker,
     rows: BufWriter<std::fs::File>,
     sequence: u64,
+    audio: Option<(BlipRenderer, WavWriter<File>)>,
 }
 
 impl DeviceTrace {
@@ -168,6 +181,15 @@ impl DeviceTrace {
             )?;
         }
         if let Some(edge) = events.drive {
+            if let Some((renderer, wav)) = &mut self.audio {
+                renderer
+                    .level_at(
+                        edge.tick,
+                        if edge.high { 8192 } else { 0 },
+                        &mut |samples| wav.write_samples(samples).map_err(render::Error::Io),
+                    )
+                    .map_err(|error| invalid(error.to_string()))?;
+            }
             self.sequence += 1;
             writeln!(
                 self.rows,
@@ -176,6 +198,19 @@ impl DeviceTrace {
                 events.tick,
                 u8::from(edge.high)
             )?;
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<(), Error> {
+        self.rows.flush()?;
+        if let Some((mut renderer, mut wav)) = self.audio.take() {
+            renderer
+                .finish_until(self.speaker.pit().tick(), &mut |samples| {
+                    wav.write_samples(samples).map_err(render::Error::Io)
+                })
+                .map_err(|error| invalid(error.to_string()))?;
+            wav.finish()?;
         }
         Ok(())
     }
@@ -266,7 +301,7 @@ impl<P: Write, E: Write> DiagnosticBus<P, E> {
         self.ports.flush()?;
         self.effects.flush()?;
         if let Some(device) = &mut self.device {
-            device.rows.flush()?;
+            device.finish()?;
         }
         Ok(())
     }
@@ -461,19 +496,24 @@ fn execute_call(
     Ok(result)
 }
 
-fn run() -> Result<(), Error> {
-    let mut args = env::args_os().skip(1).peekable();
-    if args
-        .peek()
-        .is_some_and(|arg| arg == "--help" || arg == "-h")
-    {
-        println!("{HELP}");
-        return Ok(());
-    }
+struct Options {
+    context_path: PathBuf,
+    external: Vec<(Resource, u16, u8)>,
+    directory: PathBuf,
+    destination: PathBuf,
+    device_mode: bool,
+    audio: Option<Config>,
+}
+
+fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, Error> {
+    let mut args = args.into_iter().peekable();
     let mut context_path = None;
     let mut external = Vec::new();
     let mut bound = BTreeSet::new();
     let mut device_mode = false;
+    let mut wav = false;
+    let mut sample_rate = None;
+    let mut chunk_ticks = None;
     while args
         .peek()
         .is_some_and(|arg| arg.to_str().is_some_and(|text| text.starts_with('-')))
@@ -484,6 +524,44 @@ fn run() -> Result<(), Error> {
                 return Err(invalid("--device may be specified only once"));
             }
             device_mode = true;
+        } else if option == "--wav" {
+            if wav {
+                return Err(invalid("--wav may be specified only once"));
+            }
+            wav = true;
+        } else if option == "--sample-rate" || option == "--audio-chunk-ticks" {
+            let target = if option == "--sample-rate" {
+                &mut sample_rate
+            } else {
+                &mut chunk_ticks
+            };
+            if target.is_some() {
+                return Err(invalid(format!(
+                    "{} may be specified only once",
+                    option.to_string_lossy()
+                )));
+            }
+            let value = args.next().ok_or_else(|| {
+                invalid(format!(
+                    "{} requires a positive decimal integer",
+                    option.to_string_lossy()
+                ))
+            })?;
+            let value = value
+                .to_str()
+                .and_then(|text| {
+                    (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+                        .then(|| text.parse::<u32>().ok())
+                        .flatten()
+                })
+                .filter(|&value| value != 0)
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "{} requires a positive decimal integer",
+                        option.to_string_lossy()
+                    ))
+                })?;
+            *target = Some(value);
         } else if option == "--context" {
             if context_path.is_some() {
                 return Err(invalid("--context may be specified only once"));
@@ -517,6 +595,50 @@ fn run() -> Result<(), Error> {
         return Err(invalid(HELP));
     };
     let context_path = context_path.ok_or_else(|| invalid("--context is required"))?;
+    if wav && !device_mode {
+        return Err(invalid("--wav requires --device"));
+    }
+    if !wav && (sample_rate.is_some() || chunk_ticks.is_some()) {
+        return Err(invalid(
+            "--sample-rate and --audio-chunk-ticks require --wav",
+        ));
+    }
+    let audio = wav.then_some(Config {
+        clock_hz: PIT_CLOCK_HZ,
+        sample_rate: sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE),
+        chunk_ticks: chunk_ticks.unwrap_or(DEFAULT_AUDIO_CHUNK_TICKS),
+    });
+    // Validate the renderer configuration before creating any output directory.
+    if let Some(config) = audio {
+        BlipRenderer::new(config, 0, 0).map_err(|error| invalid(error.to_string()))?;
+    }
+    Ok(Options {
+        context_path,
+        external,
+        directory,
+        destination,
+        device_mode,
+        audio,
+    })
+}
+
+fn run() -> Result<(), Error> {
+    let mut args = env::args_os().skip(1).peekable();
+    if args
+        .peek()
+        .is_some_and(|arg| arg == "--help" || arg == "-h")
+    {
+        println!("{HELP}");
+        return Ok(());
+    }
+    let Options {
+        context_path,
+        external,
+        directory,
+        destination,
+        device_mode,
+        audio,
+    } = parse_options(args)?;
     let context = parse_context(&fs::read_to_string(context_path)?)?;
     let assets = SoundAssets::load(&directory)?;
     let expanded = mach3::rules::load_program(&directory)?;
@@ -556,17 +678,43 @@ fn run() -> Result<(), Error> {
                 channel + 2
             )?;
         }
+        let audio = audio
+            .map(|config| {
+                let renderer = BlipRenderer::new(
+                    config,
+                    speaker.pit().tick(),
+                    if speaker.drive() { 8192 } else { 0 },
+                )
+                .map_err(|error| invalid(error.to_string()))?;
+                let file = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(destination.join("speaker.wav"))?;
+                let wav = WavWriter::new(file, config.sample_rate)?;
+                Ok::<_, Error>((renderer, wav))
+            })
+            .transpose()?;
         bus.device = Some(DeviceTrace {
             speaker,
             rows,
             sequence: 4,
+            audio,
         });
     }
     let mut description = new_file(destination.join("diagnostic.txt"))?;
     writeln!(
         description,
-        "Bounded reconstructed intro and pre-game sample execution.\nCalls are one-based; IRQ0 deliveries are one-based within each call.\nGame CS and saved IRQ vectors are synthetic zero values.\nNo renderer or audio output is involved."
+        "Bounded reconstructed intro and pre-game sample execution.\nCalls are one-based; IRQ0 deliveries are one-based within each call.\nGame CS and saved IRQ vectors are synthetic zero values."
     )?;
+    if let Some(config) = audio {
+        writeln!(
+            description,
+            "Offline WAV: mono signed 16-bit PCM at {} Hz, {} Hz PIT clock, maximum {} ticks per audio chunk.\nSpeaker digital drive maps LOW to 0 and HIGH to 8192 before bandlimited rendering with the fixed blip_buf filter.\nThe WAV ends at the actual committed device tick; no trailing device phase or filter tail is appended.\nThe initial device pins and instruction gaps are synthetic context, not an acoustically validated speaker model.\nNo live audio playback is involved.",
+            config.sample_rate, config.clock_hz, config.chunk_ticks
+        )?;
+    } else {
+        writeln!(description, "No renderer or audio output is involved.")?;
+    }
     description.flush()?;
     if device_mode {
         writeln!(
@@ -641,6 +789,74 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn options(prefix: &[&str]) -> Result<Options, Error> {
+        parse_options(
+            prefix
+                .iter()
+                .chain(["--context", "context.tsv", "assets", "new-output"].iter())
+                .map(OsString::from),
+        )
+    }
+
+    #[test]
+    fn wav_options_require_device_and_validate_integer_configuration() {
+        assert!(options(&[]).unwrap().audio.is_none());
+        assert!(options(&["--device"]).unwrap().audio.is_none());
+        let parsed = options(&["--wav", "--device"]).unwrap();
+        assert!(parsed.device_mode);
+        assert_eq!(
+            parsed.audio.unwrap(),
+            Config {
+                clock_hz: PIT_CLOCK_HZ,
+                sample_rate: 48_000,
+                chunk_ticks: 11_931,
+            }
+        );
+        let parsed = options(&[
+            "--device",
+            "--wav",
+            "--sample-rate",
+            "44100",
+            "--audio-chunk-ticks",
+            "1000",
+        ])
+        .unwrap();
+        assert_eq!(parsed.audio.unwrap().sample_rate, 44_100);
+        assert_eq!(parsed.audio.unwrap().chunk_ticks, 1_000);
+        for prefix in [
+            vec!["--wav"],
+            vec!["--device", "--sample-rate", "48000"],
+            vec!["--device", "--audio-chunk-ticks", "1000"],
+            vec!["--device", "--wav", "--wav"],
+            vec![
+                "--device",
+                "--wav",
+                "--sample-rate",
+                "48000",
+                "--sample-rate",
+                "48000",
+            ],
+            vec![
+                "--device",
+                "--wav",
+                "--audio-chunk-ticks",
+                "1",
+                "--audio-chunk-ticks",
+                "1",
+            ],
+        ] {
+            assert!(options(&prefix).is_err(), "{prefix:?}");
+        }
+        for option in ["--sample-rate", "--audio-chunk-ticks"] {
+            for value in ["0", "-1", "0x100", "1.5", "+1", "4294967296", "invalid"] {
+                assert!(options(&["--device", "--wav", option, value]).is_err());
+            }
+            assert!(options(&["--device", "--wav", option]).is_err());
+        }
+        assert!(options(&["--device", "--wav", "--sample-rate", "4294967295"]).is_err());
+        assert!(options(&["--device", "--wav", "--audio-chunk-ticks", "4294967295"]).is_err());
+    }
 
     #[test]
     fn context_requires_ordered_initial_reads_and_keyboard_pairs() {
@@ -746,6 +962,20 @@ mod tests {
             speaker: PcSpeaker::new(3, [true; 3]),
             rows: new_file(scratch.0.join("device.tsv")).unwrap(),
             sequence: 0,
+            audio: Some((
+                BlipRenderer::new(
+                    Config {
+                        clock_hz: PIT_CLOCK_HZ,
+                        sample_rate: 48_000,
+                        chunk_ticks: 100,
+                    },
+                    0,
+                    8192,
+                )
+                .unwrap(),
+                WavWriter::new(File::create(scratch.0.join("speaker.wav")).unwrap(), 48_000)
+                    .unwrap(),
+            )),
         });
         let call = IntroCall {
             request: mach3::sound::SampleRequest {
@@ -790,6 +1020,14 @@ mod tests {
         assert_eq!(without_ticks(&nominal.ports), without_ticks(&device.ports));
         assert_eq!(device.ticks, 361); // Load at1; rising OUT0 at61 then every60.
         let trace = device.device.as_mut().unwrap();
+        assert_eq!(trace.speaker.pit().tick(), 361);
+        assert!(trace.audio.is_none()); // Explicit completion consumed the WAV writer.
+        let wav = fs::read(scratch.0.join("speaker.wav")).unwrap();
+        let data_bytes = u32::from_le_bytes(wav[40..44].try_into().unwrap());
+        let samples = (361_u64 * 48_000 / u64::from(PIT_CLOCK_HZ)) as u32;
+        assert_eq!(data_bytes, samples * 2); // No invented trailing device time/filter tail.
+        assert_eq!(wav.len(), 44 + data_bytes as usize);
+        assert!(wav[44..].iter().any(|&byte| byte != 0));
         let restored = trace.speaker.pit().channel(0).unwrap();
         assert_eq!(restored.programmed_count, Some(0x4c68));
         assert!(restored.pending_load);

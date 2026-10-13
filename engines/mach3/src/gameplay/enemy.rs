@@ -1052,7 +1052,7 @@ impl Enemy {
                 || (index > 0
                     && (self.craft_animations[index - 1].is_some()
                         || slot.movement == 251
-                        || slot.variant >= 3))
+                        || !matches!(slot.variant, 0..=2 | 5 | 6)))
             {
                 continue;
             }
@@ -1972,6 +1972,124 @@ mod tests {
                 Some(EnemyCollision::Craft(9)),
             ]
         );
+    }
+
+    #[test]
+    fn primary_contact_dispatch_accepts_original_variants_and_rejects_invalid_bytes() {
+        let mut assets = assets();
+        assets.sprites[13].descriptor[..3].copy_from_slice(&[32, 128, 15]);
+        let mut enemy = Enemy::new(&assets).unwrap();
+        let craft = &mut enemy.crafts[0];
+        craft.active = true;
+        craft.depth = 29;
+        craft.height = -99;
+        craft.lateral = 128;
+        craft.resolved_sprite = 33;
+        for variant in 0..=u8::MAX {
+            enemy.crafts[0].variant = variant;
+            let expected = if [0, 1, 2, 5, 6].contains(&variant) {
+                Some(EnemyCollision::Craft(5))
+            } else {
+                None
+            };
+            assert_eq!(
+                enemy
+                    .player_collisions(&assets, [14, 0, -100], 13, true)
+                    .unwrap()[1],
+                expected,
+                "variant {variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn boss_and_patrol_contact_keep_geometry_activity_explosion_and_phase_guards() {
+        let mut assets = assets();
+        assets.sprites[13].descriptor[..3].copy_from_slice(&[32, 128, 15]);
+        assets.sprites[33].descriptor[..3].copy_from_slice(&[1, 1, 1]);
+        assets.sprites[65].descriptor[..3].copy_from_slice(&[100, 100, 100]);
+        for variant in [5, 6] {
+            let mut enemy = Enemy::new(&assets).unwrap();
+            enemy.crafts[0].active = true;
+            enemy.crafts[0].variant = variant;
+            enemy.crafts[0].depth = 29;
+            enemy.crafts[0].height = -99;
+            enemy.crafts[0].lateral = 128;
+            enemy.crafts[0].resolved_sprite = 33;
+            enemy.crafts[0].requested_sprite = 65;
+            let contact = |enemy: &Enemy, collidable| {
+                enemy
+                    .player_collisions(&assets, [14, 0, -100], 13, collidable)
+                    .unwrap()[1]
+            };
+            assert_eq!(contact(&enemy, true), Some(EnemyCollision::Craft(5)));
+            assert_eq!(contact(&enemy, false), None);
+            enemy.crafts[0].depth = 30;
+            assert_eq!(contact(&enemy, true), None);
+            enemy.crafts[0].depth = 29;
+            enemy.crafts[0].height = -98;
+            assert_eq!(contact(&enemy, true), None); // Preceding source, not request 65.
+            enemy.crafts[0].height = -99;
+            enemy.crafts[0].active = false;
+            assert_eq!(contact(&enemy, true), None);
+            enemy.crafts[0].active = true;
+            enemy.crafts[0].movement = 251;
+            assert_eq!(contact(&enemy, true), None);
+            enemy.crafts[0].movement = 31;
+            enemy.explode_craft(5).unwrap();
+            assert_eq!(contact(&enemy, true), None);
+        }
+    }
+
+    #[test]
+    fn normal_boss_and_patrol_lifecycle_depths_remain_outside_player_contact() {
+        let mut assets = assets();
+        assets.sprites[13].descriptor[2] = 15;
+        for command in [0x9f, 0xa0, 0xa1, 0xa2] {
+            for speed_policy in [22, 50, 0] {
+                let mut enemy = Enemy::new(&assets).unwrap();
+                let mut random = Random::default();
+                let mut context = EnemyContext {
+                    difficulty: 2,
+                    patrol_sources: Some([178, 179, 180]),
+                    ..EnemyContext::default()
+                };
+                enemy
+                    .spawn_command_with_context(command, &mut random, [14, 0, -100], 4, context)
+                    .unwrap();
+                let mut retired = false;
+                for step in 0..400 {
+                    context.speeds[1] = if speed_policy == 0 {
+                        22 + step % 29
+                    } else {
+                        speed_policy
+                    };
+                    enemy
+                        .update_half_step_with_context(&mut random, [14, 0, -100], context)
+                        .unwrap();
+                    for craft in enemy.crafts.iter().filter(|craft| craft.active) {
+                        if command == 0xa2 {
+                            assert_eq!(craft.depth, 188);
+                        } else {
+                            assert!(craft.depth >= 150);
+                        }
+                    }
+                    assert!(
+                        enemy
+                            .player_collisions(&assets, [14, 0, -100], 13, true)
+                            .unwrap()[1..]
+                            .iter()
+                            .all(Option::is_none)
+                    );
+                    if command != 0xa2 && !enemy.crafts.iter().any(|craft| craft.active) {
+                        assert!(enemy.shadows.iter().all(|shadow| !shadow.active));
+                        retired = true;
+                        break;
+                    }
+                }
+                assert!(command == 0xa2 || retired);
+            }
+        }
     }
     #[test]
     fn sweep_initializes_variant_one_but_only_the_first_primary_is_active() {

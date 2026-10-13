@@ -158,6 +158,21 @@ depth into the retirement boundary in the same update. Its restored falling
 movement then clears activity and animation phase while retaining the last
 sprite request; an unrecycled explosion clears activity and its sprite request.
 
+The primary player-contact dispatch at `3865` accepts variants 0, 1, 2, 5 and 6.
+Variants 0, 1, 5 and 6 submit a 1,000-point award through the ordinary score
+multiplier/cap logic, start the craft explosion and hide its shadow, then request
+damage two. Variant 2 uses falling recycle/explosion without that award. Variants
+3, 4 and unsigned values 7–255 return without action. Existing explosions and
+inactive records are excluded; player response phase suppresses later contacts,
+while grace can suppress damage without suppressing an accepted target's effects.
+
+Variants 5 and 6 use this handler even though the normal trajectories examined
+keep their contacts out of reach: patrol depth remains 188,
+boss approach stays at least 150 under primary speeds up to 50, and the ordinary
+player depth plus descriptor extent reaches only 29. Terminal boss depth is
+retired before collision scanning. This does not imply a reachable normal-play
+boss or patrol contact.
+
 The second enemy steers by half the remaining coordinate difference, capped at
 30 units per axis per half-step. Its collision changes it to a stationary
 explosion, hides its shadow, and stops its movement and random targeting calls.

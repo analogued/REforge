@@ -1357,6 +1357,142 @@ impl Random {
 mod tests {
     use super::*;
 
+    // Authored near-contact geometry deliberately overrides normal boss/patrol
+    // depths. This tests dispatch effects, not reachability in ordinary play.
+    fn synthetic_primary_contact(assets: &GraphicsAssets, variant: u8) -> Gameplay {
+        let mut game = Gameplay::new(assets).unwrap();
+        let mut records = game.enemy.snapshots();
+        records[1].active = true;
+        records[1].variant = variant;
+        records[1].movement = match variant {
+            5 => 31,
+            6 => 34,
+            2 => 25,
+            _ => 0,
+        };
+        records[1].depth = 29;
+        records[1].lateral = 0;
+        records[1].height = -100;
+        records[1].resolved_sprite = 13;
+        records[6].active = true;
+        game.enemy = enemy::Enemy::restore_snapshots(records, assets).unwrap();
+        game
+    }
+
+    #[test]
+    fn primary_variant_contact_preserves_awards_explosion_shadow_and_sound_effects() {
+        use crate::sound::{GameplayAction, Ramp};
+        let assets = synthetic_assets();
+        for variant in [0, 1, 2, 5, 6] {
+            let mut game = synthetic_primary_contact(&assets, variant);
+            game.hud.set_score_multiplier(2);
+            let mut actions = Vec::new();
+            game.begin_finish_world(&assets, enemy::EnemyEffects::default(), &mut |action| {
+                actions.push(action)
+            })
+            .unwrap();
+            let state = game.snapshot();
+            assert_eq!((state.player.phase, state.player.damage), (1, 2));
+            let falling = variant == 2;
+            assert_eq!(state.hud.pending_score, if falling { 0 } else { 2000 });
+            assert_eq!(state.enemies[1].movement, if falling { 251 } else { 3 });
+            assert_eq!(state.enemies[6].active, falling);
+            assert_eq!(
+                actions,
+                [
+                    GameplayAction::Request {
+                        site: if falling { 0x39c9 } else { 0x3955 },
+                        effect: Effect::Ramp(Ramp::Third)
+                    },
+                    GameplayAction::Request {
+                        site: 0x3149,
+                        effect: Effect::Ramp(Ramp::Second)
+                    },
+                ]
+            );
+            assert!(
+                game.enemy
+                    .player_collisions(&assets, state.player.coordinates, 13, true)
+                    .unwrap()[1]
+                    .is_none()
+            );
+        }
+        for variant in [5, 6] {
+            for (pending, expected) in [(30_500, 32_000), (31_000, 33_000)] {
+                let mut game = synthetic_primary_contact(&assets, variant);
+                game.hud.add_points(pending);
+                game.hud.set_score_multiplier(2);
+                game.begin_finish_world(&assets, enemy::EnemyEffects::default(), &mut |_| {})
+                    .unwrap();
+                // The existing cap compares signed words; 33,000 is negative.
+                assert_eq!(game.snapshot().hud.pending_score, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn primary_contact_retains_player_phase_grace_and_projectile_first_order() {
+        use crate::sound::{GameplayAction, Ramp};
+        let assets = synthetic_assets();
+        for variant in [5, 6] {
+            for (responding, immune, projectile) in [
+                (true, false, false),
+                (false, true, false),
+                (false, false, true),
+                (false, true, true),
+            ] {
+                let mut game = synthetic_primary_contact(&assets, variant);
+                if responding {
+                    game.player.hit(1);
+                }
+                if immune {
+                    game.player.finish_death();
+                }
+                if projectile {
+                    let mut records = game.enemy.snapshots();
+                    records[0].active = true;
+                    records[0].depth = 29;
+                    records[0].lateral = 0;
+                    records[0].height = -100;
+                    records[0].resolved_sprite = 13;
+                    game.enemy = enemy::Enemy::restore_snapshots(records, &assets).unwrap();
+                }
+                let mut actions = Vec::new();
+                game.begin_finish_world(&assets, enemy::EnemyEffects::default(), &mut |action| {
+                    actions.push(action)
+                })
+                .unwrap();
+                let state = game.snapshot();
+                if immune {
+                    // Grace blocks player damage, while target effects still run,
+                    // even when the preceding projectile also requests damage.
+                    assert_eq!((state.player.phase, state.player.damage), (0, 0));
+                    assert_eq!(state.hud.pending_score, 1000);
+                    assert_eq!(state.enemies[1].movement, 3);
+                    assert!(!state.enemies[6].active);
+                    assert_eq!(
+                        actions,
+                        [GameplayAction::Request {
+                            site: 0x3955,
+                            effect: Effect::Ramp(Ramp::Third)
+                        }]
+                    );
+                } else {
+                    // An existing response, or the earlier projectile, suppresses
+                    // the craft's award/explosion rather than applying two hits.
+                    assert_eq!((state.player.phase, state.player.damage), (1, 1));
+                    assert_eq!(state.hud.pending_score, 0);
+                    assert_eq!(
+                        state.enemies[1].movement,
+                        if variant == 5 { 31 } else { 34 }
+                    );
+                    assert!(state.enemies[6].active);
+                    assert_eq!(actions.len(), usize::from(projectile));
+                }
+            }
+        }
+    }
+
     #[test]
     fn initializer_moves_player_and_world_without_advancing_gameplay() {
         let assets = synthetic_assets();

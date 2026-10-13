@@ -155,10 +155,183 @@ fn until(
     );
 }
 
+// Isolated gameplay/ending tests start after the original splash timer return.
+fn post_splash_state(simulation: &mut Simulation) -> GameplayState {
+    let mut state = simulation.initial.take().unwrap();
+    state
+        .procedural
+        .request(Effect::Reset, CS, 0, &mut simulation.clock);
+    state
+}
+
 fn start(simulation: &mut Simulation, frames: &StartupFrames, resources: &Resources) {
-    let state = simulation.initial.take().unwrap();
-    simulation.start_intro(state, frames, resources).unwrap();
+    simulation.finish_splash(frames, resources).unwrap();
     simulation.receive(10, 0x39);
+}
+
+#[test]
+fn splash_automatically_returns_at_the_bios_clock_deadline_without_game_ticks() {
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    assert_eq!(simulation.clock.handlers()[0], FarPointer::default());
+    assert_eq!(
+        simulation
+            .clock
+            .speaker()
+            .pit()
+            .channel(0)
+            .unwrap()
+            .programmed_count,
+        Some(crate::startup::SPLASH_DIVISOR)
+    );
+    let log = logged_ending_clock(&mut simulation);
+    // PIT loading takes one clock, then 219 accelerated BIOS IRQs reach DOS
+    // second 12. Assets are already decoded; no guest file-loading delay.
+    let deadline = 1 + 219 * u64::from(crate::startup::SPLASH_DIVISOR);
+    advance(
+        &mut simulation,
+        deadline - 1,
+        &frames,
+        &resources,
+        &mut Vec::new(),
+    );
+    assert!(matches!(simulation.phase, Phase::Splash));
+    assert_eq!(simulation.visible, *frames.frame(Screen::Splash));
+    assert_eq!(simulation.state().procedural.counters.units, 0);
+    assert_eq!(simulation.state().next_playback, 0);
+    assert!(
+        !log.borrow()
+            .iter()
+            .any(|(_, event)| matches!(event, ClockEvent::Action(SoundAction::SetHandler { .. })))
+    );
+    advance(
+        &mut simulation,
+        deadline,
+        &frames,
+        &resources,
+        &mut Vec::new(),
+    );
+    assert!(matches!(simulation.phase, Phase::Intro(_)));
+    assert_eq!(simulation.clock.tick(), deadline);
+    assert_eq!(
+        simulation.visible,
+        *frames.return_intro(simulation.intro_choice)
+    );
+    assert_eq!(simulation.state().procedural.counters.units, 0);
+    assert_eq!(simulation.state().next_playback, 0);
+    let log = log.borrow();
+    assert_eq!(
+        log.iter()
+            .filter(|(_, e)| matches!(e, ClockEvent::Interrupt(_)))
+            .count(),
+        219
+    );
+    let actions = log
+        .iter()
+        .filter_map(|(stamp, event)| {
+            if let ClockEvent::Action(action) = event {
+                if matches!(
+                    action,
+                    SoundAction::InterruptReturn | SoundAction::Write { port: 0x20, .. }
+                ) {
+                    return None;
+                }
+                Some((stamp.tick, action))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert!(actions.iter().all(|(tick, _)| *tick == deadline));
+    assert_eq!(actions.len(), 6);
+    assert!(
+        matches!(actions[0].1, SoundAction::SetHandler { irq: 0, handler } if handler.offset == 0x7532)
+    );
+    assert!(matches!(
+        actions[1].1,
+        SoundAction::Write {
+            port: 0x43,
+            value: 0x36,
+            ..
+        }
+    ));
+    for action in &actions[2..4] {
+        assert!(matches!(
+            action.1,
+            SoundAction::Write {
+                port: 0x40,
+                value: 0xff,
+                ..
+            }
+        ));
+    }
+    assert!(matches!(
+        actions[4].1,
+        SoundAction::Read {
+            port: 0x61,
+            value: 0x60
+        }
+    ));
+    assert!(matches!(
+        actions[5].1,
+        SoundAction::Write {
+            port: 0x61,
+            value: 0x60,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn splash_return_is_independent_of_host_budget_and_renderer_chunks() {
+    fn run(budget: u64, chunk: u32) -> (u64, String, Frame, Vec<(u64, ClockEvent)>) {
+        let frames = frames();
+        let resources = resources();
+        let mut simulation = Simulation::new(&frames, signal(chunk)).unwrap();
+        let log = logged_ending_clock(&mut simulation);
+        while matches!(simulation.phase, Phase::Splash) {
+            let target = simulation.clock.tick() + budget;
+            advance(
+                &mut simulation,
+                target,
+                &frames,
+                &resources,
+                &mut Vec::new(),
+            );
+        }
+        let transactions = log
+            .borrow()
+            .iter()
+            .filter(|(_, event)| !matches!(event, ClockEvent::Device(_)))
+            .map(|(stamp, event)| (stamp.tick, event.clone()))
+            .collect();
+        (
+            simulation.clock.tick(),
+            format!("{:?}", simulation.state()),
+            simulation.visible,
+            transactions,
+        )
+    }
+    assert_eq!(run(3 * PIT_HZ, CHUNK as u32), run(731, 137));
+}
+
+#[test]
+fn space_skip_enters_intro_immediately_before_or_during_the_wait() {
+    let frames = frames();
+    let resources = resources();
+    for tick in [0, 1_000_000] {
+        let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+        advance(&mut simulation, tick, &frames, &resources, &mut Vec::new());
+        simulation.finish_splash(&frames, &resources).unwrap();
+        assert_eq!(simulation.clock.tick(), tick);
+        assert!(matches!(simulation.phase, Phase::Intro(_)));
+        assert_eq!(simulation.state().procedural.counters.units, 0);
+        assert_eq!(simulation.state().keyboard.held_keys(0).actions, 0);
+        assert!(simulation.scans.is_empty());
+        assert_eq!(simulation.state().next_playback, 0);
+        assert!(simulation.finish_splash(&frames, &resources).is_err());
+    }
 }
 
 fn enter_playing(simulation: &mut Simulation, frames: &StartupFrames, resources: &Resources) {
@@ -388,7 +561,7 @@ fn background_timer_priority_does_not_overwrite_same_tick_keyboard_bytes() {
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-    let mut state = simulation.initial.take().unwrap();
+    let mut state = post_splash_state(&mut simulation);
     // Mode 0 lowers OUT0; reselecting mode 3 raises it immediately, leaving an
     // IRQ0 request pending at the same tick as two received keyboard bytes.
     crate::sound::write(&mut simulation.clock, 0x43, 0x30);
@@ -484,7 +657,7 @@ fn second_tone_with_active_count_one_completes_on_controller_background_clock() 
     assert_eq!(resources.procedural.divisor(Tone::Second, 4).unwrap(), 1);
     let signal = signal(CHUNK as u32);
     let mut simulation = Simulation::new(&frames, signal.clone()).unwrap();
-    let mut state = simulation.initial.take().unwrap();
+    let mut state = post_splash_state(&mut simulation);
     assert!(
         state
             .procedural
@@ -516,7 +689,7 @@ fn second_tone_with_active_count_one_completes_on_controller_background_clock() 
 
 fn ending_simulation(frames: &StartupFrames) -> Simulation {
     let mut simulation = Simulation::new(frames, signal(CHUNK as u32)).unwrap();
-    let state = simulation.initial.take().unwrap();
+    let state = post_splash_state(&mut simulation);
     let start = simulation.session.begin_game();
     let game = Opening::for_play(frames.graphics(), rules(), start).unwrap();
     simulation.visible = game.frame().clone();
@@ -536,7 +709,7 @@ fn frontend_return_executes_exactly_one_reset_transaction() {
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-    let state = simulation.initial.take().unwrap();
+    let state = post_splash_state(&mut simulation);
     let mut game =
         Opening::for_play(frames.graphics(), rules(), simulation.session.begin_game()).unwrap();
     game.request_game_over();
@@ -728,7 +901,7 @@ fn palette_zero_survives_gameplay_return_and_title_animation() {
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-    let mut state = simulation.initial.take().unwrap();
+    let mut state = post_splash_state(&mut simulation);
     // Retain F3 until the entry poll; active sample teardown clears held keys.
     state.controls.preferences.intro_audio_enabled = false;
     let mut game = Opening::for_play(
@@ -792,7 +965,7 @@ fn optional_poll_precedes_wait_and_draw_and_uses_any_nonzero_mask() {
         let frames = frames();
         let resources = resources();
         let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-        let mut state = simulation.initial.take().unwrap();
+        let mut state = post_splash_state(&mut simulation);
         let mut ending = optional_ending(&frames);
         simulation.visible = ending.frame().clone();
         simulation.receive(80_000, 0x4b); // Left: mask4, not Fire.
@@ -887,7 +1060,7 @@ fn intertitle_executes_separate_waits_and_release_before_setup() {
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-    let mut state = simulation.initial.take().unwrap();
+    let mut state = post_splash_state(&mut simulation);
     let mut ending = optional_ending(&frames);
     ending.finish_prepared_step(frames.graphics()).unwrap();
     while ending.phase() != EndingStage::Pause {
@@ -942,7 +1115,7 @@ fn following_title_release_gate_defers_best_score_and_preserves_previous_image()
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-    let mut state = simulation.initial.take().unwrap();
+    let mut state = post_splash_state(&mut simulation);
     let mut game = Opening::for_play(
         frames.graphics(),
         rules_with_commands(&[0xc3]),
@@ -1007,7 +1180,7 @@ fn score_overlay_is_drawn_before_hold_poll_without_consuming_timer_units() {
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-    let mut state = simulation.initial.take().unwrap();
+    let mut state = post_splash_state(&mut simulation);
     let mut ending = optional_ending(&frames);
     ending.finish_prepared_step(frames.graphics()).unwrap();
     while ending.snapshot().title != EndingTitle::HighScore
@@ -1103,7 +1276,7 @@ fn mandatory_hold_samples_select_original_resources_and_preserve_publication() {
         let frames = frames();
         let resources = resources();
         let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-        let mut state = simulation.initial.take().unwrap();
+        let mut state = post_splash_state(&mut simulation);
         let mut ending = hold_entry(&frames, title, 123_456, 0, false);
         let overlay_pending = ending.has_prepared_draw();
         simulation.visible = ending.frame().clone();
@@ -1210,7 +1383,7 @@ fn ending_sample_guards_distinguish_equal_lower_optional_and_intro_disabled() {
         let frames = frames();
         let resources = resources();
         let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-        let mut state = simulation.initial.take().unwrap();
+        let mut state = post_splash_state(&mut simulation);
         state.controls.preferences.intro_audio_enabled = intro;
         state.controls.preferences.sound_disabled = sound;
         let mut ending = hold_entry(&frames, title, score, best, optional);
@@ -1251,7 +1424,7 @@ fn ordinary_sound_bypass_polls_once_and_ignores_mask_without_sample_teardown() {
         let frames = frames();
         let resources = resources();
         let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-        let mut state = simulation.initial.take().unwrap();
+        let mut state = post_splash_state(&mut simulation);
         state.controls.preferences.sound_disabled = true;
         state.keyboard.apply_scan(0x3b);
         let mut ending = hold_entry(&frames, title, 1, 0, false);
@@ -1296,7 +1469,7 @@ fn ending_sample_matches_direct_sample_task_hardware_transactions() {
     let resources = resources();
     let memory = DosSampleMemory::new(&resources.samples, *b"MACH3\0\0\0");
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-    let mut state = simulation.initial.take().unwrap();
+    let mut state = post_splash_state(&mut simulation);
     state.di = 1; // Inherited ISR cursor parity changes the number of writes.
     let speaker = simulation.clock.speaker().clone();
     let handlers = simulation.clock.handlers();
@@ -1352,7 +1525,7 @@ fn ending_sample_input_boundaries_and_teardown_are_budget_partition_invariant() 
         let frames = frames();
         let resources = resources();
         let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-        let mut state = simulation.initial.take().unwrap();
+        let mut state = post_splash_state(&mut simulation);
         state.keyboard.apply_scan(0x4b);
         state.controls.sound_poll_counter = 0xabcd;
         let mut ending = hold_entry(&frames, EndingTitle::GameOver, 0, 0, false);
@@ -1404,7 +1577,7 @@ fn sample_irq0_priority_services_all_same_tick_scans_before_foreground() {
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-    let mut state = simulation.initial.take().unwrap();
+    let mut state = post_splash_state(&mut simulation);
     let mut ending = hold_entry(&frames, EndingTitle::GameOver, 0, 0, false);
     let (step, _, _) = simulation
         .advance_ending(
@@ -1468,7 +1641,7 @@ fn focus_reset_during_sample_discards_future_input_and_preserves_received_return
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
-    let mut state = simulation.initial.take().unwrap();
+    let mut state = post_splash_state(&mut simulation);
     state.keyboard.apply_scan(0x4b);
     simulation.phase = Phase::Ending {
         ending: Box::new(hold_entry(&frames, EndingTitle::GameOver, 0, 0, false)),

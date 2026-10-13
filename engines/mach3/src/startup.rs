@@ -1,6 +1,10 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Manual progression through startup screens into the opening preview.
-//! Original startup timing and audio remain deferred.
+//! Startup screen assets, timer wait, and manual diagnostic presentation.
+
+#[cfg(any(feature = "viewer", test))]
+mod splash;
+#[cfg(feature = "viewer")]
+pub(crate) use splash::{SPLASH_DIVISOR, SplashWait};
 
 use std::path::Path;
 

@@ -60,6 +60,27 @@ performs a DOS-clock wait, selects palette family 1, and calls the intro routine
 at `076a`. That routine chooses another screen from `data6` or `data1`; the
 verified initial path selects `data6`. Both use the same direct CGA layout.
 
+The wait at `5df0` programs PIT channel 0 in mode 3 with reload `0x2a30`
+(10,800 clocks), then repeatedly reads DOS time through `INT 21h/AH=2Ch`.
+It returns when the seconds field has advanced by at least 12, adjusting for
+minute rollover. IRQ0 still runs the BIOS clock handler here; the game's timer
+handler is installed afterward. Consequently those 12 DOS seconds pass much
+faster than real seconds: the BIOS tick counter advances once per accelerated
+IRQ, but DOS converts each tick as though the divisor were still 65,536.
+This is an automatic wait; Space does not shorten it in the original.
+
+Normal playback reconstructs this check on the shared PIT timeline. DOS seconds
+are derived as `floor(bios_ticks * 65536 / 1193182)`, modulo 60, with the BIOS
+counter's daily wrap at `0x1800b0`. The initial BIOS tick count is fixed at zero
+for deterministic playback: the wait takes 219 interrupts, approximately
+1.9823 seconds. Other starting clock phases can shorten the original wait;
+away from midnight it takes 201–219 interrupts, about 1.82–1.98 seconds.
+PIT programming and the subsequent game-handler installation remain distinct,
+so waiting on the splash does not advance game software counters. Incidental
+asset-loading and instruction-execution delays are excluded. Host pause freezes
+the wait along with simulation time. A fresh Space press provides an optional
+modern skip, consumed until release so holding it cannot also advance the intro.
+
 The intro sequence at `537a` repeats while its input result is zero. Its playback
 calls are synchronous; completion alone does not provide a nonzero return.
 Space advanced the observed intro into gameplay. The return boundary is `03d1`.
@@ -166,7 +187,8 @@ decoded; gameplay selects both bases and draws procedural gates and goal panels.
 
 `StartupFrames` also decodes `data1` and `data6` using the CGA bank layout.
 The optional `mach3-viewer` presents those frames and the initial scene through
-SDL3. Space manually advances the splash and intro, with held/repeated presses
-ignored. The viewer then runs the bounded [opening simulation](dos-gameplay.md#rust-opening-simulation),
-with optional manual body stepping or static presentation. It does not reproduce
-the original startup waits or audio-dependent intro control flow.
+SDL3. Normal animated playback uses the timed splash and reconstructed
+audio-dependent intro control flow described above, then runs the
+[opening simulation](dos-gameplay.md#rust-opening-simulation) through game over
+and restart. Silent step/static/custom-period diagnostic previews retain manual
+Space advancement of their startup screens, with held/repeated presses ignored.

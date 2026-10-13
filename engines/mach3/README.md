@@ -85,7 +85,10 @@ cargo run -p mach3 --features viewer --bin mach3-viewer -- --original /path/to/a
 Supply the game resource directory with `--original`, including `MACH3.EXE` and
 `DATA1` through `DATAH` for normal animated playback. The executable supplies
 decoded encounter scripts, sound calls and resource tables; the recreation does
-not execute DOS code. A fresh Space press advances the initial splash. During
+not execute DOS code. The initial splash advances automatically after the
+original DOS-clock wait (about 1.98 seconds with the deterministic starting
+phase). A fresh Space press skips that wait as a modern convenience; release
+Space before pressing it again in the intro. During
 intro audio, Space takes effect after the current sample, its checked group and
 the unconditional four-call tail. A zero-result traversal repeats after 500
 timer waits with ordinary input polls; it does not automatically start gameplay.

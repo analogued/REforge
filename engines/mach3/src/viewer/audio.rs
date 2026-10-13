@@ -254,6 +254,7 @@ struct Simulation {
     intro_choice: bool,
     palette_family: u8,
     scans: VecDeque<(u64, u8)>,
+    splash_wait: crate::startup::SplashWait,
 }
 impl Simulation {
     fn new(frames: &StartupFrames, signal: Rc<RefCell<Synthesis>>) -> Result<Self, String> {
@@ -282,8 +283,16 @@ impl Simulation {
             true,
             observe,
         );
-        let mut state = GameplayState::default();
-        state.procedural.request(Effect::Reset, CS, 0, &mut clock);
+        // 5df0 changes hardware timing before 74c0 installs the game handler.
+        // Splash IRQ0 advances the BIOS clock, not game software counters.
+        crate::sound::write(&mut clock, 0x43, 0x36);
+        crate::sound::write(&mut clock, 0x40, crate::startup::SPLASH_DIVISOR as u8);
+        crate::sound::write(
+            &mut clock,
+            0x40,
+            (crate::startup::SPLASH_DIVISOR >> 8) as u8,
+        );
+        let state = GameplayState::default();
         clock.check().map_err(|e| e.to_string())?;
         let mut session = SessionState::default();
         let intro_choice = session.select_intro();
@@ -296,7 +305,21 @@ impl Simulation {
             intro_choice,
             palette_family: 1,
             scans: VecDeque::new(),
+            splash_wait: crate::startup::SplashWait::default(),
         })
+    }
+    /// Both the original timer return and the modern Space skip enter here.
+    fn finish_splash(
+        &mut self,
+        frames: &StartupFrames,
+        resources: &Resources,
+    ) -> Result<(), String> {
+        let mut state = self.initial.take().ok_or("splash has already returned")?;
+        state
+            .procedural
+            .request(Effect::Reset, CS, 0, &mut self.clock);
+        self.clock.check().map_err(|e| e.to_string())?;
+        self.start_intro(state, frames, resources)
     }
     fn start_intro(
         &mut self,
@@ -398,8 +421,25 @@ impl Simulation {
             let phase = std::mem::replace(&mut self.phase, Phase::Splash);
             match phase {
                 Phase::Splash => {
-                    self.phase = Phase::Splash;
-                    return Ok(false);
+                    loop {
+                        match self.clock.advance_to(target).map_err(|e| e.to_string())? {
+                            Progress::Reached => break,
+                            Progress::Interrupt(irq) if irq.irq == 0 => {
+                                let complete = self.splash_wait.interrupt();
+                                crate::timer::return_interrupt(&mut self.clock);
+                                self.clock.check().map_err(|e| e.to_string())?;
+                                if complete {
+                                    self.finish_splash(frames, resources)?;
+                                    repaint = true;
+                                    break;
+                                }
+                            }
+                            Progress::Interrupt(_) => {
+                                return Err("unexpected splash interrupt".into());
+                            }
+                        }
+                    }
+                    break;
                 }
                 Phase::Intro(mut task) => {
                     let progress = task
@@ -959,7 +999,7 @@ impl Simulation {
     }
     fn caption(&self) -> &'static str {
         match &self.phase {
-            Phase::Splash => "REforge — Mach 3 — Splash (Space to advance)",
+            Phase::Splash => "REforge — Mach 3 — Splash (Space to skip)",
             Phase::Intro(_) => "REforge — Mach 3 — Intro (Space to start)",
             Phase::Pregame { .. } => "REforge — Mach 3 — Get ready",
             Phase::Playing(runtime) if runtime.state().pause.state != PauseState::Running => {
@@ -995,7 +1035,7 @@ pub(super) fn run(
     let mut pause = HostPause::default();
     let mut input = ControlInput::default();
     let mut history = InputHistory::default();
-    let mut epoch = pause.now(Instant::now());
+    let epoch = pause.now(Instant::now());
     let mut space_held = false;
     let mut navigation_space_release = false;
     #[cfg(feature = "dev-tools")]
@@ -1084,10 +1124,8 @@ pub(super) fn run(
                 {
                     if !space_held {
                         space_held = true;
-                        epoch = pause.now(received);
                         navigation_space_release = true;
-                        let state = simulation.initial.take().unwrap();
-                        simulation.start_intro(state, frames, &resources)?;
+                        simulation.finish_splash(frames, &resources)?;
                         repaint = true;
                     }
                 }
@@ -1146,7 +1184,7 @@ pub(super) fn run(
             #[cfg(not(feature = "dev-tools"))]
             let _ = disposition;
         }
-        if !pause.is_paused() && !matches!(simulation.phase, Phase::Splash) {
+        if !pause.is_paused() {
             let now = pause.now(Instant::now());
             let wanted = ticks_since(epoch, now).max(simulation.clock.tick());
             let budget = wanted.min(simulation.clock.tick().saturating_add(CHUNK));

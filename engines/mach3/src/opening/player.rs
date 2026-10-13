@@ -22,6 +22,16 @@ pub struct Steering {
 }
 
 impl Steering {
+    pub const fn from_bits(mask: u8) -> Self {
+        Self {
+            up: mask & 1 != 0,
+            down: mask & 2 != 0,
+            left: mask & 4 != 0,
+            right: mask & 8 != 0,
+            fire: mask & 16 != 0,
+        }
+    }
+
     pub const fn bits(self) -> u16 {
         self.up as u16
             | ((self.down as u16) << 1)
@@ -72,6 +82,20 @@ pub(crate) struct Player {
 }
 
 impl Player {
+    /// The initial 2277 call runs in reset, nonresponding player state.
+    pub(crate) fn initialize_input(&mut self, mask: u8) -> Result<(), Error> {
+        match self.update_begin(Steering::from_bits(mask), &mut |_| {})? {
+            PlayerUpdate::Complete(false) => {
+                // Unlike Steering, the original stored AX includes F1's bit.
+                self.state.effective_input = u16::from(mask);
+                Ok(())
+            }
+            _ => Err(Error::InvalidData(
+                "initializer requires reset player state".into(),
+            )),
+        }
+    }
+
     pub(crate) fn new(assets: &GraphicsAssets) -> Result<Self, Error> {
         let shadow = Draw {
             resolved_sprite: 18,

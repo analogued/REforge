@@ -60,6 +60,52 @@ fn number<T: std::str::FromStr>(value: &str, table: &str) -> Result<T, Error> {
         .map_err(|_| invalid(format!("{table}: invalid integer {value:?}")))
 }
 
+fn initializer_mask(mask: u16) -> Result<u8, Error> {
+    if mask & !0x9f != 0 {
+        return Err(invalid("initializer input contains unknown action bits"));
+    }
+    Ok(mask as u8)
+}
+
+/// Only the returned input at `poll` drives reconstruction. Other columns and
+/// the optional completion row are diagnostic observations, never state seeds.
+fn read_initializer(reader: impl BufRead) -> Result<u8, Error> {
+    let mut lines = reader.lines();
+    if lines.next().transpose()?.as_deref()
+        != Some("site\tax\tintro_audio\tvelocity\tlateral\tbody")
+    {
+        return Err(invalid("initializer.tsv: invalid header"));
+    }
+    let line = lines
+        .next()
+        .transpose()?
+        .ok_or_else(|| invalid("initializer.tsv: missing poll"))?;
+    let fields = columns(&line, 6, "initializer.tsv")?;
+    if fields[0] != "poll" {
+        return Err(invalid("initializer.tsv: first row must be poll"));
+    }
+    let mask = initializer_mask(number(fields[1], "initializer.tsv")?)?;
+    if let Some(line) = lines.next().transpose()? {
+        let fields = columns(&line, 6, "initializer.tsv")?;
+        if fields[0] != "done" {
+            return Err(invalid("initializer.tsv: only done may follow poll"));
+        }
+    }
+    if lines.next().transpose()?.is_some() {
+        return Err(invalid("initializer.tsv: unexpected additional row"));
+    }
+    Ok(mask)
+}
+
+fn first_initializer(recording: &Path) -> Result<Option<u8>, Error> {
+    let path = recording.join("initializer.tsv");
+    if path.exists() {
+        read_initializer(BufReader::new(File::open(path)?)).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn read_games(reader: impl BufRead) -> Result<Vec<RecordedGame>, Error> {
     let mut lines = reader.lines();
     if lines.next().transpose()?.as_deref() != Some("game\tscript\trng_a\trng_b\trng_c") {
@@ -405,6 +451,9 @@ pub fn replay_first_game(
             retained_world: None,
         },
     )?;
+    if let Some(mask) = first_initializer(recording)? {
+        opening.initialize_input(assets, mask)?;
+    }
     let mut writer = FrameWriter::new(destination, boundary.frames)?;
     writer.frame(
         0,
@@ -617,6 +666,135 @@ mod tests {
             data[0x0a3f + 50 * index] = 0xcf;
         }
         ScriptRules::from_data_segment(&data).unwrap()
+    }
+
+    #[test]
+    fn initializer_parser_uses_only_poll_mask_and_checks_order() {
+        let header = "site\tax\tintro_audio\tvelocity\tlateral\tbody\n";
+        assert_eq!(
+            read_initializer(Cursor::new(format!(
+                "{header}poll\t136\t99\t1234\t-1234\t99\ndone\t65535\t99\t999\t999\t99\n"
+            )))
+            .unwrap(),
+            136
+        );
+        assert_eq!(
+            read_initializer(Cursor::new(format!("{header}poll\t16\t0\t0\t0\t0\n"))).unwrap(),
+            16
+        );
+        for rows in [
+            "",
+            "done\t0\t0\t0\t0\t0\n",
+            "poll\t32\t0\t0\t0\t0\n",
+            "poll\t256\t0\t0\t0\t0\n",
+            "poll\t0\t0\t0\t0\t0\npoll\t8\t0\t0\t0\t0\n",
+            "poll\t0\t0\t0\t0\t0\ndone\t0\t0\t0\t0\t0\ndone\t0\t0\t0\t0\t0\n",
+        ] {
+            assert!(read_initializer(Cursor::new(format!("{header}{rows}"))).is_err());
+        }
+    }
+
+    #[test]
+    fn first_game_initial_input_is_reconstructed_without_reference_state() {
+        let directory = std::env::temp_dir().join(format!(
+            "mach3-initializer-replay-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let recording = directory.join("recording");
+        fs::create_dir_all(&recording).unwrap();
+        fs::write(
+            recording.join("games.tsv"),
+            "game\tscript\trng_a\trng_b\trng_c\n0\t0\t3\t7\t9\n",
+        )
+        .unwrap();
+        fs::write(
+            recording.join("inputs.tsv"),
+            "seq\tgame\tbody\tpass\tmask\n",
+        )
+        .unwrap();
+        fs::write(
+            recording.join("frames.tsv"),
+            "seq\tgame\tbody\tpass\tkind\tpalette\tmode\n0\t0\t0\t0\tinitial\t99\t255\n",
+        )
+        .unwrap();
+        fs::write(recording.join("initializer.tsv"), "site\tax\tintro_audio\tvelocity\tlateral\tbody\npoll\t136\t1\t999\t999\t999\ndone\t65535\t1\t999\t999\t999\n").unwrap();
+        fs::create_dir(recording.join("frames.bin")).unwrap();
+        fs::create_dir(recording.join("state.tsv")).unwrap();
+        let assets = synthetic_assets();
+        let output = directory.join("output");
+        let report = replay_first_game(&assets, synthetic_rules(), &recording, &output).unwrap();
+        assert_eq!((report.frames, report.inputs), (1, 0));
+        assert!(report.diagnostic.is_none());
+        let state = fs::read_to_string(output.join("state.tsv")).unwrap();
+        let mut rows = state.lines();
+        let headers: Vec<_> = rows.next().unwrap().split('\t').collect();
+        let values: Vec<_> = rows.next().unwrap().split('\t').collect();
+        let value = |name| values[headers.iter().position(|header| *header == name).unwrap()];
+        assert_eq!(value("body"), "0");
+        assert_eq!(value("player_velocity_lateral"), "1");
+        assert_eq!(value("player_input"), "136");
+        assert_eq!(
+            (value("rng_a"), value("rng_b"), value("rng_c")),
+            ("3", "7", "9")
+        );
+        let mut native = Opening::for_play(
+            &assets,
+            synthetic_rules(),
+            GameStart {
+                script_index: 0,
+                random: [3, 7, 9],
+                retained_world: None,
+            },
+        )
+        .unwrap();
+        let neutral = native.frame().packed().to_vec();
+        native.initialize_input(&assets, 136).unwrap();
+        let actual = fs::read(output.join("frames.bin")).unwrap();
+        assert_eq!(actual, native.frame().packed());
+        assert_ne!(actual, neutral);
+        let timeline_header =
+            "seq\tgame\tbody\tpass\tevent\tsite\tmask\tf1\tf2\tf3\tlast_scan\tframe_seq\n";
+        fs::write(
+            recording.join("timeline.tsv"),
+            format!("{timeline_header}0\t0\t0\t0\tgame-start\tinitial\t0\t0\t0\t0\t0\t0\n1\t0\t0\t0\tframe\tinitial\t0\t0\t0\t0\t0\t0\n"),
+        ).unwrap();
+        let session_output = directory.join("session-output");
+        let session = replay_session(
+            &assets,
+            synthetic_rules(),
+            None,
+            &recording,
+            &session_output,
+        )
+        .unwrap();
+        assert!(session.diagnostic.is_none(), "{:?}", session.diagnostic);
+        assert_eq!(fs::read(session_output.join("frames.bin")).unwrap(), actual);
+        // The same initialization cannot also arrive through a timeline poll.
+        fs::write(
+            recording.join("timeline.tsv"),
+            format!("{timeline_header}0\t0\t0\t0\tcontrol\tprimer\t0\t0\t0\t0\t0\t0\n"),
+        )
+        .unwrap();
+        let duplicate = replay_session(
+            &assets,
+            synthetic_rules(),
+            None,
+            &recording,
+            &directory.join("duplicate"),
+        )
+        .unwrap();
+        assert_eq!(duplicate.frames, 0);
+        assert!(
+            duplicate
+                .diagnostic
+                .unwrap()
+                .contains("initializer poll outside")
+        );
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

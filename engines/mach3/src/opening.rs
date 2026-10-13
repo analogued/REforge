@@ -117,6 +117,7 @@ pub struct Opening {
     remembered_requests: [usize; 29],
     transitions: Vec<TransitionFrame>,
     sound_returned: bool,
+    initial_input_applied: bool,
 }
 
 impl Opening {
@@ -174,6 +175,7 @@ impl Opening {
             remembered_requests: [0; 29],
             transitions: Vec::new(),
             sound_returned: false,
+            initial_input_applied: false,
         };
         let depths = opening.world_depths();
         opening.sort_full_world(&depths);
@@ -255,6 +257,56 @@ impl Opening {
 
     pub fn request_game_over(&mut self) {
         self.player.end_game();
+    }
+
+    /// Apply the original 03d7 player poll/update before initial composition
+    /// and pre-game playback. The caller supplies a reconstructed Controls poll.
+    /// This does not advance a body/pass, enemies, weapons, fuel or random state.
+    pub fn initialize_input(&mut self, assets: &GraphicsAssets, mask: u8) -> Result<(), Error> {
+        if self.initial_input_applied || self.body != 0 || self.render_pass != 0 {
+            return Err(Error::InvalidData(
+                "initial input must precede gameplay and run once".into(),
+            ));
+        }
+        if mask & !0x9f != 0 {
+            return Err(Error::InvalidData("invalid initializer input mask".into()));
+        }
+        self.player.initialize_input(mask)?;
+        self.finish_player(false);
+        let player = self.player.snapshot();
+        self.strip_y = (92 + (player.horizon >> 3)) as usize;
+        self.vertical_origin = 106 + i32::from(player.horizon >> 4);
+        self.weapon
+            .project(assets, true, self.vertical_origin, player.horizon)?;
+        self.enemy
+            .project(assets, true, self.vertical_origin, player.horizon)?;
+        self.terrain
+            .project(assets, true, self.vertical_origin, player.horizon)?;
+        self.special
+            .project(true, self.vertical_origin, player.horizon)?;
+        self.player.project(assets, self.vertical_origin)?;
+        let depths = self.world_depths();
+        self.sort_full_world(&depths);
+        self.sort_world(&depths);
+        self.hud.set_orientation(self.player.snapshot().orientation);
+
+        // Initial HUD writes resolve the preceding indicator artwork (85/86),
+        // even when the player update selects a different orientation source.
+        let mut draws = scene::initial_draws();
+        draws[..2].copy_from_slice(&self.player.draws());
+        self.frame = scene::background_at(assets, self.snapshot().strip_index, self.strip_y)?;
+        for draw in draws {
+            let sprite = assets.sprites.get(draw.resolved_sprite).ok_or_else(|| {
+                Error::InvalidData(format!(
+                    "missing initializer sprite {}",
+                    draw.resolved_sprite
+                ))
+            })?;
+            self.frame.draw_sprite(sprite, draw.rect)?;
+        }
+        self.pass_frame = self.frame.clone();
+        self.initial_input_applied = true;
+        Ok(())
     }
 
     pub fn palette_family(&self) -> u8 {
@@ -1300,6 +1352,57 @@ impl Random {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn initializer_moves_player_and_world_without_advancing_gameplay() {
+        let assets = synthetic_assets();
+        let mut game = Opening::new(&assets).unwrap();
+        let before = game.snapshot();
+        game.initialize_input(&assets, 8 | 16).unwrap();
+        let after = game.snapshot();
+        assert_eq!(after.player.coordinates, [14, 4, -100]);
+        assert_eq!(after.player.velocity, [1, 0]);
+        assert_eq!(after.player.effective_input, 24);
+        assert_eq!(after.player.requested_sprite, 12);
+        assert_eq!(after.player.shadow_requested_sprite, 17);
+        assert_eq!(after.static_lateral, -8);
+        assert!(
+            after
+                .weapon
+                .shots
+                .iter()
+                .all(|shot| !shot.active && shot.lateral == -8)
+        );
+        assert!(after.enemies.iter().all(|enemy| enemy.lateral == -8));
+        assert!(after.terrain.iter().all(|row| row.lateral == -8));
+        assert_eq!((after.body, after.render_pass), (0, 0));
+        assert_eq!(after.random, before.random);
+        assert_eq!(after.hud.fuel, before.hud.fuel);
+        assert_eq!(after.weapon.counter, before.weapon.counter);
+        assert_eq!(after.script_cursor, before.script_cursor);
+        assert_eq!(after.strip_index, before.strip_index);
+        assert_eq!(game.frame(), game.pass_frame());
+        assert!(game.pass_snapshot().is_none());
+        assert!(game.take_transitions().is_empty());
+        assert!(game.initialize_input(&assets, 8).is_err());
+    }
+
+    #[test]
+    fn initializer_retains_poll_bits_and_rejects_late_or_invalid_input() {
+        let assets = synthetic_assets();
+        for mask in [0, 16, 128] {
+            let mut game = Opening::new(&assets).unwrap();
+            game.initialize_input(&assets, mask).unwrap();
+            assert_eq!(game.snapshot().player.effective_input, u16::from(mask));
+            assert_eq!(game.snapshot().player.coordinates, [14, 0, -100]);
+            assert_eq!(game.snapshot().player.velocity, [0, 0]);
+            assert!(!game.snapshot().player.game_over);
+        }
+        let mut game = Opening::new(&assets).unwrap();
+        assert!(game.initialize_input(&assets, 32).is_err());
+        game.advance_subframe(&assets, Steering::default()).unwrap();
+        assert!(game.initialize_input(&assets, 8).is_err());
+    }
 
     #[test]
     fn random_preserves_sixteen_bit_arithmetic_and_add_carry() {

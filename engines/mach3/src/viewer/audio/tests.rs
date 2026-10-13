@@ -509,6 +509,63 @@ fn first_scene_is_published_before_pregame_sample_and_initial_body() {
 }
 
 #[test]
+fn retained_intro_direction_updates_initial_scene_before_pregame_playback() {
+    for (intro_enabled, sound_disabled, steering_enabled) in [
+        (false, false, true),
+        (true, true, true),
+        (false, false, false),
+    ] {
+        let frames = frames();
+        let resources = resources();
+        let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+        let state = simulation.initial.as_mut().unwrap();
+        state.controls.preferences.intro_audio_enabled = intro_enabled;
+        state.controls.preferences.sound_disabled = sound_disabled;
+        simulation.finish_splash(&frames, &resources).unwrap();
+        let tick = simulation.clock.tick();
+        simulation.receive(tick, 0x4d);
+        simulation.receive(tick, 0x39);
+        let mut events = Vec::new();
+        for _ in 0..100 {
+            if matches!(simulation.phase, Phase::Pregame { .. }) {
+                break;
+            }
+            simulation
+                .advance(
+                    simulation.clock.tick() + 100_000,
+                    &frames,
+                    &rules(),
+                    &resources,
+                    steering_enabled,
+                    &mut events,
+                )
+                .unwrap();
+        }
+        let Phase::Pregame { game, task } = &simulation.phase else {
+            panic!()
+        };
+        let state = game.snapshot();
+        assert_eq!(task.state().keyboard.held_keys(0).actions, 24);
+        assert_eq!(state.player.velocity, [i16::from(steering_enabled), 0]);
+        assert_eq!(
+            state.player.coordinates[1],
+            if steering_enabled { 4 } else { 0 }
+        );
+        assert_eq!(
+            state.player.effective_input,
+            if steering_enabled { 24 } else { 0 }
+        );
+        assert_eq!(state.static_lateral, if steering_enabled { -8 } else { 0 });
+        assert_eq!((state.body, state.render_pass), (0, 0));
+        assert_eq!(simulation.visible, *game.frame());
+        assert!(events.iter().all(|(_, event)| !matches!(
+            event,
+            GameplayEvent::Published { .. } | GameplayEvent::Action(_)
+        )));
+    }
+}
+
+#[test]
 fn native_pause_return_continues_clock_through_ending_and_restart() {
     assert_eq!(
         native_pause_return_run(AudioRenderer::Speaker),

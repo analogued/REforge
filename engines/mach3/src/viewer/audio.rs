@@ -463,11 +463,30 @@ impl Simulation {
                         .map_err(|e| e.to_string())?;
                     if progress == IntroProgress::Returned {
                         let mut state = task.into_state().map_err(|e| e.to_string())?;
+                        let start = self.session.begin_game();
+                        let mut game = Opening::for_play(frames.graphics(), rules.clone(), start)
+                            .map_err(|e| e.to_string())?;
+                        let poll = state
+                            .controls
+                            .poll(state.keyboard.held_keys(state.joystick));
+                        events.push((
+                            self.clock.tick(),
+                            GameplayEvent::InputPoll {
+                                site: 0x2289,
+                                mask: poll.mask,
+                            },
+                        ));
+                        if poll.display_toggled {
+                            game.reset_video_palette();
+                        }
+                        game.initialize_input(
+                            frames.graphics(),
+                            if controls { poll.mask } else { 0 },
+                        )
+                        .map_err(|e| e.to_string())?;
                         self.session.controls = state.controls.clone();
                         self.session.keyboard = state.keyboard.clone();
-                        let start = self.session.begin_game();
-                        let game = Opening::for_play(frames.graphics(), rules.clone(), start)
-                            .map_err(|e| e.to_string())?;
+                        self.palette_family = game.palette_family();
                         state.steering_enabled = controls;
                         self.visible = game.frame().clone();
                         self.phase = Phase::Pregame {

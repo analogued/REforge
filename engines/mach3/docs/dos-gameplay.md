@@ -5,6 +5,21 @@ Code and data addresses follow [DOS startup](dos-startup.md).
 
 ## Update order
 
+Before the main loop, initialization calls the player/input helper `2277` at
+`03d7`, after resetting player and world records and before initial composition
+at `044a` and pre-game sample playback at `044c`. This poll uses the ordinary
+function-key priorities and counters. A held Right input starts lateral velocity
+at one, moves the craft/shadow laterally by four and shifts world records 2–28
+by minus eight. Space is retained as input but does not fire a projectile here.
+The initializer resolves/project records and composes the scene without running
+enemy movement, weapon advancement or a gameplay body.
+
+`Opening::initialize_input` applies the returned poll mask to that initialization
+operation. Normal live playback calls it before entering pre-game playback;
+recording replay uses captured initializer input when available. The initial
+HUD still draws its previously resolved indicator artwork even if the player
+update selects a different orientation.
+
 The game loop starts at `04b7`, repeating at `04c2`. Each completed body has
 three ordinary calls to the tick wait `7437`, updates player input through
 `2277` three times, and updates world objects through `2ae4` twice. Pass one

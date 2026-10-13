@@ -41,6 +41,16 @@ Input positions use a wide sequence number plus the wrapping 16-bit game body
 and pass number; wall-clock key timestamps are
 not used to align execution.
 
+An optional first-game `initializer.tsv` carries the initial player poll at
+CS:03d7, before INITIAL044a. Its header is
+`site\tax\tintro_audio\tvelocity\tlateral\tbody` (tab-separated). The first row
+must be `poll`; one optional `done` row may follow. Only `poll` AX drives
+reconstruction: the low five action bits steer, and F1's bit 128 is retained in
+the input diagnostic. All other columns and completion AX are observations,
+never imported state. Without this stream, the first game's initialization stays
+neutral for compatibility with older recordings. The stream does not supply
+function-key history or change initial preferences.
+
 `frames.tsv` indexes `frames.bin`, which contains one 16,000-byte linear CGA
 frame per row. The index records sequence, game, body, pass, frame kind, palette
 family, and display mode. Normal passes are 1 through 3; transition draws are
@@ -105,7 +115,13 @@ A recording can stop during gameplay, a transition, a title wait or prepared
 poll, the returned intro, or reset before the next initial scene. Replay exports
 exactly its displayed prefix. Extra recorded frames without timeline coverage
 produce a partial diagnostic. Unknown nonneutral controls and any nonzero
-initializer poll at CS:03d7 before INITIAL044a remain explicit unsupported cases.
+unclassified polls remain explicit unsupported cases. Later games reconstruct
+their CS:03d7 initializer from the timeline's `primer` input before `game-start`.
+Its preceding `control` event retains ordinary F2/F3 processing; an optional
+`lifecycle-poll` result must agree with the input mask. Missing, duplicated or
+out-of-order initializer input is rejected. Initialization updates player,
+shadow and scene geometry without running an ordinary gameplay pass or advancing
+the body, script or random state.
 An F3 toggle while native transition draws remain queued also stops explicitly:
 `advance_subframe` may already have executed a later script palette write, so
 its precedence relative to the interleaved BIOS mode reset requires phased

@@ -177,6 +177,10 @@ pub fn replay_session(
             retained_world: None,
         },
     )?;
+    let initializer = first_initializer(recording)?;
+    if let Some(mask) = initializer {
+        opening.initialize_input(assets, mask)?;
+    }
     let mut writer = FrameWriter::new(destination, boundaries.len() as u64)?;
     let mut replay = Lifecycle {
         assets,
@@ -203,6 +207,9 @@ pub fn replay_session(
         started: false,
         initial_pending: false,
         palette_reset: false,
+        initialized: initializer.is_some(),
+        primer_control: false,
+        primer_result: None,
     };
     let mut diagnostic = initial_preferences(recording)?;
     for event in &events {
@@ -304,6 +311,9 @@ struct Lifecycle<'a, R> {
     started: bool,
     initial_pending: bool,
     palette_reset: bool,
+    initialized: bool,
+    primer_control: bool,
+    primer_result: Option<u16>,
 }
 
 impl<R: BufRead> Lifecycle<'_, R> {
@@ -342,10 +352,12 @@ impl<R: BufRead> Lifecycle<'_, R> {
                 ) {
                     return Err(invalid("unclassified control poll site"));
                 }
-                if e.site == "primer" && e.keys != HeldKeys::default() {
-                    return Err(invalid(
-                        "nonneutral initializer CS:03d7 input before INITIAL044a is not modeled",
-                    ));
+                if e.site == "primer" {
+                    self.check_primer(e)?;
+                    if self.primer_control {
+                        return Err(invalid("duplicate initializer control poll"));
+                    }
+                    self.primer_control = true;
                 }
                 if e.site == "other" && e.keys != HeldKeys::default() {
                     return Err(invalid("unclassified nonneutral control poll"));
@@ -366,11 +378,16 @@ impl<R: BufRead> Lifecycle<'_, R> {
             }
             "audio-clear" => self.session.finish_audio_input(e.last_scan),
             "input" if e.site == "primer" => {
-                if e.mask != 0 {
-                    return Err(invalid(
-                        "nonneutral initializer CS:03d7 poll before INITIAL044a is not modeled",
-                    ));
+                self.check_primer(e)?;
+                if !self.primer_control {
+                    return Err(invalid("initializer input lacks its control poll"));
                 }
+                if self.primer_result.is_some_and(|mask| mask != e.mask) {
+                    return Err(invalid("initializer helper and player input disagree"));
+                }
+                let mask = initializer_mask(e.mask)?;
+                self.opening.initialize_input(self.assets, mask)?;
+                self.initialized = true;
             }
             "input" => self.input(e)?,
             "frame" => self.frame(e)?,
@@ -417,10 +434,16 @@ impl<R: BufRead> Lifecycle<'_, R> {
                 self.started = false;
                 self.quit = false;
                 self.pending.clear();
+                self.initialized = false;
+                self.primer_control = false;
+                self.primer_result = None;
             }
             "game-start" => {
                 if self.started || (self.game != 0 && !self.reset) {
                     return Err(invalid("game-start arrived without a new-game reset"));
+                }
+                if (self.game != 0 || self.primer_control) && !self.initialized {
+                    return Err(invalid("game-start arrived before initializer input"));
                 }
                 let captured = self
                     .games
@@ -449,6 +472,18 @@ impl<R: BufRead> Lifecycle<'_, R> {
                 self.intro_input = false;
             }
             _ => return Err(invalid("unsupported timeline event")),
+        }
+        Ok(())
+    }
+
+    fn check_primer(&self, e: &Event) -> Result<(), Error> {
+        if self.started
+            || self.initialized
+            || e.body != 0
+            || e.pass != 0
+            || (self.game != 0 && !self.reset)
+        {
+            return Err(invalid("initializer poll outside new-game initialization"));
         }
         Ok(())
     }
@@ -549,11 +584,12 @@ impl<R: BufRead> Lifecycle<'_, R> {
             return Ok(());
         }
         if e.site == "primer" {
-            if e.mask != 0 {
-                return Err(invalid(
-                    "nonneutral initializer CS:03d7 poll is not modeled",
-                ));
+            self.check_primer(e)?;
+            initializer_mask(e.mask)?;
+            if !self.primer_control || self.primer_result.is_some() {
+                return Err(invalid("initializer helper result lacks one control poll"));
             }
+            self.primer_result = Some(e.mask);
             return Ok(());
         }
         if matches!(
@@ -845,6 +881,133 @@ mod tests {
     }
 
     #[test]
+    fn initializer_timeline_orders_polls_and_preserves_function_key_effects() {
+        let directory = std::env::temp_dir().join(format!(
+            "mach3-initializer-timeline-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let recording = directory.join("recording");
+        fs::create_dir_all(&recording).unwrap();
+        fs::write(
+            recording.join("games.tsv"),
+            "game\tscript\trng_a\trng_b\trng_c\n0\t0\t3\t7\t9\n",
+        )
+        .unwrap();
+        fs::write(
+            recording.join("inputs.tsv"),
+            "seq\tgame\tbody\tpass\tmask\n",
+        )
+        .unwrap();
+        let assets = super::super::tests::synthetic_assets();
+        let rules = super::super::tests::synthetic_rules();
+        for (name, actions, mask, f3, succeeds) in [
+            (
+                "right-f1",
+                vec!["control", "lifecycle-poll", "input"],
+                136,
+                0,
+                true,
+            ),
+            ("f3", vec!["control", "lifecycle-poll", "input"], 0, 1, true),
+            (
+                "duplicate-control",
+                vec!["control", "control", "input"],
+                8,
+                0,
+                false,
+            ),
+            (
+                "duplicate-result",
+                vec!["control", "lifecycle-poll", "lifecycle-poll", "input"],
+                8,
+                0,
+                false,
+            ),
+            (
+                "duplicate-input",
+                vec!["control", "input", "input"],
+                8,
+                0,
+                false,
+            ),
+            (
+                "input-before-control",
+                vec!["input", "control"],
+                8,
+                0,
+                false,
+            ),
+            (
+                "result-before-control",
+                vec!["lifecycle-poll", "control", "input"],
+                8,
+                0,
+                false,
+            ),
+            (
+                "missing-input",
+                vec!["control", "lifecycle-poll"],
+                8,
+                0,
+                false,
+            ),
+        ] {
+            let mut fixture = Fixture::new();
+            for action in actions {
+                fixture.event(
+                    0,
+                    0,
+                    0,
+                    action,
+                    "primer",
+                    if action == "control" {
+                        [0, 0, 1, f3, 0]
+                    } else {
+                        [mask, 0, 0, 0, 0]
+                    },
+                );
+            }
+            fixture.event(0, 0, 0, "game-start", "initial", [0; 5]);
+            fixture.event(0, 0, 0, "frame", "initial", [0; 5]);
+            fs::write(recording.join("timeline.tsv"), &fixture.timeline).unwrap();
+            fs::write(recording.join("frames.tsv"), &fixture.frames).unwrap();
+            let output = directory.join(name);
+            let report = replay_session(&assets, rules.clone(), None, &recording, &output).unwrap();
+            assert_eq!(
+                report.diagnostic.is_none(),
+                succeeds,
+                "{name}: {:?}",
+                report.diagnostic
+            );
+            if succeeds {
+                assert_eq!((report.frames, report.inputs), (1, 0));
+                let state = fs::read_to_string(output.join("state.tsv")).unwrap();
+                let mut rows = state.lines();
+                let headers: Vec<_> = rows.next().unwrap().split('\t').collect();
+                let values: Vec<_> = rows.next().unwrap().split('\t').collect();
+                assert_eq!(
+                    values[headers
+                        .iter()
+                        .position(|name| *name == "player_input")
+                        .unwrap()],
+                    mask.to_string()
+                );
+                let controls = fs::read_to_string(output.join("session-state.tsv")).unwrap();
+                assert!(controls.lines().nth(1).unwrap().ends_with(if f3 == 1 {
+                    "\t6\t0\t1\t1"
+                } else {
+                    "\t4\t0\t1\t1"
+                }));
+            }
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn session_derives_restart_retains_unprojected_return_and_preferences() {
         let directory = std::env::temp_dir().join(format!(
             "mach3-session-test-{}-{}",
@@ -1061,7 +1224,7 @@ mod tests {
             recording.join("timeline.tsv"),
             fixture
                 .timeline
-                .replace("\tinput\tprimer\t0\t", "\tinput\tprimer\t16\t"),
+                .replace("\tinput\tprimer\t0\t", "\tinput\tprimer\t136\t"),
         )
         .unwrap();
         let primer = replay_session(
@@ -1072,13 +1235,100 @@ mod tests {
             &directory.join("primer"),
         )
         .unwrap();
-        assert_eq!(primer.frames, 145);
-        assert!(
-            primer
-                .diagnostic
-                .unwrap()
-                .contains("nonneutral initializer")
+        assert_eq!((primer.frames, primer.inputs), (147, 4));
+        assert!(primer.diagnostic.is_none(), "{:?}", primer.diagnostic);
+        let state = fs::read_to_string(directory.join("primer/state.tsv")).unwrap();
+        let headers: Vec<_> = state.lines().next().unwrap().split('\t').collect();
+        let values: Vec<_> = state.lines().nth(146).unwrap().split('\t').collect();
+        assert_eq!(values[input_column], "136");
+        assert_eq!(
+            values[headers
+                .iter()
+                .position(|name| *name == "player_velocity_lateral")
+                .unwrap()],
+            "1"
         );
+        let base = fs::read(output.join("frames.bin")).unwrap();
+        let changed = fs::read(directory.join("primer/frames.bin")).unwrap();
+        assert_ne!(
+            &base[145 * crate::frame::FRAME_BYTES..146 * crate::frame::FRAME_BYTES],
+            &changed[145 * crate::frame::FRAME_BYTES..146 * crate::frame::FRAME_BYTES]
+        );
+        // Initializer function-key processing remains an ordinary control poll,
+        // independent of the action-mask reconstruction.
+        fs::write(
+            recording.join("timeline.tsv"),
+            fixture.timeline.replace(
+                "\tcontrol\tprimer\t0\t0\t0\t0\t",
+                "\tcontrol\tprimer\t0\t0\t1\t1\t",
+            ),
+        )
+        .unwrap();
+        let function_keys = replay_session(
+            &assets,
+            rules.clone(),
+            Some(&startup),
+            &recording,
+            &directory.join("primer-function-keys"),
+        )
+        .unwrap();
+        assert!(
+            function_keys.diagnostic.is_none(),
+            "{:?}",
+            function_keys.diagnostic
+        );
+        let controls =
+            fs::read_to_string(directory.join("primer-function-keys/session-state.tsv")).unwrap();
+        assert!(controls.lines().nth(146).unwrap().ends_with("\t4\t1\t1\t1"));
+        for (name, timeline) in [
+            (
+                "missing-primer-control",
+                fixture
+                    .timeline
+                    .lines()
+                    .filter(|line| !line.contains("\tcontrol\tprimer\t"))
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                "invalid-primer-mask",
+                fixture
+                    .timeline
+                    .replace("\tinput\tprimer\t0\t", "\tinput\tprimer\t32\t")
+                    .lines()
+                    .map(str::to_owned)
+                    .collect(),
+            ),
+        ] {
+            // Renumber after removing an event, keeping parser-level ordering legal.
+            let timeline: Vec<_> = timeline
+                .into_iter()
+                .enumerate()
+                .map(|(index, line)| {
+                    if index == 0 {
+                        return line;
+                    }
+                    let mut fields: Vec<_> = line.split('\t').map(str::to_owned).collect();
+                    fields[0] = (index - 1).to_string();
+                    fields.join("\t")
+                })
+                .collect();
+            fs::write(
+                recording.join("timeline.tsv"),
+                format!("{}\n", timeline.join("\n")),
+            )
+            .unwrap();
+            let failed = replay_session(
+                &assets,
+                rules.clone(),
+                Some(&startup),
+                &recording,
+                &directory.join(name),
+            )
+            .unwrap();
+            assert_eq!(failed.frames, 145);
+            assert!(failed.diagnostic.unwrap().contains("initializer"));
+        }
         fs::write(recording.join("timeline.tsv"), &fixture.timeline).unwrap();
         let missing = replay_session(
             &assets,

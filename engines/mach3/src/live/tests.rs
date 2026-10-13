@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     assets::{GraphicsAssets, Sprite},
-    opening::{PauseEvent, PauseState, ScriptRules, execution::GameplayTask},
+    gameplay::{PauseEvent, PauseState, ScriptRules, execution::GameplayTask},
     sound::{ByteOrigin, Effect, FarPointer, MemoryByte, ProceduralProgram, Resource, SoundAction},
 };
 use reforge_audio::speaker::PcSpeaker;
@@ -99,7 +99,7 @@ fn begin(
 ) -> (GameplayRuntime, Clock<impl FnMut(Stamp, ClockEvent)>) {
     let (state, clock) = context(log, steering_enabled);
     let runtime =
-        GameplayRuntime::begin(Opening::new(assets).unwrap(), state, CS, 64, &clock).unwrap();
+        GameplayRuntime::begin(Gameplay::new(assets).unwrap(), state, CS, 64, &clock).unwrap();
     (runtime, clock)
 }
 
@@ -326,7 +326,7 @@ fn disabled_steering_keeps_function_keys_and_pause_resume_input() {
         .unwrap();
     assert_eq!(
         disabled.state().controls.preferences.display_mode,
-        crate::opening::DisplayMode::Monochrome
+        crate::gameplay::DisplayMode::Monochrome
     );
 
     let (mut paused, mut clock) = begin(&assets, Log::default(), false);
@@ -353,14 +353,14 @@ fn disabled_steering_keeps_function_keys_and_pause_resume_input() {
     assert!(!paused.game().snapshot().player.game_over);
 }
 
-fn transition_game(assets: &GraphicsAssets) -> Opening {
+fn transition_game(assets: &GraphicsAssets) -> Gameplay {
     let mut data = vec![0; 65_536];
     data[0x04ac..0x04af].copy_from_slice(&[187, 188, 189]);
     for index in 0..21 {
         let at = 0x0a3e + 50 * index;
         data[at..at + 5].copy_from_slice(&[0xd6, 0xd5, 0xcb, 0xcc, 0xcf]);
     }
-    Opening::from_game_start(
+    Gameplay::from_game_start(
         assets,
         ScriptRules::from_data_segment(&data).unwrap(),
         SessionState::default().begin_game(),
@@ -602,7 +602,7 @@ fn native_return_executes_one_ordered_reset_transaction_even_when_polled_again()
     };
     let log = Log::default();
     let (state, mut clock) = context(log.clone(), true);
-    let mut game = Opening::new(&assets).unwrap();
+    let mut game = Gameplay::new(&assets).unwrap();
     game.request_game_over();
     let mut runtime = GameplayRuntime::begin(game, state, CS, 64, &clock).unwrap();
     log.borrow_mut().clear();

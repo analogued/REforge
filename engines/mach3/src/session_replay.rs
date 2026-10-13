@@ -10,7 +10,7 @@ use crate::{
     Error,
     assets::GraphicsAssets,
     frame::Frame,
-    opening::{Controls, DisplayMode, GameStart, HeldKeys, Opening, ScriptRules, Steering},
+    gameplay::{Controls, DisplayMode, GameStart, Gameplay, HeldKeys, ScriptRules, Steering},
 };
 use std::{
     fs::{self, File, OpenOptions},
@@ -379,7 +379,7 @@ impl FrameWriter {
         kind: &str,
         palette: u8,
         mode: u8,
-        capture: (&Frame, Option<&crate::opening::Snapshot>),
+        capture: (&Frame, Option<&crate::gameplay::Snapshot>),
     ) -> Result<(), Error> {
         if self.seq >= self.limit {
             return Ok(());
@@ -442,7 +442,7 @@ pub fn replay_first_game(
         None
     };
     let first = games[0];
-    let mut opening = Opening::for_play(
+    let mut gameplay = Gameplay::for_play(
         assets,
         rules,
         GameStart {
@@ -452,16 +452,16 @@ pub fn replay_first_game(
         },
     )?;
     if let Some(mask) = first_initializer(recording)? {
-        opening.initialize_input(assets, mask)?;
+        gameplay.initialize_input(assets, mask)?;
     }
     let mut writer = FrameWriter::new(destination, boundary.frames)?;
     writer.frame(
         0,
         0,
         "initial",
-        opening.palette_family(),
+        gameplay.palette_family(),
         4,
-        (opening.frame(), Some(&opening.snapshot())),
+        (gameplay.frame(), Some(&gameplay.snapshot())),
     )?;
     let mut consumed = 0;
     let mut diagnostic = None;
@@ -485,7 +485,7 @@ pub fn replay_first_game(
             );
             break;
         }
-        if opening.complete() {
+        if gameplay.complete() {
             diagnostic = Some(format!(
                 "native game ended before recorded input {} (body {}, pass {})",
                 input.seq, input.body, input.pass
@@ -510,7 +510,7 @@ pub fn replay_first_game(
                 }
                 let poll = native_controls.poll(control.keys);
                 if poll.display_toggled {
-                    opening.reset_video_palette();
+                    gameplay.reset_video_palette();
                 }
                 quit |= control.site == "pause-confirm" && poll.mask == 128;
                 control_cursor += 1;
@@ -522,12 +522,12 @@ pub fn replay_first_game(
                 }
             }
         }
-        let palette = opening.palette_family();
+        let palette = gameplay.palette_family();
         let mode = match native_controls.preferences.display_mode {
             DisplayMode::Color => 4,
             DisplayMode::Monochrome => 6,
         };
-        if let Err(error) = opening.advance_subframe(assets, steering(input.mask)) {
+        if let Err(error) = gameplay.advance_subframe(assets, steering(input.mask)) {
             diagnostic = Some(format!(
                 "native replay failed at input {} (body {}, pass {}): {error}",
                 input.seq, input.body, input.pass
@@ -535,9 +535,9 @@ pub fn replay_first_game(
             break;
         }
         if quit {
-            opening.request_game_over();
+            gameplay.request_game_over();
         }
-        let transitions = opening.take_transitions();
+        let transitions = gameplay.take_transitions();
         for (index, transition) in transitions
             .iter()
             .enumerate()
@@ -558,7 +558,7 @@ pub fn replay_first_game(
             "gameplay",
             palette,
             mode,
-            (opening.pass_frame(), opening.pass_snapshot()),
+            (gameplay.pass_frame(), gameplay.pass_snapshot()),
         )?;
         for (index, transition) in transitions
             .iter()
@@ -598,7 +598,7 @@ pub fn replay_first_game(
     }
     if diagnostic.is_none() {
         if let Some(body) = recorded_end {
-            if !opening.complete() || opening.snapshot().body != body {
+            if !gameplay.complete() || gameplay.snapshot().body != body {
                 diagnostic = Some(format!(
                     "original game ended at body {body}; native game has not ended at that boundary"
                 ));
@@ -741,7 +741,7 @@ mod tests {
             (value("rng_a"), value("rng_b"), value("rng_c")),
             ("3", "7", "9")
         );
-        let mut native = Opening::for_play(
+        let mut native = Gameplay::for_play(
             &assets,
             synthetic_rules(),
             GameStart {
@@ -897,7 +897,7 @@ mod tests {
         let report = replay_first_game(&assets, synthetic_rules(), &recording, &output).unwrap();
         assert_eq!((report.frames, report.inputs), (3, 2));
         assert!(report.diagnostic.is_none());
-        let mut native = Opening::for_play(
+        let mut native = Gameplay::for_play(
             &assets,
             synthetic_rules(),
             GameStart {
@@ -1002,7 +1002,7 @@ mod tests {
             random: [3, 7, 9],
             retained_world: None,
         };
-        let mut game = Opening::for_play(&assets, rules.clone(), start).unwrap();
+        let mut game = Gameplay::for_play(&assets, rules.clone(), start).unwrap();
         let mut index =
             String::from("seq\tgame\tbody\tpass\tkind\tpalette\tmode\n0\t0\t0\t0\tinitial\t1\t4\n");
         let mut inputs = String::from("seq\tgame\tbody\tpass\tmask\n");

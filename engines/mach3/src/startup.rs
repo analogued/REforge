@@ -22,7 +22,7 @@ pub enum Screen {
     InitialScene,
 }
 
-/// Decoded startup screens, initial scene, and graphics for the opening simulation.
+/// Decoded startup screens, initial scene, and graphics for the gameplay simulation.
 #[derive(Debug)]
 pub struct StartupFrames {
     frames: [Frame; 3],

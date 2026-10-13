@@ -5,7 +5,7 @@ use super::new_file;
 use crate::{
     Error,
     frame::Rect,
-    opening::{EndingSnapshot, EnemyState, SessionState, Snapshot, SpecialState},
+    gameplay::{EndingSnapshot, EnemyState, SessionState, Snapshot, SpecialState},
 };
 use std::{
     fs::File,
@@ -169,8 +169,8 @@ impl Diagnostics {
         session: &SessionState,
     ) -> Result<(), Error> {
         let mode = match session.controls.preferences.display_mode {
-            crate::opening::DisplayMode::Color => 4,
-            crate::opening::DisplayMode::Monochrome => 6,
+            crate::gameplay::DisplayMode::Color => 4,
+            crate::gameplay::DisplayMode::Monochrome => 6,
         };
         writeln!(
             self.session,

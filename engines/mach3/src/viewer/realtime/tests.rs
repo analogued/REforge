@@ -834,7 +834,7 @@ fn ending_simulation_with_best(frames: &StartupFrames, best_score: u32) -> Simul
     simulation.session.best_score = best_score;
     let state = post_splash_state(&mut simulation);
     let start = simulation.session.begin_game();
-    let game = Opening::for_play(frames.graphics(), rules(), start).unwrap();
+    let game = Gameplay::for_play(frames.graphics(), rules(), start).unwrap();
     simulation.visible = game.frame().clone();
     simulation.phase = Phase::Ending {
         ending: Box::new(Ending::pending_with_best(
@@ -1035,7 +1035,7 @@ fn frontend_return_executes_exactly_one_reset_transaction() {
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
     let state = post_splash_state(&mut simulation);
     let mut game =
-        Opening::for_play(frames.graphics(), rules(), simulation.session.begin_game()).unwrap();
+        Gameplay::for_play(frames.graphics(), rules(), simulation.session.begin_game()).unwrap();
     game.request_game_over();
     let actions = Rc::new(RefCell::new(Vec::new()));
     let log = actions.clone();
@@ -1149,7 +1149,7 @@ fn title_entry_waits_for_zero_mask_before_setup_or_drawing() {
 
 #[test]
 fn mandatory_animation_skips_function_polls_but_next_title_entry_processes_them() {
-    use crate::opening::{EndingStage, EndingTitle};
+    use crate::gameplay::{EndingStage, EndingTitle};
     let frames = frames();
     let resources = resources();
     let mut simulation = ending_simulation(&frames);
@@ -1228,7 +1228,7 @@ fn palette_zero_survives_gameplay_return_and_title_animation() {
     let mut state = post_splash_state(&mut simulation);
     // Retain F3 until the entry poll; active sample teardown clears held keys.
     state.controls.preferences.intro_audio_enabled = false;
-    let mut game = Opening::for_play(
+    let mut game = Gameplay::for_play(
         frames.graphics(),
         rules_with_commands(&[0xce, 0xce]),
         simulation.session.begin_game(),
@@ -1273,7 +1273,7 @@ fn palette_zero_survives_gameplay_return_and_title_animation() {
 
 fn optional_ending(frames: &StartupFrames) -> Ending {
     let mut session = SessionState::default();
-    let game = Opening::for_play(frames.graphics(), rules(), session.begin_game()).unwrap();
+    let game = Gameplay::for_play(frames.graphics(), rules(), session.begin_game()).unwrap();
     let mut ending = Ending::new(frames.graphics(), &game.snapshot(), game.frame()).unwrap();
     while !ending.can_return() {
         ending.advance(frames.graphics()).unwrap();
@@ -1380,7 +1380,7 @@ fn optional_poll_precedes_wait_and_draw_and_uses_any_nonzero_mask() {
 
 #[test]
 fn intertitle_executes_separate_waits_and_release_before_setup() {
-    use crate::opening::EndingStage;
+    use crate::gameplay::EndingStage;
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
@@ -1435,12 +1435,12 @@ fn intertitle_executes_separate_waits_and_release_before_setup() {
 
 #[test]
 fn following_title_release_gate_defers_best_score_and_preserves_previous_image() {
-    use crate::opening::{EndingStage, EndingTitle};
+    use crate::gameplay::{EndingStage, EndingTitle};
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
     let mut state = post_splash_state(&mut simulation);
-    let mut game = Opening::for_play(
+    let mut game = Gameplay::for_play(
         frames.graphics(),
         rules_with_commands(&[0xc3]),
         simulation.session.begin_game(),
@@ -1500,7 +1500,7 @@ fn following_title_release_gate_defers_best_score_and_preserves_previous_image()
 
 #[test]
 fn score_overlay_is_drawn_before_hold_poll_without_consuming_timer_units() {
-    use crate::opening::{EndingStage, EndingTitle};
+    use crate::gameplay::{EndingStage, EndingTitle};
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
@@ -1552,14 +1552,14 @@ fn score_overlay_is_drawn_before_hold_poll_without_consuming_timer_units() {
 /// advancing the device. Live execution then selects the sample at Finish.
 fn hold_entry(
     frames: &StartupFrames,
-    title: crate::opening::EndingTitle,
+    title: crate::gameplay::EndingTitle,
     score: u32,
     best: u32,
     optional: bool,
 ) -> Ending {
-    use crate::opening::{EndingStage, EndingTitle};
+    use crate::gameplay::{EndingStage, EndingTitle};
     let mut session = SessionState::default();
-    let game = Opening::for_play(frames.graphics(), rules(), session.begin_game()).unwrap();
+    let game = Gameplay::for_play(frames.graphics(), rules(), session.begin_game()).unwrap();
     let mut snapshot = game.snapshot();
     snapshot.hud.score = score;
     let mut ending =
@@ -1592,7 +1592,7 @@ fn logged_ending_clock(simulation: &mut Simulation) -> Rc<RefCell<Vec<(Stamp, Cl
 
 #[test]
 fn mandatory_hold_samples_select_original_resources_and_preserve_publication() {
-    use crate::opening::{EndingStage, EndingTitle};
+    use crate::gameplay::{EndingStage, EndingTitle};
     for (title, resource, count, site) in [
         (EndingTitle::GameOver, Resource::Data9, 10_874, 0x27a4),
         (EndingTitle::HighScore, Resource::Data7, 11_872, 0x29e6),
@@ -1662,7 +1662,7 @@ fn mandatory_hold_samples_select_original_resources_and_preserve_publication() {
 
 #[test]
 fn ending_sample_guards_distinguish_equal_lower_optional_and_intro_disabled() {
-    use crate::opening::EndingTitle;
+    use crate::gameplay::EndingTitle;
     for (title, score, best, optional, intro, sound, expected) in [
         (
             EndingTitle::HighScore,
@@ -1743,7 +1743,7 @@ fn ending_sample_guards_distinguish_equal_lower_optional_and_intro_disabled() {
 
 #[test]
 fn ordinary_sound_bypass_polls_once_and_ignores_mask_without_sample_teardown() {
-    use crate::opening::EndingTitle;
+    use crate::gameplay::EndingTitle;
     for title in [EndingTitle::GameOver, EndingTitle::HighScore] {
         let frames = frames();
         let resources = resources();
@@ -1788,7 +1788,7 @@ fn ordinary_sound_bypass_polls_once_and_ignores_mask_without_sample_teardown() {
 
 #[test]
 fn ending_sample_matches_direct_sample_task_hardware_transactions() {
-    use crate::opening::EndingTitle;
+    use crate::gameplay::EndingTitle;
     let frames = frames();
     let resources = resources();
     let memory = DosSampleMemory::new(&resources.samples, *b"MACH3\0\0\0");
@@ -1843,7 +1843,7 @@ fn ending_sample_matches_direct_sample_task_hardware_transactions() {
 
 #[test]
 fn ending_sample_input_boundaries_and_teardown_are_budget_partition_invariant() {
-    use crate::opening::EndingTitle;
+    use crate::gameplay::EndingTitle;
     type SampleOutcome = (Vec<(Stamp, ClockEvent)>, String, Vec<(u64, GameplayEvent)>);
     fn run(budget: u64) -> SampleOutcome {
         let frames = frames();
@@ -1897,7 +1897,7 @@ fn ending_sample_input_boundaries_and_teardown_are_budget_partition_invariant() 
 
 #[test]
 fn sample_irq0_priority_services_all_same_tick_scans_before_foreground() {
-    use crate::opening::EndingTitle;
+    use crate::gameplay::EndingTitle;
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
@@ -1961,7 +1961,7 @@ fn sample_irq0_priority_services_all_same_tick_scans_before_foreground() {
 
 #[test]
 fn focus_reset_during_sample_discards_future_input_and_preserves_received_return_scan() {
-    use crate::opening::EndingTitle;
+    use crate::gameplay::EndingTitle;
     let frames = frames();
     let resources = resources();
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Development-only host execution spans and native scheduling observations.
 
-use crate::opening::Snapshot;
+use crate::gameplay::Snapshot;
 use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},

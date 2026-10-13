@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Procedural gate records allocated by the bounded opening's command 40.
+//! Procedural gates and panels created by gameplay commands.
 
 use super::Random;
 use crate::{
@@ -303,7 +303,7 @@ impl Special {
         Ok(())
     }
 
-    /// The broad overlap precedes a stricter opening-containment check. Phase
+    /// The broad overlap precedes a stricter gameplay-containment check. Phase
     /// gates all effects; grace gates the returned response call in Player.
     pub(crate) fn player_collision(
         &self,

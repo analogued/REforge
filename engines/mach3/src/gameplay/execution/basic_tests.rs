@@ -70,7 +70,7 @@ fn run(chunk: u64, end: u64) -> ResultLog {
 }
 
 fn run_observed(chunk: u64, end: u64, observe: &mut dyn FnMut(Stamp, &ClockEvent)) -> ResultLog {
-    let assets = crate::opening::tests::synthetic_assets();
+    let assets = crate::gameplay::tests::synthetic_assets();
     let program = program();
     let resources = GameplayResources {
         graphics: &assets,
@@ -93,7 +93,7 @@ fn run_observed(chunk: u64, end: u64, observe: &mut dyn FnMut(Stamp, &ClockEvent
         .procedural
         .request(Effect::Noise { divisor: 1850 }, 0x1234, 0, &mut clock);
     let mut task =
-        GameplayTask::begin(Opening::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
+        GameplayTask::begin(Gameplay::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
     for (tick, raw) in [
         (20_000, 0x4b),
         (33_300, 0xcb),
@@ -223,7 +223,7 @@ fn audio_rendering_rates_and_chunks_leave_gameplay_and_device_execution_identica
 
 #[test]
 fn publication_wait_retains_the_old_image_and_defers_noise_until_after_publication() {
-    let assets = crate::opening::tests::synthetic_assets();
+    let assets = crate::gameplay::tests::synthetic_assets();
     let program = program();
     let resources = GameplayResources {
         graphics: &assets,
@@ -232,7 +232,7 @@ fn publication_wait_retains_the_old_image_and_defers_noise_until_after_publicati
     };
     let (state, mut clock) = context(Log::default());
     let mut task =
-        GameplayTask::begin(Opening::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
+        GameplayTask::begin(Gameplay::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
     let mut events = Vec::new();
     assert_eq!(
         task.advance_until(33_301, &resources, &mut clock, &mut |tick, event| events
@@ -283,7 +283,7 @@ fn publication_wait_retains_the_old_image_and_defers_noise_until_after_publicati
 
 #[test]
 fn death_waits_suspend_gameplay_and_only_then_commit_the_life_reset() {
-    let assets = crate::opening::tests::synthetic_assets();
+    let assets = crate::gameplay::tests::synthetic_assets();
     let program = program();
     let resources = GameplayResources {
         graphics: &assets,
@@ -291,9 +291,9 @@ fn death_waits_suspend_gameplay_and_only_then_commit_the_life_reset() {
         samples: &Memory,
     };
     let (state, mut clock) = context(Log::default());
-    let mut opening = Opening::new(&assets).unwrap();
-    opening.player.hit(2);
-    let mut task = GameplayTask::begin(opening, state, 0x1234, 64, &clock).unwrap();
+    let mut gameplay = Gameplay::new(&assets).unwrap();
+    gameplay.player.hit(2);
+    let mut task = GameplayTask::begin(gameplay, state, 0x1234, 64, &clock).unwrap();
     let mut events = Vec::new();
     let mut death_started = false;
     for _ in 0..50_000 {
@@ -355,7 +355,7 @@ fn death_waits_suspend_gameplay_and_only_then_commit_the_life_reset() {
 
 #[test]
 fn native_pause_runs_irqs_and_four_separate_waits_before_resuming() {
-    let assets = crate::opening::tests::synthetic_assets();
+    let assets = crate::gameplay::tests::synthetic_assets();
     let program = program();
     let resources = GameplayResources {
         graphics: &assets,
@@ -364,7 +364,7 @@ fn native_pause_runs_irqs_and_four_separate_waits_before_resuming() {
     };
     let (state, mut clock) = context(Log::default());
     let mut task =
-        GameplayTask::begin(Opening::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
+        GameplayTask::begin(Gameplay::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
     for (tick, raw) in [
         (10_000, 0x3b),
         (40_000, 0xbb),
@@ -408,7 +408,7 @@ fn native_pause_runs_irqs_and_four_separate_waits_before_resuming() {
 
 #[test]
 fn late_input_is_prospective_and_invalid_context_does_not_start_execution() {
-    let assets = crate::opening::tests::synthetic_assets();
+    let assets = crate::gameplay::tests::synthetic_assets();
     let program = program();
     let resources = GameplayResources {
         graphics: &assets,
@@ -418,7 +418,7 @@ fn late_input_is_prospective_and_invalid_context_does_not_start_execution() {
     let (state, mut clock) = context(Log::default());
     assert!(
         GameplayTask::begin(
-            Opening::new(&assets).unwrap(),
+            Gameplay::new(&assets).unwrap(),
             state.clone(),
             0x9999,
             64,
@@ -428,7 +428,7 @@ fn late_input_is_prospective_and_invalid_context_does_not_start_execution() {
     );
     assert!(
         GameplayTask::begin(
-            Opening::new(&assets).unwrap(),
+            Gameplay::new(&assets).unwrap(),
             state.clone(),
             0x1234,
             0,
@@ -437,7 +437,7 @@ fn late_input_is_prospective_and_invalid_context_does_not_start_execution() {
         .is_err()
     );
     let mut task =
-        GameplayTask::begin(Opening::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
+        GameplayTask::begin(Gameplay::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
     task.advance_until(33_301, &resources, &mut clock, &mut |_, _| {})
         .unwrap();
     let before = format!("{:?}", task.game().snapshot());

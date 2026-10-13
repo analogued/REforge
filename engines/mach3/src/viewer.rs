@@ -4,8 +4,8 @@
 use reforge_sdl::{FrameFormat, FrameTexture, HostPause, HostShortcut, Window, host_shortcut};
 use std::collections::{BTreeSet, VecDeque};
 
-mod audio;
 mod input_history;
+mod realtime;
 use input_history::{EventTime, InputHistory};
 
 #[cfg(feature = "dev-tools")]
@@ -21,8 +21,8 @@ use reforge_sdl::sdl3::{
 use crate::{
     assets::GraphicsAssets,
     frame::{Frame, HEIGHT, WIDTH},
-    opening::{
-        BODY_PERIOD, DisplayMode, Ending, Opening, PauseEvent, PauseState, ScriptRules,
+    gameplay::{
+        BODY_PERIOD, DisplayMode, Ending, Gameplay, PauseEvent, PauseState, ScriptRules,
         SessionState, Steering, TransitionFrame,
     },
     startup::{Presentation, Screen, StartupFrames},
@@ -167,11 +167,11 @@ pub fn run_with_sound(
     if !(1..=16).contains(&options.scale) {
         return Err("window scale must be between 1 and 16".into());
     }
-    audio::run(
+    realtime::run(
         frames,
         options,
         rules,
-        audio::Resources {
+        realtime::Resources {
             samples,
             intro,
             procedural,
@@ -381,7 +381,7 @@ fn display_rgb(frame: &Frame, mode: DisplayMode, family: u8) -> Vec<u8> {
 
 #[allow(clippy::too_many_arguments)]
 fn advance_game_pass_observed(
-    opening: &mut Opening,
+    gameplay: &mut Gameplay,
     assets: &GraphicsAssets,
     session: &mut SessionState,
     controls: bool,
@@ -392,11 +392,11 @@ fn advance_game_pass_observed(
 ) -> Result<bool, String> {
     let result = session.controls.poll(session.keyboard.held_keys(0));
     if result.display_toggled {
-        opening.reset_video_palette();
+        gameplay.reset_video_palette();
     }
     #[cfg(feature = "dev-tools")]
     if let Some(trace) = trace {
-        let state = opening.snapshot();
+        let state = gameplay.snapshot();
         trace.poll(
             PollSite {
                 label: "steering",
@@ -412,7 +412,7 @@ fn advance_game_pass_observed(
     }
     #[cfg(feature = "dev-tools")]
     let host_start = timing.as_mut().map(TimingTrace::now);
-    opening
+    gameplay
         .advance_subframe(assets, steering_from_mask(result.mask, controls))
         .map_err(|error| error.to_string())?;
     #[cfg(feature = "dev-tools")]
@@ -423,8 +423,8 @@ fn advance_game_pass_observed(
             poll_time.0,
             poll_time.1,
             (host_start.unwrap(), end),
-            Some(&opening.snapshot()),
-            if opening.pass_one_wait_required() {
+            Some(&gameplay.snapshot()),
+            if gameplay.pass_one_wait_required() {
                 "extra_wait=true"
             } else {
                 "extra_wait=false"
@@ -434,7 +434,7 @@ fn advance_game_pass_observed(
     // Pause ran after the original exit gate. Enter the committed body before
     // setting the flag so complete() permits its remaining two render passes.
     if *quit_after_body_entry {
-        opening.request_game_over();
+        gameplay.request_game_over();
         *quit_after_body_entry = false;
     }
     Ok(result.display_toggled)
@@ -442,14 +442,14 @@ fn advance_game_pass_observed(
 
 #[cfg(test)]
 fn advance_game_pass(
-    opening: &mut Opening,
+    gameplay: &mut Gameplay,
     assets: &GraphicsAssets,
     session: &mut SessionState,
     controls: bool,
     quit_after_body_entry: &mut bool,
 ) -> Result<bool, String> {
     advance_game_pass_observed(
-        opening,
+        gameplay,
         assets,
         session,
         controls,
@@ -513,7 +513,7 @@ impl TransitionPlayback {
 struct GamePlayback {
     session: SessionState,
     history: InputHistory,
-    opening: Option<Opening>,
+    gameplay: Option<Gameplay>,
     ending: Option<Ending>,
     next_frame: Option<std::time::Instant>,
     // A composed pass is not necessarily visible until its separate CGA-copy
@@ -537,7 +537,7 @@ impl Default for GamePlayback {
         Self {
             session: SessionState::default(),
             history: InputHistory::default(),
-            opening: None,
+            gameplay: None,
             ending: None,
             next_frame: None,
             visible_frame: None,
@@ -570,19 +570,19 @@ impl GamePlayback {
         // keyboard table and duplicate byte; do not restore a host snapshot.
         self.history.apply_until(&mut self.session, now);
         let start = self.session.begin_game();
-        self.opening = Some(
+        self.gameplay = Some(
             if let Some(rules) = rules {
-                Opening::for_play(assets, rules.clone(), start)
+                Gameplay::for_play(assets, rules.clone(), start)
             } else if options.controls {
-                Opening::with_steering(assets)
+                Gameplay::with_steering(assets)
             } else {
-                Opening::new(assets)
+                Gameplay::new(assets)
             }
             .map_err(|error| error.to_string())?,
         );
-        self.visible_frame = Some(self.opening.as_ref().unwrap().frame().clone());
+        self.visible_frame = Some(self.gameplay.as_ref().unwrap().frame().clone());
         self.pending_publication = false;
-        self.color_family = self.opening.as_ref().unwrap().palette_family();
+        self.color_family = self.gameplay.as_ref().unwrap().palette_family();
         self.ending = None;
         self.transitions = TransitionPlayback::default();
         self.body_polled = false;
@@ -598,7 +598,7 @@ impl GamePlayback {
                 now,
                 self.next_frame,
                 (timing_start.unwrap(), end),
-                Some(&self.opening.as_ref().unwrap().snapshot()),
+                Some(&self.gameplay.as_ref().unwrap().snapshot()),
                 &format!(
                     "controls={} playback={:?}",
                     options.controls, options.playback
@@ -634,9 +634,9 @@ impl GamePlayback {
             && !self.transitions.active()
             && self.session.pause.state == PauseState::Running
             && self
-                .opening
+                .gameplay
                 .as_ref()
-                .is_some_and(|opening| !opening.complete())
+                .is_some_and(|gameplay| !gameplay.complete())
             && self.next_frame.is_some_and(|deadline| now >= deadline)
     }
 
@@ -654,7 +654,7 @@ impl GamePlayback {
             || self.transitions.active()
             || self.ending.is_some()
             || self.session.pause.state != PauseState::Running
-            || self.opening.as_ref().is_none_or(Opening::complete)
+            || self.gameplay.as_ref().is_none_or(Gameplay::complete)
         {
             self.history.apply_until(&mut self.session, now);
         }
@@ -700,7 +700,7 @@ impl GamePlayback {
                     now,
                     previous_transition_deadline,
                     (transition_start.unwrap(), end),
-                    self.opening.as_ref().map(Opening::snapshot).as_ref(),
+                    self.gameplay.as_ref().map(Gameplay::snapshot).as_ref(),
                     &format!(
                         "remaining={} next_wait_count={}",
                         self.transitions.frames.len(),
@@ -762,15 +762,15 @@ impl GamePlayback {
                     .controls
                     .poll(self.session.keyboard.held_keys(0));
                 if result.display_toggled {
-                    if let Some(opening) = &mut self.opening {
-                        opening.reset_video_palette();
+                    if let Some(gameplay) = &mut self.gameplay {
+                        gameplay.reset_video_palette();
                     }
                     // Native pause may remain active without an ordinary pass.
                     self.color_family = 1;
                 }
                 #[cfg(feature = "dev-tools")]
                 if let Some(trace) = &mut self.trace {
-                    let state = self.opening.as_ref().map(Opening::snapshot);
+                    let state = self.gameplay.as_ref().map(Gameplay::snapshot);
                     trace.poll(
                         PollSite {
                             label: "native_pause",
@@ -838,14 +838,14 @@ impl GamePlayback {
             if !self.pending_step && !timed {
                 break;
             }
-            let Some(opening) = self.opening.as_mut() else {
+            let Some(gameplay) = self.gameplay.as_mut() else {
                 break;
             };
             let poll_at = self.next_frame.filter(|_| timed).unwrap_or(now);
             if self.pending_publication {
                 #[cfg(feature = "dev-tools")]
                 let host_start = self.timing.as_mut().map(TimingTrace::now);
-                self.visible_frame = Some(opening.pass_frame().clone());
+                self.visible_frame = Some(gameplay.pass_frame().clone());
                 self.pending_publication = false;
                 repaint = true;
                 #[cfg(feature = "dev-tools")]
@@ -856,7 +856,7 @@ impl GamePlayback {
                         now,
                         Some(poll_at),
                         (host_start.unwrap(), end),
-                        opening.pass_snapshot(),
+                        gameplay.pass_snapshot(),
                         "delayed=true",
                     );
                 }
@@ -879,7 +879,7 @@ impl GamePlayback {
                         now,
                         self.next_frame.filter(|_| timed),
                         (host_start.unwrap(), end),
-                        Some(&opening.snapshot()),
+                        Some(&gameplay.snapshot()),
                         &format!(
                             "title={:?} stage={:?} draw={} hold={} wait_units={} previous_wait_units={}",
                             state.title,
@@ -892,14 +892,14 @@ impl GamePlayback {
                 }
                 self.pending_step = false;
                 repaint = true;
-            } else if opening.complete() && opening.snapshot().player.game_over {
+            } else if gameplay.complete() && gameplay.snapshot().player.game_over {
                 #[cfg(feature = "dev-tools")]
                 let host_start = self.timing.as_mut().map(TimingTrace::now);
                 self.ending = Some(
                     Ending::new_with_best(
                         assets,
-                        &opening.snapshot(),
-                        opening.frame(),
+                        &gameplay.snapshot(),
+                        gameplay.frame(),
                         self.session.best_score,
                     )
                     .map_err(|error| error.to_string())?,
@@ -912,24 +912,24 @@ impl GamePlayback {
                         now,
                         self.next_frame.filter(|_| timed),
                         (host_start.unwrap(), end),
-                        Some(&opening.snapshot()),
+                        Some(&gameplay.snapshot()),
                         "wait_units=2",
                     );
                 }
                 self.pending_step = false;
                 repaint = true;
-            } else if !opening.complete() {
-                if opening.at_body_boundary() && !self.body_polled {
+            } else if !gameplay.complete() {
+                if gameplay.at_body_boundary() && !self.body_polled {
                     let result = self
                         .session
                         .controls
                         .poll(self.session.keyboard.held_keys(0));
                     if result.display_toggled {
-                        opening.reset_video_palette();
+                        gameplay.reset_video_palette();
                     }
                     #[cfg(feature = "dev-tools")]
                     if let Some(trace) = &mut self.trace {
-                        let state = opening.snapshot();
+                        let state = gameplay.snapshot();
                         trace.poll(
                             PollSite {
                                 label: "body_entry",
@@ -963,17 +963,17 @@ impl GamePlayback {
                 }
                 if self.session.pause.state == PauseState::Running {
                     let passes = if options.playback == Playback::Step {
-                        3 - if opening.at_body_boundary() {
+                        3 - if gameplay.at_body_boundary() {
                             0
                         } else {
-                            opening.snapshot().render_pass
+                            gameplay.snapshot().render_pass
                         }
                     } else {
                         1
                     };
                     for _ in 0..passes {
                         repaint |= advance_game_pass_observed(
-                            opening,
+                            gameplay,
                             assets,
                             &mut self.session,
                             options.controls,
@@ -990,11 +990,11 @@ impl GamePlayback {
                             ),
                         )?;
                         self.pending_publication = options.playback == Playback::Animated
-                            && opening.pass_one_wait_required();
+                            && gameplay.pass_one_wait_required();
                         if !self.pending_publication {
                             #[cfg(feature = "dev-tools")]
                             let host_start = self.timing.as_mut().map(TimingTrace::now);
-                            self.visible_frame = Some(opening.pass_frame().clone());
+                            self.visible_frame = Some(gameplay.pass_frame().clone());
                             repaint = true;
                             #[cfg(feature = "dev-tools")]
                             if let Some(trace) = &mut self.timing {
@@ -1004,13 +1004,13 @@ impl GamePlayback {
                                     now,
                                     self.next_frame.filter(|_| timed),
                                     (host_start.unwrap(), end),
-                                    opening.pass_snapshot(),
+                                    gameplay.pass_snapshot(),
                                     "delayed=false",
                                 );
                             }
                         }
                         self.transitions
-                            .append(opening.take_transitions(), now, unit);
+                            .append(gameplay.take_transitions(), now, unit);
                         repaint |= self.transitions.active();
                         #[cfg(feature = "dev-tools")]
                         if self.transitions.active() {
@@ -1028,24 +1028,24 @@ impl GamePlayback {
                             break;
                         }
                     }
-                    if opening.at_body_boundary() {
+                    if gameplay.at_body_boundary() {
                         self.body_polled = false;
                     }
                     self.pending_step =
-                        options.playback == Playback::Step && !opening.at_body_boundary();
+                        options.playback == Playback::Step && !gameplay.at_body_boundary();
                 }
             } else {
                 self.pending_step = false;
             }
-            self.color_family = opening.palette_family();
+            self.color_family = gameplay.palette_family();
             let period = self
                 .ending
                 .as_ref()
                 .map_or(unit, |state| options.body_period * state.wait_units() / 4);
             #[cfg(feature = "dev-tools")]
             let previous_deadline = self.next_frame;
-            self.next_frame = if opening.complete()
-                && !opening.snapshot().player.game_over
+            self.next_frame = if gameplay.complete()
+                && !gameplay.snapshot().player.game_over
                 && self.ending.is_none()
             {
                 None
@@ -1073,7 +1073,9 @@ impl GamePlayback {
                     );
                 }
             }
-            if self.ending.is_some() || opening.complete() || options.playback != Playback::Animated
+            if self.ending.is_some()
+                || gameplay.complete()
+                || options.playback != Playback::Animated
             {
                 break;
             }
@@ -1341,7 +1343,7 @@ fn run_inner(
                     .map(|step| &step.frame)
                     .or_else(|| game.ending.as_ref().map(Ending::frame))
                     .or(game.visible_frame.as_ref())
-                    .or_else(|| game.opening.as_ref().map(Opening::frame))
+                    .or_else(|| game.gameplay.as_ref().map(Gameplay::frame))
                     .unwrap_or_else(|| frames.frame(shown))
             } else if shown == Screen::Intro {
                 returned_intro
@@ -1364,7 +1366,7 @@ fn run_inner(
                 "REforge — Mach 3 — Game Over / High Score (Space to return, Esc to close)"
             } else if game.ending.is_some() {
                 "REforge — Mach 3 — Game Over / High Score (Esc to close)"
-            } else if game.opening.as_ref().is_some_and(Opening::complete) {
+            } else if game.gameplay.as_ref().is_some_and(Gameplay::complete) {
                 "REforge — Mach 3 — Preview complete (Esc to close)"
             } else if options.playback == Playback::Step {
                 "REforge — Mach 3 — Opening (Enter to step, F1 to pause, Esc to close)"
@@ -1381,7 +1383,7 @@ fn run_inner(
                     now,
                     None,
                     (present_start.unwrap(), end),
-                    game.opening.as_ref().map(Opening::snapshot).as_ref(),
+                    game.gameplay.as_ref().map(Gameplay::snapshot).as_ref(),
                     &format!(
                         "screen={shown:?} transition={} ending={} host_paused={} pending_publication={}",
                         game.transitions.active(),
@@ -1445,7 +1447,7 @@ mod tests {
         control_event(&mut session, &pause, true);
         assert_eq!(
             session.keyboard.held_keys(0),
-            crate::opening::HeldKeys::default()
+            crate::gameplay::HeldKeys::default()
         );
         assert_eq!(session.pause.state, PauseState::Running);
         for (mods, repeat) in [(Mod::NOMOD, true), (Mod::LALTMOD, false)] {
@@ -1538,7 +1540,7 @@ mod tests {
             assert_eq!(session.pause.state, phase);
             assert_eq!(
                 session.keyboard.held_keys(0),
-                crate::opening::HeldKeys::default()
+                crate::gameplay::HeldKeys::default()
             );
             assert_eq!(host.now(start + Duration::from_secs(60)), start);
             toggle_host_pause(
@@ -1619,12 +1621,12 @@ mod tests {
             let mut input = ControlInput::default();
             input.handle(&mut session, &key_event(key, true, false), true);
             let held = session.keyboard.held_keys(0);
-            assert_ne!(held, crate::opening::HeldKeys::default());
+            assert_ne!(held, crate::gameplay::HeldKeys::default());
             input.clear(&mut session);
             input.handle(&mut session, &key_event(key, true, true), true);
             assert_eq!(
                 session.keyboard.held_keys(0),
-                crate::opening::HeldKeys::default()
+                crate::gameplay::HeldKeys::default()
             );
             input.handle(&mut session, &key_event(key, false, false), true);
             input.handle(&mut session, &key_event(key, true, false), true);
@@ -1633,7 +1635,7 @@ mod tests {
             input.handle(&mut session, &key_event(key, false, false), true);
             assert_eq!(
                 session.keyboard.held_keys(0),
-                crate::opening::HeldKeys::default()
+                crate::gameplay::HeldKeys::default()
             );
         }
     }
@@ -1691,15 +1693,15 @@ mod tests {
         options: &Options,
     ) -> GamePlayback {
         GamePlayback {
-            visible_frame: Some(Opening::new(assets).unwrap().frame().clone()),
-            opening: Some(Opening::new(assets).unwrap()),
+            visible_frame: Some(Gameplay::new(assets).unwrap().frame().clone()),
+            gameplay: Some(Gameplay::new(assets).unwrap()),
             next_frame: Some(start + options.body_period / 4),
             ..GamePlayback::default()
         }
     }
 
     fn pass_count(game: &GamePlayback) -> u32 {
-        let state = game.opening.as_ref().unwrap().snapshot();
+        let state = game.gameplay.as_ref().unwrap().snapshot();
         if state.body == 0 {
             0
         } else {
@@ -1742,13 +1744,13 @@ mod tests {
             }
             let rules = ScriptRules::from_data_segment(&data).unwrap();
             let start_state = SessionState::default().begin_game();
-            let mut opening = Opening::for_play(&assets, rules, start_state).unwrap();
+            let mut gameplay = Gameplay::for_play(&assets, rules, start_state).unwrap();
             for _ in 0..21 {
-                opening.advance(&assets).unwrap();
+                gameplay.advance(&assets).unwrap();
             }
-            assert_eq!(opening.palette_family(), 0);
+            assert_eq!(gameplay.palette_family(), 0);
             GamePlayback {
-                opening: Some(opening),
+                gameplay: Some(gameplay),
                 color_family: 0,
                 next_frame: Some(start + unit),
                 ..GamePlayback::default()
@@ -1760,7 +1762,7 @@ mod tests {
             game.session.keyboard.apply_scan(0x3d);
             game.advance(&assets, &options, start + unit).unwrap();
             assert_eq!(game.color_family, 1);
-            assert_eq!(game.opening.as_ref().unwrap().palette_family(), 1);
+            assert_eq!(game.gameplay.as_ref().unwrap().palette_family(), 1);
             if !body_already_polled {
                 // A held F3 switches at body entry and again before steering.
                 assert_eq!(
@@ -1788,7 +1790,7 @@ mod tests {
             assert_eq!(game.session.pause.state, PauseState::AwaitPress);
             assert_eq!(pass_count(&game), passes);
             assert_eq!(game.color_family, 1);
-            assert_eq!(game.opening.as_ref().unwrap().palette_family(), 1);
+            assert_eq!(game.gameplay.as_ref().unwrap().palette_family(), 1);
         }
         assert_eq!(
             game.session.controls.preferences.display_mode,
@@ -1796,12 +1798,12 @@ mod tests {
         );
         // A script write later in the same pass wins over the earlier F3 reset.
         let mut game = green_game();
-        let opening = game.opening.as_mut().unwrap();
+        let gameplay = game.gameplay.as_mut().unwrap();
         for _ in 0..19 {
-            opening.advance(&assets).unwrap();
+            gameplay.advance(&assets).unwrap();
         }
         for _ in 0..2 {
-            opening
+            gameplay
                 .advance_subframe(&assets, Steering::default())
                 .unwrap();
         }
@@ -1809,7 +1811,7 @@ mod tests {
         game.session.controls.preferences.display_mode = DisplayMode::Monochrome;
         game.session.keyboard.apply_scan(0x3d);
         game.advance(&assets, &options, start + unit).unwrap();
-        assert_eq!(game.opening.as_ref().unwrap().snapshot().body, 41);
+        assert_eq!(game.gameplay.as_ref().unwrap().snapshot().body, 41);
         assert_eq!(
             game.session.controls.preferences.display_mode,
             DisplayMode::Color
@@ -1849,9 +1851,9 @@ mod tests {
         game.advance(&assets, &options, start + unit).unwrap();
         assert!(game.pending_publication);
         assert_eq!(game.visible_frame, initial);
-        let prepared = game.opening.as_ref().unwrap().pass_frame().clone();
+        let prepared = game.gameplay.as_ref().unwrap().pass_frame().clone();
         assert_ne!(Some(&prepared), initial.as_ref());
-        let state = format!("{:?}", game.opening.as_ref().unwrap().snapshot());
+        let state = format!("{:?}", game.gameplay.as_ref().unwrap().snapshot());
         let session = format!("{:?}", game.session);
         let mut input = ControlInput::default();
         // A tap wholly inside the wait is not steering or a synthetic poll.
@@ -1882,13 +1884,13 @@ mod tests {
         assert_eq!(game.visible_frame.as_ref(), Some(&prepared));
         assert_eq!(format!("{:?}", game.session), session);
         assert_eq!(
-            format!("{:?}", game.opening.as_ref().unwrap().snapshot()),
+            format!("{:?}", game.gameplay.as_ref().unwrap().snapshot()),
             state
         );
         assert_eq!(game.next_frame, Some(start + unit * 3));
         game.advance(&assets, &options, start + unit * 3).unwrap();
         assert_eq!(
-            game.opening
+            game.gameplay
                 .as_ref()
                 .unwrap()
                 .snapshot()
@@ -1898,7 +1900,7 @@ mod tests {
         );
         assert_eq!(
             game.visible_frame.as_ref(),
-            Some(game.opening.as_ref().unwrap().pass_frame())
+            Some(game.gameplay.as_ref().unwrap().pass_frame())
         );
     }
 
@@ -1915,15 +1917,15 @@ mod tests {
             data[0x0a3e + 50 * index..0x0a41 + 50 * index].copy_from_slice(&[0xcb, 0x85, 0xcf]);
         }
         let rules = ScriptRules::from_data_segment(&data).unwrap();
-        let mut opening =
-            Opening::for_play(&assets, rules, SessionState::default().begin_game()).unwrap();
+        let mut gameplay =
+            Gameplay::for_play(&assets, rules, SessionState::default().begin_game()).unwrap();
         for _ in 0..21 {
-            opening.advance(&assets).unwrap();
+            gameplay.advance(&assets).unwrap();
         }
-        assert!(!opening.take_transitions().is_empty());
+        assert!(!gameplay.take_transitions().is_empty());
         let mut game = GamePlayback {
-            visible_frame: Some(opening.frame().clone()),
-            opening: Some(opening),
+            visible_frame: Some(gameplay.frame().clone()),
+            gameplay: Some(gameplay),
             next_frame: Some(start + unit),
             ..GamePlayback::default()
         };
@@ -1931,11 +1933,11 @@ mod tests {
         assert!(!game.pending_publication);
         assert_eq!(
             game.visible_frame.as_ref(),
-            Some(game.opening.as_ref().unwrap().pass_frame())
+            Some(game.gameplay.as_ref().unwrap().pass_frame())
         );
         assert_eq!(game.next_frame, Some(start + unit * 2));
         game.advance(&assets, &options, start + unit * 3).unwrap();
-        assert_eq!(game.opening.as_ref().unwrap().snapshot().render_pass, 3);
+        assert_eq!(game.gameplay.as_ref().unwrap().snapshot().render_pass, 3);
         let old = game.visible_frame.clone();
         game.advance(&assets, &options, start + unit * 4).unwrap();
         assert!(game.pending_publication);
@@ -1983,7 +1985,7 @@ mod tests {
             let mut game = running_playback(&assets, start, &options);
             game.advance(&assets, &options, start + unit).unwrap();
             let old = game.visible_frame.clone();
-            let prepared = game.opening.as_ref().unwrap().pass_frame().clone();
+            let prepared = game.gameplay.as_ref().unwrap().pass_frame().clone();
             let mut input = ControlInput::default();
             if focus {
                 receive_at(
@@ -2021,7 +2023,7 @@ mod tests {
             assert!(!game.pending_publication);
             assert_eq!(
                 game.visible_frame.as_ref(),
-                Some(game.opening.as_ref().unwrap().frame())
+                Some(game.gameplay.as_ref().unwrap().frame())
             );
             assert_eq!(game.next_frame, Some(start + unit * 6));
         }
@@ -2067,12 +2069,12 @@ mod tests {
             assert_eq!(pass_count(&game), passes, "presentation rate {fps}");
             // Snapshot has no PartialEq; its Debug covers every reconstructed field.
             assert_eq!(
-                format!("{:?}", game.opening.as_ref().unwrap().snapshot()),
-                format!("{:?}", reference.opening.as_ref().unwrap().snapshot())
+                format!("{:?}", game.gameplay.as_ref().unwrap().snapshot()),
+                format!("{:?}", reference.gameplay.as_ref().unwrap().snapshot())
             );
             assert_eq!(
-                game.opening.as_ref().unwrap().frame(),
-                reference.opening.as_ref().unwrap().frame()
+                game.gameplay.as_ref().unwrap().frame(),
+                reference.gameplay.as_ref().unwrap().frame()
             );
             assert_eq!(
                 game.session.controls.preferences,
@@ -2122,10 +2124,10 @@ mod tests {
         assert_eq!(pass_count(&game), 48);
         assert_eq!(game.next_frame, plain.next_frame);
         assert_eq!(
-            format!("{:?}", game.opening.as_ref().unwrap().snapshot()),
-            format!("{:?}", plain.opening.as_ref().unwrap().snapshot())
+            format!("{:?}", game.gameplay.as_ref().unwrap().snapshot()),
+            format!("{:?}", plain.gameplay.as_ref().unwrap().snapshot())
         );
-        let frame = game.opening.as_ref().unwrap().frame().clone();
+        let frame = game.gameplay.as_ref().unwrap().frame().clone();
         let steps = [2, 5]
             .into_iter()
             .map(|wait_count| TransitionFrame {
@@ -2151,8 +2153,8 @@ mod tests {
             assert_eq!(game.transitions.deadline, plain.transitions.deadline);
             assert_eq!(game.next_frame, plain.next_frame);
             assert_eq!(
-                game.opening.as_ref().unwrap().frame(),
-                plain.opening.as_ref().unwrap().frame()
+                game.gameplay.as_ref().unwrap().frame(),
+                plain.gameplay.as_ref().unwrap().frame()
             );
         }
         game.begin_game(&assets, None, &options, late + unit * 26)
@@ -2256,7 +2258,7 @@ mod tests {
         assert_eq!(paused.session.pause.state, PauseState::AwaitInitialRelease);
         assert_eq!(pass_count(&paused), 0);
         let mut game = running_playback(&assets, start, &options);
-        let frame = game.opening.as_ref().unwrap().frame().clone();
+        let frame = game.gameplay.as_ref().unwrap().frame().clone();
         game.transitions.append(
             [2, 5]
                 .into_iter()
@@ -2316,15 +2318,15 @@ mod tests {
             trace.begin_game();
             game.timing = Some(trace);
         }
-        let opening = game.opening.as_mut().unwrap();
-        opening.request_game_over();
+        let gameplay = game.gameplay.as_mut().unwrap();
+        gameplay.request_game_over();
         for _ in 0..3 {
-            opening
+            gameplay
                 .advance_subframe(&assets, Steering::default())
                 .unwrap();
         }
         let mut expected =
-            Ending::new_with_best(&assets, &opening.snapshot(), opening.frame(), 0).unwrap();
+            Ending::new_with_best(&assets, &gameplay.snapshot(), gameplay.frame(), 0).unwrap();
         game.advance(&assets, &options, start + unit * 100).unwrap();
         assert!(game.ending.is_some());
         let next = game.next_frame.unwrap();
@@ -2375,21 +2377,21 @@ mod tests {
                 })
                 .collect(),
         };
-        let mut opening = Opening::with_steering(&assets).unwrap();
+        let mut gameplay = Gameplay::with_steering(&assets).unwrap();
         let mut session = SessionState::default();
         session.keyboard.apply_scan(0x3c); // Held F2 at all four input sites.
         session.controls.poll(session.keyboard.held_keys(0)); // Body-entry poll.
         let mut quit = true; // Pause's second F1 press passed the exit gate.
-        advance_game_pass(&mut opening, &assets, &mut session, true, &mut quit).unwrap();
-        assert!(opening.snapshot().player.game_over);
-        assert!(!opening.complete());
-        assert_eq!(opening.snapshot().render_pass, 1);
+        advance_game_pass(&mut gameplay, &assets, &mut session, true, &mut quit).unwrap();
+        assert!(gameplay.snapshot().player.game_over);
+        assert!(!gameplay.complete());
+        assert_eq!(gameplay.snapshot().render_pass, 1);
         for _ in 0..2 {
-            advance_game_pass(&mut opening, &assets, &mut session, true, &mut quit).unwrap();
+            advance_game_pass(&mut gameplay, &assets, &mut session, true, &mut quit).unwrap();
         }
-        assert_eq!(opening.snapshot().body, 1);
-        assert_eq!(opening.snapshot().render_pass, 3);
-        assert!(opening.complete());
+        assert_eq!(gameplay.snapshot().body, 1);
+        assert_eq!(gameplay.snapshot().render_pass, 3);
+        assert!(gameplay.complete());
         assert!(session.controls.preferences.sound_disabled);
         assert_eq!(session.controls.sound_poll_counter, 0);
     }
@@ -2550,12 +2552,12 @@ mod tests {
                 format!("{:?}", right.session)
             );
             assert_eq!(
-                format!("{:?}", left.opening.as_ref().unwrap().snapshot()),
-                format!("{:?}", right.opening.as_ref().unwrap().snapshot())
+                format!("{:?}", left.gameplay.as_ref().unwrap().snapshot()),
+                format!("{:?}", right.gameplay.as_ref().unwrap().snapshot())
             );
             assert_eq!(
-                left.opening.as_ref().unwrap().frame(),
-                right.opening.as_ref().unwrap().frame()
+                left.gameplay.as_ref().unwrap().frame(),
+                right.gameplay.as_ref().unwrap().frame()
             );
             assert_eq!(left.next_frame, right.next_frame);
             assert_eq!(left.pause_tick, right.pause_tick);
@@ -2683,7 +2685,7 @@ mod tests {
         game.advance(&assets, &options, next + unit * 3).unwrap();
         plain.advance(&assets, &options, next + unit * 3).unwrap();
         assert_same(&game, &plain);
-        let frame = game.opening.as_ref().unwrap().frame().clone();
+        let frame = game.gameplay.as_ref().unwrap().frame().clone();
         let steps = [2, 5]
             .into_iter()
             .map(|wait_count| TransitionFrame {

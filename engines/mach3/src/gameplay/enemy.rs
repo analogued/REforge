@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Opening wave movement, ground shadows, seeking projectiles and explosions.
+//! Enemy movement, ground shadows, seeking projectiles and explosions.
 
 use super::Random;
 use crate::{

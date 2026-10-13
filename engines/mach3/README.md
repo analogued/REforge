@@ -22,7 +22,7 @@ See [DOS sound assets](docs/sound-assets.md) for sample encoding, speaker
 conversion, executable music sequencing, procedural tone/noise routines, and
 the bounded sound diagnostic,
 including shared PIT execution and the engine's interrupt/foreground boundary.
-See [DOS opening gameplay](docs/dos-gameplay.md) for update order, encounter
+See [DOS gameplay](docs/dos-gameplay.md) for update order, encounter
 scripts, and repeatability.
 See [native timing diagnostics](docs/timing-tracing.md) for the optional development
 trace of simulation execution, scheduling and presentation.
@@ -72,6 +72,11 @@ library. With the `viewer` feature, `mach3::cli::run(args)` accepts command-line
 arguments as `OsString` values, excluding the executable name, so REforge can
 dispatch the same viewer interface. See [CGA graphics](docs/cga-graphics.md) for
 the supported formats.
+
+The library's `gameplay::Gameplay` owns reconstructed game state and updates;
+`executable` loads and expands the DOS executable, and `session_replay` consumes
+recorded inputs. The private `viewer::realtime` module runs the normal PIT-driven
+frontend, including input, lifecycle, video and audio presentation.
 
 ## Windowed playback and previews
 

@@ -1,7 +1,9 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Shared continuations for immediate stepping and timer-driven execution.
 
-use super::{Opening, Steering, enemy::EnemyUpdate, player::PlayerUpdate, special::SpecialContact};
+use super::{
+    Gameplay, Steering, enemy::EnemyUpdate, player::PlayerUpdate, special::SpecialContact,
+};
 use crate::{
     Error,
     assets::GraphicsAssets,
@@ -66,7 +68,7 @@ pub(super) struct CommandTask {
 }
 
 impl PassTask {
-    pub(super) fn begin(game: &mut Opening) -> Self {
+    pub(super) fn begin(game: &mut Gameplay) -> Self {
         let pass = if game.at_body_boundary() {
             1
         } else {
@@ -84,7 +86,7 @@ impl PassTask {
 
     pub(super) fn resume(
         &mut self,
-        game: &mut Opening,
+        game: &mut Gameplay,
         assets: &GraphicsAssets,
         input: Steering,
         sound: &mut Foreground<'_>,
@@ -218,7 +220,7 @@ impl PassTask {
         }
     }
 
-    pub(super) fn publish(&mut self, game: &mut Opening) {
+    pub(super) fn publish(&mut self, game: &mut Gameplay) {
         assert!(matches!(self.stage, Stage::Publish));
         game.pass_frame = game.frame.clone();
         game.pass_snapshot = Some(Box::new(game.snapshot()));
@@ -230,16 +232,16 @@ impl PassTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::opening::{SessionState, special::SpecialTransition, tests::*};
+    use crate::gameplay::{SessionState, special::SpecialTransition, tests::*};
 
-    fn game(assets: &GraphicsAssets, commands: &[u8]) -> Opening {
+    fn game(assets: &GraphicsAssets, commands: &[u8]) -> Gameplay {
         let mut data = synthetic_rules(commands).data_segment().to_vec();
         // These tests exercise negative delays at difficulty three, whose HUD
         // marker family must also have distinct synthetic sprite sources.
         data[0x04b5..0x04b8].copy_from_slice(&[1, 2, 3]);
-        Opening::for_play(
+        Gameplay::for_play(
             assets,
-            crate::opening::ScriptRules::from_data_segment(&data).unwrap(),
+            crate::gameplay::ScriptRules::from_data_segment(&data).unwrap(),
             SessionState::default().begin_game(),
         )
         .unwrap()
@@ -349,7 +351,7 @@ mod tests {
         let mut game = game(&assets, &[0x85]);
         let mut records = game.special.snapshots();
         records[0].active = true;
-        game.special = crate::opening::special::Special::from_snapshots(records);
+        game.special = crate::gameplay::special::Special::from_snapshots(records);
         game.body = 1;
         let mut task = PassTask {
             pass: 1,

@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
     Error,
-    opening::execution::GameplayState,
+    gameplay::execution::GameplayState,
     timer::{
         Clock, ClockEvent, Interrupt, Progress, SampleStart, SampleTask, Stamp, Wait,
         return_interrupt,

@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::{
-    opening::{enemy::Enemy, tests::synthetic_assets},
+    gameplay::{enemy::Enemy, tests::synthetic_assets},
     sound::{ByteOrigin, Effect, MemoryByte, Resource},
 };
 use reforge_audio::speaker::PcSpeaker;
@@ -56,7 +56,7 @@ fn program() -> ProceduralProgram {
 }
 
 fn setup(assets: &GraphicsAssets, state: Option<GameplayState>) -> (GameplayTask, TestClock) {
-    let mut game = Opening::new(assets).unwrap();
+    let mut game = Gameplay::new(assets).unwrap();
     let mut records = game.enemy.snapshots();
     records[1].active = true;
     records[1].movement = 27;

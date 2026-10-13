@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! The eight terrain slots used by the bounded, no-input opening.
+//! The eight terrain slots used by the bounded, no-input gameplay.
 
 use super::Random;
 use crate::{

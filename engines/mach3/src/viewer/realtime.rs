@@ -5,8 +5,8 @@ use super::*;
 #[cfg(test)]
 mod tests;
 use crate::{
+    gameplay::execution::{GameplayEvent, GameplayProgress, GameplayResources, GameplayState},
     live::GameplayRuntime,
-    opening::execution::{GameplayEvent, GameplayProgress, GameplayResources, GameplayState},
     sound::{
         DosSampleMemory, Effect, FarPointer, IntroProgram, IntroProgress, IntroTask,
         ProceduralProgram, Resource, SampleBus, SamplePlayer, SampleRequest, SampleSoundState,
@@ -237,7 +237,7 @@ enum Phase {
     Intro(Box<IntroTask>),
     Pregame {
         task: Box<IntroTask>,
-        game: Box<Opening>,
+        game: Box<Gameplay>,
     },
     Playing(Box<GameplayRuntime>),
     Ending {
@@ -464,7 +464,7 @@ impl Simulation {
                     if progress == IntroProgress::Returned {
                         let mut state = task.into_state().map_err(|e| e.to_string())?;
                         let start = self.session.begin_game();
-                        let mut game = Opening::for_play(frames.graphics(), rules.clone(), start)
+                        let mut game = Gameplay::for_play(frames.graphics(), rules.clone(), start)
                             .map_err(|e| e.to_string())?;
                         let poll = state
                             .controls
@@ -549,7 +549,7 @@ impl Simulation {
                         GameplayProgress::Returned => {
                             let (game, state) = runtime.into_parts().map_err(|e| e.to_string())?;
                             // GameplayTask already executes the caller's 0452
-                            // reset through Opening::return_sound exactly once.
+                            // reset through Gameplay::return_sound exactly once.
                             let ending = Ending::pending_with_best(
                                 &game.snapshot(),
                                 game.frame(),
@@ -647,7 +647,7 @@ impl Simulation {
         resources: &EndingResources<'_>,
         events: &mut Vec<(u64, GameplayEvent)>,
     ) -> Result<(EndingStep, bool, Option<bool>), String> {
-        use crate::opening::{EndingStage, EndingTitle};
+        use crate::gameplay::{EndingStage, EndingTitle};
         let mut dirty = false;
         loop {
             // A sample owns the temporary IRQ vectors and sole source cursor.

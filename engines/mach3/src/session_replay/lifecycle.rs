@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::{
-    opening::{Ending, EndingStage, EndingTitle, SessionState, Snapshot},
+    gameplay::{Ending, EndingStage, EndingTitle, SessionState, Snapshot},
     startup::StartupFrames,
 };
 use std::collections::VecDeque;
@@ -168,7 +168,7 @@ pub fn replay_session(
         random: first.random,
         ..SessionState::default()
     };
-    let mut opening = Opening::for_play(
+    let mut gameplay = Gameplay::for_play(
         assets,
         rules.clone(),
         GameStart {
@@ -179,7 +179,7 @@ pub fn replay_session(
     )?;
     let initializer = first_initializer(recording)?;
     if let Some(mask) = initializer {
-        opening.initialize_input(assets, mask)?;
+        gameplay.initialize_input(assets, mask)?;
     }
     let mut writer = FrameWriter::new(destination, boundaries.len() as u64)?;
     let mut replay = Lifecycle {
@@ -187,7 +187,7 @@ pub fn replay_session(
         rules,
         startup,
         session: &mut session,
-        opening: &mut opening,
+        gameplay: &mut gameplay,
         writer: &mut writer,
         games: &games,
         boundaries: &boundaries,
@@ -291,7 +291,7 @@ struct Lifecycle<'a, R> {
     rules: ScriptRules,
     startup: Option<&'a StartupFrames>,
     session: &'a mut SessionState,
-    opening: &'a mut Opening,
+    gameplay: &'a mut Gameplay,
     writer: &'a mut FrameWriter,
     games: &'a [RecordedGame],
     boundaries: &'a [FrameBoundary],
@@ -369,7 +369,7 @@ impl<R: BufRead> Lifecycle<'_, R> {
                             "F3 interleaved with queued transition draws is not modeled; later script palette writes require phased replay",
                         ));
                     }
-                    self.opening.reset_video_palette();
+                    self.gameplay.reset_video_palette();
                     self.palette_reset = true;
                 }
                 if e.site == "pause-confirm" && poll.mask == 128 {
@@ -386,7 +386,7 @@ impl<R: BufRead> Lifecycle<'_, R> {
                     return Err(invalid("initializer helper and player input disagree"));
                 }
                 let mask = initializer_mask(e.mask)?;
-                self.opening.initialize_input(self.assets, mask)?;
+                self.gameplay.initialize_input(self.assets, mask)?;
                 self.initialized = true;
             }
             "input" => self.input(e)?,
@@ -394,8 +394,8 @@ impl<R: BufRead> Lifecycle<'_, R> {
             "game-end" => {
                 if self.ending.is_some()
                     || !self.pending.is_empty()
-                    || !self.opening.complete()
-                    || self.opening.snapshot().body != e.body
+                    || !self.gameplay.complete()
+                    || self.gameplay.snapshot().body != e.body
                 {
                     return Err(invalid(
                         "captured game end does not match native completed body",
@@ -403,8 +403,8 @@ impl<R: BufRead> Lifecycle<'_, R> {
                 }
                 self.ending = Some(Ending::new_with_best(
                     self.assets,
-                    &self.opening.snapshot(),
-                    self.opening.frame(),
+                    &self.gameplay.snapshot(),
+                    self.gameplay.frame(),
                     self.session.best_score,
                 )?);
                 self.ending_ready = true;
@@ -428,7 +428,7 @@ impl<R: BufRead> Lifecycle<'_, R> {
                     ));
                 }
                 let start = self.session.begin_game();
-                *self.opening = Opening::for_play(self.assets, self.rules.clone(), start)?;
+                *self.gameplay = Gameplay::for_play(self.assets, self.rules.clone(), start)?;
                 self.game += 1;
                 self.reset = true;
                 self.started = false;
@@ -449,7 +449,7 @@ impl<R: BufRead> Lifecycle<'_, R> {
                     .games
                     .get(self.game as usize)
                     .ok_or_else(|| invalid("missing game start assertion"))?;
-                let native = self.opening.snapshot();
+                let native = self.gameplay.snapshot();
                 if native.script_index != captured.script
                     || native.random != captured.random
                     || native.body != 0
@@ -511,11 +511,11 @@ impl<R: BufRead> Lifecycle<'_, R> {
         {
             return Err(invalid("input timeline does not match inputs.tsv poll"));
         }
-        if self.opening.complete() {
+        if self.gameplay.complete() {
             return Err(invalid("native game ended before captured player poll"));
         }
-        let palette = self.opening.palette_family();
-        let responding = self.opening.snapshot().player.phase != 0;
+        let palette = self.gameplay.palette_family();
+        let responding = self.gameplay.snapshot().player.phase != 0;
         let diagnostic_state = |state: &Snapshot| {
             let mut state = state.clone();
             if !responding {
@@ -526,13 +526,13 @@ impl<R: BufRead> Lifecycle<'_, R> {
             state
         };
         self.palette_reset = false;
-        self.opening
+        self.gameplay
             .advance_subframe(self.assets, steering(input.mask))?;
         if self.quit {
-            self.opening.request_game_over();
+            self.gameplay.request_game_over();
             self.quit = false;
         }
-        let transitions = self.opening.take_transitions();
+        let transitions = self.gameplay.take_transitions();
         for (index, t) in transitions
             .iter()
             .enumerate()
@@ -552,8 +552,8 @@ impl<R: BufRead> Lifecycle<'_, R> {
             pass: e.pass,
             kind: "gameplay",
             palette,
-            frame: self.opening.pass_frame().clone(),
-            state: self.opening.pass_snapshot().map(diagnostic_state),
+            frame: self.gameplay.pass_frame().clone(),
+            state: self.gameplay.pass_snapshot().map(diagnostic_state),
         });
         for (index, t) in transitions
             .iter()
@@ -684,7 +684,7 @@ impl<R: BufRead> Lifecycle<'_, R> {
             "{}\t{}\t{}\t{}\t{kind}",
             self.writer.seq, self.game, e.body, e.pass
         );
-        let mut random = self.opening.snapshot().random;
+        let mut random = self.gameplay.snapshot().random;
         match kind {
             "initial" => {
                 if !self.initial_pending || e.body != 0 || e.pass != 0 {
@@ -696,9 +696,9 @@ impl<R: BufRead> Lifecycle<'_, R> {
                     e.body,
                     e.pass,
                     kind,
-                    self.opening.palette_family(),
+                    self.gameplay.palette_family(),
                     mode,
-                    (self.opening.frame(), Some(&self.opening.snapshot())),
+                    (self.gameplay.frame(), Some(&self.gameplay.snapshot())),
                 )?;
                 self.initial_pending = false;
             }
@@ -760,7 +760,7 @@ impl<R: BufRead> Lifecycle<'_, R> {
                     e.body,
                     e.pass,
                     kind,
-                    self.opening.palette_family(),
+                    self.gameplay.palette_family(),
                     mode,
                     (ending.frame(), None),
                 )?;
@@ -1030,7 +1030,7 @@ mod tests {
             random: [3, 7, 9],
             retained_world: None,
         };
-        let mut native = Opening::for_play(&assets, rules.clone(), start).unwrap();
+        let mut native = Gameplay::for_play(&assets, rules.clone(), start).unwrap();
         native
             .advance_subframe(&assets, Steering::default())
             .unwrap();
@@ -1473,7 +1473,7 @@ mod tests {
         data[0x0a3f] = 0xce;
         data[0x0a6f] = 0xcf;
         let rules = ScriptRules::from_data_segment(&data).unwrap();
-        let mut native = Opening::for_play(
+        let mut native = Gameplay::for_play(
             &assets,
             rules.clone(),
             GameStart {

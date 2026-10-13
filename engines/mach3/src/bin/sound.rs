@@ -719,7 +719,7 @@ fn run() -> Result<(), Error> {
     } = parse_options(args)?;
     let context = parse_context(&fs::read_to_string(context_path)?)?;
     let assets = SoundAssets::load(&directory)?;
-    let expanded = mach3::rules::load_program(&directory)?;
+    let expanded = mach3::executable::load_program(&directory)?;
     let program = IntroProgram::from_expanded(&expanded)?;
     let mut memory = SampleBytes::new(&assets);
     for (resource, offset, value) in external {

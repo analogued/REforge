@@ -45,12 +45,12 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
         return Ok(());
     };
     let frames = StartupFrames::load(&directory).map_err(|error| error.to_string())?;
-    let program = crate::rules::load_program(&directory).map_err(|error| error.to_string())?;
-    let rules = crate::opening::ScriptRules::from_data_segment(
-        &program[crate::rules::DATA_SEGMENT_OFFSET..],
+    let program = crate::executable::load_program(&directory).map_err(|error| error.to_string())?;
+    let rules = crate::gameplay::ScriptRules::from_data_segment(
+        &program[crate::executable::DATA_SEGMENT_OFFSET..],
     )
     .map_err(|error| error.to_string())?;
-    if options.playback != Playback::Animated || options.body_period != crate::opening::BODY_PERIOD
+    if options.playback != Playback::Animated || options.body_period != crate::gameplay::BODY_PERIOD
     {
         return crate::viewer::run_with_rules(&frames, options, rules);
     }
@@ -221,7 +221,7 @@ mod tests {
                 let (_, options) = parse_args(args(&values)).unwrap().unwrap();
                 assert_eq!(options.audio_renderer, renderer);
                 assert_eq!(options.playback, Playback::Animated);
-                assert_eq!(options.body_period, crate::opening::BODY_PERIOD);
+                assert_eq!(options.body_period, crate::gameplay::BODY_PERIOD);
             }
         }
         let (_, options) = parse_args(args(&[

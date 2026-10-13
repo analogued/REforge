@@ -258,7 +258,7 @@ and gameplay waits. Step/static/custom-period previews retain silent stepping.
 
 ### Gameplay invocation
 
-`Opening::advance_subframe_with_sound` selects foreground operations directly
+`Gameplay::advance_subframe_with_sound` selects foreground operations directly
 from the gameplay algorithms. Its synchronous sink receives `GameplayAction`:
 procedural requests, explicit death waits, and the guarded completion sample.
 Requests retain their original call-site identity and are emitted even when
@@ -321,7 +321,7 @@ state, then uses the existing reconstructed sample routine. It does not replace
 the sample with a procedural tone or infer its duration from a renderer.
 
 The callback interface selects operations and completes a pass synchronously.
-`opening::execution::GameplayTask` instead retains the pass continuation across
+`gameplay::execution::GameplayTask` instead retains the pass continuation across
 simulation budgets and drives ordinary, publication, death and native-pause waits
 through the device clock. It runs completion playback through the same sample
 cursor and executes its keyboard clear and disable effects before resuming the
@@ -377,7 +377,7 @@ meaningful ordering without claiming instruction-exact DOS timestamps. The live
 viewer uses this same clock through intro, pre-game, gameplay and ending waits.
 At gameplay return, the caller's `74c0` reset restores handler `7532`, programs
 divisor `ffff` and disables the speaker before the ending waits. `GameplayTask`
-owns this reset through `Opening::return_sound`; the frontend does not repeat
+owns this reset through `Gameplay::return_sound`; the frontend does not repeat
 its ordered vector, timer and speaker transactions. The clock retains
 software counters, phase and tone cursors rather than constructing a fresh clock.
 

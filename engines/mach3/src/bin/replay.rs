@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 #![forbid(unsafe_code)]
 
-use mach3::{Error, assets::GraphicsAssets, opening::ScriptRules, rules, session_capture};
+use mach3::{Error, assets::GraphicsAssets, executable, gameplay::ScriptRules, session_replay};
 use std::{env, path::PathBuf};
 
 const HELP: &str = "Usage: mach3-replay <assets-directory> <recording-directory> <new-output-directory>\n\
@@ -19,7 +19,7 @@ fn run() -> Result<bool, Error> {
         return Ok(true);
     }
     if args.len() == 2 && args[0] == "--hook-signature" {
-        let program = rules::load_program(&PathBuf::from(&args[1]))?;
+        let program = executable::load_program(&PathBuf::from(&args[1]))?;
         let signature = program
             .get(0x044a..0x044a + 32)
             .ok_or_else(|| Error::InvalidData("truncated executable hook signature".into()))?;
@@ -34,9 +34,9 @@ fn run() -> Result<bool, Error> {
     };
     let assets_directory = PathBuf::from(assets_directory);
     let assets = GraphicsAssets::load(&assets_directory)?;
-    let program = rules::load_program(&assets_directory)?;
+    let program = executable::load_program(&assets_directory)?;
     let data = program
-        .get(rules::DATA_SEGMENT_OFFSET..)
+        .get(executable::DATA_SEGMENT_OFFSET..)
         .ok_or_else(|| Error::InvalidData("truncated program data segment".into()))?;
     let rules = ScriptRules::from_data_segment(data)?;
     let startup = if PathBuf::from(recording).join("timeline.tsv").exists() {
@@ -44,7 +44,7 @@ fn run() -> Result<bool, Error> {
     } else {
         None
     };
-    let report = session_capture::replay_session(
+    let report = session_replay::replay_session(
         &assets,
         rules,
         startup.as_ref(),

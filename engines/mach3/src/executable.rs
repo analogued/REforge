@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Read externally supplied DOS program data through its reverse-RLE loader format.
+//! Load and expand the externally supplied DOS executable's reverse-RLE image.
 
 use crate::Error;
 use std::path::Path;

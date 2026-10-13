@@ -38,7 +38,7 @@ Rows are bounded by actual work and visible wait advancement:
 
 - `game_start` brackets initialization and assigns game IDs starting at zero.
   Its script/RNG describe the native start; IDs increment after returned intros.
-- `pass` brackets the actual `Opening::advance_subframe` invocation. This includes
+- `pass` brackets the actual `Gameplay::advance_subframe` invocation. This includes
   world updates, rendering, parser/recycle work and generation of transition
   images when applicable, but excludes input tracing and SDL presentation.
   Its body/pass and workload columns describe the state after the invocation.

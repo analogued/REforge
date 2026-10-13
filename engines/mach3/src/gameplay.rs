@@ -70,9 +70,9 @@ pub struct Snapshot {
     pub static_lateral: i16,
 }
 
-/// Bounded encounter and collision/damage updates, with optional steering.
+/// Gameplay, progression and scene state, with optional bounded diagnostic stepping.
 #[derive(Debug)]
-pub struct Opening {
+pub struct Gameplay {
     body: u16,
     render_pass: u8,
     body_limit: Option<u16>,
@@ -120,13 +120,13 @@ pub struct Opening {
     initial_input_applied: bool,
 }
 
-impl Opening {
+impl Gameplay {
     pub fn new(assets: &GraphicsAssets) -> Result<Self, Error> {
         let initial_frame = scene::initial_frame(assets)?;
         let mut random = Random::default();
         random.next_word(); // Intro screen selection.
         random.next_word(); // Fresh-process script selection: script zero.
-        let mut opening = Self {
+        let mut gameplay = Self {
             body: 0,
             render_pass: 0,
             body_limit: Some(LAST_BODY),
@@ -177,16 +177,16 @@ impl Opening {
             sound_returned: false,
             initial_input_applied: false,
         };
-        let depths = opening.world_depths();
-        opening.sort_full_world(&depths);
-        Ok(opening)
+        let depths = gameplay.world_depths();
+        gameplay.sort_full_world(&depths);
+        Ok(gameplay)
     }
 
     /// A short controlled prefix, independently verified with held steering.
     pub fn with_steering(assets: &GraphicsAssets) -> Result<Self, Error> {
-        let mut opening = Self::new(assets)?;
-        opening.body_limit = Some(STEERING_LAST_BODY);
-        Ok(opening)
+        let mut gameplay = Self::new(assets)?;
+        gameplay.body_limit = Some(STEERING_LAST_BODY);
+        Ok(gameplay)
     }
 
     /// Construct a bounded game using external encounter rules and retained session state.
@@ -196,51 +196,55 @@ impl Opening {
         start: GameStart,
         limit: u16,
     ) -> Result<Self, Error> {
-        let mut opening = Self::new(assets)?;
-        opening.random = Random {
+        let mut gameplay = Self::new(assets)?;
+        gameplay.random = Random {
             words: start.random,
         };
-        opening.script_index = start.script_index;
-        opening.body_limit = Some(limit);
-        opening.terrain.set_data_segment(rules.data_segment());
-        opening.rules = Some(rules);
-        opening.enemy.reset_for_game(assets)?;
+        gameplay.script_index = start.script_index;
+        gameplay.body_limit = Some(limit);
+        gameplay.terrain.set_data_segment(rules.data_segment());
+        gameplay.rules = Some(rules);
+        gameplay.enemy.reset_for_game(assets)?;
         if let Some(world) = start.retained_world {
-            opening.enemy = enemy::Enemy::restore_snapshots(
+            gameplay.enemy = enemy::Enemy::restore_snapshots(
                 std::array::from_fn(|i| world.records[i + 4]),
                 assets,
             )?;
-            opening.terrain.restore_snapshots(std::array::from_fn(|i| {
-                let row = world.records[i + 15];
-                TerrainState {
-                    slot: row.slot,
-                    depth: row.depth,
-                    lateral: row.lateral,
-                    active: row.active,
-                    movement: row.movement,
-                    kind: row.variant,
-                    animation_phase: row.animation_phase,
-                    requested_sprite: row.requested_sprite,
-                    resolved_sprite: row.resolved_sprite,
-                    rect: row.rect,
-                    phase: row.phase,
-                }
-            }))?;
-            opening.special.restore_snapshots(world.special);
-            opening.weapon.restore([world.records[2], world.records[3]]);
-            opening.static_lateral = world.records[28].lateral;
+            gameplay
+                .terrain
+                .restore_snapshots(std::array::from_fn(|i| {
+                    let row = world.records[i + 15];
+                    TerrainState {
+                        slot: row.slot,
+                        depth: row.depth,
+                        lateral: row.lateral,
+                        active: row.active,
+                        movement: row.movement,
+                        kind: row.variant,
+                        animation_phase: row.animation_phase,
+                        requested_sprite: row.requested_sprite,
+                        resolved_sprite: row.resolved_sprite,
+                        rect: row.rect,
+                        phase: row.phase,
+                    }
+                }))?;
+            gameplay.special.restore_snapshots(world.special);
+            gameplay
+                .weapon
+                .restore([world.records[2], world.records[3]]);
+            gameplay.static_lateral = world.records[28].lateral;
         }
         // Initialization resolves and projects the reset records before its first
         // displayed frame. Retained unused coordinates and animation fields survive.
-        opening.weapon.project(assets, true, 106, 0)?;
-        opening.enemy.project(assets, true, 106, 0)?;
-        opening.terrain.project(assets, true, 106, 0)?;
-        opening.special.project(true, 106, 0)?;
-        opening.full_world_order = (0..29).collect();
-        let depths = opening.world_depths();
-        opening.sort_full_world(&depths);
-        opening.sort_world(&depths);
-        Ok(opening)
+        gameplay.weapon.project(assets, true, 106, 0)?;
+        gameplay.enemy.project(assets, true, 106, 0)?;
+        gameplay.terrain.project(assets, true, 106, 0)?;
+        gameplay.special.project(true, 106, 0)?;
+        gameplay.full_world_order = (0..29).collect();
+        let depths = gameplay.world_depths();
+        gameplay.sort_full_world(&depths);
+        gameplay.sort_world(&depths);
+        Ok(gameplay)
     }
 
     /// Start live gameplay without an export limit. Game over still completes
@@ -250,9 +254,9 @@ impl Opening {
         rules: ScriptRules,
         start: GameStart,
     ) -> Result<Self, Error> {
-        let mut opening = Self::from_game_start(assets, rules, start, 0)?;
-        opening.body_limit = None;
-        Ok(opening)
+        let mut gameplay = Self::from_game_start(assets, rules, start, 0)?;
+        gameplay.body_limit = None;
+        Ok(gameplay)
     }
 
     pub fn request_game_over(&mut self) {
@@ -1316,7 +1320,7 @@ fn draw_clipped(
     frame.draw_sprite_clipped(sprite, draw.rect, viewport)
 }
 
-/// Final completed body of the currently verified, no-input opening batch.
+/// Final completed body of the currently verified, no-input gameplay batch.
 pub const LAST_BODY: u16 = 836;
 
 /// Verified prefix for steering-controlled playback.
@@ -1356,7 +1360,7 @@ mod tests {
     #[test]
     fn initializer_moves_player_and_world_without_advancing_gameplay() {
         let assets = synthetic_assets();
-        let mut game = Opening::new(&assets).unwrap();
+        let mut game = Gameplay::new(&assets).unwrap();
         let before = game.snapshot();
         game.initialize_input(&assets, 8 | 16).unwrap();
         let after = game.snapshot();
@@ -1391,14 +1395,14 @@ mod tests {
     fn initializer_retains_poll_bits_and_rejects_late_or_invalid_input() {
         let assets = synthetic_assets();
         for mask in [0, 16, 128] {
-            let mut game = Opening::new(&assets).unwrap();
+            let mut game = Gameplay::new(&assets).unwrap();
             game.initialize_input(&assets, mask).unwrap();
             assert_eq!(game.snapshot().player.effective_input, u16::from(mask));
             assert_eq!(game.snapshot().player.coordinates, [14, 0, -100]);
             assert_eq!(game.snapshot().player.velocity, [0, 0]);
             assert!(!game.snapshot().player.game_over);
         }
-        let mut game = Opening::new(&assets).unwrap();
+        let mut game = Gameplay::new(&assets).unwrap();
         assert!(game.initialize_input(&assets, 32).is_err());
         game.advance_subframe(&assets, Steering::default()).unwrap();
         assert!(game.initialize_input(&assets, 8).is_err());
@@ -1435,7 +1439,7 @@ mod tests {
     #[test]
     fn first_pass_wait_follows_selected_layer_changes_and_signed_overlay() {
         let assets = synthetic_assets();
-        let mut game = Opening::new(&assets).unwrap();
+        let mut game = Gameplay::new(&assets).unwrap();
         game.render_pass = 1;
         for (layer, overlay, alternate, expected) in [
             (0, 0, false, true),
@@ -1467,11 +1471,11 @@ mod tests {
     #[test]
     fn authored_events_and_supported_boundary_preserve_the_final_state() {
         let assets = synthetic_assets();
-        let mut opening = Opening::new(&assets).unwrap();
-        assert_eq!(opening.frame(), &scene::initial_frame(&assets).unwrap());
+        let mut gameplay = Gameplay::new(&assets).unwrap();
+        assert_eq!(gameplay.frame(), &scene::initial_frame(&assets).unwrap());
         for body in 1..=360 {
-            assert!(opening.advance(&assets).unwrap());
-            let state = opening.snapshot();
+            assert!(gameplay.advance(&assets).unwrap());
+            let state = gameplay.snapshot();
             assert_eq!(state.body, body);
             assert_eq!(
                 state.terrain_selector,
@@ -1522,28 +1526,28 @@ mod tests {
         }
         // Synthetic descriptor geometry does not reproduce the original
         // collision route. Exercise the bounded guard independently of it.
-        opening.body = LAST_BODY;
-        let final_frame = opening.frame().clone();
-        let final_random = opening.snapshot().random;
+        gameplay.body = LAST_BODY;
+        let final_frame = gameplay.frame().clone();
+        let final_random = gameplay.snapshot().random;
         for _ in 0..3 {
-            assert!(!opening.advance(&assets).unwrap());
+            assert!(!gameplay.advance(&assets).unwrap());
         }
-        assert!(opening.complete());
-        assert_eq!(opening.snapshot().body, LAST_BODY);
-        assert_eq!(opening.snapshot().random, final_random);
-        assert_eq!(opening.frame(), &final_frame);
+        assert!(gameplay.complete());
+        assert_eq!(gameplay.snapshot().body, LAST_BODY);
+        assert_eq!(gameplay.snapshot().random, final_random);
+        assert_eq!(gameplay.frame(), &final_frame);
     }
 
     #[test]
     fn displayed_passes_sample_input_and_finish_the_boundary_only_after_pass_three() {
         let assets = synthetic_assets();
-        let mut opening = Opening::with_steering(&assets).unwrap();
-        opening.body_limit = Some(1);
-        let initial = opening.snapshot();
-        assert!(opening.at_body_boundary());
+        let mut gameplay = Gameplay::with_steering(&assets).unwrap();
+        gameplay.body_limit = Some(1);
+        let initial = gameplay.snapshot();
+        assert!(gameplay.at_body_boundary());
         for (pass, lateral, velocity) in [(1, -4, -1), (2, -12, -2), (3, -24, -3)] {
             assert!(
-                opening
+                gameplay
                     .advance_subframe(
                         &assets,
                         Steering {
@@ -1553,50 +1557,50 @@ mod tests {
                     )
                     .unwrap()
             );
-            let state = opening.snapshot();
+            let state = gameplay.snapshot();
             assert_eq!(state.body, 1);
             assert_eq!(state.render_pass, pass);
             assert_eq!(state.player.coordinates[1], lateral);
             assert_eq!(state.player.velocity[0], velocity);
-            assert_eq!(opening.at_body_boundary(), pass == 3);
-            assert_eq!(opening.complete(), pass == 3);
+            assert_eq!(gameplay.at_body_boundary(), pass == 3);
+            assert_eq!(gameplay.complete(), pass == 3);
             assert_eq!(state.script_delay, u16::from(pass == 3));
             assert_eq!(
                 state.player.grace,
                 initial.player.grace + u16::from(pass == 3 && initial.player.grace < 4)
             );
         }
-        let last_frame = opening.frame().clone();
+        let last_frame = gameplay.frame().clone();
         assert!(
-            !opening
+            !gameplay
                 .advance_subframe(&assets, Steering::default())
                 .unwrap()
         );
-        assert_eq!(opening.frame(), &last_frame);
+        assert_eq!(gameplay.frame(), &last_frame);
     }
 
     #[test]
     fn input_changes_between_passes_do_not_repeat_world_motion() {
         let assets = synthetic_assets();
-        let mut opening = Opening::new(&assets).unwrap();
+        let mut gameplay = Gameplay::new(&assets).unwrap();
         let left = Steering {
             left: true,
             ..Steering::default()
         };
-        opening.advance_subframe(&assets, left).unwrap();
-        let first = opening.snapshot();
-        assert!(opening.advance(&assets).is_err());
-        opening
+        gameplay.advance_subframe(&assets, left).unwrap();
+        let first = gameplay.snapshot();
+        assert!(gameplay.advance(&assets).is_err());
+        gameplay
             .advance_subframe(&assets, Steering::default())
             .unwrap();
-        let second = opening.snapshot();
+        let second = gameplay.snapshot();
         assert_eq!(second.player.velocity[0], 0);
         assert_eq!(second.player.coordinates[1], first.player.coordinates[1]);
         assert_eq!(second.terrain[0].depth, first.terrain[0].depth);
         assert_eq!(second.hud.score, first.hud.score);
         assert_eq!(second.random, first.random);
         assert_eq!(second.player.grace, first.player.grace);
-        opening
+        gameplay
             .advance_subframe(
                 &assets,
                 Steering {
@@ -1605,21 +1609,21 @@ mod tests {
                 },
             )
             .unwrap();
-        assert_eq!(opening.snapshot().player.velocity[0], 1);
-        assert_eq!(opening.snapshot().player.coordinates[1], 0);
-        assert!(opening.at_body_boundary());
-        assert!(opening.advance(&assets).unwrap());
-        assert_eq!(opening.snapshot().body, 2);
+        assert_eq!(gameplay.snapshot().player.velocity[0], 1);
+        assert_eq!(gameplay.snapshot().player.coordinates[1], 0);
+        assert!(gameplay.at_body_boundary());
+        assert!(gameplay.advance(&assets).unwrap());
+        assert_eq!(gameplay.snapshot().body, 2);
     }
 
     #[test]
     fn formation_count_command_consumes_one_word_and_waits_to_spawn() {
         let assets = synthetic_assets();
-        let mut baseline = Opening::new(&assets).unwrap();
+        let mut baseline = Gameplay::new(&assets).unwrap();
         baseline.script_cursor = 9;
         baseline.script_delay = 20;
         baseline.terrain_selector = 7;
-        let mut formation = Opening::new(&assets).unwrap();
+        let mut formation = Gameplay::new(&assets).unwrap();
         formation.script_cursor = 10;
         formation.script_delay = 20;
         formation.terrain_selector = 7;
@@ -1647,13 +1651,13 @@ mod tests {
     #[test]
     fn gate_allocation_preserves_the_delay_before_the_scripted_enemy() {
         let assets = synthetic_assets();
-        let mut opening = Opening::new(&assets).unwrap();
-        opening.script_cursor = 13;
-        opening.script_delay = 20;
-        opening.terrain_selector = 7;
-        opening.primary_count = 2;
-        opening.advance(&assets).unwrap();
-        let state = opening.snapshot();
+        let mut gameplay = Gameplay::new(&assets).unwrap();
+        gameplay.script_cursor = 13;
+        gameplay.script_delay = 20;
+        gameplay.terrain_selector = 7;
+        gameplay.primary_count = 2;
+        gameplay.advance(&assets).unwrap();
+        let state = gameplay.snapshot();
         assert_eq!(state.script_cursor, 14);
         assert_eq!(state.script_delay, 1);
         assert_eq!(
@@ -1664,11 +1668,11 @@ mod tests {
             && slot.rect.x_bytes == 128
             && slot.rect.width_bytes == 43
             && slot.rect.height == 0));
-        assert!(!opening.enemy.active());
+        assert!(!gameplay.enemy.active());
         for _ in 0..20 {
-            opening.advance(&assets).unwrap();
+            gameplay.advance(&assets).unwrap();
         }
-        let state = opening.snapshot();
+        let state = gameplay.snapshot();
         assert_eq!(state.script_cursor, 15);
         assert_eq!(state.script_delay, 0);
         assert!(state.enemies[1].active);
@@ -1683,18 +1687,18 @@ mod tests {
 
     #[test]
     fn zero_movement_entries_keep_order_until_their_movement_changes() {
-        let mut opening = Opening::new(&synthetic_assets()).unwrap();
-        opening.world_order = vec![4, 5, 6, 15];
-        opening.sort_world(&[(4, 100, 253), (5, 300, 0), (6, 900, 0), (15, 200, 2)]);
-        assert_eq!(opening.world_order, [5, 6, 15, 4]);
-        opening.sort_world(&[(4, 100, 253), (5, 300, 0), (6, 200, 8), (15, 200, 2)]);
-        assert_eq!(opening.world_order, [5, 6, 15, 4]);
+        let mut gameplay = Gameplay::new(&synthetic_assets()).unwrap();
+        gameplay.world_order = vec![4, 5, 6, 15];
+        gameplay.sort_world(&[(4, 100, 253), (5, 300, 0), (6, 900, 0), (15, 200, 2)]);
+        assert_eq!(gameplay.world_order, [5, 6, 15, 4]);
+        gameplay.sort_world(&[(4, 100, 253), (5, 300, 0), (6, 200, 8), (15, 200, 2)]);
+        assert_eq!(gameplay.world_order, [5, 6, 15, 4]);
     }
 
     #[test]
     fn equal_depth_objects_retain_their_order_from_the_preceding_pass() {
-        let mut opening = Opening::new(&synthetic_assets()).unwrap();
-        let mut depths: Vec<_> = opening
+        let mut gameplay = Gameplay::new(&synthetic_assets()).unwrap();
+        let mut depths: Vec<_> = gameplay
             .world_order
             .iter()
             .map(|slot| (*slot, 100, 2))
@@ -1704,15 +1708,15 @@ mod tests {
             .find(|(slot, _, _)| *slot == 22)
             .unwrap()
             .1 = 200;
-        opening.sort_world(&depths);
-        assert_eq!(opening.world_order[0], 22);
+        gameplay.sort_world(&depths);
+        assert_eq!(gameplay.world_order[0], 22);
         depths
             .iter_mut()
             .find(|(slot, _, _)| *slot == 22)
             .unwrap()
             .1 = 100;
-        opening.sort_world(&depths);
-        assert_eq!(opening.world_order[0], 22);
+        gameplay.sort_world(&depths);
+        assert_eq!(gameplay.world_order[0], 22);
     }
     pub(super) fn synthetic_rules(commands: &[u8]) -> ScriptRules {
         let mut data = vec![0; 65536];
@@ -1733,7 +1737,7 @@ mod tests {
     fn mode_reset_persists_until_an_actual_palette_command() {
         let assets = synthetic_assets();
         let start = SessionState::default().begin_game();
-        let mut game = Opening::for_play(&assets, synthetic_rules(&[0xce, 0xce]), start).unwrap();
+        let mut game = Gameplay::for_play(&assets, synthetic_rules(&[0xce, 0xce]), start).unwrap();
         for _ in 0..21 {
             game.advance(&assets).unwrap();
         }
@@ -1759,7 +1763,7 @@ mod tests {
     fn transition_compositor_does_not_change_the_pinned_body_layer() {
         let mut assets = synthetic_assets();
         assets.primary.fill(0x55);
-        let mut game = Opening::new(&assets).unwrap();
+        let mut game = Gameplay::new(&assets).unwrap();
         game.advance_subframe(&assets, Steering::default()).unwrap();
         assert_eq!(game.selected_layer, 0);
         game.layer = 2;
@@ -1800,7 +1804,7 @@ mod tests {
         let mut assets = synthetic_assets();
         assets.alternate.fill(0x55);
         let start = SessionState::default().begin_game();
-        let mut game = Opening::for_play(&assets, synthetic_rules(&[0xd6, 0x85]), start).unwrap();
+        let mut game = Gameplay::for_play(&assets, synthetic_rules(&[0xd6, 0x85]), start).unwrap();
         game.script_delay = 20;
         game.advance(&assets).unwrap();
         let pass_state = game.pass_snapshot().unwrap();
@@ -1819,7 +1823,7 @@ mod tests {
     fn live_play_passes_export_limits_wraps_the_counter_and_obeys_game_over() {
         let assets = synthetic_assets();
         let start = SessionState::default().begin_game();
-        let mut game = Opening::for_play(&assets, synthetic_rules(&[0x85]), start).unwrap();
+        let mut game = Gameplay::for_play(&assets, synthetic_rules(&[0x85]), start).unwrap();
         for boundary in [STEERING_LAST_BODY, LAST_BODY] {
             game.body = boundary - 1;
             for expected in [boundary, boundary + 1] {
@@ -1843,7 +1847,7 @@ mod tests {
     #[test]
     fn new_game_reprojects_reset_shots_and_preserves_unused_enemy_coordinates() {
         let assets = synthetic_assets();
-        let previous = Opening::new(&assets).unwrap();
+        let previous = Gameplay::new(&assets).unwrap();
         let ending = Ending::new(&assets, &previous.snapshot(), previous.frame()).unwrap();
         let mut session = SessionState::default();
         session.remember_ending(&ending.snapshot(), ending.special_snapshots());
@@ -1856,7 +1860,7 @@ mod tests {
         }
         let start = session.begin_game();
         let expected_random = start.random;
-        let game = Opening::from_game_start(&assets, synthetic_rules(&[0x85]), start, 90).unwrap();
+        let game = Gameplay::from_game_start(&assets, synthetic_rules(&[0x85]), start, 90).unwrap();
         let state = game.snapshot();
         assert_eq!(state.random, expected_random);
         assert_eq!(state.enemies[1].depth, 692);
@@ -1872,7 +1876,7 @@ mod tests {
     #[test]
     fn external_parser_preserves_delay_and_continues_after_non_wave_commands() {
         let assets = synthetic_assets();
-        let mut game = Opening::from_game_start(
+        let mut game = Gameplay::from_game_start(
             &assets,
             synthetic_rules(&[1, 0xc5, 0x85]),
             GameStart {
@@ -1905,7 +1909,7 @@ mod tests {
     #[test]
     fn negative_delay_can_execute_several_commands_and_follow_both_edges() {
         let assets = synthetic_assets();
-        let mut game = Opening::from_game_start(
+        let mut game = Gameplay::from_game_start(
             &assets,
             synthetic_rules(&[1, 0xc5, 0x85]),
             GameStart {
@@ -1937,7 +1941,7 @@ mod tests {
     #[test]
     fn speed_limits_and_deceleration_keep_the_three_speeds_in_step() {
         let assets = synthetic_assets();
-        let mut game = Opening::new(&assets).unwrap();
+        let mut game = Gameplay::new(&assets).unwrap();
         game.speed_mode = 1;
         for _ in 0..40 {
             game.advance_speed();
@@ -1956,7 +1960,7 @@ mod tests {
     #[test]
     fn weapon_hits_destroy_craft_pay_score_and_leave_other_slots_available() {
         let assets = synthetic_assets();
-        let mut game = Opening::new(&assets).unwrap();
+        let mut game = Gameplay::new(&assets).unwrap();
         game.enemy
             .spawn_command(0x84, &mut game.random, 0, 1)
             .unwrap();
@@ -1978,7 +1982,7 @@ mod tests {
     #[test]
     fn weapon_terrain_conversion_does_not_consume_the_projectile_or_collect_fuel() {
         let assets = synthetic_assets();
-        let mut game = Opening::new(&assets).unwrap();
+        let mut game = Gameplay::new(&assets).unwrap();
         game.terrain.spawn_goal_barrier(28, 0);
         let target = game.terrain.snapshots()[0];
         let mut shots = game.weapon.snapshot().shots;
@@ -1997,7 +2001,7 @@ mod tests {
     #[test]
     fn extra_life_awards_fill_only_missing_symbols_and_terrain_awards_cap_separately() {
         let assets = synthetic_assets();
-        let mut game = Opening::new(&assets).unwrap();
+        let mut game = Gameplay::new(&assets).unwrap();
         game.apply_enemy_effects(enemy::EnemyEffects {
             lives: 1,
             difficulty: 1,
@@ -2052,8 +2056,8 @@ mod tests {
         );
         state.request(Effect::Reset, 0x1234, 0, &mut clock);
         let assets = synthetic_assets();
-        let mut plain = Opening::new(&assets).unwrap();
-        let mut active = Opening::new(&assets).unwrap();
+        let mut plain = Gameplay::new(&assets).unwrap();
+        let mut active = Gameplay::new(&assets).unwrap();
         for pass in 0..60 {
             let wait = Wait::from_call(1, 1);
             while !wait.poll(&mut state.counters) {
@@ -2094,7 +2098,7 @@ mod tests {
     fn repeated_gate_contacts_emit_individual_tones_before_body_noise() {
         let mut assets = synthetic_assets();
         assets.sprites[13].descriptor[2] = 100;
-        let mut game = Opening::new(&assets).unwrap();
+        let mut game = Gameplay::new(&assets).unwrap();
         let mut records = game.special.snapshots();
         for record in &mut records {
             record.active = true;
@@ -2129,7 +2133,7 @@ mod tests {
     #[test]
     fn a_boundary_exit_requests_default_once_and_a_bounded_export_does_not() {
         let assets = synthetic_assets();
-        let mut game = Opening::new(&assets).unwrap();
+        let mut game = Gameplay::new(&assets).unwrap();
         game.request_game_over();
         let mut actions = Vec::new();
         for _ in 0..2 {
@@ -2147,7 +2151,7 @@ mod tests {
                 effect: Effect::Reset
             }]
         );
-        let mut bounded = Opening::new(&assets).unwrap();
+        let mut bounded = Gameplay::new(&assets).unwrap();
         bounded.body_limit = Some(0);
         bounded
             .advance_subframe_with_sound(&assets, Steering::default(), &mut |a| actions.push(a))

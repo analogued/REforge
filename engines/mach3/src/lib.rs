@@ -1,18 +1,18 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! DOS CGA asset decoding, composition, and bounded opening simulation.
+//! DOS CGA asset decoding, composition, and reconstructed gameplay.
 #![forbid(unsafe_code)]
 
 pub mod assets;
 #[cfg(feature = "viewer")]
 pub mod cli;
+pub mod executable;
 pub mod frame;
+pub mod gameplay;
 #[cfg(all(feature = "viewer", feature = "dev-tools"))]
 mod input_trace;
 pub mod live;
-pub mod opening;
-pub mod rules;
 pub mod scene;
-pub mod session_capture;
+pub mod session_replay;
 pub mod sound;
 pub mod startup;
 pub mod timer;

@@ -50,10 +50,11 @@ fn sprite_file(pixel: u8) -> Vec<u8> {
 
 fn program_file() -> Vec<u8> {
     let mut image = vec![0; 0xa500];
-    image[mach3::rules::DATA_SEGMENT_OFFSET + 0x04ac..mach3::rules::DATA_SEGMENT_OFFSET + 0x04af]
+    image[mach3::executable::DATA_SEGMENT_OFFSET + 0x04ac
+        ..mach3::executable::DATA_SEGMENT_OFFSET + 0x04af]
         .copy_from_slice(&[1, 2, 3]);
     for index in 0..21 {
-        image[mach3::rules::DATA_SEGMENT_OFFSET + 0x0a3e + 50 * index] = 0xcf;
+        image[mach3::executable::DATA_SEGMENT_OFFSET + 0x0a3e + 50 * index] = 0xcf;
     }
     let size = image.len() as u16;
     image.extend(size.to_le_bytes());
@@ -146,7 +147,7 @@ fn opening_export_preserves_existing_directories_and_rejects_unsupported_steps()
         first
     );
     assert!(
-        !export(&(mach3::opening::LAST_BODY + 1).to_string(), "unsupported")
+        !export(&(mach3::gameplay::LAST_BODY + 1).to_string(), "unsupported")
             .status
             .success()
     );

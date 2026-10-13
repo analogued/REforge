@@ -592,7 +592,7 @@ mod tests {
     }
 
     fn snapshot(assets: &GraphicsAssets) -> Snapshot {
-        let mut state = super::super::Opening::new(assets).unwrap().snapshot();
+        let mut state = super::super::Gameplay::new(assets).unwrap().snapshot();
         state.player.game_over = true;
         state.player.coordinates = [14, 0, -28];
         state.player.horizon = 18;

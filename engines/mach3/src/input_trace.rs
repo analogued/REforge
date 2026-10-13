@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Development-only observation of host events and actual engine input polls.
 
-use crate::opening::{InputPoll, SessionState};
+use crate::gameplay::{InputPoll, SessionState};
 use reforge_sdl::{EventClockSample, HostPause, event_clock_sample, sdl3::event::Event};
 use std::{
     fs::{File, OpenOptions},

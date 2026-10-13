@@ -14,7 +14,7 @@ mod tests;
 use std::collections::VecDeque;
 
 use super::{
-    Controls, KeyboardState, Opening, PauseControl, PauseEvent, PauseState, Steering,
+    Controls, Gameplay, KeyboardState, PauseControl, PauseEvent, PauseState, Steering,
     TransitionFrame,
     pass::{PassProgress, PassTask},
 };
@@ -112,7 +112,7 @@ enum Stage {
 /// deadline is latched before IRQ dispatch/foreground polling; IRQ0 retains its
 /// priority over IRQ1. Already-executed polls are never rolled back.
 pub struct GameplayTask {
-    game: Opening,
+    game: Gameplay,
     state: GameplayState,
     game_cs: u16,
     pause_poll_period: u64,
@@ -138,7 +138,7 @@ struct TransitionPlayback {
 
 impl GameplayTask {
     pub fn begin<O: FnMut(Stamp, ClockEvent)>(
-        game: Opening,
+        game: Gameplay,
         state: GameplayState,
         game_cs: u16,
         pause_poll_period: u64,
@@ -183,7 +183,7 @@ impl GameplayTask {
         })
     }
 
-    pub fn game(&self) -> &Opening {
+    pub fn game(&self) -> &Gameplay {
         &self.game
     }
     pub fn state(&self) -> &GameplayState {
@@ -222,7 +222,7 @@ impl GameplayTask {
 
     /// Recover foreground state only after its typed return; a suspended pass
     /// or sample must not be dropped and then resumed as a fresh game.
-    pub fn into_parts(self) -> Result<(Opening, GameplayState), Error> {
+    pub fn into_parts(self) -> Result<(Gameplay, GameplayState), Error> {
         if !matches!(self.stage, Stage::Returned) {
             return Err(invalid("gameplay foreground has not returned"));
         }

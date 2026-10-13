@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Received scan transitions on Mach 3's pause-adjusted scheduling timeline.
 
-use crate::opening::SessionState;
+use crate::gameplay::SessionState;
 use reforge_sdl::{EventClockSample, HostPause, sdl3::event::Event};
 use std::{collections::VecDeque, time::Instant};
 

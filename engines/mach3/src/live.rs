@@ -16,8 +16,8 @@ mod tests;
 use crate::{
     Error,
     frame::Frame,
-    opening::{
-        Opening, SessionState,
+    gameplay::{
+        Gameplay, SessionState,
         execution::{
             GameplayEvent, GameplayProgress, GameplayResources, GameplayState, GameplayTask,
         },
@@ -35,7 +35,7 @@ pub struct GameplayRuntime {
 
 impl GameplayRuntime {
     pub fn begin<O: FnMut(Stamp, ClockEvent)>(
-        game: Opening,
+        game: Gameplay,
         state: GameplayState,
         game_cs: u16,
         pause_poll_period: u64,
@@ -52,7 +52,7 @@ impl GameplayRuntime {
         })
     }
 
-    pub fn game(&self) -> &Opening {
+    pub fn game(&self) -> &Gameplay {
         self.task.game()
     }
 
@@ -119,7 +119,7 @@ impl GameplayRuntime {
         Ok(progress)
     }
 
-    pub fn into_parts(self) -> Result<(Opening, GameplayState), Error> {
+    pub fn into_parts(self) -> Result<(Gameplay, GameplayState), Error> {
         self.task.into_parts()
     }
 }

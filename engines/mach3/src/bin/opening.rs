@@ -4,8 +4,8 @@
 use mach3::{
     Error,
     assets::GraphicsAssets,
-    opening::{
-        Ending, LAST_BODY, Opening, STEERING_LAST_BODY, ScriptRules, SessionState, Steering,
+    gameplay::{
+        Ending, Gameplay, LAST_BODY, STEERING_LAST_BODY, ScriptRules, SessionState, Steering,
     },
     startup::StartupFrames,
 };
@@ -133,11 +133,11 @@ fn run() -> Result<(), Error> {
         return Err(Error::InvalidData(HELP.into()));
     };
     let assets = GraphicsAssets::load(&directory)?;
-    let program = mach3::rules::load_program(&directory)?;
-    let rules = ScriptRules::from_data_segment(&program[mach3::rules::DATA_SEGMENT_OFFSET..])?;
+    let program = mach3::executable::load_program(&directory)?;
+    let rules = ScriptRules::from_data_segment(&program[mach3::executable::DATA_SEGMENT_OFFSET..])?;
     let mut session = SessionState::default();
     session.select_intro();
-    let mut opening = Opening::from_game_start(&assets, rules, session.begin_game(), steps)?;
+    let mut gameplay = Gameplay::from_game_start(&assets, rules, session.begin_game(), steps)?;
     let mut held_input = Steering::default();
     fs::create_dir(&destination)?;
     let mut state = new_file(destination.join("state.tsv"))?;
@@ -184,17 +184,17 @@ fn run() -> Result<(), Error> {
             });
             if include_subframes {
                 for (pass, input) in inputs.into_iter().enumerate() {
-                    opening.advance_subframe(&assets, input)?;
+                    gameplay.advance_subframe(&assets, input)?;
                     let mut output =
                         new_file(destination.join(format!("{body:03}-{}.cga", pass + 1)))?;
-                    output.write_all(&opening.frame().to_cga())?;
+                    output.write_all(&gameplay.frame().to_cga())?;
                     output.flush()?;
                 }
             } else {
-                opening.advance_with_inputs(&assets, inputs)?;
+                gameplay.advance_with_inputs(&assets, inputs)?;
             }
         }
-        let snapshot = opening.snapshot();
+        let snapshot = gameplay.snapshot();
         for shot in snapshot.weapon.shots {
             writeln!(
                 weapon,
@@ -348,7 +348,7 @@ fn run() -> Result<(), Error> {
             )?;
         }
         let mut frame = new_file(destination.join(format!("{body:03}.cga")))?;
-        frame.write_all(&opening.frame().to_cga())?;
+        frame.write_all(&gameplay.frame().to_cga())?;
         frame.flush()?;
     }
     weapon.flush()?;
@@ -360,7 +360,7 @@ fn run() -> Result<(), Error> {
     full_order.flush()?;
     special.flush()?;
     if include_ending {
-        let mut ending = Ending::new(&assets, &opening.snapshot(), opening.frame())?;
+        let mut ending = Ending::new(&assets, &gameplay.snapshot(), gameplay.frame())?;
         let mut table = new_file(destination.join("ending.tsv"))?;
         let mut objects = new_file(destination.join("ending-world.tsv"))?;
         let mut order = new_file(destination.join("ending-order.tsv"))?;

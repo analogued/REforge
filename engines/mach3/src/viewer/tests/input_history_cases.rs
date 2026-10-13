@@ -46,8 +46,8 @@ fn overdue_polls_use_received_history_and_match_punctual_execution() {
                 }
                 punctual.advance(&assets, &options, poll).unwrap();
                 delayed.advance(&assets, &options, late).unwrap();
-                let reference = punctual.opening.as_ref().unwrap();
-                let actual = delayed.opening.as_ref().unwrap();
+                let reference = punctual.gameplay.as_ref().unwrap();
+                let actual = delayed.gameplay.as_ref().unwrap();
                 assert_eq!(actual.snapshot().player.effective_input, expected);
                 assert_eq!(
                     format!("{:?}", actual.snapshot()),
@@ -79,7 +79,7 @@ fn overdue_polls_use_received_history_and_match_punctual_execution() {
                 delayed.advance(&assets, &options, next_poll).unwrap();
                 assert_eq!(
                     delayed
-                        .opening
+                        .gameplay
                         .as_ref()
                         .unwrap()
                         .snapshot()
@@ -88,8 +88,8 @@ fn overdue_polls_use_received_history_and_match_punctual_execution() {
                     0
                 );
                 assert_eq!(
-                    delayed.opening.as_ref().unwrap().frame(),
-                    punctual.opening.as_ref().unwrap().frame()
+                    delayed.gameplay.as_ref().unwrap().frame(),
+                    punctual.gameplay.as_ref().unwrap().frame()
                 );
             }
         }
@@ -109,7 +109,7 @@ fn late_delivery_is_prospective_and_catch_up_repolls_keep_history_order() {
     let mut game = running_playback(&assets, start, &options);
     let mut input = ControlInput::default();
     game.advance(&assets, &options, start + unit).unwrap();
-    let first = game.opening.as_ref().unwrap().frame().clone();
+    let first = game.gameplay.as_ref().unwrap().frame().clone();
     // The event is dated before an already-executed poll. It affects the
     // next unexecuted poll without rolling back or inserting a delay.
     receive_at(
@@ -119,10 +119,10 @@ fn late_delivery_is_prospective_and_catch_up_repolls_keep_history_order() {
         start,
         start + unit,
     );
-    assert_eq!(game.opening.as_ref().unwrap().frame(), &first);
+    assert_eq!(game.gameplay.as_ref().unwrap().frame(), &first);
     game.advance(&assets, &options, start + unit * 3).unwrap();
     assert_eq!(
-        game.opening
+        game.gameplay
             .as_ref()
             .unwrap()
             .snapshot()
@@ -151,7 +151,7 @@ fn late_delivery_is_prospective_and_catch_up_repolls_keep_history_order() {
     game.advance(&assets, &options, late).unwrap();
     assert_eq!(pass_count(&game), 48);
     assert_eq!(
-        game.opening
+        game.gameplay
             .as_ref()
             .unwrap()
             .snapshot()
@@ -163,7 +163,7 @@ fn late_delivery_is_prospective_and_catch_up_repolls_keep_history_order() {
     game.advance(&assets, &options, late).unwrap();
     assert_eq!(pass_count(&game), 75);
     assert_eq!(
-        game.opening
+        game.gameplay
             .as_ref()
             .unwrap()
             .snapshot()
@@ -251,8 +251,8 @@ fn historical_function_keys_keep_four_poll_priority_and_counter_rules() {
         format!("{:?}", punctual.session)
     );
     assert_eq!(
-        delayed.opening.as_ref().unwrap().frame(),
-        punctual.opening.as_ref().unwrap().frame()
+        delayed.gameplay.as_ref().unwrap().frame(),
+        punctual.gameplay.as_ref().unwrap().frame()
     );
     assert_eq!(delayed.session.controls.sound_poll_counter, 0);
     assert!(delayed.session.controls.preferences.sound_disabled);
@@ -264,7 +264,7 @@ fn historical_function_keys_keep_four_poll_priority_and_counter_rules() {
     assert_eq!(delayed.session.pause.state, PauseState::Running);
     assert_eq!(
         delayed
-            .opening
+            .gameplay
             .as_ref()
             .unwrap()
             .snapshot()
@@ -381,7 +381,7 @@ fn deliberate_waits_fold_taps_without_replaying_discarded_deadlines() {
         match boundary {
             "transition" => game.transitions.append(
                 vec![TransitionFrame {
-                    frame: game.opening.as_ref().unwrap().frame().clone(),
+                    frame: game.gameplay.as_ref().unwrap().frame().clone(),
                     clip: crate::frame::Rect {
                         x_bytes: 0,
                         y: 0,
@@ -398,9 +398,9 @@ fn deliberate_waits_fold_taps_without_replaying_discarded_deadlines() {
             ),
             "native_resume" => game.session.pause.state = PauseState::AwaitFinalRelease,
             "ending" => {
-                let opening = game.opening.as_ref().unwrap();
+                let gameplay = game.gameplay.as_ref().unwrap();
                 game.ending = Some(
-                    Ending::new_with_best(&assets, &opening.snapshot(), opening.frame(), 0)
+                    Ending::new_with_best(&assets, &gameplay.snapshot(), gameplay.frame(), 0)
                         .unwrap(),
                 );
             }
@@ -428,7 +428,7 @@ fn deliberate_waits_fold_taps_without_replaying_discarded_deadlines() {
         game.advance(&assets, &options, late).unwrap();
         assert_eq!(game.session.keyboard.held_keys(0).actions, 0);
         assert_eq!(
-            game.opening
+            game.gameplay
                 .as_ref()
                 .unwrap()
                 .snapshot()
@@ -441,7 +441,7 @@ fn deliberate_waits_fold_taps_without_replaying_discarded_deadlines() {
             assert_eq!(game.next_frame, Some(late + unit));
             game.advance(&assets, &options, late + unit).unwrap();
             assert_eq!(
-                game.opening
+                game.gameplay
                     .as_ref()
                     .unwrap()
                     .snapshot()
@@ -473,7 +473,7 @@ fn transition_holds_and_new_session_preserve_current_scans_not_old_taps() {
     let mut input = ControlInput::default();
     game.transitions.append(
         vec![TransitionFrame {
-            frame: game.opening.as_ref().unwrap().frame().clone(),
+            frame: game.gameplay.as_ref().unwrap().frame().clone(),
             clip: crate::frame::Rect {
                 x_bytes: 0,
                 y: 0,
@@ -498,7 +498,7 @@ fn transition_holds_and_new_session_preserve_current_scans_not_old_taps() {
     game.advance(&assets, &options, now).unwrap();
     game.advance(&assets, &options, now + unit).unwrap();
     assert_eq!(
-        game.opening
+        game.gameplay
             .as_ref()
             .unwrap()
             .snapshot()
@@ -538,7 +538,7 @@ fn transition_holds_and_new_session_preserve_current_scans_not_old_taps() {
     assert_eq!(game.session.keyboard.held_keys(0).actions, 8);
     game.advance(&assets, &options, now + unit * 3).unwrap();
     assert_eq!(
-        game.opening
+        game.gameplay
             .as_ref()
             .unwrap()
             .snapshot()

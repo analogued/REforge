@@ -1,4 +1,4 @@
-# DOS opening gameplay
+# DOS gameplay
 
 This describes verified original behavior and its Rust implementation.
 Code and data addresses follow [DOS startup](dos-startup.md).
@@ -14,7 +14,7 @@ by minus eight. Space is retained as input but does not fire a projectile here.
 The initializer resolves/project records and composes the scene without running
 enemy movement, weapon advancement or a gameplay body.
 
-`Opening::initialize_input` applies the returned poll mask to that initialization
+`Gameplay::initialize_input` applies the returned poll mask to that initialization
 operation. Normal live playback calls it before entering pre-game playback;
 recording replay uses captured initializer input when available. The initial
 HUD still draws its previously resolved indicator artwork even if the player
@@ -131,10 +131,12 @@ existing process can change the subsequent sequence.
 See [CGA graphics](cga-graphics.md) for composition and object records. Captures,
 raw state, and comparison reports remain external to the repository.
 
-## Rust opening simulation
+## Rust gameplay simulation
 
-`Opening` implements the opening without keyboard input through completed body
-836. It updates the HUD, recycles and projects terrain, and starts nine enemy
+`Gameplay` implements the reconstructed game. Its default bounded diagnostic
+run covers the opening without keyboard input through completed body 836;
+`Gameplay::for_play` runs without that export limit. The opening updates the HUD,
+recycles and projects terrain, and starts nine enemy
 encounters. The generator runs from fresh startup state; branch decisions consume
 its results in the original order. Source resolution remains separate from
 requested sprite selection.
@@ -373,8 +375,8 @@ letting the engine execute the installed handler before further advancement.
 The reconstructed [procedural sound handlers](sound-assets.md#procedural-sound)
 dispatch through this execution layer, including in-handler timer reprogramming.
 Gameplay exposes ordered sound requests and blocking-operation selections through
-`Opening::advance_subframe_with_sound`. Immediate stepping drains the same
-continuations used by `opening::execution::GameplayTask`, a headless, budgeted
+`Gameplay::advance_subframe_with_sound`. Immediate stepping drains the same
+continuations used by `gameplay::execution::GameplayTask`, a headless, budgeted
 main-loop executor. That executor drives the three ordinary waits, the conditional
 pass-one publication wait, terminal death's separate one- and twenty-unit waits,
 and native pause's four one-unit waits from the delivered interrupt helpers.
@@ -586,7 +588,7 @@ A new game resets gameplay counters, speeds, lives, and active records but keeps
 the generator, best score, display mode, and sound preference. Object reset is
 partial: unused coordinates, subtypes, and resolved projection fields can survive
 until subsequent allocation or resolution. `SessionState` carries those fields
-between the ending and `Opening::from_game_start`.
+between the ending and `Gameplay::from_game_start`.
 
 The original polls gameplay controls at body entry and at each of its three
 player updates. F2 toggles its sound flag after four active polls; F3 switches

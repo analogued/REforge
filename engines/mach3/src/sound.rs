@@ -1,12 +1,13 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Reconstructed sample and procedural sound execution. This module does not render audio
-//! or advance a PIT: the caller supplies interrupt delivery and device reads.
+//! Reconstructed sound execution and optional presentation policies. Execution
+//! does not render audio or advance a PIT: callers supply interrupts and reads.
 
 mod assets;
 mod dos_memory;
 mod intro_task;
 mod playback;
 mod procedural;
+pub mod render;
 mod sequence;
 
 pub use assets::{ByteOrigin, MemoryByte, Resource, SampleBytes, SampleMemory, SoundAssets};

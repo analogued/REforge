@@ -6,6 +6,7 @@ use mach3::{
     sound::{
         FarPointer, IntroCall, IntroProgram, IntroSequence, Resource, SampleBus, SampleBytes,
         SampleEnvironment, SamplePlayer, SampleSoundState, SoundAction, SoundAssets, StartResult,
+        render::{AudioRenderer, RenderingPolicy},
     },
 };
 use reforge_audio::{
@@ -38,7 +39,8 @@ setup gaps, PIT phase, host time, foreground instruction timing or rendered audi
 --device drives IRQ0 from the shared PIT, also writing device.tsv with pin/drive edges.\n\
 It uses explicit synthetic initial HIGH pins, whole-clock writes and zero instruction gaps;\n\
 port61 context supplies unmodeled upper read bits, with lower speaker bits checked.\n\
---wav requires --device and writes offline mono 16-bit speaker.wav at 48000 Hz by default.\n\
+--wav requires --device and writes paired offline mono 16-bit speaker.wav and enhanced-pcm.wav\n\
+from the same execution, at 48000 Hz by default.\n\
 --sample-rate and --audio-chunk-ticks require --wav; both are positive decimal integers.\n\
 Audio chunks default to 11931 PIT ticks. No live audio playback is involved.";
 
@@ -154,11 +156,88 @@ fn new_file(path: impl AsRef<Path>) -> Result<BufWriter<std::fs::File>, Error> {
     ))
 }
 
+struct RenderedWav {
+    policy: RenderingPolicy,
+    renderer: BlipRenderer,
+    wav: WavWriter<File>,
+}
+
+impl RenderedWav {
+    fn level(&mut self, tick: u64, level: Option<i16>) -> Result<(), Error> {
+        if let Some(level) = level {
+            self.renderer
+                .level_at(tick, level, &mut |samples| {
+                    self.wav.write_samples(samples).map_err(render::Error::Io)
+                })
+                .map_err(|error| invalid(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn finish(mut self, tick: u64) -> Result<(), Error> {
+        self.renderer
+            .finish_until(tick, &mut |samples| {
+                self.wav.write_samples(samples).map_err(render::Error::Io)
+            })
+            .map_err(|error| invalid(error.to_string()))?;
+        self.wav.finish()?;
+        Ok(())
+    }
+}
+
+struct PairedAudio([RenderedWav; 2]);
+
+impl PairedAudio {
+    fn new(config: Config, tick: u64, drive: bool, destination: &Path) -> Result<Self, Error> {
+        let output = |mode, name| {
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(destination.join(name))?;
+            Ok::<_, Error>(RenderedWav {
+                policy: RenderingPolicy::new(mode, false),
+                renderer: BlipRenderer::new(config, tick, 0)
+                    .map_err(|error| invalid(error.to_string()))?,
+                wav: WavWriter::new(file, config.sample_rate)?,
+            })
+        };
+        let mut audio = Self([
+            output(AudioRenderer::Speaker, "speaker.wav")?,
+            output(AudioRenderer::EnhancedPcm, "enhanced-pcm.wav")?,
+        ]);
+        audio.drive(tick, drive)?;
+        Ok(audio)
+    }
+
+    fn action(&mut self, tick: u64, action: SoundAction) -> Result<(), Error> {
+        for output in &mut self.0 {
+            let level = output.policy.action(tick, action);
+            output.level(tick, level)?;
+        }
+        Ok(())
+    }
+
+    fn drive(&mut self, tick: u64, high: bool) -> Result<(), Error> {
+        for output in &mut self.0 {
+            let level = output.policy.drive(tick, high);
+            output.level(tick, level)?;
+        }
+        Ok(())
+    }
+
+    fn finish(self, tick: u64) -> Result<(), Error> {
+        for output in self.0 {
+            output.finish(tick)?;
+        }
+        Ok(())
+    }
+}
+
 struct DeviceTrace {
     speaker: PcSpeaker,
     rows: BufWriter<std::fs::File>,
     sequence: u64,
-    audio: Option<(BlipRenderer, WavWriter<File>)>,
+    audio: Option<PairedAudio>,
 }
 
 impl DeviceTrace {
@@ -181,14 +260,8 @@ impl DeviceTrace {
             )?;
         }
         if let Some(edge) = events.drive {
-            if let Some((renderer, wav)) = &mut self.audio {
-                renderer
-                    .level_at(
-                        edge.tick,
-                        if edge.high { 8192 } else { 0 },
-                        &mut |samples| wav.write_samples(samples).map_err(render::Error::Io),
-                    )
-                    .map_err(|error| invalid(error.to_string()))?;
+            if let Some(audio) = &mut self.audio {
+                audio.drive(edge.tick, edge.high)?;
             }
             self.sequence += 1;
             writeln!(
@@ -204,13 +277,8 @@ impl DeviceTrace {
 
     fn finish(&mut self) -> Result<(), Error> {
         self.rows.flush()?;
-        if let Some((mut renderer, mut wav)) = self.audio.take() {
-            renderer
-                .finish_until(self.speaker.pit().tick(), &mut |samples| {
-                    wav.write_samples(samples).map_err(render::Error::Io)
-                })
-                .map_err(|error| invalid(error.to_string()))?;
-            wav.finish()?;
+        if let Some(audio) = self.audio.take() {
+            audio.finish(self.speaker.pit().tick())?;
         }
         Ok(())
     }
@@ -362,6 +430,16 @@ impl<P: Write, E: Write> SampleBus for DiagnosticBus<P, E> {
             return;
         }
         self.order += 1;
+        if let Some(audio) = self
+            .device
+            .as_mut()
+            .and_then(|device| device.audio.as_mut())
+        {
+            if let Err(error) = audio.action(self.ticks, action) {
+                self.failure = Some(error);
+                return;
+            }
+        }
         if let SoundAction::Write { port, value, .. } = action {
             if let Some(device) = &mut self.device {
                 if (0x40..=0x43).contains(&port) || port == 0x61 {
@@ -684,18 +762,7 @@ fn run() -> Result<(), Error> {
         }
         let audio = audio
             .map(|config| {
-                let renderer = BlipRenderer::new(
-                    config,
-                    speaker.pit().tick(),
-                    if speaker.drive() { 8192 } else { 0 },
-                )
-                .map_err(|error| invalid(error.to_string()))?;
-                let file = OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(destination.join("speaker.wav"))?;
-                let wav = WavWriter::new(file, config.sample_rate)?;
-                Ok::<_, Error>((renderer, wav))
+                PairedAudio::new(config, speaker.pit().tick(), speaker.drive(), &destination)
             })
             .transpose()?;
         bus.device = Some(DeviceTrace {
@@ -713,7 +780,7 @@ fn run() -> Result<(), Error> {
     if let Some(config) = audio {
         writeln!(
             description,
-            "Offline WAV: mono signed 16-bit PCM at {} Hz, {} Hz PIT clock, maximum {} ticks per audio chunk.\nSpeaker digital drive maps LOW to 0 and HIGH to 8192 before bandlimited rendering with the fixed blip_buf filter.\nThe WAV ends at the actual committed device tick; no trailing device phase or filter tail is appended.\nThe initial device pins and instruction gaps are synthetic context, not an acoustically validated speaker model.\nNo live audio playback is involved.",
+            "Paired offline WAVs from one execution: mono signed 16-bit PCM at {} Hz, {} Hz PIT clock, maximum {} ticks per audio chunk.\nAudio renderer speaker (speaker.wav): digital drive maps LOW to 0 and HIGH to 8192.\nAudio renderer enhanced-pcm (enhanced-pcm.wav): each annotated source visit supplies (byte - 128) * 32 + 4096 once; duplicate writes hold the same level.\nEnhanced PCM holds midpoint 4096 before the first source visit and after SourceEnd, suppressing residual sample PWM until the next source begins or foreground speaker reprogramming; other sound follows speaker drive.\nEach WAV uses its own fixed blip_buf filter state and ends at the same committed device tick; no trailing device phase or filter tail is appended.\nThe initial device pins and instruction gaps are synthetic context, not an acoustically validated speaker model.\nNo live audio playback is involved.",
             config.sample_rate, config.clock_hz, config.chunk_ticks
         )?;
     } else {
@@ -945,6 +1012,147 @@ mod tests {
     }
 
     #[test]
+    fn paired_wavs_observe_one_sample_execution_without_changing_hardware_or_chunk_results() {
+        let scratch = Scratch::new();
+        for resource in Resource::ALL {
+            let mut bytes = vec![0; resource.bytes()];
+            if resource == Resource::Data7 {
+                for (index, byte) in bytes[..128].iter_mut().enumerate() {
+                    *byte = [0, 128, 255, 64][index % 4];
+                }
+            }
+            fs::write(scratch.0.join(resource.name()), bytes).unwrap();
+        }
+        let assets = SoundAssets::load(&scratch.0).unwrap();
+        let memory = SampleBytes::new(&assets);
+        struct Execution {
+            ports: Vec<u8>,
+            effects: Vec<u8>,
+            device: Vec<u8>,
+            tick: u64,
+            wavs: Option<[Vec<u8>; 2]>,
+        }
+        let execute = |name: &str, chunk_ticks: Option<u32>| {
+            let destination = scratch.0.join(name);
+            fs::create_dir(&destination).unwrap();
+            let reads = parse_context(
+                "call\tinterrupt\tport\tvalue\n1\t0\t97\t3\n1\t3\t96\t185\n1\t3\t97\t3\n",
+            )
+            .unwrap();
+            let mut bus = DiagnosticBus::new(reads, Vec::new(), Vec::new()).unwrap();
+            bus.device = Some(DeviceTrace {
+                speaker: PcSpeaker::with_mode3_count_one(
+                    3,
+                    [true; 3],
+                    reforge_audio::pit::CountOnePolicy::DosBoxWrap,
+                ),
+                rows: new_file(destination.join("device.tsv")).unwrap(),
+                sequence: 0,
+                audio: chunk_ticks.map(|chunk_ticks| {
+                    PairedAudio::new(
+                        Config {
+                            clock_hz: PIT_CLOCK_HZ,
+                            sample_rate: 48_000,
+                            chunk_ticks,
+                        },
+                        0,
+                        true,
+                        &destination,
+                    )
+                    .unwrap()
+                }),
+            });
+            bus.begin_call(1).unwrap();
+            execute_call(
+                IntroCall {
+                    request: mach3::sound::SampleRequest {
+                        resource: Resource::Data7,
+                        offset: 0,
+                        count: 128,
+                        reverse: false,
+                    },
+                    return_ip: 0,
+                },
+                &mut SampleSoundState::default(),
+                0,
+                &memory,
+                &mut bus,
+            )
+            .unwrap();
+            bus.finish().unwrap();
+            let wavs = chunk_ticks.map(|_| {
+                ["speaker.wav", "enhanced-pcm.wav"]
+                    .map(|name| fs::read(destination.join(name)).unwrap())
+            });
+            Execution {
+                ports: bus.ports,
+                effects: bus.effects,
+                device: fs::read(destination.join("device.tsv")).unwrap(),
+                tick: bus.ticks,
+                wavs,
+            }
+        };
+        let hardware = execute("hardware", None);
+        let small = execute("small", Some(100));
+        let large = execute("large", Some(DEFAULT_AUDIO_CHUNK_TICKS));
+        for rendered in [&small, &large] {
+            assert_eq!(rendered.ports, hardware.ports);
+            assert_eq!(rendered.effects, hardware.effects);
+            assert_eq!(rendered.device, hardware.device);
+            assert_eq!(rendered.tick, hardware.tick);
+        }
+        // The source routine emits two annotated writes for each source visit.
+        let annotated = std::str::from_utf8(&hardware.ports)
+            .unwrap()
+            .lines()
+            .filter(|line| line.contains("\tDATA7\t"))
+            .count();
+        assert_eq!(annotated, 256);
+        let [speaker, enhanced] = small.wavs.as_ref().unwrap();
+        assert_eq!(small.wavs, large.wavs);
+        assert_ne!(speaker[44..], enhanced[44..]);
+        let samples = (hardware.tick * 48_000 / u64::from(PIT_CLOCK_HZ)) as usize;
+        for wav in [speaker, enhanced] {
+            assert_eq!(wav.len(), 44 + samples * 2);
+            assert_eq!(
+                u32::from_le_bytes(wav[40..44].try_into().unwrap()),
+                samples as u32 * 2
+            );
+        }
+        // Replay only the shared hardware's drive edges through the original
+        // speaker mapping, independently of either rendering policy.
+        let mut reference = BlipRenderer::new(
+            Config {
+                clock_hz: PIT_CLOCK_HZ,
+                sample_rate: 48_000,
+                chunk_ticks: 100,
+            },
+            0,
+            8192,
+        )
+        .unwrap();
+        let mut reference_pcm = Vec::new();
+        let mut collect = |samples: &[i16]| {
+            reference_pcm.extend(samples.iter().flat_map(|sample| sample.to_le_bytes()));
+            Ok(())
+        };
+        for line in std::str::from_utf8(&hardware.device).unwrap().lines() {
+            let columns: Vec<_> = line.split('\t').collect();
+            if columns[5] == "drive" {
+                reference
+                    .level_at(
+                        columns[1].parse().unwrap(),
+                        if columns[7] == "1" { 8192 } else { 0 },
+                        &mut collect,
+                    )
+                    .unwrap();
+            }
+        }
+        reference.finish_until(hardware.tick, &mut collect).unwrap();
+        assert_eq!(speaker[44..], reference_pcm);
+    }
+
+    #[test]
     fn device_irq_execution_preserves_sample_and_keyboard_operations_and_leaves_timer_running() {
         let scratch = Scratch::new();
         for resource in Resource::ALL {
@@ -966,20 +1174,19 @@ mod tests {
             speaker: PcSpeaker::new(3, [true; 3]),
             rows: new_file(scratch.0.join("device.tsv")).unwrap(),
             sequence: 0,
-            audio: Some((
-                BlipRenderer::new(
+            audio: Some(
+                PairedAudio::new(
                     Config {
                         clock_hz: PIT_CLOCK_HZ,
                         sample_rate: 48_000,
                         chunk_ticks: 100,
                     },
                     0,
-                    8192,
+                    true,
+                    &scratch.0,
                 )
                 .unwrap(),
-                WavWriter::new(File::create(scratch.0.join("speaker.wav")).unwrap(), 48_000)
-                    .unwrap(),
-            )),
+            ),
         });
         let call = IntroCall {
             request: mach3::sound::SampleRequest {

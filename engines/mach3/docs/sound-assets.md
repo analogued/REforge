@@ -397,7 +397,7 @@ frontend supplies explicit bootstrap pins/vectors and the DOS allocation name
 `MACH3` for `DosSampleMemory`'s modeled MCB suffix; that context is not sample data
 or a universal DOS heap assumption.
 
-PC speaker drive edges feed the shared signal renderer at their simulation ticks.
+By default, PC speaker drive edges feed the shared signal renderer at their simulation ticks.
 The viewer synthesizes 48 kHz mono signed 16-bit PCM and queues it through
 [`reforge_sdl::audio::AudioOutput`](../../../crates/reforge_sdl/README.md), which
 delegates native device format conversion to SDL. Playback is prefilled before
@@ -418,6 +418,42 @@ retains the original keyboard handshake and PIT-driven waits; the device continu
 to execute during native pause. F2 changes native sound preference while ordinary
 timer counters continue. Step/static/custom-period previews and recording replay
 remain silent. Instruction gaps and CPU delay loops are not timed by this model.
+
+### Enhanced PCM playback
+
+`--audio-renderer enhanced-pcm` selects full-byte rendering during recognized
+sample playback; `speaker` remains the default reference. The engine still
+executes every PIT write, interrupt, wait and keyboard effect. Outside sample
+intervals, enhanced output uses the same speaker drive for procedural effects.
+This policy is implemented in `sound::render::RenderingPolicy`; synthesis and
+SDL output remain shared.
+
+Each new `(playback, visit)` supplies its annotated byte at its actual execution
+timestamp. The level is held until the next visit or return, with no independent
+sample clock. Repeated hardware writes for one visit do not select another byte;
+adjacent equal bytes retain their separate visits. Partial lengths, inherited
+interrupt parity, reverse order and external-memory boundary reads therefore
+follow execution. The nominal 9,943.18 Hz cadence is a result of the timer
+programming, not a second scheduler or the demo player's 10,000 Hz rate.
+
+Speaker LOW/HIGH remain 0/8,192. Enhanced bytes map to
+`(byte - 128) * 32 + 4096`, using a wide signed type: midpoint 128 is 4,096,
+and the range is 0..8,160. This places both signals on the same unipolar scale
+before the backend's high-pass filtering. No automatic loudness normalization
+or clipping repair is applied in live output. The shared blip renderer retains
+filter history across chunks and handoffs; its hold/filter response is not a
+reconstruction of a Sound Blaster's analog filtering.
+
+`SourceBegin` selects midpoint silence until the first visit. `SourceEnd`
+selects midpoint again and suppresses the remaining sample-derived PWM pulse.
+Device output continues to be tracked. Speaker rendering resumes on the next
+deliberate channel-2 control/count write or a change to port `61h` bits 0/1;
+channel-0 programming, counter latches and keyboard acknowledgements that only
+change upper bits do not release that suppression. Another `SourceBegin` starts
+a new sample interval. Handoffs are immediate level changes at their ordered
+timestamps, smoothed only by the common synthesis filter; there is no crossfade,
+invented device delay or phase reset. These are explicit enhancement policies,
+not changes to the reconstructed sample routine.
 
 ### Bounded diagnostic
 
@@ -468,8 +504,8 @@ no PIC or interrupt-service-latency model. The exporter stops at the pre-game
 foreground return; channel 2 can still complete its final pulse afterward.
 Digital drive changes remain distinct from acoustic output.
 
-Add `--wav` alongside `--device` to render those actual drive edges into
-`speaker.wav`, using the shared replaceable
+Add `--wav` alongside `--device` to render the same execution into
+`speaker.wav` and `enhanced-pcm.wav`, using separate instances of the shared replaceable
 [signal renderer](../../../crates/reforge_audio/README.md#replaceable-signal-rendering).
 The default is mono signed 16-bit PCM at 48,000 Hz; `--sample-rate HZ` selects a
 different rate and `--audio-chunk-ticks TICKS` selects an internal synthesis
@@ -477,14 +513,16 @@ chunk bound (default 11,931 PIT clocks). Both accept positive decimal integers
 and require `--wav`. The backend checks rate and chunk limits before creating
 the output directory.
 
-The renderer uses nominal `PIT_HZ = 1,193,182`, maps drive LOW/HIGH to 0/8,192,
-and preserves filtering and fractional phase across chunks and sample calls.
-It follows the device events without selecting samples, changing interrupts or
-advancing an independent cursor. WAV output ends at the committed foreground
+Both renderers use nominal `PIT_HZ = 1,193,182` and preserve filtering and
+fractional phase across chunks and sample calls. The speaker WAV follows drive
+edges; the enhanced WAV follows the annotated visits and handoff policy above.
+Neither selects samples, changes interrupts or advances an independent cursor.
+Both WAVs end at the same committed foreground
 return, with no added timer interval or filter tail. `diagnostic.txt` records
-its rate, gain and phase assumptions. This is a filtered digital speaker signal,
-not an enhanced interpretation of the eight-bit assets or a validated acoustic
-recording. Normal animated viewing uses the same renderer for queued host playback.
+their rate, gain and phase assumptions. The outputs are respectively a filtered
+digital speaker signal and an enhanced interpretation of the eight-bit assets;
+neither is a validated acoustic recording. Normal animated viewing uses the
+same policies and synthesis backend for queued host playback.
 
 Device rows use a monotonic `sequence` in addition to `tick`. `kind` distinguishes
 initial pins, PIT transitions and speaker-drive transitions; `channel` applies

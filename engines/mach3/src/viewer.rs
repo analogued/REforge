@@ -44,6 +44,7 @@ pub struct Options {
     pub scale: u32,
     pub playback: Playback,
     pub controls: bool,
+    pub audio_renderer: crate::sound::render::AudioRenderer,
     pub body_period: std::time::Duration,
     #[cfg(feature = "dev-tools")]
     pub input_trace: Option<std::path::PathBuf>,
@@ -57,6 +58,7 @@ impl Default for Options {
             scale: reforge_sdl::DEFAULT_SCALE,
             playback: Playback::Animated,
             controls: false,
+            audio_renderer: crate::sound::render::AudioRenderer::Speaker,
             body_period: BODY_PERIOD,
             #[cfg(feature = "dev-tools")]
             input_trace: None,

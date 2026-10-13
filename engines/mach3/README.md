@@ -6,8 +6,8 @@ Status: Rust gameplay recreation with steering, shooting, encounter
 progression, collision responses, and retained-session restarts.
 Live gameplay has no loop cap. The normal animated viewer runs intro/pre-game
 samples, procedural sound and gameplay waits on one reconstructed PIT timeline,
-with PC speaker synthesis and queued SDL3 playback. Headless continuations and
-offline speaker WAV export are also available. Step/static/custom-period previews
+with PC speaker or enhanced PCM rendering and queued SDL3 playback. Headless
+continuations and paired offline WAV export are also available. Step/static/custom-period previews
 retain silent nominal stepping.
 Later gameplay paths still need broader comparisons with the original.
 
@@ -129,6 +129,12 @@ Host audio receives synthesized 48 kHz mono samples. An unavailable device or
 output failure warns and mutes playback while the same simulation continues.
 Buffer recovery discards expired PCM, retaining device and gameplay phase.
 Instruction execution cost and precise DOS elapsed time are not reproduced.
+
+Use `--audio-renderer speaker|enhanced-pcm` to select host audio rendering for
+normal animation. The default is `speaker`; `enhanced-pcm` renders each full-byte
+sample value directly while retaining PC speaker synthesis for procedural
+effects. Both use the same PIT simulation timeline, gameplay waits and input
+polls. This option leaves step, static and custom-period previews silent.
 
 F1 pauses: release it, then press and release another gameplay key to resume.
 Holding F1 at the pause decision ends the game after the current body completes.

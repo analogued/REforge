@@ -2,12 +2,13 @@
 #![forbid(unsafe_code)]
 
 use crate::{
+    sound::render::AudioRenderer,
     startup::StartupFrames,
     viewer::{Options, Playback},
 };
 use std::{ffi::OsString, path::PathBuf};
 
-const HELP: &str = "Usage: reforge --original <assets-directory> [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000] [--audio-renderer speaker|enhanced-pcm]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
 Default drawable scale: 4 (1280x960 pixels); CGA pixels are displayed at 4:3.\n\
@@ -15,7 +16,8 @@ Gameplay continues until game over, then displays Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
 --step: fresh Enter presses advance one body or title step. --static: show initial scene only.\n\
 --controls: flag with no value; arrows or S/X/B/N steer; Space or keypad5 fires. Gameplay has no loop cap.\n\
-Normal animation runs gameplay, sound and waits on one PIT timeline with PC speaker audio.\n\
+Normal animation runs gameplay, sound and waits on one PIT timeline.\n\
+--audio-renderer speaker|enhanced-pcm: select host audio rendering (default speaker); timing is unchanged.\n\
 --step, --static and custom --period-ms previews use silent nominal stepping and need DATA1 through DATA6.\n\
 Pause/Break freezes host simulation and playback. F1 retains original pause/end-game behavior; F2 toggles native sound, F3 switches color/monochrome.\n\
 Unavailable audio warns and mutes host output; guest execution continues. Exact CPU-dependent pacing remains unmodeled.";
@@ -96,6 +98,15 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
             Some("--controls") => {
                 options.controls = true;
             }
+            Some("--audio-renderer") => {
+                options.audio_renderer = match args.next().as_deref().and_then(|arg| arg.to_str()) {
+                    Some("speaker") => AudioRenderer::Speaker,
+                    Some("enhanced-pcm") => AudioRenderer::EnhancedPcm,
+                    _ => {
+                        return Err("--audio-renderer must be speaker or enhanced-pcm".into());
+                    }
+                };
+            }
             Some("--step" | "--static") => {
                 if playback_set {
                     return Err("--step and --static cannot be combined or repeated".into());
@@ -153,6 +164,7 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
 #[cfg(test)]
 mod tests {
     use super::{help, parse_args};
+    use crate::{sound::render::AudioRenderer, viewer::Playback};
     use std::{ffi::OsString, path::PathBuf};
 
     fn args(values: &[&str]) -> impl Iterator<Item = OsString> {
@@ -190,6 +202,88 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(!options.controls);
+    }
+
+    #[test]
+    fn audio_renderer_defaults_to_speaker_and_accepts_both_policies() {
+        let (_, defaults) = parse_args(args(&["--original", "assets"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(defaults.audio_renderer, AudioRenderer::Speaker);
+        for (value, renderer) in [
+            ("speaker", AudioRenderer::Speaker),
+            ("enhanced-pcm", AudioRenderer::EnhancedPcm),
+        ] {
+            for values in [
+                vec!["--original", "assets", "--audio-renderer", value],
+                vec!["--audio-renderer", value, "--original", "assets"],
+            ] {
+                let (_, options) = parse_args(args(&values)).unwrap().unwrap();
+                assert_eq!(options.audio_renderer, renderer);
+                assert_eq!(options.playback, Playback::Animated);
+                assert_eq!(options.body_period, crate::opening::BODY_PERIOD);
+            }
+        }
+        let (_, options) = parse_args(args(&[
+            "--original",
+            "assets",
+            "--audio-renderer",
+            "enhanced-pcm",
+            "--audio-renderer",
+            "speaker",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(options.audio_renderer, AudioRenderer::Speaker);
+        assert!(help().contains("--audio-renderer speaker|enhanced-pcm"));
+        assert!(help().contains("default speaker"));
+    }
+
+    #[test]
+    fn invalid_audio_renderer_values_are_rejected() {
+        for values in [
+            &["--original", "assets", "--audio-renderer"][..],
+            &["--original", "assets", "--audio-renderer", ""][..],
+            &["--original", "assets", "--audio-renderer", "pcm"][..],
+            &["--original", "assets", "--audio-renderer", "Speaker"][..],
+            &["--original", "assets", "--audio-renderer", "--controls"][..],
+        ] {
+            assert!(
+                parse_args(args(values))
+                    .unwrap_err()
+                    .contains("--audio-renderer"),
+                "{values:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn audio_renderer_selection_preserves_silent_preview_modes() {
+        for (flag, playback) in [("--step", Playback::Step), ("--static", Playback::Static)] {
+            let (_, options) = parse_args(args(&[
+                "--original",
+                "assets",
+                "--audio-renderer",
+                "enhanced-pcm",
+                flag,
+            ]))
+            .unwrap()
+            .unwrap();
+            assert_eq!(options.audio_renderer, AudioRenderer::EnhancedPcm);
+            assert_eq!(options.playback, playback);
+        }
+        let (_, options) = parse_args(args(&[
+            "--original",
+            "assets",
+            "--audio-renderer",
+            "enhanced-pcm",
+            "--period-ms",
+            "12",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(options.audio_renderer, AudioRenderer::EnhancedPcm);
+        assert_eq!(options.body_period, std::time::Duration::from_millis(12));
     }
 
     #[test]

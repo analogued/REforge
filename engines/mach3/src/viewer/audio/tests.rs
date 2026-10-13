@@ -351,13 +351,45 @@ struct Outcome {
     visible: Frame,
     events: Vec<(u64, GameplayEvent)>,
     generated: u64,
+    transactions: Vec<(u64, ClockEvent)>,
 }
 
 fn gameplay_run(budget: u64, render_chunk: u32, discard_output: bool) -> (Outcome, Vec<i16>) {
+    gameplay_run_mode(budget, render_chunk, discard_output, AudioRenderer::Speaker)
+}
+
+fn logged_initial_signal_clock(
+    simulation: &mut Simulation,
+    signal: Rc<RefCell<Synthesis>>,
+) -> Rc<RefCell<Vec<(u64, ClockEvent)>>> {
+    // Install observation at the initial clock boundary: no IRQ is pending.
+    // The cloned devices retain the splash reload already programmed at tick 0.
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let observe = log.clone();
+    simulation.clock = Clock::new(
+        simulation.clock.speaker().clone(),
+        simulation.clock.handlers(),
+        true,
+        Box::new(move |stamp, event| {
+            observe.borrow_mut().push((stamp.tick, event.clone()));
+            signal.borrow_mut().observe(stamp, event);
+        }),
+    );
+    log
+}
+
+fn gameplay_run_mode(
+    budget: u64,
+    render_chunk: u32,
+    discard_output: bool,
+    mode: AudioRenderer,
+) -> (Outcome, Vec<i16>) {
     let frames = frames();
     let resources = resources();
     let signal = signal(render_chunk);
+    signal.borrow_mut().policy = RenderingPolicy::new(mode, false);
     let mut simulation = Simulation::new(&frames, signal.clone()).unwrap();
+    let log = logged_initial_signal_clock(&mut simulation, signal.clone());
     enter_playing(&mut simulation, &frames, &resources);
     let start = simulation.clock.tick();
     for (offset, raw) in [
@@ -405,8 +437,25 @@ fn gameplay_run(budget: u64, render_chunk: u32, discard_output: bool) -> (Outcom
         visible: simulation.visible.clone(),
         events,
         generated: signal.borrow().generated,
+        transactions: log.borrow().clone(),
     };
     (outcome, pcm)
+}
+
+#[test]
+fn enhanced_pcm_changes_presentation_while_preserving_execution_and_chunk_invariance() {
+    let (reference, speaker_pcm) = gameplay_run(500_000, CHUNK as u32, false);
+    let (enhanced, enhanced_pcm) =
+        gameplay_run_mode(500_000, CHUNK as u32, false, AudioRenderer::EnhancedPcm);
+    assert_eq!(reference, enhanced);
+    assert_ne!(speaker_pcm, enhanced_pcm);
+    assert_eq!(speaker_pcm.len(), enhanced_pcm.len());
+    let (fine, fine_pcm) = gameplay_run_mode(731, 137, false, AudioRenderer::EnhancedPcm);
+    assert_eq!(enhanced, fine);
+    assert_eq!(enhanced_pcm, fine_pcm);
+    let (discarded, pcm) = gameplay_run_mode(10_000, 731, true, AudioRenderer::EnhancedPcm);
+    assert_eq!(enhanced, discarded);
+    assert!(pcm.is_empty());
 }
 
 #[test]
@@ -461,10 +510,19 @@ fn first_scene_is_published_before_pregame_sample_and_initial_body() {
 
 #[test]
 fn native_pause_return_continues_clock_through_ending_and_restart() {
+    assert_eq!(
+        native_pause_return_run(AudioRenderer::Speaker),
+        native_pause_return_run(AudioRenderer::EnhancedPcm)
+    );
+}
+
+fn native_pause_return_run(mode: AudioRenderer) -> Outcome {
     let frames = frames();
     let resources = resources();
     let signal = signal(CHUNK as u32);
+    signal.borrow_mut().policy = RenderingPolicy::new(mode, false);
     let mut simulation = Simulation::new(&frames, signal.clone()).unwrap();
+    let log = logged_initial_signal_clock(&mut simulation, signal.clone());
     enter_playing(&mut simulation, &frames, &resources);
     let game_tick = simulation.clock.tick();
     let mut events = Vec::new();
@@ -544,6 +602,19 @@ fn native_pause_return_continues_clock_through_ending_and_restart() {
     signal.borrow_mut().advance(simulation.clock.tick(), None);
     assert!(signal.borrow().error.is_none());
     assert!(signal.borrow().generated > samples_at(return_tick));
+    let Phase::Playing(runtime) = &simulation.phase else {
+        unreachable!()
+    };
+    Outcome {
+        tick: simulation.clock.tick(),
+        state: format!("{:?}", simulation.state()),
+        world: format!("{:?}", runtime.game().snapshot()),
+        session: format!("{:?}", simulation.session),
+        visible: simulation.visible.clone(),
+        events,
+        generated: signal.borrow().generated,
+        transactions: log.borrow().clone(),
+    }
 }
 
 #[test]

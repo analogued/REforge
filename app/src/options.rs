@@ -185,6 +185,13 @@ const SPECS: &[Spec] = &[
         description: "Restore original difficulty-6 window hold",
     },
     Spec {
+        name: "--audio-renderer",
+        game: Some(Game::Mach3),
+        value: Value::Choice(&["speaker", "enhanced-pcm"]),
+        dev: false,
+        description: "Host audio rendering for normal animation (default speaker); previews stay silent",
+    },
+    Spec {
         name: "--controls",
         game: Some(Game::Mach3),
         value: Value::Flag,
@@ -614,6 +621,78 @@ mod tests {
             assert!(!result.warnings.is_empty());
             accepted(&result, Game::Mach3);
         }
+    }
+    #[test]
+    fn mach3_audio_renderer_choices_reach_engine_in_normal_and_preview_modes() {
+        assert_eq!(takes_value("--audio-renderer"), Some(true));
+        for renderer in ["speaker", "enhanced-pcm"] {
+            for preview in [
+                None,
+                Some("--step"),
+                Some("--static"),
+                Some("--period-ms=12"),
+            ] {
+                let mut input = vec![format!("--audio-renderer={renderer}")];
+                if let Some(preview) = preview {
+                    input.push(preview.into());
+                }
+                let result = prepare(input.into_iter().map(OsString::from), Game::Mach3);
+                assert!(result.warnings.is_empty());
+                assert_eq!(&result.args[..2], args(&["--audio-renderer", renderer]));
+                accepted(&result, Game::Mach3);
+            }
+        }
+    }
+    #[test]
+    fn audio_renderer_validation_retains_previous_value_and_following_options() {
+        let result = prepare(
+            args(&[
+                "--audio-renderer",
+                "enhanced-pcm",
+                "--audio-renderer=pcm",
+                "--audio-renderer=",
+                "--audio-renderer",
+                "--controls",
+            ]),
+            Game::Mach3,
+        );
+        assert_eq!(
+            result.args,
+            args(&["--audio-renderer", "enhanced-pcm", "--controls"])
+        );
+        assert_eq!(result.warnings.len(), 3);
+        assert!(
+            result.warnings[..2]
+                .iter()
+                .all(|warning| warning.contains("use speaker|enhanced-pcm"))
+        );
+        assert!(result.warnings[2].contains("requires a value"));
+        accepted(&result, Game::Mach3);
+
+        let repeated = prepare(
+            args(&["--audio-renderer=enhanced-pcm", "--audio-renderer=speaker"]),
+            Game::Mach3,
+        );
+        assert_eq!(repeated.args, args(&["--audio-renderer", "speaker"]));
+        assert!(repeated.warnings.is_empty());
+        accepted(&repeated, Game::Mach3);
+    }
+    #[test]
+    fn audio_renderer_is_mach3_only_and_appears_in_its_help() {
+        let foreign = prepare(
+            args(&["--audio-renderer", "enhanced-pcm", "--scale", "2"]),
+            Game::AlleyCat,
+        );
+        assert_eq!(foreign.args, args(&["--scale", "2"]));
+        assert_eq!(foreign.warnings.len(), 1);
+        assert!(foreign.warnings[0].contains("applies to Mach 3"));
+        accepted(&foreign, Game::AlleyCat);
+        let help = help(Some(Game::Mach3));
+        assert!(help.contains("--audio-renderer VALUE"));
+        assert!(help.contains("Choices: speaker, enhanced-pcm"));
+        assert!(help.contains("default speaker"));
+        assert!(!super::help(None).contains("--audio-renderer"));
+        assert!(!super::help(Some(Game::AlleyCat)).contains("--audio-renderer"));
     }
     #[test]
     fn shared_option_names_have_consistent_value_arity() {

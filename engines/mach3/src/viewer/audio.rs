@@ -11,6 +11,7 @@ use crate::{
         DosSampleMemory, Effect, FarPointer, IntroProgram, IntroProgress, IntroTask,
         ProceduralProgram, Resource, SampleBus, SamplePlayer, SampleRequest, SampleSoundState,
         SoundAction, SoundAssets,
+        render::{AudioRenderer, RenderingPolicy},
     },
     timer::{Clock, ClockEvent, Progress, SampleStart, SampleTask, Stamp, Wait},
 };
@@ -49,12 +50,17 @@ struct PcmBlock {
 }
 struct Synthesis {
     renderer: BlipRenderer,
+    policy: RenderingPolicy,
     blocks: VecDeque<PcmBlock>,
     generated: u64,
     error: Option<String>,
 }
 impl Synthesis {
+    #[cfg(test)]
     fn new() -> Result<Self, String> {
+        Self::with_mode(AudioRenderer::Speaker)
+    }
+    fn with_mode(mode: AudioRenderer) -> Result<Self, String> {
         Ok(Self {
             renderer: BlipRenderer::new(
                 Config {
@@ -66,10 +72,23 @@ impl Synthesis {
                 0,
             )
             .map_err(|e| e.to_string())?,
+            policy: RenderingPolicy::new(mode, false),
             blocks: VecDeque::new(),
             generated: 0,
             error: None,
         })
+    }
+    fn observe(&mut self, stamp: Stamp, event: ClockEvent) {
+        let level = match event {
+            ClockEvent::Action(action) => self.policy.action(stamp.tick, action),
+            ClockEvent::Device(events) => events
+                .drive
+                .and_then(|edge| self.policy.drive(edge.tick, edge.high)),
+            ClockEvent::Interrupt(_) => None,
+        };
+        if let Some(level) = level {
+            self.advance(stamp.tick, Some(level));
+        }
     }
     fn advance(&mut self, tick: u64, level: Option<i16>) {
         if self.error.is_some() {
@@ -258,14 +277,8 @@ struct Simulation {
 }
 impl Simulation {
     fn new(frames: &StartupFrames, signal: Rc<RefCell<Synthesis>>) -> Result<Self, String> {
-        let observe: Box<dyn FnMut(Stamp, ClockEvent)> = Box::new(move |_, event| {
-            if let ClockEvent::Device(events) = event {
-                if let Some(edge) = events.drive {
-                    signal
-                        .borrow_mut()
-                        .advance(edge.tick, Some(if edge.high { 8192 } else { 0 }));
-                }
-            }
+        let observe: Box<dyn FnMut(Stamp, ClockEvent)> = Box::new(move |stamp, event| {
+            signal.borrow_mut().observe(stamp, event);
         });
         let mut clock = Clock::new(
             PcSpeaker::with_mode3_count_one(
@@ -1023,7 +1036,7 @@ pub(super) fn run(
     rules: ScriptRules,
     resources: Resources,
 ) -> Result<(), String> {
-    let signal = Rc::new(RefCell::new(Synthesis::new()?));
+    let signal = Rc::new(RefCell::new(Synthesis::with_mode(options.audio_renderer)?));
     let mut simulation = Simulation::new(frames, signal.clone())?;
     let mut window = Window::new(
         simulation.caption(),

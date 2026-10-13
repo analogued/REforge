@@ -1038,12 +1038,8 @@ pub(super) fn run(
 ) -> Result<(), String> {
     let signal = Rc::new(RefCell::new(Synthesis::with_mode(options.audio_renderer)?));
     let mut simulation = Simulation::new(frames, signal.clone())?;
-    let mut window = Window::new(
-        simulation.caption(),
-        WIDTH as u32,
-        DISPLAY_HEIGHT,
-        options.scale,
-    )?;
+    let mut caption = simulation.caption();
+    let mut window = Window::new(caption, WIDTH as u32, DISPLAY_HEIGHT, options.scale)?;
     let creator = window.texture_creator();
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
@@ -1068,6 +1064,7 @@ pub(super) fn run(
         .transpose()?;
     let mut repaint = true;
     loop {
+        let mut catch_up = false;
         for event in window.poll_events() {
             let received = Instant::now();
             let time =
@@ -1252,11 +1249,17 @@ pub(super) fn run(
                 }
             }
             // Repump SDL while recovering simulation debt; don't insert a vsync.
-            if simulation.clock.tick() < wanted
-                && phase_before == std::mem::discriminant(&simulation.phase)
-            {
-                continue;
-            }
+            catch_up = simulation.clock.tick() < wanted
+                && phase_before == std::mem::discriminant(&simulation.phase);
+        }
+        // Native pause can change the caption without publishing a new frame.
+        // Update it even during catch-up, independently of texture presentation.
+        if simulation.caption() != caption {
+            caption = simulation.caption();
+            window.set_title(caption)?;
+        }
+        if catch_up {
+            continue;
         }
         if repaint {
             texture.update(&display_rgb(
@@ -1264,7 +1267,6 @@ pub(super) fn run(
                 simulation.display_mode(),
                 simulation.palette(),
             ))?;
-            window.set_title(simulation.caption())?;
             window.present(&texture)?;
             repaint = false;
         }

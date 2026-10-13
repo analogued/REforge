@@ -17,6 +17,7 @@ use crate::{
     assets::GraphicsAssets,
     frame::{Frame, Rect},
     scene,
+    sound::{self, Effect, Foreground, Tone},
 };
 
 pub use ending::{Ending, EndingSnapshot, EndingStage, EndingTitle};
@@ -87,7 +88,7 @@ pub struct Opening {
     overlay: u16,
     layer: u16,
     palette_family: u8,
-    distance_hint: i16,
+    noise_divisor: i16,
     hud: hud::Hud,
     terrain: terrain::Terrain,
     enemy: enemy::Enemy,
@@ -113,6 +114,7 @@ pub struct Opening {
     remembered_draws: [Option<scene::Draw>; 29],
     remembered_requests: [usize; 29],
     transitions: Vec<TransitionFrame>,
+    sound_returned: bool,
 }
 
 impl Opening {
@@ -139,7 +141,7 @@ impl Opening {
             overlay: 0,
             layer: 0,
             palette_family: 1,
-            distance_hint: 2400,
+            noise_divisor: 0,
             hud: hud::Hud::new(assets)?,
             terrain: terrain::Terrain::new(),
             enemy: enemy::Enemy::new(assets)?,
@@ -169,6 +171,7 @@ impl Opening {
             remembered_draws: [None; 29],
             remembered_requests: [0; 29],
             transitions: Vec::new(),
+            sound_returned: false,
         };
         let depths = opening.world_depths();
         opening.sort_full_world(&depths);
@@ -362,14 +365,28 @@ impl Opening {
         assets: &GraphicsAssets,
         input: Steering,
     ) -> Result<bool, Error> {
+        self.advance_subframe_with_sound(assets, input, &mut |_| {})
+    }
+
+    /// Select foreground sound and wait operations in original call order.
+    /// The sink may execute them against timer state; it must not re-enter this
+    /// game. Instruction delays and frontend input during waits belong to the
+    /// executor. The default stepping API uses a silent sink.
+    pub fn advance_subframe_with_sound(
+        &mut self,
+        assets: &GraphicsAssets,
+        input: Steering,
+        sound: &mut Foreground<'_>,
+    ) -> Result<bool, Error> {
         if self.complete() {
+            self.return_sound(sound);
             return Ok(false);
         }
         self.updating_before_render = true;
         if self.at_body_boundary() {
             self.body = self.body.wrapping_add(1);
-            self.advance_player(input)?;
-            self.advance_world(assets, true)?;
+            self.advance_player(input, sound)?;
+            self.advance_world(assets, true, sound)?;
             self.player.project(assets, self.vertical_origin)?;
             // Far-object ordering remains from the first render pass even when
             // later movement changes relative depths without reprojecting.
@@ -392,15 +409,15 @@ impl Opening {
                 self.weapon.set_counter(counter);
             }
             if let Some(damage) = effects.damage {
-                self.player.hit(damage);
+                self.player.hit_with_sound(damage, sound);
             }
             self.advance_strip();
             self.advance_speed();
             self.render_pass = 1;
         } else {
-            self.advance_player(input)?;
+            self.advance_player(input, sound)?;
             if self.render_pass == 2 {
-                self.advance_world(assets, false)?;
+                self.advance_world(assets, false, sound)?;
             }
             self.player.project(assets, self.vertical_origin)?;
             self.render_pass += 1;
@@ -409,6 +426,15 @@ impl Opening {
         self.pass_frame = self.frame.clone();
         self.pass_snapshot = Some(Box::new(self.snapshot()));
         self.updating_before_render = false;
+        if self.render_pass == 1 {
+            sound::request(
+                sound,
+                0x067b,
+                Effect::Noise {
+                    divisor: self.noise_divisor as u16,
+                },
+            );
+        }
         self.hud
             .set_score_multiplier(if self.selected_layer == 1 { 4 } else { 1 });
         if self.render_pass != 3 {
@@ -425,7 +451,7 @@ impl Opening {
             }
         }
         if self.rules.is_some() {
-            self.parse_commands(assets)?;
+            self.parse_commands(assets, sound)?;
         } else {
             if !self.enemy.active() {
                 let old_delay = self.script_delay;
@@ -436,41 +462,45 @@ impl Opening {
                         0 => self.terrain_selector = 5,
                         1 => {} // Palette-family 1 is already active.
                         2 => {
-                            self.enemy.spawn_command(
+                            self.enemy.spawn_command_with_sound(
                                 0x91,
                                 &mut self.random,
                                 self.player.snapshot().coordinates[1],
                                 usize::from(self.primary_count),
+                                sound,
                             )?;
                             self.script_delay = 0;
                         }
                         3 => self.terrain_selector = 7,
                         4 => {
-                            self.enemy.spawn_command(
+                            self.enemy.spawn_command_with_sound(
                                 0x84,
                                 &mut self.random,
                                 0,
                                 usize::from(self.primary_count),
+                                sound,
                             )?;
                             self.script_delay = 0;
                         }
                         5 => self.terrain_selector = 6,
                         6 => {
-                            self.enemy.spawn_command(
+                            self.enemy.spawn_command_with_sound(
                                 0x8e,
                                 &mut self.random,
                                 self.player.snapshot().coordinates[1],
                                 usize::from(self.primary_count),
+                                sound,
                             )?;
                             self.script_delay = 0;
                         }
                         7 => self.terrain_selector = 3,
                         8 => {
-                            self.enemy.spawn_command(
+                            self.enemy.spawn_command_with_sound(
                                 0x8a,
                                 &mut self.random,
                                 self.player.snapshot().coordinates[1],
                                 usize::from(self.primary_count),
+                                sound,
                             )?;
                             self.script_delay = 0;
                         }
@@ -480,33 +510,36 @@ impl Opening {
                             self.primary_count += 1;
                         }
                         11 => {
-                            self.enemy.spawn_command(
+                            self.enemy.spawn_command_with_sound(
                                 0x88,
                                 &mut self.random,
                                 self.player.snapshot().coordinates[1],
                                 usize::from(self.primary_count),
+                                sound,
                             )?;
                             self.script_delay = 0;
                         }
                         12 => self.terrain_selector = 9,
                         13 => self.special.spawn_command_40(&mut self.random, 28, false),
                         14 => {
-                            self.enemy.spawn_command(
+                            self.enemy.spawn_command_with_sound(
                                 0x97,
                                 &mut self.random,
                                 self.player.snapshot().coordinates[1],
                                 usize::from(self.primary_count),
+                                sound,
                             )?;
                             self.script_delay = 0;
                         }
                         15 => self.terrain_selector = 9,
                         16 => self.special.spawn_command_40(&mut self.random, 28, false),
                         17 => {
-                            self.enemy.spawn_command(
+                            self.enemy.spawn_command_with_sound(
                                 0x96,
                                 &mut self.random,
                                 self.player.snapshot().coordinates[1],
                                 usize::from(self.primary_count),
+                                sound,
                             )?;
                             self.script_delay = 0;
                         }
@@ -516,21 +549,23 @@ impl Opening {
                             self.primary_count += 1;
                         }
                         20 => {
-                            self.enemy.spawn_command(
+                            self.enemy.spawn_command_with_sound(
                                 0x84,
                                 &mut self.random,
                                 self.player.snapshot().coordinates[1],
                                 usize::from(self.primary_count),
+                                sound,
                             )?;
                             self.script_delay = 0;
                         }
                         21 => self.terrain_selector = 2,
                         22 => {
-                            self.enemy.spawn_command(
+                            self.enemy.spawn_command_with_sound(
                                 0x92,
                                 &mut self.random,
                                 self.player.snapshot().coordinates[1],
                                 usize::from(self.primary_count),
+                                sound,
                             )?;
                             self.script_delay = 0;
                         }
@@ -552,7 +587,15 @@ impl Opening {
             self.speeds[0],
             self.overlay.wrapping_add(self.layer) as i16 > 0,
         );
+        self.return_sound(sound);
         Ok(true)
+    }
+
+    fn return_sound(&mut self, sound: &mut Foreground<'_>) {
+        if self.at_body_boundary() && self.player.snapshot().game_over && !self.sound_returned {
+            sound::request(sound, 0x0452, Effect::Reset);
+            self.sound_returned = true;
+        }
     }
 
     fn presentation(&self) -> presentation::Presentation {
@@ -815,18 +858,19 @@ impl Opening {
         &mut self,
         assets: &GraphicsAssets,
         full_projection: bool,
+        sound: &mut Foreground<'_>,
     ) -> Result<(), Error> {
         let player = self.player.snapshot();
         let context = self.enemy_context()?;
-        let effects = self.enemy.update_half_step_with_context(
-            &mut self.random,
-            player.coordinates,
-            context,
-        )?;
+        let effects =
+            self.enemy
+                .update_with_sound(&mut self.random, player.coordinates, context, sound)?;
         self.apply_enemy_effects(effects);
-        let collected_fuel = self
-            .terrain
-            .update_half_step_at_speed(player.coordinates, self.speeds[0]);
+        let collected_fuel = self.terrain.update_half_step_at_speed_with_sound(
+            player.coordinates,
+            self.speeds[0],
+            sound,
+        );
         self.hud.add_fuel(collected_fuel);
         self.special
             .update_half_step(player.coordinates[0], self.speeds[0]);
@@ -842,13 +886,13 @@ impl Opening {
                 break;
             }
             match collision {
-                enemy::EnemyCollision::Projectile => self.player.hit(1),
+                enemy::EnemyCollision::Projectile => self.player.hit_with_sound(1, sound),
                 enemy::EnemyCollision::Craft(slot) => {
                     if self.enemy.snapshots()[slot - 4].variant != 2 {
                         self.hud.add_points(1000);
                     }
-                    self.enemy.explode_craft(slot)?;
-                    self.player.hit(2);
+                    self.enemy.explode_craft_with_sound(slot, sound)?;
+                    self.player.hit_with_sound(2, sound);
                 }
             }
         }
@@ -860,11 +904,14 @@ impl Opening {
             self.player.can_damage(),
             self.speeds[0],
         )? {
-            self.hud.add_fuel(collision.fuel);
-            for points in collision.awards {
-                self.hud.add_points(points);
+            for contact in collision.contacts.into_iter().flatten() {
+                self.hud.add_fuel(contact.fuel);
+                self.hud.add_points(contact.points);
+                self.player.hit_with_sound(contact.damage, sound);
+                if contact.converted {
+                    sound::request(sound, 0x397c, Effect::Ramp(sound::Ramp::Third));
+                }
             }
-            self.player.hit(collision.damage);
         }
         if let Some(collision) = self.special.player_collision(
             assets,
@@ -873,25 +920,34 @@ impl Opening {
             self.player.snapshot().phase == 0,
             self.player.can_damage(),
         )? {
-            for points in collision.awards {
-                self.hud.add_points(points);
-            }
-            if let Some(transition) = collision.transition {
-                match transition {
-                    special::SpecialTransition::Normal => self.change_stage(false),
-                    special::SpecialTransition::Alternate => self.change_stage(true),
+            for contact in collision.contacts.into_iter().flatten() {
+                match contact {
+                    special::SpecialContact::Award {
+                        site,
+                        points,
+                        transition,
+                    } => {
+                        sound::request(sound, site, Effect::Tone(Tone::First));
+                        self.hud.add_points(points);
+                        if let Some(transition) = transition {
+                            match transition {
+                                special::SpecialTransition::Normal => self.change_stage(false),
+                                special::SpecialTransition::Alternate => self.change_stage(true),
+                            }
+                            self.queue_transition(assets)?;
+                            self.follow_edge(true)?;
+                        }
+                    }
+                    special::SpecialContact::Damage(damage) => {
+                        self.player.hit_with_sound(damage, sound)
+                    }
                 }
-                self.queue_transition(assets)?;
-                self.follow_edge(true)?;
-            }
-            if let Some(damage) = collision.damage {
-                self.player.hit(damage);
             }
         }
-        self.collide_weapon(assets)?;
+        self.collide_weapon_with_sound(assets, sound)?;
         let player = self.player.snapshot();
         self.weapon
-            .advance(player.effective_input & 16 != 0, player.coordinates);
+            .advance_with_sound(player.effective_input & 16 != 0, player.coordinates, sound);
         if full_projection {
             self.strip_y = (92 + (player.horizon >> 3)) as usize;
             self.vertical_origin = 106 + i32::from(player.horizon >> 4);
@@ -921,7 +977,16 @@ impl Opening {
         )
     }
 
+    #[cfg(test)]
     fn collide_weapon(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
+        self.collide_weapon_with_sound(assets, &mut |_| {})
+    }
+
+    fn collide_weapon_with_sound(
+        &mut self,
+        assets: &GraphicsAssets,
+        sound: &mut Foreground<'_>,
+    ) -> Result<(), Error> {
         for index in 0..2 {
             if !self.weapon.snapshot().shots[index].active {
                 continue;
@@ -942,7 +1007,7 @@ impl Opening {
                     self.weapon.deactivate(index);
                     self.hud
                         .add_points(if target.variant == 6 { 2600 } else { 1500 });
-                    self.enemy.hit_by_weapon(slot)?;
+                    self.enemy.hit_by_weapon_with_sound(slot, sound)?;
                 }
             }
             for target in self.terrain.snapshots() {
@@ -963,11 +1028,19 @@ impl Opening {
                     rect: target.rect,
                     phase: target.phase,
                 };
-                if self.weapon.overlaps(assets, index, enemy)?
-                    && self.terrain.shot_collision(target.slot, self.speeds[0])? != 0
-                {
-                    self.hud.add_points(400);
-                    self.hud.add_points(500);
+                if self.weapon.overlaps(assets, index, enemy)? {
+                    let hud = &mut self.hud;
+                    if self.terrain.shot_collision_with_sound(
+                        target.slot,
+                        self.speeds[0],
+                        &mut |action| {
+                            hud.add_points(400);
+                            sound(action);
+                        },
+                    )? != 0
+                    {
+                        self.hud.add_points(500);
+                    }
                 }
             }
         }
@@ -994,7 +1067,7 @@ impl Opening {
         self.hud.set_lives(self.player.snapshot().lives);
         self.difficulty = self.difficulty.wrapping_add(u16::from(effects.difficulty));
         if let Some(distance) = effects.distance_hint {
-            self.distance_hint = self.distance_hint.min(distance);
+            self.noise_divisor = self.noise_divisor.max(distance);
         }
     }
 
@@ -1010,6 +1083,9 @@ impl Opening {
     }
 
     fn advance_speed(&mut self) {
+        self.noise_divisor = self
+            .noise_divisor
+            .wrapping_sub(self.speeds[0].wrapping_sub(28).wrapping_shl(3));
         match self.speed_mode {
             1 if self.speeds[0] < 56 => self
                 .speeds
@@ -1049,7 +1125,11 @@ impl Opening {
         Ok(())
     }
 
-    fn parse_commands(&mut self, assets: &GraphicsAssets) -> Result<(), Error> {
+    fn parse_commands(
+        &mut self,
+        assets: &GraphicsAssets,
+        sound: &mut Foreground<'_>,
+    ) -> Result<(), Error> {
         // Negative delays permit several commands in one invocation. Detect a
         // resource cycle which would stall the original, instead of hanging UI.
         let mut visited = std::collections::HashSet::new();
@@ -1090,19 +1170,22 @@ impl Opening {
                 }
                 ScriptCommand::Enemy(command) => {
                     let context = self.enemy_context()?;
-                    let effects = self.enemy.spawn_command_with_context(
+                    let effects = self.enemy.spawn_with_sound(
                         command,
                         &mut self.random,
                         self.player.snapshot().coordinates,
                         usize::from(self.primary_count),
                         context,
+                        sound,
                     )?;
                     self.apply_enemy_effects(effects);
                 }
                 ScriptCommand::Control(command) => match command {
-                    0xc0..=0xc2 | 0xc4 | 0xc8 | 0xc9 => {}
+                    0xc0..=0xc2 | 0xc8 | 0xc9 => {}
+                    0xc4 => sound::request(sound, 0x1cf1, Effect::Tone(Tone::First)),
                     0xc3 => {
                         self.random.next_word();
+                        sound::request(sound, 0x1ce2, Effect::Tone(Tone::First));
                         self.hud.add_points(3000);
                     }
                     0xc5 => self.speed_mode = 1,
@@ -1154,12 +1237,9 @@ impl Opening {
         Ok(())
     }
 
-    fn advance_player(&mut self, input: Steering) -> Result<(), Error> {
-        let reset_fuel = if input.bits() == 0 {
-            self.player.update_no_input()?
-        } else {
-            self.player.update(input)?
-        };
+    fn advance_player(&mut self, input: Steering, sound: &mut Foreground<'_>) -> Result<(), Error> {
+        let reset_fuel = self.player.update_with_sound(input, sound)?;
+        self.noise_divisor = self.player.noise_divisor();
         if reset_fuel {
             self.hud.reset_fuel();
             self.hud.set_lives(self.player.snapshot().lives);
@@ -1741,7 +1821,7 @@ mod tests {
         )
         .unwrap();
         game.difficulty = 3;
-        game.parse_commands(&assets).unwrap();
+        game.parse_commands(&assets, &mut |_| {}).unwrap();
         assert_eq!(game.script_cursor, 3);
         assert!(game.enemy.active());
         assert_eq!(game.speed_mode, 1);
@@ -1839,5 +1919,143 @@ mod tests {
         game.hud.add_points(31_900);
         game.collide_weapon(&assets).unwrap();
         assert_eq!(game.hud.snapshot().pending_score, 32_000);
+    }
+    #[test]
+    fn sound_execution_leaves_sampled_gameplay_and_pixels_unchanged() {
+        use crate::{
+            sound::{GameplayAction, ProceduralProgram, ProceduralState},
+            timer::{Clock, Progress, Wait},
+        };
+        use reforge_audio::speaker::PcSpeaker;
+        let mut image = vec![0; 0x78c6];
+        for (anchor, base, words) in [
+            (0x7541, 0x7583, 17),
+            (0x762a, 0x766c, 47),
+            (0x774d, 0x778c, 14),
+            (0x7833, 0x7872, 42),
+        ] {
+            image[anchor..anchor + 6].copy_from_slice(&[
+                0xd1,
+                0xe0,
+                0x8d,
+                0x1e,
+                base as u8,
+                (base >> 8) as u8,
+            ]);
+            for i in 0..words {
+                image[base + 2 * i..base + 2 * i + 2].copy_from_slice(&32u16.to_le_bytes());
+            }
+        }
+        let program = ProceduralProgram::from_expanded(&image).unwrap();
+        let mut state = ProceduralState::default();
+        let mut clock = Clock::new(
+            PcSpeaker::new(0, [true; 3]),
+            [Default::default(); 2],
+            true,
+            |_, _| {},
+        );
+        state.request(Effect::Reset, 0x1234, 0, &mut clock);
+        let assets = synthetic_assets();
+        let mut plain = Opening::new(&assets).unwrap();
+        let mut active = Opening::new(&assets).unwrap();
+        for pass in 0..60 {
+            let wait = Wait::from_call(1, 1);
+            while !wait.poll(&mut state.counters) {
+                let target = clock.tick() + 10000;
+                if let Progress::Interrupt(irq) = clock.advance_to(target).unwrap() {
+                    state
+                        .dispatch(irq, &program, 0x1234, 0, &mut clock)
+                        .unwrap();
+                }
+            }
+            let input = Steering {
+                left: pass < 15,
+                right: (20..35).contains(&pass),
+                fire: pass % 4 != 0,
+                ..Steering::default()
+            };
+            plain.advance_subframe(&assets, input).unwrap();
+            active
+                .advance_subframe_with_sound(&assets, input, &mut |action| match action {
+                    GameplayAction::Request { effect, .. } => {
+                        state.request(effect, 0x1234, 0, &mut clock);
+                    }
+                    _ => panic!("unexpected blocking operation in this prefix"),
+                })
+                .unwrap();
+            clock.check().unwrap();
+            assert_eq!(plain.frame(), active.frame());
+            assert_eq!(
+                format!("{:?}", plain.snapshot()),
+                format!("{:?}", active.snapshot())
+            );
+        }
+        assert_ne!(state.noise.seed_bytes, [0; 4]);
+        assert!(clock.tick() > 0);
+    }
+
+    #[test]
+    fn repeated_gate_contacts_emit_individual_tones_before_body_noise() {
+        let mut assets = synthetic_assets();
+        assets.sprites[13].descriptor[2] = 100;
+        let mut game = Opening::new(&assets).unwrap();
+        let mut records = game.special.snapshots();
+        for record in &mut records {
+            record.active = true;
+            record.depth = 60;
+            record.coordinates = [60, -100, -200];
+            record.lateral = -100;
+            record.height = -200;
+            record.extents = [50, 200, 300];
+            record.movement = 1;
+            record.requested_sprite = 0;
+        }
+        game.special = special::Special::from_snapshots(records);
+        let mut actions = Vec::new();
+        game.advance_subframe_with_sound(&assets, Steering::default(), &mut |a| actions.push(a))
+            .unwrap();
+        assert_eq!(
+            &actions[..5],
+            vec![
+                sound::GameplayAction::Request {
+                    site: 0x37a3,
+                    effect: Effect::Tone(Tone::First)
+                };
+                5
+            ]
+        );
+        assert!(matches!(
+            actions[5],
+            sound::GameplayAction::Request { site: 0x067b, .. }
+        ));
+    }
+
+    #[test]
+    fn a_boundary_exit_requests_default_once_and_a_bounded_export_does_not() {
+        let assets = synthetic_assets();
+        let mut game = Opening::new(&assets).unwrap();
+        game.request_game_over();
+        let mut actions = Vec::new();
+        for _ in 0..2 {
+            assert!(
+                !game
+                    .advance_subframe_with_sound(&assets, Steering::default(), &mut |a| actions
+                        .push(a))
+                    .unwrap()
+            );
+        }
+        assert_eq!(
+            actions,
+            [sound::GameplayAction::Request {
+                site: 0x0452,
+                effect: Effect::Reset
+            }]
+        );
+        let mut bounded = Opening::new(&assets).unwrap();
+        bounded.body_limit = Some(0);
+        bounded
+            .advance_subframe_with_sound(&assets, Steering::default(), &mut |a| actions.push(a))
+            .unwrap();
+        assert_eq!(actions.len(), 1);
     }
 }

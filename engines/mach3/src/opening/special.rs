@@ -33,9 +33,28 @@ pub(crate) struct SpecialCollision {
     /// Zero still starts a player response; None means no response call.
     pub damage: Option<u16>,
     pub transition: Option<SpecialTransition>,
+    pub contacts: [Option<SpecialContact>; 5],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SpecialContact {
+    Award {
+        site: u16,
+        points: u16,
+        transition: Option<SpecialTransition>,
+    },
+    Damage(u16),
 }
 
 impl SpecialCollision {
+    fn contact(&mut self, contact: SpecialContact) {
+        *self
+            .contacts
+            .iter_mut()
+            .find(|c| c.is_none())
+            .expect("at most five contacts") = Some(contact);
+    }
+
     fn award(&mut self, points: u16) {
         self.points = self.points.wrapping_add(points);
         let next = self
@@ -330,8 +349,14 @@ impl Special {
                 0 | 3 => {
                     if contained {
                         effect.award(1000);
+                        effect.contact(SpecialContact::Award {
+                            site: 0x37a3,
+                            points: 1000,
+                            transition: None,
+                        });
                     } else {
                         effect.damage = Some(0);
+                        effect.contact(SpecialContact::Damage(0));
                     }
                 }
                 1 | 2 => {
@@ -341,13 +366,28 @@ impl Special {
                     } else {
                         SpecialTransition::Alternate
                     });
+                    effect.contact(SpecialContact::Award {
+                        site: if slot.requested_sprite == 1 {
+                            0x372b
+                        } else {
+                            0x3746
+                        },
+                        points: 1000,
+                        transition: effect.transition,
+                    });
                     break;
                 }
                 4 => {
                     if contained {
                         effect.award(550);
+                        effect.contact(SpecialContact::Award {
+                            site: 0x37fd,
+                            points: 550,
+                            transition: None,
+                        });
                     } else {
                         effect.damage = Some(2);
+                        effect.contact(SpecialContact::Damage(2));
                     }
                 }
                 _ => {

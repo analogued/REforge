@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Reconstructed digitized sound execution. This module does not render audio
+//! Reconstructed sample and procedural sound execution. This module does not render audio
 //! or advance a PIT: the caller supplies interrupt delivery and device reads.
 
 mod assets;
@@ -13,6 +13,34 @@ pub use procedural::{
     Effect, Handler, NoiseState, PreparedEffect, ProceduralProgram, ProceduralState, Ramp, Tone,
 };
 pub use sequence::{IntroCall, IntroProgram, IntroSequence};
+
+/// Foreground operations selected by gameplay algorithms, before device execution.
+/// `site` identifies the original CALL instruction, not a host timestamp.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GameplayAction {
+    Request {
+        site: u16,
+        effect: Effect,
+    },
+    /// Full AX was loaded with these units before calling the timer wait.
+    Wait {
+        site: u16,
+        units: u16,
+    },
+    /// Wrapper 4fd9 plays DATA8 only when the application's b666 flag is set.
+    /// The executor supplies that flag and the ordinary sample-disable state.
+    IntroSample {
+        site: u16,
+        request: SampleRequest,
+    },
+}
+
+/// A synchronous observer/executor; it does not select another sound sequence.
+pub type Foreground<'a> = dyn FnMut(GameplayAction) + 'a;
+
+pub(crate) fn request(sink: &mut Foreground<'_>, site: u16, effect: Effect) {
+    sink(GameplayAction::Request { site, effect });
+}
 
 /// The actual arguments passed to the synchronous sample routine.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -355,8 +355,9 @@ foreground waits against the shared PIT clock. It stops at interrupt entry,
 letting the engine execute the installed handler before further advancement.
 The reconstructed [procedural sound handlers](sound-assets.md#procedural-sound)
 dispatch through this execution layer, including in-handler timer reprogramming.
-The live viewer still uses the nominal schedule above; gameplay sound invocation
-sites and the viewer are not yet connected to this execution layer.
+Gameplay exposes ordered sound requests and blocking-operation selections through
+`Opening::advance_subframe_with_sound`. The live viewer still uses the nominal
+schedule above; its foreground execution has not adopted this device clock.
 
 ## Player steering
 

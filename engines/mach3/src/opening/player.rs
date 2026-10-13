@@ -1,7 +1,13 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Craft steering, banking and damage response.
 
-use crate::{Error, assets::GraphicsAssets, frame::Rect, scene::Draw};
+use crate::{
+    Error,
+    assets::GraphicsAssets,
+    frame::Rect,
+    scene::Draw,
+    sound::{self, Effect, Foreground, GameplayAction, Ramp},
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Steering {
@@ -53,6 +59,7 @@ pub(crate) struct Player {
     orientation: i16,
     vertical_band: i16,
     shadow: Draw,
+    noise_divisor: i16,
 }
 
 impl Player {
@@ -67,6 +74,7 @@ impl Player {
             },
         };
         let mut player = Self {
+            noise_divisor: 0,
             state: PlayerSnapshot {
                 coordinates: [14, 0, -100],
                 requested_sprite: 13,
@@ -113,11 +121,20 @@ impl Player {
         self.state.phase == 0 && self.state.grace >= 4
     }
 
+    #[cfg(test)]
     pub(crate) fn hit(&mut self, damage: u16) {
-        if !self.can_damage() {
+        self.hit_with_sound(damage, &mut |_| {});
+    }
+
+    pub(crate) fn hit_with_sound(&mut self, damage: u16, sound: &mut Foreground<'_>) {
+        if self.state.grace < 4 {
             return;
         }
+        sound::request(sound, 0x3149, Effect::Ramp(Ramp::Second));
         self.state.damage = self.state.damage.wrapping_add(damage);
+        if self.state.phase != 0 {
+            return;
+        }
         self.state.phase = 1;
         self.state.animation_row = self.state.requested_sprite as u16;
     }
@@ -129,11 +146,21 @@ impl Player {
     /// The original calls this three times per body. A completed death requests
     /// the caller's fuel reset. Exhausting the last symbol allows one more
     /// recovery; a death with no symbol sets the exit flag for the next body.
+    #[cfg(test)]
     pub(crate) fn update_no_input(&mut self) -> Result<bool, Error> {
         self.update(Steering::default())
     }
 
+    #[cfg(test)]
     pub(crate) fn update(&mut self, steering: Steering) -> Result<bool, Error> {
+        self.update_with_sound(steering, &mut |_| {})
+    }
+
+    pub(crate) fn update_with_sound(
+        &mut self,
+        steering: Steering,
+        sound: &mut Foreground<'_>,
+    ) -> Result<bool, Error> {
         let responding = self.state.phase != 0;
         let lateral = self.state.coordinates[1];
         let height = self.state.coordinates[2];
@@ -166,19 +193,37 @@ impl Player {
         self.state.coordinates[1] += self.velocity[0] * 4;
         self.state.update_lateral_velocity = self.velocity[0];
 
+        self.noise_divisor = (self.state.coordinates[2] >> 1).wrapping_add(1900);
         let mut reset_fuel = false;
         if responding {
             self.velocity = [0, 0];
             self.state.phase = (self.state.phase & 15) + 1;
             self.state.animation_row = ((self.state.animation_row - 1) & 15) + 1;
             match response_sprite(self.state.animation_row, self.state.phase)? {
-                Some(sprite) => self.state.requested_sprite = sprite,
+                Some(sprite) => {
+                    self.state.requested_sprite = sprite;
+                    self.noise_divisor = self
+                        .noise_divisor
+                        .wrapping_add(self.state.phase.wrapping_sub(8).wrapping_shl(4) as i16);
+                }
                 None => {
                     self.state.phase = 0;
                     if self.state.damage >= 2 {
                         if self.state.animation_row == 16 {
                             self.state.damage = 0;
                             self.state.requested_sprite = 0;
+                            self.state.phase = 1;
+                            sound::request(sound, 0x25f2, Effect::Ramp(Ramp::First));
+                            sound(GameplayAction::Wait {
+                                site: 0x25f9,
+                                units: 1,
+                            });
+                            sound(GameplayAction::Wait {
+                                site: 0x2602,
+                                units: 20,
+                            });
+                            sound::request(sound, 0x2607, Effect::Reset);
+                            self.state.phase = 0;
                             self.state.grace = 0;
                             if self.state.lives == 0 {
                                 self.state.game_over = true;
@@ -203,6 +248,10 @@ impl Player {
         }
         self.state.shadow_requested_sprite = (self.orientation + 15) as usize;
         Ok(reset_fuel)
+    }
+
+    pub(crate) fn noise_divisor(&self) -> i16 {
+        self.noise_divisor
     }
 
     pub(crate) fn project(
@@ -539,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn damage_requires_four_completed_bodies_and_blocks_further_hits() {
+    fn damage_helper_requires_grace_but_accumulates_without_restarting_response() {
         let mut player = Player::new(&assets()).unwrap();
         player.state.grace = 0; // A completed death resets the immunity gate.
         for _ in 0..4 {
@@ -551,7 +600,7 @@ mod tests {
         assert!(player.can_damage());
         player.hit(2);
         player.hit(1);
-        assert_eq!(player.snapshot().damage, 2);
+        assert_eq!(player.snapshot().damage, 3);
         assert_eq!(player.snapshot().phase, 1);
         assert_eq!(player.snapshot().animation_row, 13);
         assert!(!player.can_damage());
@@ -768,5 +817,61 @@ mod tests {
         assert!(response_sprite(0, 1).is_err());
         assert!(response_sprite(17, 1).is_err());
         assert!(response_sprite(1, 0).is_err());
+    }
+    #[test]
+    fn death_sound_runs_through_both_waits_before_restoring_the_default_timer() {
+        let mut player = Player::new(&assets()).unwrap();
+        player.state.phase = 15;
+        player.state.animation_row = 16;
+        player.state.damage = 2;
+        let mut actions = Vec::new();
+        assert!(
+            player
+                .update_with_sound(Steering::default(), &mut |a| actions.push(a))
+                .unwrap()
+        );
+        assert_eq!(
+            actions,
+            [
+                GameplayAction::Request {
+                    site: 0x25f2,
+                    effect: Effect::Ramp(Ramp::First)
+                },
+                GameplayAction::Wait {
+                    site: 0x25f9,
+                    units: 1
+                },
+                GameplayAction::Wait {
+                    site: 0x2602,
+                    units: 20
+                },
+                GameplayAction::Request {
+                    site: 0x2607,
+                    effect: Effect::Reset
+                },
+            ]
+        );
+        assert_eq!((player.state.phase, player.state.grace), (0, 0));
+    }
+
+    #[test]
+    fn response_divisor_uses_the_nonterminal_path_not_just_the_final_phase() {
+        let mut player = Player::new(&assets()).unwrap();
+        player.update_no_input().unwrap();
+        assert_eq!(player.noise_divisor(), 1850);
+        player.hit(2);
+        player.update_no_input().unwrap();
+        assert_eq!(
+            player.noise_divisor(),
+            (player.state.coordinates[2] >> 1) + 1900 + (2 - 8) * 16
+        );
+        player.state.phase = 15;
+        player.state.animation_row = 1;
+        player.update_no_input().unwrap();
+        assert_eq!(player.state.phase, 1);
+        assert_eq!(
+            player.noise_divisor(),
+            (player.state.coordinates[2] >> 1) + 1900
+        );
     }
 }

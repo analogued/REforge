@@ -2,7 +2,12 @@
 //! The eight terrain slots used by the bounded, no-input opening.
 
 use super::Random;
-use crate::{Error, assets::GraphicsAssets, frame::Rect};
+use crate::{
+    Error,
+    assets::GraphicsAssets,
+    frame::Rect,
+    sound::{self, Effect, Foreground, Ramp},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct TerrainSnapshot {
@@ -41,6 +46,15 @@ pub(crate) struct TerrainCollision {
     /// Ascending-record awards; zero entries are unused.
     pub awards: [u16; 8],
     pub damage: u16,
+    pub contacts: [Option<TerrainContact>; 8],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TerrainContact {
+    pub fuel: u16,
+    pub points: u16,
+    pub damage: u16,
+    pub converted: bool,
 }
 
 impl Terrain {
@@ -81,10 +95,20 @@ impl Terrain {
         self.update_half_step_at_speed(player, 28)
     }
 
+    #[cfg(test)]
     pub(crate) fn update_half_step_at_speed(
         &mut self,
         player: [i16; 3],
         forward_speed: i16,
+    ) -> u16 {
+        self.update_half_step_at_speed_with_sound(player, forward_speed, &mut |_| {})
+    }
+
+    pub(crate) fn update_half_step_at_speed_with_sound(
+        &mut self,
+        player: [i16; 3],
+        forward_speed: i16,
+        sound: &mut Foreground<'_>,
     ) -> u16 {
         let mut fuel = 0_u16;
         for (slot, kind) in self.slots.iter_mut().zip(self.kinds) {
@@ -98,6 +122,7 @@ impl Terrain {
                         if matches!(kind, TerrainKind::Type1) {
                             fuel = fuel.wrapping_add(512);
                         }
+                        sound::request(sound, 0x397c, Effect::Ramp(Ramp::Third));
                         start_effect_at_speed(slot, forward_speed);
                     }
                     // A newly converted effect still applies this half-step's delta.
@@ -190,6 +215,19 @@ impl Terrain {
                 && player[2] <= (-100_i16).wrapping_add(source.descriptor[0])
             {
                 let effects = collision.get_or_insert(TerrainCollision::default());
+                let converted = slot.movement == 2;
+                let refuel = converted && matches!(kind, TerrainKind::Type1);
+                let next = effects
+                    .contacts
+                    .iter_mut()
+                    .find(|c| c.is_none())
+                    .expect("at most eight contacts");
+                *next = Some(TerrainContact {
+                    fuel: if refuel { 512 } else { 0 },
+                    points: if refuel { 400 } else { 0 },
+                    damage: if converted { 2 } else { 1 },
+                    converted,
+                });
                 effects.damage = if slot.movement == 252 { 1 } else { 2 };
                 if slot.movement == 2 {
                     if matches!(kind, TerrainKind::Type1) {
@@ -366,13 +404,24 @@ impl Terrain {
 
     /// A shot converts solid terrain and awards both conversion and hit points.
     /// It neither refuels the player nor retires the projectile.
+    #[cfg(test)]
     pub(crate) fn shot_collision(&mut self, slot: usize, forward_speed: i16) -> Result<u16, Error> {
+        self.shot_collision_with_sound(slot, forward_speed, &mut |_| {})
+    }
+
+    pub(crate) fn shot_collision_with_sound(
+        &mut self,
+        slot: usize,
+        forward_speed: i16,
+        sound: &mut Foreground<'_>,
+    ) -> Result<u16, Error> {
         let Some(index) = slot.checked_sub(15).filter(|index| *index < 8) else {
             return Err(Error::InvalidData(format!("invalid terrain slot {slot}")));
         };
         if !matches!(self.kinds[index], TerrainKind::Type0 | TerrainKind::Type1) {
             return Ok(0);
         }
+        sound::request(sound, 0x397c, Effect::Ramp(Ramp::Third));
         start_effect_at_speed(&mut self.slots[index], forward_speed);
         Ok(900)
     }

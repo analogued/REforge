@@ -1,6 +1,8 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Persistent application state and the original keyboard/pause control rules.
 
+use crate::sound::{self, Effect, Foreground, Tone};
+
 use super::{EndingSnapshot, EnemyState, Random, SpecialState};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -170,8 +172,13 @@ pub struct PauseControl {
 
 impl PauseControl {
     pub fn poll(&mut self, mask: u8) -> PauseEvent {
+        self.poll_with_sound(mask, &mut |_| {})
+    }
+
+    pub fn poll_with_sound(&mut self, mask: u8, sound: &mut Foreground<'_>) -> PauseEvent {
         match self.state {
             PauseState::Running if mask & 128 != 0 => {
+                sound::request(sound, 0x2699, Effect::Tone(Tone::First));
                 self.state = PauseState::AwaitInitialRelease;
                 PauseEvent::Paused
             }
@@ -557,5 +564,26 @@ mod tests {
         session.keyboard.apply_scan(0xc8);
         session.keyboard.apply_scan(0x48);
         assert_eq!(session.keyboard.held_keys(0).actions, 1);
+    }
+    #[test]
+    fn native_pause_requests_its_tone_once_on_entry() {
+        let mut pause = PauseControl::default();
+        let mut actions = Vec::new();
+        for mask in [128, 128, 0] {
+            pause.poll_with_sound(mask, &mut |a| actions.push(a));
+        }
+        pause.tick();
+        pause.tick();
+        pause.poll_with_sound(16, &mut |a| actions.push(a));
+        pause.tick();
+        pause.tick();
+        pause.poll_with_sound(0, &mut |a| actions.push(a));
+        assert_eq!(
+            actions,
+            [sound::GameplayAction::Request {
+                site: 0x2699,
+                effect: Effect::Tone(Tone::First)
+            }]
+        );
     }
 }

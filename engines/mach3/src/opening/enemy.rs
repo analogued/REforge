@@ -2,7 +2,13 @@
 //! Opening wave movement, ground shadows, seeking projectiles and explosions.
 
 use super::Random;
-use crate::{Error, assets::GraphicsAssets, frame::Rect, scene::Draw};
+use crate::{
+    Error,
+    assets::GraphicsAssets,
+    frame::Rect,
+    scene::Draw,
+    sound::{self, Effect, Foreground, GameplayAction, Ramp, Resource, SampleRequest, Tone},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct EnemySnapshot {
@@ -167,6 +173,7 @@ impl Enemy {
     }
 
     /// Initialize primaries while retaining their resolved source and projection.
+    #[cfg(test)]
     pub(crate) fn spawn_command(
         &mut self,
         command: u8,
@@ -174,16 +181,29 @@ impl Enemy {
         player_lateral: i16,
         count: usize,
     ) -> Result<(), Error> {
-        self.spawn_command_with_context(
+        self.spawn_command_with_sound(command, random, player_lateral, count, &mut |_| {})
+    }
+
+    pub(crate) fn spawn_command_with_sound(
+        &mut self,
+        command: u8,
+        random: &mut Random,
+        player_lateral: i16,
+        count: usize,
+        sound: &mut Foreground<'_>,
+    ) -> Result<(), Error> {
+        self.spawn_with_sound(
             command,
             random,
             [14, player_lateral, -100],
             count,
             EnemyContext::default(),
+            sound,
         )?;
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn spawn_command_with_context(
         &mut self,
         command: u8,
@@ -191,6 +211,18 @@ impl Enemy {
         player: [i16; 3],
         count: usize,
         context: EnemyContext,
+    ) -> Result<EnemyEffects, Error> {
+        self.spawn_with_sound(command, random, player, count, context, &mut |_| {})
+    }
+
+    pub(crate) fn spawn_with_sound(
+        &mut self,
+        command: u8,
+        random: &mut Random,
+        player: [i16; 3],
+        count: usize,
+        context: EnemyContext,
+        sound: &mut Foreground<'_>,
     ) -> Result<EnemyEffects, Error> {
         if !(0x84..=0xa2).contains(&command) {
             return Err(Error::InvalidData(format!(
@@ -236,6 +268,7 @@ impl Enemy {
                     if i == 0 {
                         self.falling_count = self.falling_count.wrapping_add(1);
                     }
+                    sound::request(sound, 0x1a7e, Effect::Tone(Tone::Second));
                     self.falling_movement = craft.movement;
                     craft.depth = player[0].wrapping_add(6);
                     self.shadows[i].active = false;
@@ -289,11 +322,22 @@ impl Enemy {
             .expect("default patrol resources contain distinct sources");
     }
 
+    #[cfg(test)]
     pub(crate) fn update_half_step_with_context(
         &mut self,
         random: &mut Random,
         player: [i16; 3],
         context: EnemyContext,
+    ) -> Result<EnemyEffects, Error> {
+        self.update_with_sound(random, player, context, &mut |_| {})
+    }
+
+    pub(crate) fn update_with_sound(
+        &mut self,
+        random: &mut Random,
+        player: [i16; 3],
+        context: EnemyContext,
+        sound: &mut Foreground<'_>,
     ) -> Result<EnemyEffects, Error> {
         let mut effects = EnemyEffects::default();
         if self.bullet.active {
@@ -315,7 +359,7 @@ impl Enemy {
             }
         }
         for i in 0..5 {
-            effects.merge(self.update_craft(i, random, player, context)?);
+            effects.merge(self.update_craft(i, random, player, context, sound)?);
         }
         for i in 0..5 {
             if !self.crafts[i].active {
@@ -369,6 +413,7 @@ impl Enemy {
         random: &mut Random,
         player: [i16; 3],
         context: EnemyContext,
+        sound: &mut Foreground<'_>,
     ) -> Result<EnemyEffects, Error> {
         let mut effects = EnemyEffects::default();
         if !self.crafts[i].active {
@@ -403,7 +448,7 @@ impl Enemy {
             }
             return Ok(effects);
         }
-        let delta = self.motion(i, random, player, context, &mut effects)?;
+        let delta = self.motion(i, random, player, context, &mut effects, sound)?;
         match self.crafts[i].variant {
             0 => {
                 self.crafts[i].requested_sprite =
@@ -434,6 +479,7 @@ impl Enemy {
         }
         let firing = random.next_word() & 1 != 0;
         if firing && !self.bullet.active && !matches!(craft.variant, 2..=4) {
+            sound::request(sound, 0x2c9b, Effect::Tone(Tone::Third));
             self.bullet.depth = craft.depth;
             self.bullet.lateral = craft.lateral;
             self.bullet.height = craft.height;
@@ -469,6 +515,7 @@ impl Enemy {
         player: [i16; 3],
         context: EnemyContext,
         effects: &mut EnemyEffects,
+        sound: &mut Foreground<'_>,
     ) -> Result<[i16; 3], Error> {
         let movement = self.crafts[i].movement;
         let old_depth = self.crafts[i].depth;
@@ -559,6 +606,7 @@ impl Enemy {
                 craft.height = craft.height.wrapping_add(drop);
                 craft.lateral = craft.lateral.wrapping_add(slide);
                 if craft.height < -100 {
+                    sound::request(sound, 0x39c9, Effect::Ramp(Ramp::Third));
                     craft.movement = 251;
                     craft.animation_phase = 0;
                 }
@@ -571,6 +619,16 @@ impl Enemy {
                     craft.height = context.horizon;
                     craft.depth = craft.depth.wrapping_sub(context.speeds[0]);
                     if craft.depth < 50 {
+                        sound::request(sound, 0x42bc, Effect::Tone(Tone::First));
+                        sound(GameplayAction::IntroSample {
+                            site: 0x42bf,
+                            request: SampleRequest {
+                                resource: Resource::Data8,
+                                offset: 0,
+                                count: 9723,
+                                reverse: false,
+                            },
+                        });
                         craft.animation_phase = 1;
                         craft.depth = 50;
                     }
@@ -782,20 +840,40 @@ impl Enemy {
     }
 
     /// Player contact recycles a falling enemy; weapon hits use an ordinary explosion.
+    #[cfg(test)]
     pub(crate) fn explode_craft(&mut self, slot: usize) -> Result<(), Error> {
+        self.explode_craft_with_sound(slot, &mut |_| {})
+    }
+
+    pub(crate) fn explode_craft_with_sound(
+        &mut self,
+        slot: usize,
+        sound: &mut Foreground<'_>,
+    ) -> Result<(), Error> {
         let i = self.craft_index(slot)?;
         if self.crafts[i].variant == 2 {
+            sound::request(sound, 0x39c9, Effect::Ramp(Ramp::Third));
             self.crafts[i].movement = 251;
             self.crafts[i].animation_phase = 0;
             self.craft_animations[i] = None;
             Ok(())
         } else {
-            self.hit_by_weapon(slot)
+            self.hit_by_weapon_with_sound(slot, sound)
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn hit_by_weapon(&mut self, slot: usize) -> Result<(), Error> {
+        self.hit_by_weapon_with_sound(slot, &mut |_| {})
+    }
+
+    pub(crate) fn hit_by_weapon_with_sound(
+        &mut self,
+        slot: usize,
+        sound: &mut Foreground<'_>,
+    ) -> Result<(), Error> {
         let i = self.craft_index(slot)?;
+        sound::request(sound, 0x3955, Effect::Ramp(Ramp::Third));
         self.craft_animations[i] = Some(0);
         self.crafts[i].movement = 3;
         self.crafts[i].animation_phase = 0;
@@ -2241,6 +2319,7 @@ mod tests {
                     [14, 100, 100],
                     EnemyContext::default(),
                     &mut effects,
+                    &mut |_| {},
                 )
                 .unwrap();
             assert_eq!(delta, [0; 3]);
@@ -2644,5 +2723,67 @@ mod tests {
         let mut malformed = snapshots;
         malformed[0].slot = 5;
         assert!(Enemy::restore_snapshots(malformed, &assets()).is_err());
+    }
+    #[test]
+    fn falling_spawn_requests_one_tone_for_every_initialized_slot() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut actions = Vec::new();
+        enemy
+            .spawn_with_sound(
+                0x99,
+                &mut Random::default(),
+                [14, 0, -100],
+                5,
+                EnemyContext::default(),
+                &mut |a| actions.push(a),
+            )
+            .unwrap();
+        assert_eq!(
+            actions,
+            vec![
+                GameplayAction::Request {
+                    site: 0x1a7e,
+                    effect: Effect::Tone(Tone::Second)
+                };
+                5
+            ]
+        );
+        assert!(!enemy.crafts[4].active);
+    }
+
+    #[test]
+    fn transition_requests_tone_then_the_guarded_sample_before_departure() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        enemy
+            .spawn_command(0x9b, &mut Random::default(), 0, 1)
+            .unwrap();
+        enemy.crafts[0].depth = 50;
+        let mut actions = Vec::new();
+        enemy
+            .update_with_sound(
+                &mut Random::default(),
+                [14, 0, -100],
+                EnemyContext::default(),
+                &mut |a| actions.push(a),
+            )
+            .unwrap();
+        assert_eq!(
+            actions,
+            [
+                GameplayAction::Request {
+                    site: 0x42bc,
+                    effect: Effect::Tone(Tone::First)
+                },
+                GameplayAction::IntroSample {
+                    site: 0x42bf,
+                    request: SampleRequest {
+                        resource: Resource::Data8,
+                        offset: 0,
+                        count: 9723,
+                        reverse: false
+                    }
+                },
+            ]
+        );
     }
 }

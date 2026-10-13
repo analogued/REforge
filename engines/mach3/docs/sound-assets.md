@@ -231,8 +231,81 @@ atomically. The original can also interrupt before those early writes and within
 the later stage, including between PIT byte writes. Those finer instruction
 windows and setup return-register effects are not reconstructed by this API.
 Neither stage prescribes instruction delays; IRQ handlers retain the clock's
-ordered, zero-gap execution convention. Gameplay invocation sites are not yet
-connected to this procedural state in the live viewer.
+ordered, zero-gap execution convention. The live viewer has not adopted this
+procedural state.
+
+### Gameplay invocation
+
+`Opening::advance_subframe_with_sound` selects foreground operations directly
+from the gameplay algorithms. Its synchronous sink receives `GameplayAction`:
+procedural requests, explicit death waits, and the guarded completion sample.
+Requests retain their original call-site identity and are emitted even when
+priority arbitration might reject them. A caller can apply requests to
+`ProceduralState` with the same device bus used for IRQ execution; no renderer
+selects effects or advances a second sequence. Default stepping uses a silent
+sink. `PauseControl::poll_with_sound` exposes the native pause-entry tone.
+
+| Gameplay condition                          | Selected operation                         |
+| ------------------------------------------- | ------------------------------------------ |
+| Accepted player projectile slot             | Fourth tone table, once for that shot      |
+| Enemy projectile creation                   | Third tone table                           |
+| Falling-enemy initialization                 | Second tone, for each initialized slot     |
+| Grace-eligible damage helper                 | Second noise ramp, including zero damage   |
+| Craft/falling/terrain conversion              | Third noise ramp                           |
+| Terminal death response                      | First ramp, wait 1, wait 20, default timer  |
+| Native pause entry or successful special gate | First tone table                           |
+| Control commands `c3` and `c4`                | First tone table                           |
+| Completion craft reaches its depth threshold  | First tone, then guarded `DATA8` sample     |
+
+Shot setup occurs after counter masking and before initializing the selected
+projectile. Falling initialization requests a tone even for a slot subsequently
+deactivated by its count gate. Collision scans retain individual requests in
+ascending record order. Ordinary craft conversion precedes the player damage
+request; solid terrain damage precedes conversion. Contact damage during grace
+is rejected by the damage helper while collection/conversion can still execute.
+The helper checks grace before requesting the ramp and accumulating damage,
+then checks the response phase. It can accumulate damage without restarting an
+already active response; the outer collision scans have separate phase gates.
+
+The body-noise setup at `067b` runs after the first ordinary framebuffer
+checkpoint and before the second player poll. Its argument is the word at
+`b690`, computed with wrapping word arithmetic:
+
+```text
+each player update: divisor = (signed height >> 1) + 1900
+nonterminal response entry: divisor += (new phase - 8) << 4
+normal enemy common path with pre-delta depth < 85:
+    divisor = signed_max(divisor, (signed depth >> 1) + 2400)
+after pass 1, before advancing speed: divisor -= (old forward speed - 28) << 3
+```
+
+Terminal response entries retain the height baseline even if they select a new
+response phase. Later player polls overwrite the word again. Idle height −100
+and forward speed 28 produce divisor 1850. The call requests priority 6 and
+resets cadence when accepted; it is not an unconditional replacement of a
+higher-priority sound.
+
+Death sound starts at the terminal row-16 response, rather than at the start
+of the death animation. Both wait calls load full AX, so their targets are
+exactly 1 and 20. Default setup follows those waits before grace/life reset.
+Gameplay return requests the default timer once, including an externally
+requested exit at a body boundary. Reaching an export limit alone does not
+represent a DOS game return and does not request that reset.
+
+Completion wrapper `4fd9` uses 9,723 forward source bytes from `DATA8` when the
+application's intro-audio flag at `b666` is set. `IntroSample` identifies that
+conditional call; the executor supplies the flag and the ordinary sample-disable
+state, then uses the existing reconstructed sample routine. It does not replace
+the sample with a procedural tone or infer its duration from a renderer.
+
+This interface selects operations; it does not provide the live foreground
+continuations needed to suspend a pass across host scheduling budgets. Ordinary
+body/publication waits, native-pause polling waits, startup reset and transition
+CPU delays remain executor responsibilities. Terrain collision scans finish
+their terrain mutations before delivering ordered contacts to the sink.
+The viewer and replay frontend still use silent stepping and
+nominal timing. Their existing speed-update checkpoint is unchanged; the sound
+argument uses the old speed as above.
 
 ## Reconstructed execution interface
 

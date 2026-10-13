@@ -2,7 +2,11 @@
 //! Two forward-moving player projectiles and the original firing counter.
 
 use super::enemy::EnemySnapshot;
-use crate::{Error, assets::GraphicsAssets};
+use crate::{
+    Error,
+    assets::GraphicsAssets,
+    sound::{self, Effect, Foreground, Tone},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct WeaponSnapshot {
@@ -71,7 +75,17 @@ impl Weapon {
 
     /// Called after world collision on the first and third player polls. The
     /// second player's input is not used for firing until a later weapon call.
+    #[cfg(test)]
     pub(crate) fn advance(&mut self, fire: bool, player: [i16; 3]) {
+        self.advance_with_sound(fire, player, &mut |_| {});
+    }
+
+    pub(crate) fn advance_with_sound(
+        &mut self,
+        fire: bool,
+        player: [i16; 3],
+        sound: &mut Foreground<'_>,
+    ) {
         self.near = self.state.shots.map(|shot| shot.depth < 70);
         if fire {
             self.state.counter = self.state.counter.wrapping_add(7);
@@ -90,6 +104,11 @@ impl Weapon {
                 };
                 if let Some(index) = available {
                     self.state.counter = (self.state.counter & 0xf0) + 15;
+                    sound::request(
+                        sound,
+                        if index == 0 { 0x20d3 } else { 0x2128 },
+                        Effect::Tone(Tone::Fourth),
+                    );
                     let shot = &mut self.state.shots[index];
                     shot.depth = player[0].wrapping_add(15);
                     shot.lateral = player[1].wrapping_add(30);
@@ -234,5 +253,30 @@ mod tests {
         weapon.state.counter = i16::MIN;
         weapon.advance(false, [14, 0, -100]);
         assert_eq!(weapon.state.counter, i16::MAX);
+    }
+    #[test]
+    fn sound_is_requested_only_when_a_projectile_slot_is_selected() {
+        let mut weapon = Weapon::new(&assets()).unwrap();
+        let mut actions = Vec::new();
+        weapon.state.counter = 201;
+        weapon.advance_with_sound(true, [14, 0, -100], &mut |a| actions.push(a));
+        assert!(actions.is_empty());
+        weapon.state.counter = 4;
+        for _ in 0..5 {
+            weapon.advance_with_sound(true, [14, 0, -100], &mut |a| actions.push(a));
+        }
+        assert_eq!(
+            actions,
+            [
+                sound::GameplayAction::Request {
+                    site: 0x20d3,
+                    effect: Effect::Tone(Tone::Fourth)
+                },
+                sound::GameplayAction::Request {
+                    site: 0x2128,
+                    effect: Effect::Tone(Tone::Fourth)
+                },
+            ]
+        );
     }
 }

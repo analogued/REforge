@@ -519,6 +519,16 @@ fn native_pause_return_continues_clock_through_ending_and_restart() {
         matches!(s.phase, Phase::Intro(_))
     });
     assert!(simulation.session.retained_world.is_some());
+    assert_eq!(
+        simulation
+            .clock
+            .speaker()
+            .pit()
+            .channel(0)
+            .unwrap()
+            .programmed_count,
+        Some(0xffff)
+    );
     let ending_random = simulation.session.random;
     let ending_tick = simulation.clock.tick();
     assert!(ending_tick > return_tick);
@@ -688,13 +698,22 @@ fn second_tone_with_active_count_one_completes_on_controller_background_clock() 
 }
 
 fn ending_simulation(frames: &StartupFrames) -> Simulation {
+    ending_simulation_with_best(frames, 0)
+}
+
+fn ending_simulation_with_best(frames: &StartupFrames, best_score: u32) -> Simulation {
     let mut simulation = Simulation::new(frames, signal(CHUNK as u32)).unwrap();
+    simulation.session.best_score = best_score;
     let state = post_splash_state(&mut simulation);
     let start = simulation.session.begin_game();
     let game = Opening::for_play(frames.graphics(), rules(), start).unwrap();
     simulation.visible = game.frame().clone();
     simulation.phase = Phase::Ending {
-        ending: Box::new(Ending::pending_with_best(&game.snapshot(), game.frame(), 0)),
+        ending: Box::new(Ending::pending_with_best(
+            &game.snapshot(),
+            game.frame(),
+            best_score,
+        )),
         state: Box::new(state),
         step: EndingStep::Entry {
             initial: true,
@@ -702,6 +721,183 @@ fn ending_simulation(frames: &StartupFrames) -> Simulation {
         },
     };
     simulation
+}
+
+#[test]
+fn postgame_intro_executes_one_reset_and_preserves_retained_execution_state() {
+    for ending_samples in [true, false] {
+        for sound_disabled in [true, false] {
+            let frames = frames();
+            let resources = resources();
+            let mut simulation = ending_simulation_with_best(&frames, 12_345);
+            let Phase::Ending { state, .. } = &mut simulation.phase else {
+                unreachable!()
+            };
+            state.controls.preferences.intro_audio_enabled = ending_samples;
+            until(
+                &mut simulation,
+                &frames,
+                &resources,
+                &mut Vec::new(),
+                |s| matches!(&s.phase, Phase::Ending { ending, .. } if ending.can_return()),
+            );
+            assert_eq!(
+                simulation
+                    .clock
+                    .speaker()
+                    .pit()
+                    .channel(0)
+                    .unwrap()
+                    .programmed_count,
+                Some(if ending_samples { 19_560 } else { 65_535 })
+            );
+            let Phase::Ending {
+                state,
+                ending,
+                step,
+            } = &mut simulation.phase
+            else {
+                unreachable!()
+            };
+            // Test the optional poll/return boundary, after the preceding wait;
+            // that wait has its own counter clear, distinct from the reset.
+            *step = EndingStep::Poll;
+            state.controls.preferences.sound_disabled = sound_disabled;
+            state.controls.preferences.display_mode = DisplayMode::Monochrome;
+            state.controls.sound_poll_counter = 0x1200;
+            state.procedural.counters.phase = 0x1234;
+            state.procedural.counters.units = 7;
+            state.procedural.priority = 1;
+            state.procedural.tone_indices = [14, 2, 3, 4];
+            state.procedural.noise.seed_bytes = [1, 2, 3, 4];
+            let preferences = state.controls.preferences;
+            let procedural = state.procedural.clone();
+            let ending_state = ending.snapshot();
+            let mut expected_session = SessionState {
+                random: ending_state.random,
+                ..SessionState::default()
+            };
+            let expected_choice = expected_session.select_intro();
+            let tick = simulation.clock.tick();
+            let speaker_control = simulation.clock.speaker().control();
+            let log = logged_ending_clock(&mut simulation);
+            simulation.receive(tick, 0x39);
+            simulation.receive(tick + 100, 0x4b);
+            until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+                matches!(s.phase, Phase::Intro(_))
+            });
+            assert_eq!(simulation.clock.tick(), tick);
+            assert_eq!(
+                simulation.clock.handlers()[0],
+                FarPointer {
+                    segment: CS,
+                    offset: 0x7532
+                }
+            );
+            let channel = simulation.clock.speaker().pit().channel(0).unwrap();
+            assert_eq!(channel.programmed_count, Some(0xffff));
+            assert!(
+                channel.pending_load,
+                "reload even when count already matches"
+            );
+            assert_eq!(simulation.clock.speaker().control() & 3, 0);
+            let after = simulation.state();
+            assert_eq!(after.procedural.priority, 255);
+            assert_eq!(after.procedural.counters, procedural.counters);
+            assert_eq!(after.procedural.tone_indices, procedural.tone_indices);
+            assert_eq!(after.procedural.noise, procedural.noise);
+            assert_eq!(after.controls.preferences, preferences);
+            assert_eq!(after.controls.sound_poll_counter, 0x1200);
+            assert_ne!(after.keyboard.held_keys(0).actions & 16, 0);
+            assert_eq!(simulation.scans, [(tick + 100, 0x4b)]);
+            assert_eq!(simulation.session.best_score, 12_345);
+            assert_eq!(simulation.session.random, expected_session.random);
+            assert_eq!(simulation.intro_choice, expected_choice);
+            assert_eq!(simulation.visible, *frames.return_intro(expected_choice));
+            assert_eq!(simulation.palette(), 1);
+            let retained = simulation.session.retained_world.as_ref().unwrap();
+            assert_eq!(
+                format!("{:?}", retained.records),
+                format!("{:?}", ending_state.world)
+            );
+            assert_eq!(retained.order, ending_state.full_world_order);
+            let actions = log
+                .borrow()
+                .iter()
+                .filter_map(|(stamp, event)| {
+                    if let ClockEvent::Action(action) = event {
+                        Some((stamp.tick, *action))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            // IRQ1 acknowledges the return key before the caller's reset.
+            // Assert the reset's complete ordered suffix and exactly one call.
+            let reset_sites = actions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, (_, action))| {
+                    matches!(action, SoundAction::SetHandler { irq: 0, .. }).then_some(index)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(reset_sites.len(), 1);
+            assert_eq!(
+                actions[reset_sites[0]..],
+                [
+                    SoundAction::SetHandler {
+                        irq: 0,
+                        handler: FarPointer {
+                            segment: CS,
+                            offset: 0x7532
+                        }
+                    },
+                    SoundAction::Write {
+                        port: 0x43,
+                        value: 0x36,
+                        source: None
+                    },
+                    SoundAction::Write {
+                        port: 0x40,
+                        value: 0xff,
+                        source: None
+                    },
+                    SoundAction::Write {
+                        port: 0x40,
+                        value: 0xff,
+                        source: None
+                    },
+                    SoundAction::Read {
+                        port: 0x61,
+                        value: speaker_control
+                    },
+                    SoundAction::Write {
+                        port: 0x61,
+                        value: speaker_control & 0xfc,
+                        source: None
+                    },
+                ]
+                .map(|action| (tick, action))
+            );
+            let next_game = expected_session.begin_game();
+            simulation.receive(tick + 200, 0xb9);
+            simulation.receive(tick + 210, 0x39);
+            until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+                matches!(s.phase, Phase::Playing(_))
+            });
+            let Phase::Playing(runtime) = &simulation.phase else {
+                unreachable!()
+            };
+            assert_eq!(runtime.game().snapshot().body, 0);
+            assert_eq!(
+                runtime.game().snapshot().script_index,
+                next_game.script_index
+            );
+            assert_eq!(runtime.game().snapshot().random, next_game.random);
+            assert_eq!(simulation.session.best_score, 12_345);
+            assert_eq!(simulation.state().controls.preferences, preferences);
+        }
+    }
 }
 
 #[test]

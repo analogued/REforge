@@ -508,6 +508,15 @@ values below four and raw `DATA1` otherwise. The verified no-input run selects
 `DATA1`, so the splash artwork appears on this return. This is the intro path's
 image selection; it does not replay the entire fresh-process startup.
 
+Both initial and returned intro entry call `74c0` at `03c2`, separately from
+the `0452` reset before the ending titles. This restores IRQ0 handler `7532`,
+priority `ff`, channel-0 mode 3 and stored/hardware reload `ffff`, and stops the
+speaker. Reprogramming restarts the hardware count even when it already matches.
+Completed ending samples can leave hardware reload `4c68` while the stored
+divisor remains `ffff`, making this return operation necessary. It preserves
+software timer phase/units, tone cursors, noise state and held input; keyboard
+clearing belongs to completed sample playback, not this reset.
+
 `Ending` implements the title stages, best-score retention, frozen projection,
 and return image choice. In normal playback, Space or another nonzero gameplay
 input can return during an optional pair. It then runs the selected intro's

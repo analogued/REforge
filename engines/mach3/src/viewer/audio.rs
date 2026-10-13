@@ -314,19 +314,22 @@ impl Simulation {
         frames: &StartupFrames,
         resources: &Resources,
     ) -> Result<(), String> {
-        let mut state = self.initial.take().ok_or("splash has already returned")?;
-        state
-            .procedural
-            .request(Effect::Reset, CS, 0, &mut self.clock);
-        self.clock.check().map_err(|e| e.to_string())?;
+        let state = self.initial.take().ok_or("splash has already returned")?;
         self.start_intro(state, frames, resources)
     }
     fn start_intro(
         &mut self,
-        state: GameplayState,
+        mut state: GameplayState,
         frames: &StartupFrames,
         resources: &Resources,
     ) -> Result<(), String> {
+        // 03c2 calls 74c0 on every intro entry, including post-game returns.
+        // This reloads hardware even when the count is unchanged; software
+        // counters, held input and procedural cursors remain intact.
+        state
+            .procedural
+            .request(Effect::Reset, CS, 0, &mut self.clock);
+        self.clock.check().map_err(|e| e.to_string())?;
         self.visible = frames.return_intro(self.intro_choice).clone();
         self.palette_family = 1;
         self.phase = Phase::Intro(Box::new(

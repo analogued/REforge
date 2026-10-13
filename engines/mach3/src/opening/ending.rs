@@ -224,7 +224,7 @@ impl Ending {
         self.state.stage
     }
 
-    /// Nominal timer units, excluding deferred audio and CPU/render costs.
+    /// Nominal animation wait units, excluding sample playback and CPU/render costs.
     pub fn wait_units(&self) -> u32 {
         match self.state.stage {
             EndingStage::ScoreOverlay => 0,

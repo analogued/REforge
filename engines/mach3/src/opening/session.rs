@@ -17,7 +17,7 @@ pub struct Preferences {
     pub display_mode: DisplayMode,
     /// The command-line S option suppresses the intro playback call.
     pub intro_audio_enabled: bool,
-    /// F2's persistent playback-disable flag; audio synthesis remains deferred.
+    /// F2's persistent playback-disable flag.
     pub sound_disabled: bool,
 }
 

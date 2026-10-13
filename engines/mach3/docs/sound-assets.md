@@ -252,8 +252,9 @@ atomically. The original can also interrupt before those early writes and within
 the later stage, including between PIT byte writes. Those finer instruction
 windows and setup return-register effects are not reconstructed by this API.
 Neither stage prescribes instruction delays; IRQ handlers retain the clock's
-ordered, zero-gap execution convention. The live viewer has not adopted this
-procedural state.
+ordered, zero-gap execution convention. Normal animated viewing executes this
+procedural state through `GameplayRuntime` on the same PIT timeline as samples
+and gameplay waits. Step/static/custom-period previews retain silent stepping.
 
 ### Gameplay invocation
 

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! PC speaker digital wiring, before any physical response or PCM renderer.
 
-use crate::pit::{Edge, Error, Pit};
+use crate::pit::{CountOnePolicy, Edge, Error, Pit};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DriveEdge {
@@ -27,7 +27,16 @@ impl PcSpeaker {
     /// Synthetic/externally established pins. Channel 0/1 gates are tied high;
     /// channel 2 GATE follows port 61 bit 0. Upper control bits are retained only.
     pub fn new(control: u8, outputs: [bool; 3]) -> Self {
-        let pit = Pit::new([true, true, control & 1 != 0], outputs);
+        Self::with_mode3_count_one(control, outputs, CountOnePolicy::Reject)
+    }
+
+    /// See [`CountOnePolicy`]; ordinary construction rejects unspecified counts.
+    pub fn with_mode3_count_one(
+        control: u8,
+        outputs: [bool; 3],
+        count_one: CountOnePolicy,
+    ) -> Self {
+        let pit = Pit::with_mode3_count_one([true, true, control & 1 != 0], outputs, count_one);
         Self {
             pit,
             control,

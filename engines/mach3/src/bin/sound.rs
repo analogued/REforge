@@ -660,7 +660,11 @@ fn run() -> Result<(), Error> {
     )?;
     if device_mode {
         let control = bus.reads.front().expect("validated device context").value;
-        let speaker = PcSpeaker::new(control, [true; 3]);
+        let speaker = PcSpeaker::with_mode3_count_one(
+            control,
+            [true; 3],
+            reforge_audio::pit::CountOnePolicy::DosBoxWrap,
+        );
         let mut rows = new_file(destination.join("device.tsv"))?;
         writeln!(
             rows,

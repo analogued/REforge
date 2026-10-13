@@ -4,7 +4,10 @@
   then this game's `CONTRIBUTING.md` for additional validation requirements.
 - Use Rust for the main implementation. Supporting tools and investigation
   scripts may use whichever language suits their task. Use SDL3 for native
-  presentation and input. Audio playback remains unimplemented.
+  presentation, input and queued PCM output. Normal animated playback uses one
+  PIT timeline for sample/procedural sound, waits and gameplay; keep simulation
+  operational when host audio is unavailable. Step/static/custom-period previews
+  retain silent nominal stepping.
 - Keep `docs/` focused on maintained implementation and reference documentation
   useful to users and contributors. Add documentation only when an actual need
   arises; an empty `docs/` is fine. Do not create a preset collection of documents.

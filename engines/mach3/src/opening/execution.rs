@@ -32,7 +32,7 @@ use crate::{
 
 /// Explicit game-side execution context at entry to the main gameplay routine.
 /// The caller supplies the corresponding PIT state and vectors in `Clock`.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct GameplayState {
     pub controls: Controls,
     pub keyboard: KeyboardState,
@@ -41,6 +41,24 @@ pub struct GameplayState {
     pub di: u16,
     pub next_playback: u64,
     pub joystick: u8,
+    /// Frontend option affecting gameplay steering only. Ordinary function-key
+    /// processing and native pause decisions still consume the keyboard state.
+    pub steering_enabled: bool,
+}
+
+impl Default for GameplayState {
+    fn default() -> Self {
+        Self {
+            controls: Controls::default(),
+            keyboard: KeyboardState::default(),
+            pause: PauseControl::default(),
+            procedural: ProceduralState::default(),
+            di: 0,
+            next_playback: 0,
+            joystick: 0,
+            steering_enabled: true,
+        }
+    }
 }
 
 pub struct GameplayResources<'a, M: SampleMemory> {
@@ -150,6 +168,42 @@ impl GameplayTask {
     }
     pub fn state(&self) -> &GameplayState {
         &self.state
+    }
+
+    /// Recover foreground state only after its typed return; a suspended pass
+    /// or sample must not be dropped and then resumed as a fresh game.
+    pub fn into_parts(self) -> Result<(Opening, GameplayState), Error> {
+        if !matches!(self.stage, Stage::Returned) {
+            return Err(invalid("gameplay foreground has not returned"));
+        }
+        Ok((self.game, self.state))
+    }
+
+    /// Discard received input that has not reached the simulated controller.
+    pub fn discard_scheduled_scans<O: FnMut(Stamp, ClockEvent)>(
+        &mut self,
+        clock: &Clock<O>,
+    ) -> Result<(), Error> {
+        clock.check()?;
+        self.check_clock(clock)?;
+        self.scans.clear();
+        Ok(())
+    }
+
+    /// A frontend focus reset discards pending input history and held keys,
+    /// including the IRQ duplicate filter, while retaining native pause state.
+    /// No synthetic make/break bytes or pause actions are generated.
+    pub fn clear_input<O: FnMut(Stamp, ClockEvent)>(
+        &mut self,
+        clock: &Clock<O>,
+    ) -> Result<(), Error> {
+        if self.scan_latched {
+            return Err(invalid("input reset requires a serviced keyboard latch"));
+        }
+        self.discard_scheduled_scans(clock)?;
+        self.state.keyboard.clear();
+        self.state.joystick = 0;
+        Ok(())
     }
 
     /// This task is the sole driver of its clock while pending.
@@ -320,7 +374,11 @@ impl GameplayTask {
                         let mask = self.poll_input(0x2289, clock.tick(), observe);
                         self.pass = Some(PassTask::begin(&mut self.game));
                         self.stage = Stage::RunPass;
-                        let input = steering(mask);
+                        let input = if self.state.steering_enabled {
+                            steering(mask)
+                        } else {
+                            Steering::default()
+                        };
                         self.resume_pass(resources.graphics, input, clock, observe)?;
                         continue;
                     }

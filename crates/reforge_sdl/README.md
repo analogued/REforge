@@ -1,7 +1,8 @@
 # Shared SDL3 presentation
 
 `reforge_sdl` owns SDL3 windows, renderer setup, event pumping and reusable
-streaming frame textures for REforge's engines. It also defines the common
+streaming frame textures and queued audio output for REforge's engines. It also
+defines the common
 initial display multiplier (4), Ctrl+Q quit and Pause/Break toggle recognition.
 Ctrl+Q follows the Q letter in the current keyboard layout, rather than the
 physical Q position on a US keyboard. Engines decide when pausing is available
@@ -65,6 +66,21 @@ RGB/RGBA pixel tests cover nearest sampling, aspect correction and integer
 letterboxing with offscreen software rendering. Engine checks cover input
 semantics. Native builds and runtime checks have been exercised on Linux;
 Windows and macOS have not yet been validated.
+
+`audio::AudioOutput` owns a default playback stream and its SDL/audio lifetimes.
+Construct, use and drop it on the main thread. It accepts mono native-endian
+signed 16-bit samples at a caller-selected rate, leaving negotiated host format
+conversion to SDL. Startup is paused so the caller can prefill before resuming.
+`queued_samples()` counts remaining unconverted input samples, excluding audio
+already handed to the device. `set_paused()` retains the queue; `clear()` discards
+pending stream data while retaining pause state.
+
+The queue has a hard 250 ms input limit. Overflow rejects new data and preserves
+the existing queue; the caller explicitly clears/replaces expired audio. Queueing
+does not wait for playback, invoke simulation callbacks or know an engine clock.
+Initialization/output errors are returned to the caller. Audio tests use fresh
+dummy-driver and unavailable-driver child processes, so ordinary tests never
+open host audio or modify the renderer tests' process environment.
 
 Pixel-target tests cover whole and fractional densities. An opt-in window check
 exercises high-density flags, startup sizing, both texture formats and resizing:

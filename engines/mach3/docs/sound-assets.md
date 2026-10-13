@@ -1,9 +1,9 @@
 # DOS sound assets
 
 This reference describes stored samples, digitized playback and procedural
-sound in the DOS program. The Rust engine reconstructs the bounded intro and
-pre-game sample routines and the procedural setup/IRQ0 routines, without audible
-playback or integration into the live viewer.
+sound in the DOS program. The Rust engine reconstructs intro/pre-game samples,
+procedural setup/IRQ0 routines and gameplay waits on one PIT timeline. Normal
+animated viewing includes synthesized PC speaker playback through SDL3.
 Addresses are hexadecimal offsets in the expanded code segment; see
 [DOS startup](dos-startup.md) for relocation and data-segment conventions.
 
@@ -79,6 +79,14 @@ loader still writes all 15,500 bytes. The reverse entry reads the following DOS
 memory-control block. That byte is execution context, not asset padding; the
 Rust memory interface requires it explicitly rather than inventing a value.
 
+`DosSampleMemory` models the established allocation-name suffix at that boundary.
+The 12-byte overrun overwrites bytes 0–11 of DATAC's preceding MCB; offset
+15,500 reaches MCB byte 12, the fifth byte of its eight-byte owner name.
+DOSBox-X's split allocation propagates the program name there. The live
+frontend supplies the padded name `MACH3`, making the first reverse byte ASCII
+`3`. Other names can be supplied through the library. Unestablished bytes still
+return errors; this is explicit DOS bootstrap context, not a general heap model.
+
 The handler inherits DI. Each interrupt increments it and masks it to one bit;
 the pointer and completed-byte counter advance only when the result is zero.
 An even initial DI produces two interrupts per byte. An odd initial DI advances
@@ -116,8 +124,13 @@ not a complete description of the game's audio.
 The first wrapper checks accumulated sample results between groups. Its first
 sample alone filters signed return values greater than 127. The four calls in
 the follow-on wrapper always execute, including after an early first-wrapper
-return. The outer intro routine can repeat this traversal after a timed input
-wait; that surrounding loop is separate from the bounded sequencer.
+return. `IntroTask` also executes outer routine `537a`: a zero sequence result
+leads to 500 calls to `7437` with full AX=1, each followed by ordinary input
+processing at `73b2`. A nonzero poll returns; otherwise the sequence repeats.
+Temporary sample keyboard IRQs save the latest scan without aborting playback.
+Space during a sample therefore waits for its call/group and the entire tail.
+The selected intro image remains visible until this foreground returns; the
+first game image is composed before the separate optional pre-game call `4f8d`.
 
 ## Procedural sound
 
@@ -178,6 +191,14 @@ unchanged. The cursor and installed handler remain active. A zero cursor skips
 tone programming. The Rust loader validates table-addressing instructions and
 reads only the required prefixes; it rejects unsupported indices rather than
 clamping them or reading arbitrary instruction bytes.
+
+The first two tables include count 1 in active positions as well as terminal
+positions. Intel's specified mode 3 range starts at 2. Live playback and the
+device exporter therefore explicitly select the shared PIT's
+[`CountOnePolicy::DosBoxWrap`](../../../crates/reforge_audio/README.md#limits-and-validation):
+raw 1 retains its original writes but gets an effective 65,537-clock period,
+following DOSBox-X. This compatibility choice is separate from tone sequencing
+and does not establish the unspecified behavior of original PC hardware.
 
 ### Noise state and timer ramps
 
@@ -308,9 +329,10 @@ an unset application intro-audio flag skips that call altogether. Startup reset
 remains a lifecycle responsibility, and transition CPU delay loops remain untimed.
 Terrain collision scans finish
 their terrain mutations before delivering ordered contacts to the sink.
-The viewer and replay frontend still use silent stepping and
-nominal timing. Their existing speed-update checkpoint is unchanged; the sound
-argument uses the old speed as above.
+Normal animated viewing uses this continuation; recording replay and
+step/static/custom-period previews retain silent stepping and nominal timing.
+The existing speed-update checkpoint is unchanged; the sound argument uses the
+old speed as above.
 
 ## Reconstructed execution interface
 
@@ -350,7 +372,10 @@ model instruction interrupt shadows or acknowledge pulses. A source-read or
 handler error stops that clock permanently, rather than abandoning an entered
 interrupt and advancing silently. This deterministic approximation preserves
 meaningful ordering without claiming instruction-exact DOS timestamps. The live
-viewer has not yet adopted this clock and still omits audible playback.
+viewer uses this same clock through intro, pre-game, gameplay and ending waits.
+At gameplay return, the caller's `74c0` reset restores handler `7532`, programs
+divisor `ffff` and disables the speaker before the ending waits. It retains
+software counters, phase and tone cursors rather than constructing a fresh clock.
 
 Every sample count write carries the original eight-bit byte, resource offset,
 playback identity and source-visit identity. Two writes for one byte share a
@@ -358,6 +383,33 @@ visit; adjacent equal bytes remain separate visits. Out-of-asset bytes carry
 external-memory provenance. Device actions retain repeated writes, handler
 changes, interrupt-control effects and keyboard-state clearing. Rendering does
 not select samples or advance another cursor.
+
+### Live playback
+
+The normal animated CLI loads `MACH3.EXE` and `DATA1` through `DATAH`. A single
+clock retains PIT, software counter/phase, vectors, keyboard state and DI across
+samples and ordinary execution. `IntroTask` and `GameplayTask` suspend the guest
+foreground at blocking calls while the host keeps processing SDL events. The
+frontend supplies explicit bootstrap pins/vectors and the DOS allocation name
+`MACH3` for `DosSampleMemory`'s modeled MCB suffix; that context is not sample data
+or a universal DOS heap assumption.
+
+PC speaker drive edges feed the shared signal renderer at their simulation ticks.
+The viewer synthesizes 48 kHz mono signed 16-bit PCM and queues it through
+[`reforge_sdl::audio::AudioOutput`](../../../crates/reforge_sdl/README.md), which
+delegates native device format conversion to SDL. Playback is prefilled before
+resume. Bounded recovery drops expired PCM and clears excessive queued data,
+without resetting the PIT or advancing gameplay from a device callback. Device
+failure warns and mutes host output; guest sample, procedural and wait execution
+continues on the same timeline.
+
+Pause/Break freezes host scheduling and queued playback together. Native F1
+retains the original keyboard handshake and PIT-driven waits; the device continues
+to execute during native pause. F2 changes native sound preference while ordinary
+timer counters continue. Step/static/custom-period previews and recording replay
+remain silent. Instruction gaps and CPU delay loops are not timed by this model.
+
+### Bounded diagnostic
 
 The development exporter runs one intro traversal followed by the enabled
 pre-game sample:
@@ -381,8 +433,8 @@ snapshots. By default, its time column advances by 60 nominal PIT clocks per
 IRQ0, without executing a PIT. Saved vectors are explicitly synthetic.
 Sound-disabled ordinary
 keyboard continuation is exposed by the library and rejected by this bounded
-exporter. This exporter does not execute procedural gameplay sound. Host
-playback and live viewer timer integration remain unimplemented.
+exporter. This exporter does not execute procedural gameplay sound; live viewing
+uses the separate continuations described above.
 
 Add `--device` to execute writes through the
 [shared PIT and speaker model](../../../crates/reforge_audio/README.md). IRQ0
@@ -422,7 +474,7 @@ advancing an independent cursor. WAV output ends at the committed foreground
 return, with no added timer interval or filter tail. `diagnostic.txt` records
 its rate, gain and phase assumptions. This is a filtered digital speaker signal,
 not an enhanced interpretation of the eight-bit assets or a validated acoustic
-recording. Host playback and the live viewer remain silent.
+recording. Normal animated viewing uses the same renderer for queued host playback.
 
 Device rows use a monotonic `sequence` in addition to `tick`. `kind` distinguishes
 initial pins, PIT transitions and speaker-drive transitions; `channel` applies

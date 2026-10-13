@@ -45,5 +45,4 @@ debugger execution. The broader startup map is based on static control flow.
 See [CGA graphics](cga-graphics.md) for verified asset layouts and composition,
 and [DOS opening gameplay](dos-gameplay.md) for the subsequent update loop.
 See [DOS sound assets](sound-assets.md) for the headerless sample resources,
-speaker conversion, and executable music sequencing. Audio playback remains
-unimplemented in the Rust engine.
+speaker conversion, executable music sequencing and live playback.

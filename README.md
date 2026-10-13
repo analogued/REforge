@@ -4,7 +4,8 @@ Rust reconstructions of DOS games for modern desktop systems, currently
 [Alley Cat](engines/alleycat/README.md) and [Mach 3](engines/mach3/README.md).
 Each game requires its original files, supplied separately. REforge reads their
 assets and tables and implements the reconstructed behavior natively.
-The games are still in development; audible playback remains unimplemented.
+The games are still in development. Mach 3's normal animated viewer includes
+PC speaker audio; Alley Cat audio remains unimplemented.
 
 ## Build and run
 
@@ -26,8 +27,11 @@ toggles pause during gameplay. Each game retains its additional bindings.
 See each game's README for supported input versions, controls and current limits.
 
 `--original` accepts a game directory or a required original file. For Alley Cat,
-it locates `CAT.EXE`; for Mach 3, it locates `MACH3.EXE` and `DATA1` through `DATA6`
-in the same directory. Detection checks case-insensitive DOS filenames, then
+it locates `CAT.EXE`; for Mach 3, detection checks `MACH3.EXE` and `DATA1` through
+`DATA6` in the same directory. Normal animated Mach 3 also loads sound resources
+`DATA7` through `DATAH`; supply the complete original directory. Step, static and
+custom-period previews remain silent. Detection checks case-insensitive DOS
+filenames, then
 exact file sizes, then SHA-256 hashes. The catalog currently contains one verified
 reference per game; its reference IDs do not claim a historical version number.
 Additional releases can have separate file records and select the same engine.
@@ -42,7 +46,7 @@ retains the previous valid value or engine default. Recognized options consume
 only their own values; a missing value does not swallow the next option. Supported
 options can appear before or after `--original`, including `--option=value`.
 Conflicting modes produce warnings and are reduced to a valid configuration.
-Original-data and runtime I/O failures remain errors. Engine-specific standalone
+Original-data and non-audio runtime I/O failures remain errors. Engine-specific standalone
 diagnostic binaries keep their own stricter interfaces.
 
 Use `--features dev-tools` to include Alley Cat's development scene selector,
@@ -66,9 +70,10 @@ binaries for headless work. These tools continue to be available with
 - `app/`: the `reforge` application, release detection and option catalog.
 - `engines/alleycat/`: the `alleycat` engine library and legacy game binary.
 - `engines/mach3/`: the `mach3` engine library and its viewer/export/replay binaries.
-- `crates/reforge_sdl/`: shared SDL3 windows, events and frame presentation.
+- `crates/reforge_sdl/`: shared SDL3 windows, events, frame presentation and
+  queued audio output.
 - `crates/reforge_audio/`: shared deterministic PIT and PC speaker devices,
-  before signal rendering or host playback.
+  with signal rendering independent of host playback.
 
 Game-specific gameplay, asset formats, timing and randomness stay in their own
 engine crates. Engine IDs, Cargo packages and Rust crate names use `alleycat`

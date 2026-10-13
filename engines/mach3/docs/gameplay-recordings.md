@@ -19,7 +19,8 @@ Legacy recordings cover the first game from its initial scene through gameplay,
 including three ordinary render passes, seven scene-transition draws, pauses,
 F1 quits and F2/F3 polling. An optional ordered session timeline extends replay
 through frozen ending titles, a returned intro and later games. Fresh-process
-startup timing, audio synthesis and audio timing comparison remain deferred.
+startup timing and audio synthesis/comparison remain outside this silent replay
+interface. Normal animated viewing provides separate live PC speaker playback.
 The CLI automatically uses the timeline when present. The library retains
 `replay_first_game` and adds `replay_session` with optional externally loaded
 `StartupFrames` for returned intro pixels.

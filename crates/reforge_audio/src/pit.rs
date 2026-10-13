@@ -23,6 +23,15 @@ pub enum Access {
     LowHigh,
 }
 
+/// Mode 3 count 1 is outside Intel's specified range. Compatibility is explicit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CountOnePolicy {
+    Reject,
+    /// DOSBox-X interprets raw 1 as an effective 65,537-clock period.
+    /// This model rounds the high half up to 32,769 whole clocks.
+    DosBoxWrap,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
     Port(u16),
@@ -88,6 +97,7 @@ pub struct ChannelState {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Channel {
     mode: Option<Mode>,
+    count_one: CountOnePolicy,
     access: Access,
     gate: bool,
     output: bool,
@@ -108,9 +118,10 @@ fn count(raw: u16) -> u32 {
 }
 
 impl Channel {
-    fn new(gate: bool, output: bool) -> Self {
+    fn new(gate: bool, output: bool, count_one: CountOnePolicy) -> Self {
         Self {
             mode: None,
+            count_one,
             access: Access::LowHigh,
             gate,
             output,
@@ -132,7 +143,7 @@ impl Channel {
             mode: Some(mode),
             access,
             output: mode != Mode::TerminalCount,
-            ..Self::new(self.gate, self.output)
+            ..Self::new(self.gate, self.output, self.count_one)
         };
     }
 
@@ -156,7 +167,10 @@ impl Channel {
                 }
             }
         };
-        if matches!(mode, Mode::RateGenerator | Mode::SquareWave) && raw == 1 {
+        if raw == 1
+            && (mode == Mode::RateGenerator
+                || (mode == Mode::SquareWave && self.count_one == CountOnePolicy::Reject))
+        {
             return Err(Error::InvalidPeriodicCount);
         }
         self.write_low = None;
@@ -212,7 +226,13 @@ impl Channel {
 
     fn load_phase(&mut self) {
         let raw = self.reload.expect("load requires a complete count");
-        let n = count(raw);
+        let n = if raw == 1 && self.mode == Some(Mode::SquareWave) {
+            // Explicit compatibility behavior, not an Intel-defined count.
+            // Retain raw 1 for diagnostics and reload/access sequencing.
+            65_537
+        } else {
+            count(raw)
+        };
         self.counter = Some(raw);
         self.counting = true;
         self.remaining = Some(match self.mode.expect("load requires a mode") {
@@ -331,9 +351,18 @@ impl Pit {
     /// Initial pin levels are explicit caller context, not a claimed power-on state.
     /// Channels are unprogrammed until a control word is supplied.
     pub fn new(gates: [bool; 3], outputs: [bool; 3]) -> Self {
+        Self::with_mode3_count_one(gates, outputs, CountOnePolicy::Reject)
+    }
+
+    /// Select a policy for the otherwise unspecified mode 3 count of one.
+    pub fn with_mode3_count_one(
+        gates: [bool; 3],
+        outputs: [bool; 3],
+        count_one: CountOnePolicy,
+    ) -> Self {
         Self {
             tick: 0,
-            channels: std::array::from_fn(|i| Channel::new(gates[i], outputs[i])),
+            channels: std::array::from_fn(|i| Channel::new(gates[i], outputs[i], count_one)),
         }
     }
 

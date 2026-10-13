@@ -4,6 +4,7 @@
 use reforge_sdl::{FrameFormat, FrameTexture, HostPause, HostShortcut, Window, host_shortcut};
 use std::collections::{BTreeSet, VecDeque};
 
+mod audio;
 mod input_history;
 use input_history::{EventTime, InputHistory};
 
@@ -146,6 +147,34 @@ pub fn run_with_rules(
     rules: ScriptRules,
 ) -> Result<(), String> {
     run_inner(frames, options, Some(rules))
+}
+
+/// Run animated gameplay on the reconstructed PIT timeline with live sound.
+pub fn run_with_sound(
+    frames: &StartupFrames,
+    options: Options,
+    rules: ScriptRules,
+    samples: crate::sound::SoundAssets,
+    intro: crate::sound::IntroProgram,
+    procedural: crate::sound::ProceduralProgram,
+) -> Result<(), String> {
+    if options.playback != Playback::Animated || options.body_period != BODY_PERIOD {
+        eprintln!("warning: step/static and custom-period diagnostics use silent nominal stepping");
+        return run_inner(frames, options, Some(rules));
+    }
+    if !(1..=16).contains(&options.scale) {
+        return Err("window scale must be between 1 and 16".into());
+    }
+    audio::run(
+        frames,
+        options,
+        rules,
+        audio::Resources {
+            samples,
+            intro,
+            procedural,
+        },
+    )
 }
 
 fn scan_for_key(key: Keycode) -> Option<u8> {

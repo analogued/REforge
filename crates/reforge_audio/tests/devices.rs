@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Authored synthetic cases with expected sequences from Intel's 8254 diagrams.
+//! Authored synthetic cases for Intel's 8254 diagrams and explicit compatibility.
 use reforge_audio::{
-    pit::{Error, Mode, Pit},
+    pit::{CountOnePolicy, Error, Mode, Pit},
     speaker::{DriveEdge, PcSpeaker},
 };
 
@@ -210,6 +210,61 @@ fn unsupported_controls_and_invalid_periodic_count_do_not_change_device_state() 
     assert_eq!(pit, before);
     assert_eq!(pit.advance_to(1), Err(Error::TimeBackwards));
     assert_eq!(pit, before);
+}
+
+#[test]
+fn mode_three_count_one_compatibility_wraps_without_zero_deadlines() {
+    let mut pit = Pit::with_mode3_count_one([true; 3], [true; 3], CountOnePolicy::DosBoxWrap);
+    pit.write_port(0x43, 0x36).unwrap();
+    pit.write_port(0x40, 1).unwrap();
+    assert!(pit.channel(0).unwrap().pending_high_byte);
+    assert_eq!(pit.next_deadline(), None);
+    pit.write_port(0x40, 0).unwrap();
+    assert_eq!(pit.channel(0).unwrap().programmed_count, Some(1));
+    assert_eq!(pit.next_deadline(), Some(1));
+    assert!(advance(&mut pit, 1).is_empty());
+    assert_eq!(pit.channel(0).unwrap().counter, Some(0));
+    let mut fine = pit.clone();
+    let expected = [(32_770, 0, false), (65_538, 0, true), (98_307, 0, false)];
+    assert_eq!(advance(&mut pit, 100_000), expected);
+    let mut fine_edges = Vec::new();
+    while fine.tick() < 100_000 {
+        let target = (fine.tick() + 137).min(100_000);
+        fine_edges.extend(advance(&mut fine, target));
+    }
+    assert_eq!(fine_edges, expected);
+    assert_eq!(pit, fine);
+
+    // A new divisor takes effect at the current half's boundary, not on write.
+    pit.write_port(0x40, 4).unwrap();
+    pit.write_port(0x40, 0).unwrap();
+    assert_eq!(
+        advance(&mut pit, 131_080),
+        [(131_075, 0, true), (131_077, 0, false), (131_079, 0, true)]
+    );
+    assert_eq!(pit.channel(0).unwrap().programmed_count, Some(4));
+}
+
+#[test]
+fn count_one_compatibility_keeps_gate_and_control_restart_semantics() {
+    let mut pit = Pit::with_mode3_count_one([true; 3], [true; 3], CountOnePolicy::DosBoxWrap);
+    pit.write_port(0x43, 0x16).unwrap();
+    pit.write_port(0x40, 1).unwrap();
+    advance(&mut pit, 32_770);
+    assert!(!pit.channel(0).unwrap().output);
+    assert!(pit.set_gate(0, false).unwrap()[0].high);
+    assert!(advance(&mut pit, 100_000).is_empty());
+    assert_eq!(pit.next_deadline(), None);
+    pit.set_gate(0, true).unwrap();
+    assert_eq!(advance(&mut pit, 132_770), [(132_770, 0, false)]);
+    pit.write_port(0x43, 0x16).unwrap();
+    pit.write_port(0x40, 1).unwrap();
+    assert_eq!(advance(&mut pit, 165_540), [(165_540, 0, false)]);
+    // The option does not grant undefined mode 2 behavior.
+    pit.write_port(0x43, 0x14).unwrap();
+    assert_eq!(pit.write_port(0x40, 1), Err(Error::InvalidPeriodicCount));
+    let mut strict = configured(0x16, 4);
+    assert_eq!(strict.write_port(0x40, 1), Err(Error::InvalidPeriodicCount));
 }
 
 #[test]

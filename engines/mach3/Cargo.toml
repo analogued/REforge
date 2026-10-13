@@ -7,7 +7,7 @@ publish = false
 description = "Reconstructed DOS Mach 3 engine"
 
 [features]
-viewer = ["dep:reforge_sdl"]
+viewer = ["dep:reforge_sdl", "reforge_audio/blip"]
 dev-tools = ["reforge_audio/blip"]
 
 [dependencies]

@@ -4,13 +4,11 @@ The `mach3` engine crate for [REforge](../../README.md) recreates the **DOS vers
 released in 1987 by Loriciels. [MobyGames entry](https://www.mobygames.com/game/249/mach-3/).
 Status: Rust gameplay recreation with steering, shooting, encounter
 progression, collision responses, and retained-session restarts.
-Live gameplay has no loop cap. Intro and pre-game sample execution is available
-as a separate development diagnostic and a headless timer-driven continuation.
-Procedural sound setup, interrupt routines and gameplay invocation hooks are
-reconstructed in the library, with a budgeted headless gameplay continuation
-driven by the same PIT clock;
-offline speaker WAV export is available through the development diagnostic.
-Live audio playback remains unimplemented; the viewer still uses nominal pacing.
+Live gameplay has no loop cap. The normal animated viewer runs intro/pre-game
+samples, procedural sound and gameplay waits on one reconstructed PIT timeline,
+with PC speaker synthesis and queued SDL3 playback. Headless continuations and
+offline speaker WAV export are also available. Step/static/custom-period previews
+retain silent nominal stepping.
 Later gameplay paths still need broader comparisons with the original.
 
 The main implementation language is **Rust**. Supporting tools and investigation
@@ -67,15 +65,15 @@ cargo run -p mach3 --bin mach3-frame -- --format cga /path/to/assets /path/to/fr
 ```
 
 This implements the fixed initial draw state, masked sprites, and frame export.
-The separate gameplay simulation implements live play and bounded frame exports;
-audible playback remains unimplemented.
+The separate gameplay simulation implements live play and bounded frame exports.
+Frame export is silent.
 Asset decoding and frame composition are also available through the `mach3`
 library. With the `viewer` feature, `mach3::cli::run(args)` accepts command-line
 arguments as `OsString` values, excluding the executable name, so REforge can
 dispatch the same viewer interface. See [CGA graphics](docs/cga-graphics.md) for
 the supported formats.
 
-## Windowed opening preview
+## Windowed playback and previews
 
 The optional viewer requires SDL3 development and runtime libraries available
 to the compiler and system loader:
@@ -85,44 +83,54 @@ cargo run -p mach3 --features viewer --bin mach3-viewer -- --original /path/to/a
 ```
 
 Supply the game resource directory with `--original`, including `MACH3.EXE` and
-`DATA1` through `DATA6`. The executable supplies externally decoded encounter scripts and
-resource tables; the recreation does not execute DOS code. Fresh Space presses
-advance the splash and intro. After game over, the title pair completes before
-Space returns to the selected intro; another fresh press starts the next game
-with retained random state and best score.
+`DATA1` through `DATAH` for normal animated playback. The executable supplies
+decoded encounter scripts, sound calls and resource tables; the recreation does
+not execute DOS code. A fresh Space press advances the initial splash. During
+intro audio, Space takes effect after the current sample, its checked group and
+the unconditional four-call tail. A zero-result traversal repeats after 500
+timer waits with ordinary input polls; it does not automatically start gameplay.
+The selected intro image stays visible until return. The first game image is
+then drawn before its pre-game sample runs. After game over, the first title
+pair completes before Space returns to the selected intro, with retained random
+state and best score.
 
 Use `--controls` to steer with arrows or S/X/B/N and fire with Space or keypad 5.
 It is a flag with no value; the data path belongs to `--original`.
 Live gameplay continues until game over, including when controls are disabled.
 Each body computes three render passes, with player input sampled separately
-at each pass. The default ordinary body takes approximately 109.851 ms,
-averaging 27.31 displayed passes per second. Pass one waits an additional timer
-unit between composition and display when the selected background layer remains
-unchanged; a layer-change body skips that wait. `--period-ms 1..5000` overrides
-the four-unit body duration. See [gameplay timing](docs/dos-gameplay.md#timer-pacing)
-for the update and display ordering.
+at each pass. Normal playback advances the installed timer and keyboard handlers
+on the same PIT clock as sound. Pass one adds a timer wait between composition
+and publication when the selected background layer remains unchanged; a
+layer-change body skips it. Sample playback suspends the guest foreground while
+PIT and temporary keyboard handlers continue. See
+[gameplay timing](docs/dos-gameplay.md#timer-pacing) for update and display order.
 Ordinary simulation catches up due updates and publication events before
 presenting the latest published frame. It preserves original pass order and
 input-poll sites; slow presentation
 does not limit it to one pass per display refresh. Catch-up batches are bounded
-to keep processing host events, with remaining deadline debt retained. Blocking
-transition frames and ending frames retain their separate visible waits.
+to keep processing host events, with remaining deadline debt retained. Ending
+frames retain their timer waits. Transition CPU delay loops remain untimed.
 Received gameplay key transitions are applied at their scheduled input polls,
 including during catch-up. A press held across a poll remains visible even if
 its release has already arrived; a tap completed between polls can still be
 missed. Events delivered after an executed poll take effect prospectively.
 See [input timing and tracing](docs/input-tracing.md) for clock conversion and
 pause/reset boundaries.
-Original CPU-dependent pacing and audio are not reproduced.
+Host audio receives synthesized 48 kHz mono samples. An unavailable device or
+output failure warns and mutes playback while the same simulation continues.
+Buffer recovery discards expired PCM, retaining device and gameplay phase.
+Instruction execution cost and precise DOS elapsed time are not reproduced.
 
 F1 pauses: release it, then press and release another gameplay key to resume.
 Holding F1 at the pause decision ends the game after the current body completes.
-F2 toggles the retained sound preference; synthesis is deferred. F3 switches
+F2 toggles the retained sound preference while timer execution continues.
+F3 switches
 between color and the original 640-by-200 one-bit interpretation of the same
 video bytes. Held function keys follow the original polling behavior and can
 repeat their action. Ctrl+Q, Escape or window close exits the viewer.
-Pause/Break toggles a separate modern host pause during gameplay, including
-transitions and game-over animation. Repeats and Alt/Ctrl/Super combinations
+Pause/Break toggles a separate modern host pause during intro, pre-game, gameplay
+and game-over animation, freezing simulation and queued playback. Repeats and
+Alt/Ctrl/Super combinations
 are ignored; other keys and focus changes do not resume it. Paused time is
 excluded from presentation and simulation deadlines, and held game controls
 are cleared on each toggle. This does not feed an F1 event to the DOS key table;
@@ -133,8 +141,11 @@ a fresh press is required after clearing, so OS repeats cannot reactivate a
 key still held across pause or focus loss.
 
 Use `--step` for one body or title step per fresh **Enter** press after entering
-gameplay, or `--static` to retain the initial scene. Space remains Fire during
-manual gameplay. Losing focus releases held controls.
+gameplay, or `--static` to retain the initial scene. `--period-ms 1..5000` selects
+a nominal four-unit body interval. These diagnostic previews are silent and need
+only `MACH3.EXE` and `DATA1` through `DATA6`; fresh Space presses advance their
+startup screens. Space remains Fire during manual gameplay. Losing focus releases
+held controls.
 
 Development builds can record input diagnostics with `--trace-input PATH`:
 

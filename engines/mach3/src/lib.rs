@@ -8,6 +8,7 @@ pub mod cli;
 pub mod frame;
 #[cfg(all(feature = "viewer", feature = "dev-tools"))]
 mod input_trace;
+pub mod live;
 pub mod opening;
 pub mod rules;
 pub mod scene;

@@ -11,6 +11,14 @@ body period, catch-up limit, input polling, scene algorithms or deliberate waits
 Tracing adds clock sampling and buffered file output, so measured host durations
 include instrumentation overhead. It performs no framebuffer readback.
 
+Normal animated viewing emits `simulation` spans around each bounded PIT budget.
+Their detail contains `committed_tick` and `wanted_tick`; gameplay fields describe
+the state after that budget and are blank outside gameplay. These spans include
+guest execution and PCM servicing, and exclude SDL presentation. The nominal
+`body_period_ns` metadata does not assign durations to reconstructed timer waits.
+The per-pass, publication and presentation row labels below describe the silent
+step/static/custom-period scheduler; they are not emitted by the live PIT path.
+
 The first line identifies `reforge-mach3-timing-v1`; the following TSV columns are:
 
 ```text

@@ -67,7 +67,7 @@ Initial scene rendering completes at `044a`, before another playback call and
 entry into the gameplay loop. No intro duration is asserted here: timer changes
 and debugger pauses make wall-clock measurements unsuitable for that purpose.
 See [DOS sound assets](sound-assets.md) for the stored samples and verified
-digitized playback path. Audio synthesis remains unimplemented.
+digitized playback path and the normal viewer's PC speaker synthesis.
 
 ## Gameplay graphics resources
 

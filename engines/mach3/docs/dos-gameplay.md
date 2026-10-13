@@ -308,9 +308,10 @@ The timer helper accumulates the PIT divisor twice per IRQ and increments the
 counter on carry. When hardware and stored divisors agree and interrupts are
 delivered without loss, a timer input frequency of 1,193,182 Hz gives one nominal
 counter unit is `65536 / (2 * 1193182)` seconds, approximately 27.463 ms.
-The default viewer body period represents four such units, approximately
-109.851 ms. It preserves three input/update passes rather than adding a fourth
-gameplay update.
+Four such units take approximately 109.851 ms, the baseline used by the silent
+nominal preview. Normal animated viewing delivers actual modeled IRQs and
+inherits the current divisor/counter/phase rather than assigning each wait a
+fixed host duration. Both paths retain three input/update passes.
 
 Pass one's ordinary wait precedes the player/world update and scratch
 composition. The selected layer is 1 when signed `DS:b698` is positive,
@@ -327,7 +328,8 @@ Ignoring instruction execution time, the nominal unchanged-layer schedule is:
 | 3                   | Pass two: player              | Pass two                |
 | 4                   | Pass three: player, near world | Pass three              |
 
-The viewer retains a prepared pass-one image until its publication deadline;
+The nominal preview retains a prepared pass-one image until its publication
+deadline;
 palette and display-mode effects follow their input processing independently.
 A layer-change body omits the publication wait and therefore takes three nominal
 units. `--period-ms` sets the four-unit body duration; all individual wait units
@@ -338,8 +340,8 @@ the CGA display's scanout during individual region copies.
 When presentation is slower, due updates and publication events advance in
 order before presenting the latest published image. Each pass still runs its
 input polls, state changes, composition and random draws; only intermediate
-host presentations are omitted. Catch-up processes at most 64 scheduled events
-before repumping host events, retaining remaining deadline debt without another
+host presentations are omitted. The silent nominal preview processes at most
+64 scheduled events before repumping host events, retaining deadline debt without another
 presentation wait. Native pause and blocking transitions stop ordinary catch-up.
 Each transition and
 ending frame retains its own visible wait rather than being skipped to spend
@@ -382,8 +384,15 @@ pre-composition snapshot placement within an atomic pass. These approximations
 limit absolute timestamp comparisons with DOS execution; they do not introduce
 a separate nominal clock for the reconstructed waits.
 
-The live viewer still uses the nominal schedule above; its foreground execution
-has not adopted this device clock.
+Normal animated viewing uses this device clock from intro through pre-game,
+gameplay and ending waits. `live::GameplayRuntime` retains the most recently
+published frame while a pending pass composes another. Host time supplies bounded
+PIT budgets of about 10 ms; overdue budgets continue after repumping SDL events.
+PC speaker synthesis observes the same device edges. Output failure or buffer
+recovery cannot change the guest continuation, PIT phase or random stream.
+Native F1 pause continues device execution; modern Pause/Break freezes both
+the guest timeline and queued host playback. Step/static/custom-period previews
+retain the nominal schedule above and remain silent.
 
 ## Player steering
 
@@ -440,9 +449,10 @@ values below four and raw `DATA1` otherwise. The verified no-input run selects
 image selection; it does not replay the entire fresh-process startup.
 
 `Ending` implements the title stages, best-score retention, frozen projection,
-and return image choice. The viewer uses Space for return; the next fresh press
-starts another game with the continuing random stream and retained best score.
-Audio remains deferred.
+and return image choice. The viewer uses Space for return. Normal playback then
+runs the selected intro's sample/input continuation before starting another game
+with the continuing random stream and retained best score. Silent previews use
+another fresh Space press to advance that intro screen.
 
 
 ## Shooting and progression

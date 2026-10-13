@@ -57,8 +57,19 @@ channel 2.
 
 ## Limits and validation
 
-BCD, modes 4/5 and 8254 read-back commands return explicit errors. Modes 2/3
-reject count 1. A new latch between incomplete live low/high reads is rejected;
+BCD, modes 4/5 and 8254 read-back commands return explicit errors. Ordinary
+construction rejects count 1 in modes 2/3. Intel specifies a minimum of 2;
+count 1 therefore has no guaranteed device semantics. An explicit
+`CountOnePolicy::DosBoxWrap`, selected through `with_mode3_count_one`, permits
+mode 3 count 1 with an effective period of 65,537 clocks. This follows
+[DOSBox-X's compatibility rule](https://github.com/joncampbell123/dosbox-x/blob/478c860050b20afdb58bce28f1b43163952fc541/src/hardware/timer.cpp#L622),
+which Mach 3 needs for entries in its original tone tables. The raw programmed
+count remains 1; this integer-clock model uses 32,769 high clocks and 32,768 low
+clocks, whereas DOSBox-X splits its period into floating-point half-periods.
+This is an emulator compatibility choice, not a claim about unspecified original
+hardware behavior. Mode 2 count 1 remains rejected under either policy.
+
+A new latch between incomplete live low/high reads is rejected;
 repeated commands during an existing unread latch are ignored. Invalid supported
 operations leave state unchanged. Unsupported behavior is not silently decoded
 as another mode.

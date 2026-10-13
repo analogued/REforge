@@ -5,6 +5,7 @@
 //! dimensions. Resizing uses integer display multiples and nearest sampling.
 
 pub use sdl3;
+pub mod audio;
 mod input;
 pub use input::{EventClockSample, HostPause, HostShortcut, event_clock_sample, host_shortcut};
 

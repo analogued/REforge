@@ -28,6 +28,11 @@ pub struct IntroProgram {
 }
 
 impl IntroProgram {
+    #[cfg(all(test, feature = "viewer"))]
+    pub(crate) fn synthetic() -> Self {
+        Self::from_expanded(&tests::fixture()).unwrap()
+    }
+
     /// Read sample arguments and group boundaries from the expanded code image.
     ///
     /// This accepts the verified wrapper instruction forms, rather than a CPU
@@ -316,7 +321,7 @@ fn invalid(message: &str) -> Error {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn put(image: &mut [u8], offset: usize, bytes: &[u8]) {
@@ -375,7 +380,7 @@ mod tests {
 
     // Authored instruction fixture: every resource is Data7 and counts increase
     // from 100. No asset bytes, executable slices, or captured calls are used.
-    fn fixture() -> Vec<u8> {
+    pub(crate) fn fixture() -> Vec<u8> {
         let mut image = vec![0; 0x537a];
         put(&mut image, 0x5025, &[0x55, 0x83, 0xec, 4, 0x8b, 0xec]);
         call(&mut image, 0x502b, 0x503f);

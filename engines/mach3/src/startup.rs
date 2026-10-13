@@ -26,6 +26,19 @@ pub struct StartupFrames {
 }
 
 impl StartupFrames {
+    #[cfg(all(test, feature = "viewer"))]
+    pub(crate) fn from_test_graphics(graphics: GraphicsAssets) -> Self {
+        let initial = scene::initial_frame(&graphics).unwrap();
+        Self {
+            frames: [
+                Frame::from_packed(&[0; crate::frame::FRAME_BYTES]).unwrap(),
+                Frame::from_packed(&[0; crate::frame::FRAME_BYTES]).unwrap(),
+                initial,
+            ],
+            graphics,
+        }
+    }
+
     /// Load DATA1 and DATA6 as CGA screens and DATA2 through DATA5 as graphics.
     pub fn load(directory: impl AsRef<Path>) -> Result<Self, Error> {
         let directory = directory.as_ref();

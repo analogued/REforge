@@ -7,12 +7,13 @@ binding dependencies and native SDL3 terms are retained in the shared crate's
 [license texts](../../../crates/reforge_sdl/docs/licenses/).
 The default Mach 3 library and headless tools do not require SDL3.
 
-## Offline audio renderer
+## Audio renderer
 
-The `dev-tools` feature enables the shared audio crate's optional `blip`
-renderer for `mach3-sound --device --wav`. Its pinned Rust dependency and MIT
+The `viewer` and `dev-tools` features enable the shared audio crate's optional
+`blip` renderer for live playback and `mach3-sound --device --wav`, respectively.
+Its pinned Rust dependency and MIT
 terms are described in the [shared audio dependency notices](../../../crates/reforge_audio/docs/dependencies.md).
-Normal simulation does not require this renderer or open an audio device.
+The default headless library does not require this renderer or open an audio device.
 
 ## Capture emulator
 

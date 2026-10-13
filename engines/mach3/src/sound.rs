@@ -3,11 +3,15 @@
 //! or advance a PIT: the caller supplies interrupt delivery and device reads.
 
 mod assets;
+mod dos_memory;
+mod intro_task;
 mod playback;
 mod procedural;
 mod sequence;
 
 pub use assets::{ByteOrigin, MemoryByte, Resource, SampleBytes, SampleMemory, SoundAssets};
+pub use dos_memory::DosSampleMemory;
+pub use intro_task::{IntroProgress, IntroTask};
 pub use playback::{SampleEnvironment, SamplePlayer, SampleSoundState, StartResult};
 pub use procedural::{
     Effect, Handler, NoiseState, PreparedEffect, ProceduralProgram, ProceduralState, Ramp, Tone,

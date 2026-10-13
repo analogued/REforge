@@ -17,6 +17,14 @@ normal exit. Tracing adds host CPU and I/O work, so compare traced runs with
 untraced runs when measuring responsiveness. Normal builds do not enable this
 option and omit the engine recorder; optimization and `dev-tools` are independent.
 
+Normal animated viewing schedules raw scans on its PIT timeline. Gameplay
+observations use `boundary` rows labeled `pit_event`, with the exact simulation
+`tick` and `GameplayEvent` in `detail`. An `InputPoll` event carries its site and
+result mask there; the row's held-key columns describe state at the completed
+budget (`state_at_budget=true`), not a snapshot at that earlier event. Intro and
+pre-game sample handlers do not emit gameplay poll rows. The named `poll` labels
+and nominal deadlines below describe the silent step/static/custom-period path.
+
 ## Records and clocks
 
 Version 1 is UTF-8 tab-separated text. The first line identifies
@@ -48,7 +56,7 @@ its correlation method. Event timestamps describe SDL/platform delivery, not a
 measurement of the physical keyboard switch. SDL pumping may also affect when
 those timestamps are assigned.
 
-Host pause boundaries record both host and frozen/unfrozen timeline samples.
+Silent-preview host pause boundaries record both host and frozen/unfrozen timeline samples.
 Do not compare an SDL timestamp directly with an engine deadline or subtract one
 constant pause offset across a pause boundary. Native F1 waits and displayed
 transition/ending waits have their own scheduling policy.
@@ -59,8 +67,10 @@ All delivered key-down/up events are recorded, including unmapped keys, modifier
 F1/F2/F3 and OS repeats. Rows retain layout-aware keycodes, physical scancodes,
 modifier bits and repeat status. The held columns show the consumed DOS keyboard
 table after frontend handling. A `queued` event has not yet changed that table;
-its `effective_input_ns` detail gives its eligibility time on the pause-adjusted
-timeline, including any ordering or prospective-delivery clamp. This value comes
+its `effective_input_ns` detail gives its correlated event time on the pause-adjusted
+timeline. Silent previews include their ordering/prospective-delivery clamp;
+the live PIT path additionally clamps late scans to its committed tick during
+delivery, which is not separately recorded in that event row. This value comes
 from the input mapper, whose clock sample precedes the recorder's separate sample.
 Host shortcuts and events ignored during host pause are identified explicitly.
 Focus/window events and quit events are also recorded. Desktop shortcuts consumed
@@ -96,8 +106,11 @@ Use actual poll deadlines as the reference. Under a delayed event pump:
 | Press before P, release after P | Held, even if processing occurs after release. |
 | Press after P | Released at P, even if the press is processed before overdue work. |
 
-The frontend retains received make/break bytes and applies eligible transitions
-before each ordinary pass's scheduled poll. Body entry and its first steering
+Normal animation retains received make/break bytes and delivers them to the
+ordinary or temporary sample keyboard IRQ at their PIT ticks before foreground
+polling. IRQ0 keeps priority over IRQ1 at equal times. Silent nominal previews
+apply eligible transitions before each ordinary pass's scheduled poll. Body entry
+and its first steering
 poll share that deadline; both retain their existing control processing. Scans
 pass through the reconstructed DOS keyboard handler, including duplicate-byte
 filtering, rather than restoring snapshots of held keys. F-key priorities,
@@ -113,12 +126,16 @@ measure physical key changes accurately.
 
 ## History boundaries
 
-Native F1 waits, displayed transitions, ending animation, static previews and
+In the silent nominal preview, native F1 waits, displayed transitions, ending
+animation, static previews and
 manual stepping fold received history to the current scheduling time without
 adding ordinary control polls. Completed taps in those discarded intervals do
 not become delayed actions; keys still held remain held. New game initialization
 also folds history first, then uses the engine's existing session reset rules.
 Startup Space advances presentation without becoming a gameplay Fire make.
+Normal animation also suppresses that navigation press's matching release.
+Later intro/pregame input reaches the installed handler; sample IRQs save a raw
+scan for their eventual return instead of updating the ordinary key table.
 
 Focus loss and each host-pause toggle clear pending history, frontend repeat
 eligibility and the DOS key table while preserving the native pause phase and
@@ -127,7 +144,9 @@ Host-pause toggles use their actual handling time as the cutoff, so events from
 the paused interval cannot reappear after resume. Focus loss uses its correlated
 event time as the cutoff and clears controls immediately. Host pause excludes
 elapsed paused time from existing deadlines; resuming introduces no catch-up for
-that interval. Quit and host-pause shortcuts are handled immediately.
+that interval. Normal animation freezes queued playback with the PIT timeline;
+native F1 continues PIT execution and its original handshake. Quit and host-pause
+shortcuts are handled immediately.
 
 Synthetic tests cover historical input correctness separately from tracing
 transparency, including catch-up, late delivery, F-key effects and boundary

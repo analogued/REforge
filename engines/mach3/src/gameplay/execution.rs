@@ -605,8 +605,8 @@ impl GameplayTask {
     ) -> u8 {
         let poll = self
             .state
-            .controls
-            .poll(self.state.keyboard.held_keys(self.state.joystick));
+            .keyboard
+            .poll_controls(&mut self.state.controls, self.state.joystick);
         if poll.display_toggled {
             self.game.reset_video_palette();
         }

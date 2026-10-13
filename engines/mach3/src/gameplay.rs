@@ -29,8 +29,8 @@ pub use player::{PlayerSnapshot as PlayerState, Steering};
 pub use presentation::TransitionFrame;
 pub use progression::{ScriptCommand, ScriptRules};
 pub use session::{
-    Controls, DisplayMode, GameStart, HeldKeys, InputPoll, KeyboardState, PauseControl, PauseEvent,
-    PauseState, Preferences, RetainedWorld, SessionState,
+    Controls, DisplayMode, F3Mode, GameStart, HeldKeys, InputPoll, KeyboardState, PauseControl,
+    PauseEvent, PauseState, Preferences, RetainedWorld, SessionState,
 };
 pub use special::SpecialSnapshot as SpecialState;
 pub use terrain::TerrainSnapshot as TerrainState;

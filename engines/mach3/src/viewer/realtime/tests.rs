@@ -1221,6 +1221,95 @@ fn pending_native_pause_f3_marks_unchanged_frame_for_repaint() {
 }
 
 #[test]
+fn press_mode_f3_stays_monochrome_during_native_pause_until_fresh_press() {
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    simulation
+        .initial
+        .as_mut()
+        .unwrap()
+        .keyboard
+        .set_f3_mode(crate::gameplay::F3Mode::Press);
+    enter_playing(&mut simulation, &frames, &resources);
+    simulation.receive(simulation.clock.tick(), 0x3b);
+    until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+        s.state().pause.state == PauseState::AwaitInitialRelease
+    });
+    simulation.receive(simulation.clock.tick(), 0xbb);
+    simulation.receive(simulation.clock.tick(), 0x3d);
+    until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+        s.display_mode() == DisplayMode::Monochrome
+    });
+    let visible = simulation.visible.clone();
+    let mut events = Vec::new();
+    for _ in 0..10 {
+        let tick = simulation.clock.tick() + 100_000;
+        advance(&mut simulation, tick, &frames, &resources, &mut events);
+        assert_eq!(simulation.display_mode(), DisplayMode::Monochrome);
+        assert_ne!(simulation.state().pause.state, PauseState::Running);
+        assert_eq!(simulation.visible, visible);
+    }
+    assert!(
+        !events
+            .iter()
+            .any(|(_, event)| matches!(event, GameplayEvent::Published { .. }))
+    );
+    simulation.receive(simulation.clock.tick(), 0xbd);
+    simulation.receive(simulation.clock.tick(), 0x3d);
+    until(&mut simulation, &frames, &resources, &mut events, |s| {
+        s.display_mode() == DisplayMode::Color
+    });
+    assert_ne!(simulation.state().pause.state, PauseState::Running);
+}
+
+#[test]
+fn press_mode_f3_release_repress_and_pause_are_budget_partition_invariant() {
+    let mut outcomes = Vec::new();
+    for budget in [64, CHUNK, 100_000] {
+        let frames = frames();
+        let resources = resources();
+        let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+        simulation
+            .initial
+            .as_mut()
+            .unwrap()
+            .keyboard
+            .set_f3_mode(crate::gameplay::F3Mode::Press);
+        enter_playing(&mut simulation, &frames, &resources);
+        simulation.receive(simulation.clock.tick(), 0x3b);
+        until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+            s.state().pause.state == PauseState::AwaitInitialRelease
+        });
+        let start = simulation.clock.tick();
+        for (offset, raw) in [
+            (0, 0xbb),
+            (2, 0x3d),
+            (200_000, 0xbd),
+            (200_001, 0x3d),
+            (400_000, 0xbd),
+        ] {
+            simulation.receive(start + offset, raw);
+        }
+        let end = start + 500_000;
+        let mut events = Vec::new();
+        while simulation.clock.tick() < end {
+            let target = (simulation.clock.tick() + budget).min(end);
+            advance(&mut simulation, target, &frames, &resources, &mut events);
+        }
+        assert_eq!(simulation.display_mode(), DisplayMode::Color);
+        assert_ne!(simulation.state().pause.state, PauseState::Running);
+        outcomes.push((
+            simulation.clock.tick(),
+            format!("{:?}", simulation.state()),
+            simulation.visible,
+        ));
+    }
+    assert_eq!(outcomes[0], outcomes[1]);
+    assert_eq!(outcomes[1], outcomes[2]);
+}
+
+#[test]
 fn palette_zero_survives_gameplay_return_and_title_animation() {
     let frames = frames();
     let resources = resources();

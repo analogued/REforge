@@ -467,8 +467,8 @@ impl Simulation {
                         let mut game = Gameplay::for_play(frames.graphics(), rules.clone(), start)
                             .map_err(|e| e.to_string())?;
                         let poll = state
-                            .controls
-                            .poll(state.keyboard.held_keys(state.joystick));
+                            .keyboard
+                            .poll_controls(&mut state.controls, state.joystick);
                         events.push((
                             self.clock.tick(),
                             GameplayEvent::InputPoll {
@@ -624,7 +624,7 @@ impl Simulation {
         site: u16,
         events: &mut Vec<(u64, GameplayEvent)>,
     ) -> u8 {
-        let poll = state.controls.poll(state.keyboard.held_keys(0));
+        let poll = state.keyboard.poll_controls(&mut state.controls, 0);
         if poll.display_toggled {
             self.palette_family = 1;
         }
@@ -1057,6 +1057,12 @@ pub(super) fn run(
 ) -> Result<(), String> {
     let signal = Rc::new(RefCell::new(Synthesis::with_mode(options.audio_renderer)?));
     let mut simulation = Simulation::new(frames, signal.clone())?;
+    simulation
+        .initial
+        .as_mut()
+        .unwrap()
+        .keyboard
+        .set_f3_mode(options.f3_mode);
     let mut caption = simulation.caption();
     let mut window = Window::new(caption, WIDTH as u32, DISPLAY_HEIGHT, options.scale)?;
     let creator = window.texture_creator();
@@ -1075,6 +1081,20 @@ pub(super) fn run(
         .as_ref()
         .map(|p| InputTrace::create(p))
         .transpose()?;
+    #[cfg(feature = "dev-tools")]
+    if let Some(trace) = &mut trace {
+        trace.boundary(
+            "startup",
+            Instant::now(),
+            None,
+            &simulation.session,
+            &format!(
+                "f3_mode={} controls={}",
+                options.f3_mode.as_str(),
+                options.controls
+            ),
+        );
+    }
     #[cfg(feature = "dev-tools")]
     let mut timing = options
         .timing_trace

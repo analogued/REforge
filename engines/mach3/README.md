@@ -147,10 +147,14 @@ polls. This option leaves step, static and custom-period previews silent.
 F1 pauses: release it, then press and release another gameplay key to resume.
 Holding F1 at the pause decision ends the game after the current body completes.
 F2 toggles the retained sound preference while timer execution continues.
-F3 switches
-between color and the original 640-by-200 one-bit interpretation of the same
-video bytes. Held function keys follow the original polling behavior and can
-repeat their action. Ctrl+Q, Escape or window close exits the viewer.
+F3 switches between color and the original 640-by-200 one-bit interpretation of
+the same video bytes. Interactive viewing defaults to `--f3-mode press`, which
+toggles once per press; release F3 before switching again. This is an intentional
+modern convenience. Use `--f3-mode original` to retain the original toggle at
+every active control poll, including repeated toggles while F3 is held, for
+physical-input fidelity comparisons. F1/F2 retain their original polling rules.
+Original-game recording replays always keep original per-poll F3 behavior.
+Ctrl+Q, Escape or window close exits the viewer.
 Pause/Break toggles a separate modern host pause during intro, pre-game, gameplay
 and game-over animation, freezing simulation and queued playback. Repeats and
 Alt/Ctrl/Super combinations

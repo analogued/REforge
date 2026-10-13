@@ -25,6 +25,12 @@ The CLI automatically uses the timeline when present. The library retains
 `replay_first_game` and adds `replay_session` with optional externally loaded
 `StartupFrames` for returned intro pixels.
 
+Replay preserves the original per-poll F3 behavior, including repeated mode
+switches while F3 is held. The interactive viewer's default `--f3-mode press`
+policy is not applied to recorded original inputs. Select `--f3-mode original`
+when comparing live physical input against original execution; press mode is an
+intentional convenience that can change mode/palette state and control results.
+
 ## Capture format and synchronization
 
 `games.tsv` supplies the initial script and three random-state words.

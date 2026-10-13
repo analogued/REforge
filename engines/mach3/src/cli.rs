@@ -2,13 +2,14 @@
 #![forbid(unsafe_code)]
 
 use crate::{
+    gameplay::F3Mode,
     sound::render::AudioRenderer,
     startup::StartupFrames,
     viewer::{Options, Playback},
 };
 use std::{ffi::OsString, path::PathBuf};
 
-const HELP: &str = "Usage: reforge --original <assets-directory> [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000] [--audio-renderer speaker|enhanced-pcm]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale 1..16] [--step|--static] [--controls] [--period-ms 1..5000] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
 Default drawable scale: 4 (1280x960 pixels); CGA pixels are displayed at 4:3.\n\
@@ -20,6 +21,7 @@ Normal animation runs gameplay, sound and waits on one PIT timeline.\n\
 --audio-renderer speaker|enhanced-pcm: select host audio rendering (default speaker); timing is unchanged.\n\
 --step, --static and custom --period-ms previews use silent nominal stepping and need DATA1 through DATA6.\n\
 Pause/Break freezes host simulation and playback. F1 retains original pause/end-game behavior; F2 toggles native sound, F3 switches color/monochrome.\n\
+--f3-mode press|original: toggle F3 once per press (default press), or at every active original control poll.\n\
 Unavailable audio warns and mutes host output; guest execution continues. Exact CPU-dependent pacing remains unmodeled.";
 
 fn help() -> String {
@@ -107,6 +109,15 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     }
                 };
             }
+            Some("--f3-mode") => {
+                options.f3_mode = match args.next().as_deref().and_then(|arg| arg.to_str()) {
+                    Some("press") => F3Mode::Press,
+                    Some("original") => F3Mode::Original,
+                    _ => {
+                        return Err("--f3-mode must be press or original".into());
+                    }
+                };
+            }
             Some("--step" | "--static") => {
                 if playback_set {
                     return Err("--step and --static cannot be combined or repeated".into());
@@ -164,7 +175,7 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
 #[cfg(test)]
 mod tests {
     use super::{help, parse_args};
-    use crate::{sound::render::AudioRenderer, viewer::Playback};
+    use crate::{gameplay::F3Mode, sound::render::AudioRenderer, viewer::Playback};
     use std::{ffi::OsString, path::PathBuf};
 
     fn args(values: &[&str]) -> impl Iterator<Item = OsString> {
@@ -252,6 +263,53 @@ mod tests {
                 parse_args(args(values))
                     .unwrap_err()
                     .contains("--audio-renderer"),
+                "{values:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn f3_mode_defaults_to_press_and_is_available_in_all_viewer_modes() {
+        let (_, defaults) = parse_args(args(&["--original", "assets"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(defaults.f3_mode, F3Mode::Press);
+        for (value, mode) in [("press", F3Mode::Press), ("original", F3Mode::Original)] {
+            for preview in [None, Some("--step"), Some("--static")] {
+                let mut values = vec!["--f3-mode", value, "--original", "assets"];
+                if let Some(preview) = preview {
+                    values.push(preview);
+                }
+                let (_, options) = parse_args(args(&values)).unwrap().unwrap();
+                assert_eq!(options.f3_mode, mode);
+            }
+        }
+        let (_, options) = parse_args(args(&[
+            "--original",
+            "assets",
+            "--f3-mode",
+            "original",
+            "--f3-mode",
+            "press",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(options.f3_mode, F3Mode::Press);
+        assert!(help().contains("--f3-mode press|original"));
+        assert!(help().contains("default press"));
+    }
+
+    #[test]
+    fn invalid_f3_mode_values_are_rejected() {
+        for values in [
+            &["--original", "assets", "--f3-mode"][..],
+            &["--original", "assets", "--f3-mode", ""][..],
+            &["--original", "assets", "--f3-mode", "repeat"][..],
+            &["--original", "assets", "--f3-mode", "Press"][..],
+            &["--original", "assets", "--f3-mode", "--controls"][..],
+        ] {
+            assert!(
+                parse_args(args(values)).unwrap_err().contains("--f3-mode"),
                 "{values:?}"
             );
         }

@@ -90,6 +90,29 @@ impl Controls {
 pub struct KeyboardState {
     scans: [u8; 128],
     last_raw_scan: u8,
+    // Optional frontend policy; it does not alter reconstructed scan bytes or
+    // Controls::poll. Captured-original replay retains the Original default.
+    f3_mode: F3Mode,
+    f3_press: u64,
+    f3_consumed: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum F3Mode {
+    /// Toggle only at the first accepting poll of a fresh F3 press.
+    Press,
+    /// Original behavior: toggle at every accepting poll while F3 is held.
+    #[default]
+    Original,
+}
+
+impl F3Mode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Press => "press",
+            Self::Original => "original",
+        }
+    }
 }
 
 impl Default for KeyboardState {
@@ -97,6 +120,9 @@ impl Default for KeyboardState {
         Self {
             scans: [0; 128],
             last_raw_scan: 0,
+            f3_mode: F3Mode::Original,
+            f3_press: 0,
+            f3_consumed: 0,
         }
     }
 }
@@ -108,7 +134,33 @@ impl KeyboardState {
             return;
         }
         self.last_raw_scan = raw;
+        if raw == 0x3d && self.scans[0x3d] == 0 {
+            self.f3_press = self.f3_press.wrapping_add(1);
+        }
         self.scans[usize::from(raw & 127)] = if raw & 128 == 0 { raw } else { 0 };
+    }
+
+    /// Select host QoL behavior without replaying an already-held press.
+    pub fn set_f3_mode(&mut self, mode: F3Mode) {
+        if self.f3_mode != mode {
+            self.f3_mode = mode;
+            self.f3_consumed = self.f3_press;
+        }
+    }
+
+    /// Poll at the reconstructed site, preserving function-key priorities.
+    /// A press is consumed only if F3 actually toggles, so an F2-priority return
+    /// does not lose it. Make/break identity preserves represses between polls.
+    pub fn poll_controls(&mut self, controls: &mut Controls, joystick: u8) -> InputPoll {
+        let mut held = self.held_keys(joystick);
+        if self.f3_mode == F3Mode::Press && self.f3_consumed == self.f3_press {
+            held.f3 = false;
+        }
+        let poll = controls.poll(held);
+        if self.f3_mode == F3Mode::Press && poll.display_toggled {
+            self.f3_consumed = self.f3_press;
+        }
+        poll
     }
 
     /// Explicit frontend focus/input reset, clearing the IRQ duplicate filter too.
@@ -360,6 +412,83 @@ impl SessionState {
 mod tests {
     use super::*;
     use crate::frame::Rect;
+
+    #[test]
+    fn f3_press_policy_keeps_physical_state_and_repress_identity() {
+        let mut keyboard = KeyboardState::default();
+        keyboard.set_f3_mode(F3Mode::Press);
+        let mut controls = Controls::default();
+        keyboard.apply_scan(0x3d);
+        assert!(keyboard.poll_controls(&mut controls, 0).display_toggled);
+        assert_eq!(controls.preferences.display_mode, DisplayMode::Monochrome);
+        for _ in 0..10 {
+            keyboard.apply_scan(0x48);
+            keyboard.apply_scan(0x3d); // Duplicate makes are not fresh presses.
+            assert!(!keyboard.poll_controls(&mut controls, 0).display_toggled);
+        }
+        assert!(keyboard.held_keys(0).f3);
+        keyboard.apply_scan(0xbd);
+        keyboard.apply_scan(0x3d); // Release/repress both occur between polls.
+        assert!(keyboard.poll_controls(&mut controls, 0).display_toggled);
+        assert_eq!(controls.preferences.display_mode, DisplayMode::Color);
+        keyboard.apply_scan(0xbd);
+        keyboard.apply_scan(0x3d);
+        keyboard.apply_scan(0xbd); // A tap entirely between polls stays missed.
+        assert!(!keyboard.poll_controls(&mut controls, 0).display_toggled);
+        keyboard.apply_scan(0x3d);
+        assert!(keyboard.poll_controls(&mut controls, 0).display_toggled);
+    }
+
+    #[test]
+    fn f3_press_waits_for_priority_and_original_polling_remains_available() {
+        let mut keyboard = KeyboardState::default();
+        keyboard.set_f3_mode(F3Mode::Press);
+        let mut controls = Controls {
+            sound_poll_counter: 3,
+            ..Controls::default()
+        };
+        keyboard.apply_scan(0x3c);
+        keyboard.apply_scan(0x3d);
+        let first = keyboard.poll_controls(&mut controls, 0);
+        assert!(first.sound_toggled && !first.display_toggled);
+        assert!(keyboard.poll_controls(&mut controls, 0).display_toggled);
+        assert!(!keyboard.poll_controls(&mut controls, 0).display_toggled);
+        assert_eq!(controls.sound_poll_counter, 2);
+        keyboard.set_f3_mode(F3Mode::Original);
+        assert!(keyboard.poll_controls(&mut controls, 0).display_toggled);
+        // F2's next priority return still takes precedence in Original mode.
+        assert!(keyboard.poll_controls(&mut controls, 0).sound_toggled);
+        assert!(keyboard.poll_controls(&mut controls, 0).display_toggled);
+        assert_eq!(KeyboardState::default().f3_mode, F3Mode::Original);
+        let held = HeldKeys {
+            f3: true,
+            ..HeldKeys::default()
+        };
+        assert!(controls.poll(held).display_toggled);
+        assert!(controls.poll(held).display_toggled);
+    }
+
+    #[test]
+    fn f3_policy_survives_lifecycle_and_discards_cleared_intervals() {
+        let mut keyboard = KeyboardState::default();
+        keyboard.set_f3_mode(F3Mode::Press);
+        let mut controls = Controls::default();
+        keyboard.apply_scan(0x3d);
+        assert!(keyboard.poll_controls(&mut controls, 0).display_toggled);
+        let mut next_phase = keyboard.clone();
+        assert!(!next_phase.poll_controls(&mut controls, 0).display_toggled);
+        next_phase.apply_scan(0xbd);
+        next_phase.apply_scan(0x3d);
+        next_phase.clear_table(); // Playback teardown discards an unpolled press.
+        assert!(!next_phase.poll_controls(&mut controls, 0).display_toggled);
+        next_phase.apply_scan(0xbd);
+        next_phase.apply_scan(0x3d);
+        assert!(next_phase.poll_controls(&mut controls, 0).display_toggled);
+        next_phase.clear(); // Focus/host pause resets cannot synthesize a toggle.
+        assert!(!next_phase.poll_controls(&mut controls, 0).display_toggled);
+        next_phase.apply_scan(0x3d);
+        assert!(next_phase.poll_controls(&mut controls, 0).display_toggled);
+    }
 
     #[test]
     fn repeated_game_keeps_rng_best_and_control_preferences() {

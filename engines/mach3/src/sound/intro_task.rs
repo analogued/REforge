@@ -341,8 +341,8 @@ impl IntroTask {
 
     fn poll_input(&mut self) -> u8 {
         self.state
-            .controls
-            .poll(self.state.keyboard.held_keys(self.state.joystick))
+            .keyboard
+            .poll_controls(&mut self.state.controls, self.state.joystick)
             .mask
     }
 

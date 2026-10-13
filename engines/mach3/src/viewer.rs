@@ -41,6 +41,7 @@ pub enum Playback {
 
 #[derive(Clone, Debug)]
 pub struct Options {
+    pub f3_mode: crate::gameplay::F3Mode,
     pub scale: u32,
     pub playback: Playback,
     pub controls: bool,
@@ -55,6 +56,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
+            f3_mode: crate::gameplay::F3Mode::Press,
             scale: reforge_sdl::DEFAULT_SCALE,
             playback: Playback::Animated,
             controls: false,
@@ -390,7 +392,7 @@ fn advance_game_pass_observed(
     #[cfg(feature = "dev-tools")] timing: &mut Option<TimingTrace>,
     #[cfg(feature = "dev-tools")] poll_time: (std::time::Instant, Option<std::time::Instant>),
 ) -> Result<bool, String> {
-    let result = session.controls.poll(session.keyboard.held_keys(0));
+    let result = session.keyboard.poll_controls(&mut session.controls, 0);
     if result.display_toggled {
         gameplay.reset_video_palette();
     }
@@ -759,8 +761,8 @@ impl GamePlayback {
             } else {
                 let result = self
                     .session
-                    .controls
-                    .poll(self.session.keyboard.held_keys(0));
+                    .keyboard
+                    .poll_controls(&mut self.session.controls, 0);
                 if result.display_toggled {
                     if let Some(gameplay) = &mut self.gameplay {
                         gameplay.reset_video_palette();
@@ -922,8 +924,8 @@ impl GamePlayback {
                 if gameplay.at_body_boundary() && !self.body_polled {
                     let result = self
                         .session
-                        .controls
-                        .poll(self.session.keyboard.held_keys(0));
+                        .keyboard
+                        .poll_controls(&mut self.session.controls, 0);
                     if result.display_toggled {
                         gameplay.reset_video_palette();
                     }
@@ -1104,6 +1106,7 @@ fn run_inner(
         return Err("opening period must be greater than zero and at most five seconds".into());
     }
     let mut game = GamePlayback::default();
+    game.session.keyboard.set_f3_mode(options.f3_mode);
     game.session.select_intro(); // First intro consumes exactly one random word.
     let mut returned_intro = None;
     let mut step_key_held = false;
@@ -1119,10 +1122,11 @@ fn run_inner(
             None,
             &game.session,
             &format!(
-                "period_ns={} controls={} playback={:?}",
+                "period_ns={} controls={} playback={:?} f3_mode={}",
                 options.body_period.as_nanos(),
                 options.controls,
-                options.playback
+                options.playback,
+                options.f3_mode.as_str()
             ),
         );
     }

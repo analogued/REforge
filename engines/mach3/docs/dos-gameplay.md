@@ -610,13 +610,20 @@ player updates. F2 toggles its sound flag after four active polls; F3 switches
 on each active poll. Mode 6 displays the same video bytes as 640 one-bit pixels
 per row. Both modes fill a 4:3 display.
 
+Interactive viewers default to `--f3-mode press`: one toggle per press, with a
+release required before the next toggle. This frontend policy is a modern
+convenience, not reconstructed original behavior. `--f3-mode original` retains
+the per-poll behavior for physical-input comparisons. Headless execution and
+original-game recording replay retain the original rules unless a caller
+explicitly enables the frontend policy; F1/F2 processing remains unchanged.
+
 F3 saves the framebuffer bytes, switches the BIOS mode and restores those bytes,
 but does not restore the palette register. Both CGA mode sets select family 1;
 returning to color therefore restores bright cyan/magenta/white until a later
 script command selects another palette. The viewer and recording replay apply
-this reset at the actual control poll, including native pause polls. Subsequent
-CD/CE commands select family 1/0 in execution order; the last script selection
-is not automatically reapplied after a mode switch.
+this reset at each effective F3 control poll, including native pause polls.
+Subsequent CD/CE commands select family 1/0 in execution order; the last script
+selection is not automatically reapplied after a mode switch.
 
 F1 enters a release/press/release pause handshake with two timer waits before
 press detection and two before the decision. The decision samples whether F1

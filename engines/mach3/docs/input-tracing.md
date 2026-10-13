@@ -17,6 +17,13 @@ normal exit. Tracing adds host CPU and I/O work, so compare traced runs with
 untraced runs when measuring responsiveness. Normal builds do not enable this
 option and omit the engine recorder; optimization and `dev-tools` are independent.
 
+The startup boundary records `f3_mode=press` or `f3_mode=original` in `detail`.
+Interactive viewing defaults to one F3 toggle per press. This intentional
+frontend convenience also applies when tracing; the recorder does not change
+the selected policy. Use `--f3-mode original` for physical-input fidelity
+comparisons requiring the original toggle at every active poll. Original-game
+recording replays retain per-poll F3 behavior independently of this viewer option.
+
 Normal animated viewing schedules raw scans on its PIT timeline. Gameplay
 observations use `boundary` rows labeled `pit_event`, with the exact simulation
 `tick` and `GameplayEvent` in `detail`. An `InputPoll` event carries its site and

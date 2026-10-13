@@ -192,6 +192,13 @@ const SPECS: &[Spec] = &[
         description: "Host audio rendering for normal animation (default speaker); previews stay silent",
     },
     Spec {
+        name: "--f3-mode",
+        game: Some(Game::Mach3),
+        value: Value::Choice(&["press", "original"]),
+        dev: false,
+        description: "F3 once per press (default press), or every active original control poll",
+    },
+    Spec {
         name: "--controls",
         game: Some(Game::Mach3),
         value: Value::Flag,
@@ -693,6 +700,70 @@ mod tests {
         assert!(help.contains("default speaker"));
         assert!(!super::help(None).contains("--audio-renderer"));
         assert!(!super::help(Some(Game::AlleyCat)).contains("--audio-renderer"));
+    }
+    #[test]
+    fn mach3_f3_mode_choices_reach_engine_in_normal_and_preview_modes() {
+        assert_eq!(takes_value("--f3-mode"), Some(true));
+        for mode in ["press", "original"] {
+            for preview in [
+                None,
+                Some("--step"),
+                Some("--static"),
+                Some("--period-ms=12"),
+            ] {
+                let mut input = vec![format!("--f3-mode={mode}")];
+                if let Some(preview) = preview {
+                    input.push(preview.into());
+                }
+                let result = prepare(input.into_iter().map(OsString::from), Game::Mach3);
+                assert!(result.warnings.is_empty());
+                assert_eq!(&result.args[..2], args(&["--f3-mode", mode]));
+                accepted(&result, Game::Mach3);
+            }
+        }
+    }
+    #[test]
+    fn f3_mode_validation_preserves_previous_value_and_following_options() {
+        let result = prepare(
+            args(&[
+                "--f3-mode=original",
+                "--f3-mode=repeat",
+                "--f3-mode=",
+                "--f3-mode",
+                "--controls",
+            ]),
+            Game::Mach3,
+        );
+        assert_eq!(result.args, args(&["--f3-mode", "original", "--controls"]));
+        assert_eq!(result.warnings.len(), 3);
+        assert!(
+            result.warnings[..2]
+                .iter()
+                .all(|warning| warning.contains("use press|original"))
+        );
+        assert!(result.warnings[2].contains("requires a value"));
+        accepted(&result, Game::Mach3);
+        let repeated = prepare(
+            args(&["--f3-mode=original", "--f3-mode=press"]),
+            Game::Mach3,
+        );
+        assert_eq!(repeated.args, args(&["--f3-mode", "press"]));
+        assert!(repeated.warnings.is_empty());
+        accepted(&repeated, Game::Mach3);
+    }
+    #[test]
+    fn f3_mode_is_mach3_only_and_present_in_normal_help() {
+        let foreign = prepare(args(&["--f3-mode=original", "--scale=2"]), Game::AlleyCat);
+        assert_eq!(foreign.args, args(&["--scale", "2"]));
+        assert_eq!(foreign.warnings.len(), 1);
+        assert!(foreign.warnings[0].contains("applies to Mach 3"));
+        accepted(&foreign, Game::AlleyCat);
+        let help = help(Some(Game::Mach3));
+        assert!(help.contains("--f3-mode VALUE"));
+        assert!(help.contains("Choices: press, original"));
+        assert!(help.contains("default press"));
+        assert!(!super::help(None).contains("--f3-mode"));
+        assert!(!super::help(Some(Game::AlleyCat)).contains("--f3-mode"));
     }
     #[test]
     fn shared_option_names_have_consistent_value_arity() {

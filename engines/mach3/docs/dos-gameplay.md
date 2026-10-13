@@ -356,8 +356,34 @@ letting the engine execute the installed handler before further advancement.
 The reconstructed [procedural sound handlers](sound-assets.md#procedural-sound)
 dispatch through this execution layer, including in-handler timer reprogramming.
 Gameplay exposes ordered sound requests and blocking-operation selections through
-`Opening::advance_subframe_with_sound`. The live viewer still uses the nominal
-schedule above; its foreground execution has not adopted this device clock.
+`Opening::advance_subframe_with_sound`. Immediate stepping drains the same
+continuations used by `opening::execution::GameplayTask`, a headless, budgeted
+main-loop executor. That executor drives the three ordinary waits, the conditional
+pass-one publication wait, terminal death's separate one- and twenty-unit waits,
+and native pause's four one-unit waits from the delivered interrupt helpers.
+It retains a prepared image until publication and stops there before executing
+the pass tail. Completion sample playback suspends enemy mutation, subsequent
+random draws and the remaining world update until the sample routine returns.
+
+The executor owns its pending game and receives explicit initial software sound
+state, PIT state, installed vectors, DI and keyboard state. Scheduled scan bytes
+enter the ordinary or temporary sample keyboard handler on that same timeline.
+At an equal timestamp input is latched before dispatch and foreground polling;
+IRQ0 retains priority over IRQ1. Past polls are committed: a late arrival may
+affect future execution but cannot be backdated. Synthesis and audio output are
+absent from this executor and cannot determine how far gameplay advances.
+
+Foreground segments and handlers currently have zero instruction cost. Native
+pause's busy input loops use a caller-supplied positive polling interval in PIT
+clocks, rather than an emulated CPU speed. Stage-compositor CPU delay loops and
+individual framebuffer copies are not timed here; transition images retain the
+existing immediate stepping behavior. The speed adjustment retains its existing
+pre-composition snapshot placement within an atomic pass. These approximations
+limit absolute timestamp comparisons with DOS execution; they do not introduce
+a separate nominal clock for the reconstructed waits.
+
+The live viewer still uses the nominal schedule above; its foreground execution
+has not adopted this device clock.
 
 ## Player steering
 

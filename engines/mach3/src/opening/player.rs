@@ -6,8 +6,11 @@ use crate::{
     assets::GraphicsAssets,
     frame::Rect,
     scene::Draw,
-    sound::{self, Effect, Foreground, GameplayAction, Ramp},
+    sound::{self, Effect, Foreground, Ramp},
 };
+
+#[cfg(test)]
+use crate::sound::GameplayAction;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Steering {
@@ -50,6 +53,12 @@ pub struct PlayerSnapshot {
     pub effective_input: u16,
     /// Clamped lateral velocity applied to the world before response zeroing.
     pub update_lateral_velocity: i16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PlayerUpdate {
+    Complete(bool),
+    Death,
 }
 
 #[derive(Debug)]
@@ -156,11 +165,35 @@ impl Player {
         self.update_with_sound(steering, &mut |_| {})
     }
 
+    #[cfg(test)]
     pub(crate) fn update_with_sound(
         &mut self,
         steering: Steering,
         sound: &mut Foreground<'_>,
     ) -> Result<bool, Error> {
+        match self.update_begin(steering, sound)? {
+            PlayerUpdate::Complete(reset_fuel) => Ok(reset_fuel),
+            PlayerUpdate::Death => {
+                sound(GameplayAction::Wait {
+                    site: 0x25f9,
+                    units: 1,
+                });
+                sound(GameplayAction::Wait {
+                    site: 0x2602,
+                    units: 20,
+                });
+                sound::request(sound, 0x2607, Effect::Reset);
+                Ok(self.finish_death())
+            }
+        }
+    }
+
+    /// Return before either terminal-death wait and its post-wait mutations.
+    pub(crate) fn update_begin(
+        &mut self,
+        steering: Steering,
+        sound: &mut Foreground<'_>,
+    ) -> Result<PlayerUpdate, Error> {
         let responding = self.state.phase != 0;
         let lateral = self.state.coordinates[1];
         let height = self.state.coordinates[2];
@@ -194,7 +227,6 @@ impl Player {
         self.state.update_lateral_velocity = self.velocity[0];
 
         self.noise_divisor = (self.state.coordinates[2] >> 1).wrapping_add(1900);
-        let mut reset_fuel = false;
         if responding {
             self.velocity = [0, 0];
             self.state.phase = (self.state.phase & 15) + 1;
@@ -214,23 +246,7 @@ impl Player {
                             self.state.requested_sprite = 0;
                             self.state.phase = 1;
                             sound::request(sound, 0x25f2, Effect::Ramp(Ramp::First));
-                            sound(GameplayAction::Wait {
-                                site: 0x25f9,
-                                units: 1,
-                            });
-                            sound(GameplayAction::Wait {
-                                site: 0x2602,
-                                units: 20,
-                            });
-                            sound::request(sound, 0x2607, Effect::Reset);
-                            self.state.phase = 0;
-                            self.state.grace = 0;
-                            if self.state.lives == 0 {
-                                self.state.game_over = true;
-                            } else {
-                                self.state.lives -= 1;
-                            }
-                            reset_fuel = true;
+                            return Ok(PlayerUpdate::Death);
                         } else {
                             self.state.phase = 1;
                         }
@@ -247,7 +263,21 @@ impl Player {
             self.state.requested_sprite = (self.orientation + 5 * self.vertical_band) as usize;
         }
         self.state.shadow_requested_sprite = (self.orientation + 15) as usize;
-        Ok(reset_fuel)
+        Ok(PlayerUpdate::Complete(false))
+    }
+
+    /// Continue only after both death waits and the default-timer reset return.
+    pub(crate) fn finish_death(&mut self) -> bool {
+        self.state.phase = 0;
+        self.state.grace = 0;
+        if self.state.lives == 0 {
+            self.state.game_over = true;
+        } else {
+            self.state.lives -= 1;
+        }
+        self.state.animation_row = 16;
+        self.state.shadow_requested_sprite = (self.orientation + 15) as usize;
+        true
     }
 
     pub(crate) fn noise_divisor(&self) -> i16 {
@@ -818,6 +848,50 @@ mod tests {
         assert!(response_sprite(17, 1).is_err());
         assert!(response_sprite(1, 0).is_err());
     }
+    #[test]
+    fn terminal_death_retains_pre_wait_state_until_finished() {
+        for lives in [0, 2] {
+            let mut direct = Player::new(&assets()).unwrap();
+            let mut synchronous = Player::new(&assets()).unwrap();
+            for player in [&mut direct, &mut synchronous] {
+                player.state.phase = 15;
+                player.state.animation_row = 16;
+                player.state.damage = 2;
+                player.state.lives = lives;
+                player.state.grace = 4;
+                player.state.shadow_requested_sprite = 77;
+            }
+            let mut actions = Vec::new();
+            assert_eq!(
+                direct
+                    .update_begin(Steering::default(), &mut |a| actions.push(a))
+                    .unwrap(),
+                PlayerUpdate::Death
+            );
+            assert_eq!(
+                actions,
+                [GameplayAction::Request {
+                    site: 0x25f2,
+                    effect: Effect::Ramp(Ramp::First)
+                }]
+            );
+            assert_eq!(
+                (direct.state.phase, direct.state.grace, direct.state.lives),
+                (1, 4, lives)
+            );
+            assert!(!direct.state.game_over);
+            assert_eq!(direct.state.shadow_requested_sprite, 77);
+            assert_eq!((direct.state.damage, direct.state.requested_sprite), (0, 0));
+            assert!(direct.finish_death());
+            assert!(
+                synchronous
+                    .update_with_sound(Steering::default(), &mut |_| {})
+                    .unwrap()
+            );
+            assert_eq!(format!("{direct:?}"), format!("{synchronous:?}"));
+        }
+    }
+
     #[test]
     fn death_sound_runs_through_both_waits_before_restoring_the_default_timer() {
         let mut player = Player::new(&assets()).unwrap();

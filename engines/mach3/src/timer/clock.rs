@@ -129,7 +129,11 @@ impl<O: FnMut(Stamp, ClockEvent)> Clock<O> {
         if events.pit.iter().any(|edge| edge.channel == 0 && edge.high) {
             self.pending[0] = true;
         }
-        self.record(ClockEvent::Device(events));
+        // A budget stop without an edge is not a device event. Omitting it
+        // keeps diagnostic ordering independent of scheduler chunk boundaries.
+        if !events.pit.is_empty() || events.drive.is_some() {
+            self.record(ClockEvent::Device(events));
+        }
     }
 
     fn enter_interrupt(&mut self) -> Option<Interrupt> {

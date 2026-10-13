@@ -298,10 +298,15 @@ conditional call; the executor supplies the flag and the ordinary sample-disable
 state, then uses the existing reconstructed sample routine. It does not replace
 the sample with a procedural tone or infer its duration from a renderer.
 
-This interface selects operations; it does not provide the live foreground
-continuations needed to suspend a pass across host scheduling budgets. Ordinary
-body/publication waits, native-pause polling waits, startup reset and transition
-CPU delays remain executor responsibilities. Terrain collision scans finish
+The callback interface selects operations and completes a pass synchronously.
+`opening::execution::GameplayTask` instead retains the pass continuation across
+simulation budgets and drives ordinary, publication, death and native-pause waits
+through the device clock. It runs completion playback through the same sample
+cursor and executes its keyboard clear and disable effects before resuming the
+enemy update. Sound-disabled sample entry performs the ordinary keyboard poll;
+an unset application intro-audio flag skips that call altogether. Startup reset
+remains a lifecycle responsibility, and transition CPU delay loops remain untimed.
+Terrain collision scans finish
 their terrain mutations before delivering ordered contacts to the sink.
 The viewer and replay frontend still use silent stepping and
 nominal timing. Their existing speed-update checkpoint is unchanged; the sound

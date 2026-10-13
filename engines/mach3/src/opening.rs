@@ -3,7 +3,9 @@
 
 mod ending;
 mod enemy;
+pub mod execution;
 mod hud;
+mod pass;
 mod player;
 mod presentation;
 mod progression;
@@ -382,63 +384,25 @@ impl Opening {
             self.return_sound(sound);
             return Ok(false);
         }
-        self.updating_before_render = true;
-        if self.at_body_boundary() {
-            self.body = self.body.wrapping_add(1);
-            self.advance_player(input, sound)?;
-            self.advance_world(assets, true, sound)?;
-            self.player.project(assets, self.vertical_origin)?;
-            // Far-object ordering remains from the first render pass even when
-            // later movement changes relative depths without reprojecting.
-            let first_depths = self.world_depths();
-            self.sort_world(&first_depths);
-            self.sort_full_world(&first_depths);
-            self.hud.set_orientation(self.player.snapshot().orientation);
-            self.hud.set_progression(self.progression);
-            self.hud.set_score_multiplier(1);
-            if let Some(rules) = &self.rules {
-                self.hud
-                    .set_marker_styles(assets, rules.marker_styles(self.difficulty)?)?;
+        let mut task = pass::PassTask::begin(self);
+        loop {
+            match task.resume(self, assets, input, sound)? {
+                pass::PassProgress::Action(action) => sound(action),
+                pass::PassProgress::Publish { .. } => task.publish(self),
+                pass::PassProgress::Returned => return Ok(true),
             }
-            let effects = self.hud.update_with_weapon(
-                self.body,
-                &mut self.random,
-                self.weapon.snapshot().counter,
-            )?;
-            if let Some(counter) = effects.weapon_counter {
-                self.weapon.set_counter(counter);
-            }
-            if let Some(damage) = effects.damage {
-                self.player.hit_with_sound(damage, sound);
-            }
-            self.advance_strip();
-            self.advance_speed();
-            self.render_pass = 1;
-        } else {
-            self.advance_player(input, sound)?;
-            if self.render_pass == 2 {
-                self.advance_world(assets, false, sound)?;
-            }
-            self.player.project(assets, self.vertical_origin)?;
-            self.render_pass += 1;
         }
-        self.render(assets)?;
-        self.pass_frame = self.frame.clone();
-        self.pass_snapshot = Some(Box::new(self.snapshot()));
-        self.updating_before_render = false;
-        if self.render_pass == 1 {
-            sound::request(
-                sound,
-                0x067b,
-                Effect::Noise {
-                    divisor: self.noise_divisor as u16,
-                },
-            );
-        }
+    }
+
+    fn finish_pass(
+        &mut self,
+        assets: &GraphicsAssets,
+        sound: &mut Foreground<'_>,
+    ) -> Result<(), Error> {
         self.hud
             .set_score_multiplier(if self.selected_layer == 1 { 4 } else { 1 });
         if self.render_pass != 3 {
-            return Ok(true);
+            return Ok(());
         }
         self.player.finish_body();
 
@@ -588,7 +552,7 @@ impl Opening {
             self.overlay.wrapping_add(self.layer) as i16 > 0,
         );
         self.return_sound(sound);
-        Ok(true)
+        Ok(())
     }
 
     fn return_sound(&mut self, sound: &mut Foreground<'_>) {
@@ -854,17 +818,14 @@ impl Opening {
         });
     }
 
-    fn advance_world(
+    fn finish_world(
         &mut self,
         assets: &GraphicsAssets,
         full_projection: bool,
+        effects: enemy::EnemyEffects,
         sound: &mut Foreground<'_>,
     ) -> Result<(), Error> {
         let player = self.player.snapshot();
-        let context = self.enemy_context()?;
-        let effects =
-            self.enemy
-                .update_with_sound(&mut self.random, player.coordinates, context, sound)?;
         self.apply_enemy_effects(effects);
         let collected_fuel = self.terrain.update_half_step_at_speed_with_sound(
             player.coordinates,
@@ -1237,8 +1198,7 @@ impl Opening {
         Ok(())
     }
 
-    fn advance_player(&mut self, input: Steering, sound: &mut Foreground<'_>) -> Result<(), Error> {
-        let reset_fuel = self.player.update_with_sound(input, sound)?;
+    fn finish_player(&mut self, reset_fuel: bool) {
         self.noise_divisor = self.player.noise_divisor();
         if reset_fuel {
             self.hud.reset_fuel();
@@ -1254,7 +1214,6 @@ impl Opening {
         self.terrain.shift_lateral(delta);
         self.special.shift_lateral(delta);
         self.static_lateral = self.static_lateral.wrapping_add(delta);
-        Ok(())
     }
 }
 
@@ -1316,7 +1275,7 @@ mod tests {
         assert_eq!(random.state(), [34449, 35689, 17043]);
     }
 
-    fn synthetic_assets() -> GraphicsAssets {
+    pub(super) fn synthetic_assets() -> GraphicsAssets {
         GraphicsAssets {
             primary: vec![0; 28_960],
             alternate: vec![0; 16_000],
@@ -1618,7 +1577,7 @@ mod tests {
         opening.sort_world(&depths);
         assert_eq!(opening.world_order[0], 22);
     }
-    fn synthetic_rules(commands: &[u8]) -> ScriptRules {
+    pub(super) fn synthetic_rules(commands: &[u8]) -> ScriptRules {
         let mut data = vec![0; 65536];
         data[0x04ac..0x04af].copy_from_slice(&[1, 2, 3]);
         for index in 0..21 {

@@ -7,7 +7,8 @@ progression, collision responses, and retained-session restarts.
 Live gameplay has no loop cap. Intro and pre-game sample execution is available
 as a separate development diagnostic and a headless timer-driven continuation.
 Procedural sound setup, interrupt routines and gameplay invocation hooks are
-reconstructed in the library;
+reconstructed in the library, with a budgeted headless gameplay continuation
+driven by the same PIT clock;
 audible playback remains unimplemented. The live viewer still uses nominal pacing.
 Later gameplay paths still need broader comparisons with the original.
 

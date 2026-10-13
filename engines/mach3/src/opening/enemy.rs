@@ -135,6 +135,24 @@ impl EnemyEffects {
     }
 }
 
+/// Retained foreground state while a craft's synchronous sample is running.
+#[derive(Debug)]
+pub(crate) struct EnemyUpdate {
+    next_slot: usize,
+    player: [i16; 3],
+    context: EnemyContext,
+    effects: EnemyEffects,
+    pending_sample: bool,
+}
+
+impl EnemyUpdate {
+    /// Effects become available after `resume_update` returns `None`.
+    pub(crate) fn effects(&self) -> EnemyEffects {
+        assert!(self.next_slot == 5 && !self.pending_sample);
+        self.effects
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct Enemy {
     bullet: EnemySnapshot,
@@ -332,6 +350,7 @@ impl Enemy {
         self.update_with_sound(random, player, context, &mut |_| {})
     }
 
+    #[cfg(test)]
     pub(crate) fn update_with_sound(
         &mut self,
         random: &mut Random,
@@ -339,7 +358,14 @@ impl Enemy {
         context: EnemyContext,
         sound: &mut Foreground<'_>,
     ) -> Result<EnemyEffects, Error> {
-        let mut effects = EnemyEffects::default();
+        let mut task = self.begin_update(player, context);
+        while let Some(action) = self.resume_update(&mut task, random, sound)? {
+            sound(action);
+        }
+        Ok(task.effects())
+    }
+
+    pub(crate) fn begin_update(&mut self, player: [i16; 3], context: EnemyContext) -> EnemyUpdate {
         if self.bullet.active {
             self.bullet.requested_sprite = projectile_sprite(self.bullet.depth);
             self.bullet.lateral = self.bullet.lateral.wrapping_add(
@@ -358,15 +384,63 @@ impl Enemy {
                 self.bullet.active = false;
             }
         }
-        for i in 0..5 {
-            effects.merge(self.update_craft(i, random, player, context, sound)?);
+        EnemyUpdate {
+            next_slot: 0,
+            player,
+            context,
+            effects: EnemyEffects::default(),
+            pending_sample: false,
+        }
+    }
+
+    /// A returned sample must finish before this task is resumed again.
+    pub(crate) fn resume_update(
+        &mut self,
+        task: &mut EnemyUpdate,
+        random: &mut Random,
+        sound: &mut Foreground<'_>,
+    ) -> Result<Option<GameplayAction>, Error> {
+        if task.pending_sample {
+            let i = task.next_slot;
+            self.crafts[i].animation_phase = 1;
+            self.crafts[i].depth = 50;
+            let mut effects = EnemyEffects::default();
+            self.transition_motion_tail(i, task.context, &mut effects);
+            task.effects.merge(self.finish_craft(
+                i,
+                random,
+                task.player,
+                task.context,
+                ([0; 3], effects),
+                sound,
+            ));
+            task.pending_sample = false;
+            task.next_slot += 1;
+        }
+        while task.next_slot < 5 {
+            let Some(effects) =
+                self.update_craft(task.next_slot, random, task.player, task.context, sound)?
+            else {
+                task.pending_sample = true;
+                return Ok(Some(GameplayAction::IntroSample {
+                    site: 0x42bf,
+                    request: SampleRequest {
+                        resource: Resource::Data8,
+                        offset: 0,
+                        count: 9723,
+                        reverse: false,
+                    },
+                }));
+            };
+            task.effects.merge(effects);
+            task.next_slot += 1;
         }
         for i in 0..5 {
             if !self.crafts[i].active {
                 self.shadows[i].active = false;
             }
         }
-        Ok(effects)
+        Ok(None)
     }
 
     fn initialize_falling(&mut self, i: usize, random: &mut Random, player_depth: i16) {
@@ -414,10 +488,10 @@ impl Enemy {
         player: [i16; 3],
         context: EnemyContext,
         sound: &mut Foreground<'_>,
-    ) -> Result<EnemyEffects, Error> {
+    ) -> Result<Option<EnemyEffects>, Error> {
         let mut effects = EnemyEffects::default();
         if !self.crafts[i].active {
-            return Ok(effects);
+            return Ok(Some(effects));
         }
         if self.crafts[i].movement == 251 {
             self.falling_explosion(i, random, player[0]);
@@ -431,7 +505,7 @@ impl Enemy {
                     self.crafts[i].animation_phase = 0;
                 }
             }
-            return Ok(effects);
+            return Ok(Some(effects));
         }
         if let Some(animation) = self.craft_animations[i] {
             let source = explosion_sprite(self.crafts[i].depth, animation);
@@ -446,9 +520,31 @@ impl Enemy {
                 self.crafts[i].active = false;
                 self.crafts[i].requested_sprite = 0;
             }
-            return Ok(effects);
+            return Ok(Some(effects));
         }
-        let delta = self.motion(i, random, player, context, &mut effects, sound)?;
+        let Some(delta) = self.motion(i, random, player, context, &mut effects, sound)? else {
+            return Ok(None);
+        };
+        Ok(Some(self.finish_craft(
+            i,
+            random,
+            player,
+            context,
+            (delta, effects),
+            sound,
+        )))
+    }
+
+    fn finish_craft(
+        &mut self,
+        i: usize,
+        random: &mut Random,
+        player: [i16; 3],
+        context: EnemyContext,
+        motion: ([i16; 3], EnemyEffects),
+        sound: &mut Foreground<'_>,
+    ) -> EnemyEffects {
+        let (delta, mut effects) = motion;
         match self.crafts[i].variant {
             0 => {
                 self.crafts[i].requested_sprite =
@@ -505,7 +601,7 @@ impl Enemy {
                 self.shadows[i].active = false;
             }
         }
-        Ok(effects)
+        effects
     }
 
     fn motion(
@@ -516,7 +612,7 @@ impl Enemy {
         context: EnemyContext,
         effects: &mut EnemyEffects,
         sound: &mut Foreground<'_>,
-    ) -> Result<[i16; 3], Error> {
+    ) -> Result<Option<[i16; 3]>, Error> {
         let movement = self.crafts[i].movement;
         let old_depth = self.crafts[i].depth;
         let primary = context.speeds[1];
@@ -620,41 +716,10 @@ impl Enemy {
                     craft.depth = craft.depth.wrapping_sub(context.speeds[0]);
                     if craft.depth < 50 {
                         sound::request(sound, 0x42bc, Effect::Tone(Tone::First));
-                        sound(GameplayAction::IntroSample {
-                            site: 0x42bf,
-                            request: SampleRequest {
-                                resource: Resource::Data8,
-                                offset: 0,
-                                count: 9723,
-                                reverse: false,
-                            },
-                        });
-                        craft.animation_phase = 1;
-                        craft.depth = 50;
+                        return Ok(None);
                     }
                 }
-                if craft.animation_phase == 30 {
-                    effects.points = 3000;
-                    craft.lateral = 0;
-                    craft.height = context.horizon;
-                    craft.animation_phase = 31;
-                }
-                if (1..30).contains(&craft.animation_phase) {
-                    craft.lateral = 0;
-                    craft.height = context.horizon;
-                    craft.animation_phase += 1;
-                }
-                if craft.animation_phase == 31 {
-                    craft.lateral = 0;
-                    craft.height = context.horizon;
-                    craft.depth = craft.depth.wrapping_add(context.speeds[0]);
-                    if craft.depth > 1000 {
-                        craft.depth = -50;
-                    }
-                }
-                if craft.animation_phase == 1 {
-                    effects.points = effects.points.wrapping_add(3000);
-                }
+                self.transition_motion_tail(i, context, effects);
             }
             31..=33 => {
                 delta = [0; 3];
@@ -666,7 +731,38 @@ impl Enemy {
             }
             _ => {}
         }
-        Ok(delta)
+        Ok(Some(delta))
+    }
+
+    fn transition_motion_tail(
+        &mut self,
+        i: usize,
+        context: EnemyContext,
+        effects: &mut EnemyEffects,
+    ) {
+        let craft = &mut self.crafts[i];
+        if craft.animation_phase == 30 {
+            effects.points = 3000;
+            craft.lateral = 0;
+            craft.height = context.horizon;
+            craft.animation_phase = 31;
+        }
+        if (1..30).contains(&craft.animation_phase) {
+            craft.lateral = 0;
+            craft.height = context.horizon;
+            craft.animation_phase += 1;
+        }
+        if craft.animation_phase == 31 {
+            craft.lateral = 0;
+            craft.height = context.horizon;
+            craft.depth = craft.depth.wrapping_add(context.speeds[0]);
+            if craft.depth > 1000 {
+                craft.depth = -50;
+            }
+        }
+        if craft.animation_phase == 1 {
+            effects.points = effects.points.wrapping_add(3000);
+        }
     }
 
     fn boss_formation(&mut self, i: usize, player: [i16; 3], context: EnemyContext) {
@@ -2322,7 +2418,7 @@ mod tests {
                     &mut |_| {},
                 )
                 .unwrap();
-            assert_eq!(delta, [0; 3]);
+            assert_eq!(delta, Some([0; 3]));
             assert_eq!(enemy.orbit_center, [step, -100 + step]);
             assert_eq!(
                 (
@@ -2749,6 +2845,70 @@ mod tests {
             ]
         );
         assert!(!enemy.crafts[4].active);
+    }
+
+    #[test]
+    fn transition_sample_suspends_before_clamping_rng_and_remaining_slots() {
+        let mut direct = Enemy::new(&assets()).unwrap();
+        let mut synchronous = Enemy::new(&assets()).unwrap();
+        for enemy in [&mut direct, &mut synchronous] {
+            enemy
+                .spawn_command(0x9b, &mut Random::default(), 0, 1)
+                .unwrap();
+            enemy.crafts[0].depth = 50;
+            enemy.crafts[1] = enemy.crafts[0];
+            enemy.crafts[1].slot = 6;
+        }
+        let player = [14, 0, -100];
+        let context = EnemyContext::default();
+        let mut direct_random = Random::default();
+        let mut synchronous_random = direct_random;
+        let mut actions = Vec::new();
+        let later = format!("{:?}", direct.crafts[1]);
+        let mut task = direct.begin_update(player, context);
+        let sample = direct
+            .resume_update(&mut task, &mut direct_random, &mut |a| actions.push(a))
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            sample,
+            GameplayAction::IntroSample { site: 0x42bf, .. }
+        ));
+        assert_eq!(direct.crafts[0].animation_phase, 0);
+        assert_eq!(direct.crafts[0].depth, 22);
+        assert_eq!(format!("{:?}", direct.crafts[1]), later);
+        assert_eq!(direct_random, synchronous_random);
+        assert_eq!(actions.len(), 1);
+        actions.push(sample);
+        let sample = direct
+            .resume_update(&mut task, &mut direct_random, &mut |a| actions.push(a))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (direct.crafts[0].animation_phase, direct.crafts[0].depth),
+            (2, 50)
+        );
+        assert_eq!(
+            (direct.crafts[1].animation_phase, direct.crafts[1].depth),
+            (0, 22)
+        );
+        actions.push(sample);
+        assert!(
+            direct
+                .resume_update(&mut task, &mut direct_random, &mut |a| actions.push(a))
+                .unwrap()
+                .is_none()
+        );
+        let mut synchronous_actions = Vec::new();
+        let effects = synchronous
+            .update_with_sound(&mut synchronous_random, player, context, &mut |a| {
+                synchronous_actions.push(a)
+            })
+            .unwrap();
+        assert_eq!(actions, synchronous_actions);
+        assert_eq!(task.effects(), effects);
+        assert_eq!(direct_random, synchronous_random);
+        assert_eq!(format!("{direct:?}"), format!("{synchronous:?}"));
     }
 
     #[test]

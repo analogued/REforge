@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Synchronous sample playback as a suspended guest foreground continuation.
 
-use super::{Clock, ClockEvent, Progress, Stamp};
+use super::{Clock, ClockEvent, Interrupt, Progress, Stamp};
 use crate::{
     Error,
     sound::{FarPointer, SampleMemory, SamplePlayer, SampleRequest, SampleSoundState, StartResult},
@@ -97,9 +97,7 @@ impl SampleTask {
             // foreground observe CX and run its CLI/teardown sequence.
             let pending = clock.advance_to(clock.tick())?;
             if pending == Progress::Reached && self.player.completed() {
-                let result = self.player.finish(state, clock)?;
-                clock.check()?;
-                self.returned = true;
+                let result = self.poll_return(state, clock)?.expect("completed sample");
                 return Ok(SampleProgress::Returned(result));
             }
             let progress = if pending == Progress::Reached {
@@ -109,22 +107,48 @@ impl SampleTask {
             };
             match progress {
                 Progress::Reached => return Ok(SampleProgress::Pending),
-                Progress::Interrupt(irq) => match irq.irq {
-                    0 if irq.handler == self.timer_handler => {
-                        self.player.timer_interrupt(memory, clock)?
-                    }
-                    1 if irq.handler == self.keyboard_handler => {
-                        self.player.keyboard_interrupt(state, clock)?
-                    }
-                    _ => {
-                        return Err(invalid(
-                            "sample continuation encountered an unexpected installed handler",
-                        ));
-                    }
-                },
+                Progress::Interrupt(irq) => self.dispatch(irq, memory, state, clock)?,
             }
             clock.check()?;
         }
+    }
+
+    /// The enclosing scheduler may need to deliver input at a deadline before
+    /// dispatching the clock's entered IRQ. Keep the same sole sample cursor.
+    pub(crate) fn dispatch<O: FnMut(Stamp, ClockEvent)>(
+        &mut self,
+        irq: Interrupt,
+        memory: &impl SampleMemory,
+        state: &mut SampleSoundState,
+        clock: &mut Clock<O>,
+    ) -> Result<(), Error> {
+        match irq.irq {
+            0 if irq.handler == self.timer_handler => self.player.timer_interrupt(memory, clock),
+            1 if irq.handler == self.keyboard_handler => {
+                self.player.keyboard_interrupt(state, clock)
+            }
+            _ => Err(invalid(
+                "sample continuation encountered an unexpected installed handler",
+            )),
+        }
+    }
+
+    /// Call only after draining deliverable interrupts at this tick.
+    pub(crate) fn poll_return<O: FnMut(Stamp, ClockEvent)>(
+        &mut self,
+        state: &mut SampleSoundState,
+        clock: &mut Clock<O>,
+    ) -> Result<Option<u16>, Error> {
+        if self.returned {
+            return Err(invalid("sample foreground has already returned"));
+        }
+        if !self.player.completed() {
+            return Ok(None);
+        }
+        let result = self.player.finish(state, clock)?;
+        clock.check()?;
+        self.returned = true;
+        Ok(Some(result))
     }
 }
 

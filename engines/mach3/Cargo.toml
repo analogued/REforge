@@ -17,6 +17,7 @@ reforge_audio = { path = "../../crates/reforge_audio" }
 [[bin]]
 name = "mach3-frame"
 path = "src/main.rs"
+required-features = ["dev-tools"]
 
 [[bin]]
 name = "mach3-viewer"
@@ -26,12 +27,19 @@ required-features = ["viewer"]
 [[bin]]
 name = "mach3-opening"
 path = "src/bin/opening.rs"
+required-features = ["dev-tools"]
 
 [[bin]]
 name = "mach3-replay"
 path = "src/bin/replay.rs"
+required-features = ["dev-tools"]
 
 [[bin]]
 name = "mach3-sound"
 path = "src/bin/sound.rs"
+required-features = ["dev-tools"]
+
+[[test]]
+name = "frame_cli"
+path = "tests/frame_cli.rs"
 required-features = ["dev-tools"]

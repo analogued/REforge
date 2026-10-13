@@ -32,17 +32,18 @@ cargo test --locked -p mach3 --features viewer,dev-tools
 cargo clippy --locked -p mach3 --all-targets --features viewer,dev-tools -- -D warnings
 ```
 
-Build the library, frame renderer, opening exporter and replay tool with
-`cargo build --locked -p mach3`; add `--features viewer` to build the windowed
-viewer. The `viewer` feature exposes `mach3::cli::run` for REforge dispatch and
+Build the library with `cargo build --locked -p mach3`; add `--features dev-tools`
+to build the frame renderer, opening exporter, replay tool and sound exporter.
+Use `--features viewer` to build the windowed viewer, or `--features viewer,dev-tools`
+for both. The `viewer` feature exposes `mach3::cli::run` for REforge dispatch and
 the standalone `mach3-viewer` binary. Dependencies are recorded in the root
 `Cargo.lock` and [dependency notices](docs/dependencies.md). Once Cargo has
 fetched them, use `--offline` for local checks and builds.
 
-The opt-in `dev-tools` feature enables the `mach3-sound` bounded sound exporter
-with optional offline speaker WAV rendering, and input and timing diagnostics
-in viewer builds; it does not enable SDL3 by
-itself. Normal builds exclude `--trace-input` and `--trace-timing`, including
+The opt-in `dev-tools` feature enables all four diagnostic/export binaries and
+their CLI integration tests, optional offline speaker WAV rendering, and input
+and timing diagnostics in viewer builds; it does not enable SDL3 by itself.
+Normal builds exclude `--trace-input` and `--trace-timing`, including
 release builds unless `dev-tools` is explicitly enabled. Test all
 four combinations above when changing tracing or viewer input. REforge's
 `dev-tools` feature forwards this feature to Mach 3.

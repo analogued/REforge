@@ -51,8 +51,11 @@ Requires Rust 1.85 or later. Asset decoding and frame export use the standard
 library; the optional windowed viewer uses SDL3. Run Cargo commands below from
 the combined repository root; `-p mach3` selects this game package:
 
+The frame, opening, replay and sound exporter binaries require `dev-tools`.
+`mach3-viewer` requires `viewer`; either feature can be enabled independently.
+
 ```sh
-cargo run -p mach3 --bin mach3-frame -- /path/to/assets /path/to/first-frame.ppm
+cargo run -p mach3 --features dev-tools --bin mach3-frame -- /path/to/assets /path/to/first-frame.ppm
 ```
 
 The renderer reads `DATA2`, `DATA3`, `DATA4`, and `DATA5` from the supplied
@@ -61,7 +64,7 @@ verified initial scene into a 320-by-200 binary PPM. The output must be a new
 file. For a 16-KiB CGA framebuffer with unused bank bytes zeroed:
 
 ```sh
-cargo run -p mach3 --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
+cargo run -p mach3 --features dev-tools --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
 ```
 
 This implements the fixed initial draw state, masked sprites, and frame export.
@@ -203,7 +206,7 @@ After Cargo has fetched the locked dependencies, these commands can use `--offli
 For reproducible frame and state export without SDL3:
 
 ```sh
-cargo run -p mach3 --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
+cargo run -p mach3 --features dev-tools --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
 ```
 
 This writes frames `000.cga` through `836.cga` plus state, player, weapon, object, and

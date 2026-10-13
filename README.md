@@ -53,7 +53,8 @@ Use `--features dev-tools` to include Alley Cat's development scene selector,
 fixed-seed controls, actor/damage switches and diagnostics. Optimization is
 independent: a release build can include these tools, while a normal build omits
 them. Mach 3's `--trace-input` and `--trace-timing` also require `dev-tools`.
-Its package provides separate frame, opening and recording replay binaries.
+Its package provides separate frame, opening, replay and sound exporters, all
+requiring `dev-tools`.
 
 ```sh
 cargo run --locked --release -p reforge --features dev-tools -- \
@@ -61,9 +62,9 @@ cargo run --locked --release -p reforge --features dev-tools -- \
 ```
 
 `--no-default-features` omits window support. Alley Cat headless diagnostics also
-require `dev-tools`; Mach 3's package provides separate frame/opening/replay
-binaries for headless work. These tools continue to be available with
-`cargo run --locked -p mach3 --bin mach3-replay -- --help`.
+require `dev-tools`; Mach 3's package provides separate exporters for headless
+work under the same feature. For example:
+`cargo run --locked -p mach3 --features dev-tools --bin mach3-replay -- --help`.
 
 ## Source organization
 

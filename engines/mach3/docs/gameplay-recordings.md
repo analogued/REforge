@@ -4,7 +4,7 @@ The Rust replay tool consumes an externally supplied recording of the original's
 sampled controls and render checkpoints. From the combined repository root:
 
 ```sh
-cargo build --locked -p mach3 --release --bin mach3-replay
+cargo build --locked -p mach3 --features dev-tools --release --bin mach3-replay
 /path/to/target/release/mach3-replay /path/to/game /path/to/recording/reference /path/to/new-replay
 ```
 

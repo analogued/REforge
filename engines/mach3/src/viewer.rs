@@ -1,7 +1,10 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! SDL3 presentation of startup screens and live gameplay.
 
-use reforge_sdl::{FrameFormat, FrameTexture, HostPause, HostShortcut, Window, host_shortcut};
+use reforge_sdl::{
+    FrameFormat, FrameTexture, HostPause, HostShortcut, Window,
+    host_shortcut as shared_host_shortcut,
+};
 use std::collections::{BTreeSet, VecDeque};
 
 mod input_history;
@@ -87,6 +90,23 @@ fn title(screen: Screen) -> &'static str {
         Screen::Intro => "REforge — Mach 3 — Intro (Space to advance)",
         Screen::InitialScene => "REforge — Mach 3 — Initial scene (Esc to close)",
     }
+}
+
+/// Recognize P through the same host-pause policy as Pause/Break. The original
+/// event remains available for tracing; this alias never enters the DOS input.
+fn host_shortcut(event: &Event) -> Option<HostShortcut> {
+    if let Event::KeyDown {
+        keycode: Some(Keycode::P),
+        ..
+    } = event
+    {
+        let mut alias = event.clone();
+        if let Event::KeyDown { keycode, .. } = &mut alias {
+            *keycode = Some(Keycode::Pause);
+        }
+        return shared_host_shortcut(&alias);
+    }
+    shared_host_shortcut(event)
 }
 
 fn event_action(presentation: &mut Presentation, event: Event, host_paused: bool) -> Action {
@@ -1309,7 +1329,7 @@ fn run_inner(
         if host_pause.is_paused() {
             if repaint {
                 window.set_title(
-                    "REforge — Mach 3 — Paused (Pause/Break to continue, Ctrl+Q to close)",
+                    "REforge — Mach 3 — Paused (P or Pause/Break to continue, Ctrl+Q to close)",
                 )?;
                 window.present(&texture)?;
             }
@@ -1454,28 +1474,52 @@ mod tests {
         );
         assert_eq!(presentation.screen(), Screen::Splash);
         let mut session = SessionState::default();
-        let pause = event(Scancode::Pause, Keycode::Pause, Mod::NOMOD, false);
-        assert_eq!(
-            event_action(&mut presentation, pause.clone(), false),
-            Action::ToggleHostPause
-        );
-        // Pause/Break is a host action, not an F1 make/break alias.
-        control_event(&mut session, &pause, true);
-        assert_eq!(
-            session.keyboard.held_keys(0),
-            crate::gameplay::HeldKeys::default()
-        );
-        assert_eq!(session.pause.state, PauseState::Running);
-        for (mods, repeat) in [(Mod::NOMOD, true), (Mod::LALTMOD, false)] {
+        for (scan, key) in [(Scancode::Pause, Keycode::Pause), (Scancode::P, Keycode::P)] {
+            let pause = event(scan, key, Mod::NOMOD, false);
+            for host_paused in [false, true] {
+                assert_eq!(
+                    event_action(&mut presentation, pause.clone(), host_paused),
+                    Action::ToggleHostPause
+                );
+            }
+            // Both shortcuts are host actions, not F1 make/break aliases.
+            control_event(&mut session, &pause, true);
             assert_eq!(
-                event_action(
-                    &mut presentation,
-                    event(Scancode::Pause, Keycode::Pause, mods, repeat),
-                    true
-                ),
-                Action::Continue
+                session.keyboard.held_keys(0),
+                crate::gameplay::HeldKeys::default()
             );
+            assert_eq!(session.pause.state, PauseState::Running);
+            for mods in [
+                Mod::NOMOD,
+                Mod::LSHIFTMOD,
+                Mod::RSHIFTMOD,
+                Mod::CAPSMOD,
+                Mod::NUMMOD,
+                Mod::LCTRLMOD,
+                Mod::RCTRLMOD,
+                Mod::LALTMOD,
+                Mod::RALTMOD,
+                Mod::LGUIMOD,
+                Mod::RGUIMOD,
+            ] {
+                for repeat in [false, true] {
+                    assert_eq!(
+                        host_shortcut(&event(scan, key, mods, repeat)),
+                        shared_host_shortcut(&event(Scancode::Pause, Keycode::Pause, mods, repeat))
+                    );
+                }
+            }
         }
+        assert_eq!(host_shortcut(&key_event(Keycode::P, false, false)), None);
+        // P follows the letter on the active layout, as do Mach 3's other keys.
+        assert_eq!(
+            host_shortcut(&event(Scancode::A, Keycode::P, Mod::NOMOD, false)),
+            Some(HostShortcut::TogglePause)
+        );
+        assert_eq!(
+            host_shortcut(&event(Scancode::P, Keycode::A, Mod::NOMOD, false)),
+            None
+        );
         assert_eq!(
             event_action(
                 &mut presentation,

@@ -21,7 +21,7 @@ Space returns to intro after the first post-game title pair.\n\
 Normal animation runs gameplay, sound and waits on one PIT timeline.\n\
 --audio-renderer speaker|enhanced-pcm: select host audio rendering (default speaker); timing is unchanged.\n\
 --step, --static and custom --period-ms previews use silent nominal stepping and need DATA1 through DATA6.\n\
-Pause/Break freezes host simulation and playback. F1 retains original pause/end-game behavior; F2 toggles native sound, F3 switches color/monochrome.\n\
+P or Pause/Break freezes host simulation and playback. F1 retains original pause/end-game behavior; F2 toggles native sound, F3 switches color/monochrome.\n\
 --f3-mode press|original: toggle F3 once per press (default press), or at every active original control poll.\n\
 Unavailable audio warns and mutes host output; guest execution continues. Exact CPU-dependent pacing remains unmodeled.";
 

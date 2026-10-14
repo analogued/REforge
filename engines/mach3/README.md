@@ -155,7 +155,7 @@ every active control poll, including repeated toggles while F3 is held, for
 physical-input fidelity comparisons. F1/F2 retain their original polling rules.
 Original-game recording replays always keep original per-poll F3 behavior.
 Ctrl+Q, Escape or window close exits the viewer.
-Pause/Break toggles a separate modern host pause during intro, pre-game, gameplay
+P or Pause/Break toggles a separate modern host pause during intro, pre-game, gameplay
 and game-over animation, freezing simulation and queued playback. Repeats and
 Alt/Ctrl/Super combinations
 are ignored; other keys and focus changes do not resume it. Paused time is

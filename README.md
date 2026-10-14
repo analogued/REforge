@@ -38,7 +38,7 @@ presets are not yet exposed. GPU/shader setup failures warn and retain plain
 pixels, including with `SDL_RENDER_DRIVER=software`. See the
 [shared presentation documentation](crates/reforge_sdl/README.md) for backend
 requirements and the bundled shader's attribution.
-Ctrl+Q quits either game, and Pause/Break toggles pause during gameplay.
+Ctrl+Q quits either game, and P or Pause/Break toggles pause during gameplay.
 Each game retains its additional bindings.
 See each game's README for supported input versions, controls and current limits.
 

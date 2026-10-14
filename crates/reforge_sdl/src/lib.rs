@@ -241,6 +241,27 @@ impl Window {
                 sdl3::video::WindowPos::Centered,
             );
             sync_window(window);
+            if video.current_video_driver() == "wayland" {
+                // Wayland ignores toplevel position requests. Re-map at the
+                // final normal size so the compositor applies its placement
+                // policy afresh instead of retaining the maximized origin.
+                // SDL keeps the window, renderer and textures alive.
+                if !window.hide() {
+                    return Err(sdl3::get_error().to_string());
+                }
+                sync_window(window);
+                if !window.show() {
+                    return Err(sdl3::get_error().to_string());
+                }
+                // A buffer is required to map the new Wayland shell role.
+                canvas.set_draw_color(Color::RGB(0, 0, 0));
+                canvas.clear();
+                if !canvas.present() {
+                    return Err(sdl3::get_error().to_string());
+                }
+                sync_window(canvas.window());
+                update_minimum_size(canvas.window_mut(), minimum_pixels)?;
+            }
         }
         let events = sdl.event_pump().map_err(|error| error.to_string())?;
         Ok(Self {

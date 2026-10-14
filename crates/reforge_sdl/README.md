@@ -75,7 +75,11 @@ query reports the full monitor (as on some Wayland desktops). The finished windo
 has only the few border pixels caused by fractional density rounding, rather
 than maximized letterbox margins. If maximization is unavailable or denied,
 startup retains a density-compensated multiplier of 4. Placement remains a
-compositor decision. This measurement and sizing run only at startup.
+compositor decision. Native Wayland auto windows are remapped at their final
+normal size so the compositor applies its initial placement policy again,
+instead of retaining the maximized window's upper-left origin. Centering is
+requested on backends that support positioning; Wayland does not guarantee
+coordinates. This measurement, sizing and remapping run only at startup.
 
 An explicit multiplier targets drawable pixels: 4 requests a 1280×960 rendering
 area, regardless of the desktop's content scale. SDL's window pixel density

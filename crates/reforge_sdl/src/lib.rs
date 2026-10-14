@@ -30,7 +30,7 @@ impl std::str::FromStr for Presentation {
     }
 }
 
-/// Used only when automatic startup sizing cannot query a usable desktop area.
+/// Restored window size for auto, and fallback if maximization is unavailable.
 const AUTO_FALLBACK_SCALE: u32 = 4;
 
 use sdl3::{
@@ -118,7 +118,7 @@ pub struct Window {
 }
 
 impl Window {
-    /// None requests the display's usable desktop area, ignoring decorations.
+    /// None fits a normal window to the compositor's maximum client area.
     /// Some(scale) requests display dimensions times scale in drawable pixels.
     /// Desktop constraints can override sizing; later user resizes are retained.
     pub fn new(
@@ -152,36 +152,35 @@ impl Window {
             return Err("window title contains a NUL byte".into());
         }
         let width = display_width
-            .checked_mul(scale.unwrap_or(1))
+            .checked_mul(scale.unwrap_or(AUTO_FALLBACK_SCALE))
             .filter(|value| *value <= i32::MAX as u32)
             .ok_or("scaled window width is too large")?;
         let height = display_height
-            .checked_mul(scale.unwrap_or(1))
+            .checked_mul(scale.unwrap_or(AUTO_FALLBACK_SCALE))
             .filter(|value| *value <= i32::MAX as u32)
             .ok_or("scaled window height is too large")?;
         let sdl = sdl3::init().map_err(|error| error.to_string())?;
         let video = sdl.video().map_err(|error| error.to_string())?;
-        // Create auto windows at the primary display's reported work area so
-        // centering is based on the requested area, not a small bootstrap window.
-        // Re-query the window's selected display below and once after mapping.
-        let (width, height) = if scale.is_none() {
-            video
-                .get_primary_display()
-                .and_then(|display| display.get_usable_bounds())
-                .map_or((width, height), |bounds| (bounds.width(), bounds.height()))
-        } else {
-            (width, height)
-        };
-        let mut window = video
-            .window(title, width, height)
+        // A desktop-sized client can extend behind panels/decorations, notably
+        // on Wayland where usable bounds may equal the full monitor. Start small
+        // and ask the compositor for a maximized client area instead. The modest
+        // restored size also works if maximization is unsupported or denied.
+        let mut builder = video.window(title, width, height);
+        builder
             .position_centered()
             .resizable()
             .high_pixel_density()
-            .hidden()
-            .build()
-            .map_err(|error| error.to_string())?;
+            .hidden();
+        if scale.is_none() {
+            builder.maximized();
+        }
+        let mut window = builder.build().map_err(|error| error.to_string())?;
         let minimum_pixels = (display_width, display_height);
-        request_initial_size(&mut window, minimum_pixels, scale)?;
+        request_initial_size(
+            &mut window,
+            minimum_pixels,
+            scale.unwrap_or(AUTO_FALLBACK_SCALE),
+        )?;
         let (mut canvas, effect) = hyllian::create_canvas(window, presentation)?;
         configure(&mut canvas, display_width, display_height)?;
         // The wrapper does not expose this setter. Use its generated declarations,
@@ -203,8 +202,45 @@ impl Window {
             return Err(sdl3::get_error().to_string());
         }
         sync_window(canvas.window());
-        if request_initial_size(canvas.window_mut(), minimum_pixels, scale)? {
-            sync_window(canvas.window());
+        if let Some(multiplier) = scale {
+            if request_initial_size(canvas.window_mut(), minimum_pixels, multiplier)? {
+                sync_window(canvas.window());
+            }
+        } else {
+            // Measure the negotiated maximum, then restore a compact normal
+            // window. The final client contains an integer-sized game area,
+            // rather than the large letterbox margins of a maximized window.
+            let window = canvas.window_mut();
+            let multiplier = if window.is_maximized() {
+                fitted_scale(
+                    minimum_pixels,
+                    window.size_in_pixels(),
+                    window.size(),
+                    window.pixel_density(),
+                )?
+            } else {
+                AUTO_FALLBACK_SCALE
+            };
+            // Restore also cancels a still-pending maximize when initial sync
+            // timed out. Never resize an actively maximized window: SDL may
+            // accept that request without changing its client dimensions.
+            let was_maximized = window.is_maximized();
+            if !window.restore() && was_maximized {
+                return Err(sdl3::get_error().to_string());
+            }
+            sync_window(window);
+            if window.is_maximized() {
+                return Err("cannot restore the automatic display window".into());
+            }
+            if request_initial_size(window, minimum_pixels, multiplier)? {
+                sync_window(window);
+            }
+            // Placement is a request; Wayland compositors choose the position.
+            window.set_position(
+                sdl3::video::WindowPos::Centered,
+                sdl3::video::WindowPos::Centered,
+            );
+            sync_window(window);
         }
         let events = sdl.event_pump().map_err(|error| error.to_string())?;
         Ok(Self {
@@ -333,21 +369,34 @@ fn update_minimum_size(window: &mut SdlWindow, pixels: (u32, u32)) -> Result<(),
     Ok(())
 }
 
-/// Desktop bounds are window coordinates, while explicit multiples target
-/// drawable pixels. Do not convert auto bounds by density a second time.
+/// Largest integer area fitting both drawable pixels and rounded window units.
+/// Keep one display multiple as the minimum, even on an undersized desktop.
+fn fitted_scale(
+    display_pixels: (u32, u32),
+    available_pixels: (u32, u32),
+    available_units: (u32, u32),
+    density: f32,
+) -> Result<u32, String> {
+    let mut multiplier = (available_pixels.0 / display_pixels.0)
+        .min(available_pixels.1 / display_pixels.1)
+        .max(1);
+    while multiplier > 1 {
+        let size = initial_window_size(display_pixels, multiplier, density)?;
+        if size.0 <= available_units.0 && size.1 <= available_units.1 {
+            break;
+        }
+        // Rounding up for fractional DPI can exceed an exactly-full work area.
+        multiplier -= 1;
+    }
+    Ok(multiplier)
+}
+
+/// Explicit multiples (and auto's restored size) target drawable pixels.
 fn initial_window_size(
     display_pixels: (u32, u32),
-    scale: Option<u32>,
+    multiplier: u32,
     density: f32,
-    usable: Option<(u32, u32)>,
 ) -> Result<(u32, u32), String> {
-    if scale.is_none() {
-        if let Some((width, height)) = usable.filter(|&(w, h)| w > 0 && h > 0) {
-            let minimum = window_size_for_pixels(display_pixels, density)?;
-            return Ok((width.max(minimum.0), height.max(minimum.1)));
-        }
-    }
-    let multiplier = scale.unwrap_or(AUTO_FALLBACK_SCALE);
     let dimension = |pixels: u32| {
         pixels
             .checked_mul(multiplier)
@@ -363,26 +412,10 @@ fn initial_window_size(
 fn request_initial_size(
     window: &mut SdlWindow,
     display_pixels: (u32, u32),
-    scale: Option<u32>,
+    multiplier: u32,
 ) -> Result<bool, String> {
     update_minimum_size(window, display_pixels)?;
-    let usable = if scale.is_none() {
-        match window
-            .get_display()
-            .and_then(|display| display.get_usable_bounds())
-        {
-            Ok(bounds) => Some((bounds.width(), bounds.height())),
-            Err(error) => {
-                eprintln!(
-                    "REforge: cannot query usable desktop area: {error}; using scale {AUTO_FALLBACK_SCALE}"
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
-    let size = initial_window_size(display_pixels, scale, window.pixel_density(), usable)?;
+    let size = initial_window_size(display_pixels, multiplier, window.pixel_density())?;
     if window.size() == size {
         return Ok(false);
     }
@@ -467,6 +500,8 @@ mod tests {
             None,
         ] {
             if let Some(size) = requested {
+                assert!(display.canvas.window_mut().restore());
+                sync_window(display.canvas.window());
                 let size =
                     window_size_for_pixels(size, display.canvas.window().pixel_density()).unwrap();
                 display
@@ -690,29 +725,46 @@ mod tests {
     }
 
     #[test]
-    fn auto_uses_desktop_coordinates_and_explicit_scale_uses_drawable_pixels() {
+    fn auto_fit_accounts_for_client_area_and_fractional_rounding() {
+        assert_eq!(
+            fitted_scale((320, 240), (3841, 2030), (1707, 902), 2.25).unwrap(),
+            8
+        );
+        assert_eq!(
+            fitted_scale((320, 240), (3840, 2160), (3840, 2160), 1.0).unwrap(),
+            9
+        );
+        // A nominal exact physical fit must also fit after rounding window units.
+        assert_eq!(
+            fitted_scale((320, 240), (1280, 960), (569, 426), 2.25).unwrap(),
+            3
+        );
+        assert_eq!(
+            fitted_scale((320, 240), (2561, 1922), (1138, 854), 2.25).unwrap(),
+            8
+        );
+        assert_eq!(
+            fitted_scale((320, 240), (1920, 1080), (1920, 1080), 1.0).unwrap(),
+            4
+        );
+        assert_eq!(
+            fitted_scale((320, 240), (200, 100), (200, 100), 1.0).unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn startup_size_targets_drawable_pixels() {
         for density in [1.0, 1.25, 1.5, 2.0] {
-            assert_eq!(
-                initial_window_size((320, 240), None, density, Some((1920, 1040))).unwrap(),
-                (1920, 1040)
-            );
-            assert_eq!(
-                initial_window_size((320, 240), Some(4), density, Some((1920, 1040))).unwrap(),
-                window_size_for_pixels((1280, 960), density).unwrap()
-            );
-            for usable in [None, Some((0, 0))] {
+            for multiplier in [AUTO_FALLBACK_SCALE, 8, 9] {
                 assert_eq!(
-                    initial_window_size((320, 240), None, density, usable).unwrap(),
-                    window_size_for_pixels((1280, 960), density).unwrap()
+                    initial_window_size((320, 240), multiplier, density).unwrap(),
+                    window_size_for_pixels((320 * multiplier, 240 * multiplier), density).unwrap()
                 );
             }
         }
-        assert_eq!(
-            initial_window_size((320, 240), None, 2.0, Some((100, 100))).unwrap(),
-            (160, 120)
-        );
-        assert!(initial_window_size((320, 240), Some(0), 1.0, None).is_err());
-        assert!(initial_window_size((u32::MAX, 240), Some(16), 1.0, None).is_err());
+        assert!(initial_window_size((320, 240), 0, 1.0).is_err());
+        assert!(initial_window_size((u32::MAX, 240), 16, 1.0).is_err());
     }
 
     #[test]
@@ -749,6 +801,10 @@ mod tests {
             )
         );
         let window = display.canvas.window();
+        assert!(
+            !window.is_maximized(),
+            "auto must finish as a normal window"
+        );
         eprintln!(
             "auto: usable={:?}, window={:?}, drawable={:?}, density={}",
             window
@@ -776,6 +832,7 @@ mod tests {
             .unwrap();
         sync_window(display.canvas.window());
         let actual = display.canvas.window().size();
+        assert_eq!(actual, resized, "native resize must actually take effect");
         display.poll_events().for_each(drop);
         assert_eq!(display.canvas.window().size(), actual);
         assert_eq!(

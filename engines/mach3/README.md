@@ -185,10 +185,11 @@ option is available only with `dev-tools` and retains normal gameplay input
 behavior. For the standalone viewer, enable `--features viewer,dev-tools`.
 See [input tracing](docs/input-tracing.md) for the diagnostic format and limits.
 
-The default `--scale auto` requests SDL's reported usable display area as an
-ordinary window's client size, without subtracting window decorations. SDL may
-report the full monitor area when usable bounds are unavailable; an actual query
-error makes auto fall back to scale 4. `--scale 1..16` requests a fixed initial
+The default `--scale auto` opens a compact normal window at the largest integer
+display multiple that fits the compositor's maximum client area, accounting for
+panels and decorations. It briefly measures that area through maximization before
+restoring the final window; unavailable maximization falls back to scale 4.
+`--scale 1..16` requests a fixed initial
 drawable pixel multiplier; scale 4 gives 1280 by 960 pixels, and scale 8 gives
 2560 by 1920. The [shared SDL3 backend](../../crates/reforge_sdl/README.md)
 requests high pixel density and converts explicit pixel targets to window

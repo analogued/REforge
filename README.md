@@ -21,13 +21,14 @@ cargo run --locked --release -p reforge -- --controls --original /path/to/mach3-
 
 The built application is `target/release/reforge`, unless `CARGO_TARGET_DIR`
 selects another output path. Run `reforge --original <path> --help` for game-specific options.
-Both games default to `--scale auto`, requesting SDL's reported usable display
-area as an ordinary window's client size, without subtracting window decorations.
-SDL fits the image at an integer multiple of the aspect-corrected 320×240 display
-area, with black bars inside the window actually granted by the desktop.
+Both games default to `--scale auto`, opening a normal window at the largest
+integer multiple of the aspect-corrected 320×240 display area that fits the
+compositor's maximum client area. Auto briefly measures that area through
+maximization, accounting for desktop panels and window decorations, then restores
+a compact window. If maximization is unavailable, auto falls back to scale 4.
 `--scale 1..16` requests a fixed drawable pixel multiplier; `--scale 4` requests
-1280×960 pixels. SDL may report the full monitor area when usable bounds are
-unavailable; an actual query error makes auto fall back to scale 4.
+1280×960 pixels. SDL retains integer presentation and adds black margins when
+later user resizing leaves extra space.
 
 Presentation defaults to sharp nearest-neighbour pixels. Add
 `--presentation hyllian` for the shared Hyllian CRT shader, or

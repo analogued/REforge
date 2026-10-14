@@ -79,10 +79,10 @@ shader; `--presentation pixels` selects the default discrete pixels. Shader
 unavailability warns and falls back to pixels. Presentation selection is ignored
 with a warning in headless runs or builds without SDL. It affects host display
 only; game palettes, framebuffers, timing and exports retain their original data.
-The default `--scale auto` requests SDL's reported
-usable display area as an ordinary window's client size, without subtracting
-window decorations. SDL may report the full monitor area when usable bounds are
-unavailable; an actual query error makes auto fall back to scale 4.
+The default `--scale auto` opens a compact normal window at the largest integer
+display multiple that fits the compositor's maximum client area, accounting for
+panels and decorations. It briefly measures that area through maximization before
+restoring the final window; unavailable maximization falls back to scale 4.
 `--scale N`, from 1 through 16, selects an initial drawable target of
 `320*N` × `240*N` pixels. Use `--scale 3` for 960×720 or `--scale 4` for 1280×960.
 SDL fits the image at integer multiples of the 320×240 display area inside the

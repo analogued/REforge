@@ -67,13 +67,15 @@ width, monochrome columns must be discarded; odd display multipliers give them
 unequal widths. Nearest sampling selects source colours without blending;
 linear filtering would blend them.
 
-Windows request high pixel density. Auto requests the usable desktop area
-reported by SDL for the window's display, in platform window coordinates. It
-does not subtract window decorations, maximize the window or round the requested
-window dimensions to a display multiple. The desktop can constrain the request;
-integer presentation fits the game inside the actual drawable area. On backends
-without reserved-area information, SDL may report the full monitor bounds.
-If the display query fails, startup falls back to a fixed multiplier of 4.
+Windows request high pixel density. Auto measures the compositor's maximum
+client area by briefly requesting maximization from a modest bootstrap window,
+then restores a normal window sized to the largest integer display multiple
+that fits. This accounts for panels and decorations even when SDL's usable-bounds
+query reports the full monitor (as on some Wayland desktops). The finished window
+has only the few border pixels caused by fractional density rounding, rather
+than maximized letterbox margins. If maximization is unavailable or denied,
+startup retains a density-compensated multiplier of 4. Placement remains a
+compositor decision. This measurement and sizing run only at startup.
 
 An explicit multiplier targets drawable pixels: 4 requests a 1280×960 rendering
 area, regardless of the desktop's content scale. SDL's window pixel density
@@ -97,8 +99,7 @@ first game frame and after a drawable-size change, the shared backend submits
 the retained image once to settle that backing size, then refreshes integer
 geometry before drawing the requested frame. This prevents a static screen's
 only resize redraw from leaving a clipped image visible. The caller's overlay
-runs once; software and ordinary renderers retain their existing path. Startup
-auto sizing still leaves decorations and desktop constraints to the compositor.
+runs once; software and ordinary renderers retain their existing path. Auto uses the compositor-negotiated client area for startup sizing.
 
 Construct and use windows, texture creators and textures on the main thread.
 Keep a texture's creator alive until the texture is dropped, and present it only

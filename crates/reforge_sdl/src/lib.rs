@@ -6,8 +6,29 @@
 
 pub use sdl3;
 pub mod audio;
+mod hyllian;
 mod input;
 pub use input::{EventClockSample, HostPause, HostShortcut, event_clock_sample, host_shortcut};
+
+/// Shared display treatment; this never changes an engine's pixels or palette.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Presentation {
+    #[default]
+    Pixels,
+    Hyllian,
+}
+
+impl std::str::FromStr for Presentation {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "pixels" => Ok(Self::Pixels),
+            "hyllian" => Ok(Self::Hyllian),
+            _ => Err("presentation must be pixels or hyllian".into()),
+        }
+    }
+}
 
 /// Used only when automatic startup sizing cannot query a usable desktop area.
 const AUTO_FALLBACK_SCALE: u32 = 4;
@@ -34,6 +55,7 @@ pub struct FrameTexture<'a> {
     texture: Texture<'a>,
     pitch: usize,
     byte_len: usize,
+    size: (u32, u32),
 }
 
 impl<'a> FrameTexture<'a> {
@@ -64,6 +86,7 @@ impl<'a> FrameTexture<'a> {
             texture,
             pitch,
             byte_len,
+            size: (width, height),
         })
     }
 
@@ -84,6 +107,8 @@ impl<'a> FrameTexture<'a> {
 /// Owns one window and SDL event pump. Construct, use and drop on the main thread.
 /// The SDL wrapper manages native object ownership and subsystem lifetimes.
 pub struct Window {
+    // GPU resources must be released before their owning renderer/device.
+    effect: Option<hyllian::Hyllian>,
     canvas: WindowCanvas,
     events: sdl3::EventPump,
     minimum_pixels: (u32, u32),
@@ -100,6 +125,24 @@ impl Window {
         display_width: u32,
         display_height: u32,
         scale: Option<u32>,
+    ) -> Result<Self, String> {
+        Self::new_with_presentation(
+            title,
+            display_width,
+            display_height,
+            scale,
+            Presentation::Pixels,
+        )
+    }
+
+    /// Request an optional CRT effect at startup, before creating frame textures.
+    /// Unsupported GPU/shader setup warns and falls back to plain presentation.
+    pub fn new_with_presentation(
+        title: &str,
+        display_width: u32,
+        display_height: u32,
+        scale: Option<u32>,
+        presentation: Presentation,
     ) -> Result<Self, String> {
         if display_width == 0 || display_height == 0 || scale == Some(0) {
             return Err("display dimensions and scale must be positive".into());
@@ -138,9 +181,7 @@ impl Window {
             .map_err(|error| error.to_string())?;
         let minimum_pixels = (display_width, display_height);
         request_initial_size(&mut window, minimum_pixels, scale)?;
-        // None lets SDL select a renderer supported by the host, including GPU backends.
-        let mut canvas =
-            sdl3::render::create_renderer(window, None).map_err(|error| error.to_string())?;
+        let (mut canvas, effect) = hyllian::create_canvas(window, presentation)?;
         configure(&mut canvas, display_width, display_height)?;
         // The wrapper does not expose this setter. Use its generated declarations,
         // rather than maintaining a second handwritten C interface.
@@ -166,6 +207,7 @@ impl Window {
         }
         let events = sdl.event_pump().map_err(|error| error.to_string())?;
         Ok(Self {
+            effect,
             canvas,
             events,
             minimum_pixels,
@@ -221,7 +263,11 @@ impl Window {
         frame: &FrameTexture<'_>,
         overlay: impl FnOnce(&mut WindowCanvas) -> Result<(), String>,
     ) -> Result<(), String> {
-        paint(&mut self.canvas, &frame.texture)?;
+        if let Some(effect) = self.effect.as_mut() {
+            effect.paint(&mut self.canvas, &frame.texture, frame.size)?;
+        } else {
+            paint(&mut self.canvas, &frame.texture)?;
+        }
         overlay(&mut self.canvas)?;
         if !self.canvas.present() {
             return Err(sdl3::get_error().to_string());
@@ -347,6 +393,161 @@ fn paint<T: RenderTarget>(canvas: &mut Canvas<T>, texture: &Texture<'_>) -> Resu
 mod tests {
     use super::*;
     use sdl3::surface::Surface;
+
+    #[test]
+    #[ignore = "requires SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software; run serially"]
+    fn hyllian_software_fallback_keeps_plain_pixels() {
+        let mut display = Window::new_with_presentation(
+            "REforge software fallback check",
+            320,
+            240,
+            Some(2),
+            Presentation::Hyllian,
+        )
+        .unwrap();
+        assert_eq!(display.canvas.renderer_name, "software");
+        assert!(display.effect.is_none());
+        let creator = display.texture_creator();
+        let mut frame = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba).unwrap();
+        let pixels = [17, 85, 170, 255].repeat(320 * 200);
+        frame.update(&pixels).unwrap();
+        paint(&mut display.canvas, &frame.texture).unwrap();
+        let readback = display
+            .canvas
+            .read_pixels(None)
+            .unwrap()
+            .convert_format(PixelFormat::RGB24)
+            .unwrap();
+        readback.with_lock(|actual| {
+            let pitch = readback.pitch() as usize;
+            for y in 0..readback.height() as usize {
+                for x in 0..readback.width() as usize {
+                    assert_eq!(
+                        &actual[y * pitch + x * 3..y * pitch + x * 3 + 3],
+                        &[17, 85, 170]
+                    );
+                }
+            }
+        });
+        display.present(&frame).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires an SDL GPU-capable desktop; run serially"]
+    fn hyllian_gpu_scanlines_follow_source_rows() {
+        let mut display = Window::new_with_presentation(
+            "REforge Hyllian check",
+            320,
+            240,
+            Some(4),
+            Presentation::Hyllian,
+        )
+        .unwrap();
+        assert_eq!(display.canvas.renderer_name, "gpu");
+        assert!(
+            display.effect.is_some(),
+            "Hyllian must execute for this check"
+        );
+        let creator = display.texture_creator();
+        for (width, format, bytes) in [(640, FrameFormat::Rgb, 3), (320, FrameFormat::Rgba, 4)] {
+            let mut frame = FrameTexture::new(&creator, width, 200, format).unwrap();
+            frame
+                .update(&vec![255; width as usize * 200 * bytes])
+                .unwrap();
+            for scale in [4, 2] {
+                let size = window_size_for_pixels(
+                    (320 * scale, 240 * scale),
+                    display.canvas.window().pixel_density(),
+                )
+                .unwrap();
+                display
+                    .canvas
+                    .window_mut()
+                    .set_size(size.0, size.1)
+                    .unwrap();
+                sync_window(display.canvas.window());
+                display.poll_events().for_each(drop);
+                // Match the engines: upload after window events/size changes.
+                frame
+                    .update(&vec![255; width as usize * 200 * bytes])
+                    .unwrap();
+                // SDL's GPU renderer updates its backing texture at presentation,
+                // not Window::sync. Settle that resize before a pixel readback;
+                // otherwise an enlarged read could exceed the old backing size.
+                display.present(&frame).unwrap();
+                paint(&mut display.canvas, &frame.texture).unwrap();
+                let plain = display
+                    .canvas
+                    .read_pixels(None)
+                    .unwrap()
+                    .convert_format(PixelFormat::RGB24)
+                    .unwrap();
+                assert_eq!(
+                    plain.with_lock(|actual| actual
+                        [3 * plain.width() as usize / 2..3 * plain.width() as usize / 2 + 3]
+                        .to_vec()),
+                    [255, 255, 255]
+                );
+                display
+                    .effect
+                    .as_mut()
+                    .unwrap()
+                    .paint(&mut display.canvas, &frame.texture, frame.size)
+                    .unwrap();
+                display.canvas.set_draw_color(Color::RGB(17, 85, 170));
+                display
+                    .canvas
+                    .fill_rect(sdl3::rect::Rect::new(16, 16, 8, 8))
+                    .unwrap();
+                let readback = display
+                    .canvas
+                    .read_pixels(None)
+                    .unwrap()
+                    .convert_format(PixelFormat::RGB24)
+                    .unwrap();
+                readback.with_lock(|actual| {
+                    let multiplier = readback.width() as usize / 320;
+                    let offset =
+                        (20 * multiplier) * readback.pitch() as usize + 20 * multiplier * 3;
+                    assert_eq!(
+                        &actual[offset..offset + 3],
+                        &[17, 85, 170],
+                        "overlay must bypass CRT shader"
+                    );
+                });
+                let levels: Vec<u32> = readback.with_lock(|actual| {
+                    let pitch = readback.pitch() as usize;
+                    (0..readback.height() as usize)
+                        .map(|y| {
+                            let left = readback.width() as usize / 2;
+                            actual[y * pitch + left * 3..y * pitch + (left + 32) * 3]
+                                .iter()
+                                .map(|&v| u32::from(v))
+                                .sum()
+                        })
+                        .collect()
+                });
+                let peaks = levels
+                    .windows(3)
+                    .filter(|row| row[1] > row[0] && row[1] >= row[2])
+                    .count();
+                eprintln!(
+                    "Hyllian: source={width}x200, drawable={:?}, readback={}x{}, peaks={peaks}",
+                    display.canvas.window().size_in_pixels(),
+                    readback.width(),
+                    readback.height()
+                );
+                // 200 beam cycles, regardless of source width or output height;
+                // allow edge/quantization differences, but reject a 240-row mask.
+                assert!(
+                    (195..=205).contains(&peaks),
+                    "wrong scanline frequency: {peaks}"
+                );
+                assert!(levels.iter().max().unwrap() - levels.iter().min().unwrap() > 1000);
+                assert!(display.canvas.present());
+            }
+        }
+    }
 
     #[test]
     fn auto_uses_desktop_coordinates_and_explicit_scale_uses_drawable_pixels() {

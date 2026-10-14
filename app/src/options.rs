@@ -53,6 +53,13 @@ const SPECS: &[Spec] = &[
         description: "Initial drawable pixel multiplier, auto|1..16 (default auto for both games)",
     },
     Spec {
+        name: "--presentation",
+        game: None,
+        value: Value::Choice(&["pixels", "hyllian"]),
+        dev: false,
+        description: "Window presentation (default pixels); hyllian enables the shared CRT shader",
+    },
+    Spec {
         name: "--help",
         game: None,
         value: Value::Flag,
@@ -375,6 +382,12 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
             }
             break;
         }
+        if active("--headless").is_some() {
+            if let Some(index) = active("--presentation") {
+                remove(entries, index, "does not apply to --headless", warnings);
+                continue;
+            }
+        }
         if active("--headless").is_none() {
             if let Some(index) = active("--script").or_else(|| active("--timed")) {
                 remove(entries, index, "requires --headless", warnings);
@@ -472,6 +485,10 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
         }
         if spec.dev && !cfg!(feature = "dev-tools") {
             warnings.push(format!("{} requires a dev-tools build; ignored", spec.name));
+            continue;
+        }
+        if spec.name == "--presentation" && !cfg!(feature = "sdl") {
+            warnings.push("--presentation requires an SDL build; ignored".into());
             continue;
         }
         if matches!(spec.name, "--original" | "--help" | "--list") {
@@ -582,6 +599,82 @@ mod tests {
             mach3::cli::validate_arguments(args.into_iter()).unwrap();
         }
     }
+    #[test]
+    fn shared_presentation_choices_and_build_availability() {
+        assert_eq!(takes_value("--presentation"), Some(true));
+        for game in [Game::AlleyCat, Game::Mach3] {
+            let help = help(Some(game));
+            assert!(help.contains("--presentation VALUE"));
+            assert!(help.contains("Choices: pixels, hyllian"));
+            assert!(help.contains("default pixels"));
+            for value in ["pixels", "hyllian"] {
+                for input in [
+                    vec!["--presentation", value],
+                    vec![&format!("--presentation={value}")],
+                ] {
+                    let result = prepare(args(&input), game);
+                    if cfg!(feature = "sdl") {
+                        assert_eq!(result.args, args(&["--presentation", value]));
+                        assert!(result.warnings.is_empty());
+                    } else {
+                        assert!(result.args.is_empty());
+                        assert_eq!(result.warnings.len(), 1);
+                        assert!(result.warnings[0].contains("requires an SDL build"));
+                    }
+                    accepted(&result, game);
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "sdl")]
+    #[test]
+    fn presentation_validation_retains_previous_value_and_following_options() {
+        for game in [Game::AlleyCat, Game::Mach3] {
+            for value in ["", "crt", "Hyllian", "-1"] {
+                let result = prepare(
+                    args(&[
+                        "--presentation=hyllian",
+                        &format!("--presentation={value}"),
+                        "--presentation",
+                        "--scale=2",
+                    ]),
+                    game,
+                );
+                assert_eq!(
+                    result.args,
+                    args(&["--presentation", "hyllian", "--scale", "2"])
+                );
+                assert_eq!(result.warnings.len(), 2);
+                assert!(result.warnings[0].contains("use pixels|hyllian"));
+                assert!(result.warnings[1].contains("requires a value"));
+                accepted(&result, game);
+            }
+            let result = prepare(
+                args(&["--presentation=hyllian", "--presentation=pixels"]),
+                game,
+            );
+            assert_eq!(result.args, args(&["--presentation", "pixels"]));
+            assert!(result.warnings.is_empty());
+            accepted(&result, game);
+        }
+    }
+
+    #[cfg(all(feature = "sdl", feature = "dev-tools"))]
+    #[test]
+    fn headless_presentation_warns_and_is_ignored_in_either_order() {
+        for input in [
+            vec!["--presentation=hyllian", "--headless"],
+            vec!["--headless", "--presentation=pixels"],
+        ] {
+            let result = prepare(args(&input), Game::AlleyCat);
+            assert_eq!(result.args, args(&["--headless"]));
+            assert_eq!(result.warnings.len(), 1);
+            assert!(result.warnings[0].contains("does not apply to --headless"));
+            accepted(&result, Game::AlleyCat);
+        }
+    }
+
     #[test]
     fn scale_defaults_are_left_to_engines_and_auto_is_forwarded() {
         assert_eq!(takes_value("--scale"), Some(true));

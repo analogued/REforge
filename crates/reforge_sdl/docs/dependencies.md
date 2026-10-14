@@ -3,7 +3,7 @@
 Both engines use this shared presentation crate, which depends on
 `sdl3 = "=0.20.0"` with default features disabled. The [root workspace lockfile](../../../Cargo.lock) fixes the Rust
 dependencies below. Headless engine builds do not require these dependencies.
-No native runtime source is copied into this repository.
+SDL runtime source is not copied into this repository.
 
 | Dependency | Locked version | Purpose | Upstream license; retained terms |
 | --- | --- | --- | --- |
@@ -33,6 +33,21 @@ native runtime. The installed runtime version is controlled by the system,
 not the root `Cargo.lock`; `SDL-3.4.18` in the bindings crate version identifies the
 bindings' SDL version. The repository does not redistribute the system library
 or its dependencies.
+
+## Bundled shader
+
+The optional Hyllian CRT effect adapts DOSBox Staging's MIT-licensed Hyllian
+shader. Unlike the SDL API calls, this is imported source and is retained in
+dedicated [shader files](../shaders/README.md), including the immutable upstream
+revision, modifications and [complete MIT terms](../shaders/LICENSE-MIT.txt).
+The generated SPIR-V and Metal source are distributed with the same notices.
+The import permits the project's candidate MIT/BSD or GPL licensing choices;
+it does not select a license for authored project code.
+
+Ordinary builds use bundled assets. Offline regeneration uses glslang,
+SPIRV-Tools and Qt Shader Baker as documented beside the shader; these tools
+are not linked into or shipped with REforge. Native presentation now requires
+SDL 3.4 or newer for the custom GPU render-state API.
 
 ## Notice provenance
 

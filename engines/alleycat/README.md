@@ -74,7 +74,12 @@ of the same glyphs, including in headless builds.
 `--machine pcjr` selects the PCjr palette and player countdown; the default is
 `cga`. Both modes use the same packed 320×200, four-colour framebuffer. Pixels
 have a 5:6 width-to-height ratio and are displayed at 4:3, with nearest-neighbor
-sampling and no CRT shader. The default `--scale auto` requests SDL's reported
+sampling by default. `--presentation hyllian` enables the shared Hyllian CRT
+shader; `--presentation pixels` selects the default discrete pixels. Shader
+unavailability warns and falls back to pixels. Presentation selection is ignored
+with a warning in headless runs or builds without SDL. It affects host display
+only; game palettes, framebuffers, timing and exports retain their original data.
+The default `--scale auto` requests SDL's reported
 usable display area as an ordinary window's client size, without subtracting
 window decorations. SDL may report the full monitor area when usable bounds are
 unavailable; an actual query error makes auto fall back to scale 4.
@@ -96,7 +101,7 @@ monitor simulation is not implemented. Raw framebuffer and PPM exports remain
 `--difficulty` accepts 0 through 7 and sets the initial difficulty, skipping the
 skill question while retaining the controls and key-to-start wait. Normal builds
 accept
-`--original`, `--machine`, `--scale`, `--difficulty` and `--help`.
+`--original`, `--machine`, `--scale`, `--presentation`, `--difficulty` and `--help`.
 
 ## Development tools
 

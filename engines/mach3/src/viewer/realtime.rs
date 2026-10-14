@@ -1064,7 +1064,13 @@ pub(super) fn run(
         .keyboard
         .set_f3_mode(options.f3_mode);
     let mut caption = simulation.caption();
-    let mut window = Window::new(caption, WIDTH as u32, DISPLAY_HEIGHT, options.scale)?;
+    let mut window = Window::new_with_presentation(
+        caption,
+        WIDTH as u32,
+        DISPLAY_HEIGHT,
+        options.scale,
+        options.presentation,
+    )?;
     let creator = window.texture_creator();
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;

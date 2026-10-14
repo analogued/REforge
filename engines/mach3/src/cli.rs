@@ -9,10 +9,11 @@ use crate::{
 };
 use std::{ffi::OsString, path::PathBuf};
 
-const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--step|--static] [--controls] [--period-ms 1..5000] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--step|--static] [--controls] [--period-ms 1..5000] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
 Default drawable scale: auto (fit the usable display); CGA pixels are displayed at 4:3.\n\
+--presentation pixels|hyllian: nearest pixels (default) or the shared Hyllian CRT shader; unavailable shaders warn and fall back to pixels.\n\
 Gameplay continues until game over, then displays Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
 --step: fresh Enter presses advance one body or title step. --static: show initial scene only.\n\
@@ -106,6 +107,14 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     ),
                 };
             }
+            Some("--presentation") => {
+                options.presentation = args
+                    .next()
+                    .as_deref()
+                    .and_then(|arg| arg.to_str())
+                    .ok_or("--presentation must be pixels or hyllian")?
+                    .parse()?;
+            }
             Some("--controls") => {
                 options.controls = true;
             }
@@ -193,6 +202,43 @@ mod tests {
             .map(OsString::from)
             .collect::<Vec<_>>()
             .into_iter()
+    }
+
+    #[test]
+    fn presentation_defaults_to_pixels_and_reaches_all_playback_modes() {
+        let (_, defaults) = parse_args(args(&["--original", "assets"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(defaults.presentation, reforge_sdl::Presentation::Pixels);
+        assert!(help().contains("--presentation pixels|hyllian"));
+        for value in ["pixels", "hyllian"] {
+            for mode in [None, Some("--step"), Some("--static"), Some("--period-ms")] {
+                let mut input = vec!["--original", "assets", "--presentation", value];
+                if let Some(mode) = mode {
+                    input.push(mode);
+                    if mode == "--period-ms" {
+                        input.push("12");
+                    }
+                }
+                let (_, options) = parse_args(args(&input)).unwrap().unwrap();
+                assert_eq!(options.presentation, value.parse().unwrap());
+            }
+        }
+        let (_, options) = parse_args(args(&[
+            "--original",
+            "assets",
+            "--presentation",
+            "hyllian",
+            "--presentation",
+            "pixels",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(options.presentation, reforge_sdl::Presentation::Pixels);
+        for value in ["", "crt", "Hyllian", "--controls"] {
+            assert!(parse_args(args(&["--original", "assets", "--presentation", value])).is_err());
+        }
+        assert!(parse_args(args(&["--original", "assets", "--presentation"])).is_err());
     }
 
     #[test]

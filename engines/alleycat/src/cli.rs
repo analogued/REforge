@@ -39,6 +39,7 @@ Usage: reforge --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr       Hardware path (default: cga)
   --scale auto|1..16       Initial drawable pixel multiplier (default: auto)
+  --presentation pixels|hyllian  Window presentation (default: pixels; unavailable shader falls back)
   --difficulty N          Initial difficulty 0..7; skips the skill question
   --help                  Show this help
 
@@ -97,6 +98,8 @@ struct Options {
     original: PathBuf,
     machine: Machine,
     scale: Option<u32>,
+    #[cfg(feature = "sdl")]
+    presentation: reforge_sdl::Presentation,
     difficulty: u16,
     difficulty_selected: bool,
     #[cfg(feature = "dev-tools")]
@@ -153,10 +156,13 @@ fn integer(value: &str) -> Result<u16, String> {
 
 fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, String> {
     let mut original = None;
+    let mut presentation = None;
     let mut result = Options {
         original: PathBuf::new(),
         machine: Machine::Cga,
         scale: None,
+        #[cfg(feature = "sdl")]
+        presentation: reforge_sdl::Presentation::Pixels,
         difficulty: 0,
         difficulty_selected: false,
         #[cfg(feature = "dev-tools")]
@@ -210,6 +216,13 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
                 } else {
                     Some(u32::from(integer(&value)?))
                 };
+            }
+            "--presentation" => {
+                let value = value()?;
+                if !matches!(value.as_str(), "pixels" | "hyllian") {
+                    return Err("--presentation must be pixels or hyllian".into());
+                }
+                presentation = Some(value);
             }
             "--difficulty" => {
                 result.difficulty = integer(&value()?)?;
@@ -292,6 +305,25 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
         }
         if dev.headless && dev.timing_trace.is_some() && !dev.timed {
             return Err("Headless --trace-timing requires --timed".into());
+        }
+    }
+    if let Some(presentation) = presentation {
+        #[cfg(feature = "sdl")]
+        {
+            #[cfg(feature = "dev-tools")]
+            let windowed = !result.dev.headless;
+            #[cfg(not(feature = "dev-tools"))]
+            let windowed = true;
+            if windowed {
+                result.presentation = presentation.parse()?;
+            } else {
+                eprintln!("warning: --presentation does not apply to --headless; ignored");
+            }
+        }
+        #[cfg(not(feature = "sdl"))]
+        {
+            let _ = presentation;
+            eprintln!("warning: --presentation requires an SDL build; ignored");
         }
     }
     Ok(Some(result))
@@ -440,14 +472,21 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
     {
         let mut alley = alley;
         alley.set_dev_options(options.dev.switches)?;
-        run_development(&mut alley, options.scale, options.dev, startup)
+        run_development(
+            &mut alley,
+            options.scale,
+            #[cfg(feature = "sdl")]
+            options.presentation,
+            options.dev,
+            startup,
+        )
     }
     #[cfg(not(feature = "dev-tools"))]
     {
         #[cfg(feature = "sdl")]
         {
             let mut alley = alley;
-            interactive(&mut alley, options.scale, startup)
+            interactive(&mut alley, options.scale, options.presentation, startup)
         }
         #[cfg(not(feature = "sdl"))]
         {
@@ -461,6 +500,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
 fn run_development(
     alley: &mut Alley,
     scale: Option<u32>,
+    #[cfg(feature = "sdl")] presentation: reforge_sdl::Presentation,
     options: DiagnosticOptions,
     startup: Option<Startup>,
 ) -> Result<(), String> {
@@ -471,6 +511,8 @@ fn run_development(
             return splash_preview(
                 startup.ok_or("Splash preview was not initialized")?.splash,
                 scale,
+                #[cfg(feature = "sdl")]
+                presentation,
                 options,
             );
         }
@@ -576,11 +618,20 @@ fn run_development(
     } else {
         #[cfg(feature = "sdl")]
         if let Some(rate) = options.step_hz {
-            interactive_diagnostic(alley, scale, startup, rate, options.steps, &mut trace)?;
+            interactive_diagnostic(
+                alley,
+                scale,
+                presentation,
+                startup,
+                rate,
+                options.steps,
+                &mut trace,
+            )?;
         } else {
             interactive(
                 alley,
                 scale,
+                presentation,
                 startup,
                 options.steps,
                 &mut trace,
@@ -680,6 +731,7 @@ fn present_splash(
 fn splash_preview(
     mut splash: Splash,
     scale: Option<u32>,
+    #[cfg(feature = "sdl")] presentation: reforge_sdl::Presentation,
     options: DiagnosticOptions,
 ) -> Result<(), String> {
     if options.headless {
@@ -691,8 +743,13 @@ fn splash_preview(
     } else {
         #[cfg(feature = "sdl")]
         {
-            let display =
-                alleycat::platform::Display::new("REforge — Alley Cat splash", 320, 240, scale)?;
+            let display = alleycat::platform::Display::new_with_presentation(
+                "REforge — Alley Cat splash",
+                320,
+                240,
+                scale,
+                presentation,
+            )?;
             let creator = display.texture_creator();
             let mut window =
                 alleycat::platform::Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
@@ -791,6 +848,7 @@ fn catch_up_batch(
 fn interactive(
     alley: &mut Alley,
     scale: Option<u32>,
+    presentation: reforge_sdl::Presentation,
     startup: Option<Startup>,
     #[cfg(feature = "dev-tools")] steps: Option<usize>,
     #[cfg(feature = "dev-tools")] trace: &mut Option<BufWriter<File>>,
@@ -799,7 +857,13 @@ fn interactive(
     use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
 
-    let display = alleycat::platform::Display::new("REforge — Alley Cat", 320, 240, scale)?;
+    let display = alleycat::platform::Display::new_with_presentation(
+        "REforge — Alley Cat",
+        320,
+        240,
+        scale,
+        presentation,
+    )?;
     let creator = display.texture_creator();
     let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
     if let Some(mut startup) = startup {
@@ -933,6 +997,7 @@ fn interactive(
 fn interactive_diagnostic(
     alley: &mut Alley,
     scale: Option<u32>,
+    presentation: reforge_sdl::Presentation,
     startup: Option<Startup>,
     step_hz: f64,
     steps: Option<usize>,
@@ -940,7 +1005,13 @@ fn interactive_diagnostic(
 ) -> Result<(), String> {
     use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
-    let display = alleycat::platform::Display::new("REforge — Alley Cat", 320, 240, scale)?;
+    let display = alleycat::platform::Display::new_with_presentation(
+        "REforge — Alley Cat",
+        320,
+        240,
+        scale,
+        presentation,
+    )?;
     let creator = display.texture_creator();
     let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
     if let Some(mut startup) = startup {
@@ -1196,6 +1267,68 @@ mod tests {
 
     fn parse(args: &[&str]) -> Result<Option<Options>, String> {
         parse_options(args.iter().map(|arg| (*arg).to_owned()))
+    }
+
+    #[test]
+    fn presentation_defaults_to_pixels_and_accepts_valid_choices() {
+        let defaults = parse(&["--original", "example.exe"]).unwrap().unwrap();
+        #[cfg(feature = "sdl")]
+        assert_eq!(defaults.presentation, reforge_sdl::Presentation::Pixels);
+        #[cfg(not(feature = "sdl"))]
+        let _ = defaults;
+        assert!(HELP.contains("--presentation pixels|hyllian"));
+        for value in ["pixels", "hyllian"] {
+            let options = parse(&["--original", "example.exe", "--presentation", value])
+                .unwrap()
+                .unwrap();
+            #[cfg(feature = "sdl")]
+            assert_eq!(options.presentation, value.parse().unwrap());
+            #[cfg(not(feature = "sdl"))]
+            let _ = options;
+        }
+        #[cfg(feature = "sdl")]
+        {
+            let options = parse(&[
+                "--original",
+                "example.exe",
+                "--presentation",
+                "hyllian",
+                "--presentation",
+                "pixels",
+            ])
+            .unwrap()
+            .unwrap();
+            assert_eq!(options.presentation, reforge_sdl::Presentation::Pixels);
+        }
+        for value in ["", "crt", "Hyllian", "--help"] {
+            assert!(parse(&["--original", "example.exe", "--presentation", value]).is_err());
+        }
+        assert!(parse(&["--original", "example.exe", "--presentation"]).is_err());
+    }
+
+    #[cfg(all(feature = "sdl", feature = "dev-tools"))]
+    #[test]
+    fn headless_ignores_selected_presentation_in_either_order() {
+        for input in [
+            vec![
+                "--original",
+                "example.exe",
+                "--presentation",
+                "hyllian",
+                "--headless",
+            ],
+            vec![
+                "--original",
+                "example.exe",
+                "--headless",
+                "--presentation",
+                "hyllian",
+            ],
+        ] {
+            let options = parse(&input).unwrap().unwrap();
+            assert_eq!(options.presentation, reforge_sdl::Presentation::Pixels);
+            assert!(options.dev.headless);
+        }
     }
 
     #[test]

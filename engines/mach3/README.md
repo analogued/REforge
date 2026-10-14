@@ -197,7 +197,12 @@ transformations can still affect the result. It lets SDL select an available
 renderer and requests vsync, continuing with a warning if unsupported.
 SDL fits the image at integer multiples of 320×240 inside the actual granted
 window, preserving 4:3 with black margins, including after resizing.
-Nearest-neighbour sampling keeps colours discrete;
+`--presentation pixels` is the default and uses nearest-neighbour sampling to
+keep colours discrete. `--presentation hyllian` enables the shared Hyllian CRT
+shader in animated, step and static playback. Shader unavailability warns and
+falls back to pixels. This display effect preserves the game framebuffer,
+palette rules, timing and frame exports.
+
 Mach 3 retains its 640×200 texture for both colour and monochrome output:
 
 ```sh
@@ -206,7 +211,8 @@ cargo run -p mach3 --features viewer --bin mach3-viewer -- --scale 2 --original 
 
 The 320-by-200 CGA framebuffer is displayed at 4:3, with pixels 20% taller
 than wide. Explicit numeric drawable targets use 320-by-240 display units
-multiplied by the selected scale. Resizing uses nearest-neighbor sampling with
+multiplied by the selected scale. The default pixels presentation resizes with
+nearest-neighbor sampling and
 centered black borders and preserves 4:3. Source rows can occupy different numbers of screen
 rows because of the pixel-aspect correction. See [dependency notices](docs/dependencies.md).
 After Cargo has fetched the locked dependencies, these commands can use `--offline`.

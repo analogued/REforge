@@ -9,7 +9,7 @@ PC speaker audio; Alley Cat audio remains unimplemented.
 
 ## Build and run
 
-Install Rust 1.85 or newer, Cargo and SDL3 development/runtime libraries.
+Install Rust 1.85 or newer, Cargo and SDL3 3.4 or newer development/runtime libraries.
 One Cargo workspace and lockfile cover the application and both engine crates.
 
 ```sh
@@ -28,6 +28,15 @@ area, with black bars inside the window actually granted by the desktop.
 `--scale 1..16` requests a fixed drawable pixel multiplier; `--scale 4` requests
 1280×960 pixels. SDL may report the full monitor area when usable bounds are
 unavailable; an actual query error makes auto fall back to scale 4.
+
+Presentation defaults to sharp nearest-neighbour pixels. Add
+`--presentation hyllian` for the shared Hyllian CRT shader, or
+`--presentation pixels` to select the default explicitly. The initial CRT
+setting is the same for both engines; colour profiles and adjustable monitor
+presets are not yet exposed. GPU/shader setup failures warn and retain plain
+pixels, including with `SDL_RENDER_DRIVER=software`. See the
+[shared presentation documentation](crates/reforge_sdl/README.md) for backend
+requirements and the bundled shader's attribution.
 Ctrl+Q quits either game, and Pause/Break toggles pause during gameplay.
 Each game retains its additional bindings.
 See each game's README for supported input versions, controls and current limits.

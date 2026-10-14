@@ -44,6 +44,7 @@ pub struct Options {
     pub f3_mode: crate::gameplay::F3Mode,
     /// None fits the usable display; Some requests a fixed drawable multiplier.
     pub scale: Option<u32>,
+    pub presentation: reforge_sdl::Presentation,
     pub playback: Playback,
     pub controls: bool,
     pub audio_renderer: crate::sound::render::AudioRenderer,
@@ -59,6 +60,7 @@ impl Default for Options {
         Self {
             f3_mode: crate::gameplay::F3Mode::Press,
             scale: None,
+            presentation: reforge_sdl::Presentation::Pixels,
             playback: Playback::Animated,
             controls: false,
             audio_renderer: crate::sound::render::AudioRenderer::Speaker,
@@ -1116,7 +1118,13 @@ fn run_inner(
     let mut step_key_held = false;
     let mut host_pause = HostPause::default();
     let mut input = ControlInput::default();
-    let mut window = Window::new(title(Screen::Splash), WIDTH as u32, DISPLAY_HEIGHT, scale)?;
+    let mut window = Window::new_with_presentation(
+        title(Screen::Splash),
+        WIDTH as u32,
+        DISPLAY_HEIGHT,
+        scale,
+        options.presentation,
+    )?;
     #[cfg(feature = "dev-tools")]
     if let Some(path) = &options.input_trace {
         game.trace = Some(InputTrace::create(path)?);

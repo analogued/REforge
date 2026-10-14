@@ -19,12 +19,38 @@ RGB24 and RGBA32 inputs are accepted without changing the engine framebuffer
 format.
 
 The backend uses the pinned `sdl3` Rust wrapper and the installed native SDL3
-library. Renderer selection is delegated to SDL, allowing hardware acceleration
+library (SDL 3.4 or later). Plain renderer selection is delegated to SDL, allowing hardware acceleration
 where available. Vsync is requested by default; an unsupported request prints a
 warning and continues without sync. Presentation can block for display refresh;
 engines must advance due simulation work independently of presentation count.
 The wrapper does not expose a vsync setter or nanosecond tick access; these
-two calls use generated SDL declarations with isolated safety explanations.
+calls use generated SDL declarations with isolated safety explanations.
+
+`--presentation pixels` is the default. Optional `--presentation hyllian` uses
+the shared Hyllian CRT shader: horizontal filtering, source-row beam lines,
+gamma processing and an RGB aperture mask. It leaves the engine's input pixels,
+palettes, graphics modes and simulation untouched. This initial treatment uses
+one fixed CGA-style parameter set for both engines; it does not yet provide
+colour profiles, monitor selection or Custom controls. Small output areas can
+show interference patterns; display-dependent preset tuning is not implemented.
+
+Hyllian requests SDL's shader-capable GPU renderer, with bundled SPIR-V for
+Vulkan and Metal source for Metal. SDL chooses a compatible device/backend;
+an explicit `SDL_RENDER_DRIVER` override is respected. No shader compiler or Qt
+library is needed to build or run REforge. D3D shader binaries are not bundled;
+Windows needs a working Vulkan backend for this effect. GPU/shader setup failures
+warn and continue with plain pixels. If ordinary renderer creation fails, the
+backend explicitly tries SDL's software renderer. To force the software path,
+set `SDL_RENDER_DRIVER=software`; Hyllian then warns and falls back to pixels.
+
+`Window::new_with_presentation` selects the effect before texture creation;
+`Window::new` retains plain presentation. The generated-binding GPU bridge is
+isolated in `src/hyllian.rs`; adapted third-party shader code, its license,
+provenance and regeneration commands live in [shaders/](shaders/README.md).
+The mask uses drawable pixels relative to the game's presentation rectangle.
+Resizing and DPI changes update that rectangle each frame. Modern overlays are
+drawn after the effect with ordinary SDL rendering; original in-frame text and
+HUD graphics receive the effect along with the game image.
 
 Both current engines use a 320×240 logical display area. Source images are
 stretched into that aspect-corrected area and sampled with nearest neighbours.

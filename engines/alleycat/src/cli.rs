@@ -45,6 +45,7 @@ Usage: reforge --original /path/to/CAT.EXE [options]
 
 Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
 Press a key to leave the animated splash, then select K/H/T/A in the skill menu.
+F10 opens video settings; Escape or F10 closes them.
 Ctrl+Q or closing the window quits.
 Ctrl+R restarts; Ctrl+M returns to the skill menu.
 After the last life, the animated title returns; press a key to play again at the selected skill.
@@ -695,8 +696,9 @@ fn present_splash(
 ) -> Result<bool, String> {
     use std::time::{Duration, Instant};
     let mut clock = VirtualClock::new(RetraceProfile::for_machine(splash.machine()));
-    let mut previous = Instant::now();
-    let mut next_present = previous;
+    let start = Instant::now();
+    let mut pause_clock = alleycat::platform::PauseClock::new(start);
+    let mut next_present = start;
     let mut target_nanos = 0;
     window.present(&splash.rgba())?;
     while !splash.finished()
@@ -707,13 +709,24 @@ fn present_splash(
             return Ok(false);
         }
         let now = Instant::now();
-        target_nanos += now
-            .duration_since(previous)
-            .min(Duration::from_millis(100))
-            .as_nanos();
-        previous = now;
+        // The settings panel pauses title animation without changing native state.
+        // Ordinary title keys remain available when the panel is closed.
+        let pause = pause_clock.sample(
+            now,
+            alleycat::platform::Input {
+                pause_pressed: false,
+                ..input
+            },
+        );
+        target_nanos += pause.elapsed.min(Duration::from_millis(100)).as_nanos();
         let mut key_pressed = input.continue_pressed;
-        while !splash.finished() && (clock.elapsed_nanos() < target_nanos || key_pressed) {
+        if pause.changed {
+            next_present = now;
+        }
+        while !pause.paused
+            && !splash.finished()
+            && (clock.elapsed_nanos() < target_nanos || key_pressed)
+        {
             advance_splash(splash, &mut clock, key_pressed)?;
             key_pressed = false;
         }
@@ -786,8 +799,9 @@ fn present_menu(
     alley: &mut Alley,
     difficulty: Option<u16>,
 ) -> Result<bool, String> {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     let mut menu = alley.menu(difficulty)?;
+    let mut next_present = Instant::now();
     window.present(&menu.rgba())?;
     loop {
         let input = window.poll_input();
@@ -799,7 +813,14 @@ fn present_menu(
                 alley.start_new_game(menu.difficulty().ok_or("Menu has no skill selection")?, 0)?;
                 return Ok(true);
             }
+            next_present = Instant::now();
+        }
+        // The native question screen is static, but the host menu needs frames
+        // for pointer hover, live settings and window resize updates.
+        let now = Instant::now();
+        if now >= next_present || input.settings_changed {
             window.present(&menu.rgba())?;
+            next_present = now + Duration::from_millis(16);
         }
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -933,13 +954,19 @@ fn interactive(
         let now = Instant::now();
         let pause = pause_clock.sample(now, input);
         if pause.changed {
-            // Do not carry a partial host pacing budget across the pause.
-            target_nanos = runtime.clock.elapsed_nanos();
+            // Preserve pending guest work across the settings panel; retain the
+            // existing manual-pause policy of discarding partial pacing budget.
+            if !input.settings_changed {
+                target_nanos = runtime.clock.elapsed_nanos();
+            }
             next_present = now;
         }
         if pause.paused {
             if now >= next_present {
-                window.present_with_pause(&alley.rgba(), Some(&pause_overlay))?;
+                window.present_with_pause(
+                    &alley.rgba(),
+                    (!input.settings_open).then_some(&pause_overlay),
+                )?;
                 next_present = now + Duration::from_millis(16);
             }
             std::thread::sleep(Duration::from_millis(1));
@@ -1071,6 +1098,9 @@ fn interactive_diagnostic(
         }
         let now = Instant::now();
         let pause = pause_clock.sample(now, input);
+        if input.settings_changed {
+            controls = Controls::default();
+        }
         if let Some(duration) = pause.resumed_after {
             // Preserve the remaining diagnostic step/effect and input waits.
             deadline += duration;
@@ -1078,7 +1108,10 @@ fn interactive_diagnostic(
         }
         if pause.changed || pause.paused {
             if pause.changed || now >= next_present {
-                window.present_with_pause(&alley.rgba(), pause.paused.then_some(&pause_overlay))?;
+                window.present_with_pause(
+                    &alley.rgba(),
+                    (pause.paused && !input.settings_open).then_some(&pause_overlay),
+                )?;
                 next_present = now + Duration::from_millis(16);
             }
             std::thread::sleep(Duration::from_millis(1));

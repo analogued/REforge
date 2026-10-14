@@ -2093,3 +2093,37 @@ fn focus_reset_during_sample_discards_future_input_and_preserves_received_return
     assert!(simulation.state().controls.preferences.sound_disabled);
     assert_eq!(simulation.state().di, SamplePlayer::return_di());
 }
+
+#[test]
+fn settings_boundary_preserves_live_native_pause_and_device_clock() {
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    enter_playing(&mut simulation, &frames, &resources);
+    simulation.receive(simulation.clock.tick(), 0x3b);
+    until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+        s.state().pause.state == PauseState::AwaitInitialRelease
+    });
+    let phase = simulation.state().pause.state;
+    let visible = simulation.visible.clone();
+    let tick = simulation.clock.tick();
+    let speaker = simulation.clock.speaker().clone();
+    let random = simulation.session.random;
+    let start = Instant::now();
+    let mut host = HostPause::default();
+    let mut menu = MenuPause::default();
+    assert!(menu.update(true, &mut host, start));
+    simulation.clear_input().unwrap();
+    simulation.receive(tick + 100, 0x4d);
+    assert!(menu.update(false, &mut host, start + Duration::from_secs(30)));
+    simulation.clear_input().unwrap();
+    assert!(!host.is_paused());
+    assert_eq!(host.now(start + Duration::from_secs(30)), start);
+    assert_eq!(simulation.clock.tick(), tick);
+    assert_eq!(simulation.clock.speaker(), &speaker);
+    assert_eq!(simulation.session.random, random);
+    assert_eq!(simulation.state().pause.state, phase);
+    assert_eq!(simulation.state().keyboard.held_keys(0).actions, 0);
+    assert!(simulation.scans.is_empty());
+    assert_eq!(simulation.visible, visible);
+}

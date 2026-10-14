@@ -1074,6 +1074,8 @@ pub(super) fn run(
     let creator = window.texture_creator();
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
+    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+    let mut menu_pause = MenuPause::default();
     let mut audio = PlaybackAudio::new(signal);
     let mut pause = HostPause::default();
     let mut input = ControlInput::default();
@@ -1114,19 +1116,16 @@ pub(super) fn run(
             let received = Instant::now();
             let time =
                 EventTime::sample(&event, reforge_sdl::event_clock_sample(), &pause, received);
-            if host_shortcut(&event) == Some(HostShortcut::Quit)
-                || matches!(
-                    event,
-                    Event::Quit { .. }
-                        | Event::Window {
-                            win_event: WindowEvent::CloseRequested,
-                            ..
-                        }
-                        | Event::KeyDown {
+            let menu_consumed = !host_quit(&event) && menu.handle_event(&event);
+            if host_quit(&event)
+                || (!menu_consumed
+                    && matches!(
+                        event,
+                        Event::KeyDown {
                             keycode: Some(Keycode::Escape),
                             ..
                         }
-                )
+                    ))
             {
                 #[cfg(feature = "dev-tools")]
                 {
@@ -1139,8 +1138,23 @@ pub(super) fn run(
                 }
                 return Ok(());
             }
+            if menu_pause.update(menu.is_open(), &mut pause, received) {
+                input.fresh.clear();
+                space_held = false;
+                navigation_space_release = false;
+                simulation.clear_input()?;
+                history.reset(EventTime {
+                    host: received,
+                    timeline: pause.now(received),
+                    now: pause.now(received),
+                });
+                audio.pause(pause.is_paused());
+                repaint = true;
+            }
             let mut disposition = "handled";
-            if host_shortcut(&event) == Some(HostShortcut::TogglePause) {
+            if menu_consumed {
+                disposition = "settings_menu";
+            } else if host_shortcut(&event) == Some(HostShortcut::TogglePause) {
                 pause.toggle(received);
                 input.fresh.clear();
                 space_held = false;
@@ -1242,6 +1256,22 @@ pub(super) fn run(
             #[cfg(not(feature = "dev-tools"))]
             let _ = disposition;
         }
+        prepare_settings(&mut menu, &mut window);
+        let received = Instant::now();
+        if menu_pause.update(menu.is_open(), &mut pause, received) {
+            input.fresh.clear();
+            space_held = false;
+            navigation_space_release = false;
+            simulation.clear_input()?;
+            history.reset(EventTime {
+                host: received,
+                timeline: pause.now(received),
+                now: pause.now(received),
+            });
+            audio.pause(pause.is_paused());
+            repaint = true;
+        }
+        repaint |= menu.is_open();
         if !pause.is_paused() {
             let now = pause.now(Instant::now());
             let wanted = ticks_since(epoch, now).max(simulation.clock.tick());
@@ -1299,8 +1329,13 @@ pub(super) fn run(
         }
         // Native pause can change the caption without publishing a new frame.
         // Update it even during catch-up, independently of texture presentation.
-        if simulation.caption() != caption {
-            caption = simulation.caption();
+        let next_caption = if menu.is_open() {
+            "REforge — Mach 3 — Settings (F10 or Escape to close, Ctrl+Q to quit)"
+        } else {
+            simulation.caption()
+        };
+        if next_caption != caption {
+            caption = next_caption;
             window.set_title(caption)?;
         }
         if catch_up {
@@ -1312,7 +1347,7 @@ pub(super) fn run(
                 simulation.display_mode(),
                 simulation.palette(),
             ))?;
-            window.present(&texture)?;
+            window.present_with(&texture, |canvas| menu.paint(canvas))?;
             repaint = false;
         }
         std::thread::sleep(Duration::from_millis(2));

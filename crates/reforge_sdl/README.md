@@ -55,8 +55,9 @@ pixels/CRT without recreating the renderer, window or uploaded frame textures.
 CRT resources are created on first use and cached when returning to pixels.
 `Window::presentation` reports the effective mode, including startup fallback.
 An unsupported runtime CRT request returns an error and leaves the active mode
-unchanged. This API supports future options UI; no in-game settings screen is
-implemented yet. Changing the rendering backend itself remains a separate task.
+unchanged. The shared settings menu currently exposes window scale and desktop fullscreen.
+Presentation and backend selectors are not exposed in the menu yet. Changing
+the rendering backend itself remains a separate task.
 The generated-binding GPU bridge is isolated in `src/hyllian.rs`; adapted
 third-party shader code, its license, provenance and regeneration commands live
 in [shaders/](shaders/README.md).
@@ -161,3 +162,38 @@ establish the compositor's final monitor-pixel mapping.
 Authored project code has no selected license yet. Preserve the
 [dependency notices and license texts](docs/dependencies.md) when distributing
 the corresponding dependencies. This crate bundles no game data.
+
+## Settings menu
+
+F10 opens the shared egui settings panel in either engine. It initially exposes
+window scale (Auto or ×1–×16) and windowed/fullscreen mode. Changes apply during
+the current run, retaining the renderer and uploaded game textures. Scale sets
+the windowed drawable size with high-DPI compensation. Auto uses the same
+compositor-negotiated fit as startup. Fullscreen uses the desktop mode and
+retains integer aspect-correct fitting; its window-scale selector is disabled.
+Returning to windowed mode preserves the previous window geometry unless a
+windowed scale change is pending. Desktop constraints can still affect requests.
+
+The engine adapters freeze game time while the menu is open, preserve an
+existing host/native pause, and consume menu keys before native game input.
+Escape, F10 or Close dismisses settings; Ctrl+Q and window close remain global.
+Controls held across a menu boundary require a fresh press before game use.
+Opening settings does not enable pause-on-focus-loss or change original sound
+generation. Saved global/per-game preference profiles are not yet implemented;
+the current CLI values initialize the menu.
+
+The `settings` module uses egui core and its bundled fonts, without eframe, winit,
+wgpu or a separate CPU rasterizer. One SDL geometry adapter handles GPU, ordinary
+hardware and software rendering. UI coordinates follow SDL display content
+scale independently of game scaling, and the panel is drawn after CRT processing.
+Textures, clipping, font filtering and renderer coordinate-state restoration
+are handled by the adapter. Hardware uses premultiplied alpha; the tested SDL
+software triangle path requires conversion to standard alpha for correct
+transparency. Software glyph/edge rasterization can differ from GPU output.
+See the [dependency and font notices](docs/dependencies.md#settings-ui).
+
+`VideoSettings::default` supplies shared Auto/windowed defaults. Engines pass
+`VideoCapabilities` to restrict available choices when required; both current
+engines permit all initial settings. These restrictions belong at the engine
+boundary rather than in the SDL painter. Unsupported changes display an error
+and keep the panel usable. The menu does not expose development-only controls.

@@ -12,8 +12,10 @@ use reforge_sdl::sdl3::{
     pixels::Color,
     render::FRect,
 };
+use reforge_sdl::settings::{SettingsMenu, VideoCapabilities};
 pub use reforge_sdl::{FrameCreator, Window as Display};
 use reforge_sdl::{FrameFormat, FrameTexture, HostShortcut, host_shortcut};
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 const CONTROL: u16 = Mod::LCTRLMOD.bits() | Mod::RCTRLMOD.bits();
@@ -34,12 +36,16 @@ pub struct Input {
     pub menu_key: Option<MenuKey>,
     pub menu_pressed: bool,
     pub new_game_pressed: bool,
+    pub settings_open: bool,
+    pub settings_changed: bool,
 }
 
 /// Host pause bookkeeping shared by the normal and diagnostic runners.
 pub struct PauseClock {
     previous: Instant,
     paused_at: Option<Instant>,
+    manual_paused: bool,
+    settings_open: bool,
 }
 
 pub struct PauseSample {
@@ -54,26 +60,25 @@ impl PauseClock {
         Self {
             previous: now,
             paused_at: None,
+            manual_paused: false,
+            settings_open: false,
         }
     }
 
     pub fn sample(&mut self, now: Instant, input: Input) -> PauseSample {
+        let was_paused = self.manual_paused || self.settings_open;
+        if input.pause_pressed && !input.settings_open && !input.settings_changed {
+            self.manual_paused = !self.manual_paused;
+        }
+        self.settings_open = input.settings_open;
+        let paused = self.manual_paused || self.settings_open;
+        let changed = was_paused != paused || input.settings_changed;
         let mut resumed_after = None;
-        let changed = if let Some(start) = self.paused_at {
-            if input.pause_pressed {
-                self.paused_at = None;
-                resumed_after = Some(now.duration_since(start));
-                true
-            } else {
-                false
-            }
-        } else if input.pause_pressed {
+        if !was_paused && paused {
             self.paused_at = Some(now);
-            true
-        } else {
-            false
-        };
-        let paused = self.paused_at.is_some();
+        } else if was_paused && !paused {
+            resumed_after = self.paused_at.take().map(|start| now.duration_since(start));
+        }
         let elapsed = if paused || changed {
             Duration::ZERO
         } else {
@@ -113,6 +118,9 @@ pub struct Window<'a> {
     display: Display,
     frame: FrameTexture<'a>,
     quit: bool,
+    settings: SettingsMenu<'a>,
+    settings_was_open: bool,
+    suppressed: HashSet<Scancode>,
 }
 
 impl<'a> Window<'a> {
@@ -126,37 +134,69 @@ impl<'a> Window<'a> {
             display,
             frame: FrameTexture::new(creator, width, height, FrameFormat::Rgba)?,
             quit: false,
+            settings: SettingsMenu::new(creator, VideoCapabilities::default()),
+            settings_was_open: false,
+            suppressed: HashSet::new(),
         })
     }
 
     pub fn poll_input(&mut self) -> Input {
         let mut presses = Input::default();
+        let mut settings_changed = self.settings_was_open != self.settings.is_open();
         for event in self.display.poll_events() {
-            match event {
-                Event::Quit { .. }
-                | Event::Window {
-                    win_event: WindowEvent::CloseRequested,
-                    ..
-                } => self.quit = true,
-                Event::KeyDown { .. } => presses.record_event(&event),
-                _ => {}
+            if host_shortcut(&event) == Some(HostShortcut::Quit) {
+                self.quit = true;
             }
+            if matches!(
+                event,
+                Event::Quit { .. }
+                    | Event::Window {
+                        win_event: WindowEvent::CloseRequested,
+                        ..
+                    }
+            ) {
+                self.quit = true;
+            }
+            let was_open = self.settings.is_open();
+            let consumed = self.settings.handle_event(&event);
+            settings_changed |= was_open != self.settings.is_open();
+            route_guest_key(
+                &event,
+                consumed || settings_changed,
+                &mut self.suppressed,
+                &mut presses,
+            );
         }
         self.quit |= presses.quit;
         let held = self.display.keyboard_state();
+        self.suppressed
+            .retain(|scan| held.is_scancode_pressed(*scan));
+        let settings_open = self.settings.is_open();
+        if settings_changed {
+            self.suppressed.extend(held.pressed_scancodes());
+            presses = Input::default();
+        }
+        self.settings_was_open = settings_open;
+        let held_key = |scan| {
+            !settings_open
+                && !settings_changed
+                && !self.suppressed.contains(&scan)
+                && held.is_scancode_pressed(scan)
+        };
         Input {
-            up: held.is_scancode_pressed(Scancode::Up),
-            down: held.is_scancode_pressed(Scancode::Down),
-            left: held.is_scancode_pressed(Scancode::Left),
-            right: held.is_scancode_pressed(Scancode::Right),
-            alt: held.is_scancode_pressed(Scancode::LAlt)
-                || held.is_scancode_pressed(Scancode::RAlt),
+            up: held_key(Scancode::Up),
+            down: held_key(Scancode::Down),
+            left: held_key(Scancode::Left),
+            right: held_key(Scancode::Right),
+            alt: held_key(Scancode::LAlt) || held_key(Scancode::RAlt),
             quit: self.quit,
             pause_pressed: presses.pause_pressed,
             continue_pressed: presses.continue_pressed,
             menu_key: presses.menu_key,
             menu_pressed: presses.menu_pressed,
             new_game_pressed: presses.new_game_pressed,
+            settings_open,
+            settings_changed,
         }
     }
 
@@ -169,7 +209,17 @@ impl<'a> Window<'a> {
         rgba: &[u8],
         pause: Option<&PauseOverlay>,
     ) -> Result<(), String> {
+        if let Some(settings) = self
+            .settings
+            .prepare(self.display.ui_metrics(), self.display.video_settings())
+        {
+            if let Err(error) = self.display.apply_video_settings(settings) {
+                eprintln!("warning: video settings could not be applied: {error}");
+                self.settings.set_error(error);
+            }
+        }
         self.frame.update(rgba)?;
+        let settings = &mut self.settings;
         self.display.present_with(&self.frame, |canvas| {
             if let Some(pause) = pause {
                 // The overlay uses original 320x200 coordinates in a 320x240 display.
@@ -195,8 +245,37 @@ impl<'a> Window<'a> {
                 canvas.set_draw_color(Color::RGB(0, 0, 0));
                 result?;
             }
-            Ok(())
+            settings.paint(canvas)
         })
+    }
+}
+
+// A menu key held while returning to the game remains blocked until its release.
+// This is separate from the native keyboard snapshot and polling priorities.
+fn route_guest_key(
+    event: &Event,
+    consumed: bool,
+    suppressed: &mut HashSet<Scancode>,
+    presses: &mut Input,
+) {
+    match event {
+        Event::KeyUp {
+            scancode: Some(scan),
+            ..
+        } => {
+            suppressed.remove(scan);
+        }
+        Event::KeyDown {
+            scancode: Some(scan),
+            ..
+        } => {
+            if consumed {
+                suppressed.insert(*scan);
+            } else if !suppressed.contains(scan) {
+                presses.record_event(event);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -301,6 +380,118 @@ mod tests {
         );
         let running = clock.sample(start + Duration::from_millis(60_015), Input::default());
         assert_eq!(running.elapsed, Duration::from_millis(15));
+    }
+
+    #[test]
+    fn menu_keys_do_not_pause_or_dismiss_native_questions_after_closing() {
+        let key = |scan, repeat| Event::KeyDown {
+            timestamp: 0,
+            window_id: 1,
+            which: 0,
+            raw: 0,
+            scancode: Some(scan),
+            keycode: None,
+            keymod: Mod::NOMOD,
+            repeat,
+        };
+        let mut suppressed = HashSet::new();
+        let mut input = Input::default();
+        for scan in [Scancode::Escape, Scancode::P, Scancode::K, Scancode::Return] {
+            route_guest_key(&key(scan, false), true, &mut suppressed, &mut input);
+            // A repeat or second down after closing is not a fresh game press.
+            route_guest_key(&key(scan, true), false, &mut suppressed, &mut input);
+            route_guest_key(&key(scan, false), false, &mut suppressed, &mut input);
+        }
+        assert_eq!(input, Input::default());
+        route_guest_key(
+            &Event::KeyUp {
+                timestamp: 0,
+                window_id: 1,
+                which: 0,
+                raw: 0,
+                scancode: Some(Scancode::K),
+                keycode: None,
+                keymod: Mod::NOMOD,
+                repeat: false,
+            },
+            false,
+            &mut suppressed,
+            &mut input,
+        );
+        route_guest_key(&key(Scancode::K, false), false, &mut suppressed, &mut input);
+        assert_eq!(input.menu_key, Some(MenuKey::Kitten));
+        assert!(input.continue_pressed && !input.pause_pressed);
+    }
+
+    #[test]
+    fn settings_freezes_time_and_preserves_the_manual_pause() {
+        let start = Instant::now();
+        let mut clock = PauseClock::new(start);
+        let settings = |open| Input {
+            settings_open: open,
+            settings_changed: true,
+            ..Input::default()
+        };
+        let opened = clock.sample(start + Duration::from_millis(20), settings(true));
+        assert!(opened.paused && opened.changed);
+        assert_eq!(opened.elapsed, Duration::ZERO);
+        let closed = clock.sample(start + Duration::from_secs(60), settings(false));
+        assert!(!closed.paused && closed.changed);
+        assert_eq!(closed.elapsed, Duration::ZERO);
+        assert_eq!(closed.resumed_after, Some(Duration::from_millis(59_980)));
+        assert_eq!(
+            clock
+                .sample(start + Duration::from_millis(60_010), Input::default())
+                .elapsed,
+            Duration::from_millis(10)
+        );
+
+        let pause = Input {
+            pause_pressed: true,
+            ..Input::default()
+        };
+        assert!(clock.sample(start + Duration::from_secs(61), pause).paused);
+        assert!(
+            clock
+                .sample(start + Duration::from_secs(62), settings(true))
+                .paused
+        );
+        let closed = clock.sample(start + Duration::from_secs(70), settings(false));
+        assert!(closed.paused && closed.changed);
+        assert_eq!(closed.resumed_after, None);
+        // The panel's close key cannot cancel a pre-existing manual pause.
+        let resumed = clock.sample(start + Duration::from_secs(71), pause);
+        assert!(!resumed.paused);
+        assert_eq!(resumed.resumed_after, Some(Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn settings_boundary_suppresses_pause_keys_and_elapsed_time() {
+        let start = Instant::now();
+        let mut clock = PauseClock::new(start);
+        // Even an open and close within one event pump is a host boundary.
+        let sample = clock.sample(
+            start + Duration::from_secs(3),
+            Input {
+                settings_changed: true,
+                pause_pressed: true,
+                ..Input::default()
+            },
+        );
+        assert!(!sample.paused && sample.changed);
+        assert_eq!(sample.elapsed, Duration::ZERO);
+        assert_eq!(sample.resumed_after, None);
+        let opened = clock.sample(
+            start + Duration::from_secs(4),
+            Input {
+                settings_open: true,
+                pause_pressed: true,
+                ..Input::default()
+            },
+        );
+        assert!(opened.paused);
+        let closed = clock.sample(start + Duration::from_secs(5), Input::default());
+        assert!(!closed.paused);
     }
 
     #[test]

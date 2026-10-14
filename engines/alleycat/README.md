@@ -49,7 +49,13 @@ dismiss it. The following menu omits the original joystick question. Select
 K (Kitten), H (House Cat), T (Tomcat), or A (Alley Cat); the controls then appear
 below the question. Press another key to start. These choices select initial
 internal difficulties 0 through 3; progression can reach 7.
-Ctrl+Q or window close quits during startup as well.
+Ctrl+Q or window close quits during startup as well. F10 opens the shared video
+settings panel during startup, play or the later title. Scale and windowed or
+borderless fullscreen mode apply immediately; Escape or F10 closes the panel.
+The panel pauses animation and gameplay, then restores the previous pause state.
+Its keys do not dismiss native questions or reach gameplay; keys held on closing
+must be released before they control the game. Settings currently last for this
+launch and are not saved to a preferences file.
 
 Use the arrow keys to move and jump. Esc, P and Pause/Break toggle pause;
 other keys, including arrows, leave it paused. Pause shortcuts are ignored while

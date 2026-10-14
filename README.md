@@ -42,6 +42,9 @@ including with `SDL_RENDER_DRIVER=software`. See the
 requirements and the bundled shader's attribution.
 Ctrl+Q quits either game, and Pause/Break toggles pause during gameplay.
 Alley Cat also accepts P for pause.
+F10 opens the shared settings menu. Scale and windowed/fullscreen mode apply
+live; Escape, F10 or Close returns to the previous pause state. These settings
+last for the current run; saved preference profiles are not yet implemented.
 Each game retains its additional bindings.
 See each game's README for supported input versions, controls and current limits.
 

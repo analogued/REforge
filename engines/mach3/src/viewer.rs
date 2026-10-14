@@ -4,6 +4,7 @@
 use reforge_sdl::{
     FrameFormat, FrameTexture, HostPause, HostShortcut, Window,
     host_shortcut as shared_host_shortcut,
+    settings::{SettingsMenu, VideoCapabilities},
 };
 use std::collections::{BTreeSet, VecDeque};
 
@@ -107,6 +108,54 @@ fn host_shortcut(event: &Event) -> Option<HostShortcut> {
         return shared_host_shortcut(&alias);
     }
     shared_host_shortcut(event)
+}
+
+/// The settings menu owns only a temporary host pause. It never changes the
+/// native F1 state and cannot resume a game that was already host-paused.
+#[derive(Default)]
+struct MenuPause {
+    open: bool,
+    owns_pause: bool,
+}
+
+impl MenuPause {
+    fn update(&mut self, open: bool, pause: &mut HostPause, now: std::time::Instant) -> bool {
+        if open == self.open {
+            return false;
+        }
+        if open {
+            self.owns_pause = !pause.is_paused();
+            if self.owns_pause {
+                pause.toggle(now);
+            }
+        } else if self.owns_pause {
+            pause.toggle(now);
+            self.owns_pause = false;
+        }
+        self.open = open;
+        true
+    }
+}
+
+fn host_quit(event: &Event) -> bool {
+    host_shortcut(event) == Some(HostShortcut::Quit)
+        || matches!(
+            event,
+            Event::Quit { .. }
+                | Event::Window {
+                    win_event: WindowEvent::CloseRequested,
+                    ..
+                }
+        )
+}
+
+fn prepare_settings(menu: &mut SettingsMenu<'_>, window: &mut Window) {
+    if let Some(settings) = menu.prepare(window.ui_metrics(), window.video_settings()) {
+        if let Err(error) = window.apply_video_settings(settings) {
+            eprintln!("warning: could not apply video settings: {error}");
+            menu.set_error(error);
+        }
+    }
 }
 
 fn event_action(presentation: &mut Presentation, event: Event, host_paused: bool) -> Action {
@@ -647,6 +696,16 @@ impl GamePlayback {
         received: std::time::Instant,
     ) {
         toggle_host_pause(pause, &mut self.session, input, received);
+        self.reset_host_input(input, pause, received);
+    }
+
+    fn reset_host_input(
+        &mut self,
+        input: &mut ControlInput,
+        pause: &HostPause,
+        received: std::time::Instant,
+    ) {
+        input.clear(&mut self.session);
         let now = pause.now(received);
         self.history.reset(EventTime {
             host: received,
@@ -1169,6 +1228,8 @@ fn run_inner(
     let creator = window.texture_creator();
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
+    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+    let mut menu_pause = MenuPause::default();
     let mut presentation = Presentation::default();
     let mut shown = presentation.screen();
     #[cfg(feature = "dev-tools")]
@@ -1205,6 +1266,21 @@ fn run_inner(
             let time = EventTime::sample(&event, clock, &host_pause, received);
             repaint |= matches!(event, Event::Window { .. });
             let was_scene = presentation.screen() == Screen::InitialScene;
+            // Quit remains global; Escape closes settings before it can quit.
+            let menu_consumed = !host_quit(&event) && menu.handle_event(&event);
+            if menu_pause.update(menu.is_open(), &mut host_pause, received) {
+                game.reset_host_input(&mut input, &host_pause, received);
+                presentation.focus_lost();
+                step_key_held = false;
+                repaint = true;
+            }
+            if menu_consumed {
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut game.trace {
+                    trace.event(&event, "settings_menu", &host_pause, &game.session);
+                }
+                continue;
+            }
             let action = event_action(&mut presentation, event.clone(), host_pause.is_paused());
             if action == Action::Close {
                 #[cfg(feature = "dev-tools")]
@@ -1326,12 +1402,22 @@ fn run_inner(
         if let Some(trace) = &mut game.trace {
             trace.flush()?;
         }
+        prepare_settings(&mut menu, &mut window);
+        if menu_pause.update(menu.is_open(), &mut host_pause, std::time::Instant::now()) {
+            game.reset_host_input(&mut input, &host_pause, std::time::Instant::now());
+            presentation.focus_lost();
+            step_key_held = false;
+            repaint = true;
+        }
+        repaint |= menu.is_open();
         if host_pause.is_paused() {
             if repaint {
-                window.set_title(
-                    "REforge — Mach 3 — Paused (P or Pause/Break to continue, Ctrl+Q to close)",
-                )?;
-                window.present(&texture)?;
+                window.set_title(if menu.is_open() {
+                    "REforge — Mach 3 — Settings (F10 or Escape to close, Ctrl+Q to quit)"
+                } else {
+                    "REforge — Mach 3 — Paused (P or Pause/Break to continue, Ctrl+Q to close)"
+                })?;
+                window.present_with(&texture, |canvas| menu.paint(canvas))?;
             }
             std::thread::sleep(std::time::Duration::from_millis(4));
             continue;
@@ -1410,7 +1496,7 @@ fn run_inner(
                 "REforge — Mach 3 — Opening (F1 to pause, Esc to close)"
             };
             window.set_title(caption)?;
-            window.present(&texture)?;
+            window.present_with(&texture, |canvas| menu.paint(canvas))?;
             #[cfg(feature = "dev-tools")]
             if let Some(trace) = &mut game.timing {
                 let end = trace.now();
@@ -1627,6 +1713,66 @@ mod tests {
             );
             assert_eq!(session.pause.state, phase);
             assert_eq!(session.controls.sound_poll_counter, 3);
+        }
+    }
+
+    #[test]
+    fn settings_pause_restores_host_state_and_preserves_native_deadlines() {
+        use std::time::{Duration, Instant};
+        for already_paused in [false, true] {
+            for phase in [
+                PauseState::Running,
+                PauseState::AwaitInitialRelease,
+                PauseState::WaitBeforePress(2),
+                PauseState::AwaitPress,
+                PauseState::WaitBeforeDecision(2),
+                PauseState::SampleDecision,
+                PauseState::AwaitFinalRelease,
+            ] {
+                let start = Instant::now();
+                let deadline = start + Duration::from_millis(30);
+                let mut game = GamePlayback::default();
+                game.session.pause.state = phase;
+                game.next_frame = Some(deadline);
+                game.pause_tick = Some(deadline);
+                let mut input = ControlInput::default();
+                input.handle(
+                    &mut game.session,
+                    &key_event(Keycode::Right, true, false),
+                    true,
+                );
+                let mut host = HostPause::default();
+                if already_paused {
+                    host.toggle(start);
+                }
+                let mut menu = MenuPause::default();
+                assert!(menu.update(true, &mut host, start));
+                game.reset_host_input(&mut input, &host, start);
+                assert!(host.is_paused());
+                assert!(!menu.update(true, &mut host, start + Duration::from_secs(5)));
+                assert_eq!(host.now(start + Duration::from_secs(5)), start);
+                let close = start + Duration::from_secs(10);
+                assert!(menu.update(false, &mut host, close));
+                game.reset_host_input(&mut input, &host, close);
+                assert_eq!(host.is_paused(), already_paused);
+                assert_eq!(host.now(close), start);
+                assert_eq!(game.next_frame, Some(deadline));
+                assert_eq!(game.pause_tick, Some(deadline));
+                assert_eq!(game.session.pause.state, phase);
+                assert_eq!(game.session.keyboard.held_keys(0).actions, 0);
+                input.handle(
+                    &mut game.session,
+                    &key_event(Keycode::Right, true, true),
+                    true,
+                );
+                assert_eq!(game.session.keyboard.held_keys(0).actions, 0);
+                input.handle(
+                    &mut game.session,
+                    &key_event(Keycode::Right, true, false),
+                    true,
+                );
+                assert_eq!(game.session.keyboard.held_keys(0).actions, 8);
+            }
         }
     }
 

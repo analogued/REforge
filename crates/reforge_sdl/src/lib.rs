@@ -8,6 +8,7 @@ pub use sdl3;
 pub mod audio;
 mod hyllian;
 mod input;
+pub mod settings;
 pub use input::{EventClockSample, HostPause, HostShortcut, event_clock_sample, host_shortcut};
 
 /// Shared display treatment; this never changes an engine's pixels or palette.
@@ -113,6 +114,9 @@ pub struct Window {
     canvas: WindowCanvas,
     events: sdl3::EventPump,
     minimum_pixels: (u32, u32),
+    scale: Option<u32>,
+    windowed_resize_pending: bool,
+    windowed_geometry: Option<(u32, u32)>,
     gpu_presented_pixels: Option<(u32, u32)>,
     _video: sdl3::VideoSubsystem,
     _sdl: sdl3::Sdl,
@@ -276,6 +280,9 @@ impl Window {
             canvas,
             events,
             minimum_pixels,
+            scale,
+            windowed_resize_pending: false,
+            windowed_geometry: None,
             gpu_presented_pixels: None,
             _video: video,
             _sdl: sdl,
@@ -316,6 +323,132 @@ impl Window {
             .window_mut()
             .set_title(title)
             .map_err(|error| error.to_string())
+    }
+
+    /// Current window-size preference and actual fullscreen state. Resizing by
+    /// hand does not replace the preference selected through the CLI or menu.
+    pub fn video_settings(&self) -> settings::VideoSettings {
+        settings::VideoSettings {
+            scale: self.scale,
+            fullscreen: self.canvas.window().fullscreen_state() != sdl3::video::FullscreenType::Off,
+        }
+    }
+
+    /// UI coordinates follow the desktop's content scale, independently of the
+    /// game's integer presentation scale or original framebuffer dimensions.
+    pub fn ui_metrics(&self) -> settings::UiMetrics {
+        let window = self.canvas.window();
+        let display_scale = window.display_scale();
+        settings::UiMetrics {
+            drawable: window.size_in_pixels(),
+            window: window.size(),
+            pixels_per_point: if display_scale.is_finite() && display_scale > 0.0 {
+                display_scale
+            } else {
+                1.0
+            },
+        }
+    }
+
+    /// Change host video settings without replacing the renderer or textures.
+    /// Fullscreen uses the desktop mode and the existing integer-fit policy.
+    /// SDL retains the normal window geometry when entering fullscreen.
+    pub fn apply_video_settings(
+        &mut self,
+        requested: settings::VideoSettings,
+    ) -> Result<(), String> {
+        if requested
+            .scale
+            .is_some_and(|scale| !(1..=16).contains(&scale))
+        {
+            return Err("window scale must be auto or an integer between 1 and 16".into());
+        }
+        let current = self.video_settings();
+        if requested.fullscreen != current.fullscreen {
+            let geometry = self.canvas.window().size();
+            self.canvas
+                .window_mut()
+                .set_fullscreen(requested.fullscreen)
+                .map_err(|error| error.to_string())?;
+            sync_window(self.canvas.window());
+            if requested.fullscreen {
+                self.windowed_geometry = Some(geometry);
+            } else if let Some(geometry) = self.windowed_geometry {
+                // Wayland can retain an older restored size across a quick
+                // resize/fullscreen sequence even after SDL's sync succeeds.
+                // Preserve the actual pre-fullscreen geometry, including a
+                // user's manual resize, unless a new scale supersedes it.
+                if requested.scale == self.scale
+                    && !self.windowed_resize_pending
+                    && !self.canvas.window().is_maximized()
+                {
+                    self.canvas
+                        .window_mut()
+                        .set_size(geometry.0, geometry.1)
+                        .map_err(|error| error.to_string())?;
+                    sync_window(self.canvas.window());
+                }
+                self.windowed_geometry = None;
+            }
+        }
+        // Keep the windowed-size preference while fullscreen is active; do not
+        // change the monitor mode to enforce a game multiplier.
+        if !requested.fullscreen && (requested.scale != self.scale || self.windowed_resize_pending)
+        {
+            self.resize_windowed(requested.scale)?;
+            self.windowed_resize_pending = false;
+        } else if requested.fullscreen && requested.scale != self.scale {
+            self.windowed_resize_pending = true;
+        }
+        self.scale = requested.scale;
+        Ok(())
+    }
+
+    fn resize_windowed(&mut self, scale: Option<u32>) -> Result<(), String> {
+        let multiplier = if let Some(multiplier) = scale {
+            multiplier
+        } else {
+            // Re-use startup's compositor negotiation rather than full monitor
+            // bounds, which can include panels and other unusable regions.
+            if !self.canvas.window_mut().maximize() {
+                return Err(sdl3::get_error().to_string());
+            }
+            sync_window(self.canvas.window());
+            if !self.canvas.present() {
+                return Err(sdl3::get_error().to_string());
+            }
+            sync_window(self.canvas.window());
+            let window = self.canvas.window();
+            if window.is_maximized() {
+                fitted_scale(
+                    self.minimum_pixels,
+                    window.size_in_pixels(),
+                    window.size(),
+                    window.pixel_density(),
+                )?
+            } else {
+                AUTO_FALLBACK_SCALE
+            }
+        };
+        let window = self.canvas.window_mut();
+        if window.is_maximized() {
+            if !window.restore() {
+                return Err(sdl3::get_error().to_string());
+            }
+            sync_window(window);
+            if window.is_maximized() {
+                return Err("cannot restore the automatic display window".into());
+            }
+        }
+        if request_initial_size(window, self.minimum_pixels, multiplier)? {
+            sync_window(window);
+        }
+        // Best effort: Wayland delegates placement to the compositor.
+        window.set_position(
+            sdl3::video::WindowPos::Centered,
+            sdl3::video::WindowPos::Centered,
+        );
+        Ok(())
     }
 
     /// Effective presentation, including any startup fallback to plain pixels.
@@ -863,6 +996,64 @@ mod tests {
         assert_eq!(
             fitted_scale((320, 240), (200, 100), (200, 100), 1.0).unwrap(),
             1
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a desktop; fullscreen transitions are exercised serially"]
+    fn live_video_changes_preserve_resources_and_windowed_geometry() {
+        let mut display = Window::new("REforge live video check", 320, 240, Some(2)).unwrap();
+        let renderer = display.canvas.raw();
+        let id = display.canvas.window().id();
+        let creator = display.texture_creator();
+        let mut frame = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba).unwrap();
+        frame.update(&[17, 85, 170, 255].repeat(320 * 200)).unwrap();
+        let mut settings = display.video_settings();
+        settings.scale = Some(3);
+        display.apply_video_settings(settings).unwrap();
+        display.present(&frame).unwrap();
+        let pixels = display.canvas.window().size_in_pixels();
+        assert!(pixels.0 >= 960 && pixels.1 >= 720);
+        let normal_size = display.canvas.window().size();
+        settings.fullscreen = true;
+        display.apply_video_settings(settings).unwrap();
+        display.present(&frame).unwrap();
+        assert!(display.video_settings().fullscreen);
+        settings.fullscreen = false;
+        display.apply_video_settings(settings).unwrap();
+        display.present(&frame).unwrap();
+        assert!(!display.video_settings().fullscreen);
+        assert_eq!(display.canvas.window().size(), normal_size);
+        // API clients can defer a windowed scale while fullscreen is active.
+        settings.fullscreen = true;
+        settings.scale = Some(4);
+        display.apply_video_settings(settings).unwrap();
+        display.present(&frame).unwrap();
+        settings.fullscreen = false;
+        display.apply_video_settings(settings).unwrap();
+        display.present(&frame).unwrap();
+        let pixels = display.canvas.window().size_in_pixels();
+        assert!(pixels.0 >= 1280 && pixels.1 >= 960);
+        settings.scale = None;
+        display.apply_video_settings(settings).unwrap();
+        display.present(&frame).unwrap();
+        assert!(!display.canvas.window().is_maximized());
+        assert_eq!(display.video_settings(), settings);
+        assert_eq!(display.canvas.raw(), renderer);
+        assert_eq!(display.canvas.window().id(), id);
+        let actual = display.video_settings();
+        assert!(
+            display
+                .apply_video_settings(settings::VideoSettings {
+                    scale: Some(0),
+                    fullscreen: true,
+                })
+                .is_err()
+        );
+        assert_eq!(
+            display.video_settings(),
+            actual,
+            "validate before changing window mode"
         );
     }
 

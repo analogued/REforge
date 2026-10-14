@@ -73,3 +73,66 @@ the root `Cargo.lock`.
 The generated HIDAPI bindings retain Alan Ott's permissive notice in addition
 to the bindings crate's Zlib license. The complete source header is retained
 with its original comment markers.
+
+## Settings UI
+
+The shared settings menu uses `egui = "=0.31.1"`, with default features disabled
+and only `default_fonts` enabled. It renders through our SDL geometry adapter;
+`eframe`, `winit`, `wgpu`, extra platform backends, and a separate CPU UI
+rasterizer are not dependencies. Headless engine builds omit this facility.
+The locked additions, including target-specific and optional packages recorded
+by Cargo, are listed below. Crate archive checksums remain in `Cargo.lock`.
+MIT is selected for alternative-license code; Apache-only dependencies retain
+their Apache terms. Fonts retain their own licenses independently of REforge.
+
+| Dependency | Locked version | Upstream license expression | Retained terms | Notice source |
+| --- | --- | --- | --- | --- |
+| [ab_glyph](https://crates.io/crates/ab_glyph/0.2.32) | 0.2.32 | Apache-2.0 | [ab_glyph-0.2.32-Apache-2.0.txt](licenses/ab_glyph-0.2.32-Apache-2.0.txt) | `ab_glyph-0.2.32/LICENSE` |
+| [ab_glyph_rasterizer](https://crates.io/crates/ab_glyph_rasterizer/0.1.10) | 0.1.10 | Apache-2.0 | [ab_glyph_rasterizer-0.1.10-Apache-2.0.txt](licenses/ab_glyph_rasterizer-0.1.10-Apache-2.0.txt) | `ab_glyph_rasterizer-0.1.10/LICENSE` |
+| [ahash](https://crates.io/crates/ahash/0.8.12) | 0.8.12 | MIT OR Apache-2.0 | [ahash-0.8.12-MIT.txt](licenses/ahash-0.8.12-MIT.txt) | `ahash-0.8.12/LICENSE-MIT` |
+| [ecolor](https://crates.io/crates/ecolor/0.31.1) | 0.31.1 | MIT OR Apache-2.0 | [egui-0.31.1-MIT.txt](licenses/egui-0.31.1-MIT.txt) | `egui tag 0.31.1, root LICENSE-MIT` |
+| [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | MIT OR Apache-2.0 | [egui-0.31.1-MIT.txt](licenses/egui-0.31.1-MIT.txt) | `egui tag 0.31.1, root LICENSE-MIT` |
+| [emath](https://crates.io/crates/emath/0.31.1) | 0.31.1 | MIT OR Apache-2.0 | [egui-0.31.1-MIT.txt](licenses/egui-0.31.1-MIT.txt) | `egui tag 0.31.1, root LICENSE-MIT` |
+| [epaint](https://crates.io/crates/epaint/0.31.1) | 0.31.1 | MIT OR Apache-2.0 | [egui-0.31.1-MIT.txt](licenses/egui-0.31.1-MIT.txt) | `egui tag 0.31.1, root LICENSE-MIT` |
+| [epaint_default_fonts](https://crates.io/crates/epaint_default_fonts/0.31.1) | 0.31.1 | (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0 | [egui-0.31.1-MIT.txt](licenses/egui-0.31.1-MIT.txt); font terms below | `egui tag 0.31.1, root LICENSE-MIT` |
+| [lock_api](https://crates.io/crates/lock_api/0.4.14) | 0.4.14 | MIT OR Apache-2.0 | [lock_api-0.4.14-MIT.txt](licenses/lock_api-0.4.14-MIT.txt) | `lock_api-0.4.14/LICENSE-MIT` |
+| [nohash-hasher](https://crates.io/crates/nohash-hasher/0.2.0) | 0.2.0 | Apache-2.0 OR MIT | [nohash-hasher-0.2.0-MIT.txt](licenses/nohash-hasher-0.2.0-MIT.txt) | `nohash-hasher-0.2.0/LICENSE-MIT` |
+| [once_cell](https://crates.io/crates/once_cell/1.21.4) | 1.21.4 | MIT OR Apache-2.0 | [once_cell-1.21.4-MIT.txt](licenses/once_cell-1.21.4-MIT.txt) | `once_cell-1.21.4/LICENSE-MIT` |
+| [owned_ttf_parser](https://crates.io/crates/owned_ttf_parser/0.25.1) | 0.25.1 | Apache-2.0 | [owned_ttf_parser-0.25.1-Apache-2.0.txt](licenses/owned_ttf_parser-0.25.1-Apache-2.0.txt) | `owned_ttf_parser-0.25.1/LICENSE` |
+| [parking_lot](https://crates.io/crates/parking_lot/0.12.5) | 0.12.5 | MIT OR Apache-2.0 | [parking_lot-0.12.5-MIT.txt](licenses/parking_lot-0.12.5-MIT.txt) | `parking_lot-0.12.5/LICENSE-MIT` |
+| [parking_lot_core](https://crates.io/crates/parking_lot_core/0.9.12) | 0.9.12 | MIT OR Apache-2.0 | [parking_lot_core-0.9.12-MIT.txt](licenses/parking_lot_core-0.9.12-MIT.txt) | `parking_lot_core-0.9.12/LICENSE-MIT` |
+| [proc-macro2](https://crates.io/crates/proc-macro2/1.0.107) | 1.0.107 | MIT OR Apache-2.0 | [proc-macro2-1.0.107-MIT.txt](licenses/proc-macro2-1.0.107-MIT.txt) | `proc-macro2-1.0.107/LICENSE-MIT` |
+| [profiling](https://crates.io/crates/profiling/1.0.18) | 1.0.18 | MIT OR Apache-2.0 | [profiling-1.0.18-MIT.txt](licenses/profiling-1.0.18-MIT.txt) | `upstream commit 8271551172eb6fa4cba47369aedd93790c623df9, root LICENSE-MIT` |
+| [quote](https://crates.io/crates/quote/1.0.47) | 1.0.47 | MIT OR Apache-2.0 | [quote-1.0.47-MIT.txt](licenses/quote-1.0.47-MIT.txt) | `quote-1.0.47/LICENSE-MIT` |
+| [redox_syscall](https://crates.io/crates/redox_syscall/0.5.18) | 0.5.18 | MIT | [redox_syscall-0.5.18-MIT.txt](licenses/redox_syscall-0.5.18-MIT.txt) | `redox_syscall-0.5.18/LICENSE` |
+| [scopeguard](https://crates.io/crates/scopeguard/1.2.0) | 1.2.0 | MIT OR Apache-2.0 | [scopeguard-1.2.0-MIT.txt](licenses/scopeguard-1.2.0-MIT.txt) | `scopeguard-1.2.0/LICENSE-MIT` |
+| [smallvec](https://crates.io/crates/smallvec/1.16.3) | 1.16.3 | MIT OR Apache-2.0 | [smallvec-1.16.3-MIT.txt](licenses/smallvec-1.16.3-MIT.txt) | `smallvec-1.16.3/LICENSE-MIT` |
+| [syn](https://crates.io/crates/syn/2.0.119) | 2.0.119 | MIT OR Apache-2.0 | [syn-2.0.119-MIT.txt](licenses/syn-2.0.119-MIT.txt) | `syn-2.0.119/LICENSE-MIT` |
+| [ttf-parser](https://crates.io/crates/ttf-parser/0.25.1) | 0.25.1 | MIT OR Apache-2.0 | [ttf-parser-0.25.1-MIT.txt](licenses/ttf-parser-0.25.1-MIT.txt) | `ttf-parser-0.25.1/LICENSE-MIT` |
+| [unicode-ident](https://crates.io/crates/unicode-ident/1.0.27) | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 | [unicode-ident-1.0.27-MIT.txt](licenses/unicode-ident-1.0.27-MIT.txt); [Unicode terms](licenses/unicode-ident-1.0.27-Unicode-3.0.txt) | `unicode-ident-1.0.27/LICENSE-MIT` |
+| [version_check](https://crates.io/crates/version_check/0.9.5) | 0.9.5 | MIT/Apache-2.0 | [version_check-0.9.5-MIT.txt](licenses/version_check-0.9.5-MIT.txt) | `version_check-0.9.5/LICENSE-MIT` |
+| [windows-link](https://crates.io/crates/windows-link/0.2.1) | 0.2.1 | MIT OR Apache-2.0 | [windows-link-0.2.1-MIT.txt](licenses/windows-link-0.2.1-MIT.txt) | `windows-link-0.2.1/license-mit` |
+| [zerocopy](https://crates.io/crates/zerocopy/0.8.63) | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT | [zerocopy-0.8.63-MIT.txt](licenses/zerocopy-0.8.63-MIT.txt) | `zerocopy-0.8.63/LICENSE-MIT` |
+| [zerocopy-derive](https://crates.io/crates/zerocopy-derive/0.8.63) | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT | [zerocopy-derive-0.8.63-MIT.txt](licenses/zerocopy-derive-0.8.63-MIT.txt) | `zerocopy-derive-0.8.63/LICENSE-MIT` |
+
+The shared egui MIT notice is from upstream tag
+[`0.31.1`](https://github.com/emilk/egui/blob/0.31.1/LICENSE-MIT);
+these egui crate archives declare the same alternative licenses but do not
+include root license files. The profiling MIT notice is from its crate's
+recorded [upstream revision](https://github.com/aclysma/profiling/blob/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT).
+Other retained code notices are copied without modification from the listed
+crate archives. No upstream application or renderer implementation is copied.
+
+Default font bytes are supplied unmodified by `epaint_default_fonts`, rather
+than extracted from game data. Retained font terms are copied from that archive:
+
+- Hack: [MIT/Bitstream Vera notices](licenses/epaint-default-fonts-0.31.1-Hack-Regular.txt),
+  including the public-domain DejaVu contributions.
+- Noto Emoji: [SIL Open Font License 1.1](licenses/epaint-default-fonts-0.31.1-OFL.txt);
+  copyright 2013 Google Inc., All Rights Reserved (embedded font notice).
+- Ubuntu Light: [Ubuntu Font Licence 1.0](licenses/epaint-default-fonts-0.31.1-UFL.txt);
+  copyright 2011 Canonical Ltd. (embedded font notice).
+- Emoji Icon Font: [MIT notice](licenses/epaint-default-fonts-0.31.1-emoji-icon-font-mit-license.txt).
+
+These dependencies permit their use in this combined application subject to
+their retained terms; they do not select the project's authored-code license.

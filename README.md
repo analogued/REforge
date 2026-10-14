@@ -34,11 +34,14 @@ Presentation defaults to sharp nearest-neighbour pixels. Add
 `--presentation hyllian` for the shared Hyllian CRT shader, or
 `--presentation pixels` to select the default explicitly. The initial CRT
 setting is the same for both engines; colour profiles and adjustable monitor
-presets are not yet exposed. GPU/shader setup failures warn and retain plain
-pixels, including with `SDL_RENDER_DRIVER=software`. See the
+presets are not yet exposed. Both modes prefer the shared SDL GPU renderer,
+with shader variants for Vulkan, Metal and Direct3D 12. GPU initialization falls
+back to ordinary SDL renderers; unavailable CRT effects retain plain pixels,
+including with `SDL_RENDER_DRIVER=software`. See the
 [shared presentation documentation](crates/reforge_sdl/README.md) for backend
 requirements and the bundled shader's attribution.
-Ctrl+Q quits either game, and P or Pause/Break toggles pause during gameplay.
+Ctrl+Q quits either game, and Pause/Break toggles pause during gameplay.
+Alley Cat also accepts P for pause.
 Each game retains its additional bindings.
 See each game's README for supported input versions, controls and current limits.
 

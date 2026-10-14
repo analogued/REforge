@@ -40,12 +40,14 @@ The optional Hyllian CRT effect adapts DOSBox Staging's MIT-licensed Hyllian
 shader. Unlike the SDL API calls, this is imported source and is retained in
 dedicated [shader files](../shaders/README.md), including the immutable upstream
 revision, modifications and [complete MIT terms](../shaders/LICENSE-MIT.txt).
-The generated SPIR-V and Metal source are distributed with the same notices.
+The generated SPIR-V, DXIL, HLSL and Metal source are distributed with the same
+notices.
 The import permits the project's candidate MIT/BSD or GPL licensing choices;
 it does not select a license for authored project code.
 
 Ordinary builds use bundled assets. Offline regeneration uses glslang,
-SPIRV-Tools and Qt Shader Baker as documented beside the shader; these tools
+SPIRV-Tools, Qt Shader Baker and Microsoft DXC as documented beside the shader;
+these tools
 are not linked into or shipped with REforge. Native presentation now requires
 SDL 3.4 or newer for the custom GPU render-state API.
 

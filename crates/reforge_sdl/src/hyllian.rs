@@ -24,29 +24,22 @@ pub(super) fn create_canvas(
     window: Window,
     presentation: Presentation,
 ) -> Result<(WindowCanvas, Option<Hyllian>), String> {
-    // Respect an explicit SDL renderer override, including software. Otherwise
-    // request the shader-capable GPU renderer only for the optional CRT mode.
-    let requested_gpu =
-        presentation == Presentation::Hyllian && sdl3::hint::get("SDL_RENDER_DRIVER").is_none();
-    if requested_gpu {
-        match gpu_canvas(window.clone())
-            .and_then(|canvas| Hyllian::new(&canvas).map(|effect| (canvas, Some(effect))))
-        {
-            Ok(result) => return Ok(result),
+    // Use one shader-capable renderer for both presentation modes by default.
+    // Respect explicit SDL renderer overrides, including the software fallback.
+    let canvas = if sdl3::hint::get("SDL_RENDER_DRIVER").is_none() {
+        match gpu_canvas(window.clone()) {
+            Ok(canvas) => canvas,
             Err(error) => {
-                eprintln!("REforge: Hyllian GPU setup unavailable: {error}; using plain pixels")
+                eprintln!(
+                    "REforge: GPU renderer unavailable: {error}; trying SDL's renderer selection"
+                );
+                fallback_canvas(window)?
             }
         }
-    }
-    let canvas = match sdl3::render::create_renderer(window.clone(), None) {
-        Ok(canvas) => canvas,
-        Err(error) => {
-            eprintln!("REforge: renderer unavailable: {error}; trying software rendering");
-            sdl3::render::create_renderer(window, Some(c"software"))
-                .map_err(|error| error.to_string())?
-        }
+    } else {
+        fallback_canvas(window)?
     };
-    let effect = if presentation == Presentation::Hyllian && !requested_gpu {
+    let effect = if presentation == Presentation::Hyllian {
         match Hyllian::new(&canvas) {
             Ok(effect) => Some(effect),
             Err(error) => {
@@ -58,6 +51,17 @@ pub(super) fn create_canvas(
         None
     };
     Ok((canvas, effect))
+}
+
+fn fallback_canvas(window: Window) -> Result<WindowCanvas, String> {
+    match sdl3::render::create_renderer(window.clone(), None) {
+        Ok(canvas) => Ok(canvas),
+        Err(error) => {
+            eprintln!("REforge: renderer unavailable: {error}; trying software rendering");
+            sdl3::render::create_renderer(window, Some(c"software"))
+                .map_err(|error| error.to_string())
+        }
+    }
 }
 
 /// Only this short-lived owner uses raw renderer-creation properties; the Rust
@@ -79,7 +83,7 @@ fn gpu_canvas(window: Window) -> Result<WindowCanvas, String> {
         return Err(sdl3::get_error().to_string());
     }
     // SAFETY: properties and window are live. SDL copies the names/values; no
-    // Rust data is retained. Bundled formats allow SDL to choose Vulkan or Metal.
+    // Rust data is retained. Bundled formats allow SDL to choose Vulkan, Metal or Direct3D 12.
     let configured = unsafe {
         properties::SDL_SetStringProperty(
             props.0,
@@ -92,6 +96,10 @@ fn gpu_canvas(window: Window) -> Result<WindowCanvas, String> {
         ) && properties::SDL_SetBooleanProperty(
             props.0,
             render::SDL_PROP_RENDERER_CREATE_GPU_SHADERS_SPIRV_BOOLEAN,
+            true,
+        ) && properties::SDL_SetBooleanProperty(
+            props.0,
+            render::SDL_PROP_RENDERER_CREATE_GPU_SHADERS_DXIL_BOOLEAN,
             true,
         ) && properties::SDL_SetBooleanProperty(
             props.0,
@@ -120,7 +128,7 @@ pub(super) struct Hyllian {
 }
 
 impl Hyllian {
-    fn new(canvas: &WindowCanvas) -> Result<Self, String> {
+    pub(super) fn new(canvas: &WindowCanvas) -> Result<Self, String> {
         let renderer = NonNull::new(canvas.raw()).ok_or("missing SDL renderer")?;
         // SAFETY: canvas owns a live main-thread renderer. SDL returns a borrowed
         // device; non-GPU renderers return null and remain usable without shaders.
@@ -131,6 +139,13 @@ impl Hyllian {
         let (code, format, entrypoint): (&[u8], _, &CStr) =
             if formats & gpu::SDL_GPU_SHADERFORMAT_SPIRV != gpu::SDL_GPU_SHADERFORMAT_INVALID {
                 (&SPIRV.0, gpu::SDL_GPU_SHADERFORMAT_SPIRV, c"main")
+            } else if formats & gpu::SDL_GPU_SHADERFORMAT_DXIL != gpu::SDL_GPU_SHADERFORMAT_INVALID
+            {
+                (
+                    include_bytes!("../shaders/hyllian.dxil"),
+                    gpu::SDL_GPU_SHADERFORMAT_DXIL,
+                    c"main",
+                )
             } else if formats & gpu::SDL_GPU_SHADERFORMAT_MSL != gpu::SDL_GPU_SHADERFORMAT_INVALID {
                 (
                     include_bytes!("../shaders/hyllian.msl"),

@@ -19,8 +19,8 @@ RGB24 and RGBA32 inputs are accepted without changing the engine framebuffer
 format.
 
 The backend uses the pinned `sdl3` Rust wrapper and the installed native SDL3
-library (SDL 3.4 or later). Plain renderer selection is delegated to SDL, allowing hardware acceleration
-where available. Vsync is requested by default; an unsupported request prints a
+library (SDL 3.4 or later). Both presentation modes prefer SDL's shader-capable
+GPU renderer, allowing plain pixels and CRT effects to share one renderer. Vsync is requested by default; an unsupported request prints a
 warning and continues without sync. Presentation can block for display refresh;
 engines must advance due simulation work independently of presentation count.
 The wrapper does not expose a vsync setter or nanosecond tick access; these
@@ -38,19 +38,28 @@ For these 200-row games, a display multiplier N spreads 200 beam cycles over
 mask retains its two-drawable-pixel pitch. Changing scale therefore changes the
 beam spacing, while the current beam/mask parameters remain fixed.
 
-Hyllian requests SDL's shader-capable GPU renderer, with bundled SPIR-V for
-Vulkan and Metal source for Metal. SDL chooses a compatible device/backend;
-an explicit `SDL_RENDER_DRIVER` override is respected. No shader compiler or Qt
-library is needed to build or run REforge. D3D shader binaries are not bundled;
-Windows needs a working Vulkan backend for this effect. GPU/shader setup failures
-warn and continue with plain pixels. If ordinary renderer creation fails, the
-backend explicitly tries SDL's software renderer. To force the software path,
-set `SDL_RENDER_DRIVER=software`; Hyllian then warns and falls back to pixels.
+The GPU setup advertises bundled SPIR-V, Metal source and DXIL, allowing SDL to
+choose Vulkan, Metal or Direct3D 12 without tying a presentation mode to an API.
+An explicit `SDL_RENDER_DRIVER` override is respected. GPU initialization failure
+warns and tries SDL's ordinary renderer selection; if that also fails, the backend
+tries software rendering. CRT shader setup failure retains the selected renderer
+and falls back to pixels. To force software, set `SDL_RENDER_DRIVER=software`;
+Hyllian then warns and falls back to pixels. No shader compiler, Qt or DXC is
+needed to build or run REforge. Native Vulkan rendering is validated on Linux;
+DXIL compiler validation and reflection are checked, but native D3D12 and Metal
+rendering still need Windows and macOS validation.
 
-`Window::new_with_presentation` selects the effect before texture creation;
-`Window::new` retains plain presentation. The generated-binding GPU bridge is
-isolated in `src/hyllian.rs`; adapted third-party shader code, its license,
-provenance and regeneration commands live in [shaders/](shaders/README.md).
+`Window::new_with_presentation` selects the initial effect; `Window::new` starts
+with pixels on the same preferred GPU renderer. `Window::set_presentation` switches
+pixels/CRT without recreating the renderer, window or uploaded frame textures.
+CRT resources are created on first use and cached when returning to pixels.
+`Window::presentation` reports the effective mode, including startup fallback.
+An unsupported runtime CRT request returns an error and leaves the active mode
+unchanged. This API supports future options UI; no in-game settings screen is
+implemented yet. Changing the rendering backend itself remains a separate task.
+The generated-binding GPU bridge is isolated in `src/hyllian.rs`; adapted
+third-party shader code, its license, provenance and regeneration commands live
+in [shaders/](shaders/README.md).
 The mask uses drawable pixels relative to the game's presentation rectangle.
 Resizing and DPI changes update that rectangle each frame. Modern overlays are
 drawn after the effect with ordinary SDL rendering; original in-frame text and
@@ -116,7 +125,12 @@ Run `cargo test --locked -p reforge_sdl` from the workspace root. Synthetic
 RGB/RGBA pixel tests cover nearest sampling, aspect correction and integer
 letterboxing with offscreen software rendering. Engine checks cover input
 semantics. Native builds and runtime checks have been exercised on Linux;
-Windows and macOS have not yet been validated.
+Windows and macOS have not yet been validated. The ignored native
+`gpu_presentation_switch_retains_renderer_textures_and_plain_pixels` check starts
+in pixels with the default GPU renderer, repeatedly toggles Hyllian using both
+engine texture formats, verifies unchanged window/renderer identity, and compares
+the restored plain image byte for byte. Software fallback checks also verify
+that unsupported runtime effect changes preserve the active pixels mode.
 
 `audio::AudioOutput` owns a default playback stream and its SDL/audio lifetimes.
 Construct, use and drop it on the main thread. It accepts mono native-endian

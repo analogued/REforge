@@ -194,8 +194,9 @@ drawable pixel multiplier; scale 4 gives 1280 by 960 pixels, and scale 8 gives
 2560 by 1920. The [shared SDL3 backend](../../crates/reforge_sdl/README.md)
 requests high pixel density and converts explicit pixel targets to window
 coordinates using drawable density. Desktop constraints and compositor
-transformations can still affect the result. It lets SDL select an available
-renderer and requests vsync, continuing with a warning if unsupported.
+transformations can still affect the result. It prefers SDL's shader-capable GPU
+renderer for both presentation modes, with ordinary SDL/software fallbacks, and
+requests vsync, continuing with a warning if unsupported.
 SDL fits the image at integer multiples of 320×240 inside the actual granted
 window, preserving 4:3 with black margins, including after resizing.
 `--presentation pixels` is the default and uses nearest-neighbour sampling to

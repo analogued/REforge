@@ -90,8 +90,9 @@ actual granted window, preserving 4:3 with black bars as needed, including after
 resizing or maximizing. The
 [shared SDL3 backend](../../crates/reforge_sdl/README.md) requests high pixel density
 and converts explicit pixel targets to window coordinates using drawable density.
-The desktop can constrain window size or further transform the image. SDL selects
-the renderer; vsync is requested by default and falls back with a warning when
+The desktop can constrain window size or further transform the image. The shared
+backend prefers SDL's shader-capable GPU renderer for both presentation modes,
+with ordinary SDL/software fallbacks; vsync is requested by default and falls back with a warning when
 unsupported. Presentation sync does not replace the virtual game clock.
 Host display vsync is requested when
 supported; game timing still follows the virtual PIT/video clocks. Composite

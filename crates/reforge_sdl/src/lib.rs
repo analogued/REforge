@@ -109,6 +109,7 @@ impl<'a> FrameTexture<'a> {
 pub struct Window {
     // GPU resources must be released before their owning renderer/device.
     effect: Option<hyllian::Hyllian>,
+    presentation: Presentation,
     canvas: WindowCanvas,
     events: sdl3::EventPump,
     minimum_pixels: (u32, u32),
@@ -264,8 +265,14 @@ impl Window {
             }
         }
         let events = sdl.event_pump().map_err(|error| error.to_string())?;
+        let presentation = if presentation == Presentation::Hyllian && effect.is_none() {
+            Presentation::Pixels
+        } else {
+            presentation
+        };
         Ok(Self {
             effect,
+            presentation,
             canvas,
             events,
             minimum_pixels,
@@ -311,6 +318,23 @@ impl Window {
             .map_err(|error| error.to_string())
     }
 
+    /// Effective presentation, including any startup fallback to plain pixels.
+    pub fn presentation(&self) -> Presentation {
+        self.presentation
+    }
+
+    /// Switch display treatment while retaining the renderer and frame textures.
+    /// CRT resources are created lazily and retained when switching back to pixels.
+    /// Failure leaves the current mode unchanged; renderer backends lacking the
+    /// custom GPU shader interface continue to support ordinary pixel rendering.
+    pub fn set_presentation(&mut self, presentation: Presentation) -> Result<(), String> {
+        if presentation == Presentation::Hyllian && self.effect.is_none() {
+            self.effect = Some(hyllian::Hyllian::new(&self.canvas)?);
+        }
+        self.presentation = presentation;
+        Ok(())
+    }
+
     pub fn present(&mut self, frame: &FrameTexture<'_>) -> Result<(), String> {
         self.present_with(frame, |_| Ok(()))
     }
@@ -323,10 +347,13 @@ impl Window {
         overlay: impl FnOnce(&mut WindowCanvas) -> Result<(), String>,
     ) -> Result<(), String> {
         self.prepare_frame()?;
-        if let Some(effect) = self.effect.as_mut() {
-            effect.paint(&mut self.canvas, &frame.texture, frame.size)?;
-        } else {
-            paint(&mut self.canvas, &frame.texture)?;
+        match self.presentation {
+            Presentation::Hyllian => self
+                .effect
+                .as_mut()
+                .expect("CRT mode requires initialized resources")
+                .paint(&mut self.canvas, &frame.texture, frame.size)?,
+            Presentation::Pixels => paint(&mut self.canvas, &frame.texture)?,
         }
         overlay(&mut self.canvas)?;
         if !self.canvas.present() {
@@ -591,6 +618,68 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an SDL GPU-capable desktop; run serially"]
+    fn gpu_presentation_switch_retains_renderer_textures_and_plain_pixels() {
+        fn read(display: &mut Window, frame: &FrameTexture<'_>) -> Vec<u8> {
+            let mut result = Vec::new();
+            display
+                .present_with(frame, |canvas| {
+                    let surface = canvas
+                        .read_pixels(None)
+                        .unwrap()
+                        .convert_format(PixelFormat::RGB24)
+                        .unwrap();
+                    result = surface.with_lock(|bytes| bytes.to_vec());
+                    Ok(())
+                })
+                .unwrap();
+            result
+        }
+        let mut display =
+            Window::new("REforge live presentation check", 320, 240, Some(4)).unwrap();
+        assert_eq!(display.canvas.renderer_name, "gpu");
+        assert_eq!(display.presentation(), Presentation::Pixels);
+        assert!(
+            display.effect.is_none(),
+            "plain startup need not compile CRT"
+        );
+        let renderer = display.canvas.raw();
+        let window_id = display.canvas.window().id();
+        let creator = display.texture_creator();
+        for (width, format, components) in [(320, FrameFormat::Rgba, 4), (640, FrameFormat::Rgb, 3)]
+        {
+            // Construct and upload once; all switches reuse this same texture.
+            let mut frame = FrameTexture::new(&creator, width, 200, format).unwrap();
+            let color = if components == 4 {
+                &[17, 85, 170, 255][..]
+            } else {
+                &[17, 85, 170][..]
+            };
+            frame.update(&color.repeat(width as usize * 200)).unwrap();
+            let plain = read(&mut display, &frame);
+            assert!(plain.chunks_exact(3).all(|p| p == [17, 85, 170]));
+            for _ in 0..2 {
+                display.set_presentation(Presentation::Hyllian).unwrap();
+                assert_eq!(display.presentation(), Presentation::Hyllian);
+                let crt = read(&mut display, &frame);
+                assert_ne!(crt, plain, "switch must execute the CRT shader");
+                display.set_presentation(Presentation::Pixels).unwrap();
+                assert!(
+                    display.effect.is_some(),
+                    "keep compiled CRT resources cached"
+                );
+                assert_eq!(
+                    read(&mut display, &frame),
+                    plain,
+                    "plain pixels must round-trip exactly"
+                );
+                assert_eq!(display.canvas.raw(), renderer);
+                assert_eq!(display.canvas.window().id(), window_id);
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "requires SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software; run serially"]
     fn hyllian_software_fallback_keeps_plain_pixels() {
         let mut display = Window::new_with_presentation(
@@ -603,6 +692,9 @@ mod tests {
         .unwrap();
         assert_eq!(display.canvas.renderer_name, "software");
         assert!(display.effect.is_none());
+        assert_eq!(display.presentation(), Presentation::Pixels);
+        assert!(display.set_presentation(Presentation::Hyllian).is_err());
+        assert_eq!(display.presentation(), Presentation::Pixels);
         let creator = display.texture_creator();
         let mut frame = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba).unwrap();
         let pixels = [17, 85, 170, 255].repeat(320 * 200);

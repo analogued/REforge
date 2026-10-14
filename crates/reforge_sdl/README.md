@@ -33,6 +33,10 @@ palettes, graphics modes and simulation untouched. This initial treatment uses
 one fixed CGA-style parameter set for both engines; it does not yet provide
 colour profiles, monitor selection or Custom controls. Small output areas can
 show interference patterns; display-dependent preset tuning is not implemented.
+For these 200-row games, a display multiplier N spreads 200 beam cycles over
+240*N drawable pixels: each cycle spans 1.2*N pixels on average. The aperture
+mask retains its two-drawable-pixel pitch. Changing scale therefore changes the
+beam spacing, while the current beam/mask parameters remain fixed.
 
 Hyllian requests SDL's shader-capable GPU renderer, with bundled SPIR-V for
 Vulkan and Metal source for Metal. SDL chooses a compatible device/backend;
@@ -87,6 +91,14 @@ dimensions for the current density, but never restore the initial multiplier or
 resize the window merely because the game changes graphics modes. User resizing
 remains allowed, including a 320-pixel-wide game area that loses Mach 3 monochrome
 columns. No high-DPI-specific dependency or game-specific size restriction is used.
+
+SDL's GPU renderer updates its backing texture during presentation. Before the
+first game frame and after a drawable-size change, the shared backend submits
+the retained image once to settle that backing size, then refreshes integer
+geometry before drawing the requested frame. This prevents a static screen's
+only resize redraw from leaving a clipped image visible. The caller's overlay
+runs once; software and ordinary renderers retain their existing path. Startup
+auto sizing still leaves decorations and desktop constraints to the compositor.
 
 Construct and use windows, texture creators and textures on the main thread.
 Keep a texture's creator alive until the texture is dropped, and present it only

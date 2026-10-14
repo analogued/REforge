@@ -112,6 +112,7 @@ pub struct Window {
     canvas: WindowCanvas,
     events: sdl3::EventPump,
     minimum_pixels: (u32, u32),
+    gpu_presented_pixels: Option<(u32, u32)>,
     _video: sdl3::VideoSubsystem,
     _sdl: sdl3::Sdl,
 }
@@ -211,6 +212,7 @@ impl Window {
             canvas,
             events,
             minimum_pixels,
+            gpu_presented_pixels: None,
             _video: video,
             _sdl: sdl,
         })
@@ -263,6 +265,7 @@ impl Window {
         frame: &FrameTexture<'_>,
         overlay: impl FnOnce(&mut WindowCanvas) -> Result<(), String>,
     ) -> Result<(), String> {
+        self.prepare_frame()?;
         if let Some(effect) = self.effect.as_mut() {
             effect.paint(&mut self.canvas, &frame.texture, frame.size)?;
         } else {
@@ -272,6 +275,34 @@ impl Window {
         if !self.canvas.present() {
             return Err(sdl3::get_error().to_string());
         }
+        Ok(())
+    }
+
+    fn prepare_frame(&mut self) -> Result<(), String> {
+        if self.canvas.renderer_name != "gpu" {
+            return Ok(());
+        }
+        let pixels = self.canvas.window().size_in_pixels();
+        if self.gpu_presented_pixels == Some(pixels) {
+            return Ok(());
+        }
+        // SDL's GPU renderer replaces its backing texture during Present, after
+        // drawing. Settle that transition before drawing into the new viewport,
+        // rather than relying on an engine to request a second frame. This also
+        // avoids out-of-bounds readback in a caller's overlay after enlargement.
+        // Submit the retained image, without invoking the overlay twice or
+        // clearing the window to black during an ordinary resize.
+        if !self.canvas.present() {
+            return Err(sdl3::get_error().to_string());
+        }
+        configure(
+            &mut self.canvas,
+            self.minimum_pixels.0,
+            self.minimum_pixels.1,
+        )?;
+        // Cache the size sampled before presentation. If the desktop changes it
+        // asynchronously during Present, the next frame detects that change.
+        self.gpu_presented_pixels = Some(pixels);
         Ok(())
     }
 }
@@ -393,6 +424,115 @@ fn paint<T: RenderTarget>(canvas: &mut Canvas<T>, texture: &Texture<'_>) -> Resu
 mod tests {
     use super::*;
     use sdl3::surface::Surface;
+
+    #[test]
+    #[ignore = "requires an SDL GPU-capable desktop; run serially"]
+    fn gpu_first_redraw_after_resize_preserves_all_frame_edges() {
+        let mut display = Window::new_with_presentation(
+            "REforge GPU resize check",
+            320,
+            240,
+            None,
+            Presentation::Hyllian,
+        )
+        .unwrap();
+        assert_eq!(display.canvas.renderer_name, "gpu");
+        let creator = display.texture_creator();
+        let mut frame = FrameTexture::new(&creator, 640, 200, FrameFormat::Rgb).unwrap();
+        let mut pixels = vec![0; 640 * 200 * 3];
+        for y in 0..200 {
+            for x in 0..640 {
+                let color = if y < 8 {
+                    [255, 0, 0]
+                } else if y >= 192 {
+                    [0, 255, 0]
+                } else if x < 8 {
+                    [0, 0, 255]
+                } else if x >= 632 {
+                    [255; 3]
+                } else {
+                    [0; 3]
+                };
+                pixels[(y * 640 + x) * 3..(y * 640 + x) * 3 + 3].copy_from_slice(&color);
+            }
+        }
+        frame.update(&pixels).unwrap();
+        // Cover startup, enlargement, shrinkage and maximize. Each phase makes
+        // exactly one public presentation request, as a static splash does.
+        for requested in [
+            None,
+            Some((640, 480)),
+            Some((1800, 1000)),
+            Some((1000, 750)),
+            None,
+        ] {
+            if let Some(size) = requested {
+                let size =
+                    window_size_for_pixels(size, display.canvas.window().pixel_density()).unwrap();
+                display
+                    .canvas
+                    .window_mut()
+                    .set_size(size.0, size.1)
+                    .unwrap();
+                sync_window(display.canvas.window());
+            } else if display.gpu_presented_pixels.is_some() {
+                let before = display.canvas.window().size_in_pixels();
+                assert!(display.canvas.window_mut().maximize());
+                sync_window(display.canvas.window());
+                // Window managers may complete maximize asynchronously. Pump
+                // events without presenting intermediate frames while waiting.
+                for _ in 0..100 {
+                    display.poll_events().for_each(drop);
+                    if display.canvas.window().size_in_pixels() != before {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(3));
+                }
+            }
+            display.poll_events().for_each(drop);
+            let mut overlay_calls = 0;
+            display
+                .present_with(&frame, |canvas| {
+                    overlay_calls += 1;
+                    let readback = canvas
+                        .read_pixels(None)
+                        .unwrap()
+                        .convert_format(PixelFormat::RGB24)
+                        .unwrap();
+                    let width = readback.width() as usize;
+                    let height = readback.height() as usize;
+                    let pitch = readback.pitch() as usize;
+                    readback.with_lock(|actual| {
+                        let at =
+                            |x: usize, y: usize| &actual[y * pitch + x * 3..y * pitch + x * 3 + 3];
+                        let top = at(width / 2, height * 4 / 200);
+                        let bottom = at(width / 2, height - height * 4 / 200);
+                        let left = at(width * 4 / 640, height / 2);
+                        let right = at(width - width * 4 / 640, height / 2);
+                        assert!(
+                            top[0] > 80 && top[1] == 0 && top[2] == 0,
+                            "top clipped: {top:?}"
+                        );
+                        assert!(
+                            bottom[1] > 80 && bottom[0] == 0 && bottom[2] == 0,
+                            "bottom clipped: {bottom:?}"
+                        );
+                        assert!(
+                            left[2] > 80 && left[0] == 0 && left[1] == 0,
+                            "left clipped: {left:?}"
+                        );
+                        assert!(right.iter().all(|&v| v > 80), "right clipped: {right:?}");
+                    });
+                    eprintln!(
+                        "first redraw: drawable={:?}, content={width}x{height}; all edges retained",
+                        canvas.window().size_in_pixels()
+                    );
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(overlay_calls, 1);
+        }
+    }
 
     #[test]
     #[ignore = "requires SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software; run serially"]

@@ -418,6 +418,9 @@ fn backends(renderer: Renderer) -> Vec<Backend> {
             backend,
             Backend::Vulkan | Backend::Direct3d12 | Backend::Metal
         );
+        if renderer == Renderer::Sdl && backend == Backend::Vulkan {
+            continue;
+        }
         if renderer == Renderer::Gpu && !gpu || renderer == Renderer::Software {
             continue;
         }

@@ -7,6 +7,7 @@ use reforge_settings::{Backend, Renderer, VideoSettings};
 use std::{
     ffi::{CStr, CString},
     ptr::NonNull,
+    rc::Rc,
 };
 
 use sdl3::{
@@ -28,6 +29,7 @@ pub(super) fn create_canvas_with(
     window: Window,
     presentation: Presentation,
     settings: VideoSettings,
+    device: &mut Option<Rc<GpuDevice>>,
 ) -> Result<(WindowCanvas, Option<Hyllian>), String> {
     let selected = if settings.renderer == Renderer::Auto
         && matches!(
@@ -43,6 +45,9 @@ pub(super) fn create_canvas_with(
             sdl3::render::create_renderer(window, Some(c"software")).map_err(|e| e.to_string())?
         }
         Renderer::Sdl if settings.backend != Backend::Auto => {
+            if settings.backend == Backend::Vulkan {
+                return Err("the standalone SDL Vulkan renderer is not supported for live switching; choose GPU / Vulkan".into());
+            }
             let name = CString::new(settings.backend.as_str()).map_err(|e| e.to_string())?;
             sdl3::render::create_renderer(window, Some(&name)).map_err(|e| e.to_string())?
         }
@@ -52,7 +57,7 @@ pub(super) fn create_canvas_with(
                 && settings.backend == Backend::Auto
                 && sdl3::hint::get("SDL_RENDER_DRIVER").is_some()
             {
-                fallback_canvas(window)?
+                fallback_canvas(window, device)?
             } else {
                 if settings.backend != Backend::Auto
                     && !matches!(
@@ -62,7 +67,7 @@ pub(super) fn create_canvas_with(
                 {
                     return Err("backend is not a GPU backend".into());
                 }
-                match gpu_canvas(window.clone(), settings.backend) {
+                match gpu_canvas(window.clone(), settings.backend, device) {
                     Ok(canvas) => canvas,
                     Err(error)
                         if settings.renderer == Renderer::Auto
@@ -71,7 +76,7 @@ pub(super) fn create_canvas_with(
                         eprintln!(
                             "REforge: GPU renderer unavailable: {error}; trying SDL selection"
                         );
-                        fallback_canvas(window)?
+                        fallback_canvas(window, device)?
                     }
                     Err(error) => return Err(error),
                 }
@@ -93,7 +98,9 @@ pub(super) fn create_canvas_with(
 }
 
 fn ordinary_canvas(window: Window) -> Result<WindowCanvas, String> {
-    for driver in sdl3::render::drivers().filter(|name| name != "gpu" && name != "software") {
+    for driver in sdl3::render::drivers()
+        .filter(|name| !matches!(name.as_str(), "gpu" | "vulkan" | "software"))
+    {
         let name = CString::new(driver).map_err(|e| e.to_string())?;
         if let Ok(canvas) = sdl3::render::create_renderer(window.clone(), Some(&name)) {
             return Ok(canvas);
@@ -102,14 +109,31 @@ fn ordinary_canvas(window: Window) -> Result<WindowCanvas, String> {
     sdl3::render::create_renderer(window, Some(c"software")).map_err(|e| e.to_string())
 }
 
-fn fallback_canvas(window: Window) -> Result<WindowCanvas, String> {
-    match sdl3::render::create_renderer(window.clone(), None) {
-        Ok(canvas) => Ok(canvas),
-        Err(error) => {
-            eprintln!("REforge: renderer unavailable: {error}; trying software rendering");
-            sdl3::render::create_renderer(window, Some(c"software"))
-                .map_err(|error| error.to_string())
+fn fallback_canvas(
+    window: Window,
+    device: &mut Option<Rc<GpuDevice>>,
+) -> Result<WindowCanvas, String> {
+    if let Some(preferred) = sdl3::hint::get("SDL_RENDER_DRIVER") {
+        for name in preferred.split(',').map(str::trim) {
+            if name.eq_ignore_ascii_case("vulkan") {
+                eprintln!("REforge: standalone SDL Vulkan is unavailable; use GPU / Vulkan");
+                continue;
+            }
+            let result = if name.eq_ignore_ascii_case("gpu") {
+                gpu_canvas(window.clone(), Backend::Auto, device)
+            } else {
+                let name = CString::new(name).map_err(|e| e.to_string())?;
+                sdl3::render::create_renderer(window.clone(), Some(&name))
+                    .map_err(|e| e.to_string())
+            };
+            match result {
+                Ok(canvas) => return Ok(canvas),
+                Err(error) => eprintln!("REforge: renderer {name} unavailable: {error}"),
+            }
         }
+        sdl3::render::create_renderer(window, Some(c"software")).map_err(|e| e.to_string())
+    } else {
+        ordinary_canvas(window)
     }
 }
 
@@ -125,14 +149,116 @@ impl Drop for Properties {
     }
 }
 
-fn gpu_canvas(window: Window, backend: Backend) -> Result<WindowCanvas, String> {
+/// Keep a compatible device alive across renderer/window replacements. A
+/// renderer only borrows it; texture owners retain it until their renderer drops.
+pub(crate) struct GpuDevice {
+    raw: NonNull<gpu::SDL_GPUDevice>,
+    driver: String,
+    loader_pinned: bool,
+    _video: sdl3::VideoSubsystem,
+}
+impl Drop for GpuDevice {
+    fn drop(&mut self) {
+        // SAFETY: every borrowing renderer/texture has dropped its retained Rc.
+        // The video subsystem remains live, and this runs on the SDL thread.
+        unsafe { gpu::SDL_DestroyGPUDevice(self.raw.as_ptr()) };
+        if self.loader_pinned {
+            // SDL's ordinary Vulkan renderer must not unload shared dispatch
+            // state while the retained GPU device still needs it.
+            self._video.vulkan_unload_library();
+        }
+    }
+}
+impl GpuDevice {
+    fn new(video: sdl3::VideoSubsystem, backend: Backend) -> Result<Self, String> {
+        // SAFETY: SDL video is initialized on this thread.
+        let props = Properties(unsafe { properties::SDL_CreateProperties() });
+        if props.0 == 0 {
+            return Err(sdl3::get_error().to_string());
+        }
+        for (key, enabled) in [
+            (gpu::SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, false),
+            (gpu::SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true),
+            (gpu::SDL_PROP_GPU_DEVICE_CREATE_SHADERS_DXIL_BOOLEAN, true),
+            (gpu::SDL_PROP_GPU_DEVICE_CREATE_SHADERS_MSL_BOOLEAN, true),
+            // The 2D renderer does not need these optional 3D features.
+            (
+                gpu::SDL_PROP_GPU_DEVICE_CREATE_FEATURE_CLIP_DISTANCE_BOOLEAN,
+                false,
+            ),
+            (
+                gpu::SDL_PROP_GPU_DEVICE_CREATE_FEATURE_DEPTH_CLAMPING_BOOLEAN,
+                false,
+            ),
+            (
+                gpu::SDL_PROP_GPU_DEVICE_CREATE_D3D12_ALLOW_FEWER_RESOURCE_SLOTS_BOOLEAN,
+                true,
+            ),
+        ] {
+            // SAFETY: live creation properties; SDL copies each value.
+            if !unsafe { properties::SDL_SetBooleanProperty(props.0, key, enabled) } {
+                return Err(sdl3::get_error().to_string());
+            }
+        }
+        if backend != Backend::Auto {
+            let driver = CString::new(backend.as_str()).map_err(|e| e.to_string())?;
+            // SAFETY: SDL copies this name into live creation properties.
+            if !unsafe {
+                properties::SDL_SetStringProperty(
+                    props.0,
+                    gpu::SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING,
+                    driver.as_ptr(),
+                )
+            } {
+                return Err(sdl3::get_error().to_string());
+            }
+        }
+        // SAFETY: properties are initialized; ownership of the new device is
+        // transferred into this main-thread guard, independent of renderers.
+        let raw = NonNull::new(unsafe { gpu::SDL_CreateGPUDeviceWithProperties(props.0) })
+            .ok_or_else(|| sdl3::get_error().to_string())?;
+        // SAFETY: the returned driver name is borrowed from the live device.
+        let driver = unsafe { CStr::from_ptr(gpu::SDL_GetGPUDeviceDriver(raw.as_ptr())) }
+            .to_string_lossy()
+            .into_owned();
+        // A retained device and the loader must have the same lifetime, including
+        // when a separate ordinary SDL Vulkan renderer is created/destroyed.
+        let loader_pinned = driver == "vulkan" && video.vulkan_load_library_default().is_ok();
+        Ok(Self {
+            raw,
+            driver,
+            loader_pinned,
+            _video: video,
+        })
+    }
+}
+
+fn gpu_canvas(
+    window: Window,
+    backend: Backend,
+    device: &mut Option<Rc<GpuDevice>>,
+) -> Result<WindowCanvas, String> {
+    if device
+        .as_ref()
+        .is_some_and(|device| backend != Backend::Auto && device.driver != backend.as_str())
+    {
+        // The caller has already invalidated textures and destroyed the old
+        // renderer before a different device/backend is initialized.
+        device.take();
+    }
+    if device.is_none() {
+        *device = Some(Rc::new(GpuDevice::new(
+            window.subsystem().clone(),
+            backend,
+        )?));
+    }
     // SAFETY: SDL video is initialized and this runs on the window's main thread.
     let props = Properties(unsafe { properties::SDL_CreateProperties() });
     if props.0 == 0 {
         return Err(sdl3::get_error().to_string());
     }
     // SAFETY: properties and window are live. SDL copies the names/values; no
-    // Rust data is retained. Bundled formats allow SDL to choose Vulkan, Metal or Direct3D 12.
+    // Rust data is retained. The external device outlives this renderer.
     let configured = unsafe {
         properties::SDL_SetStringProperty(
             props.0,
@@ -142,36 +268,19 @@ fn gpu_canvas(window: Window, backend: Backend) -> Result<WindowCanvas, String> 
             props.0,
             render::SDL_PROP_RENDERER_CREATE_WINDOW_POINTER,
             window.raw().cast(),
-        ) && properties::SDL_SetBooleanProperty(
+        ) && properties::SDL_SetPointerProperty(
             props.0,
-            render::SDL_PROP_RENDERER_CREATE_GPU_SHADERS_SPIRV_BOOLEAN,
-            true,
-        ) && properties::SDL_SetBooleanProperty(
-            props.0,
-            render::SDL_PROP_RENDERER_CREATE_GPU_SHADERS_DXIL_BOOLEAN,
-            true,
-        ) && properties::SDL_SetBooleanProperty(
-            props.0,
-            render::SDL_PROP_RENDERER_CREATE_GPU_SHADERS_MSL_BOOLEAN,
-            true,
+            render::SDL_PROP_RENDERER_CREATE_GPU_DEVICE_POINTER,
+            device
+                .as_ref()
+                .expect("created GPU device")
+                .raw
+                .as_ptr()
+                .cast(),
         )
     };
     if !configured {
         return Err(sdl3::get_error().to_string());
-    }
-    if backend != Backend::Auto {
-        let driver = CString::new(backend.as_str()).map_err(|e| e.to_string())?;
-        // SAFETY: these live creation properties are copied by SDL. Its GPU
-        // renderer forwards GPU device creation properties and owns that device.
-        if !unsafe {
-            properties::SDL_SetStringProperty(
-                props.0,
-                gpu::SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING,
-                driver.as_ptr(),
-            )
-        } {
-            return Err(sdl3::get_error().to_string());
-        }
     }
     // SAFETY: all required properties were initialized, and window is live.
     let renderer = unsafe { render::SDL_CreateRendererWithProperties(props.0) };

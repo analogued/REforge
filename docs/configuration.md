@@ -64,6 +64,10 @@ Explicit CLI values form the final temporary layer.
 The menu offers platform choices and compiled SDL renderer drivers. Direct3D
 and Metal are not offered on Linux. A renderer change resets an unlocked,
 incompatible backend to Automatic. Software disables backend selection.
+Vulkan uses the GPU renderer. The separate standalone SDL Vulkan renderer is
+excluded from the menu and ordinary fallback selection because repeated live
+switches failed native validation; explicit requests are rejected with guidance
+to select GPU/Vulkan.
 
 `--scale auto|1..16`, `--window-mode windowed|fullscreen`,
 `--renderer auto|gpu|sdl|software`, `--backend <name>` and `--vsync on|off` override
@@ -87,6 +91,11 @@ retaining simulation, pause/input policy and the latest CPU image. Old textures
 are invalidated before renderer teardown; game textures and the font atlas are
 reuploaded for the replacement. The desktop may renegotiate window placement.
 VSync and ordinary mode/scale changes retain the renderer.
+Compatible GPU devices remain alive across these renderer changes, including
+while an ordinary or software renderer is selected. Drawing uses the selected
+renderer; returning to GPU reuses its device rather than repeatedly selecting
+and initializing hardware. Devices and their loader are released after their
+borrowing renderers/textures. Switch requests and active results are logged.
 
 Fallback renderers without the GPU shader interface use sharp pixels if Hyllian
 was requested. Returning to a capable GPU renderer restores the requested CRT

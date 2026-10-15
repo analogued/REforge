@@ -13,6 +13,7 @@ use std::{
 };
 pub(crate) struct Owner {
     pub creator: TextureCreator<WindowContext>,
+    pub _gpu: Option<Rc<crate::hyllian::GpuDevice>>,
 }
 struct Resident {
     texture: Texture<'static>,
@@ -30,10 +31,16 @@ pub struct FrameCreator {
     textures: Rc<RefCell<Vec<Weak<Slot>>>>,
 }
 impl FrameCreator {
-    pub(crate) fn new(canvas: &WindowCanvas, session: Session, windowed_scale: u32) -> Self {
+    pub(crate) fn new(
+        canvas: &WindowCanvas,
+        session: Session,
+        windowed_scale: u32,
+        gpu: Option<Rc<crate::hyllian::GpuDevice>>,
+    ) -> Self {
         Self {
             owner: Rc::new(RefCell::new(Rc::new(Owner {
                 creator: canvas.texture_creator(),
+                _gpu: gpu,
             }))),
             session: Rc::new(RefCell::new(session)),
             windowed_scale: Rc::new(Cell::new(windowed_scale)),

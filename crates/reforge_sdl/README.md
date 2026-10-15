@@ -181,6 +181,14 @@ renderer before creating its replacement. The stable `FrameCreator` coordinates
 this transition. Leases retain native renderer ownership while resident; empty
 leases cannot be rendered. `FrameTexture` retains the latest CPU image and
 reuploads it lazily. The menu recreates its font atlas for the new generation.
+The GPU device is independently owned and retained by texture creators, including
+across ordinary/software rendering. Compatible GPU selections reuse it; a
+different GPU backend replaces it after old window-bound resources are released.
+This avoids repeated device selection/initialization during live switching.
+The standalone SDL `vulkan` renderer is excluded; use GPU/Vulkan. Native
+repeated-switch checks reproduced buffer-import failure and driver crashes with
+that separate path. Ordinary fallback enumeration also excludes it, including
+explicit `SDL_RENDER_DRIVER=vulkan` requests (which warn and fall back).
 Failed creation reconstructs the previous renderer, with software as the final
 recovery fallback. Window creation/positioning may briefly occur during Apply;
 engine state and clocks are retained. Ordinary scale/mode and VSync changes keep

@@ -142,6 +142,7 @@ pub struct Window {
     windowed_resize_pending: bool,
     windowed_geometry: Option<(u32, u32)>,
     gpu_presented_pixels: Option<(u32, u32)>,
+    gpu: Option<std::rc::Rc<hyllian::GpuDevice>>,
     _video: sdl3::VideoSubsystem,
     _sdl: sdl3::Sdl,
 }
@@ -187,6 +188,7 @@ impl Window {
             presentation,
             true,
             session,
+            None,
         ) {
             Ok(window) => Ok(window),
             Err(error) => {
@@ -205,6 +207,7 @@ impl Window {
                     presentation,
                     true,
                     session,
+                    None,
                 )?;
                 window.requested = requested;
                 Ok(window)
@@ -212,6 +215,7 @@ impl Window {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build(
         title: &str,
         display_width: u32,
@@ -220,6 +224,7 @@ impl Window {
         presentation: Presentation,
         events: bool,
         session: Session,
+        mut gpu: Option<std::rc::Rc<hyllian::GpuDevice>>,
     ) -> Result<Self, String> {
         let scale = requested.scale;
         let mut windowed_scale = scale.unwrap_or(AUTO_FALLBACK_SCALE);
@@ -259,7 +264,8 @@ impl Window {
             minimum_pixels,
             scale.unwrap_or(AUTO_FALLBACK_SCALE),
         )?;
-        let (mut canvas, effect) = hyllian::create_canvas_with(window, presentation, requested)?;
+        let (mut canvas, effect) =
+            hyllian::create_canvas_with(window, presentation, requested, &mut gpu)?;
         configure(&mut canvas, display_width, display_height)?;
         // The wrapper does not expose this setter. Use its generated declarations,
         // rather than maintaining a second handwritten C interface.
@@ -356,7 +362,7 @@ impl Window {
                 .map_err(|e| e.to_string())?;
             sync_window(canvas.window());
         }
-        let creator = FrameCreator::new(&canvas, session, windowed_scale);
+        let creator = FrameCreator::new(&canvas, session, windowed_scale, gpu.clone());
         let presentation_requested = presentation;
         let presentation = if presentation == Presentation::Hyllian && effect.is_none() {
             Presentation::Pixels
@@ -376,6 +382,7 @@ impl Window {
             windowed_resize_pending: false,
             windowed_geometry: None,
             gpu_presented_pixels: None,
+            gpu,
             _video: video,
             _sdl: sdl,
         })
@@ -495,6 +502,17 @@ impl Window {
         &mut self,
         requested: settings::VideoSettings,
     ) -> Result<(), String> {
+        if requested.renderer == reforge_settings::Renderer::Sdl
+            && requested.backend == reforge_settings::Backend::Vulkan
+        {
+            return Err("the standalone SDL Vulkan renderer is not supported for live switching; choose GPU / Vulkan".into());
+        }
+        if requested
+            .scale
+            .is_some_and(|scale| !(1..=16).contains(&scale))
+        {
+            return Err("window scale must be auto or an integer between 1 and 16".into());
+        }
         let before = self.video_settings();
         match self.apply_video_settings_inner(requested) {
             Ok(()) => Ok(()),
@@ -511,15 +529,15 @@ impl Window {
         &mut self,
         requested: settings::VideoSettings,
     ) -> Result<(), String> {
-        if requested
-            .scale
-            .is_some_and(|scale| !(1..=16).contains(&scale))
-        {
-            return Err("window scale must be auto or an integer between 1 and 16".into());
-        }
         if (requested.renderer, requested.backend)
             != (self.requested.renderer, self.requested.backend)
         {
+            eprintln!(
+                "REforge: switching renderer to {} / {} (previous {})",
+                requested.renderer.as_str(),
+                requested.backend.as_str(),
+                self.renderer_status(),
+            );
             let title = self.canvas.window().title().to_string();
             let session = self.creator.session.borrow().clone();
             let previous = self.video_settings();
@@ -527,9 +545,9 @@ impl Window {
             let old_size = self.canvas.window().size();
             let old_geometry = self.windowed_geometry;
             let old_pending = self.windowed_resize_pending;
-            // SDL/driver dispatch tables can be invalidated when an old GPU
-            // device is destroyed. Invalidate every texture and fully tear down
-            // the old renderer before initializing another GPU device.
+            // Release window-bound GPU resources before replacing the renderer.
+            // Keep its compatible device alive independently: repeatedly
+            // destroying/reselecting devices can break hybrid Wayland output.
             let placeholder_window = self
                 ._video
                 .window(&title, 320, 240)
@@ -543,6 +561,7 @@ impl Window {
             self.creator
                 .replace_owner(std::rc::Rc::new(resources::Owner {
                     creator: placeholder.texture_creator(),
+                    _gpu: None,
                 }));
             self.canvas.window_mut().hide();
             let old = std::mem::replace(&mut self.canvas, placeholder);
@@ -555,6 +574,7 @@ impl Window {
                 presentation,
                 false,
                 session.clone(),
+                self.gpu.take(),
             );
             let (mut candidate, error) = match built {
                 Ok(candidate) => (candidate, None),
@@ -567,6 +587,7 @@ impl Window {
                         presentation,
                         false,
                         session.clone(),
+                        None,
                     )
                     .or_else(|_| {
                         let mut safe = previous;
@@ -580,6 +601,7 @@ impl Window {
                             Presentation::Pixels,
                             false,
                             session,
+                            None,
                         )
                     })?;
                     (restored, Some(error))
@@ -616,6 +638,7 @@ impl Window {
             self.creator
                 .replace_owner(candidate.creator.owner.borrow().clone());
             candidate.creator = self.creator.clone();
+            eprintln!("REforge: {}", candidate.renderer_status());
             std::mem::swap(self, &mut candidate);
             return error.map_or(Ok(()), Err);
         }

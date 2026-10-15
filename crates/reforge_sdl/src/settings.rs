@@ -1021,6 +1021,83 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "owns native SDL video; run serially on a Linux GPU desktop"]
+    fn renderer_round_trips_at_auto_scale() {
+        use crate::{FrameFormat, FrameTexture, Window};
+        use reforge_settings::{Backend, Renderer};
+        if !cfg!(target_os = "linux") {
+            return;
+        }
+        let _launch = reforge_settings::Launch {
+            game: "mach-3".into(),
+            path: None,
+            cli: reforge_settings::Patch::from([
+                ("renderer".into(), "sdl".into()),
+                ("backend".into(), "opengl".into()),
+            ]),
+        }
+        .install();
+        let mut display = Window::new("renderer round trips", 320, 240, None).unwrap();
+        let creator = display.texture_creator();
+        let mut frame = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgb).unwrap();
+        frame.update(&[80, 120, 160].repeat(320 * 200)).unwrap();
+        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+        menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
+        let mut gpu_address = None;
+        for round in 0..12 {
+            for (renderer, backend) in [
+                (Renderer::Sdl, Backend::OpenGl),
+                (Renderer::Auto, Backend::OpenGl),
+                (Renderer::Auto, Backend::Auto),
+                (Renderer::Sdl, Backend::OpenGlEs),
+                (Renderer::Sdl, Backend::Auto),
+                (Renderer::Auto, Backend::Auto),
+                (Renderer::Gpu, Backend::Vulkan),
+                (Renderer::Sdl, Backend::Vulkan),
+                (Renderer::Software, Backend::Auto),
+                (Renderer::Auto, Backend::Auto),
+            ] {
+                eprintln!("round {round}: {renderer:?}/{backend:?}: begin");
+                let mut request = display.video_settings();
+                request.renderer = renderer;
+                request.backend = backend;
+                let generation = creator.generation();
+                let previous = display.video_settings();
+                let result = display.apply_video_settings(request);
+                if renderer == Renderer::Sdl && backend == Backend::Vulkan {
+                    assert!(result.unwrap_err().contains("choose GPU / Vulkan"));
+                    assert_eq!(display.video_settings(), previous);
+                    assert_eq!(creator.generation(), generation);
+                } else {
+                    result.unwrap();
+                }
+                eprintln!("round {round}: {}", display.renderer_status());
+                if let Some(device) = &display.gpu {
+                    let address = std::rc::Rc::as_ptr(device);
+                    if let Some(previous) = gpu_address {
+                        assert_eq!(address, previous, "compatible GPU device must be retained");
+                    }
+                    gpu_address = Some(address);
+                } else {
+                    gpu_address = None;
+                }
+                for _ in 0..5 {
+                    display.poll_events().for_each(drop);
+                    menu.prepare(display.ui_metrics(), display.video_settings());
+                    display
+                        .present_with(&frame, |canvas| menu.paint(canvas))
+                        .unwrap();
+                }
+            }
+        }
+        drop(menu);
+        drop(display);
+        // External textures can outlive Window through their creator. The
+        // borrowed GPU device must still be alive until that renderer drops.
+        frame.update(&[80, 120, 160].repeat(320 * 200)).unwrap();
+    }
+
+    #[test]
     fn restricted_engine_choices_and_fractional_dpi_input() {
         let capabilities = VideoCapabilities {
             min_scale: 2,
@@ -1072,7 +1149,12 @@ mod tests {
             .build()
             .unwrap();
         let mut canvas = sdl3::render::create_renderer(window, Some(c"software")).unwrap();
-        let creator = FrameCreator::new(&canvas, reforge_settings::Session::for_window(None), 4);
+        let creator = FrameCreator::new(
+            &canvas,
+            reforge_settings::Session::for_window(None),
+            4,
+            None,
+        );
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
         let toggle = Event::KeyDown {
             timestamp: 0,

@@ -226,19 +226,7 @@ pub(super) fn draw(
                                         ui.add_enabled_ui(
                                             value.renderer != Renderer::Software,
                                             |ui| {
-                                                let choices = backends(value.renderer);
-                                                egui::ComboBox::from_id_salt("backend")
-                                                    .width(220.0)
-                                                    .selected_text(backend_label(value.backend))
-                                                    .show_ui(ui, |ui| {
-                                                        for backend in choices {
-                                                            ui.selectable_value(
-                                                                &mut value.backend,
-                                                                backend,
-                                                                backend_label(backend),
-                                                            );
-                                                        }
-                                                    });
+                                                backend_selector(ui, &mut value);
                                             },
                                         );
                                     },
@@ -404,6 +392,20 @@ fn backend_label(backend: Backend) -> &'static str {
         Backend::Metal => "Metal",
     }
 }
+fn backend_selector(ui: &mut egui::Ui, value: &mut VideoSettings) -> egui::Response {
+    let choices = backends(value.renderer);
+    // egui remembers the popup's size. A short GPU list must not constrain
+    // the longer Automatic/SDL list after switching renderers.
+    egui::ComboBox::from_id_salt(("backend", value.renderer.as_str()))
+        .width(220.0)
+        .selected_text(backend_label(value.backend))
+        .show_ui(ui, |ui| {
+            for backend in choices {
+                ui.selectable_value(&mut value.backend, backend, backend_label(backend));
+            }
+        })
+        .response
+}
 fn backends(renderer: Renderer) -> Vec<Backend> {
     let mut values = vec![Backend::Auto];
     for backend in [
@@ -443,6 +445,7 @@ fn backends(renderer: Renderer) -> Vec<Backend> {
     }
     values
 }
+
 fn scale_slider(ui: &mut egui::Ui, value: &mut u32, cap: VideoCapabilities) {
     ui.spacing_mut().slider_width = (ui.available_width() - 75.0).max(100.0);
     let r = ui
@@ -483,5 +486,84 @@ fn scale_slider(ui: &mut egui::Ui, value: &mut u32, cap: VideoCapabilities) {
             egui::FontId::proportional(11.0),
             ui.visuals().text_color(),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_popup_grows_when_renderer_adds_choices() {
+        let context = egui::Context::default();
+        style(&context);
+        let mut value = VideoSettings::default();
+        let mut button = egui::Rect::NOTHING;
+        let mut time = 0.0;
+        for renderer in [Renderer::Gpu, Renderer::Auto, Renderer::Sdl, Renderer::Auto] {
+            value.renderer = renderer;
+            context.memory_mut(|memory| memory.close_popup());
+            // Settle the closed control before opening it with an actual click.
+            for step in 0..6 {
+                time += 0.02;
+                let mut input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        Pos2::ZERO,
+                        Vec2::new(900.0, 700.0),
+                    )),
+                    time: Some(time),
+                    ..Default::default()
+                };
+                if step == 2 || step == 3 {
+                    input.events = vec![
+                        egui::Event::PointerMoved(button.center()),
+                        egui::Event::PointerButton {
+                            pos: button.center(),
+                            button: egui::PointerButton::Primary,
+                            pressed: step == 2,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ];
+                }
+                let output = context.run(input, |context| {
+                    egui::CentralPanel::default().show(context, |ui| {
+                        row(
+                            ui,
+                            "Backend",
+                            "backend",
+                            value,
+                            value,
+                            value,
+                            0,
+                            &Default::default(),
+                            |ui| {
+                                button = backend_selector(ui, &mut value).rect;
+                            },
+                        );
+                    });
+                });
+                if step == 5 {
+                    for backend in backends(renderer) {
+                        let label = backend_label(backend);
+                        let mut found = false;
+                        for shape in &output.shapes {
+                            if let egui::Shape::Text(text) = &shape.shape {
+                                if text.galley.text() == label && text.pos.y > button.bottom() {
+                                    found = true;
+                                    let bounds =
+                                        egui::Rect::from_min_size(text.pos, text.galley.size());
+                                    assert!(
+                                        shape.clip_rect.contains_rect(bounds),
+                                        "{renderer:?}: {label} at {bounds:?} clipped by {:?}",
+                                        shape.clip_rect
+                                    );
+                                }
+                            }
+                        }
+                        assert!(found, "{renderer:?}: {label} must be drawn in the popup");
+                    }
+                }
+            }
+        }
     }
 }

@@ -155,11 +155,9 @@ pub(super) fn draw(
                                                 ))
                                             };
                                         }
-                                        ui.label(
-                                            value
-                                                .scale
-                                                .map_or("Largest fit".into(), |x| format!("×{x}")),
-                                        );
+                                        if value.scale.is_none() {
+                                            ui.label("Largest fit");
+                                        }
                                     },
                                 );
                                 ui.add_enabled_ui(

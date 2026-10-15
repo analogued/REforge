@@ -12,6 +12,7 @@ sdl = ["alleycat/sdl", "mach3/viewer"]
 dev-tools = ["alleycat/dev-tools", "mach3/dev-tools"]
 
 [dependencies]
+reforge_settings = { path = "../crates/reforge_settings" }
 alleycat = { path = "../engines/alleycat", default-features = false }
 mach3 = { path = "../engines/mach3", default-features = false }
 sha2 = { version = "=0.11.0", default-features = false }

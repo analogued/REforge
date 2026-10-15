@@ -156,16 +156,14 @@ physical-input fidelity comparisons. F1/F2 retain their original polling rules.
 Original-game recording replays always keep original per-poll F3 behavior.
 Ctrl+Q, Escape or window close exits the viewer.
 F10 opens the shared settings menu on every startup/gameplay screen, including
-static and step previews. Choose Auto or an integer window scale, or switch
-between windowed and desktop fullscreen; changes apply immediately without
-recreating the renderer or game textures. Fullscreen fits the largest integer
-image into the display, retaining the selected scale for the windowed view.
-The menu uses its own readable UI scale and is drawn after CRT processing.
-F10, Escape or Close closes it. Opening it temporarily host-pauses simulation
-and audio; closing restores the previous host pause state. Held game controls
-are cleared at both boundaries, while native F1 phases and device deadlines are
-preserved. Ctrl+Q and the window close button remain available in the menu.
-These settings affect this launch only; saved preferences are not implemented.
+static and step previews. Window mode/scale, renderer/backend and VSync use
+Apply/Cancel. The REforge app saves global/game preferences; explicit CLI values
+remain temporary. See [configuration](../../docs/configuration.md). Fullscreen
+fits an integer image and retains the windowed preference. The Compact UI is
+drawn after CRT processing. Cancel, F10 or Escape discards pending edits.
+Opening settings temporarily host-pauses simulation/audio; closing restores the
+previous host pause. Held controls are cleared at both boundaries; native F1
+phases and device deadlines are preserved. Ctrl+Q/window close remain available.
 P or Pause/Break toggles a separate modern host pause during intro, pre-game, gameplay
 and game-over animation, freezing simulation and queued playback. Repeats and
 Alt/Ctrl/Super combinations

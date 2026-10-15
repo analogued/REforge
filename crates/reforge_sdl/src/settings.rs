@@ -12,18 +12,13 @@ use sdl3::{
     mouse::{MouseButton, MouseWheelDirection},
     pixels::{FColor, PixelFormat},
     rect::Rect,
-    render::{BlendMode, FPoint, ScaleMode, Texture, Vertex, WindowCanvas},
+    render::{BlendMode, FPoint, ScaleMode, Vertex, WindowCanvas},
 };
 
 use crate::FrameCreator;
 
-/// Shared preferences. `None` selects automatic windowed integer sizing.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct VideoSettings {
-    pub scale: Option<u32>,
-    pub fullscreen: bool,
-}
-
+use reforge_settings::Draft;
+pub use reforge_settings::VideoSettings;
 /// An engine can restrict shared choices when its implementation requires it.
 #[derive(Clone, Copy, Debug)]
 pub struct VideoCapabilities {
@@ -82,20 +77,31 @@ impl UiMetrics {
 /// Only the embedded settings window is supported; no native egui viewports,
 /// clipboard integration or custom paint callbacks are needed by these controls.
 pub struct SettingsMenu<'a> {
-    creator: &'a FrameCreator,
-    context: egui::Context,
-    capabilities: VideoCapabilities,
-    open: bool,
-    events: Vec<Event>,
-    textures: HashMap<TextureId, Texture<'a>>,
-    jobs: Vec<egui::ClippedPrimitive>,
-    pending_textures: egui::TexturesDelta,
-    density: f32,
-    started: Instant,
-    focused: bool,
-    modifiers: egui::Modifiers,
-    error: Option<String>,
-    escape_held: bool,
+    pub(super) creator: &'a FrameCreator,
+    pub(super) context: egui::Context,
+    pub(super) capabilities: VideoCapabilities,
+    pub(super) open: bool,
+    pub(super) events: Vec<Event>,
+    pub(super) textures: HashMap<TextureId, crate::resources::TextureLease>,
+    pub(super) generation: usize,
+    pub(super) draft: Option<Draft>,
+    pub(super) pending: Option<Draft>,
+    pub(super) scope: usize,
+    #[cfg(test)]
+    pub(super) cancel_rect: Option<egui::Rect>,
+    #[cfg(test)]
+    pub(super) apply_rect: Option<egui::Rect>,
+    pub(super) game_editing: bool,
+    pub(super) game_touched: bool,
+    pub(super) status: Option<String>,
+    pub(super) jobs: Vec<egui::ClippedPrimitive>,
+    pub(super) pending_textures: egui::TexturesDelta,
+    pub(super) density: f32,
+    pub(super) started: Instant,
+    pub(super) focused: bool,
+    pub(super) modifiers: egui::Modifiers,
+    pub(super) error: Option<String>,
+    pub(super) escape_held: bool,
 }
 
 impl<'a> SettingsMenu<'a> {
@@ -108,6 +114,7 @@ impl<'a> SettingsMenu<'a> {
             style.spacing.button_padding = Vec2::new(14.0, 7.0);
             style.visuals.selection.bg_fill = Color32::from_rgb(43, 103, 131);
         });
+        crate::settings_ui::style(&context);
         Self {
             creator,
             context,
@@ -115,6 +122,17 @@ impl<'a> SettingsMenu<'a> {
             open: false,
             events: Vec::new(),
             textures: HashMap::new(),
+            generation: creator.generation(),
+            draft: None,
+            pending: None,
+            scope: 0,
+            #[cfg(test)]
+            cancel_rect: None,
+            #[cfg(test)]
+            apply_rect: None,
+            game_editing: false,
+            game_touched: false,
+            status: None,
             jobs: Vec::new(),
             pending_textures: egui::TexturesDelta::default(),
             density: 1.0,
@@ -126,11 +144,16 @@ impl<'a> SettingsMenu<'a> {
         }
     }
 
+    pub fn set_status(&mut self, status: String) {
+        self.status = Some(status);
+    }
+
     pub fn is_open(&self) -> bool {
         self.open
     }
 
     pub fn set_error(&mut self, error: String) {
+        self.pending = None;
         self.error = Some(error);
     }
 
@@ -156,6 +179,14 @@ impl<'a> SettingsMenu<'a> {
             }
             if !repeat {
                 self.open = !self.open;
+                if self.open {
+                    if let Event::KeyDown { window_id, .. } = event {
+                        start_text_input(*window_id);
+                    }
+                }
+                self.draft = None;
+                self.pending = None;
+                self.game_touched = false;
                 self.events.clear();
                 self.context.memory_mut(|memory| memory.reset_areas());
             }
@@ -179,6 +210,9 @@ impl<'a> SettingsMenu<'a> {
         ) && (self.open || self.escape_held)
         {
             self.open = false;
+            self.draft = None;
+            self.pending = None;
+            self.game_touched = false;
             self.escape_held = true;
             self.events.clear();
             return true;
@@ -238,6 +272,19 @@ impl<'a> SettingsMenu<'a> {
             self.events.clear();
             return None;
         }
+        if self.generation != self.creator.generation() {
+            self.textures.clear();
+            self.pending_textures = egui::TexturesDelta::default();
+            self.context = egui::Context::default();
+            self.context.set_visuals(egui::Visuals::dark());
+            crate::settings_ui::style(&self.context);
+            self.generation = self.creator.generation();
+        }
+        if self.draft.is_none() {
+            let saved = self.creator.session.borrow().saved.clone();
+            self.game_editing = !saved.game.is_empty();
+            self.draft = Some(saved);
+        }
         self.density = metrics.density();
         let screen = egui::Rect::from_min_size(
             Pos2::ZERO,
@@ -261,102 +308,59 @@ impl<'a> SettingsMenu<'a> {
             translate_event(&event, metrics, &mut self.modifiers, &mut input.events);
         }
         input.modifiers = self.modifiers;
-        let mut selected = current;
-        let mut close = false;
-        let output = self.context.run(input, |context| {
-            context.layer_painter(egui::LayerId::background()).rect_filled(
+        let context = self.context.clone();
+        let output = context.run(input, |ctx| {
+            ctx.layer_painter(egui::LayerId::background()).rect_filled(
                 screen,
                 0.0,
-                Color32::from_black_alpha(150),
+                Color32::from_black_alpha(165),
             );
-            egui::Window::new("Settings")
-                .id(egui::Id::new("reforge_settings"))
-                .collapsible(false)
-                .resizable(false)
-                .movable(false)
-                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-                .min_width(0.0)
-                .max_width((screen.width() - 24.0).max(72.0))
-                .default_width((screen.width() - 24.0).clamp(80.0, 460.0))
-                .show(context, |ui| {
-                    let compact = screen.height() < 180.0;
-                    if compact {
-                        ui.spacing_mut().item_spacing.y = 4.0;
-                        ui.spacing_mut().button_padding.y = 4.0;
-                    }
-                    ui.set_max_width((screen.width() - 32.0).clamp(72.0, 460.0));
-                    egui::ScrollArea::vertical()
-                        .min_scrolled_height(0.0)
-                        .max_height((screen.height() - if compact { 84.0 } else { 100.0 }).max(1.0))
-                        .show(ui, |ui| {
-                            ui.heading("Video");
-                            ui.separator();
-                            ui.vertical(|ui| {
-                                ui.label("Window mode");
-                                egui::ComboBox::from_id_salt("window_mode")
-                                    .width((screen.width() - 56.0).clamp(70.0, 180.0))
-                                    .selected_text(if selected.fullscreen { "Fullscreen" } else { "Windowed" })
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut selected.fullscreen, false, "Windowed");
-                                        ui.add_enabled_ui(self.capabilities.allow_fullscreen, |ui| {
-                                            ui.selectable_value(&mut selected.fullscreen, true, "Fullscreen");
-                                        });
-                                    });
-                            });
-                            ui.add_enabled_ui(!selected.fullscreen, |ui| {
-                                ui.vertical(|ui| {
-                                    ui.label("Window scale");
-                                    egui::ComboBox::from_id_salt("window_scale")
-                                        .width((screen.width() - 56.0).clamp(70.0, 180.0))
-                                        .selected_text(scale_label(selected.scale))
-                                        .show_ui(ui, |ui| {
-                                            if self.capabilities.allow_auto {
-                                                ui.selectable_value(&mut selected.scale, None, "Auto");
-                                            }
-                                            for scale in self.capabilities.min_scale.max(1)..=self.capabilities.max_scale {
-                                                ui.selectable_value(&mut selected.scale, Some(scale), scale_label(Some(scale)));
-                                            }
-                                        });
-                                });
-                            });
-                            if selected.fullscreen {
-                                ui.weak("Fullscreen uses the largest integer scale that fits. Window scale is retained for windowed mode.");
-                            } else {
-                                ui.weak("Auto fits the available desktop. Changes apply immediately.");
-                            }
-                            if let Some(error) = &self.error {
-                                ui.colored_label(Color32::from_rgb(255, 169, 144), error);
-                            }
-                        });
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        close = ui.button("Close").clicked();
-                        if screen.width() > 280.0 {
-                            ui.weak("F10 or Esc to close");
-                        }
-                    });
-                });
+            if crate::settings_ui::draw(self, ctx, screen) {
+                self.open = false;
+                self.draft = None;
+                self.pending = None;
+            }
         });
         self.pending_textures.append(output.textures_delta);
         self.density = output.pixels_per_point;
         self.jobs = self
             .context
             .tessellate(output.shapes, output.pixels_per_point);
-        if close {
-            self.open = false;
-        }
-        if selected != current && self.capabilities.permits(selected) {
-            self.error = None;
-            Some(selected)
-        } else {
+        let _ = current;
+        let request = self
+            .pending
+            .as_ref()
+            .map(|draft| self.creator.session.borrow().effective(draft));
+        if request.is_some_and(|value| !self.capabilities.permits(value)) {
+            self.set_error("These display settings are unavailable for this game".into());
             None
+        } else {
+            request
+        }
+    }
+
+    /// Called only after the runtime accepted Apply. A save failure keeps the
+    /// draft and dirty markers available for retry without rewriting CLI values.
+    pub fn applied(&mut self) {
+        if let Some(draft) = self.pending.take() {
+            let result = self.creator.session.borrow_mut().commit(draft.clone());
+            match result {
+                Ok(()) => {
+                    self.draft = Some(draft);
+                    self.error = None;
+                    self.game_touched = false;
+                }
+                Err(error) => {
+                    self.error = Some(format!("Settings applied, but could not save: {error}"))
+                }
+            }
         }
     }
 
     /// Paint in actual output pixels, after CRT processing. Restore all SDL
     /// coordinate state even when texture upload or geometry drawing fails.
     pub fn paint(&mut self, canvas: &mut WindowCanvas) -> Result<(), String> {
-        if !self.open {
+        if !self.open || self.generation != self.creator.generation() {
             return Ok(());
         }
         let logical = canvas.logical_size();
@@ -486,14 +490,28 @@ impl<'a> SettingsMenu<'a> {
                     }
                 })
                 .collect();
-            canvas
-                .render_geometry(&vertices, Some(texture), &mesh.indices)
-                .map_err(|error| error.to_string())?;
+            texture.with(|texture| {
+                canvas
+                    .render_geometry(&vertices, Some(texture), &mesh.indices)
+                    .map_err(|error| error.to_string())
+            })??;
         }
         for id in self.pending_textures.free.drain(..) {
             self.textures.remove(&id);
         }
         Ok(())
+    }
+}
+
+fn start_text_input(window_id: u32) {
+    // SAFETY: the event identifies a window in this main-thread SDL process.
+    // Lookup is borrowed, checked for null, and SDL takes no Rust ownership.
+    unsafe {
+        let window =
+            sdl3::sys::video::SDL_GetWindowFromID(sdl3::sys::video::SDL_WindowID(window_id));
+        if !window.is_null() {
+            sdl3::sys::keyboard::SDL_StartTextInput(window);
+        }
     }
 }
 
@@ -509,10 +527,6 @@ fn rgba(color: Color32, straight_alpha: bool) -> [u8; 4] {
         }
     }
     bytes
-}
-
-fn scale_label(scale: Option<u32>) -> String {
-    scale.map_or_else(|| "Auto".into(), |scale| format!("×{scale}"))
 }
 
 fn physical_clip(rect: egui::Rect, density: f32, output: (u32, u32)) -> Option<Rect> {
@@ -688,7 +702,11 @@ mod tests {
     #[ignore = "owns SDL video; run serially on GPU or with dummy/software"]
     fn menu_draws_on_active_renderer_and_preserves_premultiplied_alpha() {
         use crate::{FrameFormat, FrameTexture, Window};
-        let mut display = Window::new("REforge settings check", 320, 240, Some(4)).unwrap();
+        let scale = std::env::var("REFORGE_SETTINGS_SCALE")
+            .ok()
+            .and_then(|x| x.parse::<u32>().ok())
+            .unwrap_or(4);
+        let mut display = Window::new("REforge settings check", 320, 240, Some(scale)).unwrap();
         let creator = display.texture_creator();
         let mut frame = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba).unwrap();
         frame
@@ -784,14 +802,10 @@ mod tests {
                     .map_err(|e| e.to_string())
             })
             .unwrap();
-        // Operate the actual Close button through translated SDL coordinates.
+        // Operate Cancel through translated SDL coordinates.
         // Its position comes from egui's measured window, not a fixed game size.
-        let area = menu
-            .context
-            .memory(|memory| memory.area_rect("reforge_settings"))
-            .unwrap();
         let metrics = display.ui_metrics();
-        let pos = Pos2::new(area.left() + 20.0, area.bottom() - 20.0);
+        let pos = menu.cancel_rect.expect("measured Cancel button").center();
         let x =
             pos.x * metrics.pixels_per_point * metrics.window.0 as f32 / metrics.drawable.0 as f32;
         let y =
@@ -818,15 +832,15 @@ mod tests {
         menu.prepare(metrics, display.video_settings());
         assert!(
             !menu.is_open(),
-            "mouse release must activate Close at desktop-scaled coordinates"
+            "mouse release must activate Cancel at desktop-scaled coordinates"
         );
         menu.handle_event(&toggle);
         assert!(menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false)));
         assert!(!menu.is_open());
         assert!(menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, true)));
         assert!(menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, false, false)));
-        // Even a one-times game image at fractional desktop scaling must leave
-        // the host panel inside the output; its settings body can scroll.
+        // Small-window layout is deferred; Escape must remain usable even when
+        // desktop scaling leaves too little space for the Compact layout.
         menu.handle_event(&toggle);
         let tiny = UiMetrics {
             drawable: (322, 241),
@@ -836,15 +850,174 @@ mod tests {
         for _ in 0..3 {
             menu.prepare(tiny, display.video_settings());
         }
-        let area = menu
-            .context
-            .memory(|memory| memory.area_rect("reforge_settings"))
-            .unwrap();
-        assert!(area.width() <= 322.0 / 2.25 + 1.0, "panel width: {area:?}");
+        menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false));
+        assert!(!menu.is_open(), "small menus remain keyboard-dismissible");
+    }
+
+    #[test]
+    #[ignore = "owns SDL video; run serially on GPU or dummy/software"]
+    fn apply_switches_renderer_reloads_textures_and_keeps_failed_draft() {
+        use crate::{FrameFormat, FrameTexture, Window};
+        use reforge_settings::{Backend, Renderer};
+        let mut display = Window::new("settings renderer transaction", 320, 240, Some(8)).unwrap();
+        let creator = display.texture_creator();
+        let mut frame = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgb).unwrap();
+        let pixels = [80, 120, 160].repeat(320 * 200);
+        frame.update(&pixels).unwrap();
+        assert!(frame.update(&pixels[..pixels.len() - 1]).is_err());
+        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+        menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
+        menu.prepare(display.ui_metrics(), display.video_settings());
+        let unchanged = display.video_settings();
+        menu.draft
+            .as_mut()
+            .unwrap()
+            .edit(false, "vsync", "false".into());
         assert!(
-            area.height() <= 241.0 / 2.25 + 1.0,
-            "panel height: {area:?}"
+            menu.prepare(display.ui_metrics(), display.video_settings())
+                .is_none()
         );
+        assert_eq!(
+            display.video_settings(),
+            unchanged,
+            "editing must not apply"
+        );
+        menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false));
+        menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
+        menu.prepare(display.ui_metrics(), display.video_settings());
+        assert_eq!(
+            menu.draft.as_ref().unwrap().global_values().vsync,
+            unchanged.vsync
+        );
+        menu.draft
+            .as_mut()
+            .unwrap()
+            .edit(false, "vsync", "false".into());
+        for _ in 0..3 {
+            menu.prepare(display.ui_metrics(), display.video_settings());
+        }
+        let metrics = display.ui_metrics();
+        let pos = menu.apply_rect.unwrap().center();
+        let x =
+            pos.x * metrics.pixels_per_point * metrics.window.0 as f32 / metrics.drawable.0 as f32;
+        let y =
+            pos.y * metrics.pixels_per_point * metrics.window.1 as f32 / metrics.drawable.1 as f32;
+        for down in [true, false] {
+            let event = if down {
+                Event::MouseButtonDown {
+                    timestamp: 0,
+                    window_id: 0,
+                    which: 0,
+                    mouse_btn: MouseButton::Left,
+                    clicks: 1,
+                    x,
+                    y,
+                }
+            } else {
+                Event::MouseButtonUp {
+                    timestamp: 0,
+                    window_id: 0,
+                    which: 0,
+                    mouse_btn: MouseButton::Left,
+                    clicks: 1,
+                    x,
+                    y,
+                }
+            };
+            menu.handle_event(&event);
+            if let Some(request) = menu.prepare(metrics, display.video_settings()) {
+                display.apply_video_settings(request).unwrap();
+                menu.applied();
+            }
+        }
+        assert!(menu.is_open(), "Apply keeps settings open");
+        assert!(!display.video_settings().vsync);
+        assert_eq!(
+            menu.draft.as_ref().unwrap(),
+            &creator.session.borrow().saved
+        );
+        let mut rgba = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba).unwrap();
+        rgba.update(&[80, 120, 160, 255].repeat(320 * 200)).unwrap();
+
+        for renderer in [
+            Renderer::Software,
+            Renderer::Sdl,
+            Renderer::Auto,
+            Renderer::Software,
+        ] {
+            let mut request = display.video_settings();
+            request.renderer = renderer;
+            request.backend = Backend::Auto;
+            request.vsync = false;
+            eprintln!("switch {renderer:?}: begin");
+            display.apply_video_settings(request).unwrap();
+            eprintln!("switch {renderer:?}: applied");
+            // Deliberately do not call frame.update: the retained image and font
+            // atlas must survive changing the renderer while simulation is paused.
+            for image in [&frame, &rgba] {
+                display
+                    .present_with(image, |canvas| {
+                        let image = canvas
+                            .read_pixels(None)
+                            .map_err(|e| e.to_string())?
+                            .convert_format(PixelFormat::RGB24)
+                            .map_err(|e| e.to_string())?;
+                        image.with_lock(|bytes| {
+                            assert_eq!(&bytes[..3], &[80, 120, 160], "retained frame pixels")
+                        });
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+            menu.prepare(display.ui_metrics(), display.video_settings());
+            display
+                .present_with(&frame, |canvas| {
+                    menu.paint(canvas)?;
+                    Ok(())
+                })
+                .unwrap();
+            assert!(
+                menu.textures
+                    .values()
+                    .all(|texture| texture.belongs_to(&creator))
+            );
+            assert!(frame.texture.borrow().belongs_to(&creator));
+            assert!(!menu.jobs.is_empty());
+            eprintln!("switch {renderer:?}: painted");
+        }
+        if display._video.current_video_driver() != "dummy" {
+            let mut request = display.video_settings();
+            request.renderer = Renderer::Gpu;
+            request.backend = Backend::Auto;
+            eprintln!("explicit GPU: begin");
+            display.apply_video_settings(request).unwrap();
+            eprintln!("explicit GPU: applied");
+            display.present(&frame).unwrap();
+            eprintln!("explicit GPU: painted");
+            if cfg!(target_os = "linux") {
+                request.backend = Backend::Vulkan;
+                eprintln!("explicit Vulkan: begin");
+                display.apply_video_settings(request).unwrap();
+                eprintln!("explicit Vulkan: applied");
+                display.present(&frame).unwrap();
+                assert!(display.renderer_status().contains("vulkan"));
+            }
+            menu.prepare(display.ui_metrics(), display.video_settings());
+            display
+                .present_with(&frame, |canvas| menu.paint(canvas))
+                .unwrap();
+        }
+        let before = display.video_settings();
+        let generation = creator.generation();
+        let mut bad = before;
+        bad.renderer = Renderer::Gpu;
+        bad.backend = Backend::OpenGl;
+        assert!(display.apply_video_settings(bad).is_err());
+        assert_eq!(display.video_settings(), before);
+        assert!(creator.generation() > generation);
+        display
+            .present_with(&frame, |canvas| menu.paint(canvas))
+            .unwrap();
     }
 
     #[test]
@@ -858,15 +1031,18 @@ mod tests {
         assert!(!capabilities.permits(VideoSettings::default()));
         assert!(capabilities.permits(VideoSettings {
             scale: Some(8),
-            fullscreen: false
+            fullscreen: false,
+            ..VideoSettings::default()
         }));
         assert!(!capabilities.permits(VideoSettings {
             scale: Some(9),
-            fullscreen: false
+            fullscreen: false,
+            ..VideoSettings::default()
         }));
         assert!(!capabilities.permits(VideoSettings {
             scale: Some(4),
-            fullscreen: true
+            fullscreen: true,
+            ..VideoSettings::default()
         }));
         let metrics = UiMetrics {
             drawable: (1280, 960),
@@ -896,7 +1072,7 @@ mod tests {
             .build()
             .unwrap();
         let mut canvas = sdl3::render::create_renderer(window, Some(c"software")).unwrap();
-        let creator = canvas.texture_creator();
+        let creator = FrameCreator::new(&canvas, reforge_settings::Session::for_window(None));
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
         let toggle = Event::KeyDown {
             timestamp: 0,

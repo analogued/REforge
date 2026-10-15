@@ -209,6 +209,7 @@ impl<'a> Window<'a> {
         rgba: &[u8],
         pause: Option<&PauseOverlay>,
     ) -> Result<(), String> {
+        self.settings.set_status(self.display.renderer_status());
         if let Some(settings) = self
             .settings
             .prepare(self.display.ui_metrics(), self.display.video_settings())
@@ -216,6 +217,8 @@ impl<'a> Window<'a> {
             if let Err(error) = self.display.apply_video_settings(settings) {
                 eprintln!("warning: video settings could not be applied: {error}");
                 self.settings.set_error(error);
+            } else {
+                self.settings.applied();
             }
         }
         self.frame.update(rgba)?;

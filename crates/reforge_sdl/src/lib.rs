@@ -8,8 +8,13 @@ pub use sdl3;
 pub mod audio;
 mod hyllian;
 mod input;
+mod resources;
 pub mod settings;
+mod settings_ui;
 pub use input::{EventClockSample, HostPause, HostShortcut, event_clock_sample, host_shortcut};
+use reforge_settings::Session;
+pub use resources::FrameCreator;
+use std::cell::RefCell;
 
 /// Shared display treatment; this never changes an engine's pixels or palette.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -38,11 +43,9 @@ use sdl3::{
     event::{Event, WindowEvent},
     keyboard::KeyboardState,
     pixels::{Color, PixelFormat},
-    render::{Canvas, RenderTarget, ScaleMode, Texture, TextureCreator, WindowCanvas},
-    video::{Window as SdlWindow, WindowContext},
+    render::{Canvas, RenderTarget, ScaleMode, Texture, WindowCanvas},
+    video::Window as SdlWindow,
 };
-
-pub type FrameCreator = TextureCreator<WindowContext>;
 
 #[derive(Clone, Copy)]
 pub enum FrameFormat {
@@ -53,15 +56,17 @@ pub enum FrameFormat {
 /// A reusable streaming texture. Keep its creator alive until it is dropped;
 /// creators and textures must belong to the window used for presentation.
 pub struct FrameTexture<'a> {
-    texture: Texture<'a>,
+    texture: RefCell<resources::TextureLease>,
+    creator: &'a FrameCreator,
+    pixels: Vec<u8>,
+    format: PixelFormat,
     pitch: usize,
     byte_len: usize,
     size: (u32, u32),
 }
-
 impl<'a> FrameTexture<'a> {
-    pub fn new<T>(
-        creator: &'a TextureCreator<T>,
+    pub fn new(
+        creator: &'a FrameCreator,
         width: u32,
         height: u32,
         format: FrameFormat,
@@ -79,18 +84,31 @@ impl<'a> FrameTexture<'a> {
         let byte_len = pitch
             .checked_mul(height as usize)
             .ok_or("texture buffer is too large")?;
-        let mut texture = creator
-            .create_texture_streaming(format, width, height)
-            .map_err(|error| error.to_string())?;
+        let mut texture = creator.create_texture_streaming(format, width, height)?;
         texture.set_scale_mode(ScaleMode::Nearest);
         Ok(Self {
-            texture,
+            texture: RefCell::new(texture),
+            creator,
+            pixels: vec![0; byte_len],
+            format,
             pitch,
             byte_len,
             size: (width, height),
         })
     }
-
+    fn ensure(&self) -> Result<(), String> {
+        if !self.texture.borrow().belongs_to(self.creator) {
+            let mut texture =
+                self.creator
+                    .create_texture_streaming(self.format, self.size.0, self.size.1)?;
+            texture.set_scale_mode(ScaleMode::Nearest);
+            texture
+                .update(None, &self.pixels, self.pitch)
+                .map_err(|e| e.to_string())?;
+            *self.texture.borrow_mut() = texture;
+        }
+        Ok(())
+    }
     pub fn update(&mut self, pixels: &[u8]) -> Result<(), String> {
         if pixels.len() != self.byte_len {
             return Err(format!(
@@ -99,9 +117,12 @@ impl<'a> FrameTexture<'a> {
                 pixels.len()
             ));
         }
+        self.pixels.copy_from_slice(pixels);
+        self.ensure()?;
         self.texture
+            .borrow_mut()
             .update(None, pixels, self.pitch)
-            .map_err(|error| error.to_string())
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -111,8 +132,11 @@ pub struct Window {
     // GPU resources must be released before their owning renderer/device.
     effect: Option<hyllian::Hyllian>,
     presentation: Presentation,
+    presentation_requested: Presentation,
     canvas: WindowCanvas,
-    events: sdl3::EventPump,
+    events: Option<sdl3::EventPump>,
+    creator: FrameCreator,
+    requested: settings::VideoSettings,
     minimum_pixels: (u32, u32),
     scale: Option<u32>,
     windowed_resize_pending: bool,
@@ -150,6 +174,54 @@ impl Window {
         scale: Option<u32>,
         presentation: Presentation,
     ) -> Result<Self, String> {
+        let session = Session::for_window(scale);
+        let requested = session.effective(&session.saved);
+        if let Some(warning) = &session.warning {
+            eprintln!("REforge: {warning}");
+        }
+        match Self::build(
+            title,
+            display_width,
+            display_height,
+            requested,
+            presentation,
+            true,
+            session,
+        ) {
+            Ok(window) => Ok(window),
+            Err(error) => {
+                eprintln!(
+                    "REforge: requested display unavailable: {error}; using automatic renderer"
+                );
+                let session = Session::for_window(scale);
+                let mut fallback = requested;
+                fallback.renderer = reforge_settings::Renderer::Auto;
+                fallback.backend = reforge_settings::Backend::Auto;
+                let mut window = Self::build(
+                    title,
+                    display_width,
+                    display_height,
+                    fallback,
+                    presentation,
+                    true,
+                    session,
+                )?;
+                window.requested = requested;
+                Ok(window)
+            }
+        }
+    }
+
+    fn build(
+        title: &str,
+        display_width: u32,
+        display_height: u32,
+        requested: settings::VideoSettings,
+        presentation: Presentation,
+        events: bool,
+        session: Session,
+    ) -> Result<Self, String> {
+        let scale = requested.scale;
         if display_width == 0 || display_height == 0 || scale == Some(0) {
             return Err("display dimensions and scale must be positive".into());
         }
@@ -186,13 +258,15 @@ impl Window {
             minimum_pixels,
             scale.unwrap_or(AUTO_FALLBACK_SCALE),
         )?;
-        let (mut canvas, effect) = hyllian::create_canvas(window, presentation)?;
+        let (mut canvas, effect) = hyllian::create_canvas_with(window, presentation, requested)?;
         configure(&mut canvas, display_width, display_height)?;
         // The wrapper does not expose this setter. Use its generated declarations,
         // rather than maintaining a second handwritten C interface.
         // SAFETY: canvas owns a live renderer, remains on the initializing main
         // thread, and the call neither takes ownership nor retains Rust memory.
-        if !unsafe { sdl3::sys::render::SDL_SetRenderVSync(canvas.raw(), 1) } {
+        if !unsafe {
+            sdl3::sys::render::SDL_SetRenderVSync(canvas.raw(), i32::from(requested.vsync))
+        } {
             eprintln!(
                 "REforge: cannot enable display vsync: {}; continuing without it",
                 sdl3::get_error()
@@ -268,7 +342,20 @@ impl Window {
                 update_minimum_size(canvas.window_mut(), minimum_pixels)?;
             }
         }
-        let events = sdl.event_pump().map_err(|error| error.to_string())?;
+        let events = if events {
+            Some(sdl.event_pump().map_err(|error| error.to_string())?)
+        } else {
+            None
+        };
+        if requested.fullscreen {
+            canvas
+                .window_mut()
+                .set_fullscreen(true)
+                .map_err(|e| e.to_string())?;
+            sync_window(canvas.window());
+        }
+        let creator = FrameCreator::new(&canvas, session);
+        let presentation_requested = presentation;
         let presentation = if presentation == Presentation::Hyllian && effect.is_none() {
             Presentation::Pixels
         } else {
@@ -277,8 +364,11 @@ impl Window {
         Ok(Self {
             effect,
             presentation,
+            presentation_requested,
             canvas,
             events,
+            creator,
+            requested,
             minimum_pixels,
             scale,
             windowed_resize_pending: false,
@@ -290,29 +380,37 @@ impl Window {
     }
 
     pub fn texture_creator(&self) -> FrameCreator {
-        self.canvas.texture_creator()
+        self.creator.clone()
     }
 
     pub fn poll_events(&mut self) -> impl Iterator<Item = Event> + '_ {
         let window = self.canvas.window_mut();
         let minimum_pixels = self.minimum_pixels;
-        self.events.poll_iter().inspect(move |event| {
-            if matches!(
-                event,
-                Event::Window {
-                    win_event: WindowEvent::PixelSizeChanged(..) | WindowEvent::DisplayChanged(..),
-                    ..
+        self.events
+            .as_mut()
+            .expect("live event pump")
+            .poll_iter()
+            .inspect(move |event| {
+                if matches!(
+                    event,
+                    Event::Window {
+                        win_event: WindowEvent::PixelSizeChanged(..)
+                            | WindowEvent::DisplayChanged(..),
+                        ..
+                    }
+                ) {
+                    update_minimum_size(window, minimum_pixels).unwrap_or_else(|error| {
+                        eprintln!("REforge: cannot update window minimum: {error}");
+                    });
                 }
-            ) {
-                update_minimum_size(window, minimum_pixels).unwrap_or_else(|error| {
-                    eprintln!("REforge: cannot update window minimum: {error}");
-                });
-            }
-        })
+            })
     }
 
     pub fn keyboard_state(&self) -> KeyboardState<'_> {
-        self.events.keyboard_state()
+        self.events
+            .as_ref()
+            .expect("live event pump")
+            .keyboard_state()
     }
 
     pub fn set_title(&mut self, title: &str) -> Result<(), String> {
@@ -331,7 +429,45 @@ impl Window {
         settings::VideoSettings {
             scale: self.scale,
             fullscreen: self.canvas.window().fullscreen_state() != sdl3::video::FullscreenType::Off,
+            ..self.requested
         }
+    }
+
+    pub fn renderer_status(&self) -> String {
+        let mut vsync = 0;
+        // SAFETY: live renderer and initialized writable output on the SDL thread.
+        let known = unsafe { sdl3::sys::render::SDL_GetRenderVSync(self.canvas.raw(), &mut vsync) };
+        let backend = if self.canvas.renderer_name == "gpu" {
+            // SAFETY: device and returned name are borrowed from the live renderer.
+            unsafe {
+                let device = sdl3::sys::render::SDL_GetGPURendererDevice(self.canvas.raw());
+                if device.is_null() {
+                    "unknown".into()
+                } else {
+                    let name = sdl3::sys::gpu::SDL_GetGPUDeviceDriver(device);
+                    if name.is_null() {
+                        "unknown".into()
+                    } else {
+                        std::ffi::CStr::from_ptr(name)
+                            .to_string_lossy()
+                            .into_owned()
+                    }
+                }
+            }
+        } else {
+            self.canvas.renderer_name.clone()
+        };
+        format!(
+            "Active: {} / {backend} · VSync {}",
+            self.canvas.renderer_name,
+            if !known {
+                "unknown"
+            } else if vsync == 0 {
+                "off"
+            } else {
+                "on"
+            }
+        )
     }
 
     /// UI coordinates follow the desktop's content scale, independently of the
@@ -350,10 +486,26 @@ impl Window {
         }
     }
 
-    /// Change host video settings without replacing the renderer or textures.
-    /// Fullscreen uses the desktop mode and the existing integer-fit policy.
-    /// SDL retains the normal window geometry when entering fullscreen.
+    /// Activate host preferences. Renderer/backend changes rebuild resources;
+    /// ordinary geometry/VSync changes retain them. Failed requests restore a
+    /// working display, with its last uploaded image available for reupload.
     pub fn apply_video_settings(
+        &mut self,
+        requested: settings::VideoSettings,
+    ) -> Result<(), String> {
+        let before = self.video_settings();
+        match self.apply_video_settings_inner(requested) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.windowed_resize_pending = true;
+                if let Err(restore) = self.apply_video_settings_inner(before) {
+                    eprintln!("REforge: could not restore display after failed Apply: {restore}");
+                }
+                Err(error)
+            }
+        }
+    }
+    fn apply_video_settings_inner(
         &mut self,
         requested: settings::VideoSettings,
     ) -> Result<(), String> {
@@ -362,6 +514,107 @@ impl Window {
             .is_some_and(|scale| !(1..=16).contains(&scale))
         {
             return Err("window scale must be auto or an integer between 1 and 16".into());
+        }
+        if (requested.renderer, requested.backend)
+            != (self.requested.renderer, self.requested.backend)
+        {
+            let title = self.canvas.window().title().to_string();
+            let session = self.creator.session.borrow().clone();
+            let previous = self.video_settings();
+            let presentation = self.presentation_requested;
+            let old_size = self.canvas.window().size();
+            let old_geometry = self.windowed_geometry;
+            let old_pending = self.windowed_resize_pending;
+            // SDL/driver dispatch tables can be invalidated when an old GPU
+            // device is destroyed. Invalidate every texture and fully tear down
+            // the old renderer before initializing another GPU device.
+            let placeholder_window = self
+                ._video
+                .window(&title, 320, 240)
+                .hidden()
+                .build()
+                .map_err(|e| e.to_string())?;
+            let placeholder = sdl3::render::create_renderer(placeholder_window, Some(c"software"))
+                .map_err(|e| e.to_string())?;
+            self.effect = None;
+            self.creator.release_textures();
+            self.creator
+                .replace_owner(std::rc::Rc::new(resources::Owner {
+                    creator: placeholder.texture_creator(),
+                }));
+            self.canvas.window_mut().hide();
+            let old = std::mem::replace(&mut self.canvas, placeholder);
+            drop(old);
+            let built = Self::build(
+                &title,
+                self.minimum_pixels.0,
+                self.minimum_pixels.1,
+                requested,
+                presentation,
+                false,
+                session.clone(),
+            );
+            let (mut candidate, error) = match built {
+                Ok(candidate) => (candidate, None),
+                Err(error) => {
+                    let restored = Self::build(
+                        &title,
+                        self.minimum_pixels.0,
+                        self.minimum_pixels.1,
+                        previous,
+                        presentation,
+                        false,
+                        session.clone(),
+                    )
+                    .or_else(|_| {
+                        let mut safe = previous;
+                        safe.renderer = reforge_settings::Renderer::Software;
+                        safe.backend = reforge_settings::Backend::Auto;
+                        Self::build(
+                            &title,
+                            self.minimum_pixels.0,
+                            self.minimum_pixels.1,
+                            safe,
+                            Presentation::Pixels,
+                            false,
+                            session,
+                        )
+                    })?;
+                    (restored, Some(error))
+                }
+            };
+            let applied = candidate.requested;
+            candidate.windowed_geometry = if applied.fullscreen {
+                old_geometry.or(if !previous.fullscreen {
+                    Some(old_size)
+                } else {
+                    None
+                })
+            } else {
+                None
+            };
+            candidate.windowed_resize_pending =
+                old_pending || (applied.fullscreen && applied.scale != previous.scale);
+            if !applied.fullscreen && !previous.fullscreen && applied.scale == previous.scale {
+                candidate
+                    .canvas
+                    .window_mut()
+                    .set_size(old_size.0, old_size.1)
+                    .map_err(|e| e.to_string())?;
+                sync_window(candidate.canvas.window());
+            }
+            candidate.events = self.events.take();
+            self.creator
+                .replace_owner(candidate.creator.owner.borrow().clone());
+            candidate.creator = self.creator.clone();
+            std::mem::swap(self, &mut candidate);
+            return error.map_or(Ok(()), Err);
+        }
+        // SAFETY: canvas owns a live renderer on its main thread. SDL retains no Rust memory.
+        if !unsafe {
+            sdl3::sys::render::SDL_SetRenderVSync(self.canvas.raw(), i32::from(requested.vsync))
+        } {
+            eprintln!("REforge: VSync request unavailable: {}", sdl3::get_error());
         }
         let current = self.video_settings();
         if requested.fullscreen != current.fullscreen {
@@ -401,6 +654,7 @@ impl Window {
             self.windowed_resize_pending = true;
         }
         self.scale = requested.scale;
+        self.requested = requested;
         Ok(())
     }
 
@@ -465,6 +719,7 @@ impl Window {
             self.effect = Some(hyllian::Hyllian::new(&self.canvas)?);
         }
         self.presentation = presentation;
+        self.presentation_requested = presentation;
         Ok(())
     }
 
@@ -479,15 +734,20 @@ impl Window {
         frame: &FrameTexture<'_>,
         overlay: impl FnOnce(&mut WindowCanvas) -> Result<(), String>,
     ) -> Result<(), String> {
+        if !std::rc::Rc::ptr_eq(&self.creator.owner, &frame.creator.owner) {
+            return Err("frame belongs to a different display".into());
+        }
+        frame.ensure()?;
         self.prepare_frame()?;
-        match self.presentation {
+        let frame_texture = frame.texture.borrow();
+        frame_texture.with(|texture| match self.presentation {
             Presentation::Hyllian => self
                 .effect
                 .as_mut()
                 .expect("CRT mode requires initialized resources")
-                .paint(&mut self.canvas, &frame.texture, frame.size)?,
-            Presentation::Pixels => paint(&mut self.canvas, &frame.texture)?,
-        }
+                .paint(&mut self.canvas, texture, frame.size),
+            Presentation::Pixels => paint(&mut self.canvas, texture),
+        })??;
         overlay(&mut self.canvas)?;
         if !self.canvas.present() {
             return Err(sdl3::get_error().to_string());
@@ -832,7 +1092,12 @@ mod tests {
         let mut frame = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba).unwrap();
         let pixels = [17, 85, 170, 255].repeat(320 * 200);
         frame.update(&pixels).unwrap();
-        paint(&mut display.canvas, &frame.texture).unwrap();
+        frame
+            .texture
+            .borrow()
+            .with(|texture| paint(&mut display.canvas, texture))
+            .unwrap()
+            .unwrap();
         let readback = display
             .canvas
             .read_pixels(None)
@@ -896,7 +1161,12 @@ mod tests {
                 // not Window::sync. Settle that resize before a pixel readback;
                 // otherwise an enlarged read could exceed the old backing size.
                 display.present(&frame).unwrap();
-                paint(&mut display.canvas, &frame.texture).unwrap();
+                frame
+                    .texture
+                    .borrow()
+                    .with(|texture| paint(&mut display.canvas, texture))
+                    .unwrap()
+                    .unwrap();
                 let plain = display
                     .canvas
                     .read_pixels(None)
@@ -909,11 +1179,17 @@ mod tests {
                         .to_vec()),
                     [255, 255, 255]
                 );
-                display
-                    .effect
-                    .as_mut()
+                frame
+                    .texture
+                    .borrow()
+                    .with(|texture| {
+                        display.effect.as_mut().unwrap().paint(
+                            &mut display.canvas,
+                            texture,
+                            frame.size,
+                        )
+                    })
                     .unwrap()
-                    .paint(&mut display.canvas, &frame.texture, frame.size)
                     .unwrap();
                 display.canvas.set_draw_color(Color::RGB(17, 85, 170));
                 display
@@ -1047,6 +1323,7 @@ mod tests {
                 .apply_video_settings(settings::VideoSettings {
                     scale: Some(0),
                     fullscreen: true,
+                    ..actual
                 })
                 .is_err()
         );
@@ -1211,7 +1488,14 @@ mod tests {
                 let mut canvas = surface.into_canvas().unwrap();
                 configure(&mut canvas, 320, 240).unwrap();
                 let creator = canvas.texture_creator();
-                let mut frame = FrameTexture::new(&creator, source_width, 200, format).unwrap();
+                let pixel_format = match format {
+                    FrameFormat::Rgb => PixelFormat::RGB24,
+                    FrameFormat::Rgba => PixelFormat::RGBA32,
+                };
+                let mut frame = creator
+                    .create_texture_streaming(pixel_format, source_width, 200)
+                    .unwrap();
+                frame.set_scale_mode(ScaleMode::Nearest);
                 let bytes = if source_width == 320 { 4 } else { 3 };
                 let mut pixels = Vec::new();
                 for y in 0..200 {
@@ -1222,9 +1506,10 @@ mod tests {
                         }
                     }
                 }
-                assert!(frame.update(&pixels[..pixels.len() - 1]).is_err());
-                frame.update(&pixels).unwrap();
-                paint(&mut canvas, &frame.texture).unwrap();
+                frame
+                    .update(None, &pixels, source_width as usize * bytes)
+                    .unwrap();
+                paint(&mut canvas, &frame).unwrap();
                 // ReadPixels defaults to the logical viewport. Disable that viewport
                 // after drawing so readback includes the letterbox margins too.
                 canvas

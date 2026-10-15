@@ -3,7 +3,11 @@
 //! SDL's GPU renderer bridge. The adapted third-party shader lives separately
 //! under shaders/; engines and software renderers never execute this effect.
 
-use std::{ffi::CStr, ptr::NonNull};
+use reforge_settings::{Backend, Renderer, VideoSettings};
+use std::{
+    ffi::{CStr, CString},
+    ptr::NonNull,
+};
 
 use sdl3::{
     pixels::Color,
@@ -20,24 +24,59 @@ use crate::Presentation;
 struct Spirv([u8; include_bytes!("../shaders/hyllian.spv").len()]);
 static SPIRV: Spirv = Spirv(*include_bytes!("../shaders/hyllian.spv"));
 
-pub(super) fn create_canvas(
+pub(super) fn create_canvas_with(
     window: Window,
     presentation: Presentation,
+    settings: VideoSettings,
 ) -> Result<(WindowCanvas, Option<Hyllian>), String> {
-    // Use one shader-capable renderer for both presentation modes by default.
-    // Respect explicit SDL renderer overrides, including the software fallback.
-    let canvas = if sdl3::hint::get("SDL_RENDER_DRIVER").is_none() {
-        match gpu_canvas(window.clone()) {
-            Ok(canvas) => canvas,
-            Err(error) => {
-                eprintln!(
-                    "REforge: GPU renderer unavailable: {error}; trying SDL's renderer selection"
-                );
+    let selected = if settings.renderer == Renderer::Auto
+        && matches!(
+            settings.backend,
+            Backend::OpenGl | Backend::OpenGlEs | Backend::Direct3d11
+        ) {
+        Renderer::Sdl
+    } else {
+        settings.renderer
+    };
+    let canvas = match selected {
+        Renderer::Software => {
+            sdl3::render::create_renderer(window, Some(c"software")).map_err(|e| e.to_string())?
+        }
+        Renderer::Sdl if settings.backend != Backend::Auto => {
+            let name = CString::new(settings.backend.as_str()).map_err(|e| e.to_string())?;
+            sdl3::render::create_renderer(window, Some(&name)).map_err(|e| e.to_string())?
+        }
+        Renderer::Sdl => ordinary_canvas(window)?,
+        Renderer::Auto | Renderer::Gpu => {
+            if settings.renderer == Renderer::Auto
+                && settings.backend == Backend::Auto
+                && sdl3::hint::get("SDL_RENDER_DRIVER").is_some()
+            {
                 fallback_canvas(window)?
+            } else {
+                if settings.backend != Backend::Auto
+                    && !matches!(
+                        settings.backend,
+                        Backend::Vulkan | Backend::Direct3d12 | Backend::Metal
+                    )
+                {
+                    return Err("backend is not a GPU backend".into());
+                }
+                match gpu_canvas(window.clone(), settings.backend) {
+                    Ok(canvas) => canvas,
+                    Err(error)
+                        if settings.renderer == Renderer::Auto
+                            && settings.backend == Backend::Auto =>
+                    {
+                        eprintln!(
+                            "REforge: GPU renderer unavailable: {error}; trying SDL selection"
+                        );
+                        fallback_canvas(window)?
+                    }
+                    Err(error) => return Err(error),
+                }
             }
         }
-    } else {
-        fallback_canvas(window)?
     };
     let effect = if presentation == Presentation::Hyllian {
         match Hyllian::new(&canvas) {
@@ -51,6 +90,16 @@ pub(super) fn create_canvas(
         None
     };
     Ok((canvas, effect))
+}
+
+fn ordinary_canvas(window: Window) -> Result<WindowCanvas, String> {
+    for driver in sdl3::render::drivers().filter(|name| name != "gpu" && name != "software") {
+        let name = CString::new(driver).map_err(|e| e.to_string())?;
+        if let Ok(canvas) = sdl3::render::create_renderer(window.clone(), Some(&name)) {
+            return Ok(canvas);
+        }
+    }
+    sdl3::render::create_renderer(window, Some(c"software")).map_err(|e| e.to_string())
 }
 
 fn fallback_canvas(window: Window) -> Result<WindowCanvas, String> {
@@ -76,7 +125,7 @@ impl Drop for Properties {
     }
 }
 
-fn gpu_canvas(window: Window) -> Result<WindowCanvas, String> {
+fn gpu_canvas(window: Window, backend: Backend) -> Result<WindowCanvas, String> {
     // SAFETY: SDL video is initialized and this runs on the window's main thread.
     let props = Properties(unsafe { properties::SDL_CreateProperties() });
     if props.0 == 0 {
@@ -109,6 +158,20 @@ fn gpu_canvas(window: Window) -> Result<WindowCanvas, String> {
     };
     if !configured {
         return Err(sdl3::get_error().to_string());
+    }
+    if backend != Backend::Auto {
+        let driver = CString::new(backend.as_str()).map_err(|e| e.to_string())?;
+        // SAFETY: these live creation properties are copied by SDL. Its GPU
+        // renderer forwards GPU device creation properties and owns that device.
+        if !unsafe {
+            properties::SDL_SetStringProperty(
+                props.0,
+                gpu::SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING,
+                driver.as_ptr(),
+            )
+        } {
+            return Err(sdl3::get_error().to_string());
+        }
     }
     // SAFETY: all required properties were initialized, and window is live.
     let renderer = unsafe { render::SDL_CreateRendererWithProperties(props.0) };

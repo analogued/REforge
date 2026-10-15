@@ -1,0 +1,10 @@
+[package]
+name = "reforge_settings"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+toml_edit = { version = "=0.22.27", default-features = false, features = ["parse", "display"] }
+fs2 = "=0.4.3"

@@ -50,12 +50,14 @@ K (Kitten), H (House Cat), T (Tomcat), or A (Alley Cat); the controls then appea
 below the question. Press another key to start. These choices select initial
 internal difficulties 0 through 3; progression can reach 7.
 Ctrl+Q or window close quits during startup as well. F10 opens the shared video
-settings panel during startup, play or the later title. Scale and windowed or
-borderless fullscreen mode apply immediately; Escape or F10 closes the panel.
+settings panel during startup, play or the later title. Window mode/scale,
+renderer/backend and VSync are activated and saved with Apply; Cancel, Escape
+or F10 discards pending edits.
 The panel pauses animation and gameplay, then restores the previous pause state.
 Its keys do not dismiss native questions or reach gameplay; keys held on closing
-must be released before they control the game. Settings currently last for this
-launch and are not saved to a preferences file.
+must be released before they control the game. The REforge app saves global and
+game-specific preferences; [configuration](../../docs/configuration.md) explains
+locations, inheritance and temporary CLI overrides.
 
 Use the arrow keys to move and jump. Esc, P and Pause/Break toggle pause;
 other keys, including arrows, leave it paused. Pause shortcuts are ignored while

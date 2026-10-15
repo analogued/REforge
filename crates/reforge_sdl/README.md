@@ -165,22 +165,28 @@ the corresponding dependencies. This crate bundles no game data.
 
 ## Settings menu
 
-F10 opens the shared egui settings panel in either engine. It initially exposes
-window scale (Auto or ×1–×16) and windowed/fullscreen mode. Changes apply during
-the current run, retaining the renderer and uploaded game textures. Scale sets
-the windowed drawable size with high-DPI compensation. Auto uses the same
-compositor-negotiated fit as startup. Fullscreen uses the desktop mode and
-retains integer aspect-correct fitting; its window-scale selector is disabled.
-Returning to windowed mode preserves the previous window geometry unless a
-windowed scale change is pending. Desktop constraints can still affect requests.
+F10 opens the shared Compact Display page in either engine. Window mode, scale,
+renderer, backend and VSync use draft edits with Apply/Cancel. Global and game
+preferences are saved through `reforge_settings`; CLI overrides remain temporary
+and lock their controls. See [configuration](../../docs/configuration.md) for
+the complete persistence, inheritance and fallback contract.
 
-The engine adapters freeze game time while the menu is open, preserve an
-existing host/native pause, and consume menu keys before native game input.
-Escape, F10 or Close dismisses settings; Ctrl+Q and window close remain global.
-Controls held across a menu boundary require a fresh press before game use.
-Opening settings does not enable pause-on-focus-loss or change original sound
-generation. Saved global/per-game preference profiles are not yet implemented;
-the current CLI values initialize the menu.
+The engine adapters freeze game time while the menu is open, preserve existing
+host/native pause, and consume menu keys before native input. Escape/F10 cancel;
+Ctrl+Q and window close remain global. Controls held across a menu boundary need
+a fresh press before game use. No pause-on-focus-loss policy is introduced.
+
+Renderer/backend changes invalidate texture residents and tear down the native
+renderer before creating its replacement. The stable `FrameCreator` coordinates
+this transition. Leases retain native renderer ownership while resident; empty
+leases cannot be rendered. `FrameTexture` retains the latest CPU image and
+reuploads it lazily. The menu recreates its font atlas for the new generation.
+Failed creation reconstructs the previous renderer, with software as the final
+recovery fallback. Window creation/positioning may briefly occur during Apply;
+engine state and clocks are retained. Ordinary scale/mode and VSync changes keep
+the renderer. Requested Hyllian presentation returns when the selected renderer
+again supports it. Only pixels are available on fallback renderers without the
+custom GPU interface.
 
 The `settings` module uses egui core and its bundled fonts, without eframe, winit,
 wgpu or a separate CPU rasterizer. One SDL geometry adapter handles GPU, ordinary

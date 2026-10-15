@@ -97,6 +97,49 @@ fn warn(warnings: &[String]) {
     }
 }
 
+fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Launch, Vec<OsString>) {
+    let mut args = Vec::new();
+    let mut prefs = reforge_settings::Launch {
+        game: game.id().into(),
+        path: reforge_settings::default_path(),
+        cli: Default::default(),
+    };
+    let mut no_config = false;
+    let mut remaining = values.into_iter();
+    while let Some(arg) = remaining.next() {
+        match arg.to_str() {
+            Some("--no-config") => no_config = true,
+            Some("--config") => prefs.path = remaining.next().map(PathBuf::from),
+            Some(name @ ("--window-mode" | "--renderer" | "--backend" | "--vsync" | "--scale")) => {
+                if let Some(value) = remaining.next() {
+                    let key = match name {
+                        "--window-mode" => "window_mode",
+                        "--scale" => "scale",
+                        "--renderer" => "renderer",
+                        "--backend" => "backend",
+                        _ => "vsync",
+                    };
+                    if let Some(text) = value.to_str() {
+                        let mut normalized = reforge_settings::VideoSettings::default();
+                        if normalized.set(key, text).is_ok() {
+                            prefs.cli.insert(key.into(), normalized.get(key));
+                        }
+                    }
+                    if name == "--scale" {
+                        args.push(arg);
+                        args.push(value);
+                    }
+                }
+            }
+            _ => args.push(arg),
+        }
+    }
+    if no_config {
+        prefs.path = None;
+    }
+    (prefs, args)
+}
+
 fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
     let input = extract(args);
     if input.list {
@@ -141,7 +184,9 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
             .map_err(|error| format!("Cannot resolve original path: {error}"))?
             .into_os_string(),
     ];
-    args.extend(plan.args);
+    let (prefs, remaining) = launch_settings(plan.args, plan.detected.game);
+    args.extend(remaining);
+    let _preferences = prefs.install();
     match plan.detected.game {
         Game::AlleyCat => {
             let args = args
@@ -194,6 +239,37 @@ mod tests {
             original: path.into(),
         })
     }
+    #[test]
+    fn preference_options_are_temporary_and_only_engine_arguments_are_forwarded() {
+        let prepared = options::prepare(
+            args(&[
+                "--scale",
+                "4",
+                "--renderer",
+                "software",
+                "--vsync",
+                "off",
+                "--config",
+                "custom.toml",
+                "--no-config",
+                "--difficulty",
+                "2",
+            ]),
+            Game::AlleyCat,
+        );
+        assert!(prepared.warnings.is_empty());
+        let (launch, forward) = launch_settings(prepared.args, Game::AlleyCat);
+        assert_eq!(launch.game, "alley-cat");
+        assert!(launch.path.is_none());
+        assert_eq!(launch.cli.get("scale").map(String::as_str), Some("4"));
+        assert_eq!(launch.cli.get("vsync").map(String::as_str), Some("false"));
+        assert_eq!(forward, args(&["--scale", "4", "--difficulty", "2"]));
+        let (launch, forward) = launch_settings(args(&["--config", "test.toml"]), Game::Mach3);
+        assert_eq!(launch.path, Some(PathBuf::from("test.toml")));
+        assert!(launch.cli.is_empty());
+        assert!(forward.is_empty());
+    }
+
     #[test]
     fn help_and_catalog_do_not_require_originals() {
         for values in [&[][..], &["--help"][..], &["--list"][..]] {

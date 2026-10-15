@@ -42,9 +42,12 @@ including with `SDL_RENDER_DRIVER=software`. See the
 requirements and the bundled shader's attribution.
 Ctrl+Q quits either game, and Pause/Break toggles pause during gameplay.
 Alley Cat also accepts P for pause.
-F10 opens the shared settings menu. Scale and windowed/fullscreen mode apply
-live; Escape, F10 or Close returns to the previous pause state. These settings
-last for the current run; saved preference profiles are not yet implemented.
+F10 opens the shared Compact settings menu. Window mode/scale, renderer/backend
+and VSync use draft edits with Apply and Cancel. Saved global and per-game
+preferences live in a TOML file; explicit CLI settings remain temporary and lock
+their controls for that run. Escape or F10 cancels pending edits and returns to
+the previous pause state. See [configuration](docs/configuration.md) for file
+locations, inheritance and renderer fallback behavior.
 Each game retains its additional bindings.
 See each game's README for supported input versions, controls and current limits.
 
@@ -95,6 +98,7 @@ work under the same feature. For example:
 - `engines/mach3/`: the `mach3` engine library and its viewer/export/replay binaries.
 - `crates/reforge_sdl/`: shared SDL3 windows, events, frame presentation and
   queued audio output.
+- `crates/reforge_settings/`: shared preference resolution and TOML persistence.
 - `crates/reforge_audio/`: shared deterministic PIT and PC speaker devices,
   with signal rendering independent of host playback.
 
@@ -111,5 +115,6 @@ The repository-wide project license has not been selected; no project license
 is granted yet. Existing third-party terms and attribution remain in
 [Alley Cat notices](engines/alleycat/THIRD_PARTY.md),
 [Mach 3 notices](engines/mach3/docs/dependencies.md), and
-[shared SDL3 notices](crates/reforge_sdl/docs/dependencies.md), with their license texts.
+[shared SDL3 notices](crates/reforge_sdl/docs/dependencies.md), and
+[settings dependency notices](crates/reforge_settings/README.md#dependencies), with their license texts.
 Original game data is not included or licensed by this repository.

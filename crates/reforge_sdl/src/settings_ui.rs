@@ -30,6 +30,7 @@ pub(super) fn draw(
     let warning = session.warning.clone();
     drop(session);
     let draft = menu.draft.as_mut().expect("open draft");
+    let windowed_scale = menu.creator.windowed_scale.get();
     let width = (screen.width() - 36.0).clamp(300.0, 860.0);
     let height = (screen.height() - 48.0).clamp(260.0, 650.0);
     let mut close = false;
@@ -145,7 +146,14 @@ pub(super) fn draw(
                                             )
                                             .changed()
                                         {
-                                            value.scale = if auto { None } else { Some(4) };
+                                            value.scale = if auto {
+                                                None
+                                            } else {
+                                                Some(windowed_scale.clamp(
+                                                    menu.capabilities.min_scale.max(1),
+                                                    menu.capabilities.max_scale,
+                                                ))
+                                            };
                                         }
                                         ui.label(
                                             value
@@ -159,8 +167,13 @@ pub(super) fn draw(
                                         && !value.fullscreen
                                         && !cli.contains_key("scale"),
                                     |ui| {
-                                        let mut n = value.scale.unwrap_or(4);
-                                        scale_slider(ui, &mut n, menu.capabilities);
+                                        let mut n = value.scale.unwrap_or(windowed_scale);
+                                        let mut cap = menu.capabilities;
+                                        if value.scale.is_none() {
+                                            cap.min_scale = cap.min_scale.min(n);
+                                            cap.max_scale = cap.max_scale.max(n);
+                                        }
+                                        scale_slider(ui, &mut n, cap);
                                         if value.scale.is_some() {
                                             value.scale = Some(n);
                                         }

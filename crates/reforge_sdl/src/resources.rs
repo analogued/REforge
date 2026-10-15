@@ -24,16 +24,19 @@ type Slot = RefCell<Option<Resident>>;
 pub struct FrameCreator {
     pub(crate) owner: Rc<RefCell<Rc<Owner>>>,
     pub(crate) session: Rc<RefCell<Session>>,
+    // Resolved windowed multiplier, separate from the persisted Auto preference.
+    pub(crate) windowed_scale: Rc<Cell<u32>>,
     generation: Rc<Cell<usize>>,
     textures: Rc<RefCell<Vec<Weak<Slot>>>>,
 }
 impl FrameCreator {
-    pub(crate) fn new(canvas: &WindowCanvas, session: Session) -> Self {
+    pub(crate) fn new(canvas: &WindowCanvas, session: Session, windowed_scale: u32) -> Self {
         Self {
             owner: Rc::new(RefCell::new(Rc::new(Owner {
                 creator: canvas.texture_creator(),
             }))),
             session: Rc::new(RefCell::new(session)),
+            windowed_scale: Rc::new(Cell::new(windowed_scale)),
             generation: Rc::new(Cell::new(0)),
             textures: Rc::new(RefCell::new(Vec::new())),
         }

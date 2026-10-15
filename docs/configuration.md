@@ -3,6 +3,8 @@
 F10 opens the Compact Settings menu in either game. The Display page offers
 window mode (windowed or borderless desktop fullscreen), window scale (Auto or
 ×1–×16), renderer, backend and VSync. Other sections remain future work.
+With Auto selected, the disabled scale slider shows the resolved windowed
+multiplier. Turning Auto off starts manual scaling at that value.
 
 Controls edit a draft. Apply activates and saves pending edits across both
 Global defaults and the current game's overrides, leaving the menu open.

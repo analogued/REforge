@@ -222,6 +222,7 @@ impl Window {
         session: Session,
     ) -> Result<Self, String> {
         let scale = requested.scale;
+        let mut windowed_scale = scale.unwrap_or(AUTO_FALLBACK_SCALE);
         if display_width == 0 || display_height == 0 || scale == Some(0) {
             return Err("display dimensions and scale must be positive".into());
         }
@@ -300,6 +301,7 @@ impl Window {
             } else {
                 AUTO_FALLBACK_SCALE
             };
+            windowed_scale = multiplier;
             // Restore also cancels a still-pending maximize when initial sync
             // timed out. Never resize an actively maximized window: SDL may
             // accept that request without changing its client dimensions.
@@ -354,7 +356,7 @@ impl Window {
                 .map_err(|e| e.to_string())?;
             sync_window(canvas.window());
         }
-        let creator = FrameCreator::new(&canvas, session);
+        let creator = FrameCreator::new(&canvas, session, windowed_scale);
         let presentation_requested = presentation;
         let presentation = if presentation == Presentation::Hyllian && effect.is_none() {
             Presentation::Pixels
@@ -597,6 +599,10 @@ impl Window {
                 old_pending || (applied.fullscreen && applied.scale != previous.scale);
             if !applied.fullscreen && !previous.fullscreen && applied.scale == previous.scale {
                 candidate
+                    .creator
+                    .windowed_scale
+                    .set(self.creator.windowed_scale.get());
+                candidate
                     .canvas
                     .window_mut()
                     .set_size(old_size.0, old_size.1)
@@ -604,6 +610,9 @@ impl Window {
                 sync_window(candidate.canvas.window());
             }
             candidate.events = self.events.take();
+            self.creator
+                .windowed_scale
+                .set(candidate.creator.windowed_scale.get());
             self.creator
                 .replace_owner(candidate.creator.owner.borrow().clone());
             candidate.creator = self.creator.clone();
@@ -697,6 +706,7 @@ impl Window {
         if request_initial_size(window, self.minimum_pixels, multiplier)? {
             sync_window(window);
         }
+        self.creator.windowed_scale.set(multiplier);
         // Best effort: Wayland delegates placement to the compositor.
         window.set_position(
             sdl3::video::WindowPos::Centered,
@@ -1396,6 +1406,9 @@ mod tests {
             window.pixel_density()
         );
         let creator = display.texture_creator();
+        let selected_scale = creator.windowed_scale.get();
+        let pixels = display.canvas.window().size_in_pixels();
+        assert_eq!(selected_scale, (pixels.0 / 320).min(pixels.1 / 240).max(1));
         for (width, format, bytes) in [(320, FrameFormat::Rgba, 4), (640, FrameFormat::Rgb, 3)] {
             let mut frame = FrameTexture::new(&creator, width, 200, format).unwrap();
             frame
@@ -1416,6 +1429,7 @@ mod tests {
         assert_eq!(actual, resized, "native resize must actually take effect");
         display.poll_events().for_each(drop);
         assert_eq!(display.canvas.window().size(), actual);
+        assert_eq!(creator.windowed_scale.get(), selected_scale);
         assert_eq!(
             display.canvas.logical_size(),
             (

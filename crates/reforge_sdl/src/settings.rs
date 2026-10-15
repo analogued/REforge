@@ -1072,7 +1072,7 @@ mod tests {
             .build()
             .unwrap();
         let mut canvas = sdl3::render::create_renderer(window, Some(c"software")).unwrap();
-        let creator = FrameCreator::new(&canvas, reforge_settings::Session::for_window(None));
+        let creator = FrameCreator::new(&canvas, reforge_settings::Session::for_window(None), 4);
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
         let toggle = Event::KeyDown {
             timestamp: 0,

@@ -568,7 +568,7 @@ fn audio_controls(
                 ui.spacing_mut().interact_size.x = 56.0;
                 ui.add(egui::DragValue::new(&mut value.audio.volume).range(0..=100).suffix("%"));
             });
-            for category in SoundCategory::ALL {
+            for category in [SoundCategory::Music, SoundCategory::Effects, SoundCategory::Speech] {
                 row_with_width(ui, category.label(), category.key(), value.clone(), base.clone(), previous.clone(), scope, cli, volume_width, |ui| {
                     ui.add_enabled_ui(scope == 0 || categories.contains(&category), |ui| {
                         ui.spacing_mut().slider_width = 220.0;

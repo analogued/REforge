@@ -3,6 +3,7 @@
 //! does not render audio or advance a PIT: callers supply interrupts and reads.
 
 mod assets;
+mod category;
 mod dos_memory;
 mod intro_task;
 mod playback;

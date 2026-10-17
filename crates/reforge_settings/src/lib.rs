@@ -9,7 +9,7 @@ use std::{
 };
 use toml_edit::{DocumentMut, Item};
 mod audio;
-pub use audio::{AudioSettings, SoundRenderer};
+pub use audio::{AudioSettings, CategoryVolumes, SoundCategory, SoundRenderer};
 
 pub const DISPLAY_KEYS: &[&str] = &[
     "window_mode",
@@ -35,6 +35,9 @@ pub const CRT_KEYS: &[&str] = &[
 pub const AUDIO_KEYS: &[&str] = &[
     "sound_enabled",
     "master_volume",
+    "music_volume",
+    "speech_volume",
+    "effects_volume",
     "audio_renderer",
     "output_device",
     "mute_unfocused",
@@ -698,7 +701,10 @@ fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(),
                     "vsync" | "sound_enabled" | "mute_unfocused" => {
                         toml_edit::Value::from(text == "true" || text == "on")
                     }
-                    "scale" | "master_volume" if text != "auto" => {
+                    "scale" | "master_volume" | "music_volume" | "speech_volume"
+                    | "effects_volume"
+                        if text != "auto" =>
+                    {
                         toml_edit::Value::from(text.parse::<i64>().map_err(|e| e.to_string())?)
                     }
                     _ if SHADER_PARAMETERS.iter().any(|p| p.key == key) => {
@@ -798,6 +804,52 @@ mod tests {
         })
     }
     #[test]
+    fn category_levels_round_trip_inherit_and_reset_without_persisting_cli() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let mut s = session(path.clone(), "mach-3");
+        assert_eq!(s.saved.game_values().audio.volume, 80);
+        assert_eq!(
+            s.saved.game_values().audio.categories,
+            CategoryVolumes([100; 3])
+        );
+        let mut draft = s.saved.clone();
+        draft.edit(false, "music_volume", "60".into());
+        draft.edit(false, "speech_volume", "70".into());
+        draft.edit(true, "speech_volume", "20".into());
+        draft.edit(true, "effects_volume", "0".into());
+        s.cli.insert("music_volume".into(), "25".into());
+        assert_eq!(
+            s.effective(&draft).audio.categories,
+            CategoryVolumes([25, 20, 0])
+        );
+        s.commit(draft.clone()).unwrap();
+        let loaded = session(path.clone(), "mach-3");
+        assert_eq!(
+            loaded.saved.game_values().audio.categories,
+            CategoryVolumes([60, 20, 0])
+        );
+        draft.edit(true, "speech_volume", "70".into());
+        assert!(!draft.game.contains_key("speech_volume"));
+        draft.reset_section(false, 2);
+        assert_eq!(
+            draft.global_values().audio.categories,
+            CategoryVolumes([100; 3])
+        );
+        assert_eq!(
+            draft.game_values().audio.categories,
+            CategoryVolumes([100, 100, 0])
+        );
+        draft.reset_section(true, 2);
+        assert!(draft.game.is_empty());
+        for category in SoundCategory::ALL {
+            for bad in ["101", "-1", "NaN", "50.5"] {
+                assert!(RuntimeSettings::default().set(category.key(), bad).is_err());
+            }
+        }
+    }
+
+    #[test]
     fn audio_inherits_sparsely_resets_independently_and_keeps_cli_temporary() {
         let dir = TestDir::new();
         let path = dir.file();
@@ -820,7 +872,7 @@ mod tests {
         assert_eq!(loaded.saved.game_values().audio.volume, 65);
         d.reset_section(false, 2);
         assert_eq!(d.global_values().scale, Some(4));
-        assert_eq!(d.game_values().audio.volume, 100);
+        assert_eq!(d.game_values().audio.volume, 80);
         assert_eq!(d.game.len(), 2);
         d.reset_section(true, 2);
         assert!(d.game.is_empty());

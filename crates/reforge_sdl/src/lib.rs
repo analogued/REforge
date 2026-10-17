@@ -519,8 +519,8 @@ impl Window {
             return Err("window scale must be auto or an integer between 1 and 16".into());
         }
         requested.hyllian.validate()?;
-        if requested.audio.volume > 100 {
-            return Err("master volume must be 0..100".into());
+        if requested.audio.volume > 100 || !requested.audio.categories.valid() {
+            return Err("audio volumes must be 0..100".into());
         }
         let before = self.settings();
         self.creator.audio.apply(requested.audio.clone())?;

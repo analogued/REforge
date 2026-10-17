@@ -73,6 +73,10 @@ impl BlipRenderer {
     pub fn config(&self) -> Config {
         self.config
     }
+    pub(super) fn chunk_end(&self) -> Option<u64> {
+        self.frame_start
+            .checked_add(u64::from(self.config.chunk_ticks))
+    }
     /// Last accepted signal event or committed finish horizon.
     pub fn tick(&self) -> u64 {
         self.tick

@@ -1,5 +1,6 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 //! Host audio preferences; native sound execution remains engine-owned.
+pub use reforge_audio::category::{CategoryVolumes, SoundCategory};
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SoundRenderer {
     #[default]
@@ -31,6 +32,7 @@ impl std::str::FromStr for SoundRenderer {
 pub struct AudioSettings {
     pub enabled: bool,
     pub volume: u8,
+    pub categories: CategoryVolumes,
     pub renderer: SoundRenderer,
     /// None follows the system default; physical SDL IDs are never persisted.
     pub device: Option<String>,
@@ -40,7 +42,8 @@ impl Default for AudioSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            volume: 100,
+            volume: 80,
+            categories: CategoryVolumes::default(),
             renderer: SoundRenderer::GameDefault,
             device: None,
             mute_unfocused: true,
@@ -56,6 +59,9 @@ impl AudioSettings {
         }
     }
     pub(super) fn get(&self, key: &str) -> String {
+        if let Some(category) = SoundCategory::ALL.into_iter().find(|c| c.key() == key) {
+            return self.categories.get(category).to_string();
+        }
         match key {
             "sound_enabled" => self.enabled.to_string(),
             "master_volume" => self.volume.to_string(),
@@ -66,6 +72,14 @@ impl AudioSettings {
         }
     }
     pub(super) fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
+        if let Some(category) = SoundCategory::ALL.into_iter().find(|c| c.key() == key) {
+            self.categories.0[category.index()] = value
+                .parse::<u8>()
+                .ok()
+                .filter(|v| *v <= 100)
+                .ok_or("category volume must be 0..100")?;
+            return Ok(());
+        }
         fn boolean(s: &str) -> Result<bool, String> {
             match s {
                 "on" | "true" => Ok(true),

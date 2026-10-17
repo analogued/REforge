@@ -206,11 +206,15 @@ impl Playback {
         self.configure(settings, false)
     }
     fn configure(&self, settings: AudioSettings, force: bool) -> Result<(), String> {
+        if settings.volume > 100 || !settings.categories.valid() {
+            return Err("audio volumes must be 0..100".into());
+        }
         let mut state = self.0.borrow_mut();
         let reopen = state.rate.is_some()
             && settings.enabled
             && (force || !state.settings.enabled || state.settings.device != settings.device);
         let reset = reopen
+            || settings.categories != state.settings.categories
             || settings.renderer != state.settings.renderer
             || settings.enabled != state.settings.enabled;
         let candidate = if reopen {
@@ -410,6 +414,20 @@ mod tests {
         host.apply(settings.clone()).unwrap();
         assert_eq!(gain(), 0.5);
         assert_eq!(host.generation(), generation);
+        settings.categories.0[1] = 30;
+        host.apply(settings.clone()).unwrap();
+        assert_eq!(
+            gain(),
+            0.5,
+            "category volume never changes stream/master gain"
+        );
+        assert!(host.generation() > generation);
+        assert_eq!(host.queued_samples().unwrap(), 0);
+        host.queue(&[1000; 32]).unwrap();
+        let mut invalid = settings.clone();
+        invalid.categories.0[0] = 101;
+        assert!(host.apply(invalid).is_err());
+        assert_eq!(host.settings(), settings);
         let mut bad = settings.clone();
         bad.device = Some("reforge-nonexistent-output".into());
         assert!(host.apply(bad).is_err());

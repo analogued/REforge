@@ -1,7 +1,8 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Select one signal from observed execution; never schedule a sample or device.
 
-use super::SoundAction;
+use super::{SoundAction, category::sample_category};
+use reforge_audio::category::SoundCategory;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum AudioRenderer {
@@ -29,6 +30,7 @@ pub struct RenderingPolicy {
     speaker_high: bool,
     control: u8,
     sample_level: i16,
+    category: SoundCategory,
 }
 
 impl RenderingPolicy {
@@ -39,7 +41,11 @@ impl RenderingPolicy {
             speaker_high: initial_drive,
             control: 0,
             sample_level: 4096,
+            category: SoundCategory::Effects,
         }
+    }
+    pub fn category(&self) -> SoundCategory {
+        self.category
     }
 
     /// Switch host rendering without resetting device/sample observation.
@@ -92,7 +98,8 @@ impl RenderingPolicy {
             _ => false,
         };
         let level = match action {
-            SoundAction::SourceBegin { playback, .. } => {
+            SoundAction::SourceBegin { playback, request } => {
+                self.category = sample_category(request.resource);
                 self.interval = Interval::Sample {
                     playback,
                     visit: None,
@@ -121,6 +128,7 @@ impl RenderingPolicy {
             }
             _ if self.interval == Interval::SampleTail && speaker_reprogrammed => {
                 self.interval = Interval::Speaker;
+                self.category = SoundCategory::Effects;
                 Some(self.speaker_level())
             }
             _ => None,
@@ -166,6 +174,35 @@ mod tests {
                 origin: ByteOrigin::Asset,
             }),
         }
+    }
+
+    #[test]
+    fn classification_survives_renderer_switches_and_tail_then_returns_to_effects() {
+        let mut p = RenderingPolicy::new(AudioRenderer::Speaker, false);
+        let mut sample = begin(1);
+        if let SoundAction::SourceBegin { request, .. } = &mut sample {
+            request.resource = Resource::Data9;
+        }
+        p.action(0, sample);
+        assert_eq!(p.category(), SoundCategory::Speech);
+        p.set_mode(AudioRenderer::EnhancedPcm);
+        assert_eq!(p.category(), SoundCategory::Speech);
+        p.action(100, SoundAction::SourceEnd { playback: 1 });
+        assert_eq!(p.category(), SoundCategory::Speech);
+        p.action(
+            101,
+            SoundAction::Write {
+                port: 0x42,
+                value: 10,
+                source: None,
+            },
+        );
+        assert_eq!(p.category(), SoundCategory::Effects);
+        if let SoundAction::SourceBegin { request, .. } = &mut sample {
+            request.resource = Resource::DataC;
+        }
+        p.action(102, sample);
+        assert_eq!(p.category(), SoundCategory::Music);
     }
 
     #[test]

@@ -108,6 +108,21 @@ keyboard processor rather than playing a sample or manufacturing a zero result.
 
 ## Music sequencing
 
+### Host volume categories
+
+The live adapter assigns `data7`–`datab` announcements to Speech and `datac`–
+`datah` musical fragments to Music. Procedural tones, ramps, noise and the native
+pause tone use Sound effects. The mapping is isolated in `sound/category.rs`;
+partial and reverse playback retain the resource's category. Classification is
+presentation metadata and never changes sample calls, device writes or priority.
+Both Speaker and Enhanced PCM use the same categories. Filtered tails retain
+their originating group; returning from sample playback to deliberate speaker
+programming selects Effects. All category levels at 100% preserve original PCM.
+See [audio settings](../../../docs/configuration.md#audio) for global/game
+preferences and Master volume.
+
+### Native sequence
+
 The inspected intro sequence is encoded in unrolled executable calls, starting
 at `503f`, with a follow-on routine at `5308`. Those calls select sample buffers,
 counts, repetitions, and direction. This path does not load a separate song or

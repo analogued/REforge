@@ -94,6 +94,7 @@ pub struct SettingsMenu<'a> {
     pub(super) audio_devices: Vec<String>,
     pub(super) audio_devices_loaded: bool,
     pub(super) audio_renderers: Vec<reforge_settings::SoundRenderer>,
+    pub(super) audio_categories: Vec<reforge_settings::SoundCategory>,
     pub(super) game_editing: [bool; 3],
     pub(super) page: usize,
     pub(super) game_touched: [bool; 3],
@@ -113,6 +114,11 @@ impl<'a> SettingsMenu<'a> {
     /// disabled while shared defaults can still be edited.
     pub fn with_audio_renderers(mut self, renderers: &[reforge_settings::SoundRenderer]) -> Self {
         self.audio_renderers = renderers.to_vec();
+        self
+    }
+    /// Declare semantic groups implemented by the engine's audio adapter.
+    pub fn with_audio_categories(mut self, categories: &[reforge_settings::SoundCategory]) -> Self {
+        self.audio_categories = categories.to_vec();
         self
     }
     pub fn new(creator: &'a FrameCreator, capabilities: VideoCapabilities) -> Self {
@@ -143,6 +149,7 @@ impl<'a> SettingsMenu<'a> {
             audio_devices: Vec::new(),
             audio_devices_loaded: false,
             audio_renderers: Vec::new(),
+            audio_categories: Vec::new(),
             game_editing: [false; 3],
             page: 0,
             game_touched: [false; 3],
@@ -1405,7 +1412,8 @@ mod tests {
         assert_eq!(display.presentation(), crate::Presentation::Hyllian);
         let creator = display.texture_creator();
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
-            .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm]);
+            .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
+            .with_audio_categories(&reforge_settings::SoundCategory::ALL);
         menu.open = true;
         let mut frame =
             crate::FrameTexture::new(&creator, 320, 200, crate::FrameFormat::Rgba).unwrap();

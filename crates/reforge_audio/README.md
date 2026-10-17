@@ -6,6 +6,16 @@ does not execute game routines.
 Engines own sample selection, handlers, software counters and foreground waits.
 Using or discarding its output events leaves device execution identical.
 
+`category` defines semantic Music, Speech and Effects groups and their 0–100
+volumes. Classification belongs to the engine, independently of source encoding.
+With `blip`, `render::CategorizedRenderer` routes one observed signal into these
+groups without creating concurrent native voices or changing interruption rules.
+It filters each group independently before applying volume, preserving previous
+groups' decay tails. A reference signal retains exact original PCM at unity;
+non-unity mixing uses clamped signed output. Gain changes ramp over five
+milliseconds after startup. Work buffers are bounded to one synthesis chunk.
+Master gain and device output remain outside this crate.
+
 ## Supported device subset
 
 `pit::Pit` models three binary Intel **8254** counters in modes 0–3. Control words,

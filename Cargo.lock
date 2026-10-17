@@ -328,6 +328,7 @@ name = "reforge_settings"
 version = "0.1.0"
 dependencies = [
  "fs2",
+ "reforge_audio",
  "toml_edit",
 ]
 

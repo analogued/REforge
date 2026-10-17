@@ -240,7 +240,7 @@ for persistence, defaults and shader parameter ranges.
 settings application and focus handling. Engines register their mono PCM rate,
 then retain control of synthesis, queue recovery and prefill/resume. The shared
 endpoint handles output selection and stream gain, without advancing an engine
-clock. Device/enable/renderer changes increment an endpoint generation; engines
+clock. Device/enable/renderer/category changes increment an endpoint generation; engines
 refill and apply their own renderer policy at the current native timestamp.
 
 `RuntimeSettings` and `Window::apply_settings` resolve/activate both video and
@@ -249,11 +249,16 @@ the old endpoint; an audio startup failure permits silent simulation and unrelat
 video edits. Focus gain changes never alter engine input or pause state. The
 engine declares available sound renderers through `SettingsMenu::with_audio_renderers`;
 without that capability, game audio controls are disabled.
+`with_audio_categories` declares supported Music/Speech/Effects volume groups.
+These levels belong in synthesis; the SDL endpoint keeps Master (80% default)
+and focus gain separate, and never changes the desktop mixer volume. Category
+changes discard old queued mixed audio and let the engine update its gains at
+the current committed time. Global levels remain editable from silent games.
 
 Output names are enumerated through the Rust SDL wrapper. The output stream
 uses SDL's per-stream gain and a stream-owned logical device. Only device names,
-not transient instance IDs, enter the configuration. No music/effects separation,
-user-adjustable latency or stereo conversion is provided. See the shared
+not transient instance IDs, enter the configuration. No user-adjustable latency
+or stereo conversion is provided. See the shared
 [configuration reference](../../docs/configuration.md#audio) for defaults and
 fallback behavior.
 

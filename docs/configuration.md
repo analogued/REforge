@@ -4,7 +4,7 @@ F10 opens the Compact Settings menu in either game. The Display page offers
 window mode (windowed or borderless desktop fullscreen), window scale (Auto or
 ×1–×16), renderer, backend, VSync and a frame limiter. CRT & Colour offers sharp
 pixels or Hyllian CRT with adjustable shader controls. Colour profiles and white
-points remain future work. Audio offers enable sound, master volume, per-game
+points remain future work. Audio offers enable sound, master/category volumes, per-game
 sound renderer, output device and focus muting.
 With Auto selected, the disabled scale slider shows the resolved windowed
 multiplier. Turning Auto off starts manual scaling at that value.
@@ -161,7 +161,10 @@ devices and focus defaults can be edited globally even from a silent game.
 | Key | Values | Built-in default |
 | --- | --- | --- |
 | sound_enabled | `true`, `false` | `true` |
-| master_volume | Integer 0–100 | 100 |
+| master_volume | Integer 0–100 | 80 |
+| music_volume | Integer 0–100 | 100 |
+| speech_volume | Integer 0–100 | 100 |
+| effects_volume | Integer 0–100 | 100 |
 | audio_renderer | `"default"`, `"speaker"`, `"enhanced-pcm"` | `"default"` |
 | output_device | `"default"` or exact detected device name | `"default"` |
 | mute_unfocused | `true`, `false` | `true` |
@@ -169,8 +172,18 @@ devices and focus defaults can be edited globally even from a silent game.
 Mach 3's normal timed playback supports PC speaker and Enhanced PCM; Game default
 selects its original speaker renderer. Step/static/custom-period previews remain
 silent. Alley Cat host audio is not implemented yet, so its game audio controls
-are disabled. Only Master volume is offered; separate music/effect levels,
-latency controls and stereo processing are not implemented.
+are disabled. Engines declare supported Music, Speech and Sound effects groups;
+unsupported game groups remain visible but disabled. Global category defaults
+can still be edited. Latency controls and stereo processing are not implemented.
+
+Category levels are applied in synthesis, then Master controls the final host
+stream. All category levels at 100% preserve the original PCM exactly. Master
+defaults to 80% to leave upward adjustment to the existing full level at 100%;
+existing explicitly saved values are retained. These controls are independent of
+desktop/system volume: neither is read back into preferences or modified by them.
+Native single-speaker interruptions/priorities are preserved; lowering an effect
+does not resume music that the original game interrupted. Later category changes
+use a five-millisecond gain ramp, without resetting synthesis/filter history.
 
 Enable sound and Master volume operate on host output. Native sound routines,
 device counters, random behavior and the engine's timeline continue unchanged;
@@ -186,7 +199,7 @@ default in that case. A named device missing at startup warns and tries System
 default while preserving the preference. A failed live device request retains
 the previous endpoint and leaves the draft unsaved for correction/retry.
 
-Volume/focus changes use SDL stream gain. Enable/device/renderer changes discard
+Master/focus changes use SDL stream gain. Enable/device/renderer/category changes discard
 old queued presentation samples and refill from continuing engine execution.
 Audio already handed to the host device cannot be recalled. Changing renderer
 preserves observed sample/speaker phase and the existing resampling state.

@@ -4,7 +4,7 @@ use crate::settings::{SettingsMenu, VideoCapabilities};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     Backend, FrameLimit, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
-    SoundRenderer, section_index,
+    SoundCategory, SoundRenderer, section_index,
 };
 const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
 const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
@@ -313,6 +313,7 @@ pub(super) fn draw(
                                         &cli,
                                         &menu.audio_devices,
                                         &menu.audio_renderers,
+                                        &menu.audio_categories,
                                     );
                                 }
                             });
@@ -550,6 +551,7 @@ fn audio_controls(
     cli: &reforge_settings::Patch,
     devices: &[String],
     renderers: &[SoundRenderer],
+    categories: &[SoundCategory],
 ) {
     let available = !renderers.is_empty();
     if !available {
@@ -566,6 +568,16 @@ fn audio_controls(
                 ui.spacing_mut().interact_size.x = 56.0;
                 ui.add(egui::DragValue::new(&mut value.audio.volume).range(0..=100).suffix("%"));
             });
+            for category in SoundCategory::ALL {
+                row_with_width(ui, category.label(), category.key(), value.clone(), base.clone(), previous.clone(), scope, cli, volume_width, |ui| {
+                    ui.add_enabled_ui(scope == 0 || categories.contains(&category), |ui| {
+                        ui.spacing_mut().slider_width = 220.0;
+                        ui.add(egui::Slider::new(&mut value.audio.categories.0[category.index()], 0..=100).show_value(false));
+                        ui.spacing_mut().interact_size.x = 56.0;
+                        ui.add(egui::DragValue::new(&mut value.audio.categories.0[category.index()]).range(0..=100).suffix("%"));
+                    }).response.on_disabled_hover_text("This game does not provide this audio category.");
+                });
+            }
             section(ui, "Playback");
             row(ui, "Sound renderer", "audio_renderer", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| {
                 ui.add_enabled_ui(scope == 1 && available, |ui| {

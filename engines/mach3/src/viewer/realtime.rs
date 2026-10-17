@@ -17,7 +17,7 @@ use crate::{
 };
 use reforge_audio::{
     PIT_HZ,
-    render::{BlipRenderer, Config, SignalRenderer},
+    render::{CategorizedRenderer, Config},
     speaker::PcSpeaker,
 };
 use reforge_sdl::audio::Playback;
@@ -50,7 +50,7 @@ struct PcmBlock {
     samples: Vec<i16>,
 }
 struct Synthesis {
-    renderer: BlipRenderer,
+    renderer: CategorizedRenderer,
     policy: RenderingPolicy,
     blocks: VecDeque<PcmBlock>,
     generated: u64,
@@ -63,13 +63,12 @@ impl Synthesis {
     }
     fn with_mode(mode: AudioRenderer) -> Result<Self, String> {
         Ok(Self {
-            renderer: BlipRenderer::new(
+            renderer: CategorizedRenderer::new(
                 Config {
                     clock_hz: PIT_HZ as u32,
                     sample_rate: RATE,
                     chunk_ticks: CHUNK as u32,
                 },
-                0,
                 0,
             )
             .map_err(|e| e.to_string())?,
@@ -86,6 +85,7 @@ impl Synthesis {
         }
     }
     fn observe(&mut self, stamp: Stamp, event: ClockEvent) {
+        let old_category = self.policy.category();
         let level = match event {
             ClockEvent::Action(action) => self.policy.action(stamp.tick, action),
             ClockEvent::Device(events) => events
@@ -93,7 +93,9 @@ impl Synthesis {
                 .and_then(|edge| self.policy.drive(edge.tick, edge.high)),
             ClockEvent::Interrupt(_) => None,
         };
-        if let Some(level) = level {
+        if let Some(level) = level
+            .or_else(|| (old_category != self.policy.category()).then(|| self.renderer.level()))
+        {
             self.advance(stamp.tick, Some(level));
         }
     }
@@ -116,7 +118,7 @@ impl Synthesis {
             Ok(())
         };
         let result = if let Some(level) = level {
-            renderer.level_at(tick, level, &mut output)
+            renderer.level_at(tick, self.policy.category(), level, &mut output)
         } else {
             renderer.finish_until(tick, &mut output)
         };
@@ -161,6 +163,11 @@ impl PlaybackAudio {
             return false;
         }
         let mode = resolve_renderer(self.host.settings().renderer, default_renderer);
+        let volumes = self.host.settings().categories;
+        self.signal.borrow_mut().advance(tick, None);
+        if let Err(error) = self.signal.borrow_mut().renderer.set_volumes(volumes) {
+            eprintln!("warning: invalid category levels: {error}");
+        }
         self.signal.borrow_mut().set_mode(mode, tick);
         self.signal.borrow_mut().blocks.clear();
         self.generation = self.host.generation();
@@ -1106,13 +1113,19 @@ pub(super) fn run(
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
-        .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm]);
+        .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
+        .with_audio_categories(&reforge_audio::category::SoundCategory::ALL);
     let mut menu_pause = MenuPause::default();
     let host = creator.audio_playback();
     signal.borrow_mut().set_mode(
         resolve_renderer(host.settings().renderer, options.audio_renderer),
         simulation.clock.tick(),
     );
+    signal
+        .borrow_mut()
+        .renderer
+        .set_volumes(host.settings().categories)
+        .map_err(|e| e.to_string())?;
     let mut audio = PlaybackAudio::new(signal, host);
     let mut pause = HostPause::default();
     let mut input = ControlInput::default();

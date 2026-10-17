@@ -108,13 +108,12 @@ fn rules_with_commands(commands: &[u8]) -> ScriptRules {
 
 fn signal(chunk: u32) -> Rc<RefCell<Synthesis>> {
     let mut synthesis = Synthesis::new().unwrap();
-    synthesis.renderer = BlipRenderer::new(
+    synthesis.renderer = CategorizedRenderer::new(
         Config {
             clock_hz: PIT_HZ as u32,
             sample_rate: RATE,
             chunk_ticks: chunk,
         },
-        0,
         0,
     )
     .unwrap();
@@ -393,10 +392,28 @@ fn gameplay_run_switching(
     mode: AudioRenderer,
     switch: bool,
 ) -> (Outcome, Vec<i16>) {
+    gameplay_run_levels(
+        budget,
+        render_chunk,
+        discard_output,
+        mode,
+        switch,
+        reforge_audio::category::CategoryVolumes::default(),
+    )
+}
+fn gameplay_run_levels(
+    budget: u64,
+    render_chunk: u32,
+    discard_output: bool,
+    mode: AudioRenderer,
+    switch: bool,
+    volumes: reforge_audio::category::CategoryVolumes,
+) -> (Outcome, Vec<i16>) {
     let frames = frames();
     let resources = resources();
     let signal = signal(render_chunk);
     signal.borrow_mut().policy = RenderingPolicy::new(mode, false);
+    signal.borrow_mut().renderer.set_volumes(volumes).unwrap();
     let mut simulation = Simulation::new(&frames, signal.clone()).unwrap();
     let log = logged_initial_signal_clock(&mut simulation, signal.clone());
     enter_playing(&mut simulation, &frames, &resources);
@@ -459,6 +476,26 @@ fn gameplay_run_switching(
         transactions: log.borrow().clone(),
     };
     (outcome, pcm)
+}
+
+#[test]
+fn category_muting_changes_only_host_audio_not_gameplay_or_device_execution() {
+    use reforge_audio::category::CategoryVolumes;
+    for mode in [AudioRenderer::Speaker, AudioRenderer::EnhancedPcm] {
+        let (normal, audible) = gameplay_run_mode(10_000, CHUNK as u32, false, mode);
+        let (muted, silent) = gameplay_run_levels(
+            10_000,
+            CHUNK as u32,
+            false,
+            mode,
+            false,
+            CategoryVolumes([0; 3]),
+        );
+        assert_eq!(normal, muted);
+        assert_eq!(audible.len(), silent.len());
+        assert!(audible.iter().any(|s| *s != 0));
+        assert!(silent.iter().all(|s| *s == 0));
+    }
 }
 
 #[test]

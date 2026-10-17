@@ -1,11 +1,17 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Replaceable timed-level rendering. Renderers observe committed simulation;
 //! they never advance devices, execute handlers, or choose game sound actions.
+mod mixer;
+pub use mixer::CategoryMixer;
 
 #[cfg(feature = "blip")]
 mod blip;
 #[cfg(feature = "blip")]
 pub use blip::BlipRenderer;
+#[cfg(feature = "blip")]
+mod categorized;
+#[cfg(feature = "blip")]
+pub use categorized::CategorizedRenderer;
 
 use std::{fmt, io};
 

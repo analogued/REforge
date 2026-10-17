@@ -2,6 +2,7 @@
 //! Deterministic device execution, independent of synthesis and host playback.
 #![forbid(unsafe_code)]
 
+pub mod category;
 pub mod pit;
 pub mod render;
 pub mod speaker;

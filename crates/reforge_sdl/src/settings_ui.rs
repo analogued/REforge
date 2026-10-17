@@ -413,83 +413,90 @@ fn crt_controls(
                 });
         },
     );
-    // Configure a requested effect even before changing renderer; fallback stays
-    // plain pixels and retains these preferences until a GPU renderer is used.
-    ui.add_enabled_ui(
-        cli.get("presentation")
-            .map_or(value.presentation == Presentation::Hyllian, |v| {
-                v == "hyllian"
-            }),
+    // Treatment-specific controls share one advanced section. The CLI layer
+    // determines which treatment is active, without entering the saved draft.
+    let treatment = cli
+        .get("presentation")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(value.presentation);
+    ui.add_enabled_ui(treatment != Presentation::Pixels, |ui| {
+        egui::CollapsingHeader::new("Fine adjustments")
+            .id_salt("treatment_fine_adjustments")
+            .default_open(false)
+            .show(ui, |ui| match treatment {
+                Presentation::Hyllian => hyllian_controls(ui, value, base, previous, scope, cli),
+                Presentation::Pixels => {}
+            });
+    });
+    ui.weak("Hyllian requires the GPU renderer; fallbacks use sharp pixels.");
+}
+
+fn hyllian_controls(
+    ui: &mut egui::Ui,
+    value: &mut VideoSettings,
+    base: VideoSettings,
+    previous: VideoSettings,
+    scope: usize,
+    cli: &reforge_settings::Patch,
+) {
+    row(
+        ui,
+        "Horizontal filter",
+        "horizontal_filter",
+        *value,
+        base,
+        previous,
+        scope,
+        cli,
         |ui| {
-            section(ui, "Hyllian");
-            row(
-                ui,
-                "Horizontal filter",
-                "horizontal_filter",
-                *value,
-                base,
-                previous,
-                scope,
-                cli,
-                |ui| {
-                    egui::ComboBox::from_id_salt("horizontal_filter")
-                        .width(220.0)
-                        .selected_text(if value.hyllian.catmull_rom {
-                            "Catmull–Rom"
-                        } else {
-                            "Hermite"
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut value.hyllian.catmull_rom, false, "Hermite");
-                            ui.selectable_value(
-                                &mut value.hyllian.catmull_rom,
-                                true,
-                                "Catmull–Rom",
-                            );
-                        });
-                },
-            );
-            for (i, param) in SHADER_PARAMETERS.into_iter().enumerate() {
-                row(
-                    ui,
-                    param.label,
-                    param.key,
-                    *value,
-                    base,
-                    previous,
-                    scope,
-                    cli,
-                    |ui| {
-                        ui.spacing_mut().slider_width = 150.0;
-                        let mut n = f32::from(value.hyllian.values[i]) / 100.0;
-                        let mut low = param.min;
-                        let mut high = param.max;
-                        if i == 1 {
-                            high = high.min(value.hyllian.values[2]);
-                        }
-                        if i == 2 {
-                            low = low.max(value.hyllian.values[1]);
-                        }
-                        if ui
-                            .add(
-                                egui::Slider::new(
-                                    &mut n,
-                                    f32::from(low) / 100.0..=f32::from(high) / 100.0,
-                                )
-                                .step_by(0.01)
-                                .fixed_decimals(2),
-                            )
-                            .on_hover_text(param.help)
-                            .changed()
-                        {
-                            value.hyllian.values[i] = (n * 100.0).round() as u16;
-                        }
-                    },
-                );
-            }
+            egui::ComboBox::from_id_salt("horizontal_filter")
+                .width(220.0)
+                .selected_text(if value.hyllian.catmull_rom {
+                    "Catmull–Rom"
+                } else {
+                    "Hermite"
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut value.hyllian.catmull_rom, false, "Hermite");
+                    ui.selectable_value(&mut value.hyllian.catmull_rom, true, "Catmull–Rom");
+                });
         },
     );
-    ui.weak("Hyllian requires the GPU renderer; fallbacks use sharp pixels.");
+    for (i, param) in SHADER_PARAMETERS.into_iter().enumerate() {
+        row(
+            ui,
+            param.label,
+            param.key,
+            *value,
+            base,
+            previous,
+            scope,
+            cli,
+            |ui| {
+                ui.spacing_mut().slider_width = 150.0;
+                let mut n = f32::from(value.hyllian.values[i]) / 100.0;
+                let mut low = param.min;
+                let mut high = param.max;
+                if i == 1 {
+                    high = high.min(value.hyllian.values[2]);
+                }
+                if i == 2 {
+                    low = low.max(value.hyllian.values[1]);
+                }
+                if ui
+                    .add(
+                        egui::Slider::new(&mut n, f32::from(low) / 100.0..=f32::from(high) / 100.0)
+                            .step_by(0.01)
+                            .fixed_decimals(2),
+                    )
+                    .on_hover_text(param.help)
+                    .changed()
+                {
+                    value.hyllian.values[i] = (n * 100.0).round() as u16;
+                }
+            },
+        );
+    }
 }
 
 fn section(ui: &mut egui::Ui, label: &str) {

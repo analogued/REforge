@@ -108,8 +108,11 @@ the observed frame rate lower than the chosen ceiling.
 
 CRT preferences use `[global.crt]` and `[games.<game-id>.crt]`, with the same
 sparse inheritance and Apply/Cancel rules as Display. `presentation` accepts
-`"pixels"` (default) or `"hyllian"`. Sharp pixels disables shader controls without
-removing their saved values. Requested Hyllian on an unsupported renderer keeps
+`"pixels"` (default) or `"hyllian"`. Fine adjustments is a shared collapsible
+section for the selected treatment's controls, closed by default. Hyllian exposes
+its horizontal filter and shader sliders there. Sharp pixels keeps the section
+visible but disabled. Switching treatments preserves saved parameter values;
+expanding/collapsing changes only visibility, while parameter edits use Apply. Requested Hyllian on an unsupported renderer keeps
 its preferences and displays plain pixels; returning to GPU restores the effect.
 The menu can configure Hyllian before switching to GPU. Modern menu overlays are
 always drawn after the shader.

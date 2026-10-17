@@ -120,7 +120,7 @@ pub struct Window {
     canvas: WindowCanvas,
     events: Option<sdl3::EventPump>,
     creator: FrameCreator,
-    requested: settings::VideoSettings,
+    requested: settings::RuntimeSettings,
     minimum_pixels: (u32, u32),
     scale: Option<u32>,
     windowed_resize_pending: bool,
@@ -176,7 +176,7 @@ impl Window {
             title,
             display_width,
             display_height,
-            requested,
+            requested.clone(),
             presentation,
             true,
             session.clone(),
@@ -187,7 +187,7 @@ impl Window {
                 eprintln!(
                     "REforge: requested display unavailable: {error}; using automatic renderer"
                 );
-                let mut fallback = requested;
+                let mut fallback = requested.clone();
                 fallback.renderer = reforge_settings::Renderer::Auto;
                 fallback.backend = reforge_settings::Backend::Auto;
                 let mut window = Self::build(
@@ -211,7 +211,7 @@ impl Window {
         title: &str,
         display_width: u32,
         display_height: u32,
-        requested: settings::VideoSettings,
+        requested: settings::RuntimeSettings,
         presentation: Presentation,
         events: bool,
         session: Session,
@@ -256,7 +256,7 @@ impl Window {
             scale.unwrap_or(AUTO_FALLBACK_SCALE),
         )?;
         let (mut canvas, effect) =
-            hyllian::create_canvas_with(window, presentation, requested, &mut gpu)?;
+            hyllian::create_canvas_with(window, presentation, requested.clone(), &mut gpu)?;
         configure(&mut canvas, display_width, display_height)?;
         // The wrapper does not expose this setter. Use its generated declarations,
         // rather than maintaining a second handwritten C interface.
@@ -387,11 +387,27 @@ impl Window {
     pub fn poll_events(&mut self) -> impl Iterator<Item = Event> + '_ {
         let window = self.canvas.window_mut();
         let minimum_pixels = self.minimum_pixels;
+        let audio = self.creator.audio.clone();
+        let id = window.id();
         self.events
             .as_mut()
             .expect("live event pump")
             .poll_iter()
             .inspect(move |event| {
+                if let Event::Window {
+                    window_id,
+                    win_event,
+                    ..
+                } = event
+                {
+                    if *window_id == id {
+                        match win_event {
+                            WindowEvent::FocusLost => audio.focus(false),
+                            WindowEvent::FocusGained => audio.focus(true),
+                            _ => {}
+                        }
+                    }
+                }
                 if matches!(
                     event,
                     Event::Window {
@@ -426,11 +442,11 @@ impl Window {
 
     /// Current window-size preference and actual fullscreen state. Resizing by
     /// hand does not replace the preference selected through the CLI or menu.
-    pub fn video_settings(&self) -> settings::VideoSettings {
-        settings::VideoSettings {
+    pub fn settings(&self) -> settings::RuntimeSettings {
+        settings::RuntimeSettings {
             scale: self.scale,
             fullscreen: self.canvas.window().fullscreen_state() != sdl3::video::FullscreenType::Off,
-            ..self.requested
+            ..self.requested.clone()
         }
     }
 
@@ -490,10 +506,7 @@ impl Window {
     /// Activate host preferences. Renderer/backend changes rebuild resources;
     /// ordinary geometry/VSync changes retain them. Failed requests restore a
     /// working display, with its last uploaded image available for reupload.
-    pub fn apply_video_settings(
-        &mut self,
-        requested: settings::VideoSettings,
-    ) -> Result<(), String> {
+    pub fn apply_settings(&mut self, requested: settings::RuntimeSettings) -> Result<(), String> {
         if requested.renderer == reforge_settings::Renderer::Sdl
             && requested.backend == reforge_settings::Backend::Vulkan
         {
@@ -506,22 +519,26 @@ impl Window {
             return Err("window scale must be auto or an integer between 1 and 16".into());
         }
         requested.hyllian.validate()?;
-        let before = self.video_settings();
-        match self.apply_video_settings_inner(requested) {
+        if requested.audio.volume > 100 {
+            return Err("master volume must be 0..100".into());
+        }
+        let before = self.settings();
+        self.creator.audio.apply(requested.audio.clone())?;
+        match self.apply_settings_inner(requested) {
             Ok(()) => Ok(()),
             Err(error) => {
                 self.windowed_resize_pending = true;
-                if let Err(restore) = self.apply_video_settings_inner(before) {
+                if let Err(restore) = self.creator.audio.apply(before.audio.clone()) {
+                    eprintln!("REforge: could not restore audio after failed Apply: {restore}");
+                }
+                if let Err(restore) = self.apply_settings_inner(before) {
                     eprintln!("REforge: could not restore display after failed Apply: {restore}");
                 }
                 Err(error)
             }
         }
     }
-    fn apply_video_settings_inner(
-        &mut self,
-        requested: settings::VideoSettings,
-    ) -> Result<(), String> {
+    fn apply_settings_inner(&mut self, requested: settings::RuntimeSettings) -> Result<(), String> {
         if (requested.renderer, requested.backend)
             != (self.requested.renderer, self.requested.backend)
         {
@@ -533,7 +550,7 @@ impl Window {
             );
             let title = self.canvas.window().title().to_string();
             let session = self.creator.session.borrow().clone();
-            let previous = self.video_settings();
+            let previous = self.settings();
             let presentation = self.presentation_requested;
             let old_size = self.canvas.window().size();
             let old_geometry = self.windowed_geometry;
@@ -563,7 +580,7 @@ impl Window {
                 &title,
                 self.minimum_pixels.0,
                 self.minimum_pixels.1,
-                requested,
+                requested.clone(),
                 requested.presentation,
                 false,
                 session.clone(),
@@ -576,14 +593,14 @@ impl Window {
                         &title,
                         self.minimum_pixels.0,
                         self.minimum_pixels.1,
-                        previous,
+                        previous.clone(),
                         presentation,
                         false,
                         session.clone(),
                         None,
                     )
                     .or_else(|_| {
-                        let mut safe = previous;
+                        let mut safe = previous.clone();
                         safe.renderer = reforge_settings::Renderer::Software;
                         safe.backend = reforge_settings::Backend::Auto;
                         Self::build(
@@ -600,7 +617,7 @@ impl Window {
                     (restored, Some(error))
                 }
             };
-            let applied = candidate.requested;
+            let applied = candidate.requested.clone();
             candidate.windowed_geometry = if applied.fullscreen {
                 old_geometry.or(if !previous.fullscreen {
                     Some(old_size)
@@ -641,7 +658,7 @@ impl Window {
         } {
             eprintln!("REforge: VSync request unavailable: {}", sdl3::get_error());
         }
-        let current = self.video_settings();
+        let current = self.settings();
         if requested.fullscreen != current.fullscreen {
             let geometry = self.canvas.window().size();
             self.canvas
@@ -1113,29 +1130,29 @@ mod tests {
                 assert_eq!(display.presentation(), Presentation::Hyllian);
                 let crt = read(&mut display, &frame);
                 assert_ne!(crt, plain, "switch must execute the CRT shader");
-                let defaults = display.video_settings();
-                let mut custom = defaults;
+                let defaults = display.settings();
+                let mut custom = defaults.clone();
                 custom.hyllian.values[5] = 0;
                 custom.hyllian.values[0] = 90;
                 custom.hyllian.values[7] = 180;
                 custom.frame_limit = reforge_settings::FrameLimit::Fps120;
-                display.apply_video_settings(custom).unwrap();
+                display.apply_settings(custom).unwrap();
                 assert_ne!(
                     read(&mut display, &frame),
                     crt,
                     "live parameters must reach GPU uniforms"
                 );
                 assert_eq!(display.canvas.raw(), renderer);
-                display.apply_video_settings(defaults).unwrap();
+                display.apply_settings(defaults.clone()).unwrap();
                 assert_eq!(
                     read(&mut display, &frame),
                     crt,
                     "default uniforms must round-trip"
                 );
-                let mut invalid = defaults;
+                let mut invalid = defaults.clone();
                 invalid.hyllian.values[1] = 190;
-                assert!(display.apply_video_settings(invalid).is_err());
-                assert_eq!(display.video_settings(), defaults);
+                assert!(display.apply_settings(invalid).is_err());
+                assert_eq!(display.settings(), defaults);
                 display.set_presentation(Presentation::Pixels).unwrap();
                 assert!(
                     display.effect.is_some(),
@@ -1153,20 +1170,20 @@ mod tests {
         // Requested CRT parameters survive a software fallback and a GPU return.
         let mut frame = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba).unwrap();
         frame.update(&[17, 85, 170, 255].repeat(320 * 200)).unwrap();
-        let mut requested = display.video_settings();
+        let mut requested = display.settings();
         requested.presentation = Presentation::Hyllian;
         requested.hyllian.values[5] = 10;
         requested.renderer = reforge_settings::Renderer::Software;
         requested.vsync = false;
-        display.apply_video_settings(requested).unwrap();
+        display.apply_settings(requested.clone()).unwrap();
         assert_eq!(display.presentation(), Presentation::Pixels);
-        assert_eq!(display.video_settings(), requested);
+        assert_eq!(display.settings(), requested);
         let fallback = read(&mut display, &frame);
         assert!(fallback.chunks_exact(3).all(|p| p == [17, 85, 170]));
         requested.renderer = reforge_settings::Renderer::Gpu;
-        display.apply_video_settings(requested).unwrap();
+        display.apply_settings(requested.clone()).unwrap();
         assert_eq!(display.presentation(), Presentation::Hyllian);
-        assert_eq!(display.video_settings(), requested);
+        assert_eq!(display.settings(), requested);
         assert_ne!(read(&mut display, &frame), fallback);
     }
 
@@ -1383,51 +1400,51 @@ mod tests {
         let creator = display.texture_creator();
         let mut frame = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba).unwrap();
         frame.update(&[17, 85, 170, 255].repeat(320 * 200)).unwrap();
-        let mut settings = display.video_settings();
+        let mut settings = display.settings();
         settings.scale = Some(3);
-        display.apply_video_settings(settings).unwrap();
+        display.apply_settings(settings.clone()).unwrap();
         display.present(&frame).unwrap();
         let pixels = display.canvas.window().size_in_pixels();
         assert!(pixels.0 >= 960 && pixels.1 >= 720);
         let normal_size = display.canvas.window().size();
         settings.fullscreen = true;
-        display.apply_video_settings(settings).unwrap();
+        display.apply_settings(settings.clone()).unwrap();
         display.present(&frame).unwrap();
-        assert!(display.video_settings().fullscreen);
+        assert!(display.settings().fullscreen);
         settings.fullscreen = false;
-        display.apply_video_settings(settings).unwrap();
+        display.apply_settings(settings.clone()).unwrap();
         display.present(&frame).unwrap();
-        assert!(!display.video_settings().fullscreen);
+        assert!(!display.settings().fullscreen);
         assert_eq!(display.canvas.window().size(), normal_size);
         // API clients can defer a windowed scale while fullscreen is active.
         settings.fullscreen = true;
         settings.scale = Some(4);
-        display.apply_video_settings(settings).unwrap();
+        display.apply_settings(settings.clone()).unwrap();
         display.present(&frame).unwrap();
         settings.fullscreen = false;
-        display.apply_video_settings(settings).unwrap();
+        display.apply_settings(settings.clone()).unwrap();
         display.present(&frame).unwrap();
         let pixels = display.canvas.window().size_in_pixels();
         assert!(pixels.0 >= 1280 && pixels.1 >= 960);
         settings.scale = None;
-        display.apply_video_settings(settings).unwrap();
+        display.apply_settings(settings.clone()).unwrap();
         display.present(&frame).unwrap();
         assert!(!display.canvas.window().is_maximized());
-        assert_eq!(display.video_settings(), settings);
+        assert_eq!(display.settings(), settings);
         assert_eq!(display.canvas.raw(), renderer);
         assert_eq!(display.canvas.window().id(), id);
-        let actual = display.video_settings();
+        let actual = display.settings();
         assert!(
             display
-                .apply_video_settings(settings::VideoSettings {
+                .apply_settings(settings::RuntimeSettings {
                     scale: Some(0),
                     fullscreen: true,
-                    ..actual
+                    ..actual.clone()
                 })
                 .is_err()
         );
         assert_eq!(
-            display.video_settings(),
+            display.settings(),
             actual,
             "validate before changing window mode"
         );

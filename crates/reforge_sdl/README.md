@@ -173,8 +173,8 @@ the corresponding dependencies. This crate bundles no game data.
 ## Settings menu
 
 F10 opens the shared Compact Display and CRT & Colour pages in either engine.
-Window mode, scale, renderer, backend, VSync, frame ceiling and Hyllian shader
-controls use draft edits with Apply/Cancel. Global and game
+Window mode, scale, renderer, backend, VSync, frame ceiling, Hyllian shader
+controls and Audio use draft edits with Apply/Cancel. Global and game
 preferences are saved through `reforge_settings`; CLI overrides remain temporary
 and lock their controls. See [configuration](../../docs/configuration.md) for
 the complete persistence, inheritance and fallback contract.
@@ -214,7 +214,7 @@ software triangle path requires conversion to standard alpha for correct
 transparency. Software glyph/edge rasterization can differ from GPU output.
 See the [dependency and font notices](docs/dependencies.md#settings-ui).
 
-`VideoSettings::default` supplies shared Auto/windowed defaults. Engines pass
+`RuntimeSettings::default` supplies shared Auto/windowed defaults. Engines pass
 `VideoCapabilities` to restrict available choices when required; both current
 engines permit all initial settings. These restrictions belong at the engine
 boundary rather than in the SDL painter. Unsupported changes display an error
@@ -226,3 +226,32 @@ VSync is counted within each interval and needs no extra timer wait when it
 already meets the ceiling. A stall resets presentation debt, while each engine
 retains its own simulation catch-up policy. See [configuration](../../docs/configuration.md)
 for persistence, defaults and shader parameter ranges.
+
+## Host audio preferences
+
+`FrameCreator::audio_playback()` shares a `Playback` endpoint with the window's
+settings application and focus handling. Engines register their mono PCM rate,
+then retain control of synthesis, queue recovery and prefill/resume. The shared
+endpoint handles output selection and stream gain, without advancing an engine
+clock. Device/enable/renderer changes increment an endpoint generation; engines
+refill and apply their own renderer policy at the current native timestamp.
+
+`RuntimeSettings` and `Window::apply_settings` resolve/activate both video and
+audio preferences in one menu transaction. A failed explicit device open retains
+the old endpoint; an audio startup failure permits silent simulation and unrelated
+video edits. Focus gain changes never alter engine input or pause state. The
+engine declares available sound renderers through `SettingsMenu::with_audio_renderers`;
+without that capability, game audio controls are disabled.
+
+Output names are enumerated through the Rust SDL wrapper. The output stream
+uses SDL's per-stream gain and a stream-owned logical device. Only device names,
+not transient instance IDs, enter the configuration. No music/effects separation,
+user-adjustable latency or stereo conversion is provided. See the shared
+[configuration reference](../../docs/configuration.md#audio) for defaults and
+fallback behavior.
+
+The ignored `audio_endpoint_survives_renderer_changes_and_failed_device_apply`
+check requires a native desktop and `SDL_AUDIO_DRIVER=dummy`. It verifies that
+audio preferences/endpoints survive renderer replacement and that invalid device
+requests or invalid video settings preserve the previous configuration. Ordinary
+audio tests run in isolated dummy-driver child processes and play no host sound.

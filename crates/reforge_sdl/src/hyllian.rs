@@ -3,7 +3,7 @@
 //! SDL's GPU renderer bridge. The adapted third-party shader lives separately
 //! under shaders/; engines and software renderers never execute this effect.
 
-use reforge_settings::{Backend, Renderer, VideoSettings};
+use reforge_settings::{Backend, Renderer, RuntimeSettings};
 use std::{
     ffi::{CStr, CString},
     ptr::NonNull,
@@ -28,7 +28,7 @@ static SPIRV: Spirv = Spirv(*include_bytes!("../shaders/hyllian.spv"));
 pub(super) fn create_canvas_with(
     window: Window,
     presentation: Presentation,
-    settings: VideoSettings,
+    settings: RuntimeSettings,
     device: &mut Option<Rc<GpuDevice>>,
 ) -> Result<(WindowCanvas, Option<Hyllian>), String> {
     let selected = if settings.renderer == Renderer::Auto

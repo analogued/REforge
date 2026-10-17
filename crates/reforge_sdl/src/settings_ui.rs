@@ -1,10 +1,10 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
-//! Compact Display and CRT pages. Editing is separate from activation and persistence.
+//! Compact Display, CRT and Audio pages. Editing is separate from activation and persistence.
 use crate::settings::{SettingsMenu, VideoCapabilities};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
-    Backend, CRT_KEYS, DISPLAY_KEYS, FrameLimit, Presentation, Renderer, SHADER_PARAMETERS,
-    VideoSettings,
+    Backend, FrameLimit, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
+    SoundRenderer, section_index,
 };
 const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
 const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
@@ -66,7 +66,9 @@ pub(super) fn draw(
                 ui.vertical(|ui| {
                     ui.set_width(132.0);
                     ui.add_space(6.0);
-                    for (page, label) in ["Display", "CRT & Colour"].into_iter().enumerate() {
+                    for (page, label) in
+                        ["Display", "CRT & Colour", "Audio"].into_iter().enumerate()
+                    {
                         if ui
                             .add_sized(
                                 [132.0, 32.0],
@@ -81,11 +83,7 @@ pub(super) fn draw(
                 ui.separator();
                 ui.vertical(|ui| {
                     ui.set_width((width - 164.0).max(180.0));
-                    ui.heading(if menu.page == 0 {
-                        "Display"
-                    } else {
-                        "CRT & Colour"
-                    });
+                    ui.heading(["Display", "CRT & Colour", "Audio"][menu.page]);
                     if menu.scope == 1 {
                         let mut inherit = !menu.game_editing[menu.page];
                         if ui
@@ -94,7 +92,7 @@ pub(super) fn draw(
                         {
                             menu.game_editing[menu.page] = !inherit;
                             if inherit {
-                                draft.reset_section(true, menu.page == 1);
+                                draft.reset_section(true, menu.page);
                                 menu.game_touched[menu.page] = true;
                             }
                         }
@@ -104,11 +102,11 @@ pub(super) fn draw(
                     ui.add_space(8.0);
                     let base = draft.global_values();
                     let original = if menu.scope == 0 {
-                        base
+                        base.clone()
                     } else {
                         draft.game_values()
                     };
-                    let mut value = original;
+                    let mut value = original.clone();
                     let previous = if menu.scope == 0 {
                         saved.global_values()
                     } else {
@@ -127,9 +125,9 @@ pub(super) fn draw(
                                         ui,
                                         "Window mode",
                                         "window_mode",
-                                        value,
-                                        base,
-                                        previous,
+                                        value.clone(),
+                                        base.clone(),
+                                        previous.clone(),
                                         menu.scope,
                                         &cli,
                                         |ui| {
@@ -154,9 +152,9 @@ pub(super) fn draw(
                                         ui,
                                         "Window scale",
                                         "scale",
-                                        value,
-                                        base,
-                                        previous,
+                                        value.clone(),
+                                        base.clone(),
+                                        previous.clone(),
                                         menu.scope,
                                         &cli,
                                         |ui| {
@@ -204,9 +202,9 @@ pub(super) fn draw(
                                         ui,
                                         "Renderer",
                                         "renderer",
-                                        value,
-                                        base,
-                                        previous,
+                                        value.clone(),
+                                        base.clone(),
+                                        previous.clone(),
                                         menu.scope,
                                         &cli,
                                         |ui| {
@@ -239,9 +237,9 @@ pub(super) fn draw(
                                         ui,
                                         "Backend",
                                         "backend",
-                                        value,
-                                        base,
-                                        previous,
+                                        value.clone(),
+                                        base.clone(),
+                                        previous.clone(),
                                         menu.scope,
                                         &cli,
                                         |ui| {
@@ -257,9 +255,9 @@ pub(super) fn draw(
                                         ui,
                                         "VSync",
                                         "vsync",
-                                        value,
-                                        base,
-                                        previous,
+                                        value.clone(),
+                                        base.clone(),
+                                        previous.clone(),
                                         menu.scope,
                                         &cli,
                                         |ui| {
@@ -273,9 +271,9 @@ pub(super) fn draw(
                                         ui,
                                         "Frame limit",
                                         "frame_limit",
-                                        value,
-                                        base,
-                                        previous,
+                                        value.clone(),
+                                        base.clone(),
+                                        previous.clone(),
                                         menu.scope,
                                         &cli,
                                         |ui| {
@@ -296,16 +294,30 @@ pub(super) fn draw(
                                     ui.weak(
                                         "Presentation ceiling · simulation timing is unchanged",
                                     );
+                                } else if menu.page == 1 {
+                                    crt_controls(
+                                        ui,
+                                        &mut value,
+                                        base.clone(),
+                                        previous.clone(),
+                                        menu.scope,
+                                        &cli,
+                                    );
                                 } else {
-                                    crt_controls(ui, &mut value, base, previous, menu.scope, &cli);
+                                    audio_controls(
+                                        ui,
+                                        &mut value,
+                                        base.clone(),
+                                        previous.clone(),
+                                        menu.scope,
+                                        &cli,
+                                        &menu.audio_devices,
+                                        &menu.audio_renderers,
+                                    );
                                 }
                             });
                         });
-                    let keys = if menu.page == 0 {
-                        DISPLAY_KEYS
-                    } else {
-                        CRT_KEYS
-                    };
+                    let keys = SECTION_KEYS[menu.page];
                     for &key in keys {
                         if original.get(key) != value.get(key) && !cli.contains_key(key) {
                             draft.edit(menu.scope == 1, key, value.get(key));
@@ -327,9 +339,9 @@ pub(super) fn draw(
                     .clicked()
                 {
                     if menu.scope == 0 {
-                        draft.reset_section(false, menu.page == 1);
+                        draft.reset_section(false, menu.page);
                     } else {
-                        draft.reset_section(true, menu.page == 1);
+                        draft.reset_section(true, menu.page);
                         menu.game_editing[menu.page] = false;
                         menu.game_touched[menu.page] = true;
                     }
@@ -345,7 +357,7 @@ pub(super) fn draw(
                 if apply.clicked() {
                     let baseline = draft.global_values();
                     draft.game.retain(|key, v| {
-                        let page = usize::from(CRT_KEYS.contains(&key.as_str()));
+                        let page = section_index(key);
                         !menu.game_touched[page] || *v != baseline.get(key)
                     });
                     menu.pending = Some(draft.clone());
@@ -375,9 +387,9 @@ pub(super) fn draw(
 }
 fn crt_controls(
     ui: &mut egui::Ui,
-    value: &mut VideoSettings,
-    base: VideoSettings,
-    previous: VideoSettings,
+    value: &mut RuntimeSettings,
+    base: RuntimeSettings,
+    previous: RuntimeSettings,
     scope: usize,
     cli: &reforge_settings::Patch,
 ) {
@@ -386,9 +398,9 @@ fn crt_controls(
         ui,
         "Treatment",
         "presentation",
-        *value,
-        base,
-        previous,
+        value.clone(),
+        base.clone(),
+        previous.clone(),
         scope,
         cli,
         |ui| {
@@ -424,7 +436,9 @@ fn crt_controls(
             .id_salt("treatment_fine_adjustments")
             .default_open(false)
             .show(ui, |ui| match treatment {
-                Presentation::Hyllian => hyllian_controls(ui, value, base, previous, scope, cli),
+                Presentation::Hyllian => {
+                    hyllian_controls(ui, value, base.clone(), previous.clone(), scope, cli)
+                }
                 Presentation::Pixels => {}
             });
     });
@@ -433,9 +447,9 @@ fn crt_controls(
 
 fn hyllian_controls(
     ui: &mut egui::Ui,
-    value: &mut VideoSettings,
-    base: VideoSettings,
-    previous: VideoSettings,
+    value: &mut RuntimeSettings,
+    base: RuntimeSettings,
+    previous: RuntimeSettings,
     scope: usize,
     cli: &reforge_settings::Patch,
 ) {
@@ -443,9 +457,9 @@ fn hyllian_controls(
         ui,
         "Horizontal filter",
         "horizontal_filter",
-        *value,
-        base,
-        previous,
+        value.clone(),
+        base.clone(),
+        previous.clone(),
         scope,
         cli,
         |ui| {
@@ -467,9 +481,9 @@ fn hyllian_controls(
             ui,
             param.label,
             param.key,
-            *value,
-            base,
-            previous,
+            value.clone(),
+            base.clone(),
+            previous.clone(),
             scope,
             cli,
             |ui| {
@@ -499,6 +513,62 @@ fn hyllian_controls(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn audio_controls(
+    ui: &mut egui::Ui,
+    value: &mut RuntimeSettings,
+    base: RuntimeSettings,
+    previous: RuntimeSettings,
+    scope: usize,
+    cli: &reforge_settings::Patch,
+    devices: &[String],
+    renderers: &[SoundRenderer],
+) {
+    let available = !renderers.is_empty();
+    if !available {
+        ui.weak("Audio playback is unavailable in this run. Shared defaults can still be saved.");
+    }
+    ui.add_enabled_ui(scope == 0 || available, |ui| {
+        row(ui, "Sound", "sound_enabled", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| { ui.checkbox(&mut value.audio.enabled, "Enable sound"); });
+        ui.add_enabled_ui(value.audio.enabled, |ui| {
+            section(ui, "Levels");
+            row(ui, "Master volume", "master_volume", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| {
+                ui.spacing_mut().slider_width = 150.0;
+                ui.add(egui::Slider::new(&mut value.audio.volume, 0..=100).suffix("%"));
+            });
+            section(ui, "Playback");
+            row(ui, "Sound renderer", "audio_renderer", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| {
+                ui.add_enabled_ui(scope == 1 && available, |ui| {
+                    egui::ComboBox::from_id_salt("audio_renderer").width(220.0).selected_text(sound_renderer_label(value.audio.renderer)).show_ui(ui, |ui| {
+                        for renderer in std::iter::once(&SoundRenderer::GameDefault).chain(renderers) {
+                            ui.selectable_value(&mut value.audio.renderer, *renderer, sound_renderer_label(*renderer));
+                        }
+                    });
+                });
+            });
+            if scope == 0 { ui.weak("Sound renderer is selected per game; Game default follows its original hardware."); }
+            row(ui, "Output device", "output_device", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| {
+                egui::ComboBox::from_id_salt(("output_device", devices)).width(220.0).truncate()
+                    .selected_text(value.audio.device.as_deref().unwrap_or("System default")).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut value.audio.device, None, "System default");
+                        if let Some(name) = value.audio.device.clone().filter(|n| !devices.contains(n)) {
+                            ui.add_enabled(false, egui::Label::new(format!("Unavailable: {name}")));
+                        }
+                        for name in devices { ui.selectable_value(&mut value.audio.device, Some(name.clone()), name); }
+                    });
+            });
+            row(ui, "Focus", "mute_unfocused", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| { ui.checkbox(&mut value.audio.mute_unfocused, "Mute when unfocused"); });
+        });
+    });
+}
+fn sound_renderer_label(renderer: SoundRenderer) -> &'static str {
+    match renderer {
+        SoundRenderer::GameDefault => "Game default",
+        SoundRenderer::Speaker => "PC speaker",
+        SoundRenderer::EnhancedPcm => "Enhanced PCM",
+    }
+}
+
 fn section(ui: &mut egui::Ui, label: &str) {
     ui.add_space(8.0);
     ui.strong(label);
@@ -517,9 +587,9 @@ fn row(
     ui: &mut egui::Ui,
     label: &str,
     key: &str,
-    value: VideoSettings,
-    global: VideoSettings,
-    saved: VideoSettings,
+    value: RuntimeSettings,
+    global: RuntimeSettings,
+    saved: RuntimeSettings,
     scope: usize,
     cli: &reforge_settings::Patch,
     control: impl FnOnce(&mut egui::Ui),
@@ -576,7 +646,7 @@ fn backend_label(backend: Backend) -> &'static str {
         Backend::Metal => "Metal",
     }
 }
-fn backend_selector(ui: &mut egui::Ui, value: &mut VideoSettings) -> egui::Response {
+fn backend_selector(ui: &mut egui::Ui, value: &mut RuntimeSettings) -> egui::Response {
     let choices = backends(value.renderer);
     // egui remembers the popup's size. A short GPU list must not constrain
     // the longer Automatic/SDL list after switching renderers.
@@ -681,7 +751,7 @@ mod tests {
     fn backend_popup_grows_when_renderer_adds_choices() {
         let context = egui::Context::default();
         style(&context);
-        let mut value = VideoSettings::default();
+        let mut value = RuntimeSettings::default();
         let mut button = egui::Rect::NOTHING;
         let mut time = 0.0;
         for renderer in [Renderer::Gpu, Renderer::Auto, Renderer::Sdl, Renderer::Auto] {
@@ -715,9 +785,9 @@ mod tests {
                             ui,
                             "Backend",
                             "backend",
-                            value,
-                            value,
-                            value,
+                            value.clone(),
+                            value.clone(),
+                            value.clone(),
                             0,
                             &Default::default(),
                             |ui| {

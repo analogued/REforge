@@ -18,7 +18,7 @@ use sdl3::{
 use crate::FrameCreator;
 
 use reforge_settings::Draft;
-pub use reforge_settings::VideoSettings;
+pub use reforge_settings::{AudioSettings, RuntimeSettings, SoundRenderer};
 /// An engine can restrict shared choices when its implementation requires it.
 #[derive(Clone, Copy, Debug)]
 pub struct VideoCapabilities {
@@ -40,7 +40,7 @@ impl Default for VideoCapabilities {
 }
 
 impl VideoCapabilities {
-    pub fn permits(&self, settings: VideoSettings) -> bool {
+    pub fn permits(&self, settings: RuntimeSettings) -> bool {
         let scale_allowed = match settings.scale {
             None => self.allow_auto,
             Some(scale) => scale >= self.min_scale.max(1) && scale <= self.max_scale,
@@ -91,9 +91,12 @@ pub struct SettingsMenu<'a> {
     pub(super) cancel_rect: Option<egui::Rect>,
     #[cfg(test)]
     pub(super) apply_rect: Option<egui::Rect>,
-    pub(super) game_editing: [bool; 2],
+    pub(super) audio_devices: Vec<String>,
+    pub(super) audio_devices_loaded: bool,
+    pub(super) audio_renderers: Vec<reforge_settings::SoundRenderer>,
+    pub(super) game_editing: [bool; 3],
     pub(super) page: usize,
-    pub(super) game_touched: [bool; 2],
+    pub(super) game_touched: [bool; 3],
     pub(super) status: Option<String>,
     pub(super) jobs: Vec<egui::ClippedPrimitive>,
     pub(super) pending_textures: egui::TexturesDelta,
@@ -106,6 +109,12 @@ pub struct SettingsMenu<'a> {
 }
 
 impl<'a> SettingsMenu<'a> {
+    /// Declare available engine renderers; absence leaves game audio controls
+    /// disabled while shared defaults can still be edited.
+    pub fn with_audio_renderers(mut self, renderers: &[reforge_settings::SoundRenderer]) -> Self {
+        self.audio_renderers = renderers.to_vec();
+        self
+    }
     pub fn new(creator: &'a FrameCreator, capabilities: VideoCapabilities) -> Self {
         let context = egui::Context::default();
         context.set_visuals(egui::Visuals::dark());
@@ -131,9 +140,12 @@ impl<'a> SettingsMenu<'a> {
             cancel_rect: None,
             #[cfg(test)]
             apply_rect: None,
-            game_editing: [false; 2],
+            audio_devices: Vec::new(),
+            audio_devices_loaded: false,
+            audio_renderers: Vec::new(),
+            game_editing: [false; 3],
             page: 0,
-            game_touched: [false; 2],
+            game_touched: [false; 3],
             status: None,
             jobs: Vec::new(),
             pending_textures: egui::TexturesDelta::default(),
@@ -162,6 +174,13 @@ impl<'a> SettingsMenu<'a> {
     /// Route host quit/window events first. The menu consumes gameplay input
     /// while open, and consumes both edges of its own F10/Escape shortcuts.
     pub fn handle_event(&mut self, event: &Event) -> bool {
+        if matches!(
+            event,
+            Event::AudioDeviceAdded { .. } | Event::AudioDeviceRemoved { .. }
+        ) {
+            self.audio_devices_loaded = false;
+        }
+
         if let Event::KeyDown {
             scancode: Some(Scancode::F10),
             repeat,
@@ -188,7 +207,7 @@ impl<'a> SettingsMenu<'a> {
                 }
                 self.draft = None;
                 self.pending = None;
-                self.game_touched = [false; 2];
+                self.game_touched = [false; 3];
                 self.events.clear();
                 self.context.memory_mut(|memory| memory.reset_areas());
             }
@@ -214,7 +233,7 @@ impl<'a> SettingsMenu<'a> {
             self.open = false;
             self.draft = None;
             self.pending = None;
-            self.game_touched = [false; 2];
+            self.game_touched = [false; 3];
             self.escape_held = true;
             self.events.clear();
             return true;
@@ -268,7 +287,11 @@ impl<'a> SettingsMenu<'a> {
 
     /// Build UI before painting. A change is a request: callers apply it to
     /// SDL and provide the actual current values on the following frame.
-    pub fn prepare(&mut self, metrics: UiMetrics, current: VideoSettings) -> Option<VideoSettings> {
+    pub fn prepare(
+        &mut self,
+        metrics: UiMetrics,
+        current: RuntimeSettings,
+    ) -> Option<RuntimeSettings> {
         if !self.open {
             self.jobs.clear();
             self.events.clear();
@@ -283,10 +306,15 @@ impl<'a> SettingsMenu<'a> {
             self.generation = self.creator.generation();
         }
         if self.draft.is_none() {
+            self.audio_devices_loaded = false;
             let saved = self.creator.session.borrow().saved.clone();
-            self.game_editing = [reforge_settings::DISPLAY_KEYS, reforge_settings::CRT_KEYS]
+            self.game_editing = reforge_settings::SECTION_KEYS
                 .map(|keys| keys.iter().any(|key| saved.game.contains_key(*key)));
             self.draft = Some(saved);
+        }
+        if self.page == 2 && !self.audio_devices_loaded {
+            self.audio_devices = crate::audio::playback_devices().unwrap_or_default();
+            self.audio_devices_loaded = true;
         }
         self.density = metrics.density();
         let screen = egui::Rect::from_min_size(
@@ -334,7 +362,10 @@ impl<'a> SettingsMenu<'a> {
             .pending
             .as_ref()
             .map(|draft| self.creator.session.borrow().effective(draft));
-        if request.is_some_and(|value| !self.capabilities.permits(value)) {
+        if request
+            .as_ref()
+            .is_some_and(|value| !self.capabilities.permits(value.clone()))
+        {
             self.set_error("These display settings are unavailable for this game".into());
             None
         } else {
@@ -351,7 +382,7 @@ impl<'a> SettingsMenu<'a> {
                 Ok(()) => {
                     self.draft = Some(draft);
                     self.error = None;
-                    self.game_touched = [false; 2];
+                    self.game_touched = [false; 3];
                 }
                 Err(error) => {
                     self.error = Some(format!("Settings applied, but could not save: {error}"))
@@ -725,7 +756,7 @@ mod tests {
         assert!(menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, true)));
         assert!(menu.is_open());
         for _ in 0..3 {
-            menu.prepare(display.ui_metrics(), display.video_settings());
+            menu.prepare(display.ui_metrics(), display.settings());
             display
                 .present_with(&frame, |canvas| menu.paint(canvas))
                 .unwrap();
@@ -822,7 +853,7 @@ mod tests {
             x,
             y,
         });
-        menu.prepare(metrics, display.video_settings());
+        menu.prepare(metrics, display.settings());
         menu.handle_event(&Event::MouseButtonUp {
             timestamp: 0,
             window_id: 0,
@@ -832,7 +863,7 @@ mod tests {
             x,
             y,
         });
-        menu.prepare(metrics, display.video_settings());
+        menu.prepare(metrics, display.settings());
         assert!(
             !menu.is_open(),
             "mouse release must activate Cancel at desktop-scaled coordinates"
@@ -851,7 +882,7 @@ mod tests {
             pixels_per_point: 2.25,
         };
         for _ in 0..3 {
-            menu.prepare(tiny, display.video_settings());
+            menu.prepare(tiny, display.settings());
         }
         menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false));
         assert!(!menu.is_open(), "small menus remain keyboard-dismissible");
@@ -870,24 +901,20 @@ mod tests {
         assert!(frame.update(&pixels[..pixels.len() - 1]).is_err());
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
         menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
-        menu.prepare(display.ui_metrics(), display.video_settings());
-        let unchanged = display.video_settings();
+        menu.prepare(display.ui_metrics(), display.settings());
+        let unchanged = display.settings();
         menu.draft
             .as_mut()
             .unwrap()
             .edit(false, "vsync", "false".into());
         assert!(
-            menu.prepare(display.ui_metrics(), display.video_settings())
+            menu.prepare(display.ui_metrics(), display.settings())
                 .is_none()
         );
-        assert_eq!(
-            display.video_settings(),
-            unchanged,
-            "editing must not apply"
-        );
+        assert_eq!(display.settings(), unchanged, "editing must not apply");
         menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false));
         menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
-        menu.prepare(display.ui_metrics(), display.video_settings());
+        menu.prepare(display.ui_metrics(), display.settings());
         assert_eq!(
             menu.draft.as_ref().unwrap().global_values().vsync,
             unchanged.vsync
@@ -897,7 +924,7 @@ mod tests {
             .unwrap()
             .edit(false, "vsync", "false".into());
         for _ in 0..3 {
-            menu.prepare(display.ui_metrics(), display.video_settings());
+            menu.prepare(display.ui_metrics(), display.settings());
         }
         let metrics = display.ui_metrics();
         let pos = menu.apply_rect.unwrap().center();
@@ -928,13 +955,13 @@ mod tests {
                 }
             };
             menu.handle_event(&event);
-            if let Some(request) = menu.prepare(metrics, display.video_settings()) {
-                display.apply_video_settings(request).unwrap();
+            if let Some(request) = menu.prepare(metrics, display.settings()) {
+                display.apply_settings(request.clone()).unwrap();
                 menu.applied();
             }
         }
         assert!(menu.is_open(), "Apply keeps settings open");
-        assert!(!display.video_settings().vsync);
+        assert!(!display.settings().vsync);
         assert_eq!(
             menu.draft.as_ref().unwrap(),
             &creator.session.borrow().saved
@@ -948,12 +975,12 @@ mod tests {
             Renderer::Auto,
             Renderer::Software,
         ] {
-            let mut request = display.video_settings();
+            let mut request = display.settings();
             request.renderer = renderer;
             request.backend = Backend::Auto;
             request.vsync = false;
             eprintln!("switch {renderer:?}: begin");
-            display.apply_video_settings(request).unwrap();
+            display.apply_settings(request.clone()).unwrap();
             eprintln!("switch {renderer:?}: applied");
             // Deliberately do not call frame.update: the retained image and font
             // atlas must survive changing the renderer while simulation is paused.
@@ -972,7 +999,7 @@ mod tests {
                     })
                     .unwrap();
             }
-            menu.prepare(display.ui_metrics(), display.video_settings());
+            menu.prepare(display.ui_metrics(), display.settings());
             display
                 .present_with(&frame, |canvas| {
                     menu.paint(canvas)?;
@@ -989,34 +1016,34 @@ mod tests {
             eprintln!("switch {renderer:?}: painted");
         }
         if display._video.current_video_driver() != "dummy" {
-            let mut request = display.video_settings();
+            let mut request = display.settings();
             request.renderer = Renderer::Gpu;
             request.backend = Backend::Auto;
             eprintln!("explicit GPU: begin");
-            display.apply_video_settings(request).unwrap();
+            display.apply_settings(request.clone()).unwrap();
             eprintln!("explicit GPU: applied");
             display.present(&frame).unwrap();
             eprintln!("explicit GPU: painted");
             if cfg!(target_os = "linux") {
                 request.backend = Backend::Vulkan;
                 eprintln!("explicit Vulkan: begin");
-                display.apply_video_settings(request).unwrap();
+                display.apply_settings(request.clone()).unwrap();
                 eprintln!("explicit Vulkan: applied");
                 display.present(&frame).unwrap();
                 assert!(display.renderer_status().contains("vulkan"));
             }
-            menu.prepare(display.ui_metrics(), display.video_settings());
+            menu.prepare(display.ui_metrics(), display.settings());
             display
                 .present_with(&frame, |canvas| menu.paint(canvas))
                 .unwrap();
         }
-        let before = display.video_settings();
+        let before = display.settings();
         let generation = creator.generation();
-        let mut bad = before;
+        let mut bad = before.clone();
         bad.renderer = Renderer::Gpu;
         bad.backend = Backend::OpenGl;
-        assert!(display.apply_video_settings(bad).is_err());
-        assert_eq!(display.video_settings(), before);
+        assert!(display.apply_settings(bad).is_err());
+        assert_eq!(display.settings(), before);
         assert!(creator.generation() > generation);
         display
             .present_with(&frame, |canvas| menu.paint(canvas))
@@ -1061,15 +1088,15 @@ mod tests {
                 (Renderer::Auto, Backend::Auto),
             ] {
                 eprintln!("round {round}: {renderer:?}/{backend:?}: begin");
-                let mut request = display.video_settings();
+                let mut request = display.settings();
                 request.renderer = renderer;
                 request.backend = backend;
                 let generation = creator.generation();
-                let previous = display.video_settings();
-                let result = display.apply_video_settings(request);
+                let previous = display.settings();
+                let result = display.apply_settings(request.clone());
                 if renderer == Renderer::Sdl && backend == Backend::Vulkan {
                     assert!(result.unwrap_err().contains("choose GPU / Vulkan"));
-                    assert_eq!(display.video_settings(), previous);
+                    assert_eq!(display.settings(), previous);
                     assert_eq!(creator.generation(), generation);
                 } else {
                     result.unwrap();
@@ -1086,7 +1113,7 @@ mod tests {
                 }
                 for _ in 0..5 {
                     display.poll_events().for_each(drop);
-                    menu.prepare(display.ui_metrics(), display.video_settings());
+                    menu.prepare(display.ui_metrics(), display.settings());
                     display
                         .present_with(&frame, |canvas| menu.paint(canvas))
                         .unwrap();
@@ -1108,21 +1135,21 @@ mod tests {
             allow_auto: false,
             allow_fullscreen: false,
         };
-        assert!(!capabilities.permits(VideoSettings::default()));
-        assert!(capabilities.permits(VideoSettings {
+        assert!(!capabilities.permits(RuntimeSettings::default()));
+        assert!(capabilities.permits(RuntimeSettings {
             scale: Some(8),
             fullscreen: false,
-            ..VideoSettings::default()
+            ..RuntimeSettings::default()
         }));
-        assert!(!capabilities.permits(VideoSettings {
+        assert!(!capabilities.permits(RuntimeSettings {
             scale: Some(9),
             fullscreen: false,
-            ..VideoSettings::default()
+            ..RuntimeSettings::default()
         }));
-        assert!(!capabilities.permits(VideoSettings {
+        assert!(!capabilities.permits(RuntimeSettings {
             scale: Some(4),
             fullscreen: true,
-            ..VideoSettings::default()
+            ..RuntimeSettings::default()
         }));
         let metrics = UiMetrics {
             drawable: (1280, 960),
@@ -1190,7 +1217,7 @@ mod tests {
             window: (1280, 960),
             pixels_per_point: 1.0,
         };
-        assert_eq!(menu.prepare(metrics, VideoSettings::default()), None);
+        assert_eq!(menu.prepare(metrics, RuntimeSettings::default()), None);
         canvas
             .set_logical_size(
                 320,
@@ -1280,6 +1307,58 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires desktop and SDL_AUDIO_DRIVER=dummy; run serially"]
+    fn audio_endpoint_survives_renderer_changes_and_failed_device_apply() {
+        assert_eq!(std::env::var("SDL_AUDIO_DRIVER").as_deref(), Ok("dummy"));
+        let mut window =
+            crate::Window::new("Audio settings transaction check", 320, 240, Some(4)).unwrap();
+        let creator = window.texture_creator();
+        let host = creator.audio_playback();
+        host.start(48_000).unwrap();
+        let mut frame =
+            crate::FrameTexture::new(&creator, 320, 200, crate::FrameFormat::Rgba).unwrap();
+        frame
+            .update(&[80, 120, 160, 255].repeat(320 * 200))
+            .unwrap();
+        let mut request = window.settings();
+        request.audio.volume = 35;
+        request.audio.renderer = SoundRenderer::EnhancedPcm;
+        request.audio.device = Some(crate::audio::playback_devices().unwrap().remove(0));
+        request.renderer = reforge_settings::Renderer::Software;
+        window.apply_settings(request.clone()).unwrap();
+        assert_eq!(window.settings(), request);
+        assert_eq!(host.settings(), request.audio);
+        let audio_generation = host.generation();
+        window.present(&frame).unwrap();
+        request.renderer = reforge_settings::Renderer::Gpu;
+        window.apply_settings(request.clone()).unwrap();
+        window.present(&frame).unwrap();
+        assert_eq!(host.generation(), audio_generation);
+        assert_eq!(creator.audio_playback().settings(), request.audio);
+        let generation = creator.generation();
+        let mut invalid = request.clone();
+        invalid.audio.device = Some("reforge-nonexistent-output".into());
+        invalid.audio.volume = 80;
+        assert!(window.apply_settings(invalid).is_err());
+        assert_eq!(window.settings(), request);
+        assert_eq!(host.settings(), request.audio);
+        assert_eq!(creator.generation(), generation);
+        assert!(host.available());
+        let mut invalid = request.clone();
+        invalid.scale = Some(0);
+        invalid.audio.volume = 70;
+        assert!(window.apply_settings(invalid).is_err());
+        assert_eq!(host.settings(), request.audio);
+        host.stop();
+        request.vsync = false;
+        window.apply_settings(request).unwrap();
+        assert!(
+            !host.available(),
+            "video edits must not reopen a failed audio endpoint"
+        );
+    }
+
+    #[test]
     #[ignore = "owns native SDL GPU window; run alone"]
     fn gpu_menu_after_crt_and_texture_updates() {
         let mut display = crate::Window::new_with_presentation(
@@ -1293,15 +1372,20 @@ mod tests {
         assert_eq!(display.canvas.renderer_name, "gpu");
         assert_eq!(display.presentation(), crate::Presentation::Hyllian);
         let creator = display.texture_creator();
-        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+            .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm]);
         menu.open = true;
         let mut frame =
             crate::FrameTexture::new(&creator, 320, 200, crate::FrameFormat::Rgba).unwrap();
         frame.update(&[170, 0, 170, 255].repeat(320 * 200)).unwrap();
-        for page in [0, 1] {
+        for page in [0, 1, 2] {
             menu.page = page;
+            if page == 2 {
+                menu.scope = 1;
+                menu.game_editing[2] = true;
+            }
             for _ in 0..3 {
-                menu.prepare(display.ui_metrics(), display.video_settings());
+                menu.prepare(display.ui_metrics(), display.settings());
                 display
                     .present_with(&frame, |canvas| {
                         menu.paint(canvas)?;

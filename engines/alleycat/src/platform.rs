@@ -212,9 +212,9 @@ impl<'a> Window<'a> {
         self.settings.set_status(self.display.renderer_status());
         if let Some(settings) = self
             .settings
-            .prepare(self.display.ui_metrics(), self.display.video_settings())
+            .prepare(self.display.ui_metrics(), self.display.settings())
         {
-            if let Err(error) = self.display.apply_video_settings(settings) {
+            if let Err(error) = self.display.apply_settings(settings) {
                 eprintln!("warning: video settings could not be applied: {error}");
                 self.settings.set_error(error);
             } else {

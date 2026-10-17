@@ -28,6 +28,7 @@ pub struct RenderingPolicy {
     interval: Interval,
     speaker_high: bool,
     control: u8,
+    sample_level: i16,
 }
 
 impl RenderingPolicy {
@@ -37,9 +38,24 @@ impl RenderingPolicy {
             interval: Interval::Speaker,
             speaker_high: initial_drive,
             control: 0,
+            sample_level: 4096,
         }
     }
 
+    /// Switch host rendering without resetting device/sample observation.
+    pub fn set_mode(&mut self, mode: AudioRenderer) -> Option<i16> {
+        if self.mode == mode {
+            return None;
+        }
+        self.mode = mode;
+        Some(
+            if mode == AudioRenderer::Speaker || self.interval == Interval::Speaker {
+                self.speaker_level()
+            } else {
+                self.sample_level
+            },
+        )
+    }
     fn speaker_level(&self) -> i16 {
         if self.speaker_high { 8192 } else { 0 }
     }
@@ -75,10 +91,7 @@ impl RenderingPolicy {
             } => value >> 6 == 2 && value & 0x30 != 0,
             _ => false,
         };
-        if self.mode == AudioRenderer::Speaker {
-            return None;
-        }
-        match action {
+        let level = match action {
             SoundAction::SourceBegin { playback, .. } => {
                 self.interval = Interval::Sample {
                     playback,
@@ -94,7 +107,9 @@ impl RenderingPolicy {
                     if source.playback == *playback && *visit != Some(source.visit) {
                         *visit = Some(source.visit);
                         // (value - 128) * 32 + 4096, without signed underflow.
-                        return Some(i16::from(source.value) * 32);
+                        self.sample_level = i16::from(source.value) * 32;
+                        return (self.mode == AudioRenderer::EnhancedPcm)
+                            .then_some(self.sample_level);
                     }
                 }
                 None
@@ -109,6 +124,14 @@ impl RenderingPolicy {
                 Some(self.speaker_level())
             }
             _ => None,
+        };
+        if let Some(level) = level {
+            self.sample_level = level;
+        }
+        if self.mode == AudioRenderer::Speaker {
+            None
+        } else {
+            level
         }
     }
 }
@@ -145,6 +168,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn live_mode_changes_retain_sample_visits_tail_and_speaker_state() {
+        let mut p = RenderingPolicy::new(AudioRenderer::Speaker, false);
+        assert_eq!(p.action(1, begin(1)), None);
+        assert_eq!(p.action(2, byte(1, 0, 65, 4)), None);
+        assert_eq!(p.drive(2, true), Some(8192));
+        assert_eq!(p.set_mode(AudioRenderer::EnhancedPcm), Some(2080));
+        assert_eq!(p.action(3, byte(1, 0, 65, 4)), None); // retained visit
+        assert_eq!(p.action(4, byte(1, 1, 66, 3)), Some(2112));
+        assert_eq!(p.set_mode(AudioRenderer::Speaker), Some(8192));
+        assert_eq!(p.action(5, SoundAction::SourceEnd { playback: 1 }), None);
+        assert_eq!(p.set_mode(AudioRenderer::EnhancedPcm), Some(4096));
+        assert_eq!(p.set_mode(AudioRenderer::EnhancedPcm), None);
+        assert_eq!(p.drive(6, false), None); // retained sample tail
+        assert_eq!(
+            p.action(
+                7,
+                SoundAction::Write {
+                    port: 0x42,
+                    value: 1,
+                    source: None
+                }
+            ),
+            Some(0)
+        );
+        assert_eq!(p.drive(8, true), Some(8192));
+    }
     #[test]
     fn source_visits_preserve_low_bits_equal_values_and_reverse_boundary_bytes() {
         let mut policy = RenderingPolicy::new(AudioRenderer::EnhancedPcm, false);

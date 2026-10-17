@@ -138,6 +138,12 @@ output failure warns and mutes playback while the same simulation continues.
 Buffer recovery discards expired PCM, retaining device and gameplay phase.
 Instruction execution cost and precise DOS elapsed time are not reproduced.
 
+The shared F10 Audio page offers host enable/mute, master volume, output device,
+focus muting and per-game PC speaker/Enhanced PCM selection. Apply updates host
+output while preserving native sound execution. The original F2 sound switch
+remains independent. Audio preferences use the shared
+[configuration rules](../../docs/configuration.md#audio).
+
 Use `--audio-renderer speaker|enhanced-pcm` to select host audio rendering for
 normal animation. The default is `speaker`; `enhanced-pcm` renders each full-byte
 sample value directly while retaining PC speaker synthesis for procedural

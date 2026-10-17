@@ -20,7 +20,8 @@ use reforge_audio::{
     render::{BlipRenderer, Config, SignalRenderer},
     speaker::PcSpeaker,
 };
-use reforge_sdl::audio::AudioOutput;
+use reforge_sdl::audio::Playback;
+use reforge_sdl::settings::SoundRenderer;
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -78,6 +79,12 @@ impl Synthesis {
             error: None,
         })
     }
+    fn set_mode(&mut self, mode: AudioRenderer, tick: u64) {
+        if let Some(level) = self.policy.set_mode(mode) {
+            self.advance(tick, Some(level));
+            self.blocks.clear();
+        }
+    }
     fn observe(&mut self, stamp: Stamp, event: ClockEvent) {
         let level = match event {
             ClockEvent::Action(action) => self.policy.action(stamp.tick, action),
@@ -119,25 +126,48 @@ impl Synthesis {
     }
 }
 
+fn resolve_renderer(renderer: SoundRenderer, default: AudioRenderer) -> AudioRenderer {
+    match renderer {
+        SoundRenderer::GameDefault => default,
+        SoundRenderer::Speaker => AudioRenderer::Speaker,
+        SoundRenderer::EnhancedPcm => AudioRenderer::EnhancedPcm,
+    }
+}
+
 struct PlaybackAudio {
     signal: Rc<RefCell<Synthesis>>,
-    output: Option<AudioOutput>,
+    output: Option<Playback>,
+    host: Playback,
+    generation: u64,
     started: bool,
     recovering: bool,
 }
 impl PlaybackAudio {
-    fn new(signal: Rc<RefCell<Synthesis>>) -> Self {
-        let output = AudioOutput::new(RATE)
-            .map_err(|e| {
-                eprintln!("warning: audio output unavailable; simulation continues: {e}");
-            })
-            .ok();
+    fn new(signal: Rc<RefCell<Synthesis>>, host: Playback) -> Self {
+        if let Err(error) = host.start(RATE) {
+            eprintln!("warning: audio output unavailable; simulation continues: {error}");
+        }
         Self {
             signal,
-            output,
+            output: host.available().then(|| host.clone()),
+            generation: host.generation(),
+            host,
             started: false,
             recovering: false,
         }
+    }
+    fn sync_settings(&mut self, tick: u64, default_renderer: AudioRenderer) -> bool {
+        if self.generation == self.host.generation() {
+            return false;
+        }
+        let mode = resolve_renderer(self.host.settings().renderer, default_renderer);
+        self.signal.borrow_mut().set_mode(mode, tick);
+        self.signal.borrow_mut().blocks.clear();
+        self.generation = self.host.generation();
+        self.output = self.host.available().then(|| self.host.clone());
+        self.started = false;
+        self.recovering = false;
+        true
     }
     fn pause(&mut self, paused: bool) {
         let result = self
@@ -150,6 +180,7 @@ impl PlaybackAudio {
     }
     fn disable(&mut self, error: String) {
         eprintln!("warning: audio output stopped; simulation continues: {error}");
+        self.host.stop();
         self.output = None;
     }
     fn service(&mut self, committed: u64, wanted: u64) {
@@ -1074,9 +1105,15 @@ pub(super) fn run(
     let creator = window.texture_creator();
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
-    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+        .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm]);
     let mut menu_pause = MenuPause::default();
-    let mut audio = PlaybackAudio::new(signal);
+    let host = creator.audio_playback();
+    signal.borrow_mut().set_mode(
+        resolve_renderer(host.settings().renderer, options.audio_renderer),
+        simulation.clock.tick(),
+    );
+    let mut audio = PlaybackAudio::new(signal, host);
     let mut pause = HostPause::default();
     let mut input = ControlInput::default();
     let mut history = InputHistory::default();
@@ -1257,6 +1294,9 @@ pub(super) fn run(
             let _ = disposition;
         }
         prepare_settings(&mut menu, &mut window);
+        if audio.sync_settings(simulation.clock.tick(), options.audio_renderer) {
+            audio.pause(pause.is_paused());
+        }
         let received = Instant::now();
         if menu_pause.update(menu.is_open(), &mut pause, received) {
             input.fresh.clear();

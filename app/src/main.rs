@@ -112,7 +112,7 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
             Some("--config") => prefs.path = remaining.next().map(PathBuf::from),
             Some(
                 name @ ("--window-mode" | "--renderer" | "--backend" | "--vsync" | "--scale"
-                | "--frame-limit" | "--presentation"),
+                | "--frame-limit" | "--presentation" | "--audio-renderer"),
             ) => {
                 if let Some(value) = remaining.next() {
                     let key = match name {
@@ -122,15 +122,16 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
                         "--backend" => "backend",
                         "--frame-limit" => "frame_limit",
                         "--presentation" => "presentation",
+                        "--audio-renderer" => "audio_renderer",
                         _ => "vsync",
                     };
                     if let Some(text) = value.to_str() {
-                        let mut normalized = reforge_settings::VideoSettings::default();
+                        let mut normalized = reforge_settings::RuntimeSettings::default();
                         if normalized.set(key, text).is_ok() {
                             prefs.cli.insert(key.into(), normalized.get(key));
                         }
                     }
-                    if matches!(name, "--scale" | "--presentation") {
+                    if matches!(name, "--scale" | "--presentation" | "--audio-renderer") {
                         args.push(arg);
                         args.push(value);
                     }
@@ -243,6 +244,16 @@ mod tests {
             release: detection::RELEASES.iter().find(|r| r.game == game).unwrap(),
             original: path.into(),
         })
+    }
+    #[test]
+    fn audio_renderer_override_is_locked_but_forwarded_to_the_engine() {
+        let (launch, args) =
+            launch_settings(args(&["--audio-renderer", "enhanced-pcm"]), Game::Mach3);
+        assert_eq!(
+            launch.cli.get("audio_renderer").map(String::as_str),
+            Some("enhanced-pcm")
+        );
+        assert_eq!(args.len(), 2);
     }
     #[test]
     fn frame_limit_and_presentation_are_temporary_preferences() {

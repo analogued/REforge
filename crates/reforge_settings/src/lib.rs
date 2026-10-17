@@ -8,6 +8,8 @@ use std::{
     path::{Path, PathBuf},
 };
 use toml_edit::{DocumentMut, Item};
+mod audio;
+pub use audio::{AudioSettings, SoundRenderer};
 
 pub const DISPLAY_KEYS: &[&str] = &[
     "window_mode",
@@ -30,12 +32,29 @@ pub const CRT_KEYS: &[&str] = &[
     "input_gamma",
     "output_gamma",
 ];
-pub fn keys() -> impl Iterator<Item = &'static str> {
-    DISPLAY_KEYS.iter().chain(CRT_KEYS).copied()
+pub const AUDIO_KEYS: &[&str] = &[
+    "sound_enabled",
+    "master_volume",
+    "audio_renderer",
+    "output_device",
+    "mute_unfocused",
+];
+pub const SECTION_KEYS: [&[&str]; 3] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS];
+pub fn section_index(key: &str) -> usize {
+    SECTION_KEYS
+        .iter()
+        .position(|keys| keys.contains(&key))
+        .unwrap_or(0)
 }
+pub fn keys() -> impl Iterator<Item = &'static str> {
+    SECTION_KEYS.into_iter().flatten().copied()
+}
+
 fn section(key: &str) -> &'static str {
     if CRT_KEYS.contains(&key) {
         "crt"
+    } else if AUDIO_KEYS.contains(&key) {
+        "audio"
     } else {
         "display"
     }
@@ -205,8 +224,8 @@ impl HyllianSettings {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct VideoSettings {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeSettings {
     pub fullscreen: bool,
     pub scale: Option<u32>,
     pub renderer: Renderer,
@@ -215,8 +234,9 @@ pub struct VideoSettings {
     pub frame_limit: FrameLimit,
     pub presentation: Presentation,
     pub hyllian: HyllianSettings,
+    pub audio: AudioSettings,
 }
-impl Default for VideoSettings {
+impl Default for RuntimeSettings {
     fn default() -> Self {
         Self {
             fullscreen: false,
@@ -227,6 +247,7 @@ impl Default for VideoSettings {
             frame_limit: FrameLimit::default(),
             presentation: Presentation::default(),
             hyllian: HyllianSettings::default(),
+            audio: AudioSettings::default(),
         }
     }
 }
@@ -299,8 +320,8 @@ impl std::str::FromStr for Backend {
         }
     }
 }
-impl VideoSettings {
-    pub fn get(self, key: &str) -> String {
+impl RuntimeSettings {
+    pub fn get(&self, key: &str) -> String {
         match key {
             "window_mode" => if self.fullscreen {
                 "fullscreen"
@@ -320,6 +341,7 @@ impl VideoSettings {
                 "hermite"
             }
             .into(),
+            _ if AUDIO_KEYS.contains(&key) => self.audio.get(key),
             _ => SHADER_PARAMETERS
                 .iter()
                 .position(|p| p.key == key)
@@ -367,6 +389,7 @@ impl VideoSettings {
                     _ => return Err("filter must be hermite or catmull-rom".into()),
                 }
             }
+            _ if AUDIO_KEYS.contains(&key) => self.audio.set(key, value)?,
             _ => {
                 let i = SHADER_PARAMETERS
                     .iter()
@@ -391,7 +414,7 @@ impl VideoSettings {
     }
 }
 pub type Patch = BTreeMap<String, String>;
-fn overlay(mut base: VideoSettings, patch: &Patch) -> VideoSettings {
+fn overlay(mut base: RuntimeSettings, patch: &Patch) -> RuntimeSettings {
     for (k, v) in patch {
         let _ = base.set(k, v);
     }
@@ -403,25 +426,25 @@ pub struct Draft {
     pub game: Patch,
 }
 impl Draft {
-    pub fn global_values(&self) -> VideoSettings {
-        overlay(VideoSettings::default(), &self.global)
+    pub fn global_values(&self) -> RuntimeSettings {
+        overlay(RuntimeSettings::default(), &self.global)
     }
-    pub fn game_values(&self) -> VideoSettings {
+    pub fn game_values(&self) -> RuntimeSettings {
         overlay(self.global_values(), &self.game)
     }
-    pub fn reset_section(&mut self, game: bool, crt: bool) {
+    pub fn reset_section(&mut self, game: bool, page: usize) {
         let patch = if game {
             &mut self.game
         } else {
             &mut self.global
         };
-        patch.retain(|key, _| !if crt { CRT_KEYS } else { DISPLAY_KEYS }.contains(&key.as_str()));
+        patch.retain(|key, _| !SECTION_KEYS[page].contains(&key.as_str()));
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
         let base = if game {
             self.global_values()
         } else {
-            VideoSettings::default()
+            RuntimeSettings::default()
         };
         let patch = if game {
             &mut self.game
@@ -505,7 +528,7 @@ impl Session {
         }
         s
     }
-    pub fn effective(&self, draft: &Draft) -> VideoSettings {
+    pub fn effective(&self, draft: &Draft) -> RuntimeSettings {
         overlay(draft.game_values(), &self.cli)
     }
     pub fn commit(&mut self, draft: Draft) -> Result<(), String> {
@@ -543,7 +566,7 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
         let mut p = Patch::new();
         if let Some(item) = item {
             if let Some(table) = item.as_table_like() {
-                for name in ["display", "crt"] {
+                for name in ["display", "crt", "audio"] {
                     if table.get(name).is_some_and(|v| !v.is_table_like()) {
                         *warning = Some(format!("Invalid {name} section; using inherited values"));
                     }
@@ -561,13 +584,12 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
                         } else {
                             String::new()
                         };
-                        let mut validated = VideoSettings::default();
+                        let mut validated = RuntimeSettings::default();
                         if validated.set(key, &text).is_ok() {
                             p.insert(key.into(), validated.get(key));
                         } else {
-                            *warning = Some(format!(
-                                "Invalid video setting {key}; using inherited value"
-                            ));
+                            *warning =
+                                Some(format!("Invalid setting {key}; using inherited value"));
                         }
                     }
                 }
@@ -647,8 +669,10 @@ fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(),
             }
             if let Some(text) = after.get(key) {
                 let replacement = match key {
-                    "vsync" => toml_edit::Value::from(text == "true" || text == "on"),
-                    "scale" if text != "auto" => {
+                    "vsync" | "sound_enabled" | "mute_unfocused" => {
+                        toml_edit::Value::from(text == "true" || text == "on")
+                    }
+                    "scale" | "master_volume" if text != "auto" => {
                         toml_edit::Value::from(text.parse::<i64>().map_err(|e| e.to_string())?)
                     }
                     _ if SHADER_PARAMETERS.iter().any(|p| p.key == key) => {
@@ -748,6 +772,39 @@ mod tests {
         })
     }
     #[test]
+    fn audio_inherits_sparsely_resets_independently_and_keeps_cli_temporary() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let mut s = session(path.clone(), "mach-3");
+        let mut d = s.saved.clone();
+        d.edit(false, "scale", "4".into());
+        d.edit(false, "master_volume", "65".into());
+        d.edit(false, "output_device", "Test \"speakers\"".into());
+        d.edit(true, "audio_renderer", "enhanced-pcm".into());
+        d.edit(true, "mute_unfocused", "false".into());
+        s.cli.insert("audio_renderer".into(), "speaker".into());
+        assert_eq!(s.effective(&d).audio.renderer, SoundRenderer::Speaker);
+        s.commit(d.clone()).unwrap();
+        let loaded = session(path.clone(), "mach-3");
+        assert_eq!(loaded.saved, d);
+        assert_eq!(
+            loaded.saved.game_values().audio.renderer,
+            SoundRenderer::EnhancedPcm
+        );
+        assert_eq!(loaded.saved.game_values().audio.volume, 65);
+        d.reset_section(false, 2);
+        assert_eq!(d.global_values().scale, Some(4));
+        assert_eq!(d.game_values().audio.volume, 100);
+        assert_eq!(d.game.len(), 2);
+        d.reset_section(true, 2);
+        assert!(d.game.is_empty());
+        let mut value = RuntimeSettings::default();
+        for bad in ["-1", "101", "NaN", "50.1"] {
+            assert!(value.set("master_volume", bad).is_err());
+        }
+        assert!(value.set("output_device", "").is_err());
+    }
+    #[test]
     fn sections_round_trip_sparse_parameters_and_reset_independently() {
         let dir = TestDir::new();
         let path = dir.file();
@@ -765,10 +822,10 @@ mod tests {
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.contains("[global.crt]"));
         assert!(text.contains("[games.mach-3.crt]"));
-        d.reset_section(false, false);
+        d.reset_section(false, 0);
         assert_eq!(d.global_values().presentation, Presentation::Hyllian);
         assert_eq!(d.game_values().frame_limit, FrameLimit::Unlimited);
-        d.reset_section(true, true);
+        d.reset_section(true, 1);
         assert_eq!(d.game.len(), 1);
         s.commit(d).unwrap();
         assert_eq!(
@@ -786,7 +843,7 @@ mod tests {
         let h = s.saved.game_values().hyllian;
         assert_eq!(h.values, [65, 80, 110, 200, 100, 35, 100, 240, 260]);
         assert!(h.validate().is_ok());
-        let mut value = VideoSettings::default();
+        let mut value = RuntimeSettings::default();
         for bad in ["NaN", "inf", "-1", "0.99", "4.01"] {
             assert!(value.set("input_gamma", bad).is_err());
         }

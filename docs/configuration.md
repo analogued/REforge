@@ -1,10 +1,11 @@
-# Presentation preferences
+# Host preferences
 
 F10 opens the Compact Settings menu in either game. The Display page offers
 window mode (windowed or borderless desktop fullscreen), window scale (Auto or
 ×1–×16), renderer, backend, VSync and a frame limiter. CRT & Colour offers sharp
 pixels or Hyllian CRT with adjustable shader controls. Colour profiles and white
-points remain future work.
+points remain future work. Audio offers enable sound, master volume, per-game
+sound renderer, output device and focus muting.
 With Auto selected, the disabled scale slider shows the resolved windowed
 multiplier. Turning Auto off starts manual scaling at that value.
 
@@ -13,7 +14,7 @@ Global defaults and the current game's overrides, leaving the menu open.
 Cancel, Escape and F10 discard unapplied edits. Reset section clears only the
 selected global section when editing Global defaults. Restore global defaults
 clears only the current game's overrides for the selected section when editing
-that game. Display and CRT & Colour reset independently.
+that game. Display, CRT & Colour and Audio reset independently.
 Both operations remain drafts until Apply.
 
 Game fields differing from the global draft use cyan text. An amber dot marks
@@ -53,6 +54,13 @@ scale = 4
 
 [games.mach-3.display]
 vsync = false
+
+[global.audio]
+master_volume = 80
+mute_unfocused = true
+
+[games.mach-3.audio]
+audio_renderer = "enhanced-pcm"
 ```
 
 Defaults are windowed, Auto scale, automatic GPU-preferred rendering, automatic
@@ -136,6 +144,52 @@ they do not change the 200 source-row beam cycles. The RGB aperture mask retains
 its physical two-pixel pitch. Gamma controls belong to the shader, not a separate
 monitor profile or white-point conversion. Invalid fields inherit; invalid beam
 pairs discard the pair's overrides at that scope and warn.
+
+## Audio
+
+Audio preferences use `[global.audio]` and `[games.<game-id>.audio]` with the
+same draft, sparse overrides and section reset rules. Sound renderer selection
+is enabled in game overrides for engines/runs that provide audio. Shared levels,
+devices and focus defaults can be edited globally even from a silent game.
+
+| Key | Values | Built-in default |
+| --- | --- | --- |
+| sound_enabled | `true`, `false` | `true` |
+| master_volume | Integer 0–100 | 100 |
+| audio_renderer | `"default"`, `"speaker"`, `"enhanced-pcm"` | `"default"` |
+| output_device | `"default"` or exact detected device name | `"default"` |
+| mute_unfocused | `true`, `false` | `true` |
+
+Mach 3's normal timed playback supports PC speaker and Enhanced PCM; Game default
+selects its original speaker renderer. Step/static/custom-period previews remain
+silent. Alley Cat host audio is not implemented yet, so its game audio controls
+are disabled. Only Master volume is offered; separate music/effect levels,
+latency controls and stereo processing are not implemented.
+
+Enable sound and Master volume operate on host output. Native sound routines,
+device counters, random behavior and the engine's timeline continue unchanged;
+Mach 3's original F2 sound control remains independent. Focus muting sets stream
+gain to zero without pausing simulation or retaining a backlog to replay later.
+Native/host/menu pauses retain their existing scheduling behavior.
+
+The device selector refreshes when Audio is opened in a new settings session and
+on SDL device notifications. Preferences retain names rather than session-only
+SDL IDs. System default follows SDL's default playback route; selecting another
+device affects only REforge. Identical device names are ambiguous: select System
+default in that case. A named device missing at startup warns and tries System
+default while preserving the preference. A failed live device request retains
+the previous endpoint and leaves the draft unsaved for correction/retry.
+
+Volume/focus changes use SDL stream gain. Enable/device/renderer changes discard
+old queued presentation samples and refill from continuing engine execution.
+Audio already handed to the host device cannot be recalled. Changing renderer
+preserves observed sample/speaker phase and the existing resampling state.
+Unavailable audio does not prevent unrelated Display/CRT changes.
+
+`--audio-renderer speaker|enhanced-pcm` remains a temporary Mach 3 override and
+locks its menu control for that run. It is never saved into preferences.
+Latency remains the existing buffering policy, and output remains mono; the
+mockup's Latency and Keep original mono controls are intentionally absent.
 
 ## Activation and persistence
 

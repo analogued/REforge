@@ -25,6 +25,7 @@ type Slot = RefCell<Option<Resident>>;
 pub struct FrameCreator {
     pub(crate) owner: Rc<RefCell<Rc<Owner>>>,
     pub(crate) session: Rc<RefCell<Session>>,
+    pub(crate) audio: crate::audio::Playback,
     // Resolved windowed multiplier, separate from the persisted Auto preference.
     pub(crate) windowed_scale: Rc<Cell<u32>>,
     generation: Rc<Cell<usize>>,
@@ -37,7 +38,10 @@ impl FrameCreator {
         windowed_scale: u32,
         gpu: Option<Rc<crate::hyllian::GpuDevice>>,
     ) -> Self {
+        let audio = crate::audio::Playback::new(session.effective(&session.saved).audio);
+        audio.focus(canvas.window().has_input_focus());
         Self {
+            audio,
             owner: Rc::new(RefCell::new(Rc::new(Owner {
                 creator: canvas.texture_creator(),
                 _gpu: gpu,
@@ -47,6 +51,9 @@ impl FrameCreator {
             generation: Rc::new(Cell::new(0)),
             textures: Rc::new(RefCell::new(Vec::new())),
         }
+    }
+    pub fn audio_playback(&self) -> crate::audio::Playback {
+        self.audio.clone()
     }
     pub(crate) fn generation(&self) -> usize {
         self.generation.get()

@@ -5,7 +5,24 @@
 //! SDL converts the fixed mono signed 16-bit input format to the host device's
 //! negotiated format. No application callback runs on the audio thread.
 
-use sdl3::audio::{AudioFormat, AudioSpec, AudioStreamOwner};
+use reforge_settings::AudioSettings;
+use sdl3::audio::{AudioDevice, AudioFormat, AudioSpec, AudioStreamOwner};
+use std::{cell::RefCell, rc::Rc};
+
+/// Names are saved instead of transient SDL device instance IDs.
+pub fn playback_devices() -> Result<Vec<String>, String> {
+    let sdl = sdl3::init().map_err(|e| e.to_string())?;
+    let audio = sdl.audio().map_err(|e| e.to_string())?;
+    let mut names = audio
+        .audio_playback_device_ids()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|id| id.name().ok())
+        .collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
 
 /// Owns a default playback stream and the SDL context that keeps it alive.
 /// Construct, use and drop on the main thread, like [`crate::Window`].
@@ -25,6 +42,9 @@ pub struct AudioOutput {
 
 impl AudioOutput {
     pub fn new(sample_rate: u32) -> Result<Self, String> {
+        Self::on_device(sample_rate, None)
+    }
+    pub fn on_device(sample_rate: u32, name: Option<&str>) -> Result<Self, String> {
         let rate = i32::try_from(sample_rate)
             .ok()
             .filter(|rate| *rate > 0)
@@ -39,8 +59,23 @@ impl AudioOutput {
         // The default device ID opens a single stream-owned logical device.
         // AudioStreamOwner retains the audio subsystem and closes the device
         // when dropped. Its spec describes our input, not a required host format.
-        let stream = audio
-            .default_playback_device()
+        let device = if let Some(name) = name {
+            let found = audio
+                .audio_playback_device_ids()
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .filter(|id| id.name().is_ok_and(|n| n == name))
+                .collect::<Vec<_>>();
+            if found.len() != 1 {
+                return Err(format!(
+                    "Output device {name:?} is unavailable or its name is ambiguous; choose System default"
+                ));
+            }
+            AudioDevice::new(found[0], audio.clone())
+        } else {
+            audio.default_playback_device()
+        };
+        let stream = device
             .open_device_stream(Some(&spec))
             .map_err(|error| error.to_string())?;
         Ok(Self {
@@ -49,6 +84,10 @@ impl AudioOutput {
             max_queued_samples: sample_rate as usize / 4,
             _sdl: sdl,
         })
+    }
+
+    pub fn set_gain(&self, gain: f32) -> Result<(), String> {
+        self.stream.set_gain(gain).map_err(|e| e.to_string())
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -106,6 +145,144 @@ impl AudioOutput {
     /// Audio already handed to the host device cannot be recalled.
     pub fn clear(&mut self) -> Result<(), String> {
         self.stream.clear().map_err(|error| error.to_string())
+    }
+}
+
+/// A main-thread playback endpoint shared with the settings/window owner.
+/// Engines retain synthesis, queue targets and prefill policy.
+#[derive(Clone)]
+pub struct Playback(Rc<RefCell<PlaybackState>>);
+struct PlaybackState {
+    settings: AudioSettings,
+    output: Option<AudioOutput>,
+    rate: Option<u32>,
+    focused: bool,
+    generation: u64,
+}
+impl Playback {
+    /// Create an inactive endpoint without initializing SDL audio.
+    pub fn new(settings: AudioSettings) -> Self {
+        Self(Rc::new(RefCell::new(PlaybackState {
+            settings,
+            output: None,
+            rate: None,
+            focused: true,
+            generation: 0,
+        })))
+    }
+    pub fn settings(&self) -> AudioSettings {
+        self.0.borrow().settings.clone()
+    }
+    pub fn generation(&self) -> u64 {
+        self.0.borrow().generation
+    }
+    pub fn available(&self) -> bool {
+        self.0.borrow().output.is_some()
+    }
+    /// Register the engine's PCM format. Startup may fall back to the default
+    /// device while retaining a temporarily unavailable named-device preference.
+    pub fn start(&self, rate: u32) -> Result<(), String> {
+        if rate == 0 || rate > i32::MAX as u32 {
+            return Err("invalid audio sample rate".into());
+        }
+
+        self.0.borrow_mut().rate = Some(rate);
+        let settings = self.settings();
+        match self.configure(settings.clone(), true) {
+            Err(error) if settings.device.is_some() => {
+                eprintln!("REforge: {error}; using system default output");
+                let output = AudioOutput::new(rate)?;
+                let mut state = self.0.borrow_mut();
+                output.set_gain(settings.gain(state.focused))?;
+                state.output = Some(output);
+                state.generation += 1;
+                Ok(())
+            }
+            result => result,
+        }
+    }
+    /// Failed device creation retains the previous endpoint and preferences.
+    pub(crate) fn apply(&self, settings: AudioSettings) -> Result<(), String> {
+        self.configure(settings, false)
+    }
+    fn configure(&self, settings: AudioSettings, force: bool) -> Result<(), String> {
+        let mut state = self.0.borrow_mut();
+        let reopen = state.rate.is_some()
+            && settings.enabled
+            && (force || !state.settings.enabled || state.settings.device != settings.device);
+        let reset = reopen
+            || settings.renderer != state.settings.renderer
+            || settings.enabled != state.settings.enabled;
+        let candidate = if reopen {
+            Some(AudioOutput::on_device(
+                state.rate.unwrap(),
+                settings.device.as_deref(),
+            )?)
+        } else {
+            None
+        };
+        let gain = settings.gain(state.focused);
+        if let Some(output) = &candidate {
+            output.set_gain(gain)?;
+        } else if let Some(output) = state.output.as_mut() {
+            if reset {
+                output.set_paused(true)?;
+                output.clear()?;
+            }
+            output.set_gain(gain)?;
+        }
+        if let Some(output) = candidate {
+            state.output = Some(output);
+        }
+        if reset {
+            state.generation += 1;
+        }
+        state.settings = settings;
+        Ok(())
+    }
+    pub(crate) fn focus(&self, focused: bool) {
+        let mut state = self.0.borrow_mut();
+        state.focused = focused;
+        if let Some(output) = &state.output {
+            if let Err(error) = output.set_gain(state.settings.gain(focused)) {
+                eprintln!("REforge: audio focus mute failed: {error}");
+                state.output = None;
+                state.generation += 1;
+            }
+        }
+    }
+    pub fn stop(&self) {
+        let mut state = self.0.borrow_mut();
+        state.output = None;
+        state.generation += 1;
+    }
+    pub fn queue(&self, samples: &[i16]) -> Result<(), String> {
+        let mut state = self.0.borrow_mut();
+        if !state.settings.enabled {
+            return Ok(());
+        }
+        state.output.as_mut().map_or(Ok(()), |o| o.queue(samples))
+    }
+    pub fn queued_samples(&self) -> Result<usize, String> {
+        self.0
+            .borrow()
+            .output
+            .as_ref()
+            .map_or(Ok(0), AudioOutput::queued_samples)
+    }
+    pub fn set_paused(&self, paused: bool) -> Result<(), String> {
+        let mut state = self.0.borrow_mut();
+        state
+            .output
+            .as_mut()
+            .map_or(Ok(()), |o| o.set_paused(paused))
+    }
+    pub fn clear(&self) -> Result<(), String> {
+        self.0
+            .borrow_mut()
+            .output
+            .as_mut()
+            .map_or(Ok(()), AudioOutput::clear)
     }
 }
 
@@ -194,6 +371,78 @@ mod tests {
         // Dropping/reopening AudioOutput leaves another SDL owner usable.
         let audio = sdl.audio().unwrap();
         assert_eq!(audio.current_audio_driver(), "dummy");
+    }
+
+    #[test]
+    fn shared_playback_gain_focus_device_failure_and_recovery() {
+        const TEST: &str = "audio::tests::shared_playback_gain_focus_device_failure_and_recovery";
+        if std::env::var(CHILD_MARKER).as_deref() != Ok(TEST) {
+            run_child(TEST, "dummy");
+            return;
+        }
+        let mut settings = AudioSettings {
+            volume: 40,
+            ..Default::default()
+        };
+        let host = Playback::new(settings.clone());
+        host.start(48_000).unwrap();
+        let gain = || {
+            host.0
+                .borrow()
+                .output
+                .as_ref()
+                .unwrap()
+                .stream
+                .get_gain()
+                .unwrap()
+        };
+        assert_eq!(gain(), 0.4);
+        host.queue(&[1000; 32]).unwrap();
+        let generation = host.generation();
+        host.focus(false);
+        assert_eq!(gain(), 0.0);
+        assert_eq!(host.queued_samples().unwrap(), 32);
+        host.focus(true);
+        assert_eq!(gain(), 0.4);
+        settings.volume = 50;
+        settings.mute_unfocused = false;
+        host.focus(false);
+        host.apply(settings.clone()).unwrap();
+        assert_eq!(gain(), 0.5);
+        assert_eq!(host.generation(), generation);
+        let mut bad = settings.clone();
+        bad.device = Some("reforge-nonexistent-output".into());
+        assert!(host.apply(bad).is_err());
+        assert_eq!(host.settings(), settings);
+        assert_eq!(host.queued_samples().unwrap(), 32);
+        settings.device = Some(playback_devices().unwrap().into_iter().next().unwrap());
+        host.apply(settings.clone()).unwrap();
+        assert_eq!(host.queued_samples().unwrap(), 0);
+        assert!(
+            host.0
+                .borrow()
+                .output
+                .as_ref()
+                .unwrap()
+                .stream
+                .device_paused()
+                .unwrap()
+        );
+        assert!(host.generation() > generation);
+        settings.enabled = false;
+        host.apply(settings.clone()).unwrap();
+        host.queue(&[1000; 32]).unwrap();
+        assert_eq!(host.queued_samples().unwrap(), 0);
+        assert_eq!(gain(), 0.0);
+        settings.enabled = true;
+        host.apply(settings.clone()).unwrap();
+        assert_eq!(gain(), 0.5);
+        host.stop();
+        assert!(!host.available());
+        host.apply(settings).unwrap(); // unrelated Apply must not require a device
+        assert!(!host.available());
+        host.start(48_000).unwrap();
+        assert!(host.available());
     }
 
     #[test]

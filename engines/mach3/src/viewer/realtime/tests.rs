@@ -384,6 +384,15 @@ fn gameplay_run_mode(
     discard_output: bool,
     mode: AudioRenderer,
 ) -> (Outcome, Vec<i16>) {
+    gameplay_run_switching(budget, render_chunk, discard_output, mode, false)
+}
+fn gameplay_run_switching(
+    budget: u64,
+    render_chunk: u32,
+    discard_output: bool,
+    mode: AudioRenderer,
+    switch: bool,
+) -> (Outcome, Vec<i16>) {
     let frames = frames();
     let resources = resources();
     let signal = signal(render_chunk);
@@ -404,6 +413,8 @@ fn gameplay_run_mode(
     }
     let mut audio = PlaybackAudio {
         signal: signal.clone(),
+        host: Playback::new(Default::default()),
+        generation: 0,
         output: None,
         started: false,
         recovering: false,
@@ -414,6 +425,14 @@ fn gameplay_run_mode(
     while simulation.clock.tick() < end {
         let target = (simulation.clock.tick() + budget).min(end);
         advance(&mut simulation, target, &frames, &resources, &mut events);
+        if switch {
+            let mode = if (simulation.clock.tick() - start) / 50_000 % 2 == 0 {
+                AudioRenderer::Speaker
+            } else {
+                AudioRenderer::EnhancedPcm
+            };
+            signal.borrow_mut().set_mode(mode, simulation.clock.tick());
+        }
         if discard_output {
             audio.service(simulation.clock.tick(), end);
         } else {
@@ -440,6 +459,14 @@ fn gameplay_run_mode(
         transactions: log.borrow().clone(),
     };
     (outcome, pcm)
+}
+
+#[test]
+fn changing_host_renderer_preserves_device_execution_and_gameplay() {
+    let (baseline, _) = gameplay_run_mode(10_000, CHUNK as u32, false, AudioRenderer::Speaker);
+    let (switched, _) =
+        gameplay_run_switching(10_000, CHUNK as u32, false, AudioRenderer::Speaker, true);
+    assert_eq!(baseline, switched);
 }
 
 #[test]

@@ -529,12 +529,15 @@ fn audio_controls(
         ui.weak("Audio playback is unavailable in this run. Shared defaults can still be saved.");
     }
     ui.add_enabled_ui(scope == 0 || available, |ui| {
-        row(ui, "Sound", "sound_enabled", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| { ui.checkbox(&mut value.audio.enabled, "Enable sound"); });
+        row(ui, "", "sound_enabled", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| { ui.checkbox(&mut value.audio.enabled, "Enable sound"); });
         ui.add_enabled_ui(value.audio.enabled, |ui| {
             section(ui, "Levels");
-            row(ui, "Master volume", "master_volume", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| {
-                ui.spacing_mut().slider_width = 150.0;
-                ui.add(egui::Slider::new(&mut value.audio.volume, 0..=100).suffix("%"));
+            let volume_width = 220.0 + ui.spacing().item_spacing.x + 56.0;
+            row_with_width(ui, "Master volume", "master_volume", value.clone(), base.clone(), previous.clone(), scope, cli, volume_width, |ui| {
+                ui.spacing_mut().slider_width = 220.0;
+                ui.add(egui::Slider::new(&mut value.audio.volume, 0..=100).show_value(false));
+                ui.spacing_mut().interact_size.x = 56.0;
+                ui.add(egui::DragValue::new(&mut value.audio.volume).range(0..=100).suffix("%"));
             });
             section(ui, "Playback");
             row(ui, "Sound renderer", "audio_renderer", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| {
@@ -557,7 +560,7 @@ fn audio_controls(
                         for name in devices { ui.selectable_value(&mut value.audio.device, Some(name.clone()), name); }
                     });
             });
-            row(ui, "Focus", "mute_unfocused", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| { ui.checkbox(&mut value.audio.mute_unfocused, "Mute when unfocused"); });
+            row(ui, "", "mute_unfocused", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| { ui.checkbox(&mut value.audio.mute_unfocused, "Mute when unfocused"); });
         });
     });
 }
@@ -594,6 +597,24 @@ fn row(
     cli: &reforge_settings::Patch,
     control: impl FnOnce(&mut egui::Ui),
 ) {
+    row_with_width(
+        ui, label, key, value, global, saved, scope, cli, 220.0, control,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn row_with_width(
+    ui: &mut egui::Ui,
+    label: &str,
+    key: &str,
+    value: RuntimeSettings,
+    global: RuntimeSettings,
+    saved: RuntimeSettings,
+    scope: usize,
+    cli: &reforge_settings::Patch,
+    control_width: f32,
+    control: impl FnOnce(&mut egui::Ui),
+) {
     let locked = cli.contains_key(key);
     let different = scope == 1 && value.get(key) != global.get(key);
     let dirty = value.get(key) != saved.get(key);
@@ -603,16 +624,16 @@ fn row(
         } else {
             ui.visuals().text_color()
         };
-        ui.add_sized(
-            [145.0, 22.0],
-            egui::Label::new(egui::RichText::new(label).color(colour)),
-        )
-        .on_hover_text(format!(
-            "Global: {}\nSaved: {}",
-            global.get(key),
-            saved.get(key)
-        ));
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(220.0, 22.0), egui::Sense::hover());
+        let tooltip = format!("Global: {}\nSaved: {}", global.get(key), saved.get(key));
+        if !label.is_empty() {
+            ui.add_sized(
+                [145.0, 22.0],
+                egui::Label::new(egui::RichText::new(label).color(colour)),
+            )
+            .on_hover_text(&tooltip);
+        }
+        let (rect, _) =
+            ui.allocate_exact_size(Vec2::new(control_width, 22.0), egui::Sense::hover());
         let mut child = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(rect)
@@ -621,7 +642,10 @@ fn row(
         if different && !locked {
             child.visuals_mut().override_text_color = Some(ACCENT);
         }
-        child.add_enabled_ui(!locked, control);
+        child
+            .add_enabled_ui(!locked, control)
+            .response
+            .on_hover_text(tooltip);
         let (rect, response) = ui.allocate_exact_size(Vec2::new(12.0, 22.0), egui::Sense::hover());
         if dirty {
             ui.painter().circle_filled(rect.center(), 3.0, PENDING);

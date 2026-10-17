@@ -208,14 +208,6 @@ pub(crate) fn resolve_support(data: &[u8], player: &Player) -> Result<SupportChe
     Ok(SupportCheck::default())
 }
 
-fn tone(data: &mut [u8], tick: u16, period: u16) {
-    if data[0] != 0 {
-        set_word(data, 0x5923, period);
-        data[0x5920] = 2;
-        set_word(data, 0x5921, tick);
-    }
-}
-
 fn nonzero_tick(tick: u16) -> u16 {
     if tick == 0 { 0xffff } else { tick }
 }
@@ -253,7 +245,7 @@ fn draw_cat(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
 }
 
 /// CS:4dd0 contact leaves the existing support marker and vertical phase alone.
-pub(crate) fn cat_contact(data: &mut [u8], tick: u16) -> bool {
+pub(crate) fn cat_contact(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound) -> bool {
     if !overlap(player_rect(data), cat_rect(data)) {
         return false;
     }
@@ -270,7 +262,7 @@ pub(crate) fn cat_contact(data: &mut [u8], tick: u16) -> bool {
         } else {
             0xff
         };
-        tone(data, tick, 0x123b);
+        sound.request(data, tick, 0x0ce4, 0x123b);
     }
     true
 }
@@ -315,6 +307,7 @@ pub(crate) fn advance_cat(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<HeartStep, String> {
     check(data)?;
     let mut result = HeartStep::default();
@@ -352,7 +345,7 @@ pub(crate) fn advance_cat(
         set_word(data, 0x4548, if word(data, 0x579) > 160 { 36 } else { 264 });
         data[0x454a] = 0;
     }
-    if cat_contact(data, tick) {
+    if cat_contact(data, tick, sound) {
         result.player_changed = true;
         result.success = data[0x553] != 0;
         result.drew = restore_cat(data, screen)?;
@@ -430,7 +423,7 @@ pub(crate) fn advance_cat(
     if cat_arrow_contact(data) {
         return Ok(result);
     }
-    if cat_contact(data, tick) {
+    if cat_contact(data, tick, sound) {
         result.player_changed = true;
         result.success = data[0x553] != 0;
         result.drew = restore_cat(data, screen)?;
@@ -489,7 +482,7 @@ fn draw_arrow(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
 }
 
 /// CS:62a6 does not retire the arrow; CS:6106 owns its active flag.
-pub(crate) fn arrow_contact(data: &mut [u8], tick: u16) -> bool {
+pub(crate) fn arrow_contact(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound) -> bool {
     if data[0x70f2] == 0 || !overlap(arrow_rect(data), player_rect(data)) {
         return false;
     }
@@ -497,7 +490,7 @@ pub(crate) fn arrow_contact(data: &mut [u8], tick: u16) -> bool {
     data[0x576] = 2;
     data[0x578] = 32;
     data[0x55b] = 8;
-    tone(data, tick, 0x0ce4);
+    sound.request(data, tick, 0x091d, 0x0ce4);
     true
 }
 
@@ -538,6 +531,7 @@ pub(crate) fn advance_arrow(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<HeartStep, String> {
     check(data)?;
     let mut result = HeartStep::default();
@@ -546,7 +540,7 @@ pub(crate) fn advance_arrow(
     }
     set_word(data, 0x70ee, tick);
     result.accepted = true;
-    if arrow_contact(data, tick) {
+    if arrow_contact(data, tick, sound) {
         restore_arrow(data, screen)?;
         data[0x70f2] = 0;
         result.player_changed = true;
@@ -594,7 +588,7 @@ pub(crate) fn advance_arrow(
     }
     if !retire {
         set_word(data, 0x70fa, pixel_offset(word(data, 0x70f3), data[0x70f5]));
-        if arrow_contact(data, tick) {
+        if arrow_contact(data, tick, sound) {
             result.player_changed = true;
             retire = true;
         }
@@ -615,6 +609,7 @@ pub(crate) fn pickup_item(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<HeartStep, String> {
     check(data)?;
     let mut result = HeartStep::default();
@@ -640,7 +635,7 @@ pub(crate) fn pickup_item(
             if data[0x70f2] != 0 {
                 draw_arrow(data, screen)?;
             }
-            tone(data, tick, 0x0349);
+            sound.request(data, tick, 0x03e8, 0x0349);
             result.item_changed = true;
             result.drew = true;
             return Ok(result);
@@ -654,6 +649,7 @@ pub(crate) fn place_item(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<HeartStep, String> {
     check(data)?;
     let mut result = HeartStep::default();
@@ -709,7 +705,7 @@ pub(crate) fn place_item(
     if data[0x70f2] != 0 {
         draw_arrow(data, screen)?;
     }
-    tone(data, tick, 0x04a5);
+    sound.request(data, tick, 0x03e8, 0x04a5);
     result.item_changed = true;
     result.drew = true;
     Ok(result)
@@ -757,9 +753,10 @@ pub(crate) fn advance_cat_dev(
     screen: &mut Framebuffer,
     tick: u16,
     disable_rivals: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<HeartStep, String> {
     if !disable_rivals {
-        return advance_cat(data, screen, tick);
+        return advance_cat(data, screen, tick, sound);
     }
     let erased = remove_rivals(data, screen)?;
     if tick == word(data, 0x45b8) {
@@ -771,7 +768,7 @@ pub(crate) fn advance_cat_dev(
     let next = word(data, 0x45b6).wrapping_add(1);
     let index = if next >= 7 { 0 } else { next };
     if index == 6 {
-        let mut result = advance_cat(data, screen, tick)?;
+        let mut result = advance_cat(data, screen, tick, sound)?;
         result.drew |= erased;
         return Ok(result);
     }
@@ -792,12 +789,13 @@ pub(crate) fn place_item_dev(
     screen: &mut Framebuffer,
     tick: u16,
     disable_rivals: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<HeartStep, String> {
     if !disable_rivals {
-        return place_item(data, screen, tick);
+        return place_item(data, screen, tick, sound);
     }
     let erased = remove_rivals(data, screen)?;
-    let mut result = place_item(data, screen, tick)?;
+    let mut result = place_item(data, screen, tick, sound)?;
     result.drew |= erased;
     Ok(result)
 }
@@ -886,7 +884,14 @@ mod tests {
         let rival_records = data[0x4554..0x459c].to_vec();
         let random = word(&data, 0x2ae5);
         set_word(&mut data, 0x45b8, 0);
-        let step = advance_cat_dev(&mut data, &mut screen, 2, true).unwrap();
+        let step = advance_cat_dev(
+            &mut data,
+            &mut screen,
+            2,
+            true,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert!(step.accepted && !step.drew && !step.player_changed);
         assert_eq!(data[0x4554..0x459c], rival_records);
         assert_eq!(word(&data, 0x2ae5), random);
@@ -895,7 +900,14 @@ mod tests {
         data[goal + 3] = 120;
         set_word(&mut data, goal + 7, 0);
         set_word(&mut data, 0x45b6, 5);
-        let step = advance_cat_dev(&mut data, &mut screen, 3, true).unwrap();
+        let step = advance_cat_dev(
+            &mut data,
+            &mut screen,
+            3,
+            true,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert!(step.accepted && step.success);
         assert_eq!(data[0x553], 1);
     }
@@ -924,7 +936,14 @@ mod tests {
                 data[record + 3] = 179;
                 set_word(&mut data, record + 7, 0);
             }
-            let result = place_item_dev(&mut data, &mut screen, 10, true).unwrap();
+            let result = place_item_dev(
+                &mut data,
+                &mut screen,
+                10,
+                true,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert!(result.item_changed);
             assert_eq!(data[0x2b72], if goal_overlaps { 0 } else { 1 });
             for index in 0..6 {
@@ -946,14 +965,40 @@ mod tests {
         assert_eq!(data, alternate);
         assert_eq!(screen.bytes(), alternate_screen.bytes());
         assert_eq!(
-            advance_cat(&mut data, &mut screen, 6).unwrap(),
-            advance_cat_dev(&mut alternate, &mut alternate_screen, 6, false).unwrap()
+            advance_cat(
+                &mut data,
+                &mut screen,
+                6,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap(),
+            advance_cat_dev(
+                &mut alternate,
+                &mut alternate_screen,
+                6,
+                false,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
         );
         assert_eq!(data, alternate);
         assert_eq!(screen.bytes(), alternate_screen.bytes());
         assert_eq!(
-            place_item(&mut data, &mut screen, 6).unwrap(),
-            place_item_dev(&mut alternate, &mut alternate_screen, 6, false).unwrap()
+            place_item(
+                &mut data,
+                &mut screen,
+                6,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap(),
+            place_item_dev(
+                &mut alternate,
+                &mut alternate_screen,
+                6,
+                false,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
         );
         assert_eq!(data, alternate);
         assert_eq!(screen.bytes(), alternate_screen.bytes());
@@ -1056,7 +1101,11 @@ mod tests {
         data[0x577] = 73;
         data[0x1f80] = 3;
         set_word(&mut data, 0x45b6, 5);
-        assert!(cat_contact(&mut data, 200));
+        assert!(cat_contact(
+            &mut data,
+            200,
+            &mut crate::sound::Sound::default()
+        ));
         assert_eq!(
             (data[0x571], data[0x576], data[0x578], data[0x55b]),
             (1, 4, 8, 4)
@@ -1066,10 +1115,18 @@ mod tests {
             (9, 73, 3, 0)
         );
         set_word(&mut data, 0x579, 125);
-        assert!(!cat_contact(&mut data, 200));
+        assert!(!cat_contact(
+            &mut data,
+            200,
+            &mut crate::sound::Sound::default()
+        ));
         set_word(&mut data, 0x579, 124);
         set_word(&mut data, 0x45b6, 6);
-        assert!(cat_contact(&mut data, 200));
+        assert!(cat_contact(
+            &mut data,
+            200,
+            &mut crate::sound::Sound::default()
+        ));
         assert_eq!((data[0x553], data[0x1f80]), (1, 3));
     }
 
@@ -1091,7 +1148,13 @@ mod tests {
         ];
         let old_records = data[0x4554..0x45a8].to_vec();
         for (tick, expected) in calls {
-            let update = advance_cat(&mut data, &mut screen, tick).unwrap();
+            let update = advance_cat(
+                &mut data,
+                &mut screen,
+                tick,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert_eq!(update.accepted, expected.is_some());
             if let Some(index) = expected {
                 assert_eq!(word(&data, 0x45b6), index);
@@ -1112,12 +1175,39 @@ mod tests {
         data[0x57b] = 176;
         data[0x69a] = 128;
         set_word(&mut data, 0x2e94, 0);
-        assert!(!pickup_item(&mut data, &mut screen, 1).unwrap().item_changed);
+        assert!(
+            !pickup_item(
+                &mut data,
+                &mut screen,
+                1,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
+            .item_changed
+        );
         set_word(&mut data, 0x2e94, 0xffff);
-        assert!(pickup_item(&mut data, &mut screen, 2).unwrap().item_changed);
+        assert!(
+            pickup_item(
+                &mut data,
+                &mut screen,
+                2,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
+            .item_changed
+        );
         assert_eq!((data[0x2b72], word(&data, 0x2e8d)), (0, 0));
         let before = data.clone();
-        assert!(!pickup_item(&mut data, &mut screen, 2).unwrap().accepted);
+        assert!(
+            !pickup_item(
+                &mut data,
+                &mut screen,
+                2,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
+            .accepted
+        );
         assert_eq!(data, before);
     }
 
@@ -1131,14 +1221,29 @@ mod tests {
         data[0x2b73] = 1;
         set_word(&mut data, 0x2b5c, 260);
         data[0x2b6b] = 176;
-        let update = place_item(&mut data, &mut screen, 5).unwrap();
+        let update = place_item(
+            &mut data,
+            &mut screen,
+            5,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert!(update.accepted && !update.item_changed);
         assert_eq!(
             (word(&data, 0x2b5a), data[0x2b6a], word(&data, 0x2e8d)),
             (260, 176, 0)
         );
         data[0x2b73] = 0;
-        assert!(place_item(&mut data, &mut screen, 5).unwrap().item_changed);
+        assert!(
+            place_item(
+                &mut data,
+                &mut screen,
+                5,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
+            .item_changed
+        );
         assert_eq!(
             (data[0x2b72], word(&data, 0x2e8d), word(&data, 0x2e94)),
             (1, 0xffff, 0)
@@ -1192,7 +1297,13 @@ mod tests {
         set_word(&mut data, 0x70f3, 32);
         set_word(&mut data, 0x70ec, 0xffff);
         for tick in 1..=5 {
-            let update = advance_arrow(&mut data, &mut screen, tick).unwrap();
+            let update = advance_arrow(
+                &mut data,
+                &mut screen,
+                tick,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert!(update.accepted);
             assert_eq!(
                 (word(&data, 0x70f3), data[0x70f5]),
@@ -1201,14 +1312,25 @@ mod tests {
             let old_data = data.clone();
             let old_screen = screen.bytes().to_vec();
             assert!(
-                !advance_arrow(&mut data, &mut screen, tick)
-                    .unwrap()
-                    .accepted
+                !advance_arrow(
+                    &mut data,
+                    &mut screen,
+                    tick,
+                    &mut crate::sound::Sound::default()
+                )
+                .unwrap()
+                .accepted
             );
             assert_eq!(data, old_data);
             assert_eq!(screen.bytes().as_slice(), &old_screen);
         }
-        advance_arrow(&mut data, &mut screen, 6).unwrap();
+        advance_arrow(
+            &mut data,
+            &mut screen,
+            6,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(
             (word(&data, 0x70f3), data[0x70f5], data[0x70f2]),
             (57, 192, 0)

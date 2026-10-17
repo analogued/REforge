@@ -21,6 +21,7 @@ pub struct SplashStep {
 
 pub struct Splash {
     data: Vec<u8>,
+    pub(crate) sound: crate::sound::Sound,
     machine: Machine,
     framebuffer: Framebuffer,
     player: Player,
@@ -154,6 +155,7 @@ impl Splash {
         set_word(&mut data, 0x5320, 0);
         let player = Player::from_data(&data).map_err(str::to_owned)?;
         Ok(Self {
+            sound: crate::sound::Sound::default(),
             data,
             machine,
             framebuffer,
@@ -202,6 +204,7 @@ impl Splash {
             return Ok(step);
         }
         if !self.repeated && elapsed > duration.wrapping_add(6) {
+            self.sound.stop();
             self.finished = true;
             step.finished = true;
             return Ok(step);
@@ -246,6 +249,7 @@ impl Splash {
             }
         }
         if self.pending_key {
+            self.sound.stop();
             self.finished = true;
         }
         step.finished = self.finished;
@@ -271,18 +275,7 @@ impl Splash {
     }
 
     fn advance_music_sequence(&mut self, tick: u16) -> Result<(), String> {
-        if self.data[0] != 0 && tick != word(&self.data, 0x5322) {
-            set_word(&mut self.data, 0x5322, tick);
-            let position = word(&self.data, 0x5320);
-            let tone = *self
-                .data
-                .get(0x538c + usize::from(position))
-                .ok_or("Splash music sequence exceeds external data")?;
-            if tone != 0x66 {
-                set_word(&mut self.data, 0x5320, position.wrapping_add(1));
-            }
-        }
-        Ok(())
+        self.sound.splash(&mut self.data, tick)
     }
 
     fn draw_player(&mut self, draw: Draw) -> Result<bool, String> {
@@ -336,6 +329,13 @@ impl Splash {
     }
     pub fn player(&self) -> &Player {
         &self.player
+    }
+    #[cfg(feature = "sdl")]
+    pub(crate) fn toggle_sound(&mut self) {
+        self.data[0] = !self.data[0];
+        if self.data[0] == 0 {
+            self.sound.stop();
+        }
     }
     pub fn machine(&self) -> Machine {
         self.machine

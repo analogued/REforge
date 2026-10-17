@@ -179,8 +179,9 @@ pub(crate) fn advance_drinking(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<DrinkStep, String> {
-    advance_drinking_inner(data, screen, tick, false)
+    advance_drinking_inner(data, screen, tick, false, sound)
 }
 
 #[cfg(feature = "dev-tools")]
@@ -189,8 +190,9 @@ pub(crate) fn advance_drinking_with_actor_mask(
     screen: &mut Framebuffer,
     tick: u16,
     disable_broom: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<DrinkStep, String> {
-    advance_drinking_inner(data, screen, tick, disable_broom)
+    advance_drinking_inner(data, screen, tick, disable_broom, sound)
 }
 
 /// CS:4943. The caller owns normal player restore/save/draw operations; their
@@ -200,6 +202,7 @@ fn advance_drinking_inner(
     screen: &mut Framebuffer,
     tick: u16,
     disable_broom: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<DrinkStep, String> {
     check(data)?;
     let mut step = DrinkStep::default();
@@ -293,11 +296,7 @@ fn advance_drinking_inner(
             data[0x44c4 + slot] -= 1;
             step.consumed = true;
             if data[0x44c4 + slot] == 0 {
-                if data[0] != 0 {
-                    set_word(data, 0x5923, 0x0723);
-                    data[0x5920] = 2;
-                    set_word(data, 0x5921, tick);
-                }
+                sound.request(data, tick, 0x08fd, 0x0723);
                 data[0x698] = 0;
                 data[0x44be] = 0;
                 data[0x69a] = 0x10;
@@ -521,7 +520,13 @@ mod tests {
             let mut data = data();
             set_word(&mut data, 0x579, x);
             data[0x44c5] = 1;
-            let step = advance_drinking(&mut data, &mut Framebuffer::default(), 1).unwrap();
+            let step = advance_drinking(
+                &mut data,
+                &mut Framebuffer::default(),
+                1,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert!(step.accepted);
             assert_eq!(word(&data, 0x44c1), 0);
             assert_eq!(word(&data, 0x44bf), distance);
@@ -542,7 +547,13 @@ mod tests {
             data[0x44d0] = phase;
             data[0x552] = 0xdd;
             data[0x1f80] = 3;
-            let step = advance_drinking(&mut data, &mut Framebuffer::default(), 1).unwrap();
+            let step = advance_drinking(
+                &mut data,
+                &mut Framebuffer::default(),
+                1,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert_eq!((step.consumed, data[0x44d0]), (consumed, next));
             assert_eq!(data[0x553], u8::from(consumed));
             assert_eq!(data[0x44c4], u8::from(!consumed));
@@ -558,7 +569,13 @@ mod tests {
         data[0x699] = 1;
         let random = word(&data, 0x2ae5);
         assert_eq!(
-            advance_drinking(&mut data, &mut Framebuffer::default(), 0).unwrap(),
+            advance_drinking(
+                &mut data,
+                &mut Framebuffer::default(),
+                0,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap(),
             DrinkStep::default()
         );
         assert_eq!((data[0x698], data[0x699]), (0xff, 0));
@@ -566,9 +583,14 @@ mod tests {
         data[0x1cb8] = 1;
         data[0x698] = 0;
         assert!(
-            !advance_drinking(&mut data, &mut Framebuffer::default(), 1)
-                .unwrap()
-                .accepted
+            !advance_drinking(
+                &mut data,
+                &mut Framebuffer::default(),
+                1,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
+            .accepted
         );
         assert_eq!(data[0x698], 0, "Death gate precedes alignment replay");
     }
@@ -578,7 +600,13 @@ mod tests {
         let mut data = data();
         let mut screen = Framebuffer::default();
         screen.fill_visible(0xaa);
-        advance_drinking(&mut data, &mut screen, 1).unwrap();
+        advance_drinking(
+            &mut data,
+            &mut screen,
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         let drawn = screen.bytes().to_vec();
         let random = word(&data, 0x2ae5);
         assert!(restore_drinking(&mut data, &mut screen).unwrap());
@@ -593,7 +621,13 @@ mod tests {
         assert_eq!(screen.bytes().as_slice(), drawn);
         assert_eq!((data[0x44d0], word(&data, 0x2ae5)), (48, random));
         data[0x69a] = 0x10;
-        advance_drinking(&mut data, &mut screen, 2).unwrap();
+        advance_drinking(
+            &mut data,
+            &mut screen,
+            2,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!((data[0x44bd], data[0x43e0], data[0x44d0]), (0, 1, 0));
         assert_eq!(
             screen

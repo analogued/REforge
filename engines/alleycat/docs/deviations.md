@@ -53,9 +53,8 @@ startup, while `--scene splash` previews only that presentation.
 
 The joystick question is omitted; keyboard controls are always enabled.
 Controller support remains unimplemented. The menu retains the original skill
-choices and accumulating text layout. Its sound-toggle instruction is replaced
-with Ctrl+Q to quit while audio is absent; its pause instruction describes the
-toggle keys. Ctrl+R restarts and Ctrl+M opens the skill menu directly, without
+choices, accumulating text layout and Ctrl+S sound-toggle instruction. Its
+pause instruction describes the host toggle keys; Ctrl+Q additionally quits. Ctrl+R restarts and Ctrl+M opens the skill menu directly, without
 replaying the splash. An explicit `--difficulty` skips the skill question and
 shows controls with a separate key-to-start wait. Menu waits ignore desktop
 shortcuts, modifier keys alone and held-key repeats.

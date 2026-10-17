@@ -77,6 +77,7 @@ pub struct SelectionTraceState {
 
 pub struct Alley {
     data: Vec<u8>,
+    pub(crate) sound: crate::sound::Sound,
     screen: Framebuffer,
     presented: Framebuffer,
     compositor: PlayerCompositor,
@@ -147,6 +148,17 @@ impl Alley {
         }
     }
 
+    #[cfg(feature = "sdl")]
+    pub(crate) fn toggle_sound(&mut self) {
+        self.data[0] = !self.data[0];
+        if self.data[0] == 0 {
+            self.sound.stop();
+        }
+    }
+    #[cfg(feature = "sdl")]
+    pub(crate) fn title_sound_preference(&mut self, splash: &crate::splash::Splash) {
+        self.data[0] = splash.data()[0];
+    }
     pub fn game_over(&self) -> bool {
         self.game_over
     }
@@ -169,6 +181,7 @@ impl Alley {
         {
             return Err("A completed game-over title is required".into());
         }
+        self.data[0] = splash.data()[0];
         set_word(&mut self.data, 0x2ae5, word(splash.data(), 0x2ae5));
         self.reset_run(0, false)
     }
@@ -204,6 +217,7 @@ impl Alley {
     }
 
     fn reset_run(&mut self, tick: u16, fresh_random: bool) -> Result<(), String> {
+        self.sound.reset();
         self.promote_high_score();
         self.data[0x1f82..0x1f89].fill(0);
         self.data[0x1f80] = 3;
@@ -260,6 +274,7 @@ impl Alley {
     }
 
     fn finish_run(&mut self) {
+        self.sound.stop();
         self.game_over = true;
         self.damage_effect = None;
         self.dog_image = None;
@@ -276,13 +291,23 @@ impl Alley {
         self.damage_effect.is_some()
     }
 
-    pub(crate) fn advance_damage_effect(&mut self, tick: u16) -> Result<bool, String> {
+    pub(crate) fn advance_damage_effect(
+        &mut self,
+        tick: u16,
+        counter: u16,
+    ) -> Result<bool, String> {
         let Some(effect) = &self.damage_effect else {
             return Ok(true);
         };
         if tick.wrapping_sub(effect.since) < effect.duration {
+            match effect.kind {
+                EffectKind::Projectile(_) => self.sound.projectile_step(&mut self.data, counter),
+                EffectKind::Spider => self.sound.spider_step(&mut self.data),
+                EffectKind::Eel => self.sound.eel_step(&mut self.data),
+            }
             return Ok(false);
         }
+        self.sound.stop();
         let effect = self.damage_effect.take().expect("effect exists");
         match effect.kind {
             EffectKind::Projectile(_) => {
@@ -485,7 +510,7 @@ impl Alley {
             }
             return self.compose_actors();
         }
-        self.room_actor(|data, screen| {
+        self.room_actor(|data, screen, _sound| {
             if matches!(scene, 1 | 3..=6) && options.actor_disabled(Actor::Broom) {
                 crate::room::restore_broom(data, screen)?;
                 data[0x3286] = 1;
@@ -535,7 +560,28 @@ impl Alley {
     }
 
     pub(crate) fn advance_random(&mut self) {
-        next_random(&mut self.data);
+        let bit = (next_random(&mut self.data) as u8) & 2 & self.data[0];
+        self.sound.gate(self.sound.control() ^ bit);
+    }
+    pub(crate) fn bin_sound(&mut self) {
+        for divisor in [0x7d0, 0xa6e, 0xdec] {
+            self.sound.beep(&self.data, divisor, 0x1800);
+        }
+    }
+    pub(crate) fn support_sound_latched(&self) -> bool {
+        self.data[0x127c] != 0
+    }
+    pub(crate) fn clear_support_sound(&mut self) {
+        self.data[0x127c] = 0;
+    }
+    pub(crate) fn support_sound(&mut self, divisor: u16, attached: bool) {
+        if self.data[0x1cbf] == 0 {
+            self.sound.beep(&self.data, divisor, 0x1800);
+        }
+        self.data[0x127c] = u8::from(attached);
+    }
+    pub(crate) fn upper_landing_sound(&mut self, tick: u16) {
+        self.sound.upper_landing(&mut self.data, tick);
     }
 
     pub(crate) fn bin_contact_sound_ready(&self) -> bool {
@@ -549,6 +595,7 @@ impl Alley {
         data[0x1028] = 0xff;
         data[0x100e] = 7;
         Self {
+            sound: crate::sound::Sound::default(),
             data,
             screen: Framebuffer::default(),
             presented: Framebuffer::default(),
@@ -582,8 +629,8 @@ impl Alley {
     ) -> Result<Self, String> {
         let assets = Assets::load(original)?;
         let mut data = assets.runtime_data();
-        // Original startup enables sound. Keep its logical gates even while
-        // audio output is deferred: silent helpers still affect shared state.
+        // Original startup enables sound. Host mute/volume must not change this
+        // native flag: the speaker routines also affect timing and shared RNG.
         data[0] = 0xff;
         data[0x69a] = 16;
         // CS:0073..0079 marks both selector-history entries as empty.
@@ -603,6 +650,7 @@ impl Alley {
         crate::windows::initialize(&mut data)?;
         let mice = Mice::initialize(&mut data, 8)?;
         let mut alley = Self {
+            sound: crate::sound::Sound::default(),
             data,
             presented: screen.clone(),
             screen,
@@ -754,8 +802,13 @@ impl Alley {
         self.player.write_data(&mut self.data)?;
         set_word(&mut self.data, 0x57f, accepted_ax);
         let suppress_air = !self.harm_enabled(Harm::Air);
-        let step =
-            crate::swimming::advance_with_damage(&mut self.data, controls, tick, suppress_air)?;
+        let step = crate::swimming::advance_with_damage(
+            &mut self.data,
+            controls,
+            tick,
+            suppress_air,
+            &mut self.sound,
+        )?;
         if let Some((offset, sprite)) = step.bubble {
             let dimensions = Dimensions(sprite.dimensions);
             let background = self.screen.and_rect(
@@ -782,22 +835,24 @@ impl Alley {
         #[cfg(feature = "dev-tools")]
         let contact = {
             let disabled = self.dev_options.actor_disabled(Actor::Eels);
-            self.room_actor(|data, screen| {
+            self.room_actor(|data, screen, _sound| {
                 crate::fishbowl::contacts_dev_with_damage(
                     data,
                     screen,
                     tick,
                     disabled,
                     suppress_eels,
+                    _sound,
                 )
             })?
         };
         #[cfg(not(feature = "dev-tools"))]
-        let contact = self.room_actor(|data, screen| {
-            crate::fishbowl::contacts_with_damage(data, screen, tick, suppress_eels)
+        let contact = self.room_actor(|data, screen, _sound| {
+            crate::fishbowl::contacts_with_damage(data, screen, tick, suppress_eels, _sound)
         })?;
         if contact.wait_ticks != 0 {
             crate::fishbowl::draw_eel_failure(&mut self.data, &mut self.screen)?;
+            self.sound.eel_start(&mut self.data);
             self.damage_effect = Some(DamageEffect {
                 since: tick,
                 duration: contact.wait_ticks,
@@ -838,12 +893,7 @@ impl Alley {
     }
 
     pub(crate) fn advance_room_tone(&mut self, tick: u16) {
-        // CS:546d expires a pending asynchronous tone once per distinct tick;
-        // skipped ticks are not caught up. Ambient synthesis remains deferred.
-        if self.data[0] != 0 && self.data[0x5920] != 0 && word(&self.data, 0x5921) != tick {
-            set_word(&mut self.data, 0x5921, tick);
-            self.data[0x5920] -= 1;
-        }
+        self.sound.ambient(&mut self.data, tick);
     }
 
     pub(crate) fn latch_action(&mut self, held: bool) {
@@ -871,14 +921,18 @@ impl Alley {
         if self.dev_options.actor_disabled(Actor::HeartsArrows) {
             return Ok(crate::hearts::HeartStep::default());
         }
-        self.room_actor(|data, screen| crate::hearts::advance_arrow(data, screen, tick))
+        self.room_actor(|data, screen, _sound| {
+            crate::hearts::advance_arrow(data, screen, tick, _sound)
+        })
     }
 
     pub(crate) fn pickup_hearts_item(
         &mut self,
         tick: u16,
     ) -> Result<crate::hearts::HeartStep, String> {
-        self.room_actor(|data, screen| crate::hearts::pickup_item(data, screen, tick))
+        self.room_actor(|data, screen, _sound| {
+            crate::hearts::pickup_item(data, screen, tick, _sound)
+        })
     }
 
     pub(crate) fn place_hearts_item(
@@ -888,13 +942,15 @@ impl Alley {
         #[cfg(feature = "dev-tools")]
         {
             let disabled = self.dev_options.actor_disabled(Actor::HeartsRivals);
-            self.room_actor(|data, screen| {
-                crate::hearts::place_item_dev(data, screen, tick, disabled)
+            self.room_actor(|data, screen, _sound| {
+                crate::hearts::place_item_dev(data, screen, tick, disabled, _sound)
             })
         }
         #[cfg(not(feature = "dev-tools"))]
         {
-            self.room_actor(|data, screen| crate::hearts::place_item(data, screen, tick))
+            self.room_actor(|data, screen, _sound| {
+                crate::hearts::place_item(data, screen, tick, _sound)
+            })
         }
     }
 
@@ -905,19 +961,22 @@ impl Alley {
         #[cfg(feature = "dev-tools")]
         {
             let disabled = self.dev_options.actor_disabled(Actor::HeartsRivals);
-            self.room_actor(|data, screen| {
-                crate::hearts::advance_cat_dev(data, screen, tick, disabled)
+            self.room_actor(|data, screen, _sound| {
+                crate::hearts::advance_cat_dev(data, screen, tick, disabled, _sound)
             })
         }
         #[cfg(not(feature = "dev-tools"))]
         {
-            self.room_actor(|data, screen| crate::hearts::advance_cat(data, screen, tick))
+            self.room_actor(|data, screen, _sound| {
+                crate::hearts::advance_cat(data, screen, tick, _sound)
+            })
         }
     }
 
     fn reset_sound_state(&mut self) {
         self.air_warning = 0;
-        // CS:58bd logical initialization, without synthesizing audio.
+        self.sound.stop();
+        // CS:58bd initialization; stopping the device is separate from counters.
         for (offset, value) in [
             (0x5927, 0x80),
             (0x5928, 0),
@@ -955,11 +1014,23 @@ impl Alley {
         retrace: bool,
     ) -> Result<crate::completion::Work, String> {
         let work = if let Some(completion) = self.completion.as_mut() {
-            completion.advance(&mut self.data, &mut self.screen, tick, retrace)?
+            completion.advance(
+                &mut self.data,
+                &mut self.screen,
+                tick,
+                retrace,
+                &mut self.sound,
+            )?
         } else if let Some(completion) = self.hearts_completion.as_mut() {
-            completion.advance(&mut self.data, &mut self.screen, tick, retrace)?
+            completion.advance(
+                &mut self.data,
+                &mut self.screen,
+                tick,
+                retrace,
+                &mut self.sound,
+            )?
         } else if let Some(failure) = self.failure.as_mut() {
-            failure.advance(&mut self.data, &mut self.screen, tick)?
+            failure.advance(&mut self.data, &mut self.screen, tick, &mut self.sound)?
         } else {
             return Err("No completion presentation is active".into());
         };
@@ -1223,14 +1294,14 @@ impl Alley {
     /// background. Recompose its exact current image without idle RNG draws.
     fn room_actor<T>(
         &mut self,
-        action: impl FnOnce(&mut [u8], &mut Framebuffer) -> Result<T, String>,
+        action: impl FnOnce(&mut [u8], &mut Framebuffer, &mut crate::sound::Sound) -> Result<T, String>,
     ) -> Result<T, String> {
         let image = self.compositor.suspend(&mut self.screen)?;
         self.player.write_data(&mut self.data)?;
         if self.scene() == 6 {
             crate::milk::restore_drinking(&mut self.data, &mut self.screen)?;
         }
-        let result = action(&mut self.data, &mut self.screen)?;
+        let result = action(&mut self.data, &mut self.screen, &mut self.sound)?;
         self.player.apply_actor_state(&self.data)?;
         let image = if self.scene() == 6 && self.data[0x44bd] != 0 {
             if image.is_some() {
@@ -1262,12 +1333,14 @@ impl Alley {
         #[cfg(feature = "dev-tools")]
         {
             let disabled = self.dev_options.actor_disabled(Actor::Broom);
-            self.room_actor(|data, screen| {
-                crate::milk::advance_drinking_with_actor_mask(data, screen, tick, disabled)
+            self.room_actor(|data, screen, _sound| {
+                crate::milk::advance_drinking_with_actor_mask(data, screen, tick, disabled, _sound)
             })
         }
         #[cfg(not(feature = "dev-tools"))]
-        self.room_actor(|data, screen| crate::milk::advance_drinking(data, screen, tick))
+        self.room_actor(|data, screen, _sound| {
+            crate::milk::advance_drinking(data, screen, tick, _sound)
+        })
     }
 
     pub(crate) fn advance_milk_attention(
@@ -1279,9 +1352,12 @@ impl Alley {
             return Ok(crate::milk::AttentionStep::default());
         }
         let suppress = !self.harm_enabled(Harm::MilkDogs);
-        let step = self.room_actor(|data, screen| {
+        let step = self.room_actor(|data, screen, _sound| {
             crate::milk::advance_attention_with_damage(data, screen, tick, suppress)
         })?;
+        if step.warning {
+            self.sound.milk_warning(&mut self.data, tick);
+        }
         if let Some(slot) = step.lethal_slot {
             self.compositor.restore(&mut self.screen)?;
             crate::milk::restore_drinking(&mut self.data, &mut self.screen)?;
@@ -1303,7 +1379,7 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<crate::fishbowl::BowlStep, String> {
-        self.room_actor(|data, screen| crate::fishbowl::advance_bowl(data, screen, tick))
+        self.room_actor(|data, screen, _sound| crate::fishbowl::advance_bowl(data, screen, tick))
     }
 
     pub(crate) fn advance_underwater_actors(
@@ -1313,13 +1389,15 @@ impl Alley {
         #[cfg(feature = "dev-tools")]
         {
             let disabled = self.dev_options.actor_disabled(Actor::Eels);
-            self.room_actor(|data, screen| {
+            self.room_actor(|data, screen, _sound| {
                 crate::fishbowl::advance_actors_dev(data, screen, tick, disabled)
             })
         }
         #[cfg(not(feature = "dev-tools"))]
         {
-            self.room_actor(|data, screen| crate::fishbowl::advance_actors(data, screen, tick))
+            self.room_actor(|data, screen, _sound| {
+                crate::fishbowl::advance_actors(data, screen, tick)
+            })
         }
     }
 
@@ -1327,7 +1405,7 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<crate::fishbowl::SurfaceStep, String> {
-        self.room_actor(|data, screen| crate::fishbowl::advance_surface(data, screen, tick))
+        self.room_actor(|data, screen, _sound| crate::fishbowl::advance_surface(data, screen, tick))
     }
 
     pub(crate) fn advance_bookcase_spider(
@@ -1342,18 +1420,19 @@ impl Alley {
         #[cfg(feature = "dev-tools")]
         let step = {
             let disabled = self.dev_options.actor_disabled(Actor::Broom);
-            self.room_actor(|data, screen| {
+            self.room_actor(|data, screen, _sound| {
                 crate::bookcase::advance_spider_dev_with_damage(
                     data, screen, tick, disabled, suppress,
                 )
             })?
         };
         #[cfg(not(feature = "dev-tools"))]
-        let step = self.room_actor(|data, screen| {
+        let step = self.room_actor(|data, screen, _sound| {
             crate::bookcase::advance_spider_with_damage(data, screen, tick, suppress)
         })?;
         if step.failure_pending {
             crate::bookcase::draw_spider_failure(&mut self.data, &mut self.screen)?;
+            self.sound.spider_start(&mut self.data);
             self.damage_effect = Some(DamageEffect {
                 since: tick,
                 duration: step.wait_ticks,
@@ -1371,13 +1450,15 @@ impl Alley {
         #[cfg(feature = "dev-tools")]
         {
             let disabled = self.dev_options.actor_disabled(Actor::Spider);
-            self.room_actor(|data, screen| {
-                crate::bookcase::advance_targets_dev(data, screen, tick, disabled)
+            self.room_actor(|data, screen, _sound| {
+                crate::bookcase::advance_targets_dev(data, screen, tick, disabled, _sound)
             })
         }
         #[cfg(not(feature = "dev-tools"))]
         {
-            self.room_actor(|data, screen| crate::bookcase::advance_targets(data, screen, tick))
+            self.room_actor(|data, screen, _sound| {
+                crate::bookcase::advance_targets(data, screen, tick, _sound)
+            })
         }
     }
 
@@ -1388,13 +1469,15 @@ impl Alley {
         #[cfg(feature = "dev-tools")]
         {
             let disabled = self.dev_options.actor_disabled(Actor::Broom);
-            self.room_actor(|data, screen| {
-                crate::cheese::advance_mice_dev(data, screen, tick, disabled)
+            self.room_actor(|data, screen, _sound| {
+                crate::cheese::advance_mice_dev(data, screen, tick, disabled, _sound)
             })
         }
         #[cfg(not(feature = "dev-tools"))]
         {
-            self.room_actor(|data, screen| crate::cheese::advance_mice(data, screen, tick))
+            self.room_actor(|data, screen, _sound| {
+                crate::cheese::advance_mice(data, screen, tick, _sound)
+            })
         }
     }
 
@@ -1434,21 +1517,25 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<crate::birdcage::CageStep, String> {
-        self.room_actor(|data, screen| crate::birdcage::advance_cage(data, screen, tick))
+        self.room_actor(|data, screen, _sound| {
+            crate::birdcage::advance_cage(data, screen, tick, _sound)
+        })
     }
 
     pub(crate) fn advance_room_fall(
         &mut self,
         tick: u16,
     ) -> Result<crate::birdcage::FallStep, String> {
-        self.room_actor(|data, screen| crate::birdcage::advance_fall(data, screen, tick))
+        self.room_actor(|data, screen, _sound| crate::birdcage::advance_fall(data, screen, tick))
     }
 
     pub(crate) fn advance_room_bird(
         &mut self,
         tick: u16,
     ) -> Result<crate::birdcage::BirdStep, String> {
-        self.room_actor(|data, screen| crate::birdcage::advance_bird(data, screen, tick))
+        self.room_actor(|data, screen, _sound| {
+            crate::birdcage::advance_bird(data, screen, tick, _sound)
+        })
     }
 
     pub(crate) fn advance_room_broom(
@@ -1459,7 +1546,7 @@ impl Alley {
         if self.dev_options.actor_disabled(Actor::Broom) {
             return Ok(None);
         }
-        self.room_actor(|data, screen| crate::room::advance_broom(data, screen, tick))
+        self.room_actor(|data, screen, _sound| crate::room::advance_broom(data, screen, tick))
     }
 
     pub(crate) fn advance_windows(
@@ -1768,12 +1855,8 @@ impl Alley {
                         &source,
                     )?;
                 }
-                // CS:593b's asynchronous tone state; output synthesis is deferred.
-                if self.data[0] != 0 {
-                    self.data[0x5920] = 2;
-                    set_word(&mut self.data, 0x5921, tick);
-                    set_word(&mut self.data, 0x5923, 750);
-                }
+                // CS:593b starts the first note before its tick-driven continuation.
+                self.sound.request(&mut self.data, tick, 1000, 750);
                 false
             }
             Contact::None | Contact::Blocked => false,
@@ -1789,7 +1872,8 @@ impl Alley {
     pub(crate) fn mouse_effect_random(&mut self, tick: u16) {
         if self.data[0] != 0 && word(&self.data, 0x5a14) != tick {
             set_word(&mut self.data, 0x5a14, tick);
-            next_random(&mut self.data);
+            let divisor = (next_random(&mut self.data) & 0x70) + 0x200;
+            self.sound.tone(divisor, crate::sound::Category::Effects);
         }
     }
 
@@ -1801,6 +1885,7 @@ impl Alley {
 
     pub(crate) fn finish_mouse_effect(&mut self) -> Result<(), String> {
         self.mouse_effect = None;
+        self.sound.stop();
         self.compose_actors()
     }
 
@@ -2047,7 +2132,7 @@ mod tests {
         assert_eq!(alley.data[0x44bd], 1);
         let drink_frame = alley.framebuffer().bytes().to_vec();
         for _ in 0..3 {
-            alley.room_actor(|_, _| Ok(())).unwrap();
+            alley.room_actor(|_, _, _| Ok(())).unwrap();
             assert_eq!(alley.framebuffer().bytes().as_slice(), drink_frame);
         }
         alley.latch_action(false);

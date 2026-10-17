@@ -150,7 +150,7 @@ impl ReferenceCosts {
             // Add only work above the ordinary gated group allowance.
             mouse_redraw: 1_550_000,
             mouse_catch: 7_600_000,
-            // Native CALL/RET helper measurements, including its three tones.
+            // Provisional total allowance, including the three counted loops.
             bin_push_sound: if machine == Machine::Pcjr {
                 40_900_000
             } else {
@@ -270,6 +270,20 @@ impl Runtime {
         held: Controls,
         action: bool,
     ) -> Result<PassOutcome, String> {
+        alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+        let mut event = self.advance_pass_inner(alley, held, action)?;
+        self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
+        alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+        event.end_nanos = self.clock.elapsed_nanos();
+        Ok(event)
+    }
+
+    fn advance_pass_inner(
+        &mut self,
+        alley: &mut Alley,
+        held: Controls,
+        action: bool,
+    ) -> Result<PassOutcome, String> {
         let start_nanos = self.clock.elapsed_nanos();
         self.synchronize_scene(alley);
         if alley.game_over() {
@@ -278,7 +292,10 @@ impl Runtime {
         }
         if alley.damage_waiting() {
             self.clock.advance_nanos(self.costs.room_effect_poll);
-            if !alley.advance_damage_effect(self.clock.sample().bios.tick_low)? || alley.game_over()
+            let sample = self.clock.sample();
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+            if !alley.advance_damage_effect(sample.bios.tick_low, sample.pit_counter)?
+                || alley.game_over()
             {
                 return Ok(self.room_wait_outcome(alley, start_nanos));
             }
@@ -288,6 +305,7 @@ impl Runtime {
         if alley.completion_waiting() {
             self.clock.advance_nanos(self.costs.room_effect_poll);
             let sample = self.clock.sample();
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let work = alley.advance_completion(sample.bios.tick_low, sample.retrace)?;
             self.clock
                 .advance_nanos(work.bytes_drawn as u64 * self.costs.completion_draw_byte);
@@ -344,11 +362,13 @@ impl Runtime {
                 }
                 FenceAction::Random => {
                     self.clock.advance_nanos(self.costs.fence_countdown);
+                    alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
                     alley.advance_random();
                     self.clock.advance_nanos(self.costs.fence_random);
                 }
                 FenceAction::Complete => {
                     self.clock.advance_nanos(self.costs.fence_finish);
+                    alley.sound.stop();
                     self.fence = None;
                     let mut event = self.finish_pass(alley, start_nanos, false, None)?;
                     event.fence_wait = true;
@@ -375,6 +395,7 @@ impl Runtime {
         let resumed_fall = if self.cage_falling {
             self.clock.advance_nanos(self.costs.room_effect_poll);
             let sample = self.clock.sample();
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let fall = alley.advance_room_fall(sample.bios.tick_low)?;
             if fall.drew {
                 self.clock.advance_nanos(self.costs.room_cage_draw);
@@ -419,7 +440,9 @@ impl Runtime {
 
         if alley.scene() == 5 {
             if !resumed_fall {
+                alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
                 alley.advance_room_tone(self.clock.sample().bios.tick_low);
+                self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
                 let cage = alley.advance_room_cage(self.clock.sample().bios.tick_low)?;
                 self.clock.advance_nanos(self.costs.room_actor_gate);
                 if cage.drew {
@@ -432,6 +455,7 @@ impl Runtime {
                     return Ok(event);
                 }
             }
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let bird = alley.advance_room_bird(self.clock.sample().bios.tick_low)?;
             self.clock.advance_nanos(self.costs.room_actor_gate);
             if bird.drew {
@@ -440,18 +464,23 @@ impl Runtime {
         }
         if matches!(alley.scene(), 1..=4 | 6..=7) {
             // These scenes expire the shared room tone before the player call.
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             alley.advance_room_tone(self.clock.sample().bios.tick_low);
+            self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
         }
         if alley.scene() == 6 {
             // CS:02ce..02d4: drinking and sleeping-dog attention precede the
             // player call. The drink helper may replace latched directions.
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let drinking = alley.advance_milk_drinking(self.clock.sample().bios.tick_low)?;
             self.controls = alley.requested_controls();
             self.clock.advance_nanos(self.costs.room_actor_gate);
             if drinking.drew {
                 self.clock.advance_nanos(self.costs.milk_drink_draw);
             }
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let attention = alley.advance_milk_attention(self.clock.sample().bios.tick_low)?;
+            self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
             self.clock.advance_nanos(self.costs.room_actor_gate);
             if attention.drew {
                 self.clock.advance_nanos(self.costs.milk_attention_draw);
@@ -498,6 +527,8 @@ impl Runtime {
             let entering = alley.player.entry_state != 0;
             let releasing = alley.player.support_state != 0 && self.controls.y != 0;
             let bin_sound_ready = alley.bin_contact_sound_ready();
+            let support_tone = alley.support_sound_latched();
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let outcome = if alley.scene() == 2 {
                 alley.update_swimming(self.controls, accepted.tick_low, accepted.ax)?
             } else {
@@ -517,6 +548,45 @@ impl Runtime {
             if let Some(controls) = outcome.forced_controls {
                 self.controls = controls;
             }
+            // The short support beep is already included in the fitted player
+            // cost. Upper-support noise and the bin-contact trio are additional
+            // native blocking helpers, and must advance the guest clock.
+            let transitioned = outcome.support == crate::player::Support::None
+                && alley.player.vertical_direction != 0;
+            let forced = outcome.forced_controls.is_some();
+            if (outcome.support == crate::player::Support::LowerList
+                || (forced && outcome.bin_contact_checked))
+                && !support_tone
+            {
+                alley.support_sound(0x400, true);
+            }
+            let mut support_ticks = alley.sound.take_busy_ticks();
+            if forced && bin_sound_ready {
+                alley.bin_sound();
+                let ticks = alley.sound.take_busy_ticks();
+                self.clock.advance_nanos(
+                    self.costs
+                        .bin_push_sound
+                        .saturating_sub(ticks * 1_000_000_000 / crate::timing::PIT_HZ),
+                );
+                self.clock.advance_pit_ticks(ticks);
+            }
+            if (transitioned && support_tone && outcome.bin_contact_checked) || forced {
+                alley.support_sound(0x390, false);
+            }
+            if alley.scene() == 0
+                && !outcome.bin_contact_checked
+                && outcome.support != crate::player::Support::LowerList
+            {
+                // A failed lower-list search clears 127c before the ordinary
+                // fall initializer; walking off a bin does not play 58f8.
+                alley.clear_support_sound();
+            }
+            support_ticks += alley.sound.take_busy_ticks();
+            if outcome.landed && alley.player.support_state != 0 {
+                alley.upper_landing_sound(accepted.tick_low);
+                self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
+            }
             let cost = if alley.scene() == 2 {
                 self.costs.swimming_player
             } else if releasing || outcome.forced_controls.is_some() {
@@ -535,16 +605,17 @@ impl Runtime {
                     Draw::Sprite(_) => self.costs.player_walk,
                 }
             };
-            self.clock.advance_nanos(cost);
-            if outcome.forced_controls.is_some() && bin_sound_ready {
-                self.clock.advance_nanos(self.costs.bin_push_sound);
-            }
+            self.clock.advance_nanos(
+                cost.saturating_sub(support_ticks * 1_000_000_000 / crate::timing::PIT_HZ),
+            );
+            self.clock.advance_pit_ticks(support_ticks);
             if outcome.edge_reset {
                 // The original calls 070d before 59cb: clear requests, accepted
                 // tick and countdown now. 069f, divider and accepted AX survive.
                 self.controls = Controls::default();
                 self.player_gate.reset();
                 self.clock.advance_nanos(self.costs.fence_setup);
+                alley.sound.gate(alley.sound.control() & !1);
                 self.fence = Some(FenceEffect::new(self.clock.sample().bios.tick_low));
                 return Ok(PassOutcome {
                     start_nanos,
@@ -599,6 +670,7 @@ impl Runtime {
                     Alley::place_hearts_item,
                     Alley::advance_hearts_cat,
                 ] {
+                    alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
                     let step = call(alley, self.clock.sample().bios.tick_low)?;
                     self.clock.advance_nanos(self.costs.room_actor_gate);
                     if step.drew {
@@ -631,6 +703,7 @@ impl Runtime {
                     }
                 }
                 if before_scene == 3 {
+                    alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
                     let targets =
                         alley.advance_bookcase_targets(self.clock.sample().bios.tick_low)?;
                     self.clock.advance_nanos(self.costs.room_actor_gate);
@@ -647,6 +720,7 @@ impl Runtime {
                     if transfer.drew {
                         self.clock.advance_nanos(self.costs.cheese_transfer_draw);
                     }
+                    alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
                     let mice = alley.advance_cheese_mice(self.clock.sample().bios.tick_low)?;
                     self.clock.advance_nanos(self.costs.room_actor_gate);
                     if mice.drew {
@@ -718,6 +792,9 @@ impl Runtime {
         let actor_group_due = resumed_projectile || self.divider.advance(alley.dying());
         if actor_group_due {
             if !resumed_projectile {
+                alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+                alley.advance_room_tone(self.clock.sample().bios.tick_low);
+                self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
                 let sample = self.clock.sample();
                 if let Some(scroll) = alley.advance_scenery(sample.bios.tick_low, sample.retrace)? {
                     self.clock.advance_nanos(if scroll.generated_tile {
@@ -750,6 +827,7 @@ impl Runtime {
                 );
             }
             let sample = self.clock.sample();
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let mouse = alley.advance_mice(sample.bios.tick_low)?;
             self.clock.advance_nanos(if mouse.caught {
                 self.costs.mouse_catch

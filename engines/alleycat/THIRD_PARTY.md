@@ -50,6 +50,13 @@ The upstream header's SHA-256 is
 `0c96157b6397485698ac07d20d33858e086c2752403f4d2f57a70acc26fa45df`.
 These retained notices do not select the license for authored project code.
 
+## Speaker synthesis
+
+The engine uses REforge's [shared audio crate](../../crates/reforge_audio/README.md)
+with its `blip` feature for band-limited speaker output. Its pinned `blip_buf`
+Cargo dependency is unmodified; the shared crate retains the
+[provenance and MIT license](../../crates/reforge_audio/docs/dependencies.md).
+
 ## License notices
 
 The following text is taken from each locked package's `LICENSE-MIT` and the

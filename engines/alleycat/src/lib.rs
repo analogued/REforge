@@ -32,6 +32,7 @@ pub mod player;
 mod projectiles;
 mod room;
 pub mod runtime;
+pub mod sound;
 pub mod splash;
 mod swimming;
 pub mod timing;

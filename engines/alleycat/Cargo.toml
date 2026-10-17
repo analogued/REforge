@@ -8,11 +8,12 @@ description = "An early Alley Cat reconstruction for modern desktop systems"
 
 [features]
 default = ["sdl"]
-sdl = ["dep:reforge_sdl"]
-dev-tools = []
+sdl = ["dep:reforge_sdl", "dep:reforge_audio", "reforge_audio/blip"]
+dev-tools = ["dep:reforge_audio", "reforge_audio/blip"]
 
 [dependencies]
 sha2 = { version = "=0.11.0", default-features = false }
+reforge_audio = { path = "../../crates/reforge_audio", optional = true }
 reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
 
 [lints.rust]

@@ -123,8 +123,9 @@ pub(crate) fn advance(
     data: &mut [u8],
     controls: Controls,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<SwimmingStep, String> {
-    advance_with_damage(data, controls, tick, false)
+    advance_with_damage(data, controls, tick, false, sound)
 }
 
 pub(crate) fn advance_with_damage(
@@ -132,6 +133,7 @@ pub(crate) fn advance_with_damage(
     controls: Controls,
     tick: u16,
     suppress_air: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<SwimmingStep, String> {
     let difficulty = check(data)?;
     if !(-1..=1).contains(&controls.x) || !(-1..=1).contains(&controls.y) {
@@ -162,10 +164,13 @@ pub(crate) fn advance_with_damage(
         if data[0x5f5] == 0 {
             if data[0] != 0 {
                 let tone_phase = word(data, 0x5b08);
-                set_word(data, 0x5923, 0x1312u16.wrapping_add(tone_phase));
                 set_word(data, 0x5b08, tone_phase.wrapping_add(0x15e));
-                data[0x5920] = 2;
-                set_word(data, 0x5921, tick);
+                sound.request(
+                    data,
+                    tick,
+                    0x1200u16.wrapping_add(tone_phase),
+                    0x1312u16.wrapping_add(tone_phase),
+                );
                 data[0x5b07] = 0x18;
             }
             data[0x5f5] = 6;
@@ -331,11 +336,23 @@ mod tests {
         let mut data = tables();
         set_word(&mut data, 0x574, 47);
         data[0x576] = 63;
-        advance(&mut data, Controls { x: 1, y: 1 }, 10).unwrap();
+        advance(
+            &mut data,
+            Controls { x: 1, y: 1 },
+            10,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!((word(&data, 0x574), data[0x576]), (50, 67));
         assert_eq!((word(&data, 0x579), data[0x57b]), (104, 103));
         assert_eq!(data[0x57c], 150);
-        advance(&mut data, Controls { x: 1, y: 1 }, 11).unwrap();
+        advance(
+            &mut data,
+            Controls { x: 1, y: 1 },
+            11,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!((word(&data, 0x574), data[0x576]), (50, 67));
     }
 
@@ -343,7 +360,13 @@ mod tests {
     fn changed_direction_has_transition_sprite_without_advancing_phase() {
         let mut data = tables();
         set_word(&mut data, 0x587, 70);
-        let result = advance(&mut data, Controls { x: -1, y: -1 }, 10).unwrap();
+        let result = advance(
+            &mut data,
+            Controls { x: -1, y: -1 },
+            10,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!((word(&data, 0x579), data[0x57b]), (96, 98));
         assert_eq!((word(&data, 0x574), data[0x576]), (32, 32));
         assert_eq!(word(&data, 0x587), 70);
@@ -361,11 +384,23 @@ mod tests {
         let mut data = tables();
         set_word(&mut data, 0x574, 16);
         data[0x576] = 16;
-        advance(&mut data, Controls::default(), 1).unwrap();
+        advance(
+            &mut data,
+            Controls::default(),
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!((data[0x56e], data[0x571]), (1, 1));
         assert_eq!((word(&data, 0x574), data[0x576]), (15, 15));
         assert_eq!((word(&data, 0x579), data[0x57b]), (101, 100));
-        advance(&mut data, Controls::default(), 2).unwrap();
+        advance(
+            &mut data,
+            Controls::default(),
+            2,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!((data[0x56e], data[0x571]), (0, 255));
         assert_eq!((word(&data, 0x574), data[0x576]), (32, 32));
         assert_eq!((word(&data, 0x579), data[0x57b]), (101, 98));
@@ -380,7 +415,7 @@ mod tests {
             let mut data = tables();
             set_word(&mut data, 0x579, x);
             data[0x57b] = y;
-            advance(&mut data, controls, 10).unwrap();
+            advance(&mut data, controls, 10, &mut crate::sound::Sound::default()).unwrap();
             assert_eq!((word(&data, 0x579), data[0x57b]), expected);
         }
     }
@@ -392,7 +427,13 @@ mod tests {
             data[0x57b] = 4;
             let source = if matches { word(&data, 0x9b8) } else { 0x9999 };
             set_word(&mut data, 0x55d, source);
-            let result = advance(&mut data, Controls { x: 0, y: -1 }, 45).unwrap();
+            let result = advance(
+                &mut data,
+                Controls { x: 0, y: -1 },
+                45,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert_eq!(word(&data, 0x5f1), expected_tick);
             assert_eq!(data[0x57b], 2);
             assert_eq!(result.air_warning, 5);
@@ -418,6 +459,7 @@ mod tests {
                 Controls { x: -1, y: -1 },
                 0xfff0u16.wrapping_add(elapsed),
                 true,
+                &mut crate::sound::Sound::default(),
             )
             .unwrap();
             assert_eq!(result.air_warning, warning);
@@ -443,7 +485,8 @@ mod tests {
             data[0x571] = y_direction;
             set_word(&mut data, 0x574, x_inertia);
             data[0x576] = y_inertia;
-            let result = advance(&mut data, controls, 10).unwrap();
+            let result =
+                advance(&mut data, controls, 10, &mut crate::sound::Sound::default()).unwrap();
             assert_eq!(
                 result.draw,
                 Draw::Sprite(Sprite {
@@ -460,7 +503,13 @@ mod tests {
     fn neutral_animation_halves_low_phase_without_halving_the_counter() {
         let mut data = tables();
         set_word(&mut data, 0x587, 3);
-        let result = advance(&mut data, Controls::default(), 10).unwrap();
+        let result = advance(
+            &mut data,
+            Controls::default(),
+            10,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(word(&data, 0x587), 4);
         assert_eq!(
             result.draw,
@@ -475,11 +524,27 @@ mod tests {
     fn rejected_inputs_leave_data_unchanged() {
         let mut data = tables();
         let initial = data.clone();
-        assert!(advance(&mut data, Controls { x: 2, y: 0 }, 10).is_err());
+        assert!(
+            advance(
+                &mut data,
+                Controls { x: 2, y: 0 },
+                10,
+                &mut crate::sound::Sound::default()
+            )
+            .is_err()
+        );
         assert_eq!(data, initial);
         set_word(&mut data, 8, 8);
         let initial = data.clone();
-        assert!(advance(&mut data, Controls::default(), 10).is_err());
+        assert!(
+            advance(
+                &mut data,
+                Controls::default(),
+                10,
+                &mut crate::sound::Sound::default()
+            )
+            .is_err()
+        );
         assert_eq!(data, initial);
         assert!(initialize_player(&mut data[..0x1000], 10).is_err());
     }
@@ -492,7 +557,13 @@ mod tests {
             data[0x5f4] = 5;
             data[0x5f5] = 1;
             let tick = 0xfff0u16.wrapping_add(elapsed);
-            let step = advance(&mut data, Controls { x: -1, y: -1 }, tick).unwrap();
+            let step = advance(
+                &mut data,
+                Controls { x: -1, y: -1 },
+                tick,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             let sinking = elapsed >= 300;
             assert_eq!((data[0x5f3] != 0, step.failure), (sinking, elapsed >= 372));
             if sinking {
@@ -538,18 +609,35 @@ mod tests {
         data[0x57b] = 179;
         data[0x5f4] = 5;
         data[0x5f5] = 1;
-        let first = advance(&mut data, Controls::default(), 300).unwrap();
+        let first = advance(
+            &mut data,
+            Controls::default(),
+            300,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(first.bubble.unwrap().0, pixel_offset(100, 144));
         assert_eq!(data[0x5f4], 35);
         for tick in 301..306 {
             assert!(
-                advance(&mut data, Controls::default(), tick)
-                    .unwrap()
-                    .bubble
-                    .is_none()
+                advance(
+                    &mut data,
+                    Controls::default(),
+                    tick,
+                    &mut crate::sound::Sound::default()
+                )
+                .unwrap()
+                .bubble
+                .is_none()
             );
         }
-        let next = advance(&mut data, Controls::default(), 306).unwrap();
+        let next = advance(
+            &mut data,
+            Controls::default(),
+            306,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(next.bubble.unwrap().0, pixel_offset(100, 112));
         assert_eq!((data[0x5f4], data[0x5f5]), (65, 6));
     }

@@ -176,6 +176,7 @@ pub(crate) fn advance_mice(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<MouseStep, String> {
     advance_mice_inner(
         data,
@@ -183,6 +184,7 @@ pub(crate) fn advance_mice(
         tick,
         #[cfg(feature = "dev-tools")]
         false,
+        sound,
     )
 }
 
@@ -192,11 +194,12 @@ pub(crate) fn advance_mice_dev(
     screen: &mut Framebuffer,
     tick: u16,
     disable_broom: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<MouseStep, String> {
     if !disable_broom {
-        return advance_mice(data, screen, tick);
+        return advance_mice(data, screen, tick, sound);
     }
-    advance_mice_inner(data, screen, tick, true)
+    advance_mice_inner(data, screen, tick, true, sound)
 }
 
 fn advance_mice_inner(
@@ -204,6 +207,7 @@ fn advance_mice_inner(
     screen: &mut Framebuffer,
     tick: u16,
     #[cfg(feature = "dev-tools")] disable_broom: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<MouseStep, String> {
     #[cfg(feature = "dev-tools")]
     let broom_enabled = !disable_broom;
@@ -252,11 +256,7 @@ fn advance_mice_inner(
         }
         let dest = 0x51 + u16::from(4_u8.wrapping_sub(data[0x3ed8])) * 4;
         draw_mask(data, screen, 0x3d20, dest, 0x0e)?;
-        if data[0] != 0 {
-            set_word(data, 0x5923, 0x2ee);
-            data[0x5920] = 2;
-            set_word(data, 0x5921, tick);
-        }
+        sound.request(data, tick, 0x03e8, 0x2ee);
         result.drew = true;
         result.collected = true;
         result.player_changed = true;
@@ -434,8 +434,21 @@ mod tests {
         let mut alternate = data.clone();
         let mut alternate_screen = screen.clone();
         assert_eq!(
-            advance_mice(&mut data, &mut screen, 1).unwrap(),
-            advance_mice_dev(&mut alternate, &mut alternate_screen, 1, false).unwrap()
+            advance_mice(
+                &mut data,
+                &mut screen,
+                1,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap(),
+            advance_mice_dev(
+                &mut alternate,
+                &mut alternate_screen,
+                1,
+                false,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
         );
         assert_eq!(data, alternate);
         assert_eq!(screen.bytes(), alternate_screen.bytes());
@@ -474,9 +487,21 @@ mod tests {
             data[0x327f] = broom_y;
             let mut alternate = data.clone();
             let mut alternate_screen = screen.clone();
-            let normal = advance_mice(&mut data, &mut screen, 1).unwrap();
-            let unblocked =
-                advance_mice_dev(&mut alternate, &mut alternate_screen, 1, true).unwrap();
+            let normal = advance_mice(
+                &mut data,
+                &mut screen,
+                1,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
+            let unblocked = advance_mice_dev(
+                &mut alternate,
+                &mut alternate_screen,
+                1,
+                true,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert!(normal.accepted && !normal.drew);
             assert_eq!(data[0x3eb6], expected_normal_phase);
             assert!(unblocked.accepted && unblocked.drew);
@@ -606,7 +631,13 @@ mod tests {
             (3, Some(0)),
             (3, None),
         ] {
-            let update = advance_mice(&mut data, &mut screen, tick).unwrap();
+            let update = advance_mice(
+                &mut data,
+                &mut screen,
+                tick,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert_eq!(update.accepted, expected.is_some());
             assert!(!update.drew);
             if let Some(slot) = expected {
@@ -643,7 +674,13 @@ mod tests {
             set_word(&mut data, 0x3edc, 0);
             data[0x3eae] = not_drawn;
             data[0x3eb6] = phase;
-            let step = advance_mice(&mut data, &mut screen, 1).unwrap();
+            let step = advance_mice(
+                &mut data,
+                &mut screen,
+                1,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert_eq!(step.collected, collected);
             assert_eq!(data[0x3eb6], phase);
         }
@@ -670,7 +707,13 @@ mod tests {
         data[0x327f] = 100;
         data[0x3eb6] = 10;
         let before = screen.bytes().to_vec();
-        let step = advance_mice(&mut data, &mut screen, 1).unwrap();
+        let step = advance_mice(
+            &mut data,
+            &mut screen,
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert!(step.accepted && !step.drew);
         assert_eq!(data[0x3eb6], 10);
         assert_eq!(screen.bytes().as_slice(), before);

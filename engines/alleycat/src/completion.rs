@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
 //! Ordinary-room success presentation, with external cat faces and BIOS-style text.
-//! Tick waits are independent of host rendering. Audio output remains deferred.
+//! Tick waits and speaker writes are independent of host rendering.
 
 use crate::assets::{DATA_LENGTH, set_word, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
@@ -40,8 +40,13 @@ impl Wipe {
         &mut self,
         data: &mut [u8],
         screen: &mut Framebuffer,
+        sound: &mut crate::sound::Sound,
     ) -> Result<Work, String> {
         if data[0] != 0 {
+            sound.tone(
+                word(data, 0x5a5a + usize::from(word(data, 0x5a56) & 6)),
+                crate::sound::Category::Effects,
+            );
             set_word(data, 0x5a56, word(data, 0x5a56).wrapping_add(2));
         }
         set_word(data, 0x1832, self.x);
@@ -168,12 +173,13 @@ impl Completion {
         screen: &mut Framebuffer,
         tick: u16,
         retrace: bool,
+        sound: &mut crate::sound::Sound,
     ) -> Result<Work, String> {
         check_data(data)?;
         let mut work = Work::default();
         match self.phase {
             Phase::Black(mut wipe) => {
-                work = wipe.advance(data, screen)?;
+                work = wipe.advance(data, screen, sound)?;
                 self.phase = if work.complete {
                     Phase::Silhouettes
                 } else {
@@ -216,6 +222,10 @@ impl Completion {
                 } else {
                     work.bytes_drawn = draw_row(data, screen, y as u16)?;
                     if data[0] != 0 {
+                        sound.tone(
+                            word(data, 0x5a64 + usize::from(word(data, 0x5a62))),
+                            crate::sound::Category::Music,
+                        );
                         set_word(data, 0x5a62, word(data, 0x5a62).wrapping_add(2));
                     }
                     set_word(data, 0x3695, tick);
@@ -249,6 +259,9 @@ impl Completion {
                     if data[0] != 0 && word(data, 0x5a80) != tick {
                         set_word(data, 0x5a80, tick);
                         data[0x5a82] = data[0x5a82].wrapping_add(1);
+                        let index = usize::from(word(data, 0x5a62))
+                            + if data[0x5a82] & 1 == 0 { 2 } else { 0 };
+                        sound.tone(word(data, 0x5a64 + index), crate::sound::Category::Music);
                     }
                     tick
                 };
@@ -273,7 +286,7 @@ impl Completion {
                 }
             }
             Phase::Fill(mut wipe) => {
-                work = wipe.advance(data, screen)?;
+                work = wipe.advance(data, screen, sound)?;
                 self.phase = if work.complete {
                     Phase::Complete
                 } else {
@@ -324,9 +337,18 @@ mod tests {
             let mut screen = Framebuffer::default();
             screen.fill_visible(0xaa);
             let mut data = data();
-            assert_eq!(wipe.advance(&mut data, &mut screen).unwrap().bytes_drawn, 0);
+            assert_eq!(
+                wipe.advance(&mut data, &mut screen, &mut crate::sound::Sound::default())
+                    .unwrap()
+                    .bytes_drawn,
+                0
+            );
             for _ in 0..40 {
-                if wipe.advance(&mut data, &mut screen).unwrap().complete {
+                if wipe
+                    .advance(&mut data, &mut screen, &mut crate::sound::Sound::default())
+                    .unwrap()
+                    .complete
+                {
                     break;
                 }
             }
@@ -348,17 +370,35 @@ mod tests {
         let mut screen = Framebuffer::default();
         assert_eq!(
             completion
-                .advance(&mut data, &mut screen, u16::MAX, false)
+                .advance(
+                    &mut data,
+                    &mut screen,
+                    u16::MAX,
+                    false,
+                    &mut crate::sound::Sound::default()
+                )
                 .unwrap()
                 .bytes_drawn,
             240
         );
         completion
-            .advance(&mut data, &mut screen, 0, false)
+            .advance(
+                &mut data,
+                &mut screen,
+                0,
+                false,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         assert!(matches!(completion.phase, Phase::Reveal { .. }));
         completion
-            .advance(&mut data, &mut screen, 1, false)
+            .advance(
+                &mut data,
+                &mut screen,
+                1,
+                false,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         assert!(matches!(completion.phase, Phase::Digits));
     }
@@ -374,15 +414,33 @@ mod tests {
             sample: None,
         };
         completion
-            .advance(&mut data, &mut screen, 18, false)
+            .advance(
+                &mut data,
+                &mut screen,
+                18,
+                false,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         completion
-            .advance(&mut data, &mut screen, 19, true)
+            .advance(
+                &mut data,
+                &mut screen,
+                19,
+                true,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         assert!(matches!(completion.phase, Phase::Hold { .. }));
         assert_eq!(completion.background(), 2); // Latched tick18, not new tick19.
         completion
-            .advance(&mut data, &mut screen, 19, true)
+            .advance(
+                &mut data,
+                &mut screen,
+                19,
+                true,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         assert!(matches!(completion.phase, Phase::Fill(_)));
         assert_eq!(completion.background(), 0);
@@ -398,7 +456,13 @@ mod tests {
         for tick in 0..200 {
             final_tick = tick;
             if completion
-                .advance(&mut data, &mut screen, tick, true)
+                .advance(
+                    &mut data,
+                    &mut screen,
+                    tick,
+                    true,
+                    &mut crate::sound::Sound::default(),
+                )
                 .unwrap()
                 .complete
             {
@@ -412,7 +476,13 @@ mod tests {
         );
         let score = data[0x1f82..0x1f89].to_vec();
         completion
-            .advance(&mut data, &mut screen, 200, true)
+            .advance(
+                &mut data,
+                &mut screen,
+                200,
+                true,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         assert_eq!(data[0x1f82..0x1f89], score);
         assert!(screen.indices().iter().all(|pixel| *pixel == 2));

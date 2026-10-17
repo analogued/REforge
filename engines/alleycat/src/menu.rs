@@ -117,9 +117,7 @@ impl Menu {
             .into_iter()
             .map(|index| Line::external(data, index))
             .collect::<Result<Vec<_>, _>>()?;
-        // Retain the external layout while describing the implemented modern
-        // controls. The original sound key occupies the quit instruction row.
-        controls[1].text = b"   Ctrl-Q  quits the game.".to_vec();
+        // Keep the native Ctrl-S sound instruction; describe host pause keys.
         controls[4].text = b"   Esc / P / Pause toggles paws mode.".to_vec();
         let mut framebuffer = Framebuffer::default();
         for line in questions {

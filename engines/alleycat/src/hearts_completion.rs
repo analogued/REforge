@@ -1,7 +1,8 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
 //! Bonus-room return presentation. Original tables and sprites remain external;
-//! BIOS-style text uses the attributed SDL glyphs; speaker output is deferred.
+//! BIOS-style text uses the attributed SDL glyphs; speaker writes stay ordered
+//! with the original presentation stages.
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
@@ -88,17 +89,8 @@ fn start_melody(data: &mut [u8], tick: u16) {
     set_word(data, 0x59c0, tick);
 }
 
-fn melody(data: &mut [u8], tick: u16) {
-    if data[0] == 0 || tick.wrapping_sub(word(data, 0x59c0)) < 2 {
-        return;
-    }
-    set_word(data, 0x59c0, tick);
-    let mut index = word(data, 0x59be) & 0xfe;
-    if index >= 0x86 {
-        index = 0;
-    }
-    set_word(data, 0x59be, index + 2);
-    set_word(data, 0x59bc, word(data, 0x5934 + usize::from(index)));
+fn melody(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound) {
+    sound.melody(data, tick);
 }
 
 fn add_decimal(data: &mut [u8], destination: usize, addend: &[u8; 7]) {
@@ -249,7 +241,12 @@ fn pair_frame(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, String
     Ok(bytes)
 }
 
-fn dance_frame(data: &mut [u8], screen: &mut Framebuffer, tick: u16) -> Result<usize, String> {
+fn dance_frame(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    sound: &mut crate::sound::Sound,
+) -> Result<usize, String> {
     let difficulty = usize::from(word(data, 8));
     let mut list = usize::from(word(data, 0x52ae + difficulty * 2));
     let mut bytes = 0;
@@ -270,13 +267,13 @@ fn dance_frame(data: &mut [u8], screen: &mut Framebuffer, tick: u16) -> Result<u
             destination,
             Dimensions(0x2304),
         )?;
-        dance_tone(data, tick)?;
+        dance_tone(data, tick, sound)?;
         list += 4;
     }
     Err("Unterminated hearts celebration list".into())
 }
 
-fn dance_tone(data: &mut [u8], tick: u16) -> Result<(), String> {
+fn dance_tone(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound) -> Result<(), String> {
     if data[0] == 0 || word(data, 0x52c4) == tick {
         return Ok(());
     }
@@ -287,6 +284,11 @@ fn dance_tone(data: &mut [u8], tick: u16) -> Result<(), String> {
         .ok_or("Hearts celebration tone table exceeds executable data")?;
     let tone = u16::from_le_bytes([tone[0], tone[1]]);
     set_word(data, 0x52c6, word(data, 0x52c6).wrapping_add(2));
+    if tone == word(data, 0x52c8) {
+        sound.stop();
+    } else {
+        sound.tone(tone, crate::sound::Category::Music);
+    }
     set_word(data, 0x52c8, tone);
     Ok(())
 }
@@ -327,6 +329,7 @@ impl HeartsCompletion {
         screen: &mut Framebuffer,
         tick: u16,
         retrace: bool,
+        sound: &mut crate::sound::Sound,
     ) -> Result<Work, String> {
         check_data(data)?;
         let mut work = Work::default();
@@ -370,14 +373,15 @@ impl HeartsCompletion {
                         copy_sprite(data, screen, 0x4a82, destination + 0xf3, Dimensions(0x0d04))?;
                     let first = word(data, 0x4dd6) == 10;
                     if first {
-                        start_melody(data, tick);
+                        let elapsed = sound.hearts_sweep(data);
+                        start_melody(data, tick.wrapping_add(elapsed));
                     }
                     set_word(data, 0x4a80, tick);
                     self.phase = Phase::ApproachWait { start: tick, first };
                 }
             }
             Phase::ApproachWait { start, first } => {
-                melody(data, tick);
+                melody(data, tick, sound);
                 if tick.wrapping_sub(start) >= word(data, 0x4dd6) {
                     if first {
                         self.phase = Phase::Score;
@@ -398,7 +402,7 @@ impl HeartsCompletion {
             }
             Phase::ScoreHold { start, sample } => {
                 if sample.is_none() {
-                    melody(data, tick);
+                    melody(data, tick, sound);
                 }
                 let sampled = sample.unwrap_or(tick);
                 if retrace {
@@ -428,13 +432,13 @@ impl HeartsCompletion {
                 self.phase = Phase::PairFrame(group);
             }
             Phase::PairFrame(group) => {
-                melody(data, tick);
+                melody(data, tick, sound);
                 work.bytes_drawn = pair_frame(data, screen)?;
                 set_word(data, 0x4a80, tick);
                 self.phase = Phase::PairWait { group, start: tick };
             }
             Phase::PairWait { group, start } => {
-                melody(data, tick);
+                melody(data, tick, sound);
                 if tick.wrapping_sub(start) >= word(data, 0x4dc8) {
                     data[0x4d91] = 0;
                     self.phase = if data[0x4d6e] == 0 {
@@ -447,8 +451,9 @@ impl HeartsCompletion {
                 }
             }
             Phase::MelodyEnd => {
-                melody(data, tick);
+                melody(data, tick, sound);
                 if data[0] == 0 || word(data, 0x59be) >= 124 {
+                    sound.stop();
                     self.phase = Phase::Reward;
                 }
             }
@@ -467,7 +472,7 @@ impl HeartsCompletion {
                 self.phase = Phase::Black(Wipe::new(152, 95, 0));
             }
             Phase::Black(mut wipe) => {
-                work = wipe.advance(data, screen)?;
+                work = wipe.advance(data, screen, sound)?;
                 if work.complete {
                     self.presentation_palette = false;
                     self.alley_palette = true;
@@ -491,7 +496,7 @@ impl HeartsCompletion {
                     }
                     set_word(data, 0x52c6, 0);
                     set_word(data, 0x52c8, 0);
-                    work.bytes_drawn = dance_frame(data, screen, tick)?;
+                    work.bytes_drawn = dance_frame(data, screen, tick, sound)?;
                     set_word(data, 0x5016, word(data, 0x5016) ^ 2);
                     self.phase = Phase::Dance {
                         start: tick,
@@ -500,13 +505,14 @@ impl HeartsCompletion {
                 }
             }
             Phase::Dance { start, frame } => {
-                dance_tone(data, tick)?;
+                dance_tone(data, tick, sound)?;
                 if tick.wrapping_sub(frame) >= 5 {
                     set_word(data, 0x52c0, tick);
                     if tick.wrapping_sub(start) >= 40 {
+                        sound.stop();
                         self.phase = Phase::Fill(Wipe::new(self.center.0, self.center.1, 0xaa));
                     } else {
-                        work.bytes_drawn = dance_frame(data, screen, tick)?;
+                        work.bytes_drawn = dance_frame(data, screen, tick, sound)?;
                         set_word(data, 0x5016, word(data, 0x5016) ^ 2);
                         self.phase = Phase::Dance { start, frame: tick };
                     }
@@ -555,7 +561,7 @@ impl HeartsCompletion {
                 }
             }
             Phase::Fill(mut wipe) => {
-                work = wipe.advance(data, screen)?;
+                work = wipe.advance(data, screen, sound)?;
                 self.phase = if work.complete {
                     Phase::Complete
                 } else {
@@ -621,10 +627,22 @@ mod tests {
             completion.phase = Phase::Reward;
             let mut screen = Framebuffer::default();
             completion
-                .advance(&mut data, &mut screen, 42, true)
+                .advance(
+                    &mut data,
+                    &mut screen,
+                    42,
+                    true,
+                    &mut crate::sound::Sound::default(),
+                )
                 .unwrap();
             completion
-                .advance(&mut data, &mut screen, 42, true)
+                .advance(
+                    &mut data,
+                    &mut screen,
+                    42,
+                    true,
+                    &mut crate::sound::Sound::default(),
+                )
                 .unwrap();
             assert_eq!(
                 (data[0x1f80], word(&data, 8)),
@@ -654,7 +672,13 @@ mod tests {
         let mut done = false;
         for tick in 0..300 {
             if completion
-                .advance(&mut data, &mut screen, tick, true)
+                .advance(
+                    &mut data,
+                    &mut screen,
+                    tick,
+                    true,
+                    &mut crate::sound::Sound::default(),
+                )
                 .unwrap()
                 .complete
             {
@@ -672,7 +696,13 @@ mod tests {
         assert!(screen.indices().iter().all(|pixel| *pixel == 2));
         let score = data[0x1f82..0x1f89].to_vec();
         completion
-            .advance(&mut data, &mut screen, 301, true)
+            .advance(
+                &mut data,
+                &mut screen,
+                301,
+                true,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         assert_eq!(data[0x1f82..0x1f89], score);
         assert!(!completion.presentation_palette());
@@ -689,7 +719,13 @@ mod tests {
         let mut done = false;
         for tick in 0..150 {
             if completion
-                .advance(&mut data, &mut screen, tick, true)
+                .advance(
+                    &mut data,
+                    &mut screen,
+                    tick,
+                    true,
+                    &mut crate::sound::Sound::default(),
+                )
                 .unwrap()
                 .complete
             {
@@ -713,11 +749,23 @@ mod tests {
         let mut completion = HeartsCompletion::new(80, 180, false).unwrap();
         completion.phase = Phase::DropStart;
         completion
-            .advance(&mut data, &mut screen, u16::MAX, false)
+            .advance(
+                &mut data,
+                &mut screen,
+                u16::MAX,
+                false,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         assert_eq!(
             completion
-                .advance(&mut data, &mut screen, u16::MAX, false)
+                .advance(
+                    &mut data,
+                    &mut screen,
+                    u16::MAX,
+                    false,
+                    &mut crate::sound::Sound::default()
+                )
                 .unwrap()
                 .bytes_drawn,
             0
@@ -725,16 +773,36 @@ mod tests {
         set_word(&mut data, 0x6f26, u16::MAX);
         assert_eq!(
             completion
-                .advance(&mut data, &mut screen, u16::MAX, true)
+                .advance(
+                    &mut data,
+                    &mut screen,
+                    u16::MAX,
+                    true,
+                    &mut crate::sound::Sound::default()
+                )
                 .unwrap()
                 .bytes_drawn,
             144
         );
         completion
-            .advance(&mut data, &mut screen, u16::MAX, true)
+            .advance(
+                &mut data,
+                &mut screen,
+                u16::MAX,
+                true,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         assert!(matches!(completion.phase, Phase::DropTick));
-        completion.advance(&mut data, &mut screen, 0, true).unwrap();
+        completion
+            .advance(
+                &mut data,
+                &mut screen,
+                0,
+                true,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
         assert!(matches!(completion.phase, Phase::Drop));
     }
 
@@ -748,15 +816,33 @@ mod tests {
             sample: None,
         };
         completion
-            .advance(&mut data, &mut screen, 67, false)
+            .advance(
+                &mut data,
+                &mut screen,
+                67,
+                false,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         completion
-            .advance(&mut data, &mut screen, 68, true)
+            .advance(
+                &mut data,
+                &mut screen,
+                68,
+                true,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         assert!(matches!(completion.phase, Phase::ScoreHold { .. }));
         assert_eq!(completion.background(), 1);
         completion
-            .advance(&mut data, &mut screen, 68, true)
+            .advance(
+                &mut data,
+                &mut screen,
+                68,
+                true,
+                &mut crate::sound::Sound::default(),
+            )
             .unwrap();
         assert!(matches!(completion.phase, Phase::Approach));
         assert_eq!(completion.background(), 0);

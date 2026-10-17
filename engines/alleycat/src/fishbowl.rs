@@ -344,8 +344,9 @@ pub(crate) fn contacts(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<ContactStep, String> {
-    contacts_with_damage(data, screen, tick, false)
+    contacts_with_damage(data, screen, tick, false, sound)
 }
 
 pub(crate) fn contacts_with_damage(
@@ -353,6 +354,7 @@ pub(crate) fn contacts_with_damage(
     screen: &mut Framebuffer,
     tick: u16,
     suppress_damage: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<ContactStep, String> {
     check(data)?;
     set_word(data, 0x3511, 0);
@@ -392,11 +394,7 @@ pub(crate) fn contacts_with_damage(
         }
         data[0x351b] = data[0x351b].wrapping_add(1);
         result.contacts += 1;
-        if data[0] != 0 {
-            set_word(data, 0x5923, 0x0425);
-            data[0x5920] = 2;
-            set_word(data, 0x5921, tick);
-        }
+        sound.request(data, tick, 0x05dc, 0x0425);
         result.drew |= restore_actor(data, screen, slot)?;
         data[0x34a7 + slot] = 1;
         if slot < 12 {
@@ -473,8 +471,9 @@ pub(crate) fn contacts_dev(
     screen: &mut Framebuffer,
     tick: u16,
     disable_eels: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<ContactStep, String> {
-    contacts_dev_with_damage(data, screen, tick, disable_eels, false)
+    contacts_dev_with_damage(data, screen, tick, disable_eels, false, sound)
 }
 
 #[cfg(feature = "dev-tools")]
@@ -484,9 +483,10 @@ pub(crate) fn contacts_dev_with_damage(
     tick: u16,
     disable_eels: bool,
     suppress_damage: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<ContactStep, String> {
     if !disable_eels {
-        return contacts_with_damage(data, screen, tick, suppress_damage);
+        return contacts_with_damage(data, screen, tick, suppress_damage, sound);
     }
     let mut result = ContactStep {
         drew: remove_eels(data, screen)?,
@@ -512,11 +512,7 @@ pub(crate) fn contacts_dev_with_damage(
         data[0x351b] = data[0x351b].wrapping_add(1);
         result.contacts += 1;
         result.collected += 1;
-        if data[0] != 0 {
-            set_word(data, 0x5923, 0x0425);
-            data[0x5920] = 2;
-            set_word(data, 0x5921, tick);
-        }
+        sound.request(data, tick, 0x05dc, 0x0425);
         result.drew |= restore_actor(data, screen, slot)?;
         data[0x34a7 + slot] = 1;
         data[0x3410] = data[0x3410].wrapping_sub(1);
@@ -558,7 +554,14 @@ mod tests {
         assert_eq!(word(&data, 0x2ae5), random);
         place_contact(&mut data, 0);
         data[0x3410] = 1;
-        let step = contacts_dev(&mut data, &mut screen, 2, true).unwrap();
+        let step = contacts_dev(
+            &mut data,
+            &mut screen,
+            2,
+            true,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(
             (
                 step.collected,
@@ -595,8 +598,21 @@ mod tests {
         assert_eq!(original, alternate);
         assert_eq!(pixels.bytes(), alternate_pixels.bytes());
         assert_eq!(
-            contacts(&mut original, &mut pixels, 2).unwrap(),
-            contacts_dev(&mut alternate, &mut alternate_pixels, 2, false).unwrap()
+            contacts(
+                &mut original,
+                &mut pixels,
+                2,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap(),
+            contacts_dev(
+                &mut alternate,
+                &mut alternate_pixels,
+                2,
+                false,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
         );
         assert_eq!(original, alternate);
         assert_eq!(pixels.bytes(), alternate_pixels.bytes());
@@ -858,7 +874,13 @@ mod tests {
         place_contact(&mut data, 0);
         place_contact(&mut data, 12);
         data[0x3410] = 1;
-        let step = contacts(&mut data, &mut screen, 1).unwrap();
+        let step = contacts(
+            &mut data,
+            &mut screen,
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(
             (
                 step.contacts,
@@ -896,7 +918,14 @@ mod tests {
         let (mut data, mut screen) = fixture();
         place_contact(&mut data, 12);
         let before = screen.bytes().to_vec();
-        let step = contacts_with_damage(&mut data, &mut screen, 1, true).unwrap();
+        let step = contacts_with_damage(
+            &mut data,
+            &mut screen,
+            1,
+            true,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(
             (
                 step.contacts,
@@ -915,7 +944,13 @@ mod tests {
         set_word(&mut data, 0x579, 170);
         set_word(&mut data, 0x3447, 170);
         set_word(&mut data, 0x345f, 170);
-        let step = contacts(&mut data, &mut screen, 2).unwrap();
+        let step = contacts(
+            &mut data,
+            &mut screen,
+            2,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(
             (
                 step.contacts,
@@ -951,7 +986,15 @@ mod tests {
                 set_word(&mut data, 0x579, x);
                 data[0x57b] = y;
                 assert_eq!(
-                    contacts(&mut data, &mut screen, 1).unwrap().contacts != 0,
+                    contacts(
+                        &mut data,
+                        &mut screen,
+                        1,
+                        &mut crate::sound::Sound::default()
+                    )
+                    .unwrap()
+                    .contacts
+                        != 0,
                     hit
                 );
             }
@@ -964,7 +1007,13 @@ mod tests {
         place_contact(&mut data, 12);
         place_contact(&mut data, 13);
         data[0x3350..0x3404].fill(0x33);
-        let step = contacts(&mut data, &mut screen, 123).unwrap();
+        let step = contacts(
+            &mut data,
+            &mut screen,
+            123,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(
             (
                 step.failure,

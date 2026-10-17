@@ -179,8 +179,9 @@ hidden until the next player draw after the destination background is saved.
 Hole pairing depends on difficulty modulo four, using the executable's tables.
 
 Active mouse and transfer drawing costs are provisional allowances, separate
-from these original gates. Silent audio and omitted sound random consumers mean
-a matching seed alone does not synchronize an original full-game run.
+from these original gates. Sound routines now consume their native random draws,
+but provisional execution timing still prevents claiming that a matching seed
+alone synchronizes an original full-game run.
 
 ### Birdcage room schedule
 
@@ -214,11 +215,11 @@ Success preserves the pending-bonus flag; the next eligible window selects scene
 7 without
 advancing the selector's random state or ordinary candidate history.
 
-Logical room tone state is retained without audio output. A pending tone
-expires once per distinct tick rather than catching up skipped ticks. Random
-tone requests from the bird follow their original predicates. Ambient sound
-random consumers and instruction-level interrupt placement remain omitted;
-full original-loop random-stream equivalence is not established.
+Room tones now emit ordered speaker writes. A pending tone expires once per
+distinct tick rather than catching up skipped ticks. Initial and continuation
+divisors remain distinct; bird requests and ambient shared-generator draws follow
+their original predicates. Instruction-level interrupt placement remains outside
+the model; full original-loop random-stream equivalence is not established.
 
 ### Bookcase room
 
@@ -350,8 +351,8 @@ is clear, and black otherwise. After 30 wrapping ticks, it restores black and
 runs the final color wipe before initializing the alley. Pending retrace samples
 and animation phases remain frozen during a desktop pause. Input, player and
 ordinary actors stay blocked throughout; host pause and quit remain responsive.
-Sound counters advance with the reviewed table-driven tone requests, without
-audio synthesis or random draws from these presentation helpers.
+Sound counters and the synthesized table-driven tone requests advance with these
+stages, without additional random draws from the presentation helpers.
 
 The original sets scene zero before presentation. The recreation's scene
 diagnostic retains the completed room number until the alley has been
@@ -383,7 +384,8 @@ phase, keeping it out of saved player and broom backgrounds. Disabling
 `milk-dogs` removes eye updates and sprites without disabling milk objectives.
 
 Milk-room active-drawing costs are provisional allowances, not independently
-calibrated CPU timings. Warning audio and its blocking duration remain deferred.
+calibrated CPU timings. Warning audio now blocks ordinary game work for its
+original two-tick interval; the internal polling cadence remains provisional.
 The shared scoring presentation uses scene 6's original time bonus:
 `max(2700 - elapsed BIOS ticks, 0)`, plus the external room base score. Its
 success returns at the saved alley position and makes the next eligible window
@@ -442,9 +444,9 @@ Scene-specific palette tables, carried-gift background changes and presentation
 palette requests are independent of framebuffer memory. BIOS font lettering uses
 the attributed SDL 8×8 glyphs shared with the pause display; scoring characters
 match the captured CGA/PCjr BIOS font.
-Ambient sound random consumers, synthesis and sound busy-loop timing remain
-incomplete. Controlled helper/frame comparisons do not establish full original
-loop timing or random-stream equivalence.
+Speaker synthesis and native sound random consumers are implemented. Busy-loop
+execution rates remain provisional. Controlled helper/frame comparisons do not
+establish full original-loop timing or random-stream equivalence.
 
 ### Initial splash
 
@@ -462,7 +464,8 @@ selects IBM, then alternates back. A fresh key make dismisses the title after
 the animation opportunity. The first entry expires strictly after the external
 `56da` duration plus six ticks: with the supported input, elapsed tick 852
 continues and tick 853 exits. Copyright updates precede this expiry test.
-The silent music-sequence index follows its tick gate; no samples are produced.
+The music sequence follows its native tick gate, including rests and the
+non-advancing end marker, and emits PIT channel-two writes.
 
 The host uses the virtual BIOS/retrace clock and provisional loop/drawing costs
 from the fixed-240 profile. Exact splash playback cadence is not established.
@@ -490,7 +493,8 @@ score and progression, sets three lives and starts the clipped alley entry.
 It retains high score, room history and the random state advanced by title
 scenery and animation. Host pacing and pause state restart at this boundary.
 The development CLI's initial difficulty override is retained for subsequent
-runs. Sound synthesis and omitted sound random consumers remain limitations.
+runs. Speaker output restarts at a new host synthesis epoch while native sound
+preferences and the carried game state remain intact.
 
 ### Keyboard menu
 
@@ -542,12 +546,14 @@ its explicit two-tick reveal waits and 30-tick final hold remain independent
 of that fit. No exact fixed-240 transition duration is claimed.
 Room tick predicates and blocking waits are retained, but this does not
 establish the room's original real-time movement cadence.
-The bin cat's first-contact sound still incurs a silent delay: about 81.5 ms for
-CGA or 40.9 ms for PCjr, measured with original native calls at fixed240. PCjr
-halves each of its three `1800h` delay-loop counts. Subsequent contact with its
-latch set skips that effect. The ordinary downward transition uses the existing
-support-release cost allowance; its separate support-tone bookkeeping remains
-incomplete, and PCjr still shares that general CGA cost fit.
+The bin cat's first-contact sound now runs its three `1800h` counted loops,
+with PCjr halving their counts. The loop-only fit is about 76.8 ms on CGA and
+38.4 ms on PCjr; the existing 81.5/40.9 ms total allowance retains
+the remaining call/I/O overhead above those loops. Subsequent
+contact with its latch set skips the trio. Lower-support attach/release beeps
+are included in the fitted player cost rather than counted twice; their actual
+blocking duration is a lower bound. Upper-support landing runs its separate
+two-tick noisy helper. Other PCjr player work still shares the general CGA fit.
 Other omitted actor drawing can cause larger delays that
 the allowance does not reproduce. Keyboard decoding, retained support state and redraw paths
 also vary. Clipped re-entry costs have not been separately calibrated. PCjr uses
@@ -576,14 +582,14 @@ player and actors remain suspended until the effect returns; then the interrupte
 pass resumes with post-player work.
 
 Effect-loop costs use bounded fixed-240 helper measurements and remain approximate,
-so exact random-call counts are not established. Audio synthesis and ambient
-sound-state random consumers remain absent.
+so exact random-call counts are not established. Its port-61 toggles are now
+synthesized, and ambient sound-state random consumers are included.
 
 Mouse knockdown (`2567`) clears attachment and horizontal direction, sets a
 17-update support delay and downward direction, and preserves vertical step,
 animation phase and sprite history. Its temporary image blocks input, player
-and scenery work until eight wrapping low BIOS ticks have elapsed. The silent
-`5a90` model consumes one random value per changed tick when sound is enabled,
+and scenery work until eight wrapping low BIOS ticks have elapsed. The
+`5a90` model emits a tone and consumes one random value per changed tick when native sound is enabled,
 including the final tick check. Completion resumes after the interrupted actor
 batch without advancing its divider again. Effect polling has an approximate
 execution cost; the elapsed-tick exit and random predicate are retained.
@@ -633,3 +639,45 @@ effect deadlines by the pause duration. The overlay is a presentation layer and
 does not alter the packed framebuffer or actor background saves. Its current SDL
 font is a visible approximation of the original BIOS lettering, and its resume
 hint describes the toggle keys rather than the original any-key behavior.
+
+
+### PC Speaker programs
+
+`Sound` translates the original speaker helpers into ordered PIT-clock writes
+on ports 43h, 42h and 61h. Note/divisor, pattern and waveform tables remain in
+external executable data. The device layer is the shared `reforge_audio` PIT,
+PC Speaker and band-limited renderer; host output uses SDL's queued mono stream
+at 48 kHz. No independent host oscillator or melody scheduler advances game state.
+
+The title, asynchronous first/continuation notes, ambient/dog/broom patterns,
+collection tones, damage programs, milk warning, hearts sweep/melodies, failure
+messages and presentation wipes have sound paths. Raw spider/eel pulses and
+fence changes use speaker-control bits rather than substituting pitched notes.
+Ambient and upper-landing random calls use the same generator as gameplay.
+Host enable, volume, device selection and focus mute only affect playback;
+Ctrl+S changes the original sound flag and therefore its native predicates.
+
+Counted LOOP delays use the current 240,000-work-slots/second reference fit;
+PCjr branches halve the original counts. The hearts sweep waits even with native
+sound disabled, unlike the short beeps. PIT-counter bursts use their mode-three
+counter-difference threshold. Milk warning and upper landing end at the second
+BIOS boundary. Their internal polling rates use provisional 40/32-slot fits;
+spider/eel direct-drive updates use the existing effect polling allowance.
+These are explicit timing approximations, not measurements of original waveform
+frequency or exact random-call counts. Interrupt placement and per-instruction
+I/O overhead remain unmodeled. Actor writes are placed at their execution stage,
+with within-stage instruction timing unresolved.
+
+Selected controlled DOSBox-X calls compare complete data-segment results and
+ordered speaker-port values; they do not establish full-game port timestamps
+or audible waveform equality. Port-61 comparisons cover the modeled low two bits.
+Pure synthetic checks cover note/rest gates, counter wrap, native versus host
+muting, blocking work, category gains and PCM continuity across chunk boundaries.
+The first startup still has its separate data/clock copy described above.
+
+The host keeps at most 100 ms in SDL's queue, feeding longer committed blocking
+programs from a bounded two-second staging buffer. Pauses preserve that pending
+sequence; run/title resets clear it. Device failures warn and leave game logic
+running. Uniform accepted-update diagnostics do not have a meaningful speaker
+timeline and remain silent; the normal timed headless runner executes the sound
+logic without retaining output writes.

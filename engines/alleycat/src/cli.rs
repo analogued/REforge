@@ -45,14 +45,14 @@ Usage: reforge --original /path/to/CAT.EXE [options]
 
 Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
 Press a key to leave the animated splash, then select K/H/T/A in the skill menu.
-F10 opens video settings; Escape or F10 closes them.
+F10 opens settings; Escape or F10 closes them.
 Ctrl+Q or closing the window quits.
 Ctrl+R restarts; Ctrl+M returns to the skill menu.
 After the last life, the animated title returns; press a key to play again at the selected skill.
 Alt drinks milk, uses paired holes in cheese and places a carried gift in the hearts room.
 Gifts are picked up automatically.
 Ordinary windows lead to fishbowl, bookcase, cheese, birdcage or milk; after success, the next leads to hearts.
-Audio output is not implemented.
+PC Speaker audio is enabled; Ctrl-S toggles the native sound flag.
 Timing uses a DOSBox-X 240-cycle model.
 Your original executable is required; original data is never bundled.";
 
@@ -678,6 +678,7 @@ fn advance_splash(
     let costs = alleycat::runtime::ReferenceCosts::dosbox_x_240(splash.machine());
     clock.advance_nanos(costs.prelude);
     let sample = clock.sample();
+    splash.sound.at(clock.elapsed_pit_ticks() as u64);
     let step = splash.advance(sample.bios.tick_low, sample.retrace, key_pressed)?;
     clock.advance_nanos(costs.player_gate + costs.player_countdown);
     if step.player_accepted {
@@ -695,6 +696,8 @@ fn present_splash(
     ticks: Option<usize>,
 ) -> Result<bool, String> {
     use std::time::{Duration, Instant};
+    window.audio.reset()?;
+    splash.sound.record(true);
     let mut clock = VirtualClock::new(RetraceProfile::for_machine(splash.machine()));
     let start = Instant::now();
     let mut pause_clock = alleycat::platform::PauseClock::new(start);
@@ -708,6 +711,9 @@ fn present_splash(
         if input.quit {
             return Ok(false);
         }
+        if input.sound_pressed {
+            splash.toggle_sound();
+        }
         let now = Instant::now();
         // The settings panel pauses title animation without changing native state.
         // Ordinary title keys remain available when the panel is closed.
@@ -719,6 +725,7 @@ fn present_splash(
             },
         );
         target_nanos += pause.elapsed.min(Duration::from_millis(100)).as_nanos();
+        window.audio.pause(pause.paused);
         let mut key_pressed = input.continue_pressed;
         if pause.changed {
             next_present = now;
@@ -730,12 +737,16 @@ fn present_splash(
             advance_splash(splash, &mut clock, key_pressed)?;
             key_pressed = false;
         }
+        window
+            .audio
+            .service(&mut splash.sound, clock.elapsed_pit_ticks() as u64);
         if now >= next_present {
             window.present(&splash.rgba())?;
             next_present = now + Duration::from_millis(16);
         }
         std::thread::sleep(Duration::from_millis(1));
     }
+    window.audio.pause(true);
     window.present(&splash.rgba())?;
     Ok(true)
 }
@@ -800,6 +811,7 @@ fn present_menu(
     difficulty: Option<u16>,
 ) -> Result<bool, String> {
     use std::time::{Duration, Instant};
+    window.audio.pause(true);
     let mut menu = alley.menu(difficulty)?;
     let mut next_present = Instant::now();
     window.present(&menu.rgba())?;
@@ -807,6 +819,9 @@ fn present_menu(
         let input = window.poll_input();
         if input.quit {
             return Ok(false);
+        }
+        if input.sound_pressed {
+            alley.toggle_sound();
         }
         if let Some(key) = input.menu_key {
             if menu.press(key)? {
@@ -888,12 +903,18 @@ fn interactive(
     let creator = display.texture_creator();
     let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
     if let Some(mut startup) = startup {
-        if !present_splash(&mut window, &mut startup.splash, None)?
-            || !present_menu(&mut window, alley, startup.difficulty_override)?
-        {
+        if !present_splash(&mut window, &mut startup.splash, None)? {
+            return Ok(());
+        }
+        alley.title_sound_preference(&startup.splash);
+        if !present_menu(&mut window, alley, startup.difficulty_override)? {
             return Ok(());
         }
     }
+    window.audio.reset()?;
+    window.audio.pause(false);
+    alley.sound.reset();
+    alley.sound.record(true);
     let mut runtime = Runtime::new(alley.machine());
     let start = Instant::now();
     let mut pause_clock = PauseClock::new(start);
@@ -914,6 +935,10 @@ fn interactive(
             if !present_game_over(&mut window, alley)? {
                 return Ok(());
             }
+            window.audio.reset()?;
+            window.audio.pause(false);
+            alley.sound.reset();
+            alley.sound.record(true);
             runtime = Runtime::new(alley.machine());
             target_nanos = 0;
             let now = Instant::now();
@@ -926,6 +951,9 @@ fn interactive(
         if input.quit {
             break;
         }
+        if input.sound_pressed {
+            alley.toggle_sound();
+        }
         let restarting = input.new_game_pressed;
         if input.menu_pressed {
             if !present_menu(&mut window, alley, None)? {
@@ -935,6 +963,10 @@ fn interactive(
             alley.restart(0)?;
         }
         if input.menu_pressed || restarting {
+            window.audio.reset()?;
+            window.audio.pause(false);
+            alley.sound.reset();
+            alley.sound.record(true);
             runtime = Runtime::new(alley.machine());
             target_nanos = 0;
             let now = Instant::now();
@@ -953,6 +985,7 @@ fn interactive(
         };
         let now = Instant::now();
         let pause = pause_clock.sample(now, input);
+        window.audio.pause(pause.paused);
         if pause.changed {
             // Preserve pending guest work across the settings panel; retain the
             // existing manual-pause policy of discarding partial pacing budget.
@@ -1005,6 +1038,9 @@ fn interactive(
                 Ok(true)
             },
         )?;
+        window
+            .audio
+            .service(&mut alley.sound, runtime.clock.elapsed_pit_ticks() as u64);
         if runtime.clock.elapsed_nanos() < target_nanos && !alley.game_over() {
             // Retain debt and repump events immediately. Intermediate rendering
             // and sleep must not make a slow catch-up batch fall further behind.
@@ -1016,6 +1052,7 @@ fn interactive(
         }
         std::thread::sleep(Duration::from_millis(1));
     }
+    window.audio.pause(true);
     window.present(&alley.rgba())?;
     Ok(())
 }
@@ -1042,9 +1079,11 @@ fn interactive_diagnostic(
     let creator = display.texture_creator();
     let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
     if let Some(mut startup) = startup {
-        if !present_splash(&mut window, &mut startup.splash, None)?
-            || !present_menu(&mut window, alley, startup.difficulty_override)?
-        {
+        if !present_splash(&mut window, &mut startup.splash, None)? {
+            return Ok(());
+        }
+        alley.title_sound_preference(&startup.splash);
+        if !present_menu(&mut window, alley, startup.difficulty_override)? {
             return Ok(());
         }
     }

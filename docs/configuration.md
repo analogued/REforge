@@ -171,8 +171,9 @@ devices and focus defaults can be edited globally even from a silent game.
 
 Mach 3's normal timed playback supports PC speaker and Enhanced PCM; Game default
 selects its original speaker renderer. Step/static/custom-period previews remain
-silent. Alley Cat host audio is not implemented yet, so its game audio controls
-are disabled. Engines declare supported Music, Speech and Sound effects groups;
+silent. Alley Cat supports PC Speaker playback in its normal timed runner and
+animated title, with Music and Effects categories; its uniform-step diagnostic
+runner remains silent. Engines declare supported Music, Speech and Sound effects groups;
 unsupported game groups remain visible but disabled. Global category defaults
 can still be edited. Latency controls and stereo processing are not implemented.
 
@@ -187,7 +188,7 @@ use a five-millisecond gain ramp, without resetting synthesis/filter history.
 
 Enable sound and Master volume operate on host output. Native sound routines,
 device counters, random behavior and the engine's timeline continue unchanged;
-Mach 3's original F2 sound control remains independent. Focus muting sets stream
+Mach 3's original F2 and Alley Cat's original Ctrl+S sound controls remain independent. Focus muting sets stream
 gain to zero without pausing simulation or retaining a backlog to replay later.
 Native/host/menu pauses retain their existing scheduling behavior.
 

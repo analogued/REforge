@@ -138,19 +138,11 @@ pub(crate) fn initialize(data: &mut [u8], screen: &mut Framebuffer) -> Result<()
     Ok(())
 }
 
-fn tone(data: &mut [u8], tick: u16, period: u16) {
-    if data[0] != 0 {
-        set_word(data, 0x5923, period);
-        data[0x5920] = 2;
-        set_word(data, 0x5921, tick);
-    }
-}
-
 // CS:595d consumes shared random state only when a new asynchronous tone starts.
-fn random_tone(data: &mut [u8], tick: u16) {
+fn random_tone(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound) {
     if data[0] != 0 && data[0x5920] == 0 {
         let period = (next_random(data) & 127).wrapping_add(0xaa);
-        tone(data, tick, period);
+        sound.request(data, tick, period.wrapping_add(30), period);
     }
 }
 
@@ -160,6 +152,7 @@ pub(crate) fn advance_cage(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<CageStep, String> {
     check(data)?;
     let mut result = CageStep::default();
@@ -230,7 +223,7 @@ pub(crate) fn advance_cage(
         if cage_contact(data) {
             return Ok(result);
         }
-        tone(data, tick, 0xb54);
+        sound.request(data, tick, 0xc00, 0xb54);
         data[0x40af] = 0;
         set_word(data, 0x40ab, pixel_offset(x, data[0x40aa]));
         restore_cage(data, screen)?;
@@ -406,6 +399,7 @@ pub(crate) fn advance_bird(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<BirdStep, String> {
     check(data)?;
     let held = BirdStep {
@@ -436,7 +430,7 @@ pub(crate) fn advance_bird(
             return Err("Bird difficulty exceeds its avoidance table".into());
         }
         if word(data, 0x40cc) <= word(data, 0x40ce + difficulty * 2) {
-            random_tone(data, tick);
+            random_tone(data, tick, sound);
             set_word(data, 0x40c8, 255);
             data[0x40b7] = data[0x40ca];
             data[0x40b8] = data[0x40cb];
@@ -470,7 +464,7 @@ pub(crate) fn advance_bird(
                 return advance_motion(data, screen);
             }
             set_word(data, 0x40c8, 255);
-            random_tone(data, tick);
+            random_tone(data, tick, sound);
         }
     }
     let random = next_random(data) as u8;
@@ -542,7 +536,13 @@ mod tests {
             set_word(&mut data, 0x579, 144);
             data[0x57b] = 134;
             data[0x56e] = direction;
-            let step = advance_cage(&mut data, &mut screen, 1).unwrap();
+            let step = advance_cage(
+                &mut data,
+                &mut screen,
+                1,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert!(step.player_moved);
             assert_eq!(word(&data, 0x579), expected_x);
             assert_eq!((data[0x40af], data[0x40b0]), (1, direction));
@@ -555,7 +555,13 @@ mod tests {
         data[0x57b] = 134;
         data[0x56e] = 1;
         data[0x571] = 1;
-        advance_cage(&mut data, &mut screen, 1).unwrap();
+        advance_cage(
+            &mut data,
+            &mut screen,
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(
             (word(&data, 0x579), data[0x57b], data[0x57c]),
             (112, 122, 172)
@@ -570,7 +576,13 @@ mod tests {
         data[0x40af] = 1;
         data[0x40b0] = 1;
         data[0x40b8] = 255;
-        let step = advance_cage(&mut data, &mut screen, 1).unwrap();
+        let step = advance_cage(
+            &mut data,
+            &mut screen,
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert!(step.drew && step.falling);
         assert_eq!(word(&data, 0x40a8), 176);
         assert_eq!(
@@ -622,14 +634,32 @@ mod tests {
         let (mut data, mut screen) = fixture();
         set_word(&mut data, 0x40b5, 19);
         data[0x40ff] = 3;
-        advance_bird(&mut data, &mut screen, 20).unwrap();
+        advance_bird(
+            &mut data,
+            &mut screen,
+            20,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(word(&data, 0x40b5), 19);
         assert_eq!(data[0x40ff], 4);
-        advance_bird(&mut data, &mut screen, 20).unwrap();
+        advance_bird(
+            &mut data,
+            &mut screen,
+            20,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(word(&data, 0x40b5), 20);
         assert_eq!(data[0x40ff], 5);
         let before = data.clone();
-        advance_bird(&mut data, &mut screen, 20).unwrap();
+        advance_bird(
+            &mut data,
+            &mut screen,
+            20,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert_eq!(data, before);
     }
 
@@ -643,7 +673,13 @@ mod tests {
         set_word(&mut data, 0x40c8, 0);
         set_word(&mut data, 0x40de, 100);
         data[0x40f4] = 100;
-        let step = advance_bird(&mut data, &mut screen, 1).unwrap();
+        let step = advance_bird(
+            &mut data,
+            &mut screen,
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert!(step.drew && !step.caught);
         assert_eq!((word(&data, 0x40b2), data[0x40b4]), (100, 100));
         assert_eq!(word(&data, 0x2ae5), 0x3fff);
@@ -663,7 +699,13 @@ mod tests {
             data[0x57b] = 105;
             set_word(&mut data, 0x40ce, 17);
             set_word(&mut data, 0x2ae5, 2);
-            advance_bird(&mut data, &mut screen, 1).unwrap();
+            advance_bird(
+                &mut data,
+                &mut screen,
+                1,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert_eq!(word(&data, 0x40cc), 17);
             assert_eq!((word(&data, 0x40b2), data[0x40b4]), (96, 98));
             assert_eq!((data[0x40b7], data[0x40b8]), (255, 255));

@@ -4,8 +4,8 @@ Rust reconstructions of DOS games for modern desktop systems, currently
 [Alley Cat](engines/alleycat/README.md) and [Mach 3](engines/mach3/README.md).
 Each game requires its original files, supplied separately. REforge reads their
 assets and tables and implements the reconstructed behavior natively.
-The games are still in development. Mach 3's normal animated viewer includes
-PC speaker audio; Alley Cat audio remains unimplemented.
+The games are still in development. Both engines include PC Speaker audio
+in their normal timed playback, with shared host audio preferences.
 
 ## Build and run
 

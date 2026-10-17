@@ -3,9 +3,29 @@
 An early Rust reconstruction of **Alley Cat** for modern desktop systems,
 initially targeting Linux. The current program supports alley movement,
 alley and room actors, damage, window entry, the fishbowl, bookcase, cheese, birdcage and milk rooms,
-and the hearts bonus scene.
+and the hearts bonus scene, with PC Speaker music and effects.
 It is not a complete game.
 Alley Cat is the `alleycat` engine crate in **REforge**.
+
+## Sound
+
+Normal timed play synthesizes the original PIT channel-two and direct-drive
+PC Speaker programs at 48 kHz through REforge's shared speaker/audio code.
+The title and celebration sequences use Music; gameplay, damage and wipe sounds
+use Effects. The single original speaker's interruptions are preserved. Speech
+has no sources and its game-specific level is disabled.
+
+F10 → Audio controls host enable, Master/Music/Effects levels, output device
+and focus muting. Master defaults to 80%; these levels are independent of the
+system mixer. Host mute does not skip native sound logic, random draws or waits.
+Ctrl+S separately toggles the original sound flag, including its gameplay effects.
+Both graphics paths currently use this PC Speaker renderer; a separate PCjr
+sound-chip renderer is not included. Uniform `--step-hz` diagnostic play remains
+silent. Headless logic still executes the native sound-state work.
+
+Busy-loop timing follows the provisional fixed-240 execution profile, not a
+cycle-accurate CPU. See [timing](docs/timing.md#pc-speaker-programs) for the
+verification boundary and timing limitations.
 
 ## Original game required
 
@@ -49,9 +69,9 @@ dismiss it. The following menu omits the original joystick question. Select
 K (Kitten), H (House Cat), T (Tomcat), or A (Alley Cat); the controls then appear
 below the question. Press another key to start. These choices select initial
 internal difficulties 0 through 3; progression can reach 7.
-Ctrl+Q or window close quits during startup as well. F10 opens the shared video
+Ctrl+Q or window close quits during startup as well. F10 opens the shared
 settings panel during startup, play or the later title. Window mode/scale,
-renderer/backend and VSync are activated and saved with Apply; Cancel, Escape
+renderer/backend, VSync, CRT treatment and audio controls are activated and saved with Apply; Cancel, Escape
 or F10 discards pending edits.
 The panel pauses animation and gameplay, then restores the previous pause state.
 Its keys do not dismiss native questions or reach gameplay; keys held on closing
@@ -302,19 +322,19 @@ historical BIOS font. Font attribution is in [THIRD_PARTY.md](THIRD_PARTY.md).
 The black and color wipes follow the original expanding geometry; their execution
 costs are provisional. Scene-specific CGA/PCjr palette tables,
 carried-gift background changes and completion flashes are applied separately
-from packed framebuffer pixels. Audio remains silent.
+from packed framebuffer pixels. Speaker writes accompany music, wipes and scoring.
 
 Starting through the menu or restarting runs the clipped alley-edge entry
 animation. Direct development starts bypass this initial entry. Falling behind
 the fence hides the cat and starts a clipped re-entry from the nearer alley edge.
-Its speaker effect is silent. The timed runner blocks game
+Its direct-drive speaker effect is synthesized. The timed runner blocks game
 work until seven BIOS ticks have elapsed and advances the effect's shared random
 state through its original call-count algorithm, using approximate loop costs.
 
 The first splash uses a separate copy of the executable data. Watching it does
 not advance the fixed gameplay seed; full shared startup state integration
 remains deferred. The later game-over title carries the previous run's random
-state into its animation and back into the next run. Audio output is absent.
+state into its animation and back into the next run.
 Windowed execution uses a virtual BIOS/PIT
 clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle

@@ -36,6 +36,7 @@ pub struct Input {
     pub menu_key: Option<MenuKey>,
     pub menu_pressed: bool,
     pub new_game_pressed: bool,
+    pub sound_pressed: bool,
     pub settings_open: bool,
     pub settings_changed: bool,
 }
@@ -116,6 +117,7 @@ impl PauseOverlay {
 /// lifetimes without self-referential objects or manually owned SDL pointers.
 pub struct Window<'a> {
     display: Display,
+    pub(crate) audio: crate::sound::playback::Player,
     frame: FrameTexture<'a>,
     quit: bool,
     settings: SettingsMenu<'a>,
@@ -131,10 +133,16 @@ impl<'a> Window<'a> {
         height: u32,
     ) -> Result<Self, String> {
         Ok(Self {
+            audio: crate::sound::playback::Player::new(creator.audio_playback())?,
             display,
             frame: FrameTexture::new(creator, width, height, FrameFormat::Rgba)?,
             quit: false,
-            settings: SettingsMenu::new(creator, VideoCapabilities::default()),
+            settings: SettingsMenu::new(creator, VideoCapabilities::default())
+                .with_audio_renderers(&[reforge_sdl::settings::SoundRenderer::Speaker])
+                .with_audio_categories(&[
+                    reforge_audio::category::SoundCategory::Music,
+                    reforge_audio::category::SoundCategory::Effects,
+                ]),
             settings_was_open: false,
             suppressed: HashSet::new(),
         })
@@ -195,6 +203,7 @@ impl<'a> Window<'a> {
             menu_key: presses.menu_key,
             menu_pressed: presses.menu_pressed,
             new_game_pressed: presses.new_game_pressed,
+            sound_pressed: presses.sound_pressed,
             settings_open,
             settings_changed,
         }
@@ -316,6 +325,7 @@ impl Input {
         if !repeat && modifiers & CONTROL != 0 && modifiers & 0x0f00 == 0 {
             self.new_game_pressed |= scancode == Scancode::R;
             self.menu_pressed |= scancode == Scancode::M;
+            self.sound_pressed |= scancode == Scancode::S;
         }
         if !repeat && modifiers & SHORTCUT == 0 {
             // Modifier keys alone and desktop shortcuts do not dismiss startup.
@@ -626,12 +636,17 @@ mod tests {
             input.record_press(Scancode::R, control, false);
             assert!(input.new_game_pressed);
             assert!(!input.pause_pressed);
+            let mut input = Input::default();
+            input.record_press(Scancode::S, control, false);
+            assert!(input.sound_pressed);
+            assert!(!input.continue_pressed && input.menu_key.is_none());
         }
         for (modifiers, repeat) in [(0, false), (0x0040, true), (0x0140, false)] {
             let mut input = Input::default();
             input.record_press(Scancode::R, modifiers, repeat);
             input.record_press(Scancode::M, modifiers, repeat);
-            assert!(!input.menu_pressed && !input.new_game_pressed);
+            input.record_press(Scancode::S, modifiers, repeat);
+            assert!(!input.menu_pressed && !input.new_game_pressed && !input.sound_pressed);
         }
     }
 }

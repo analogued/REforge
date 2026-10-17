@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
 //! Shared ordinary-room failure presentation (CS:1bf0/1d76).
-//! Audio output is deferred; imagery and tick gates use the original tables.
+//! Imagery, speaker sequences and tick gates use the original tables.
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer};
@@ -36,6 +36,7 @@ impl Failure {
         data: &mut [u8],
         screen: &mut Framebuffer,
         tick: u16,
+        sound: &mut crate::sound::Sound,
     ) -> Result<Work, String> {
         if data.len() < DATA_LENGTH {
             return Err("Failure data segment is truncated".into());
@@ -43,13 +44,15 @@ impl Failure {
         let mut work = Work::default();
         match &mut self.phase {
             Phase::Black(wipe) => {
-                work = wipe.advance(data, screen)?;
+                work = wipe.advance(data, screen, sound)?;
                 if work.complete {
                     self.phase = Phase::Begin;
                 }
                 work.complete = false;
             }
             Phase::Begin => {
+                set_word(data, 0x5a85, 0);
+                set_word(data, 0x5a83, tick);
                 let index = word(data, 0x1c30) & 6;
                 set_word(data, 0x1c30, word(data, 0x1c30).wrapping_add(2));
                 set_word(data, 0x1c2e, word(data, 0x1c26 + usize::from(index)));
@@ -70,6 +73,7 @@ impl Failure {
                 }
             }
             Phase::Message { since } => {
+                sound.failure_tone(data, tick);
                 if tick != *since {
                     *since = tick;
                     set_word(data, 0x1830, tick);
@@ -90,6 +94,7 @@ impl Failure {
                 }
             }
             Phase::Dog { since } => {
+                sound.failure_tone(data, tick);
                 if tick.wrapping_sub(*since) >= 4 {
                     *since = tick;
                     set_word(data, 0x5f66, tick);
@@ -114,7 +119,7 @@ impl Failure {
                 }
             }
             Phase::Fill(wipe) => {
-                work = wipe.advance(data, screen)?;
+                work = wipe.advance(data, screen, sound)?;
                 if work.complete {
                     self.phase = Phase::Complete;
                 }
@@ -185,7 +190,12 @@ mod tests {
             let mut complete = false;
             for tick in 0..100 {
                 complete = failure
-                    .advance(&mut data, &mut screen, tick)
+                    .advance(
+                        &mut data,
+                        &mut screen,
+                        tick,
+                        &mut crate::sound::Sound::default(),
+                    )
                     .unwrap()
                     .complete;
                 if complete {

@@ -117,6 +117,7 @@ pub(crate) fn advance_targets(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<TargetStep, String> {
     advance_targets_inner(
         data,
@@ -124,6 +125,7 @@ pub(crate) fn advance_targets(
         tick,
         #[cfg(feature = "dev-tools")]
         false,
+        sound,
     )
 }
 
@@ -132,6 +134,7 @@ fn advance_targets_inner(
     screen: &mut Framebuffer,
     tick: u16,
     #[cfg(feature = "dev-tools")] disable_spider: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<TargetStep, String> {
     check(data)?;
     if tick == word(data, 0x37b8) {
@@ -150,11 +153,7 @@ fn advance_targets_inner(
         {
             continue;
         }
-        if data[0] != 0 {
-            set_word(data, 0x5923, 0x08fd);
-            data[0x5920] = 2;
-            set_word(data, 0x5921, tick);
-        }
+        sound.request(data, tick, 0x0c00, 0x08fd);
         #[cfg(feature = "dev-tools")]
         if !disable_spider {
             restore_spider(data, screen)?;
@@ -362,16 +361,17 @@ pub(crate) fn advance_targets_dev(
     screen: &mut Framebuffer,
     tick: u16,
     disable_spider: bool,
+    sound: &mut crate::sound::Sound,
 ) -> Result<TargetStep, String> {
     if !disable_spider {
-        return advance_targets(data, screen, tick);
+        return advance_targets(data, screen, tick, sound);
     }
     let erased = if disable_spider {
         remove_spider(data, screen)?
     } else {
         false
     };
-    let mut result = advance_targets_inner(data, screen, tick, disable_spider)?;
+    let mut result = advance_targets_inner(data, screen, tick, disable_spider, sound)?;
     result.drew |= erased;
     Ok(result)
 }
@@ -411,7 +411,14 @@ mod tests {
         draw_spider(&mut data, &mut screen).unwrap();
         set_word(&mut data, 0x579, 208);
         data[0x57b] = 24;
-        let step = advance_targets_dev(&mut data, &mut screen, 1, true).unwrap();
+        let step = advance_targets_dev(
+            &mut data,
+            &mut screen,
+            1,
+            true,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert!(step.collected && step.drew);
         assert_eq!(data[0x396a], 1);
         assert_eq!(
@@ -453,8 +460,21 @@ mod tests {
         data[0x57b] = 24;
         alternate[0x57b] = 24;
         assert_eq!(
-            advance_targets(&mut data, &mut screen, 3).unwrap(),
-            advance_targets_dev(&mut alternate, &mut alternate_screen, 3, false).unwrap()
+            advance_targets(
+                &mut data,
+                &mut screen,
+                3,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap(),
+            advance_targets_dev(
+                &mut alternate,
+                &mut alternate_screen,
+                3,
+                false,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
         );
         assert_eq!(data, alternate);
         assert_eq!(screen.bytes(), alternate_screen.bytes());
@@ -536,9 +556,14 @@ mod tests {
             set_word(&mut trial, 0x579, x);
             trial[0x57b] = y;
             assert_eq!(
-                advance_targets(&mut trial, &mut pixels, 1)
-                    .unwrap()
-                    .collected,
+                advance_targets(
+                    &mut trial,
+                    &mut pixels,
+                    1,
+                    &mut crate::sound::Sound::default()
+                )
+                .unwrap()
+                .collected,
                 hit
             );
         }
@@ -546,7 +571,13 @@ mod tests {
         let mut screen = screen;
         set_word(&mut data, 0x579, 208);
         data[0x57b] = 24;
-        let step = advance_targets(&mut data, &mut screen, 1).unwrap();
+        let step = advance_targets(
+            &mut data,
+            &mut screen,
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
         assert!(step.accepted && step.collected && step.drew && step.player_changed);
         assert_eq!(
             (
@@ -557,7 +588,16 @@ mod tests {
             ),
             (1, 0, 1, 2)
         );
-        assert!(!advance_targets(&mut data, &mut screen, 1).unwrap().accepted);
+        assert!(
+            !advance_targets(
+                &mut data,
+                &mut screen,
+                1,
+                &mut crate::sound::Sound::default()
+            )
+            .unwrap()
+            .accepted
+        );
     }
 
     #[test]
@@ -574,7 +614,13 @@ mod tests {
             screen
                 .copy_rect(pixel_offset(256, 24), Dimensions(0x1002), &[0xff; 64])
                 .unwrap();
-            advance_targets(&mut data, &mut screen, 1).unwrap();
+            advance_targets(
+                &mut data,
+                &mut screen,
+                1,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
             assert_eq!(
                 (
                     data[0x37af],

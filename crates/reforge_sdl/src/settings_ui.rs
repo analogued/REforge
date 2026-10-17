@@ -393,6 +393,21 @@ fn crt_controls(
     scope: usize,
     cli: &reforge_settings::Patch,
 ) {
+    // Use this scope's pending Display choices, with temporary CLI overrides,
+    // rather than the renderer that remains active until Apply.
+    let renderer = cli
+        .get("renderer")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(value.renderer);
+    let backend = cli
+        .get("backend")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(value.backend);
+    let hyllian_available = matches!(renderer, Renderer::Auto | Renderer::Gpu)
+        && matches!(
+            backend,
+            Backend::Auto | Backend::Vulkan | Backend::Direct3d12 | Backend::Metal
+        );
     section(ui, "Presentation");
     row(
         ui,
@@ -408,6 +423,8 @@ fn crt_controls(
                 .width(220.0)
                 .selected_text(if value.presentation == Presentation::Pixels {
                     "Sharp pixels"
+                } else if !hyllian_available {
+                    "Hyllian CRT (unavailable)"
                 } else {
                     "Hyllian CRT"
                 })
@@ -417,11 +434,16 @@ fn crt_controls(
                         Presentation::Pixels,
                         "Sharp pixels",
                     );
-                    ui.selectable_value(
-                        &mut value.presentation,
-                        Presentation::Hyllian,
-                        "Hyllian CRT",
-                    );
+                    ui.add_enabled_ui(hyllian_available, |ui| {
+                        ui.selectable_value(
+                            &mut value.presentation,
+                            Presentation::Hyllian,
+                            "Hyllian CRT",
+                        )
+                        .on_disabled_hover_text(
+                            "Select Automatic or GPU with a compatible backend in Display.",
+                        );
+                    });
                 });
         },
     );
@@ -431,18 +453,25 @@ fn crt_controls(
         .get("presentation")
         .and_then(|v| v.parse().ok())
         .unwrap_or(value.presentation);
-    ui.add_enabled_ui(treatment != Presentation::Pixels, |ui| {
-        egui::CollapsingHeader::new("Fine adjustments")
-            .id_salt("treatment_fine_adjustments")
-            .default_open(false)
-            .show(ui, |ui| match treatment {
-                Presentation::Hyllian => {
-                    hyllian_controls(ui, value, base.clone(), previous.clone(), scope, cli)
-                }
-                Presentation::Pixels => {}
-            });
+    ui.add_enabled_ui(
+        treatment != Presentation::Pixels && hyllian_available,
+        |ui| {
+            egui::CollapsingHeader::new("Fine adjustments")
+                .id_salt("treatment_fine_adjustments")
+                .default_open(false)
+                .show(ui, |ui| match treatment {
+                    Presentation::Hyllian => {
+                        hyllian_controls(ui, value, base.clone(), previous.clone(), scope, cli)
+                    }
+                    Presentation::Pixels => {}
+                });
+        },
+    );
+    ui.weak(if hyllian_available {
+        "Hyllian requires the GPU renderer; fallbacks use sharp pixels."
+    } else {
+        "Hyllian is unavailable with this renderer/backend; sharp pixels will be used."
     });
-    ui.weak("Hyllian requires the GPU renderer; fallbacks use sharp pixels.");
 }
 
 fn hyllian_controls(

@@ -301,8 +301,8 @@ impl Sound {
         }
         self.stop();
     }
-    fn burst(&mut self, data: &[u8]) {
-        self.tone(word(data, 0x592a), Category::Effects);
+    fn burst(&mut self, data: &[u8], category: Category) {
+        self.tone(word(data, 0x592a), category);
         // CS:5b28 measures a mode-3 channel-zero count difference, which advances
         // twice per PIT clock. Poll overshoot is handled by caller timing later.
         self.wait(u64::from(word(data, 0x592e)).div_ceil(2));
@@ -381,13 +381,13 @@ impl Sound {
             }
             set_word(data, 0x59ba, word(data, 0x59ba) + 2);
             set_word(data, 0x592a, word(data, usize::from(bx) + 0x5a44));
-            self.burst(data);
+            self.burst(data, Category::Effects);
             return;
         }
         if si == 2 {
             set_word(data, 0x592a, (u16::from(data[0x1673]) << 4) + 0x200);
             set_word(data, 0x592e, 0x1800);
-            self.burst(data);
+            self.burst(data, Category::Effects);
             return;
         }
         set_word(data, 0x592e, word(data, di + 0x5a02));
@@ -430,17 +430,19 @@ impl Sound {
         if data[0x584] != 0 {
             set_word(data, 0x592e, 0x2000);
             data[0x592c] = 255;
-            self.burst(data);
+            self.burst(data, Category::Effects);
             return;
         }
         let bx = usize::from(data[0x5928]);
         let pattern = data[bx + usize::from(word(data, di + 0x59fe)) + 0x59c2];
+        // The recurring alley/room accompaniment is Music. The movement and
+        // interaction branches above remain Effects, despite sharing a burst.
         if pattern & data[0x5927] != 0 {
-            self.burst(data);
+            self.burst(data, Category::Music);
         } else if data[0x592d] != 0 {
             data[0x592d] -= 1;
             set_word(data, 0x592e, word(data, di + 0x5a06));
-            self.burst(data);
+            self.burst(data, Category::Music);
         }
     }
 }

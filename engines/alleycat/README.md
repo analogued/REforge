@@ -11,8 +11,9 @@ Alley Cat is the `alleycat` engine crate in **REforge**.
 
 Normal timed play synthesizes the original PIT channel-two and direct-drive
 PC Speaker programs at 48 kHz through REforge's shared speaker/audio code.
-The title and celebration sequences use Music; gameplay, damage and wipe sounds
-use Effects. The single original speaker's interruptions are preserved. Speech
+The title, room-scoring jingles, hearts success sweep and melodies, and recurring
+alley/room background patterns use Music. Movement, interactions, damage and
+wipes use Effects. The single original speaker's interruptions are preserved. Speech
 has no sources and its game-specific level is disabled.
 
 F10 → Audio controls host enable, Master/Music/Effects levels, output device

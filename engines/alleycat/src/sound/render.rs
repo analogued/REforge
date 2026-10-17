@@ -103,7 +103,67 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assets::set_word;
     use crate::sound::Sound;
+    #[test]
+    fn background_music_and_movement_effects_obey_separate_volume_controls() {
+        for (scene, running, broom, falling, tail, category) in [
+            (0, 0, 0, 0, false, SoundCategory::Music),
+            (4, 0, 0, 0, false, SoundCategory::Music),
+            (0, 0, 0, 0, true, SoundCategory::Music),
+            (4, 0, 0, 0, true, SoundCategory::Music),
+            (0, 1, 0, 0, false, SoundCategory::Effects),
+            (4, 1, 0, 0, false, SoundCategory::Effects),
+            (0, 0, 1, 0, false, SoundCategory::Effects),
+            (0, 0, 0, 2, false, SoundCategory::Effects),
+        ] {
+            let mut data = vec![0; crate::assets::DATA_LENGTH];
+            data[0] = 255;
+            set_word(&mut data, 4, scene);
+            data[0x584] = running;
+            data[0x1cbf] = broom;
+            data[0x1673] = falling;
+            data[0x5927] = 0x80;
+            data[0x592c] = 255;
+            set_word(&mut data, 0x592a, 0x500);
+            set_word(&mut data, 0x5a44, 1000);
+            for address in [0x5a02, 0x5a04, 0x5a06, 0x5a08] {
+                set_word(&mut data, address, 0x2000);
+            }
+            if tail {
+                data[0x592d] = 1;
+            } else {
+                data[0x59c2] = 0xff;
+            }
+            let mut sound = Sound::default();
+            sound.record(true);
+            sound.ambient(&mut data, 1);
+            let events: Vec<_> = sound.drain().collect();
+            let end = sound.tick() + PIT_HZ / 20;
+            let render = |levels| {
+                Renderer::new(CategoryVolumes(levels))
+                    .unwrap()
+                    .render(events.clone(), end)
+                    .unwrap()
+            };
+            let normal = render([100; 3]);
+            assert!(
+                normal.iter().any(|v| v.abs() > 100),
+                "silent fixture: scene={scene}, running={running}, broom={broom}, falling={falling}, tail={tail}"
+            );
+            let mut muted = [100; 3];
+            muted[category.index()] = 0;
+            assert!(render(muted).iter().all(|v| *v == 0));
+            muted = [100; 3];
+            let other = if category == SoundCategory::Music {
+                SoundCategory::Effects
+            } else {
+                SoundCategory::Music
+            };
+            muted[other.index()] = 0;
+            assert_eq!(normal, render(muted));
+        }
+    }
     #[test]
     fn category_mute_changes_pcm_without_changing_the_port_program_or_sample_count() {
         let mut sound = Sound::default();

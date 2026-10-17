@@ -9,7 +9,202 @@ use std::{
 };
 use toml_edit::{DocumentMut, Item};
 
-pub const KEYS: [&str; 5] = ["window_mode", "scale", "renderer", "backend", "vsync"];
+pub const DISPLAY_KEYS: &[&str] = &[
+    "window_mode",
+    "scale",
+    "renderer",
+    "backend",
+    "vsync",
+    "frame_limit",
+];
+pub const CRT_KEYS: &[&str] = &[
+    "presentation",
+    "horizontal_filter",
+    "scanline_strength",
+    "beam_min",
+    "beam_max",
+    "colour_boost",
+    "sharpness",
+    "mask_intensity",
+    "anti_ringing",
+    "input_gamma",
+    "output_gamma",
+];
+pub fn keys() -> impl Iterator<Item = &'static str> {
+    DISPLAY_KEYS.iter().chain(CRT_KEYS).copied()
+}
+fn section(key: &str) -> &'static str {
+    if CRT_KEYS.contains(&key) {
+        "crt"
+    } else {
+        "display"
+    }
+}
+/// Shared host presentation, independent of game palettes and framebuffer storage.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Presentation {
+    #[default]
+    Pixels,
+    Hyllian,
+}
+impl Presentation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pixels => "pixels",
+            Self::Hyllian => "hyllian",
+        }
+    }
+}
+impl std::str::FromStr for Presentation {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "pixels" => Ok(Self::Pixels),
+            "hyllian" => Ok(Self::Hyllian),
+            _ => Err("presentation must be pixels or hyllian".into()),
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum FrameLimit {
+    #[default]
+    Display,
+    Fps60,
+    Fps120,
+    Unlimited,
+}
+impl FrameLimit {
+    pub const ALL: [Self; 4] = [Self::Display, Self::Fps60, Self::Fps120, Self::Unlimited];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Display => "display",
+            Self::Fps60 => "60",
+            Self::Fps120 => "120",
+            Self::Unlimited => "unlimited",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Display => "Display refresh rate",
+            Self::Fps60 => "60 fps",
+            Self::Fps120 => "120 fps",
+            Self::Unlimited => "Unlimited",
+        }
+    }
+}
+impl std::str::FromStr for FrameLimit {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        Self::ALL
+            .into_iter()
+            .find(|v| v.as_str() == s)
+            .ok_or_else(|| "frame limit must be display, 60, 120 or unlimited".into())
+    }
+}
+/// Parameters use hundredths for stable equality, sparse patches and serialization.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HyllianSettings {
+    pub values: [u16; 9],
+    pub catmull_rom: bool,
+}
+impl Default for HyllianSettings {
+    fn default() -> Self {
+        Self {
+            values: [65, 70, 100, 200, 100, 35, 100, 240, 240],
+            catmull_rom: false,
+        }
+    }
+}
+#[derive(Clone, Copy)]
+pub struct ShaderParameter {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub min: u16,
+    pub max: u16,
+    pub help: &'static str,
+}
+pub const SHADER_PARAMETERS: [ShaderParameter; 9] = [
+    ShaderParameter {
+        key: "scanline_strength",
+        label: "Scanline strength",
+        min: 0,
+        max: 100,
+        help: "Strength of the Gaussian beam falloff. Scanlines follow the native 200 source rows.",
+    },
+    ShaderParameter {
+        key: "beam_min",
+        label: "Minimum beam width",
+        min: 10,
+        max: 200,
+        help: "Beam width in dark areas. Must not exceed maximum beam width.",
+    },
+    ShaderParameter {
+        key: "beam_max",
+        label: "Maximum beam width",
+        min: 10,
+        max: 200,
+        help: "Beam width in bright areas. Must not be below minimum beam width.",
+    },
+    ShaderParameter {
+        key: "colour_boost",
+        label: "Colour boost",
+        min: 100,
+        max: 300,
+        help: "Compensates for the brightness lost between scanlines.",
+    },
+    ShaderParameter {
+        key: "sharpness",
+        label: "Horizontal sharpness",
+        min: 100,
+        max: 500,
+        help: "Horizontal sampling sharpness; 1.00 retains the native source width.",
+    },
+    ShaderParameter {
+        key: "mask_intensity",
+        label: "Mask intensity",
+        min: 0,
+        max: 100,
+        help: "Intensity of the RGB aperture mask, anchored to physical output pixels.",
+    },
+    ShaderParameter {
+        key: "anti_ringing",
+        label: "Anti-ringing",
+        min: 0,
+        max: 100,
+        help: "Suppresses overshoot from horizontal filtering.",
+    },
+    ShaderParameter {
+        key: "input_gamma",
+        label: "Input gamma",
+        min: 100,
+        max: 400,
+        help: "Gamma used before beam and filter calculations.",
+    },
+    ShaderParameter {
+        key: "output_gamma",
+        label: "Output gamma",
+        min: 100,
+        max: 400,
+        help: "Gamma used to encode the final output; this is not a monitor colour profile.",
+    },
+];
+impl HyllianSettings {
+    pub fn validate(self) -> Result<(), String> {
+        if self
+            .values
+            .iter()
+            .zip(SHADER_PARAMETERS)
+            .any(|(v, p)| !(p.min..=p.max).contains(v))
+        {
+            return Err("Hyllian parameter outside its supported range".into());
+        }
+        if self.values[1] > self.values[2] {
+            return Err("minimum beam width must not exceed maximum beam width".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VideoSettings {
     pub fullscreen: bool,
@@ -17,6 +212,9 @@ pub struct VideoSettings {
     pub renderer: Renderer,
     pub backend: Backend,
     pub vsync: bool,
+    pub frame_limit: FrameLimit,
+    pub presentation: Presentation,
+    pub hyllian: HyllianSettings,
 }
 impl Default for VideoSettings {
     fn default() -> Self {
@@ -26,6 +224,9 @@ impl Default for VideoSettings {
             renderer: Renderer::Auto,
             backend: Backend::Auto,
             vsync: true,
+            frame_limit: FrameLimit::default(),
+            presentation: Presentation::default(),
+            hyllian: HyllianSettings::default(),
         }
     }
 }
@@ -111,7 +312,19 @@ impl VideoSettings {
             "renderer" => self.renderer.as_str().into(),
             "backend" => self.backend.as_str().into(),
             "vsync" => self.vsync.to_string(),
-            _ => String::new(),
+            "frame_limit" => self.frame_limit.as_str().into(),
+            "presentation" => self.presentation.as_str().into(),
+            "horizontal_filter" => if self.hyllian.catmull_rom {
+                "catmull-rom"
+            } else {
+                "hermite"
+            }
+            .into(),
+            _ => SHADER_PARAMETERS
+                .iter()
+                .position(|p| p.key == key)
+                .map(|i| format!("{:.2}", f64::from(self.hyllian.values[i]) / 100.0))
+                .unwrap_or_default(),
         }
     }
     pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
@@ -145,7 +358,34 @@ impl VideoSettings {
                     _ => return Err("vsync must be on or off".into()),
                 }
             }
-            _ => return Err("unknown display setting".into()),
+            "frame_limit" => self.frame_limit = value.parse()?,
+            "presentation" => self.presentation = value.parse()?,
+            "horizontal_filter" => {
+                self.hyllian.catmull_rom = match value {
+                    "hermite" => false,
+                    "catmull-rom" => true,
+                    _ => return Err("filter must be hermite or catmull-rom".into()),
+                }
+            }
+            _ => {
+                let i = SHADER_PARAMETERS
+                    .iter()
+                    .position(|p| p.key == key)
+                    .ok_or("unknown video setting")?;
+                let n: f64 = value
+                    .parse()
+                    .map_err(|_| "expected a decimal shader parameter")?;
+                let p = SHADER_PARAMETERS[i];
+                if !n.is_finite() || n < f64::from(p.min) / 100.0 || n > f64::from(p.max) / 100.0 {
+                    return Err(format!(
+                        "{} must be between {:.2} and {:.2}",
+                        p.label,
+                        f64::from(p.min) / 100.0,
+                        f64::from(p.max) / 100.0
+                    ));
+                }
+                self.hyllian.values[i] = (n * 100.0).round() as u16;
+            }
         };
         Ok(())
     }
@@ -168,6 +408,14 @@ impl Draft {
     }
     pub fn game_values(&self) -> VideoSettings {
         overlay(self.global_values(), &self.game)
+    }
+    pub fn reset_section(&mut self, game: bool, crt: bool) {
+        let patch = if game {
+            &mut self.game
+        } else {
+            &mut self.global
+        };
+        patch.retain(|key, _| !if crt { CRT_KEYS } else { DISPLAY_KEYS }.contains(&key.as_str()));
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
         let base = if game {
@@ -295,11 +543,18 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
         let mut p = Patch::new();
         if let Some(item) = item {
             if let Some(table) = item.as_table_like() {
-                for key in KEYS {
-                    if let Some(v) = table.get(key) {
+                for name in ["display", "crt"] {
+                    if table.get(name).is_some_and(|v| !v.is_table_like()) {
+                        *warning = Some(format!("Invalid {name} section; using inherited values"));
+                    }
+                }
+                for key in keys() {
+                    if let Some(v) = table.get(section(key)).and_then(|x| x.get(key)) {
                         let text: String = if let Some(s) = v.as_str() {
                             s.into()
                         } else if let Some(n) = v.as_integer() {
+                            n.to_string()
+                        } else if let Some(n) = v.as_float() {
                             n.to_string()
                         } else if let Some(b) = v.as_bool() {
                             b.to_string()
@@ -311,7 +566,7 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
                             p.insert(key.into(), validated.get(key));
                         } else {
                             *warning = Some(format!(
-                                "Invalid display setting {key}; using inherited value"
+                                "Invalid video setting {key}; using inherited value"
                             ));
                         }
                     }
@@ -322,15 +577,23 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
         }
         p
     }
-    Draft {
-        global: patch(doc.get("global").and_then(|x| x.get("display")), warning),
-        game: patch(
-            doc.get("games")
-                .and_then(|x| x.get(game))
-                .and_then(|x| x.get("display")),
-            warning,
-        ),
+    let mut draft = Draft {
+        global: patch(doc.get("global"), warning),
+        game: patch(doc.get("games").and_then(|x| x.get(game)), warning),
+    };
+    // Cross-field validation follows inheritance, so a sparse beam override is
+    // checked against its inherited partner, not an unrelated built-in default.
+    if draft.global_values().hyllian.validate().is_err() {
+        draft.global.remove("beam_min");
+        draft.global.remove("beam_max");
+        *warning = Some("Invalid global beam widths; using built-in widths".into());
     }
+    if draft.game_values().hyllian.validate().is_err() {
+        draft.game.remove("beam_min");
+        draft.game.remove("beam_max");
+        *warning = Some("Invalid game beam widths; using global widths".into());
+    }
+    draft
 }
 fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(), String> {
     let parent = path
@@ -359,15 +622,15 @@ fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(),
         doc["schema_version"] = toml_edit::value(1);
     }
     for (before, after, route) in [
-        (&old.global, &new.global, vec!["global", "display"]),
-        (&old.game, &new.game, vec!["games", game, "display"]),
+        (&old.global, &new.global, vec!["global"]),
+        (&old.game, &new.game, vec!["games", game]),
     ] {
-        for key in KEYS {
+        for key in keys() {
             if before.get(key) == after.get(key) {
                 continue;
             }
             let mut item = doc.as_item_mut();
-            for part in &route {
+            for part in route.iter().copied().chain(std::iter::once(section(key))) {
                 if item.is_none() {
                     *item = Item::Table(toml_edit::Table::new());
                 }
@@ -376,11 +639,20 @@ fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(),
                 }
                 item = &mut item[part];
             }
+            if item.is_none() {
+                *item = Item::Table(toml_edit::Table::new());
+            }
+            if !item.is_table_like() {
+                return Err("configuration section is not a table; file preserved".into());
+            }
             if let Some(text) = after.get(key) {
                 let replacement = match key {
                     "vsync" => toml_edit::Value::from(text == "true" || text == "on"),
                     "scale" if text != "auto" => {
                         toml_edit::Value::from(text.parse::<i64>().map_err(|e| e.to_string())?)
+                    }
+                    _ if SHADER_PARAMETERS.iter().any(|p| p.key == key) => {
+                        toml_edit::Value::from(text.parse::<f64>().map_err(|e| e.to_string())?)
                     }
                     _ => toml_edit::Value::from(text.as_str()),
                 };
@@ -474,6 +746,50 @@ mod tests {
             path: Some(path),
             cli: Patch::new(),
         })
+    }
+    #[test]
+    fn sections_round_trip_sparse_parameters_and_reset_independently() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let mut s = session(path.clone(), "mach-3");
+        let mut d = s.saved.clone();
+        d.edit(false, "frame_limit", "120".into());
+        d.edit(false, "presentation", "hyllian".into());
+        d.edit(false, "input_gamma", "2.60".into());
+        d.edit(true, "mask_intensity", "0.20".into());
+        d.edit(true, "frame_limit", "unlimited".into());
+        s.commit(d.clone()).unwrap();
+        let loaded = session(path.clone(), "mach-3");
+        assert_eq!(loaded.saved, d);
+        assert_eq!(loaded.saved.game_values().get("input_gamma"), "2.60");
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[global.crt]"));
+        assert!(text.contains("[games.mach-3.crt]"));
+        d.reset_section(false, false);
+        assert_eq!(d.global_values().presentation, Presentation::Hyllian);
+        assert_eq!(d.game_values().frame_limit, FrameLimit::Unlimited);
+        d.reset_section(true, true);
+        assert_eq!(d.game.len(), 1);
+        s.commit(d).unwrap();
+        assert_eq!(
+            session(path, "mach-3").saved.game_values().hyllian.values[5],
+            35
+        );
+    }
+    #[test]
+    fn invalid_shader_fields_and_inherited_beam_pair_fall_back() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(&path, "[global.crt]\nbeam_min=0.8\nbeam_max=1.1\nmask_intensity=999.0\noutput_gamma=2.6\n[games.mach-3.crt]\nbeam_min=1.5\n").unwrap();
+        let s = session(path, "mach-3");
+        assert!(s.warning.is_some());
+        let h = s.saved.game_values().hyllian;
+        assert_eq!(h.values, [65, 80, 110, 200, 100, 35, 100, 240, 260]);
+        assert!(h.validate().is_ok());
+        let mut value = VideoSettings::default();
+        for bad in ["NaN", "inf", "-1", "0.99", "4.01"] {
+            assert!(value.set("input_gamma", bad).is_err());
+        }
     }
     #[test]
     fn sparse_game_edits_track_global_and_remove_equal_values() {

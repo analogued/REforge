@@ -1,8 +1,11 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
-//! Compact Display page. Editing is separate from activation and persistence.
+//! Compact Display and CRT pages. Editing is separate from activation and persistence.
 use crate::settings::{SettingsMenu, VideoCapabilities};
 use egui::{Color32, Pos2, Vec2};
-use reforge_settings::{Backend, KEYS, Renderer, VideoSettings};
+use reforge_settings::{
+    Backend, CRT_KEYS, DISPLAY_KEYS, FrameLimit, Presentation, Renderer, SHADER_PARAMETERS,
+    VideoSettings,
+};
 const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
 const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
 pub(super) fn style(context: &egui::Context) {
@@ -63,22 +66,36 @@ pub(super) fn draw(
                 ui.vertical(|ui| {
                     ui.set_width(132.0);
                     ui.add_space(6.0);
-                    ui.add_sized([132.0, 32.0], egui::Button::new("Display").selected(true));
+                    for (page, label) in ["Display", "CRT & Colour"].into_iter().enumerate() {
+                        if ui
+                            .add_sized(
+                                [132.0, 32.0],
+                                egui::Button::new(label).selected(menu.page == page),
+                            )
+                            .clicked()
+                        {
+                            menu.page = page;
+                        }
+                    }
                 });
                 ui.separator();
                 ui.vertical(|ui| {
                     ui.set_width((width - 164.0).max(180.0));
-                    ui.heading("Display");
+                    ui.heading(if menu.page == 0 {
+                        "Display"
+                    } else {
+                        "CRT & Colour"
+                    });
                     if menu.scope == 1 {
-                        let mut inherit = !menu.game_editing;
+                        let mut inherit = !menu.game_editing[menu.page];
                         if ui
                             .checkbox(&mut inherit, "Use global defaults for this section")
                             .changed()
                         {
-                            menu.game_editing = !inherit;
+                            menu.game_editing[menu.page] = !inherit;
                             if inherit {
-                                draft.game.clear();
-                                menu.game_touched = true;
+                                draft.reset_section(true, menu.page == 1);
+                                menu.game_touched[menu.page] = true;
                             }
                         }
                     } else {
@@ -97,163 +114,203 @@ pub(super) fn draw(
                     } else {
                         saved.game_values()
                     };
-                    let enabled = menu.scope == 0 || menu.game_editing;
+                    let enabled = menu.scope == 0 || menu.game_editing[menu.page];
                     egui::ScrollArea::vertical()
-                        .id_salt("display_content")
+                        .id_salt(("settings_content", menu.page))
                         .max_height((height - 215.0).max(80.0))
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.add_enabled_ui(enabled, |ui| {
-                                section(ui, "Window & scaling");
-                                row(
-                                    ui,
-                                    "Window mode",
-                                    "window_mode",
-                                    value,
-                                    base,
-                                    previous,
-                                    menu.scope,
-                                    &cli,
-                                    |ui| {
-                                        ui.radio_value(&mut value.fullscreen, false, "Windowed");
-                                        ui.add_enabled_ui(
-                                            menu.capabilities.allow_fullscreen,
-                                            |ui| {
-                                                ui.radio_value(
-                                                    &mut value.fullscreen,
-                                                    true,
-                                                    "Fullscreen",
-                                                );
-                                            },
-                                        );
-                                    },
-                                );
-                                row(
-                                    ui,
-                                    "Window scale",
-                                    "scale",
-                                    value,
-                                    base,
-                                    previous,
-                                    menu.scope,
-                                    &cli,
-                                    |ui| {
-                                        let mut auto = value.scale.is_none();
-                                        if ui
-                                            .add_enabled(
-                                                menu.capabilities.allow_auto || auto,
-                                                egui::Checkbox::new(&mut auto, "Auto"),
-                                            )
-                                            .changed()
-                                        {
-                                            value.scale = if auto {
-                                                None
-                                            } else {
-                                                Some(windowed_scale.clamp(
-                                                    menu.capabilities.min_scale.max(1),
-                                                    menu.capabilities.max_scale,
-                                                ))
-                                            };
-                                        }
-                                        if value.scale.is_none() {
-                                            ui.label("Largest fit");
-                                        }
-                                    },
-                                );
-                                ui.add_enabled_ui(
-                                    value.scale.is_some()
-                                        && !value.fullscreen
-                                        && !cli.contains_key("scale"),
-                                    |ui| {
-                                        let mut n = value.scale.unwrap_or(windowed_scale);
-                                        let mut cap = menu.capabilities;
-                                        if value.scale.is_none() {
-                                            cap.min_scale = cap.min_scale.min(n);
-                                            cap.max_scale = cap.max_scale.max(n);
-                                        }
-                                        scale_slider(ui, &mut n, cap);
-                                        if value.scale.is_some() {
-                                            value.scale = Some(n);
-                                        }
-                                    },
-                                );
-                                section(ui, "Rendering");
-                                row(
-                                    ui,
-                                    "Renderer",
-                                    "renderer",
-                                    value,
-                                    base,
-                                    previous,
-                                    menu.scope,
-                                    &cli,
-                                    |ui| {
-                                        egui::ComboBox::from_id_salt("renderer")
-                                            .width(220.0)
-                                            .selected_text(renderer_label(value.renderer))
-                                            .show_ui(ui, |ui| {
-                                                for r in [
-                                                    Renderer::Auto,
-                                                    Renderer::Gpu,
-                                                    Renderer::Sdl,
-                                                    Renderer::Software,
-                                                ] {
-                                                    ui.selectable_value(
-                                                        &mut value.renderer,
-                                                        r,
-                                                        renderer_label(r),
+                                if menu.page == 0 {
+                                    section(ui, "Window & scaling");
+                                    row(
+                                        ui,
+                                        "Window mode",
+                                        "window_mode",
+                                        value,
+                                        base,
+                                        previous,
+                                        menu.scope,
+                                        &cli,
+                                        |ui| {
+                                            ui.radio_value(
+                                                &mut value.fullscreen,
+                                                false,
+                                                "Windowed",
+                                            );
+                                            ui.add_enabled_ui(
+                                                menu.capabilities.allow_fullscreen,
+                                                |ui| {
+                                                    ui.radio_value(
+                                                        &mut value.fullscreen,
+                                                        true,
+                                                        "Fullscreen",
                                                     );
-                                                }
-                                            });
-                                    },
-                                );
-                                if value.renderer != original.renderer
-                                    && !cli.contains_key("backend")
-                                    && !backends(value.renderer).contains(&value.backend)
-                                {
-                                    value.backend = Backend::Auto;
+                                                },
+                                            );
+                                        },
+                                    );
+                                    row(
+                                        ui,
+                                        "Window scale",
+                                        "scale",
+                                        value,
+                                        base,
+                                        previous,
+                                        menu.scope,
+                                        &cli,
+                                        |ui| {
+                                            let mut auto = value.scale.is_none();
+                                            if ui
+                                                .add_enabled(
+                                                    menu.capabilities.allow_auto || auto,
+                                                    egui::Checkbox::new(&mut auto, "Auto"),
+                                                )
+                                                .changed()
+                                            {
+                                                value.scale = if auto {
+                                                    None
+                                                } else {
+                                                    Some(windowed_scale.clamp(
+                                                        menu.capabilities.min_scale.max(1),
+                                                        menu.capabilities.max_scale,
+                                                    ))
+                                                };
+                                            }
+                                            if value.scale.is_none() {
+                                                ui.label("Largest fit");
+                                            }
+                                        },
+                                    );
+                                    ui.add_enabled_ui(
+                                        value.scale.is_some()
+                                            && !value.fullscreen
+                                            && !cli.contains_key("scale"),
+                                        |ui| {
+                                            let mut n = value.scale.unwrap_or(windowed_scale);
+                                            let mut cap = menu.capabilities;
+                                            if value.scale.is_none() {
+                                                cap.min_scale = cap.min_scale.min(n);
+                                                cap.max_scale = cap.max_scale.max(n);
+                                            }
+                                            scale_slider(ui, &mut n, cap);
+                                            if value.scale.is_some() {
+                                                value.scale = Some(n);
+                                            }
+                                        },
+                                    );
+                                    section(ui, "Rendering");
+                                    row(
+                                        ui,
+                                        "Renderer",
+                                        "renderer",
+                                        value,
+                                        base,
+                                        previous,
+                                        menu.scope,
+                                        &cli,
+                                        |ui| {
+                                            egui::ComboBox::from_id_salt("renderer")
+                                                .width(220.0)
+                                                .selected_text(renderer_label(value.renderer))
+                                                .show_ui(ui, |ui| {
+                                                    for r in [
+                                                        Renderer::Auto,
+                                                        Renderer::Gpu,
+                                                        Renderer::Sdl,
+                                                        Renderer::Software,
+                                                    ] {
+                                                        ui.selectable_value(
+                                                            &mut value.renderer,
+                                                            r,
+                                                            renderer_label(r),
+                                                        );
+                                                    }
+                                                });
+                                        },
+                                    );
+                                    if value.renderer != original.renderer
+                                        && !cli.contains_key("backend")
+                                        && !backends(value.renderer).contains(&value.backend)
+                                    {
+                                        value.backend = Backend::Auto;
+                                    }
+                                    row(
+                                        ui,
+                                        "Backend",
+                                        "backend",
+                                        value,
+                                        base,
+                                        previous,
+                                        menu.scope,
+                                        &cli,
+                                        |ui| {
+                                            ui.add_enabled_ui(
+                                                value.renderer != Renderer::Software,
+                                                |ui| {
+                                                    backend_selector(ui, &mut value);
+                                                },
+                                            );
+                                        },
+                                    );
+                                    row(
+                                        ui,
+                                        "VSync",
+                                        "vsync",
+                                        value,
+                                        base,
+                                        previous,
+                                        menu.scope,
+                                        &cli,
+                                        |ui| {
+                                            ui.checkbox(
+                                                &mut value.vsync,
+                                                "Synchronise with the display",
+                                            );
+                                        },
+                                    );
+                                    row(
+                                        ui,
+                                        "Frame limit",
+                                        "frame_limit",
+                                        value,
+                                        base,
+                                        previous,
+                                        menu.scope,
+                                        &cli,
+                                        |ui| {
+                                            egui::ComboBox::from_id_salt("frame_limit")
+                                                .width(220.0)
+                                                .selected_text(value.frame_limit.label())
+                                                .show_ui(ui, |ui| {
+                                                    for limit in FrameLimit::ALL {
+                                                        ui.selectable_value(
+                                                            &mut value.frame_limit,
+                                                            limit,
+                                                            limit.label(),
+                                                        );
+                                                    }
+                                                });
+                                        },
+                                    );
+                                    ui.weak(
+                                        "Presentation ceiling · simulation timing is unchanged",
+                                    );
+                                } else {
+                                    crt_controls(ui, &mut value, base, previous, menu.scope, &cli);
                                 }
-                                row(
-                                    ui,
-                                    "Backend",
-                                    "backend",
-                                    value,
-                                    base,
-                                    previous,
-                                    menu.scope,
-                                    &cli,
-                                    |ui| {
-                                        ui.add_enabled_ui(
-                                            value.renderer != Renderer::Software,
-                                            |ui| {
-                                                backend_selector(ui, &mut value);
-                                            },
-                                        );
-                                    },
-                                );
-                                row(
-                                    ui,
-                                    "VSync",
-                                    "vsync",
-                                    value,
-                                    base,
-                                    previous,
-                                    menu.scope,
-                                    &cli,
-                                    |ui| {
-                                        ui.checkbox(
-                                            &mut value.vsync,
-                                            "Synchronise with the display",
-                                        );
-                                    },
-                                );
                             });
                         });
-                    for key in KEYS {
+                    let keys = if menu.page == 0 {
+                        DISPLAY_KEYS
+                    } else {
+                        CRT_KEYS
+                    };
+                    for &key in keys {
                         if original.get(key) != value.get(key) && !cli.contains_key(key) {
                             draft.edit(menu.scope == 1, key, value.get(key));
                             if menu.scope == 1 {
-                                menu.game_touched = true;
+                                menu.game_touched[menu.page] = true;
                             }
                         }
                     }
@@ -270,11 +327,11 @@ pub(super) fn draw(
                     .clicked()
                 {
                     if menu.scope == 0 {
-                        draft.global.clear();
+                        draft.reset_section(false, menu.page == 1);
                     } else {
-                        draft.game.clear();
-                        menu.game_editing = false;
-                        menu.game_touched = true;
+                        draft.reset_section(true, menu.page == 1);
+                        menu.game_editing[menu.page] = false;
+                        menu.game_touched[menu.page] = true;
                     }
                 }
                 let apply = ui.add_enabled(
@@ -286,10 +343,11 @@ pub(super) fn draw(
                     menu.apply_rect = Some(apply.rect);
                 }
                 if apply.clicked() {
-                    if menu.game_touched {
-                        let baseline = draft.global_values();
-                        draft.game.retain(|key, v| *v != baseline.get(key));
-                    }
+                    let baseline = draft.global_values();
+                    draft.game.retain(|key, v| {
+                        let page = usize::from(CRT_KEYS.contains(&key.as_str()));
+                        !menu.game_touched[page] || *v != baseline.get(key)
+                    });
                     menu.pending = Some(draft.clone());
                 }
                 let cancel = ui.button("Cancel");
@@ -315,6 +373,125 @@ pub(super) fn draw(
         });
     close
 }
+fn crt_controls(
+    ui: &mut egui::Ui,
+    value: &mut VideoSettings,
+    base: VideoSettings,
+    previous: VideoSettings,
+    scope: usize,
+    cli: &reforge_settings::Patch,
+) {
+    section(ui, "Presentation");
+    row(
+        ui,
+        "Treatment",
+        "presentation",
+        *value,
+        base,
+        previous,
+        scope,
+        cli,
+        |ui| {
+            egui::ComboBox::from_id_salt("presentation")
+                .width(220.0)
+                .selected_text(if value.presentation == Presentation::Pixels {
+                    "Sharp pixels"
+                } else {
+                    "Hyllian CRT"
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut value.presentation,
+                        Presentation::Pixels,
+                        "Sharp pixels",
+                    );
+                    ui.selectable_value(
+                        &mut value.presentation,
+                        Presentation::Hyllian,
+                        "Hyllian CRT",
+                    );
+                });
+        },
+    );
+    // Configure a requested effect even before changing renderer; fallback stays
+    // plain pixels and retains these preferences until a GPU renderer is used.
+    ui.add_enabled_ui(
+        cli.get("presentation")
+            .map_or(value.presentation == Presentation::Hyllian, |v| {
+                v == "hyllian"
+            }),
+        |ui| {
+            section(ui, "Hyllian");
+            row(
+                ui,
+                "Horizontal filter",
+                "horizontal_filter",
+                *value,
+                base,
+                previous,
+                scope,
+                cli,
+                |ui| {
+                    egui::ComboBox::from_id_salt("horizontal_filter")
+                        .width(220.0)
+                        .selected_text(if value.hyllian.catmull_rom {
+                            "Catmull–Rom"
+                        } else {
+                            "Hermite"
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut value.hyllian.catmull_rom, false, "Hermite");
+                            ui.selectable_value(
+                                &mut value.hyllian.catmull_rom,
+                                true,
+                                "Catmull–Rom",
+                            );
+                        });
+                },
+            );
+            for (i, param) in SHADER_PARAMETERS.into_iter().enumerate() {
+                row(
+                    ui,
+                    param.label,
+                    param.key,
+                    *value,
+                    base,
+                    previous,
+                    scope,
+                    cli,
+                    |ui| {
+                        ui.spacing_mut().slider_width = 150.0;
+                        let mut n = f32::from(value.hyllian.values[i]) / 100.0;
+                        let mut low = param.min;
+                        let mut high = param.max;
+                        if i == 1 {
+                            high = high.min(value.hyllian.values[2]);
+                        }
+                        if i == 2 {
+                            low = low.max(value.hyllian.values[1]);
+                        }
+                        if ui
+                            .add(
+                                egui::Slider::new(
+                                    &mut n,
+                                    f32::from(low) / 100.0..=f32::from(high) / 100.0,
+                                )
+                                .step_by(0.01)
+                                .fixed_decimals(2),
+                            )
+                            .on_hover_text(param.help)
+                            .changed()
+                        {
+                            value.hyllian.values[i] = (n * 100.0).round() as u16;
+                        }
+                    },
+                );
+            }
+        },
+    );
+    ui.weak("Hyllian requires the GPU renderer; fallbacks use sharp pixels.");
+}
+
 fn section(ui: &mut egui::Ui, label: &str) {
     ui.add_space(8.0);
     ui.strong(label);

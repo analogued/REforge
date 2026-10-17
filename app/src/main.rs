@@ -110,13 +110,18 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
         match arg.to_str() {
             Some("--no-config") => no_config = true,
             Some("--config") => prefs.path = remaining.next().map(PathBuf::from),
-            Some(name @ ("--window-mode" | "--renderer" | "--backend" | "--vsync" | "--scale")) => {
+            Some(
+                name @ ("--window-mode" | "--renderer" | "--backend" | "--vsync" | "--scale"
+                | "--frame-limit" | "--presentation"),
+            ) => {
                 if let Some(value) = remaining.next() {
                     let key = match name {
                         "--window-mode" => "window_mode",
                         "--scale" => "scale",
                         "--renderer" => "renderer",
                         "--backend" => "backend",
+                        "--frame-limit" => "frame_limit",
+                        "--presentation" => "presentation",
                         _ => "vsync",
                     };
                     if let Some(text) = value.to_str() {
@@ -125,7 +130,7 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
                             prefs.cli.insert(key.into(), normalized.get(key));
                         }
                     }
-                    if name == "--scale" {
+                    if matches!(name, "--scale" | "--presentation") {
                         args.push(arg);
                         args.push(value);
                     }
@@ -238,6 +243,29 @@ mod tests {
             release: detection::RELEASES.iter().find(|r| r.game == game).unwrap(),
             original: path.into(),
         })
+    }
+    #[test]
+    fn frame_limit_and_presentation_are_temporary_preferences() {
+        let (launch, forward) = launch_settings(
+            args(&[
+                "--no-config",
+                "--frame-limit",
+                "120",
+                "--presentation",
+                "hyllian",
+            ]),
+            Game::Mach3,
+        );
+        assert_eq!(
+            launch.cli.get("frame_limit").map(String::as_str),
+            Some("120")
+        );
+        assert_eq!(
+            launch.cli.get("presentation").map(String::as_str),
+            Some("hyllian")
+        );
+        assert_eq!(forward, args(&["--presentation", "hyllian"]));
+        assert!(launch.path.is_none());
     }
     #[test]
     fn preference_options_are_temporary_and_only_engine_arguments_are_forwarded() {

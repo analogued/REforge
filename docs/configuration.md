@@ -1,16 +1,19 @@
-# Display preferences
+# Presentation preferences
 
 F10 opens the Compact Settings menu in either game. The Display page offers
 window mode (windowed or borderless desktop fullscreen), window scale (Auto or
-×1–×16), renderer, backend and VSync. Other sections remain future work.
+×1–×16), renderer, backend, VSync and a frame limiter. CRT & Colour offers sharp
+pixels or Hyllian CRT with adjustable shader controls. Colour profiles and white
+points remain future work.
 With Auto selected, the disabled scale slider shows the resolved windowed
 multiplier. Turning Auto off starts manual scaling at that value.
 
 Controls edit a draft. Apply activates and saves pending edits across both
 Global defaults and the current game's overrides, leaving the menu open.
 Cancel, Escape and F10 discard unapplied edits. Reset section clears only the
-global Display preferences when editing Global defaults. Restore global defaults
-clears only the current game's Display overrides when editing that game.
+selected global section when editing Global defaults. Restore global defaults
+clears only the current game's overrides for the selected section when editing
+that game. Display and CRT & Colour reset independently.
 Both operations remain drafts until Apply.
 
 Game fields differing from the global draft use cyan text. An amber dot marks
@@ -39,6 +42,11 @@ scale = "auto"
 renderer = "auto"
 backend = "auto"
 vsync = true
+frame_limit = "display"
+
+[global.crt]
+presentation = "hyllian"
+mask_intensity = 0.35
 
 [games.alley-cat.display]
 scale = 4
@@ -48,7 +56,8 @@ vsync = false
 ```
 
 Defaults are windowed, Auto scale, automatic GPU-preferred rendering, automatic
-backend and VSync enabled when supported. Missing keys inherit: shared defaults,
+backend, VSync enabled when supported, a display-refresh frame ceiling, and sharp
+pixels. Missing keys inherit: shared defaults,
 then global preferences, then game preferences. Game identities are the catalog
 IDs `alley-cat` and `mach-3`, independent of engines or original data paths.
 Explicit CLI values form the final temporary layer.
@@ -60,6 +69,7 @@ Explicit CLI values form the final temporary layer.
 | renderer | `"auto"`, `"gpu"`, `"sdl"`, `"software"` |
 | backend | `"auto"`, `"vulkan"`, `"opengl"`, `"opengles2"`, `"direct3d11"`, `"direct3d12"`, `"metal"` |
 | vsync | `true`, `false` |
+| frame_limit | `"display"`, `"60"`, `"120"`, `"unlimited"` |
 
 The menu offers platform choices and compiled SDL renderer drivers. Direct3D
 and Metal are not offered on Linux. A renderer change resets an unlocked,
@@ -70,7 +80,8 @@ switches failed native validation; explicit requests are rejected with guidance
 to select GPU/Vulkan.
 
 `--scale auto|1..16`, `--window-mode windowed|fullscreen`,
-`--renderer auto|gpu|sdl|software`, `--backend <name>` and `--vsync on|off` override
+`--renderer auto|gpu|sdl|software`, `--backend <name>`, `--vsync on|off`,
+`--frame-limit display|60|120|unlimited` and `--presentation pixels|hyllian` override
 only this run. Those controls are disabled in both editing scopes. Each scope
 shows its saved/draft value, with a separate line identifying the active CLI
 value. Apply never copies CLI values into the file.
@@ -80,6 +91,48 @@ Auto; unavailable backend/VSync requests are not replaced in the file by their
 fallbacks. The active renderer/backend and VSync are reported separately.
 Unavailable startup rendering warns and tries automatic rendering. Rejected
 Apply reconstructs working resources and does not save its changes.
+
+## Frame limiter
+
+The frame limiter caps shared presentation, including menu rendering. Display
+refresh rate queries the window's current display and falls back to 60 fps if
+unknown. It is a ceiling: engine redraw cadence can be lower, and Unlimited does
+not force extra game frames. VSync remains independent; disabling the cap does
+not disable VSync. When VSync already satisfies the cap, no additional timer wait
+is added. Rendering and VSync waits count toward the interval; stalls do not
+accumulate presentation debt. Native simulation clocks, catch-up and deliberate
+game waits retain their existing behavior. VSync and timer granularity can make
+the observed frame rate lower than the chosen ceiling.
+
+## CRT & Colour
+
+CRT preferences use `[global.crt]` and `[games.<game-id>.crt]`, with the same
+sparse inheritance and Apply/Cancel rules as Display. `presentation` accepts
+`"pixels"` (default) or `"hyllian"`. Sharp pixels disables shader controls without
+removing their saved values. Requested Hyllian on an unsupported renderer keeps
+its preferences and displays plain pixels; returning to GPU restores the effect.
+The menu can configure Hyllian before switching to GPU. Modern menu overlays are
+always drawn after the shader.
+
+| CRT key | Range / choices | Initial value |
+| --- | --- | --- |
+| horizontal_filter | `"hermite"`, `"catmull-rom"` | `"hermite"` |
+| scanline_strength | 0.00–1.00 | 0.65 |
+| beam_min | 0.10–2.00, ≤ beam_max | 0.70 |
+| beam_max | 0.10–2.00, ≥ beam_min | 1.00 |
+| colour_boost | 1.00–3.00 | 2.00 |
+| sharpness | 1.00–5.00 | 1.00 |
+| mask_intensity | 0.00–1.00 | 0.35 |
+| anti_ringing | 0.00–1.00 | 1.00 |
+| input_gamma | 1.00–4.00 | 2.40 |
+| output_gamma | 1.00–4.00 | 2.40 |
+
+Numeric controls use increments of 0.01. Initial values preserve the earlier fixed
+Hyllian treatment. Beam widths control brightness-dependent scanline thickness;
+they do not change the 200 source-row beam cycles. The RGB aperture mask retains
+its physical two-pixel pitch. Gamma controls belong to the shader, not a separate
+monitor profile or white-point conversion. Invalid fields inherit; invalid beam
+pairs discard the pair's overrides at that scope and warn.
 
 ## Activation and persistence
 

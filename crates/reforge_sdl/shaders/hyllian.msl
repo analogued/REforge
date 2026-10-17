@@ -28,6 +28,9 @@ struct HyllianUniforms
 {
     float4 source_size;
     float4 viewport;
+    float4 beam;
+    float4 filter_mask;
+    float4 gamma;
 };
 
 struct main0_out
@@ -42,9 +45,9 @@ struct main0_in
 };
 
 static inline __attribute__((always_inline))
-float4 get_beam_profile()
+float4 get_beam_profile(constant HyllianUniforms& _61)
 {
-    float4 bp = float4(0.64999997615814208984375, 0.699999988079071044921875, 1.0, 2.0);
+    float4 bp = float4(_61.beam.x, _61.beam.y, _61.beam.z, _61.beam.w);
     if (false)
     {
         bp = float4(0.62000000476837158203125, 1.0, 1.0, 1.39999997615814208984375);
@@ -57,11 +60,11 @@ float4 get_beam_profile()
 }
 
 static inline __attribute__((always_inline))
-float4x4 get_hfilter_profile()
+float4x4 get_hfilter_profile(constant HyllianUniforms& _61)
 {
     float bf = 0.0;
     float cf = 0.0;
-    if (false)
+    if (_61.filter_mask.w == 1.0)
     {
         bf = 0.0;
         cf = 0.5;
@@ -79,25 +82,25 @@ float3 mask_weights(thread const float2& coord, thread const float& mask_intensi
     return mix(magenta, green, float3(floor(mod(coord.x, 2.0))));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant HyllianUniforms& _170 [[buffer(0)]], texture2d<float> INPUT_TEXTURE_0 [[texture(0)]], sampler INPUT_TEXTURE_0Smplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+fragment main0_out main0(main0_in in [[stage_in]], constant HyllianUniforms& _61 [[buffer(0)]], texture2d<float> INPUT_TEXTURE_0 [[texture(0)]], sampler INPUT_TEXTURE_0Smplr [[sampler(0)]], float4 gl_FragCoord [[position]])
 {
     main0_out out = {};
-    float4 profile = get_beam_profile();
-    float2 TextureSize = mix(float2(_170.source_size.x * 1.0, _170.source_size.y), float2(_170.source_size.x, _170.source_size.y * 1.0), float2(0.0));
+    float4 profile = get_beam_profile(_61);
+    float2 TextureSize = mix(float2(_61.source_size.x * _61.filter_mask.x, _61.source_size.y), float2(_61.source_size.x, _61.source_size.y * _61.filter_mask.x), float2(0.0));
     float2 dx = mix(float2(1.0 / TextureSize.x, 0.0), float2(0.0, 1.0 / TextureSize.y), float2(0.0));
     float2 dy = mix(float2(0.0, 1.0 / TextureSize.y), float2(1.0 / TextureSize.x, 0.0), float2(0.0));
     float2 pix_coord = (in.v_texCoord * TextureSize) + float2(-0.5, 0.5);
     float2 tc = mix((floor(pix_coord) + float2(0.5)) / TextureSize, (floor(pix_coord) + float2(1.0, -0.5)) / TextureSize, float2(0.0));
     float2 fp = mix(fract(pix_coord), fract(pix_coord.yx), float2(0.0));
-    float4 c00 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, ((tc - dx) - dy)), float4(2.400000095367431640625));
-    float4 c01 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, (tc - dy)), float4(2.400000095367431640625));
-    float4 c02 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, ((tc + dx) - dy)), float4(2.400000095367431640625));
-    float4 c03 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, ((tc + (dx * 2.0)) - dy)), float4(2.400000095367431640625));
-    float4 c10 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, (tc - dx)), float4(2.400000095367431640625));
-    float4 c11 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, tc), float4(2.400000095367431640625));
-    float4 c12 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, (tc + dx)), float4(2.400000095367431640625));
-    float4 c13 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, (tc + (dx * 2.0))), float4(2.400000095367431640625));
-    float4x4 invX = get_hfilter_profile();
+    float4 c00 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, ((tc - dx) - dy)), float4(_61.gamma.x, _61.gamma.x, _61.gamma.x, _61.gamma.x));
+    float4 c01 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, (tc - dy)), float4(_61.gamma.x, _61.gamma.x, _61.gamma.x, _61.gamma.x));
+    float4 c02 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, ((tc + dx) - dy)), float4(_61.gamma.x, _61.gamma.x, _61.gamma.x, _61.gamma.x));
+    float4 c03 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, ((tc + (dx * 2.0)) - dy)), float4(_61.gamma.x, _61.gamma.x, _61.gamma.x, _61.gamma.x));
+    float4 c10 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, (tc - dx)), float4(_61.gamma.x, _61.gamma.x, _61.gamma.x, _61.gamma.x));
+    float4 c11 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, tc), float4(_61.gamma.x, _61.gamma.x, _61.gamma.x, _61.gamma.x));
+    float4 c12 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, (tc + dx)), float4(_61.gamma.x, _61.gamma.x, _61.gamma.x, _61.gamma.x));
+    float4 c13 = powr(INPUT_TEXTURE_0.sample(INPUT_TEXTURE_0Smplr, (tc + (dx * 2.0))), float4(_61.gamma.x, _61.gamma.x, _61.gamma.x, _61.gamma.x));
+    float4x4 invX = get_hfilter_profile(_61);
     float4x4 color_matrix0 = float4x4(float4(c00), float4(c01), float4(c02), float4(c03));
     float4x4 color_matrix1 = float4x4(float4(c10), float4(c11), float4(c12), float4(c13));
     float4 invX_Px = float4((fp.x * fp.x) * fp.x, fp.x * fp.x, fp.x, 1.0) * invX;
@@ -109,10 +112,10 @@ fragment main0_out main0(main0_in in [[stage_in]], constant HyllianUniforms& _17
     float4 max_sample1 = fast::max(c11, c12);
     float4 aux = color0;
     color0 = fast::clamp(color0, min_sample0, max_sample0);
-    color0 = mix(aux, color0, step(float4(0.0), (c00 - c01) * (c02 - c03)) * 1.0);
+    color0 = mix(aux, color0, step(float4(0.0), (c00 - c01) * (c02 - c03)) * _61.filter_mask.z);
     aux = color1;
     color1 = fast::clamp(color1, min_sample1, max_sample1);
-    color1 = mix(aux, color1, step(float4(0.0), (c10 - c11) * (c12 - c13)) * 1.0);
+    color1 = mix(aux, color1, step(float4(0.0), (c10 - c11) * (c12 - c13)) * _61.filter_mask.z);
     float pos0 = fp.y;
     float pos1 = 1.0 - fp.y;
     float4 lum0 = mix(float4(profile.y), float4(profile.z), color0);
@@ -122,17 +125,17 @@ fragment main0_out main0(main0_in in [[stage_in]], constant HyllianUniforms& _17
     d0 = exp((-d0) * d0);
     d1 = exp((-d1) * d1);
     float4 color = ((color0 * d0) + (color1 * d1)) * profile.w;
-    float2 mask_coords = gl_FragCoord.xy - _170.viewport.xy;
+    float2 mask_coords = gl_FragCoord.xy - _61.viewport.xy;
     mask_coords = mix(mask_coords, mask_coords.yx, float2(0.0));
     float2 param = mask_coords;
-    float param_1 = 0.3499999940395355224609375;
+    float param_1 = _61.filter_mask.y;
     int param_2 = 1;
-    float4 _539 = color;
-    float3 _541 = _539.xyz * mask_weights(param, param_1, param_2);
-    color.x = _541.x;
-    color.y = _541.y;
-    color.z = _541.z;
-    color = fast::clamp(powr(color, float4(0.4166666567325592041015625)), float4(0.0), float4(1.0));
+    float4 _630 = color;
+    float3 _632 = _630.xyz * mask_weights(param, param_1, param_2);
+    color.x = _632.x;
+    color.y = _632.y;
+    color.z = _632.z;
+    color = fast::clamp(powr(color, float4(1.0 / _61.gamma.y, 1.0 / _61.gamma.y, 1.0 / _61.gamma.y, 1.0 / _61.gamma.y)), float4(0.0), float4(1.0));
     out.FragColor = float4(color.xyz, 1.0) * in.v_color;
     return out;
 }

@@ -91,8 +91,9 @@ pub struct SettingsMenu<'a> {
     pub(super) cancel_rect: Option<egui::Rect>,
     #[cfg(test)]
     pub(super) apply_rect: Option<egui::Rect>,
-    pub(super) game_editing: bool,
-    pub(super) game_touched: bool,
+    pub(super) game_editing: [bool; 2],
+    pub(super) page: usize,
+    pub(super) game_touched: [bool; 2],
     pub(super) status: Option<String>,
     pub(super) jobs: Vec<egui::ClippedPrimitive>,
     pub(super) pending_textures: egui::TexturesDelta,
@@ -130,8 +131,9 @@ impl<'a> SettingsMenu<'a> {
             cancel_rect: None,
             #[cfg(test)]
             apply_rect: None,
-            game_editing: false,
-            game_touched: false,
+            game_editing: [false; 2],
+            page: 0,
+            game_touched: [false; 2],
             status: None,
             jobs: Vec::new(),
             pending_textures: egui::TexturesDelta::default(),
@@ -186,7 +188,7 @@ impl<'a> SettingsMenu<'a> {
                 }
                 self.draft = None;
                 self.pending = None;
-                self.game_touched = false;
+                self.game_touched = [false; 2];
                 self.events.clear();
                 self.context.memory_mut(|memory| memory.reset_areas());
             }
@@ -212,7 +214,7 @@ impl<'a> SettingsMenu<'a> {
             self.open = false;
             self.draft = None;
             self.pending = None;
-            self.game_touched = false;
+            self.game_touched = [false; 2];
             self.escape_held = true;
             self.events.clear();
             return true;
@@ -282,7 +284,8 @@ impl<'a> SettingsMenu<'a> {
         }
         if self.draft.is_none() {
             let saved = self.creator.session.borrow().saved.clone();
-            self.game_editing = !saved.game.is_empty();
+            self.game_editing = [reforge_settings::DISPLAY_KEYS, reforge_settings::CRT_KEYS]
+                .map(|keys| keys.iter().any(|key| saved.game.contains_key(*key)));
             self.draft = Some(saved);
         }
         self.density = metrics.density();
@@ -348,7 +351,7 @@ impl<'a> SettingsMenu<'a> {
                 Ok(()) => {
                     self.draft = Some(draft);
                     self.error = None;
-                    self.game_touched = false;
+                    self.game_touched = [false; 2];
                 }
                 Err(error) => {
                     self.error = Some(format!("Settings applied, but could not save: {error}"))
@@ -1283,7 +1286,7 @@ mod tests {
             "Settings rendering test",
             320,
             240,
-            Some(4),
+            Some(8),
             crate::Presentation::Hyllian,
         )
         .unwrap();
@@ -1295,32 +1298,46 @@ mod tests {
         let mut frame =
             crate::FrameTexture::new(&creator, 320, 200, crate::FrameFormat::Rgba).unwrap();
         frame.update(&[170, 0, 170, 255].repeat(320 * 200)).unwrap();
-        for _ in 0..3 {
-            menu.prepare(display.ui_metrics(), display.video_settings());
-            display
-                .present_with(&frame, |canvas| {
-                    menu.paint(canvas)?;
-                    if let Some(path) = std::env::var_os("REFORGE_SETTINGS_TEST_IMAGE") {
-                        let logical = canvas.logical_size();
-                        canvas
-                            .set_logical_size(
-                                0,
-                                0,
-                                sdl3::sys::render::SDL_LOGICAL_PRESENTATION_DISABLED,
-                            )
-                            .map_err(|error| error.to_string())?;
-                        canvas
-                            .read_pixels(None)
-                            .map_err(|error| error.to_string())?
-                            .save_bmp(path)
-                            .map_err(|error| error.to_string())?;
-                        canvas
-                            .set_logical_size(logical.0, logical.1, logical.2)
-                            .map_err(|error| error.to_string())?;
-                    }
-                    Ok(())
-                })
-                .unwrap();
+        for page in [0, 1] {
+            menu.page = page;
+            for _ in 0..3 {
+                menu.prepare(display.ui_metrics(), display.video_settings());
+                display
+                    .present_with(&frame, |canvas| {
+                        menu.paint(canvas)?;
+                        if let Some(path) = std::env::var_os("REFORGE_SETTINGS_TEST_IMAGE") {
+                            let logical = canvas.logical_size();
+                            let viewport = canvas.viewport();
+                            let clip = canvas.clip_rect();
+                            let scale = canvas.scale();
+                            canvas
+                                .set_logical_size(
+                                    0,
+                                    0,
+                                    sdl3::sys::render::SDL_LOGICAL_PRESENTATION_DISABLED,
+                                )
+                                .map_err(|error| error.to_string())?;
+                            canvas.set_viewport(None);
+                            canvas.set_clip_rect(None);
+                            canvas.set_scale(1.0, 1.0).map_err(|e| e.to_string())?;
+                            canvas
+                                .read_pixels(None)
+                                .map_err(|error| error.to_string())?
+                                .save_bmp(path)
+                                .map_err(|error| error.to_string())?;
+                            canvas
+                                .set_logical_size(logical.0, logical.1, logical.2)
+                                .map_err(|error| error.to_string())?;
+                            canvas.set_viewport(viewport);
+                            canvas.set_clip_rect(clip);
+                            canvas
+                                .set_scale(scale.0, scale.1)
+                                .map_err(|e| e.to_string())?;
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+            }
         }
     }
 }

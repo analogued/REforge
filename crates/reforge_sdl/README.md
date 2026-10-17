@@ -26,12 +26,13 @@ engines must advance due simulation work independently of presentation count.
 The wrapper does not expose a vsync setter or nanosecond tick access; these
 calls use generated SDL declarations with isolated safety explanations.
 
-`--presentation pixels` is the default. Optional `--presentation hyllian` uses
+Sharp pixels is the built-in default. Optional `--presentation hyllian` uses
 the shared Hyllian CRT shader: horizontal filtering, source-row beam lines,
 gamma processing and an RGB aperture mask. It leaves the engine's input pixels,
 palettes, graphics modes and simulation untouched. This initial treatment uses
-one fixed CGA-style parameter set for both engines; it does not yet provide
-colour profiles, monitor selection or Custom controls. Small output areas can
+the same initial CGA-style parameters for both engines. The CRT & Colour menu
+exposes its scanline, beam, filter, mask, brightness and gamma controls; separate
+colour profiles and monitor selection are not implemented. Small output areas can
 show interference patterns; display-dependent preset tuning is not implemented.
 For these 200-row games, a display multiplier N spreads 200 beam cycles over
 240*N drawable pixels: each cycle spans 1.2*N pixels on average. The aperture
@@ -49,15 +50,16 @@ needed to build or run REforge. Native Vulkan rendering is validated on Linux;
 DXIL compiler validation and reflection are checked, but native D3D12 and Metal
 rendering still need Windows and macOS validation.
 
-`Window::new_with_presentation` selects the initial effect; `Window::new` starts
-with pixels on the same preferred GPU renderer. `Window::set_presentation` switches
+The app launch session resolves persistent and CLI presentation preferences.
+For standalone engine previews, `Window::new_with_presentation` selects the
+initial effect and `Window::new` starts with pixels on the same preferred GPU
+renderer. `Window::set_presentation` switches
 pixels/CRT without recreating the renderer, window or uploaded frame textures.
 CRT resources are created on first use and cached when returning to pixels.
 `Window::presentation` reports the effective mode, including startup fallback.
 An unsupported runtime CRT request returns an error and leaves the active mode
-unchanged. The shared settings menu currently exposes window scale and desktop fullscreen.
-Presentation and backend selectors are not exposed in the menu yet. Changing
-the rendering backend itself remains a separate task.
+unchanged. Settings Apply retains a requested Hyllian preference on fallback
+renderers and restores the shader when a capable renderer is selected.
 The generated-binding GPU bridge is isolated in `src/hyllian.rs`; adapted
 third-party shader code, its license, provenance and regeneration commands live
 in [shaders/](shaders/README.md).
@@ -130,8 +132,13 @@ Windows and macOS have not yet been validated. The ignored native
 `gpu_presentation_switch_retains_renderer_textures_and_plain_pixels` check starts
 in pixels with the default GPU renderer, repeatedly toggles Hyllian using both
 engine texture formats, verifies unchanged window/renderer identity, and compares
-the restored plain image byte for byte. Software fallback checks also verify
-that unsupported runtime effect changes preserve the active pixels mode.
+the restored plain image byte for byte. It also checks live uniform edits,
+parameter validation, and retention across software fallback and GPU return.
+Run mixed-renderer native checks without a forced `SDL_RENDER_DRIVER`: that
+process-wide SDL hint can also affect the software window surface's internal
+blit renderer. On the tested Wayland/NVIDIA setup, forcing `gpu` there crashes
+in native presentation; ordinary REforge auto-selection passes. Software fallback
+checks also verify that unsupported direct effect changes preserve pixels mode.
 
 `audio::AudioOutput` owns a default playback stream and its SDL/audio lifetimes.
 Construct, use and drop it on the main thread. It accepts mono native-endian
@@ -165,8 +172,9 @@ the corresponding dependencies. This crate bundles no game data.
 
 ## Settings menu
 
-F10 opens the shared Compact Display page in either engine. Window mode, scale,
-renderer, backend and VSync use draft edits with Apply/Cancel. Global and game
+F10 opens the shared Compact Display and CRT & Colour pages in either engine.
+Window mode, scale, renderer, backend, VSync, frame ceiling and Hyllian shader
+controls use draft edits with Apply/Cancel. Global and game
 preferences are saved through `reforge_settings`; CLI overrides remain temporary
 and lock their controls. See [configuration](../../docs/configuration.md) for
 the complete persistence, inheritance and fallback contract.
@@ -211,3 +219,10 @@ See the [dependency and font notices](docs/dependencies.md#settings-ui).
 engines permit all initial settings. These restrictions belong at the engine
 boundary rather than in the SDL painter. Unsupported changes display an error
 and keep the panel usable. The menu does not expose development-only controls.
+
+Presentation pacing lives in `src/pacing.rs`. The shared ceiling uses current
+display refresh, 60 fps, 120 fps or Unlimited, independently of engine scheduling.
+VSync is counted within each interval and needs no extra timer wait when it
+already meets the ceiling. A stall resets presentation debt, while each engine
+retains its own simulation catch-up policy. See [configuration](../../docs/configuration.md)
+for persistence, defaults and shader parameter ranges.

@@ -367,14 +367,16 @@ impl Hyllian {
         canvas: &mut WindowCanvas,
         texture: &Texture<'_>,
         size: (u32, u32),
+        settings: reforge_settings::HyllianSettings,
     ) -> Result<(), String> {
         let mut viewport = SDL_FRect::default();
         // SAFETY: the owning canvas/renderer is live and viewport is writable.
         if !unsafe { render::SDL_GetRenderLogicalPresentationRect(canvas.raw(), &mut viewport) } {
             return Err(sdl3::get_error().to_string());
         }
-        // Two std140 vec4s, with no padding/uninitialized bytes. Actual drawable
+        // Five std140 vec4s, with no padding/uninitialized bytes. Actual drawable
         // coordinates keep mask placement correct after DPI and viewport changes.
+        let p = settings.values.map(|v| f32::from(v) / 100.0);
         let uniforms = [
             size.0 as f32,
             size.1 as f32,
@@ -384,17 +386,29 @@ impl Hyllian {
             viewport.y,
             viewport.w,
             viewport.h,
+            p[0],
+            p[1],
+            p[2],
+            p[3],
+            p[4],
+            p[5],
+            p[6],
+            f32::from(settings.catmull_rom),
+            p[7],
+            p[8],
+            0.0,
+            0.0,
         ];
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
-        // SAFETY: state belongs to this renderer; SDL copies the 32 bytes before
+        // SAFETY: state belongs to this renderer; SDL copies the 80 bytes before
         // returning. Shader uniforms declare precisely this layout in slot0.
         if !unsafe {
             render::SDL_SetGPURenderStateFragmentUniforms(
                 self.state.as_ptr(),
                 0,
                 uniforms.as_ptr().cast(),
-                32,
+                80,
             )
         } {
             return Err(sdl3::get_error().to_string());

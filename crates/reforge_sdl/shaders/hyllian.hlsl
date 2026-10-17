@@ -13,8 +13,11 @@
 
 cbuffer HyllianUniforms : register(b0, space3)
 {
-    float4 _170_source_size : packoffset(c0);
-    float4 _170_viewport : packoffset(c1);
+    float4 _61_source_size : packoffset(c0);
+    float4 _61_viewport : packoffset(c1);
+    float4 _61_beam : packoffset(c2);
+    float4 _61_filter_mask : packoffset(c3);
+    float4 _61_gamma : packoffset(c4);
 };
 
 Texture2D<float4> INPUT_TEXTURE_0 : register(t0, space2);
@@ -59,7 +62,7 @@ float4 mod(float4 x, float4 y)
 
 float4 get_beam_profile()
 {
-    float4 bp = float4(0.64999997615814208984375f, 0.699999988079071044921875f, 1.0f, 2.0f);
+    float4 bp = float4(_61_beam.x, _61_beam.y, _61_beam.z, _61_beam.w);
     if (false)
     {
         bp = float4(0.62000000476837158203125f, 1.0f, 1.0f, 1.39999997615814208984375f);
@@ -75,7 +78,7 @@ float4x4 get_hfilter_profile()
 {
     float bf = 0.0f;
     float cf = 0.0f;
-    if (false)
+    if (_61_filter_mask.w == 1.0f)
     {
         bf = 0.0f;
         cf = 0.5f;
@@ -95,20 +98,20 @@ float3 mask_weights(float2 coord, float mask_intensity, int phosphor_layout)
 void frag_main()
 {
     float4 profile = get_beam_profile();
-    float2 TextureSize = lerp(float2(_170_source_size.x * 1.0f, _170_source_size.y), float2(_170_source_size.x, _170_source_size.y * 1.0f), 0.0f.xx);
+    float2 TextureSize = lerp(float2(_61_source_size.x * _61_filter_mask.x, _61_source_size.y), float2(_61_source_size.x, _61_source_size.y * _61_filter_mask.x), 0.0f.xx);
     float2 dx = lerp(float2(1.0f / TextureSize.x, 0.0f), float2(0.0f, 1.0f / TextureSize.y), 0.0f.xx);
     float2 dy = lerp(float2(0.0f, 1.0f / TextureSize.y), float2(1.0f / TextureSize.x, 0.0f), 0.0f.xx);
     float2 pix_coord = (v_texCoord * TextureSize) + float2(-0.5f, 0.5f);
     float2 tc = lerp((floor(pix_coord) + 0.5f.xx) / TextureSize, (floor(pix_coord) + float2(1.0f, -0.5f)) / TextureSize, 0.0f.xx);
     float2 fp = lerp(frac(pix_coord), frac(pix_coord.yx), 0.0f.xx);
-    float4 c00 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, (tc - dx) - dy), 2.400000095367431640625f.xxxx);
-    float4 c01 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, tc - dy), 2.400000095367431640625f.xxxx);
-    float4 c02 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, (tc + dx) - dy), 2.400000095367431640625f.xxxx);
-    float4 c03 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, (tc + (dx * 2.0f)) - dy), 2.400000095367431640625f.xxxx);
-    float4 c10 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, tc - dx), 2.400000095367431640625f.xxxx);
-    float4 c11 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, tc), 2.400000095367431640625f.xxxx);
-    float4 c12 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, tc + dx), 2.400000095367431640625f.xxxx);
-    float4 c13 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, tc + (dx * 2.0f)), 2.400000095367431640625f.xxxx);
+    float4 c00 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, (tc - dx) - dy), float4(_61_gamma.x, _61_gamma.x, _61_gamma.x, _61_gamma.x));
+    float4 c01 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, tc - dy), float4(_61_gamma.x, _61_gamma.x, _61_gamma.x, _61_gamma.x));
+    float4 c02 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, (tc + dx) - dy), float4(_61_gamma.x, _61_gamma.x, _61_gamma.x, _61_gamma.x));
+    float4 c03 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, (tc + (dx * 2.0f)) - dy), float4(_61_gamma.x, _61_gamma.x, _61_gamma.x, _61_gamma.x));
+    float4 c10 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, tc - dx), float4(_61_gamma.x, _61_gamma.x, _61_gamma.x, _61_gamma.x));
+    float4 c11 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, tc), float4(_61_gamma.x, _61_gamma.x, _61_gamma.x, _61_gamma.x));
+    float4 c12 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, tc + dx), float4(_61_gamma.x, _61_gamma.x, _61_gamma.x, _61_gamma.x));
+    float4 c13 = pow(INPUT_TEXTURE_0.Sample(_INPUT_TEXTURE_0_sampler, tc + (dx * 2.0f)), float4(_61_gamma.x, _61_gamma.x, _61_gamma.x, _61_gamma.x));
     float4x4 invX = get_hfilter_profile();
     float4x4 color_matrix0 = float4x4(float4(c00), float4(c01), float4(c02), float4(c03));
     float4x4 color_matrix1 = float4x4(float4(c10), float4(c11), float4(c12), float4(c13));
@@ -121,10 +124,10 @@ void frag_main()
     float4 max_sample1 = max(c11, c12);
     float4 aux = color0;
     color0 = clamp(color0, min_sample0, max_sample0);
-    color0 = lerp(aux, color0, step(0.0f.xxxx, (c00 - c01) * (c02 - c03)) * 1.0f);
+    color0 = lerp(aux, color0, step(0.0f.xxxx, (c00 - c01) * (c02 - c03)) * _61_filter_mask.z);
     aux = color1;
     color1 = clamp(color1, min_sample1, max_sample1);
-    color1 = lerp(aux, color1, step(0.0f.xxxx, (c10 - c11) * (c12 - c13)) * 1.0f);
+    color1 = lerp(aux, color1, step(0.0f.xxxx, (c10 - c11) * (c12 - c13)) * _61_filter_mask.z);
     float pos0 = fp.y;
     float pos1 = 1.0f - fp.y;
     float4 lum0 = lerp(profile.y.xxxx, profile.z.xxxx, color0);
@@ -134,17 +137,17 @@ void frag_main()
     d0 = exp((-d0) * d0);
     d1 = exp((-d1) * d1);
     float4 color = ((color0 * d0) + (color1 * d1)) * profile.w;
-    float2 mask_coords = gl_FragCoord.xy - _170_viewport.xy;
+    float2 mask_coords = gl_FragCoord.xy - _61_viewport.xy;
     mask_coords = lerp(mask_coords, mask_coords.yx, 0.0f.xx);
     float2 param = mask_coords;
-    float param_1 = 0.3499999940395355224609375f;
+    float param_1 = _61_filter_mask.y;
     int param_2 = 1;
-    float4 _539 = color;
-    float3 _541 = _539.xyz * mask_weights(param, param_1, param_2);
-    color.x = _541.x;
-    color.y = _541.y;
-    color.z = _541.z;
-    color = clamp(pow(color, 0.4166666567325592041015625f.xxxx), 0.0f.xxxx, 1.0f.xxxx);
+    float4 _630 = color;
+    float3 _632 = _630.xyz * mask_weights(param, param_1, param_2);
+    color.x = _632.x;
+    color.y = _632.y;
+    color.z = _632.z;
+    color = clamp(pow(color, float4(1.0f / _61_gamma.y, 1.0f / _61_gamma.y, 1.0f / _61_gamma.y, 1.0f / _61_gamma.y)), 0.0f.xxxx, 1.0f.xxxx);
     FragColor = float4(color.xyz, 1.0f) * v_color;
 }
 

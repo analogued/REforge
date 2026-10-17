@@ -42,8 +42,9 @@ including with `SDL_RENDER_DRIVER=software`. See the
 requirements and the bundled shader's attribution.
 Ctrl+Q quits either game, and Pause/Break toggles pause during gameplay.
 Alley Cat also accepts P for pause.
-F10 opens the shared Compact settings menu. Window mode/scale, renderer/backend
-and VSync use draft edits with Apply and Cancel. Saved global and per-game
+F10 opens the shared Compact settings menu. Window mode/scale, renderer/backend,
+VSync, a frame limiter, and Hyllian CRT controls use draft edits with Apply and
+Cancel. Saved global and per-game
 preferences live in a TOML file; explicit CLI settings remain temporary and lock
 their controls for that run. Escape or F10 cancels pending edits and returns to
 the previous pause state. See [configuration](docs/configuration.md) for file

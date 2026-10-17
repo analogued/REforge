@@ -103,11 +103,18 @@ const SPECS: &[Spec] = &[
         description: "Temporary VSync override",
     },
     Spec {
+        name: "--frame-limit",
+        game: None,
+        value: Value::Choice(&["display", "60", "120", "unlimited"]),
+        dev: false,
+        description: "Temporary presentation ceiling (display refresh, 60, 120 or unlimited)",
+    },
+    Spec {
         name: "--presentation",
         game: None,
         value: Value::Choice(&["pixels", "hyllian"]),
         dev: false,
-        description: "Window presentation (default pixels); hyllian enables the shared CRT shader",
+        description: "Temporary window presentation override: pixels or Hyllian CRT",
     },
     Spec {
         name: "--help",
@@ -433,7 +440,7 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
             break;
         }
         if active("--headless").is_some() {
-            if let Some(index) = active("--presentation") {
+            if let Some(index) = active("--presentation").or_else(|| active("--frame-limit")) {
                 remove(entries, index, "does not apply to --headless", warnings);
                 continue;
             }
@@ -537,8 +544,8 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
             warnings.push(format!("{} requires a dev-tools build; ignored", spec.name));
             continue;
         }
-        if spec.name == "--presentation" && !cfg!(feature = "sdl") {
-            warnings.push("--presentation requires an SDL build; ignored".into());
+        if matches!(spec.name, "--presentation" | "--frame-limit") && !cfg!(feature = "sdl") {
+            warnings.push(format!("{} requires an SDL build; ignored", spec.name));
             continue;
         }
         if matches!(spec.name, "--original" | "--help" | "--list") {
@@ -650,13 +657,32 @@ mod tests {
         }
     }
     #[test]
+    fn frame_limit_choices_are_shared_and_invalid_values_warn() {
+        for game in [Game::AlleyCat, Game::Mach3] {
+            for value in ["display", "60", "120", "unlimited"] {
+                let result = prepare(args(&["--frame-limit", value]), game);
+                if cfg!(feature = "sdl") {
+                    assert_eq!(result.args, args(&["--frame-limit", value]));
+                    assert!(result.warnings.is_empty());
+                } else {
+                    assert!(result.args.is_empty());
+                }
+            }
+            let result = prepare(args(&["--frame-limit", "60", "--frame-limit", "bad"]), game);
+            assert!(!result.warnings.is_empty());
+            if cfg!(feature = "sdl") {
+                assert_eq!(result.args, args(&["--frame-limit", "60"]));
+            }
+        }
+    }
+    #[test]
     fn shared_presentation_choices_and_build_availability() {
         assert_eq!(takes_value("--presentation"), Some(true));
         for game in [Game::AlleyCat, Game::Mach3] {
             let help = help(Some(game));
             assert!(help.contains("--presentation VALUE"));
             assert!(help.contains("Choices: pixels, hyllian"));
-            assert!(help.contains("default pixels"));
+            assert!(help.contains("Temporary window presentation override"));
             for value in ["pixels", "hyllian"] {
                 for input in [
                     vec!["--presentation", value],

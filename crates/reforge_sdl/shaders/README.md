@@ -27,7 +27,7 @@ The upstream notices, including their unusual year ranges, are preserved.
 
 Local adaptations replace the OpenGL/DOSBox vertex interface and parameter
 uniforms with the SDL GPU Renderer fragment interface, a size/viewport uniform
-block, and fixed parameters. The horizontal cubic filter, anti-ringing,
+block, and runtime parameter vectors. The horizontal cubic filter, anti-ringing,
 brightness-dependent Gaussian beams and gamma calculations preserve the upstream
 algorithm. Only the selected aperture mask branch is retained; the other mask
 layouts and the DOSBox vertex stage are omitted. The selected mask is hunterk's
@@ -35,7 +35,7 @@ public-domain RGB aperture implementation, included by the upstream shader.
 Mask coordinates use physical viewport-local pixels. SDL vertex colour modulates
 the result. These shaders do not apply DOSBox Staging's separate colour profiles.
 
-The fixed parameters are beam profile 0, Hermite horizontal filter 0, beam widths
+The initial parameters are beam profile 0, Hermite horizontal filter 0, beam widths
 0.70/1.00, scanline strength 0.65, colour boost 2.00, sharpness 1.00, mask intensity
 0.35, anti-ringing 1.00, input/output gamma 2.40/2.40, and horizontal scanlines.
 Phosphor layout **1** selects the RGB aperture mask; the Staging CGA preset uses
@@ -63,12 +63,15 @@ clamp-to-edge input sampler; the shader performs its own reconstruction.
 
 Bindings follow [SDL_CreateGPUShader's format conventions](https://wiki.libsdl.org/SDL3/SDL_CreateGPUShader).
 
-The uniform block is 32 bytes, in two four-component 32-bit float vectors:
+The uniform block is 80 bytes, in five four-component 32-bit float vectors:
 
 | Offset | Member | Values |
 | --- | --- | --- |
 | 0 | `source_size` | Native texture width, height, 0, 0 |
 | 16 | `viewport` | Drawable-pixel x, y, width, height |
+| 32 | `beam` | Scanline strength, minimum width, maximum width, colour boost |
+| 48 | `filter_mask` | Sharpness, mask intensity, anti-ringing, filter (0 Hermite / 1 Catmull–Rom) |
+| 64 | `gamma` | Input gamma, output gamma, 0, 0 |
 
 The viewport is the actual game image rectangle after resizing, aspect correction,
 letterboxing and high-DPI scaling. Its width/height are reserved in the interface;
@@ -115,8 +118,8 @@ only after all compilers succeed.
 Inspect reflection with `qsb -d hyllian.qsb`, SPIR-V with
 `spirv-dis hyllian.spv`, and DXIL with `dxc -dumpbin hyllian.dxil` when changing
 the interface. DXIL reflection must show `TEXCOORD0`/`TEXCOORD1`, `SV_Position`,
-`SV_Target0`, the three resource bindings above, and a 32-byte constant buffer
-with members at offsets 0 and 16. Regeneration with the recorded tool versions
+`SV_Target0`, the three resource bindings above, and an 80-byte constant buffer
+with members at offsets 0, 16, 32, 48 and 64. Regeneration with the recorded tool versions
 produces identical bundled bytes across runs. Native Metal compilation requires
 macOS; D3D12 rendering requires Windows. Linux validates the compiled DXIL and
 SPIR-V and their interfaces, but does not validate native Metal or D3D12 rendering.

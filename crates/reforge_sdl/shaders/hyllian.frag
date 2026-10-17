@@ -18,21 +18,24 @@ layout(set = 2, binding = 0) uniform sampler2D INPUT_TEXTURE_0;
 layout(std140, set = 3, binding = 0) uniform HyllianUniforms {
     vec4 source_size; // Native texture width/height; remaining components unused.
     vec4 viewport;    // Physical drawable x/y/width/height, before this draw.
+    vec4 beam;        // Strength, minimum/maximum width, colour boost.
+    vec4 filter_mask; // Sharpness, mask intensity, anti-ringing, horizontal filter.
+    vec4 gamma;       // Input/output gamma, reserved, reserved.
 };
 
 #define INPUT_SIZE_0 source_size.xy
 #define BEAM_PROFILE 0.0
-#define HFILTER_PROFILE 0.0
-#define BEAM_MIN_WIDTH 0.70
-#define BEAM_MAX_WIDTH 1.00
-#define SCANLINES_STRENGTH 0.65
-#define COLOR_BOOST 2.00
-#define SHARPNESS_HACK 1.00
+#define HFILTER_PROFILE filter_mask.w
+#define BEAM_MIN_WIDTH beam.y
+#define BEAM_MAX_WIDTH beam.z
+#define SCANLINES_STRENGTH beam.x
+#define COLOR_BOOST beam.w
+#define SHARPNESS_HACK filter_mask.x
 #define PHOSPHOR_LAYOUT 1.0
-#define MASK_INTENSITY 0.35
-#define CRT_ANTI_RINGING 1.00
-#define INPUT_GAMMA 2.40
-#define OUTPUT_GAMMA 2.40
+#define MASK_INTENSITY filter_mask.y
+#define CRT_ANTI_RINGING filter_mask.z
+#define INPUT_GAMMA gamma.x
+#define OUTPUT_GAMMA gamma.y
 #define VSCANLINES 0.0
 
 #define GAMMA_IN(color)   pow(color, vec4(INPUT_GAMMA, INPUT_GAMMA, INPUT_GAMMA, INPUT_GAMMA))

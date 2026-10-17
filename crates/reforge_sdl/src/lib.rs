@@ -16,25 +16,8 @@ use reforge_settings::Session;
 pub use resources::FrameCreator;
 use std::cell::RefCell;
 
-/// Shared display treatment; this never changes an engine's pixels or palette.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Presentation {
-    #[default]
-    Pixels,
-    Hyllian,
-}
-
-impl std::str::FromStr for Presentation {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "pixels" => Ok(Self::Pixels),
-            "hyllian" => Ok(Self::Hyllian),
-            _ => Err("presentation must be pixels or hyllian".into()),
-        }
-    }
-}
+pub use reforge_settings::Presentation;
+mod pacing;
 
 /// Restored window size for auto, and fallback if maximization is unavailable.
 const AUTO_FALLBACK_SCALE: u32 = 4;
@@ -131,6 +114,7 @@ impl<'a> FrameTexture<'a> {
 pub struct Window {
     // GPU resources must be released before their owning renderer/device.
     effect: Option<hyllian::Hyllian>,
+    pacer: pacing::FramePacer,
     presentation: Presentation,
     presentation_requested: Presentation,
     canvas: WindowCanvas,
@@ -175,8 +159,16 @@ impl Window {
         scale: Option<u32>,
         presentation: Presentation,
     ) -> Result<Self, String> {
-        let session = Session::for_window(scale);
+        let mut session = Session::for_window(scale);
+        // Standalone engine previews have no app launch layer. Preserve their
+        // explicit CRT request; the application resolves persisted/CLI values.
+        if session.game == "standalone" {
+            session
+                .saved
+                .edit(false, "presentation", presentation.as_str().into());
+        }
         let requested = session.effective(&session.saved);
+        let presentation = requested.presentation;
         if let Some(warning) = &session.warning {
             eprintln!("REforge: {warning}");
         }
@@ -187,7 +179,7 @@ impl Window {
             requested,
             presentation,
             true,
-            session,
+            session.clone(),
             None,
         ) {
             Ok(window) => Ok(window),
@@ -195,7 +187,6 @@ impl Window {
                 eprintln!(
                     "REforge: requested display unavailable: {error}; using automatic renderer"
                 );
-                let session = Session::for_window(scale);
                 let mut fallback = requested;
                 fallback.renderer = reforge_settings::Renderer::Auto;
                 fallback.backend = reforge_settings::Backend::Auto;
@@ -371,6 +362,7 @@ impl Window {
         };
         Ok(Self {
             effect,
+            pacer: pacing::FramePacer::default(),
             presentation,
             presentation_requested,
             canvas,
@@ -513,6 +505,7 @@ impl Window {
         {
             return Err("window scale must be auto or an integer between 1 and 16".into());
         }
+        requested.hyllian.validate()?;
         let before = self.video_settings();
         match self.apply_video_settings_inner(requested) {
             Ok(()) => Ok(()),
@@ -571,7 +564,7 @@ impl Window {
                 self.minimum_pixels.0,
                 self.minimum_pixels.1,
                 requested,
-                presentation,
+                requested.presentation,
                 false,
                 session.clone(),
                 self.gpu.take(),
@@ -685,6 +678,17 @@ impl Window {
         } else if requested.fullscreen && requested.scale != self.scale {
             self.windowed_resize_pending = true;
         }
+        if self.presentation_requested != requested.presentation {
+            // Fallback is a runtime outcome, not a rewrite of the preference.
+            if let Err(error) = self.set_presentation(requested.presentation) {
+                eprintln!("REforge: Hyllian unavailable: {error}; using sharp pixels");
+                self.presentation = Presentation::Pixels;
+                self.presentation_requested = requested.presentation;
+            }
+        }
+        if self.requested.frame_limit != requested.frame_limit {
+            self.pacer = pacing::FramePacer::default();
+        }
         self.scale = requested.scale;
         self.requested = requested;
         Ok(())
@@ -753,6 +757,7 @@ impl Window {
         }
         self.presentation = presentation;
         self.presentation_requested = presentation;
+        self.requested.presentation = presentation;
         Ok(())
     }
 
@@ -770,6 +775,20 @@ impl Window {
         if !std::rc::Rc::ptr_eq(&self.creator.owner, &frame.creator.owner) {
             return Err("frame belongs to a different display".into());
         }
+        let refresh = self
+            .canvas
+            .window()
+            .get_display()
+            .ok()
+            .and_then(|display| display.get_mode().ok())
+            .map(|mode| mode.refresh_rate);
+        let mut vsync = 0;
+        // SAFETY: live main-thread renderer and initialized writable output.
+        let synchronized =
+            unsafe { sdl3::sys::render::SDL_GetRenderVSync(self.canvas.raw(), &mut vsync) }
+                && vsync != 0;
+        self.pacer
+            .wait(self.requested.frame_limit, refresh, synchronized);
         frame.ensure()?;
         self.prepare_frame()?;
         let frame_texture = frame.texture.borrow();
@@ -778,7 +797,12 @@ impl Window {
                 .effect
                 .as_mut()
                 .expect("CRT mode requires initialized resources")
-                .paint(&mut self.canvas, texture, frame.size),
+                .paint(
+                    &mut self.canvas,
+                    texture,
+                    frame.size,
+                    self.requested.hyllian,
+                ),
             Presentation::Pixels => paint(&mut self.canvas, texture),
         })??;
         overlay(&mut self.canvas)?;
@@ -1089,6 +1113,29 @@ mod tests {
                 assert_eq!(display.presentation(), Presentation::Hyllian);
                 let crt = read(&mut display, &frame);
                 assert_ne!(crt, plain, "switch must execute the CRT shader");
+                let defaults = display.video_settings();
+                let mut custom = defaults;
+                custom.hyllian.values[5] = 0;
+                custom.hyllian.values[0] = 90;
+                custom.hyllian.values[7] = 180;
+                custom.frame_limit = reforge_settings::FrameLimit::Fps120;
+                display.apply_video_settings(custom).unwrap();
+                assert_ne!(
+                    read(&mut display, &frame),
+                    crt,
+                    "live parameters must reach GPU uniforms"
+                );
+                assert_eq!(display.canvas.raw(), renderer);
+                display.apply_video_settings(defaults).unwrap();
+                assert_eq!(
+                    read(&mut display, &frame),
+                    crt,
+                    "default uniforms must round-trip"
+                );
+                let mut invalid = defaults;
+                invalid.hyllian.values[1] = 190;
+                assert!(display.apply_video_settings(invalid).is_err());
+                assert_eq!(display.video_settings(), defaults);
                 display.set_presentation(Presentation::Pixels).unwrap();
                 assert!(
                     display.effect.is_some(),
@@ -1103,6 +1150,24 @@ mod tests {
                 assert_eq!(display.canvas.window().id(), window_id);
             }
         }
+        // Requested CRT parameters survive a software fallback and a GPU return.
+        let mut frame = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba).unwrap();
+        frame.update(&[17, 85, 170, 255].repeat(320 * 200)).unwrap();
+        let mut requested = display.video_settings();
+        requested.presentation = Presentation::Hyllian;
+        requested.hyllian.values[5] = 10;
+        requested.renderer = reforge_settings::Renderer::Software;
+        requested.vsync = false;
+        display.apply_video_settings(requested).unwrap();
+        assert_eq!(display.presentation(), Presentation::Pixels);
+        assert_eq!(display.video_settings(), requested);
+        let fallback = read(&mut display, &frame);
+        assert!(fallback.chunks_exact(3).all(|p| p == [17, 85, 170]));
+        requested.renderer = reforge_settings::Renderer::Gpu;
+        display.apply_video_settings(requested).unwrap();
+        assert_eq!(display.presentation(), Presentation::Hyllian);
+        assert_eq!(display.video_settings(), requested);
+        assert_ne!(read(&mut display, &frame), fallback);
     }
 
     #[test]
@@ -1220,6 +1285,7 @@ mod tests {
                             &mut display.canvas,
                             texture,
                             frame.size,
+                            display.requested.hyllian,
                         )
                     })
                     .unwrap()

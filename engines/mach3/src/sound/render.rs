@@ -198,11 +198,23 @@ mod tests {
             },
         );
         assert_eq!(p.category(), SoundCategory::Effects);
-        if let SoundAction::SourceBegin { request, .. } = &mut sample {
-            request.resource = Resource::DataC;
+        let mut tick = 102;
+        for resource in [Resource::DataB, Resource::DataC] {
+            for reverse in [false, true] {
+                if let SoundAction::SourceBegin { request, .. } = &mut sample {
+                    request.resource = resource;
+                    request.reverse = reverse;
+                }
+                p.action(tick, sample);
+                assert_eq!(p.category(), SoundCategory::Music);
+                p.set_mode(AudioRenderer::Speaker);
+                assert_eq!(p.category(), SoundCategory::Music);
+                p.action(tick + 1, SoundAction::SourceEnd { playback: 1 });
+                p.set_mode(AudioRenderer::EnhancedPcm);
+                assert_eq!(p.category(), SoundCategory::Music);
+                tick += 2;
+            }
         }
-        p.action(102, sample);
-        assert_eq!(p.category(), SoundCategory::Music);
     }
 
     #[test]

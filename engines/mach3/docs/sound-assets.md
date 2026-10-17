@@ -110,9 +110,11 @@ keyboard processor rather than playing a sample or manufacturing a zero result.
 
 ### Host volume categories
 
-The live adapter assigns `data7`–`datab` announcements to Speech and `datac`–
-`datah` musical fragments to Music. Procedural tones, ramps, noise and the native
-pause tone use Sound effects. The mapping is isolated in `sound/category.rs`;
+The live adapter assigns `data7`–`dataa` announcements to Speech and `datab`–
+`datah` intro material to Music. Both forward and reverse `datab` belong to Music
+because they frame the intro's musical sequence; they have no gameplay playback
+callers. Procedural tones, ramps, noise and the native pause tone use Sound
+effects. The mapping is isolated in `sound/category.rs`;
 partial and reverse playback retain the resource's category. Classification is
 presentation metadata and never changes sample calls, device writes or priority.
 Both Speaker and Enhanced PCM use the same categories. Filtered tails retain

@@ -120,10 +120,16 @@ sparse inheritance and Apply/Cancel rules as Display. `presentation` accepts
 section for the selected treatment's controls, closed by default. Hyllian exposes
 its horizontal filter and shader sliders there. Sharp pixels keeps the section
 visible but disabled. Switching treatments preserves saved parameter values;
-expanding/collapsing changes only visibility, while parameter edits use Apply. Requested Hyllian on an unsupported renderer keeps
-its preferences and displays plain pixels; returning to GPU restores the effect.
-The menu can configure Hyllian before switching to GPU. Modern menu overlays are
-always drawn after the shader.
+expanding/collapsing changes only visibility, while parameter edits use Apply.
+Hyllian remains visible but disabled for incompatible renderer/backend choices.
+Applying such a combination resets its treatment to Sharp pixels and saves that
+choice. Switching back to a compatible renderer requires selecting Hyllian again.
+Global edits reconcile global defaults and this game's inherited choices; game
+edits leave global defaults unchanged. Explicit compatible game overrides and
+other games' saved overrides are preserved. Temporary CLI restrictions do not
+rewrite preferences. Automatic GPU initialization failure still falls back to
+pixels without changing the saved treatment. Modern menu overlays are always
+drawn after the shader.
 
 | CRT key | Range / choices | Initial value |
 | --- | --- | --- |

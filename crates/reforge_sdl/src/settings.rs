@@ -923,6 +923,18 @@ mod tests {
             .as_mut()
             .unwrap()
             .edit(false, "vsync", "false".into());
+        // Apply must reconcile treatment and renderer together, including the
+        // saved draft, rather than leave a remembered but inactive shader.
+        menu.draft
+            .as_mut()
+            .unwrap()
+            .edit(false, "presentation", "hyllian".into());
+        menu.draft
+            .as_mut()
+            .unwrap()
+            .edit(false, "renderer", "software".into());
+        // Applying from a different scope must still normalize pending global edits.
+        menu.scope = 1;
         for _ in 0..3 {
             menu.prepare(display.ui_metrics(), display.settings());
         }
@@ -962,6 +974,12 @@ mod tests {
         }
         assert!(menu.is_open(), "Apply keeps settings open");
         assert!(!display.settings().vsync);
+        assert_eq!(display.presentation(), crate::Presentation::Pixels);
+        assert_eq!(display.settings().presentation, crate::Presentation::Pixels);
+        assert_eq!(
+            creator.session.borrow().saved.global_values().presentation,
+            crate::Presentation::Pixels
+        );
         assert_eq!(
             menu.draft.as_ref().unwrap(),
             &creator.session.borrow().saved

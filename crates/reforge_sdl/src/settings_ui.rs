@@ -355,6 +355,7 @@ pub(super) fn draw(
                     menu.apply_rect = Some(apply.rect);
                 }
                 if apply.clicked() {
+                    draft.normalize_treatments(&saved);
                     let baseline = draft.global_values();
                     draft.game.retain(|key, v| {
                         let page = section_index(key);
@@ -395,19 +396,16 @@ fn crt_controls(
 ) {
     // Use this scope's pending Display choices, with temporary CLI overrides,
     // rather than the renderer that remains active until Apply.
-    let renderer = cli
+    let mut display = value.clone();
+    display.renderer = cli
         .get("renderer")
         .and_then(|v| v.parse().ok())
         .unwrap_or(value.renderer);
-    let backend = cli
+    display.backend = cli
         .get("backend")
         .and_then(|v| v.parse().ok())
         .unwrap_or(value.backend);
-    let hyllian_available = matches!(renderer, Renderer::Auto | Renderer::Gpu)
-        && matches!(
-            backend,
-            Backend::Auto | Backend::Vulkan | Backend::Direct3d12 | Backend::Metal
-        );
+    let hyllian_available = display.supports_hyllian();
     section(ui, "Presentation");
     row(
         ui,
@@ -424,7 +422,7 @@ fn crt_controls(
                 .selected_text(if value.presentation == Presentation::Pixels {
                     "Sharp pixels"
                 } else if !hyllian_available {
-                    "Hyllian CRT (unavailable)"
+                    "Sharp pixels (on Apply)"
                 } else {
                     "Hyllian CRT"
                 })

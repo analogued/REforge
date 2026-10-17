@@ -200,14 +200,14 @@ explicit `SDL_RENDER_DRIVER=vulkan` requests (which warn and fall back).
 Failed creation reconstructs the previous renderer, with software as the final
 recovery fallback. Window creation/positioning may briefly occur during Apply;
 engine state and clocks are retained. Ordinary scale/mode and VSync changes keep
-the renderer. Requested Hyllian presentation returns when the selected renderer
-again supports it. Only pixels are available on fallback renderers without the
-custom GPU interface.
+the renderer. Only pixels are available on fallback renderers without the custom
+GPU interface.
 The Treatment dropdown keeps Hyllian visible but disables its selection for
 incompatible renderer/backend choices in the current settings scope, including
-pending Display edits and temporary command-line overrides. A previously saved
-Hyllian preference is retained and marked unavailable; its fine adjustments are
-disabled until a compatible selection is restored.
+pending Display edits and temporary command-line overrides. Applying an
+incompatible saved combination resets its treatment to Sharp pixels; restoring
+a compatible renderer requires selecting Hyllian again. CLI restrictions and
+automatic GPU initialization failures remain temporary runtime fallbacks.
 
 The `settings` module uses egui core and its bundled fonts, without eframe, winit,
 wgpu or a separate CPU rasterizer. One SDL geometry adapter handles GPU, ordinary

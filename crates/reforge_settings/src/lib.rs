@@ -321,6 +321,16 @@ impl std::str::FromStr for Backend {
     }
 }
 impl RuntimeSettings {
+    /// Whether the selected renderer/backend can execute our custom GPU shader.
+    /// Automatic selection can still fall back if GPU initialization fails.
+    pub fn supports_hyllian(&self) -> bool {
+        matches!(self.renderer, Renderer::Auto | Renderer::Gpu)
+            && matches!(
+                self.backend,
+                Backend::Auto | Backend::Vulkan | Backend::Direct3d12 | Backend::Metal
+            )
+    }
+
     pub fn get(&self, key: &str) -> String {
         match key {
             "window_mode" => if self.fullscreen {
@@ -431,6 +441,22 @@ impl Draft {
     }
     pub fn game_values(&self) -> RuntimeSettings {
         overlay(self.global_values(), &self.game)
+    }
+    /// Resolve incompatible treatment preferences at menu Apply, before CLI
+    /// overrides. Game edits leave global defaults alone; global edits also
+    /// reconcile this game's inherited choices without touching other games.
+    pub fn normalize_treatments(&mut self, saved: &Self) {
+        let global = self.global_values();
+        if self.global != saved.global
+            && global.presentation == Presentation::Hyllian
+            && !global.supports_hyllian()
+        {
+            self.edit(false, "presentation", "pixels".into());
+        }
+        let game = self.game_values();
+        if game.presentation == Presentation::Hyllian && !game.supports_hyllian() {
+            self.edit(true, "presentation", "pixels".into());
+        }
     }
     pub fn reset_section(&mut self, game: bool, page: usize) {
         let patch = if game {
@@ -881,6 +907,75 @@ mod tests {
         assert!(!loaded.saved.game_values().vsync);
         assert!(!fs::read_to_string(path).unwrap().contains("scale = 8"));
     }
+    #[test]
+    fn treatment_reset_is_saved_per_game_and_requires_reselection() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let mut s = session(path.clone(), "mach-3");
+        let mut draft = s.saved.clone();
+        draft.edit(false, "presentation", "hyllian".into());
+        s.commit(draft.clone()).unwrap();
+        draft.edit(true, "backend", "opengl".into());
+        draft.normalize_treatments(&s.saved);
+        assert_eq!(draft.global_values().presentation, Presentation::Hyllian);
+        assert_eq!(draft.game_values().presentation, Presentation::Pixels);
+        assert_eq!(draft.game.get("presentation").unwrap(), "pixels");
+        s.commit(draft).unwrap();
+
+        let mut s = session(path, "mach-3");
+        let mut draft = s.saved.clone();
+        assert_eq!(draft.game_values().presentation, Presentation::Pixels);
+        draft.edit(true, "backend", "auto".into());
+        draft.normalize_treatments(&s.saved);
+        assert_eq!(draft.game_values().presentation, Presentation::Pixels);
+        // A temporary renderer restriction must not rewrite compatible saved
+        // settings. It can still cause the runtime's ordinary pixel fallback.
+        draft.edit(true, "presentation", "hyllian".into());
+        s.cli.insert("renderer".into(), "software".into());
+        draft.normalize_treatments(&s.saved);
+        assert_eq!(draft.game_values().presentation, Presentation::Hyllian);
+        s.commit(draft).unwrap();
+        assert_eq!(s.saved.game_values().renderer, Renderer::Auto);
+    }
+
+    #[test]
+    fn global_treatment_reset_preserves_compatible_game_overrides() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(&path, "[global.crt]\npresentation='hyllian'\n[games.mach-3.display]\nrenderer='gpu'\n[games.mach-3.crt]\npresentation='hyllian'\n[games.alley-cat.crt]\npresentation='hyllian'\n").unwrap();
+        let mut s = session(path.clone(), "mach-3");
+        let mut draft = s.saved.clone();
+        draft.edit(false, "renderer", "sdl".into());
+        draft.normalize_treatments(&s.saved);
+        assert_eq!(draft.global_values().presentation, Presentation::Pixels);
+        assert_eq!(draft.game_values().presentation, Presentation::Hyllian);
+        s.commit(draft).unwrap();
+        let loaded = session(path.clone(), "mach-3");
+        assert_eq!(
+            loaded.saved.global_values().presentation,
+            Presentation::Pixels
+        );
+        assert_eq!(
+            loaded.saved.game_values().presentation,
+            Presentation::Hyllian
+        );
+        let other = session(path, "alley-cat");
+        assert_eq!(
+            other.saved.game_values().presentation,
+            Presentation::Hyllian
+        );
+
+        let mut inherited = Draft::default();
+        inherited.edit(false, "presentation", "hyllian".into());
+        inherited.edit(true, "renderer", "software".into());
+        inherited.normalize_treatments(&Draft::default());
+        assert_eq!(
+            inherited.global_values().presentation,
+            Presentation::Hyllian
+        );
+        assert_eq!(inherited.game_values().presentation, Presentation::Pixels);
+    }
+
     #[test]
     fn merging_two_sessions_preserves_comments_other_games_and_unknown_keys() {
         let dir = TestDir::new();

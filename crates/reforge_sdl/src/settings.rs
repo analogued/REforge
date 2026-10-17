@@ -300,7 +300,12 @@ impl<'a> SettingsMenu<'a> {
         if self.generation != self.creator.generation() {
             self.textures.clear();
             self.pending_textures = egui::TexturesDelta::default();
+            // Rebuild font textures for the new renderer without discarding
+            // measured window sizes, scroll offsets or expanded sections.
+            // A fresh layout would otherwise visibly settle over several frames.
+            let memory = self.context.memory(Clone::clone);
             self.context = egui::Context::default();
+            self.context.memory_mut(|new| *new = memory);
             self.context.set_visuals(egui::Visuals::dark());
             crate::settings_ui::style(&self.context);
             self.generation = self.creator.generation();
@@ -1031,6 +1036,15 @@ mod tests {
             );
             assert!(frame.texture.borrow().belongs_to(&creator));
             assert!(!menu.jobs.is_empty());
+            let first_cancel = menu.cancel_rect.unwrap();
+            for _ in 0..3 {
+                menu.prepare(display.ui_metrics(), display.settings());
+                assert_eq!(
+                    menu.cancel_rect.unwrap(),
+                    first_cancel,
+                    "menu layout must be stable from the first frame after switching to {renderer:?}"
+                );
+            }
             eprintln!("switch {renderer:?}: painted");
         }
         if display._video.current_video_driver() != "dummy" {

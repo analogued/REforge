@@ -188,7 +188,9 @@ Renderer/backend changes invalidate texture residents and tear down the native
 renderer before creating its replacement. The stable `FrameCreator` coordinates
 this transition. Leases retain native renderer ownership while resident; empty
 leases cannot be rendered. `FrameTexture` retains the latest CPU image and
-reuploads it lazily. The menu recreates its font atlas for the new generation.
+reuploads it lazily. The menu recreates its font atlas for the new generation
+while preserving egui layout memory, so its position, scroll offsets and expanded
+sections survive renderer changes without a visible layout jump.
 The GPU device is independently owned and retained by texture creators, including
 across ordinary/software rendering. Compatible GPU selections reuse it; a
 different GPU backend replaces it after old window-bound resources are released.

@@ -674,8 +674,8 @@ fn advance_splash(
     key_pressed: bool,
 ) -> Result<(), String> {
     // Original gates use virtual BIOS/retrace time. These loop/drawing costs
-    // reuse the existing fixed-240 fit; splash-specific costs are provisional.
-    let costs = alleycat::runtime::ReferenceCosts::dosbox_x_240(splash.machine());
+    // reuse the XT profile; splash-specific work remains provisional.
+    let costs = alleycat::runtime::ReferenceCosts::ibm_xt(splash.machine());
     clock.advance_nanos(costs.prelude);
     let sample = clock.sample();
     splash.sound.at(clock.elapsed_pit_ticks() as u64);

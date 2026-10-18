@@ -156,9 +156,7 @@ impl Sound {
         data[0x5920] = 2;
         set_word(data, 0x5921, tick);
     }
-    /// CS:59a3's CX-counted LOOP. The reference CPU profile remains provisional;
-    /// one work slot per LOOP at the existing 240-cycle/ms reference gives the
-    /// duration, while the divisor and output-gating order are native.
+    /// CS:59a3's CX-counted LOOP, fitted to the stock 8088 XT reference.
     pub fn beep(&mut self, data: &[u8], divisor: u16, count: u16) {
         if data[0] == 0 {
             return;
@@ -169,12 +167,17 @@ impl Sound {
         } else {
             count
         };
-        self.loop_delay(count);
+        self.loop_delay(count, 112);
         self.stop();
     }
-    fn loop_delay(&mut self, count: u16) {
+    fn loop_delay(&mut self, count: u16, overhead_cycles: u64) {
         let iterations = if count == 0 { 65_536 } else { u64::from(count) };
-        self.wait(iterations * crate::timing::PIT_HZ / 240_000);
+        // Effective busy-loop cost from MartyPC at 157500000/33 Hz. The XT
+        // CPU frequency is four times the PIT input frequency, so divide
+        // CPU cycles by four. 18 cycles/iteration is a bounded fit,
+        // not a universal instruction timing model. Helper overhead differs:
+        // 112 cycles for a beep's gate window, 360 for the sweep's note cadence.
+        self.wait((iterations * 18 + overhead_cycles) / 4);
     }
     /// CS:572e. Unlike 59a3, the counted delay runs with native sound off.
     pub fn hearts_sweep(&mut self, data: &mut [u8]) -> u16 {
@@ -183,7 +186,7 @@ impl Sound {
             let mut divisor = start;
             loop {
                 set_word(data, 0x5acb, divisor);
-                self.loop_delay(if data[0x697] == 0xfd { 0x800 } else { 0x1000 });
+                self.loop_delay(if data[0x697] == 0xfd { 0x800 } else { 0x1000 }, 360);
                 if data[0] != 0 {
                     self.tone(divisor, Category::Music);
                 }
@@ -576,6 +579,26 @@ mod tests {
             assert_eq!(muted.drain().count(), 1);
             assert_eq!(word(&on, 0x2ae5), 0xfa59);
         }
+    }
+    #[test]
+    fn counted_beep_follows_xt_cadence_and_native_count_rules() {
+        let mut cga = data();
+        let mut sound = Sound::default();
+        sound.beep(&cga, 1024, 6144);
+        let cga_ticks = sound.take_busy_ticks();
+        let micros = cga_ticks * 1_000_000 / crate::timing::PIT_HZ;
+        assert!((23_100..23_300).contains(&micros));
+        cga[0x697] = 0xfd;
+        sound.beep(&cga, 1024, 6144);
+        let pcjr_ticks = sound.take_busy_ticks();
+        assert!(pcjr_ticks > cga_ticks / 2);
+        assert!(pcjr_ticks < cga_ticks / 2 + 100);
+        cga[0] = 0;
+        sound.beep(&cga, 1024, 6144);
+        assert_eq!(sound.take_busy_ticks(), 0);
+        cga[0] = 0xff;
+        sound.beep(&cga, 1024, 0);
+        assert!(sound.take_busy_ticks() > cga_ticks * 10);
     }
     #[test]
     fn direct_drive_damage_programs_advance_while_native_muted() {

@@ -9,7 +9,7 @@ use crate::timing::{
     VirtualClock, keyboard_wait_complete,
 };
 
-/// Scoped execution costs for the DOSBox-X normal-core, fixed-240 reference.
+/// Scoped execution costs for a selected reference CPU profile.
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Base call allowances and active
 /// drawing costs approximate execution time; actor state and tick gates are
@@ -80,6 +80,45 @@ pub struct ReferenceCosts {
 }
 
 impl ReferenceCosts {
+    /// Stock 4.77 MHz 8088 baseline fitted to bounded MartyPC XT captures.
+    /// Shared boundaries retain approximate splits; unmeasured room/effect
+    /// allowances still come from the earlier DOSBox profile. See docs/timing.md.
+    pub fn ibm_xt(machine: Machine) -> Self {
+        Self {
+            prelude: 45_000,
+            control_bios: 50_000,
+            control_hold: 33_810,
+            control_decode: 178_000,
+            pit_read: 30_000,
+            pit_start_setup: 8_000,
+            pit_repeat: 25_000,
+            control_return: 15_324,
+            player_gate: 70_000,
+            player_candidate: 55_000,
+            player_countdown: 28_476,
+            player_zero: 20_200,
+            player_retrace: 25_000,
+            player_retrace_return: 3_000,
+            player_keep: 360_381,
+            player_idle: 2_480_133,
+            player_walk: 2_716_686,
+            player_airborne: 2_960_990,
+            player_descending: 3_244_267,
+            // Include the support beep once, as in the captured whole bodies.
+            player_landing: 26_513_562,
+            player_support_release: 23_923_219,
+            ground_dog: 93_867,
+            ground_dog_draw: 8_395_409,
+            // Quiet grouped-call work, fitted against consecutive alley passes.
+            actor_group: 800_000,
+            projectile_draw: 2_643_667,
+            clothes_shift: 7_803_715,
+            clothes_new_tile: 8_770_353,
+            mouse_redraw: 1_361_800,
+            ..Self::dosbox_x_240(machine)
+        }
+    }
+
     pub fn dosbox_x_240(machine: Machine) -> Self {
         // Rounded guest-time stage medians from the fixed-240 reference.
         // Software-breakpoint observation and state-dependent paths limit these
@@ -219,7 +258,7 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new(machine: Machine) -> Self {
-        Self::with_costs(machine, ReferenceCosts::dosbox_x_240(machine))
+        Self::with_costs(machine, ReferenceCosts::ibm_xt(machine))
     }
 
     pub fn with_costs(machine: Machine, costs: ReferenceCosts) -> Self {
@@ -908,6 +947,21 @@ impl Runtime {
 mod tests {
     use super::*;
     use crate::timing::BIOS_TICK_PIT_CLOCKS;
+
+    #[test]
+    fn xt_single_support_beep_fits_the_whole_body_allowance() {
+        let mut data = vec![0; crate::assets::DATA_LENGTH];
+        data[0] = 0xff;
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            data[0x697] = if machine == Machine::Pcjr { 0xfd } else { 0xfc };
+            let mut sound = crate::sound::Sound::default();
+            sound.beep(&data, 1024, 6144);
+            let nanos = sound.take_busy_ticks() * 1_000_000_000 / crate::timing::PIT_HZ;
+            let costs = ReferenceCosts::ibm_xt(machine);
+            assert!(nanos < costs.player_support_release);
+            assert!(nanos < costs.player_landing);
+        }
+    }
 
     #[test]
     fn controls_are_latched_on_bios_ticks_even_between_player_accepts() {

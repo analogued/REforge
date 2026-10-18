@@ -468,7 +468,7 @@ The music sequence follows its native tick gate, including rests and the
 non-advancing end marker, and emits PIT channel-two writes.
 
 The host uses the virtual BIOS/retrace clock and provisional loop/drawing costs
-from the fixed-240 profile. Exact splash playback cadence is not established.
+from the XT profile. Splash-specific costs and exact playback cadence are not established.
 The first presentation has a separate data copy and does not advance the gameplay
 seed or clock; integrating the full original shared startup state remains deferred.
 Explicit development scene previews bypass startup. In a splash preview, finite
@@ -519,52 +519,47 @@ explicit CLI difficulty bypass are described in [deviations](deviations.md).
 
 ### Reference execution costs
 
-The execution-cost profile is fitted to guest-time measurements from DOSBox-X
-normal core at fixed 240 cycles. The number 240 describes emulator throughput;
-it is neither a 240 Hz game tick nor the native host CPU's frequency. Costs are
-approximate stage allowances, not execution of original instructions or a
-cycle-accurate 8088 model.
+The default profile targets one stock 4.77 MHz 8088 PC/XT baseline for both
+CGA and PCjr, preserving the game's PCjr branches. Bounded MartyPC 0.4.1 captures
+use the IBM 5160 configuration, turbo off, at `157500000/33 Hz`. They measure
+executed guest cycles, independently of host display refresh and tracing speed.
+This remains a fitted execution-cost model, not an instruction-level CPU.
 
-Representative CGA costs include about 0.35 ms for an accepted idle call without
-redraw, 3.05 ms for ordinary walking, and 3.27 ms for ordinary jumping. Post-player
-work costs about 0.096 ms on an ordinary pass plus 0.346 ms on a grouped pass.
-Active clothes scrolling adds approximately 7.9 ms, or 9.4 ms when generating a
-new tile, above that grouped allowance. Original fixed-240 helper measurements
-gave about 8 ms for a shift, 9.5 ms with generation, and 0.1 ms for a tick-gated
-hold. These costs remain approximate; they do not establish every garment path
-or interrupt phase. Active mouse redraw adds about 1.55 ms; catching adds about
-7.6 ms, fitted from full original helper calls of about 1.6 ms and 8 ms.
-Active bin animation adds a bounded fit by drawn and restored row counts; full
-original calls range from about 0.43 ms when hiding to 6.04 ms at full height.
-Active window work adds about 0.48 ms, based on fixed-240 row-helper samples
-near 0.5 ms; start and contact-hold paths share this approximate allowance.
-Room actor gates, cage/bird/broom drawing and blocking-fall polling use
-provisional allowances that have not been independently cost-calibrated.
-Hearts actor drawing and presentation work also use provisional allowances.
-Completion drawing currently uses a provisional allowance per copied byte;
-its explicit two-tick reveal waits and 30-tick final hold remain independent
-of that fit. No exact fixed-240 transition duration is claimed.
-Room tick predicates and blocking waits are retained, but this does not
-establish the room's original real-time movement cadence.
-The bin cat's first-contact sound now runs its three `1800h` counted loops,
-with PCjr halving their counts. The loop-only fit is about 76.8 ms on CGA and
-38.4 ms on PCjr; the existing 81.5/40.9 ms total allowance retains
-the remaining call/I/O overhead above those loops. Subsequent
-contact with its latch set skips the trio. Lower-support attach/release beeps
-are included in the fitted player cost rather than counted twice; their actual
-blocking duration is a lower bound. Upper-support landing runs its separate
-two-tick noisy helper. Other PCjr player work still shares the general CGA fit.
-Other omitted actor drawing can cause larger delays that
-the allowance does not reproduce. Keyboard decoding, retained support state and redraw paths
-also vary. Clipped re-entry costs have not been separately calibrated. PCjr uses
-the CGA cost fit with its verified 16-call countdown, pending separate cost fits.
+Accepted original movement bodies measure about 0.360 ms without redraw,
+2.480 ms for idle redraw, 2.717 ms walking, 2.961 ms rising, and 3.244 ms descending.
+Lower-support landing/release allowances include their one short beep, about
+26.514/23.923 ms in total. Runtime subtracts the committed beep duration from
+that allowance before advancing the sound clock, so it is counted once.
+Two-beep forced-release paths and other unmeasured contact combinations remain
+approximate. Upper-support noise and the bin-contact trio remain separate work.
 
-The original fixed-240 samples show two accepts per complete BIOS tick during
-CGA/PCjr walking and about one during CGA idle. The model reproduces those sampled
-cadences; this does not establish exact timing within each tick. Software
-breakpoints perturb the stage measurements, and the profile does not model every
-path, interrupt latency, the BIOS midnight reset, or hardware keyboard transport.
-Physical-PC timing fidelity is not established.
+A valid running-dog helper measures about 8.489 ms, including background restore
+and draw; its active increment is above the roughly 0.094 ms quiet allowance.
+Moving projectiles add about 2.644 ms above the inactive helper. Clothes shifts
+add about 7.804 ms, or 8.770 ms with tile generation; normal mouse redraw adds
+about 1.362 ms above equal-tick work. These are scoped conditions, not universal
+costs for every actor state. Earlier malformed dog and partial-state release
+inputs are excluded from calibration.
+
+Control hold/poll helpers measure about 0.084/0.306 ms. Gate and BIOS sampling
+splits remain approximate; whole-helper totals do not identify each instruction
+boundary. Quiet grouped-call work uses a fitted 0.800 ms allowance. Active work
+is additional to that baseline rather than charged as another entire helper.
+Consecutive original idle/walking batches of 64 and 256 passes check the combined
+fit. Their counter instrumentation adds measurable overhead, and their exact
+initial BIOS/video phases are unknown. Phase/overhead sweeps compare duration,
+final position and BIOS tick together. Agreement within this uncertainty range
+is not proof of exact intra-tick scheduling or random-stream synchronization.
+
+`ReferenceCosts::dosbox_x_240` retains the earlier table for explicit comparisons;
+ordinary play uses `ibm_xt`. Unmeasured bin row fits, mouse catches, fence/effect
+loops, room actors, transitions, clipped re-entry and startup-specific work retain
+provisional allowances. Some of those derive from DOSBox-X normal core at fixed
+240 cycles/ms, an emulator throughput setting rather than a physical CPU clock.
+Changing measured costs is not a global speed multiplier and does not complete
+physical-PC timing calibration. Instruction/interrupt placement, midnight clock
+reset and original keyboard transport remain outside this model.
+
 Actor helpers currently share one BIOS sample within each nonblocking call;
 an original interrupt between its internal timer reads can change a boundary
 decision, such as a mouse's 53/54-tick respawn. Instruction-level interrupt
@@ -658,7 +653,7 @@ Ambient and upper-landing random calls use the same generator as gameplay.
 Host enable, volume, device selection and focus mute only affect playback;
 Ctrl+S changes the original sound flag and therefore its native predicates.
 
-Counted LOOP delays use the current 240,000-work-slots/second reference fit;
+Counted beep and sweep delays use helper-specific effective XT cycle fits;
 PCjr branches halve the original counts. The hearts sweep waits even with native
 sound disabled, unlike the short beeps. PIT-counter bursts use their mode-three
 counter-difference threshold. Milk warning and upper landing end at the second
@@ -673,11 +668,17 @@ frequency or exact random-call counts. Interrupt placement and per-instruction
 I/O overhead remain unmodeled. Actor writes are placed at their execution stage,
 with within-stage instruction timing unresolved.
 
-The counted hearts approach sweep retains the original divisor/write sequence,
-but its median note spacing is about 6% shorter than the uninterrupted fixed-240
-DOSBox-X reference (both machines). Counted delays still exclude the native
-instruction, I/O and interrupt overhead. Ordered-port equality must not be
-interpreted as waveform or full-run timing equality.
+The beep and hearts sweep retain the original divisor/write sequence. Their
+XT fits use 18 effective CPU cycles per counted iteration, plus 112 cycles for
+the beep gate window or 360 for the sweep caller/helper cadence. Four CPU cycles
+correspond to one PIT input clock on this baseline. These are calibrated costs,
+not universal 8088 opcode timings. The measured CGA beep gate is about 23.195 ms;
+the sweep note interval is about 15.523 ms. PCjr retains its halved counts on the
+same baseline, without claiming a separately measured physical PCjr fit. Silent
+sweep helper overhead remains approximate. The earlier 6% discrepancy against
+DOSBox-X fixed240 is not a correction factor for real 8088 execution. Milk-warning
+and upper-landing poll costs still use the older 19/49-work-slot fits described
+above; they have not been recalibrated to XT instructions.
 
 Selected controlled DOSBox-X calls compare complete data-segment results and
 ordered speaker-port values; they do not establish full-game port timestamps

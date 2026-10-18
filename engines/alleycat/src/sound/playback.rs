@@ -139,7 +139,9 @@ mod tests {
         let until = sound.tick();
         player.service(&mut sound, until);
         assert!(!player.failed);
-        assert!(player.pending.len() > RATE as usize / 2);
+        // Keep at least one further queue budget pending. Its exact duration
+        // depends on the guest execution profile, not the buffering contract.
+        assert!(player.pending.len() > RATE as usize / 10);
         assert!(host.queued_samples().unwrap() <= RATE as usize / 10);
         player.pause(true);
         let retained = player.pending.len();

@@ -24,7 +24,8 @@ Both graphics paths currently use this PC Speaker renderer; a separate PCjr
 sound-chip renderer is not included. Uniform `--step-hz` diagnostic play remains
 silent. Headless logic still executes the native sound-state work.
 
-Busy-loop timing follows the provisional fixed-240 execution profile, not a
+Timing uses a stock 4.77 MHz 8088 XT baseline for calibrated alley work and
+counted speaker loops. Unmeasured costs remain provisional; this is not a
 cycle-accurate CPU. See [timing](docs/timing.md#pc-speaker-programs) for the
 verification boundary and timing limitations.
 
@@ -339,10 +340,11 @@ state into its animation and back into the next run.
 Windowed execution uses a virtual BIOS/PIT
 clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle
-movement. The reference is DOSBox-X normal CPU core at fixed 240 cycles. Loop
-costs are fitted approximations; original-PC timing fidelity is not established.
-Room and hearts execution costs are provisional and have not been independently
-calibrated against the fixed-240 reference.
+movement. Measured alley costs use a stock 4.77 MHz 8088 XT reference captured
+with MartyPC. The same practical baseline serves both display modes, preserving
+the native PCjr countdown/count branches. Loop costs are fitted approximations;
+whole-game original-PC timing fidelity is not established. Room, transition and
+other unmeasured work retain provisional costs from the earlier DOSBox profile.
 Rendering refresh does not determine game ticks. See
 [timing contracts](docs/timing.md) for the schedule and its limits.
 

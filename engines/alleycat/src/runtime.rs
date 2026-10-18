@@ -119,6 +119,21 @@ impl ReferenceCosts {
             clothes_shift: 7_803_715,
             clothes_new_tile: 8_770_353,
             mouse_redraw: 1_361_800,
+            // Native catch helper above the inactive-contact allowance.
+            mouse_catch: 7_408_100,
+            // Whole CGA trio, including its counted sound loops once.
+            // The shorter PCjr branch retains its provisional allowance.
+            bin_push_sound: if machine == Machine::Pcjr {
+                40_900_000
+            } else {
+                69_985_143
+            },
+            // Valid saved-background frames, less the quiet grouped baseline.
+            // Fixed sprite content makes these fitted row coefficients.
+            bin_frame: 399_200,
+            bin_restore_row: 39_380,
+            bin_draw_row: 268_200,
+            bin_start: 104_600,
             // Whole native loop intervals, fitted to the stock XT capture.
             spider_effect_poll: 151_810,
             eel_effect_poll: 84_530,

@@ -541,6 +541,22 @@ about 1.362 ms above equal-tick work. These are scoped conditions, not universal
 costs for every actor state. Earlier malformed dog and partial-state release
 inputs are excluded from calibration.
 
+Bin animation uses valid saved-background rectangles at six emergence/retraction
+phases. A bounded fit uses about 0.399 ms per active call, 0.0394 ms per restored
+row, 0.268 ms per drawn row and 0.105 ms for a new spawn, above quiet grouped
+work. The measured frames differ from that fit by at most about 65 microseconds;
+short/final frames have proportionally larger errors. These are coefficients
+for the fixed original sprite, not general physical per-row costs. Older
+zero-height restore inputs are excluded. Zero-filled saved pixels in the valid
+diagnostic inputs affect their appearance without invalidating their dimensions.
+
+Airborne mouse-contact catches on all three rows measure about 7.51 ms, including
+score/HUD drawing and the initial catch tone. The active allowance is about
+7.408 ms above the roughly 0.104 ms inactive-contact check already represented
+in quiet work. The native continuation remains BIOS-tick-driven. The separate
+CGA bin-contact three-beep helper measures about 69.985 ms; its sound time is
+counted once within that total. The PCjr trio allowance remains provisional.
+
 Control hold/poll helpers measure about 0.084/0.306 ms. Gate and BIOS sampling
 splits remain approximate; whole-helper totals do not identify each instruction
 boundary. Quiet grouped-call work uses a fitted 0.800 ms allowance. Active work
@@ -552,8 +568,8 @@ final position and BIOS tick together. Agreement within this uncertainty range
 is not proof of exact intra-tick scheduling or random-stream synchronization.
 
 `ReferenceCosts::dosbox_x_240` retains the earlier table for explicit comparisons;
-ordinary play uses `ibm_xt`. Unmeasured bin row fits, mouse catches, other effect
-loops, room actors, transitions, clipped re-entry and startup-specific work retain
+ordinary play uses `ibm_xt`. Other unmeasured effect loops, room actors,
+transitions, clipped re-entry and startup-specific work retain
 provisional allowances. Some of those derive from DOSBox-X normal core at fixed
 240 cycles/ms, an emulator throughput setting rather than a physical CPU clock.
 Changing measured costs is not a global speed multiplier and does not complete

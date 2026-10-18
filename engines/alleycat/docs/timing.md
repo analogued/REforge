@@ -552,7 +552,7 @@ final position and BIOS tick together. Agreement within this uncertainty range
 is not proof of exact intra-tick scheduling or random-stream synchronization.
 
 `ReferenceCosts::dosbox_x_240` retains the earlier table for explicit comparisons;
-ordinary play uses `ibm_xt`. Unmeasured bin row fits, mouse catches, fence/effect
+ordinary play uses `ibm_xt`. Unmeasured bin row fits, mouse catches, other effect
 loops, room actors, transitions, clipped re-entry and startup-specific work retain
 provisional allowances. Some of those derive from DOSBox-X normal core at fixed
 240 cycles/ms, an emulator throughput setting rather than a physical CPU clock.
@@ -665,8 +665,24 @@ With native sound disabled, upper-landing polls average about 677 cycles
 The modeled intervals are 153, 261 and 169 PIT clocks respectively. Captures
 check pulse/program counts against the original phase/pitch fields. These
 replace the older DOSBox-X fixed-240 19/49-work-slot allowances.
-Individual counter/interrupt placement and spider/eel direct-drive polling
-remain approximate.
+The blocking spider tail uses a measured whole-loop allowance of about
+151.8 microseconds per pulse. Its nine-tick exit and original phase/bit pattern
+remain separate from that allowance. Eel contact retains the original
+thirteen-tick wait, but tests its exit only after the retrace-dependent sequence:
+poll/pulse until retrace is set, emit an extra pulse, apply the saved outer BIOS
+sample's blue/white background, emit another pulse, then sample time and restart.
+The measured pulse intervals are about 84.53 microseconds on the retrace-poll
+path, 224.13 around the palette call, and 148.57 around the outer time check.
+Native-muted paths still advance the same waveform counters. These replace the
+shared provisional 50-microsecond polling allowance for spider/eel effects.
+
+Fence-reset pulse spacing is fitted as about 462 XT cycles per counted BIOS
+check plus 380 cycles per random/reload cycle. The existing accumulator/countdown
+algorithm and two-/seven-tick gates are unchanged, including random consumption
+when native sound masks the output. The fit charges the whole counted-check
+cost at the BIOS sampling boundary rather than inventing instruction-level
+subdivisions. Entry/exit costs, timer-read and I/O placement remain approximate;
+the broader shared room-effect allowance is unchanged for other effects.
 These are explicit timing approximations, not measurements of original waveform
 frequency or exact random-call counts. Interrupt placement and per-instruction
 I/O overhead remain unmodeled. Actor writes are placed at their execution stage,

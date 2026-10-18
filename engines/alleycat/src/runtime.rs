@@ -2,7 +2,7 @@
 
 //! Original alley gates over a deterministic reference clock.
 
-use crate::alley::{Alley, Machine};
+use crate::alley::{Alley, DamagePoll, Machine};
 use crate::player::{Controls, Draw};
 use crate::timing::{
     ControlsGate, FenceAction, FenceEffect, OuterLoopDivider, PlayerAcceptance, PlayerGate,
@@ -50,6 +50,10 @@ pub struct ReferenceCosts {
     pub room_bird_draw: u64,
     pub room_broom_draw: u64,
     pub room_effect_poll: u64,
+    pub spider_effect_poll: u64,
+    pub eel_effect_poll: u64,
+    pub eel_palette_poll: u64,
+    pub eel_restart_poll: u64,
     pub completion_draw_byte: u64,
     pub hearts_actor_draw: u64,
     pub cheese_mouse_draw: u64,
@@ -115,6 +119,17 @@ impl ReferenceCosts {
             clothes_shift: 7_803_715,
             clothes_new_tile: 8_770_353,
             mouse_redraw: 1_361_800,
+            // Whole native loop intervals, fitted to the stock XT capture.
+            spider_effect_poll: 151_810,
+            eel_effect_poll: 84_530,
+            eel_palette_poll: 224_130,
+            eel_restart_poll: 148_570,
+            // Fence pulse spacing is about 462 cycles per counted check plus
+            // 380 per random/reload cycle. Their internal split is unmeasured.
+            fence_bios: 96_800,
+            fence_initial_wait: 0,
+            fence_countdown: 0,
+            fence_random: 79_620,
             ..Self::dosbox_x_240(machine)
         }
     }
@@ -166,6 +181,10 @@ impl ReferenceCosts {
             room_bird_draw: 600_000,
             room_broom_draw: 2_500_000,
             room_effect_poll: 50_000,
+            spider_effect_poll: 50_000,
+            eel_effect_poll: 50_000,
+            eel_palette_poll: 50_000,
+            eel_restart_poll: 50_000,
             // Provisional drawing allowance for wipes and cat-face stamps.
             // Original presentation tick/retrace waits are modeled separately.
             completion_draw_byte: 4_000,
@@ -274,6 +293,13 @@ impl Runtime {
             costs.room_effect_poll > 0,
             "Room-effect polling must advance virtual time"
         );
+        assert!(
+            costs.spider_effect_poll > 0
+                && costs.eel_effect_poll > 0
+                && costs.eel_palette_poll > 0
+                && costs.eel_restart_poll > 0,
+            "Damage-effect polling must advance virtual time"
+        );
         Self {
             clock: VirtualClock::default(),
             player_gate: PlayerGate::new(u16::MAX, 0),
@@ -317,6 +343,20 @@ impl Runtime {
         Ok(event)
     }
 
+    fn step_damage_effect(&mut self, alley: &mut Alley) -> Result<bool, String> {
+        let cost = match alley.damage_poll() {
+            DamagePoll::Ordinary => self.costs.room_effect_poll,
+            DamagePoll::Spider => self.costs.spider_effect_poll,
+            DamagePoll::Eel => self.costs.eel_effect_poll,
+            DamagePoll::EelPalette => self.costs.eel_palette_poll,
+            DamagePoll::EelRestart => self.costs.eel_restart_poll,
+        };
+        self.clock.advance_nanos(cost);
+        let sample = self.clock.sample();
+        alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+        alley.advance_damage_effect(sample.bios.tick_low, sample.pit_counter, sample.retrace)
+    }
+
     fn advance_pass_inner(
         &mut self,
         alley: &mut Alley,
@@ -330,12 +370,7 @@ impl Runtime {
             return Ok(self.room_wait_outcome(alley, start_nanos));
         }
         if alley.damage_waiting() {
-            self.clock.advance_nanos(self.costs.room_effect_poll);
-            let sample = self.clock.sample();
-            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-            if !alley.advance_damage_effect(sample.bios.tick_low, sample.pit_counter)?
-                || alley.game_over()
-            {
+            if !self.step_damage_effect(alley)? || alley.game_over() {
                 return Ok(self.room_wait_outcome(alley, start_nanos));
             }
             let resume = self.damage_resume.take();

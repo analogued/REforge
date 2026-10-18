@@ -55,7 +55,28 @@ enum Harm {
 enum EffectKind {
     Projectile(crate::projectiles::VisibleSprite),
     Spider,
+    Eel {
+        phase: EelPhase,
+        palette_tick: u16,
+        background: u8,
+    },
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum EelPhase {
+    Poll,
+    Extra,
+    Palette,
+    Restart,
+}
+
+/// Native blocking-loop path, used by Runtime to charge its execution cost.
+pub(crate) enum DamagePoll {
+    Ordinary,
+    Spider,
     Eel,
+    EelPalette,
+    EelRestart,
 }
 
 struct DamageEffect {
@@ -291,19 +312,70 @@ impl Alley {
         self.damage_effect.is_some()
     }
 
+    pub(crate) fn damage_poll(&self) -> DamagePoll {
+        match self.damage_effect.as_ref().map(|effect| effect.kind) {
+            Some(EffectKind::Spider) => DamagePoll::Spider,
+            Some(EffectKind::Eel {
+                phase: EelPhase::Palette,
+                ..
+            }) => DamagePoll::EelPalette,
+            Some(EffectKind::Eel {
+                phase: EelPhase::Restart,
+                ..
+            }) => DamagePoll::EelRestart,
+            Some(EffectKind::Eel { .. }) => DamagePoll::Eel,
+            _ => DamagePoll::Ordinary,
+        }
+    }
+
     pub(crate) fn advance_damage_effect(
         &mut self,
         tick: u16,
         counter: u16,
+        retrace: bool,
     ) -> Result<bool, String> {
-        let Some(effect) = &self.damage_effect else {
+        let Some(effect) = &mut self.damage_effect else {
             return Ok(true);
         };
-        if tick.wrapping_sub(effect.since) < effect.duration {
+        if let EffectKind::Eel {
+            phase,
+            palette_tick,
+            background,
+        } = &mut effect.kind
+        {
+            // CS:3543..356e checks the thirteen-tick exit only after its
+            // retrace loop, extra pulse and BIOS palette request. Crossing the
+            // deadline while retrace is clear must not preempt those steps.
+            if *phase != EelPhase::Restart || tick.wrapping_sub(effect.since) < effect.duration {
+                match *phase {
+                    EelPhase::Poll | EelPhase::Restart => {
+                        if *phase == EelPhase::Restart {
+                            *palette_tick = tick;
+                        }
+                        self.sound.eel_step(&mut self.data);
+                        *phase = if retrace {
+                            EelPhase::Extra
+                        } else {
+                            EelPhase::Poll
+                        };
+                    }
+                    EelPhase::Extra => {
+                        self.sound.eel_step(&mut self.data);
+                        *phase = EelPhase::Palette;
+                    }
+                    EelPhase::Palette => {
+                        *background = if *palette_tick & 1 != 0 { 1 } else { 15 };
+                        self.sound.eel_step(&mut self.data);
+                        *phase = EelPhase::Restart;
+                    }
+                }
+                return Ok(false);
+            }
+        } else if tick.wrapping_sub(effect.since) < effect.duration {
             match effect.kind {
                 EffectKind::Projectile(_) => self.sound.projectile_step(&mut self.data, counter),
                 EffectKind::Spider => self.sound.spider_step(&mut self.data),
-                EffectKind::Eel => self.sound.eel_step(&mut self.data),
+                EffectKind::Eel { .. } => unreachable!(),
             }
             return Ok(false);
         }
@@ -323,7 +395,7 @@ impl Alley {
                 }
             }
             EffectKind::Spider => crate::bookcase::finish_spider_failure(&mut self.data)?,
-            EffectKind::Eel => {}
+            EffectKind::Eel { .. } => {}
         }
         if !self.game_over {
             self.compose_actors()?;
@@ -856,7 +928,11 @@ impl Alley {
             self.damage_effect = Some(DamageEffect {
                 since: tick,
                 duration: contact.wait_ticks,
-                kind: EffectKind::Eel,
+                kind: EffectKind::Eel {
+                    phase: EelPhase::Restart,
+                    palette_tick: tick,
+                    background: self.air_warning,
+                },
             });
             self.compose_actors()?;
         }
@@ -1932,7 +2008,10 @@ impl Alley {
         } else if self.scene() == 7 && word(&self.data, 0x2e8d) < 8 {
             1
         } else if self.scene() == 2 {
-            self.air_warning
+            match self.damage_effect.as_ref().map(|effect| effect.kind) {
+                Some(EffectKind::Eel { background, .. }) => background,
+                _ => self.air_warning,
+            }
         } else {
             0
         };
@@ -1969,6 +2048,36 @@ fn hardware_color(color: u8) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eel_deadline_waits_for_retrace_extra_pulses_and_palette() {
+        let mut alley = Alley::synthetic();
+        let since = u16::MAX - 5;
+        let expired = since.wrapping_add(13);
+        set_word(&mut alley.data, 4, 2);
+        alley.sound.eel_start(&mut alley.data);
+        alley.damage_effect = Some(DamageEffect {
+            since,
+            duration: 13,
+            kind: EffectKind::Eel {
+                phase: EelPhase::Poll,
+                palette_tick: since,
+                background: 0,
+            },
+        });
+        // The native tick test is outside the retrace loop, including at wrap.
+        assert!(!alley.advance_damage_effect(expired, 0, false).unwrap());
+        assert!(!alley.advance_damage_effect(expired, 0, true).unwrap());
+        assert!(!alley.advance_damage_effect(expired, 0, false).unwrap());
+        assert!(!alley.advance_damage_effect(expired, 0, false).unwrap());
+        assert_eq!(alley.data[0x5acf], 4);
+        assert!(matches!(alley.damage_poll(), DamagePoll::EelRestart));
+        // Palette parity uses the saved outer-loop BIOS sample, not the
+        // newer odd tick supplied while finishing the sequence.
+        assert_eq!(&alley.rgba()[..4], &hardware_color(15));
+        assert!(alley.advance_damage_effect(expired, 0, false).unwrap());
+        assert!(!alley.damage_waiting());
+    }
     use crate::assets::word;
 
     #[test]

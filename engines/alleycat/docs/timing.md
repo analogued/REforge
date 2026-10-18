@@ -651,8 +651,9 @@ at 48 kHz. No independent host oscillator or melody scheduler advances game stat
 
 The title, asynchronous first/continuation notes, ambient/dog/broom patterns,
 collection tones, damage programs, milk warning, hearts sweep/melodies, failure
-messages and presentation wipes have sound paths. Raw spider/eel pulses and
-fence changes use speaker-control bits rather than substituting pitched notes.
+messages, falling cage, hearts failure drop/landing and presentation wipes have
+sound paths. Raw spider/eel pulses and fence changes use speaker-control bits
+rather than substituting pitched notes.
 Ambient and upper-landing random calls use the same generator as gameplay.
 Host enable, volume, device selection and focus mute only affect playback;
 Ctrl+S changes the original sound flag and therefore its native predicates.
@@ -661,12 +662,22 @@ Counted LOOP delays use the current 240,000-work-slots/second reference fit;
 PCjr branches halve the original counts. The hearts sweep waits even with native
 sound disabled, unlike the short beeps. PIT-counter bursts use their mode-three
 counter-difference threshold. Milk warning and upper landing end at the second
-BIOS boundary. Their internal polling rates use provisional 40/32-slot fits;
-spider/eel direct-drive updates use the existing effect polling allowance.
+BIOS boundary. Uninterrupted fixed-240 DOSBox-X helper captures measure a
+19-slot milk-warning pulse interval and a 49-slot active upper-landing note
+interval on both CGA and PCjr, replacing the earlier provisional 40/32-slot fits.
+The upper-landing silent path and individual counter/interrupt placement remain
+approximate; spider/eel direct-drive updates use the existing effect polling
+allowance.
 These are explicit timing approximations, not measurements of original waveform
 frequency or exact random-call counts. Interrupt placement and per-instruction
 I/O overhead remain unmodeled. Actor writes are placed at their execution stage,
 with within-stage instruction timing unresolved.
+
+The counted hearts approach sweep retains the original divisor/write sequence,
+but its median note spacing is about 6% shorter than the uninterrupted fixed-240
+DOSBox-X reference (both machines). Counted delays still exclude the native
+instruction, I/O and interrupt overhead. Ordered-port equality must not be
+interpreted as waveform or full-run timing equality.
 
 Selected controlled DOSBox-X calls compare complete data-segment results and
 ordered speaker-port values; they do not establish full-game port timestamps

@@ -1526,7 +1526,9 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<crate::birdcage::FallStep, String> {
-        self.room_actor(|data, screen, _sound| crate::birdcage::advance_fall(data, screen, tick))
+        self.room_actor(|data, screen, sound| {
+            crate::birdcage::advance_fall(data, screen, tick, sound)
+        })
     }
 
     pub(crate) fn advance_room_bird(

@@ -82,10 +82,14 @@ impl Sound {
         self.control
     }
     pub fn tone(&mut self, divisor: u16, category: Category) {
+        self.retune(divisor, category);
+        self.write(0x61, self.control | 3, category);
+    }
+    /// Reprogram channel two without changing the speaker-control bits.
+    pub fn retune(&mut self, divisor: u16, category: Category) {
         self.write(0x43, 0xb6, category);
         self.write(0x42, divisor as u8, category);
         self.write(0x42, (divisor >> 8) as u8, category);
-        self.write(0x61, self.control | 3, category);
     }
     /// CS:53b0, including rests and the non-advancing 66h end marker.
     pub fn splash(&mut self, data: &mut [u8], tick: u16) -> Result<(), String> {
@@ -269,7 +273,9 @@ impl Sound {
                 let index = (phase >> data[0x5b06]) & 31;
                 self.gate(self.control ^ data[0x5ae6 + usize::from(index)]);
             }
-            self.wait((crate::timing::PIT_HZ * 40 / 240_000).min(end - self.tick));
+            // Uninterrupted fixed-240 DOSBox-X captures measure 19 work slots
+            // between these pulses on both CGA and PCjr.
+            self.wait((crate::timing::PIT_HZ * 19 / 240_000).min(end - self.tick));
             if self.tick == end {
                 break;
             }
@@ -294,7 +300,10 @@ impl Sound {
                     self.tone(divisor, Category::Effects);
                 }
             }
-            self.wait((crate::timing::PIT_HZ * 32 / 240_000).min(end - self.tick));
+            // The active original poll, including its note writes, measures
+            // 49 work slots. Instruction-level counter/IRQ placement remains
+            // approximate; a silent poll can take a shorter native path.
+            self.wait((crate::timing::PIT_HZ * 49 / 240_000).min(end - self.tick));
             if self.tick == end {
                 break;
             }

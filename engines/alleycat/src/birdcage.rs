@@ -249,6 +249,7 @@ pub(crate) fn advance_fall(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
+    sound: &mut crate::sound::Sound,
 ) -> Result<FallStep, String> {
     check(data)?;
     let mut result = FallStep::default();
@@ -256,6 +257,13 @@ pub(crate) fn advance_fall(
         return Ok(result);
     }
     set_word(data, 0x40ad, tick);
+    // CS:46cc..46ea samples the old height before the five-pixel fall.
+    if data[0] != 0 {
+        sound.tone(
+            u16::from(data[0x40aa]) << 2,
+            crate::sound::Category::Effects,
+        );
+    }
     if data[0x40aa] < 164 {
         data[0x40aa] = data[0x40aa].wrapping_add(5);
         set_word(data, 0x40ab, pixel_offset(word(data, 0x40a8), data[0x40aa]));
@@ -263,6 +271,7 @@ pub(crate) fn advance_fall(
         draw_cage(data, screen)?;
         result.drew = true;
     } else {
+        sound.stop();
         restore_cage(data, screen)?;
         let dest = word(data, 0x40a6).wrapping_sub(1);
         set_word(data, 0x40a6, dest);
@@ -585,16 +594,39 @@ mod tests {
         .unwrap();
         assert!(step.drew && step.falling);
         assert_eq!(word(&data, 0x40a8), 176);
+        data[0] = 255;
+        let mut sound = crate::sound::Sound::default();
+        sound.record(true);
         assert_eq!(
-            advance_fall(&mut data, &mut screen, 1).unwrap(),
+            advance_fall(&mut data, &mut screen, 1, &mut sound).unwrap(),
             FallStep::default()
         );
+        assert_eq!(sound.drain().count(), 0);
         for tick in 2..=7 {
-            let step = advance_fall(&mut data, &mut screen, tick).unwrap();
+            let y = data[0x40aa];
+            let step = advance_fall(&mut data, &mut screen, tick, &mut sound).unwrap();
+            let writes: Vec<_> = sound.drain().collect();
+            let divisor = u16::from(y) << 2;
+            assert_eq!(
+                writes.iter().map(|w| (w.port, w.value)).collect::<Vec<_>>(),
+                [
+                    (0x43, 0xb6),
+                    (0x42, divisor as u8),
+                    (0x42, (divisor >> 8) as u8),
+                    (0x61, 3)
+                ]
+            );
             assert!(step.drew && !step.released);
             assert_eq!(data[0x40aa], 134 + (tick as u8 - 1) * 5);
         }
-        assert!(advance_fall(&mut data, &mut screen, 8).unwrap().released);
+        assert!(
+            advance_fall(&mut data, &mut screen, 8, &mut sound)
+                .unwrap()
+                .released
+        );
+        let writes: Vec<_> = sound.drain().collect();
+        assert_eq!(writes.len(), 5);
+        assert_eq!((writes[4].port, writes[4].value), (0x61, 0));
         assert_eq!((word(&data, 0x40b2), data[0x40b4]), (176, 164));
         assert_eq!(data[0x40b8], 255);
         assert_eq!(word(&data, 0x40a6), pixel_offset(176, 164) - 1);

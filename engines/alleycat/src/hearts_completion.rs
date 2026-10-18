@@ -538,6 +538,10 @@ impl HeartsCompletion {
             Phase::DropTick => {
                 if word(data, 0x6f26) != tick {
                     set_word(data, 0x6f26, tick);
+                    // CS:608b..60a5: the pitch descends with the falling sprite.
+                    if data[0] != 0 {
+                        sound.tone(word(data, 0x6f24) >> 1, crate::sound::Category::Effects);
+                    }
                     if word(data, 0x6f24) < 0x1a40 {
                         self.phase = Phase::Drop;
                     } else {
@@ -555,7 +559,16 @@ impl HeartsCompletion {
             Phase::DropHold => {
                 if word(data, 0x6f28) != tick {
                     set_word(data, 0x6f28, tick);
+                    // CS:60ca..60e4 keeps the speaker gate from the last drop
+                    // note, alternating divisors until the final tick's stop.
+                    if data[0] != 0 {
+                        sound.retune(
+                            if tick & 1 == 0 { 0x0c00 } else { 0x0b54 },
+                            crate::sound::Category::Effects,
+                        );
+                    }
                     if tick.wrapping_sub(word(data, 0x6f26)) >= 18 {
+                        sound.stop();
                         self.phase = Phase::Fill(Wipe::new(self.center.0, self.center.1, 0xaa));
                     }
                 }
@@ -595,6 +608,81 @@ mod tests {
         }
         data[0x1f80] = 3;
         data
+    }
+
+    #[test]
+    fn failed_hearts_drop_plays_descent_and_landing_hold_once_per_tick() {
+        for native_sound in [0, 255] {
+            let mut data = data();
+            data[0] = native_sound;
+            let mut screen = Framebuffer::default();
+            let mut sound = crate::sound::Sound::default();
+            sound.record(true);
+            let mut completion = HeartsCompletion::new(100, 198, false).unwrap();
+            completion.phase = Phase::DropStart;
+            completion
+                .advance(&mut data, &mut screen, 100, true, &mut sound)
+                .unwrap();
+            let mut tick = 100;
+            let mut pitches = Vec::new();
+            while !matches!(completion.phase, Phase::DropHold) {
+                completion
+                    .advance(&mut data, &mut screen, tick, true, &mut sound)
+                    .unwrap();
+                for write in sound.drain() {
+                    if write.port == 0x42 {
+                        pitches.push(write.value);
+                    }
+                }
+                tick += 1;
+                assert!(tick < 200);
+            }
+            let expected: Vec<_> = if native_sound == 0 {
+                Vec::new()
+            } else {
+                (1..=14u16)
+                    .flat_map(|step| ((37 + 480 * step) >> 1).to_le_bytes())
+                    .collect()
+            };
+            assert_eq!(pitches, expected);
+            let landed = word(&data, 0x6f26);
+            // The last retune still occurs on the terminating tick, then stop.
+            for tick in landed..=landed + 18 {
+                completion
+                    .advance(&mut data, &mut screen, tick, true, &mut sound)
+                    .unwrap();
+                let writes: Vec<_> = sound.drain().collect();
+                let divisor: u16 = if tick & 1 == 0 { 0x0c00 } else { 0x0b54 };
+                let mut expected = Vec::new();
+                if native_sound != 0 {
+                    expected.extend([
+                        (0x43, 0xb6),
+                        (0x42, divisor as u8),
+                        (0x42, (divisor >> 8) as u8),
+                    ]);
+                }
+                if tick == landed + 18 {
+                    expected.push((0x61, 0));
+                }
+                assert_eq!(
+                    writes.iter().map(|w| (w.port, w.value)).collect::<Vec<_>>(),
+                    expected
+                );
+                assert!(
+                    writes
+                        .iter()
+                        .all(|w| w.category == crate::sound::Category::Effects)
+                );
+                if tick != landed + 18 {
+                    completion
+                        .advance(&mut data, &mut screen, tick, true, &mut sound)
+                        .unwrap();
+                    assert_eq!(sound.drain().count(), 0);
+                }
+            }
+            assert!(matches!(completion.phase, Phase::Fill(_)));
+            assert_eq!(data[0x1f80], 3);
+        }
     }
 
     #[test]

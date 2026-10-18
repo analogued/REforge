@@ -261,8 +261,8 @@ impl Sound {
     fn counter(&self) -> u16 {
         (0u16).wrapping_sub((self.tick.wrapping_mul(2) & 0xffff) as u16)
     }
-    /// CS:5691. BIOS polling loop cadence uses the provisional reference CPU
-    /// work-slot profile; the two-tick exit and table/bit operations are native.
+    /// CS:5691. Poll cadence is fitted to the stock XT; the two-tick exit and
+    /// table/bit operations are native.
     pub fn milk_warning(&mut self, data: &mut [u8], tick: u16) {
         self.stop();
         set_word(data, 0x5ae2, tick);
@@ -276,9 +276,9 @@ impl Sound {
                 let index = (phase >> data[0x5b06]) & 31;
                 self.gate(self.control ^ data[0x5ae6 + usize::from(index)]);
             }
-            // Uninterrupted fixed-240 DOSBox-X captures measure 19 work slots
-            // between these pulses on both CGA and PCjr.
-            self.wait((crate::timing::PIT_HZ * 19 / 240_000).min(end - self.tick));
+            // MartyPC XT pulses average 612 CPU cycles, or 153 PIT clocks.
+            // BIOS/IRQ placement and the shorter PCjr shift remain approximate.
+            self.wait(153.min(end - self.tick));
             if self.tick == end {
                 break;
             }
@@ -303,10 +303,11 @@ impl Sound {
                     self.tone(divisor, Category::Effects);
                 }
             }
-            // The active original poll, including its note writes, measures
-            // 49 work slots. Instruction-level counter/IRQ placement remains
-            // approximate; a silent poll can take a shorter native path.
-            self.wait((crate::timing::PIT_HZ * 49 / 240_000).min(end - self.tick));
+            // XT steady polls average about 1044 CPU cycles with note writes,
+            // or 677 with native sound off. Fit to whole PIT clocks; exact
+            // counter reads, startup overhead and IRQ placement are unmodeled.
+            let poll_ticks = if data[0] != 0 { 261 } else { 169 };
+            self.wait(poll_ticks.min(end - self.tick));
             if self.tick == end {
                 break;
             }

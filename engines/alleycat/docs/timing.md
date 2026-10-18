@@ -657,12 +657,16 @@ Counted beep and sweep delays use helper-specific effective XT cycle fits;
 PCjr branches halve the original counts. The hearts sweep waits even with native
 sound disabled, unlike the short beeps. PIT-counter bursts use their mode-three
 counter-difference threshold. Milk warning and upper landing end at the second
-BIOS boundary. Uninterrupted fixed-240 DOSBox-X helper captures measure a
-19-slot milk-warning pulse interval and a 49-slot active upper-landing note
-interval on both CGA and PCjr, replacing the earlier provisional 40/32-slot fits.
-The upper-landing silent path and individual counter/interrupt placement remain
-approximate; spider/eel direct-drive updates use the existing effect polling
-allowance.
+BIOS boundary. Their inner polling costs now use the same stock-XT reference:
+milk-warning pulses average about 612 CPU cycles (128.229 microseconds), while
+upper-landing note programs average about 1044 cycles (218.74 microseconds).
+With native sound disabled, upper-landing polls average about 677 cycles
+(141.8 microseconds), preserving the original shorter path without random draws.
+The modeled intervals are 153, 261 and 169 PIT clocks respectively. Captures
+check pulse/program counts against the original phase/pitch fields. These
+replace the older DOSBox-X fixed-240 19/49-work-slot allowances.
+Individual counter/interrupt placement and spider/eel direct-drive polling
+remain approximate.
 These are explicit timing approximations, not measurements of original waveform
 frequency or exact random-call counts. Interrupt placement and per-instruction
 I/O overhead remain unmodeled. Actor writes are placed at their execution stage,
@@ -676,9 +680,13 @@ not universal 8088 opcode timings. The measured CGA beep gate is about 23.195 ms
 the sweep note interval is about 15.523 ms. PCjr retains its halved counts on the
 same baseline, without claiming a separately measured physical PCjr fit. Silent
 sweep helper overhead remains approximate. The earlier 6% discrepancy against
-DOSBox-X fixed240 is not a correction factor for real 8088 execution. Milk-warning
-and upper-landing poll costs still use the older 19/49-work-slot fits described
-above; they have not been recalibrated to XT instructions.
+DOSBox-X fixed240 is not a correction factor for real 8088 execution. Warning
+and upper-landing fits also exclude startup/exit instructions and IRQ outliers;
+hardware refresh and prefetch produce several nearby steady interval lengths.
+The milk-warning PCjr shift branch retains its waveform change but uses the
+shared XT pulse allowance, without a separate PCjr cadence measurement. Exact
+silent warning loop cadence is not modeled: only its two-tick wait and unchanged
+phase are observable in the current implementation.
 
 Selected controlled DOSBox-X calls compare complete data-segment results and
 ordered speaker-port values; they do not establish full-game port timestamps

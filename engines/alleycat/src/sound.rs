@@ -188,7 +188,7 @@ impl Sound {
                 set_word(data, 0x5acb, divisor);
                 self.loop_delay(if data[0x697] == 0xfd { 0x800 } else { 0x1000 }, 360);
                 if data[0] != 0 {
-                    self.tone(divisor, Category::Music);
+                    self.tone(divisor, Category::Effects);
                 }
                 divisor = divisor.wrapping_add_signed(step);
                 if (step < 0 && divisor <= end) || (step > 0 && divisor >= end) {
@@ -575,6 +575,11 @@ mod tests {
             assert_eq!(audible.tick(), muted.tick());
             let writes: Vec<_> = audible.drain().collect();
             assert_eq!(writes.len(), 37 * 4 + 1);
+            assert!(
+                writes
+                    .iter()
+                    .all(|write| write.category == Category::Effects)
+            );
             assert!(writes.windows(2).all(|w| w[0].tick <= w[1].tick));
             assert_eq!(muted.drain().count(), 1);
             assert_eq!(word(&on, 0x2ae5), 0xfa59);

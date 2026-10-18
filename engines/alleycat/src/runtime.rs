@@ -47,6 +47,7 @@ pub struct ReferenceCosts {
     pub window_work: u64,
     pub room_actor_gate: u64,
     pub room_cage_draw: u64,
+    pub room_cage_push: u64,
     pub room_bird_draw: u64,
     pub room_broom_draw: u64,
     pub room_effect_poll: u64,
@@ -121,10 +122,10 @@ impl ReferenceCosts {
             mouse_redraw: 1_361_800,
             // Native catch helper above the inactive-contact allowance.
             mouse_catch: 7_408_100,
-            // Whole CGA trio, including its counted sound loops once.
-            // The shorter PCjr branch retains its provisional allowance.
+            // Whole trios, including their counted sound loops once. The
+            // original PCjr software branch is measured on the same XT CPU.
             bin_push_sound: if machine == Machine::Pcjr {
-                40_900_000
+                35_107_600
             } else {
                 69_985_143
             },
@@ -134,6 +135,11 @@ impl ReferenceCosts {
             bin_restore_row: 39_380,
             bin_draw_row: 268_200,
             bin_start: 104_600,
+            // Cage increments are above the provisional room actor gate;
+            // the bird entry measures the motion body without its scheduler.
+            room_cage_draw: 3_378_400,
+            room_cage_push: 2_488_400,
+            room_bird_draw: 1_333_410,
             // Whole native loop intervals, fitted to the stock XT capture.
             spider_effect_poll: 151_810,
             eel_effect_poll: 84_530,
@@ -193,6 +199,8 @@ impl ReferenceCosts {
             // Original tick gates, physics and blocking waits remain separate.
             room_actor_gate: 200_000,
             room_cage_draw: 2_000_000,
+            // The older profile did not price the cage's player redraw.
+            room_cage_push: 0,
             room_bird_draw: 600_000,
             room_broom_draw: 2_500_000,
             room_effect_poll: 50_000,
@@ -536,6 +544,9 @@ impl Runtime {
                 self.clock.advance_nanos(self.costs.room_actor_gate);
                 if cage.drew {
                     self.clock.advance_nanos(self.costs.room_cage_draw);
+                }
+                if cage.player_moved {
+                    self.clock.advance_nanos(self.costs.room_cage_push);
                 }
                 if cage.falling {
                     self.cage_falling = true;

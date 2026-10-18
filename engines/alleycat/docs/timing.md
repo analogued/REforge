@@ -554,8 +554,26 @@ Airborne mouse-contact catches on all three rows measure about 7.51 ms, includin
 score/HUD drawing and the initial catch tone. The active allowance is about
 7.408 ms above the roughly 0.104 ms inactive-contact check already represented
 in quiet work. The native continuation remains BIOS-tick-driven. The separate
-CGA bin-contact three-beep helper measures about 69.985 ms; its sound time is
-counted once within that total. The PCjr trio allowance remains provisional.
+CGA bin-contact three-beep helper measures about 69.9 ms; its sound time is
+counted once within that total. The original PCjr software machine-ID branch
+measures about 35.108 ms on the same XT CPU baseline. This checks the halved
+counted loops without claiming a separate physical PCjr hardware measurement.
+
+Nonblocking cage movement, including background restore and drawing, measures
+about 3.54–3.61 ms. A center-contact push, including player restoration/redraw,
+measures about 2.688 ms. The respective active increments are 3.378 and 2.488 ms
+above the existing provisional 0.200 ms room-actor gate. The push increment is
+now charged when the cage moves the player, rather than only pricing cage draws.
+These fit selected positions and do not establish every cage-contact cost.
+The fixed cage restore/draw increment is also used by the blocking fall; that
+fall's polling and release/entry overhead remain uncalibrated.
+
+The bird's separately entered motion/drawing body measures about 1.04–1.09 ms
+on first appearance and 1.333 ms when it restores its previous image. The active
+allowance uses the latter normal visible-frame cost; first appearance is priced
+conservatively. It is additional to the provisional scheduler allowance, whose
+random-choice paths remain uncalibrated. Cage/bird measurements use native-muted
+inputs; occasional asynchronous tone-request overhead remains approximate.
 
 Control hold/poll helpers measure about 0.084/0.306 ms. Gate and BIOS sampling
 splits remain approximate; whole-helper totals do not identify each instruction

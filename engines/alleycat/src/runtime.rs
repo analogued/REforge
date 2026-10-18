@@ -63,6 +63,8 @@ pub struct ReferenceCosts {
     pub cheese_mouse_draw: u64,
     pub cheese_transfer_draw: u64,
     pub bookcase_spider_draw: u64,
+    pub bookcase_spider_restore: u64,
+    pub bookcase_spider_effect_draw: u64,
     pub bookcase_target_draw: u64,
     pub swimming_player: u64,
     pub underwater_actor_draw: u64,
@@ -149,6 +151,10 @@ impl ReferenceCosts {
             room_broom_blocked: 200_000,
             room_broom_draw: 3_709_620,
             room_broom_restore: 1_706_780,
+            // Native bookcase helper totals above the provisional room gate.
+            bookcase_spider_draw: 5_460_700,
+            bookcase_spider_restore: 890_000,
+            bookcase_target_draw: 8_929_000,
             // Whole native loop intervals, fitted to the stock XT capture.
             spider_effect_poll: 151_810,
             eel_effect_poll: 84_530,
@@ -231,6 +237,9 @@ impl ReferenceCosts {
             cheese_transfer_draw: 2_000_000,
             // Provisional scene-three work above the original tick gates.
             bookcase_spider_draw: 1_500_000,
+            bookcase_spider_restore: 0,
+            // The contact image was not part of the motion timing capture.
+            bookcase_spider_effect_draw: 1_500_000,
             bookcase_target_draw: 1_500_000,
             // Provisional fishbowl/swimming work, separate from BIOS gates.
             swimming_player: 3_500_000,
@@ -350,6 +359,32 @@ impl Runtime {
             damage_resume: None,
             scene: 0,
         }
+    }
+
+    fn step_bookcase_spider(&mut self, alley: &mut Alley) -> Result<(), String> {
+        let spider = alley.advance_bookcase_spider(self.clock.sample().bios.tick_low)?;
+        self.clock.advance_nanos(self.costs.room_actor_gate);
+        if spider.drew {
+            self.clock.advance_nanos(if spider.failure_pending {
+                self.costs.bookcase_spider_effect_draw
+            } else {
+                self.costs.bookcase_spider_draw
+            });
+        }
+        if spider.restored {
+            self.clock.advance_nanos(self.costs.bookcase_spider_restore);
+        }
+        Ok(())
+    }
+
+    fn step_bookcase_targets(&mut self, alley: &mut Alley) -> Result<(), String> {
+        alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+        let targets = alley.advance_bookcase_targets(self.clock.sample().bios.tick_low)?;
+        self.clock.advance_nanos(self.costs.room_actor_gate);
+        if targets.drew {
+            self.clock.advance_nanos(self.costs.bookcase_target_draw);
+        }
+        Ok(())
     }
 
     fn step_room_broom(&mut self, alley: &mut Alley) -> Result<(), String> {
@@ -820,25 +855,14 @@ impl Runtime {
             } else {
                 if before_scene == 3 && resume != Some(DamageResume::Spider) {
                     // Original scene-three loop: player, spider, plants, broom.
-                    let spider =
-                        alley.advance_bookcase_spider(self.clock.sample().bios.tick_low)?;
-                    self.clock.advance_nanos(self.costs.room_actor_gate);
-                    if spider.drew {
-                        self.clock.advance_nanos(self.costs.bookcase_spider_draw);
-                    }
+                    self.step_bookcase_spider(alley)?;
                     if alley.damage_waiting() {
                         self.damage_resume = Some(DamageResume::Spider);
                         return Ok(self.room_wait_outcome(alley, start_nanos));
                     }
                 }
                 if before_scene == 3 {
-                    alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-                    let targets =
-                        alley.advance_bookcase_targets(self.clock.sample().bios.tick_low)?;
-                    self.clock.advance_nanos(self.costs.room_actor_gate);
-                    if targets.drew {
-                        self.clock.advance_nanos(self.costs.bookcase_target_draw);
-                    }
+                    self.step_bookcase_targets(alley)?;
                 }
                 if before_scene == 4 {
                     // Original scene-four loop: player, transfer, mice, broom,

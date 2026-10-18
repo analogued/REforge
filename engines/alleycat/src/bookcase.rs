@@ -21,6 +21,7 @@ pub(crate) struct TargetStep {
 pub(crate) struct SpiderStep {
     pub accepted: bool,
     pub drew: bool,
+    pub restored: bool,
     pub contact: bool,
     pub wait_ticks: u16,
     pub failure_pending: bool,
@@ -335,6 +336,7 @@ fn advance_spider_inner(
         return Ok(result);
     }
     set_word(data, 0x39ca, pixel_offset(word(data, 0x3964), data[0x3966]));
+    result.restored = data[0x396a] == 0;
     restore_spider(data, screen)?;
     data[0x396d] = data[0x396d].wrapping_sub(1);
     if data[0x396d] == 0 {
@@ -649,22 +651,16 @@ mod tests {
                 .unwrap()
                 .accepted
         );
-        assert!(
-            advance_spider_with_damage(&mut data, &mut screen, 1, true)
-                .unwrap()
-                .drew
-        );
+        let first = advance_spider_with_damage(&mut data, &mut screen, 1, true).unwrap();
+        assert!(first.drew && !first.restored);
         assert_eq!(
             (word(&data, 0x3964), word(&data, 0x396b), data[0x396d]),
             (276, 0, 1)
         );
         assert_eq!(&data[0x396f..0x39c3], &[0xaa; 84]);
         assert_eq!(word(&data, 0x2ae3), 0x3333);
-        assert!(
-            advance_spider_with_damage(&mut data, &mut screen, 3, true)
-                .unwrap()
-                .drew
-        );
+        let next = advance_spider_with_damage(&mut data, &mut screen, 3, true).unwrap();
+        assert!(next.drew && next.restored);
         assert_eq!(
             (word(&data, 0x3964), word(&data, 0x396b), data[0x396d]),
             (272, 0x54, 2)

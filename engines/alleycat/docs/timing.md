@@ -236,8 +236,9 @@ Bookcase shelf support (`3c43`) precedes the ordinary furniture table but follow
 the descending room-window exit test. It aligns X to four pixels, accepts
 164..280 inclusive, and snaps to shelf rows 42, 58, 74, 90, 106, 122, 138 and
 154 using the original byte arithmetic. These supports span the bookcase
-independently of the randomized book tiles. Spider and plant drawing execution
-costs are provisional; no full original-loop pacing equivalence is claimed.
+independently of the randomized book tiles. Spider and plant drawing costs use
+scoped XT measurements described below; no full original-loop pacing equivalence
+is claimed.
 
 ### Fishbowl and underwater section
 
@@ -586,6 +587,19 @@ Blocked/contact paths use about 0.297 ms total against measured 0.235–0.369 ms
 These selected native-muted paths do not calibrate every random decision,
 asynchronous sound request or complete room loop. The earlier DOSBox profile
 retains its drawing-only allowance.
+
+Bookcase spider movement (`3cb1`) measures about 5.661 ms for first drawing
+and 6.486–6.637 ms for the sampled visible movement paths. The allowance splits
+first drawing from old-background restoration: about 5.461 and 0.890 ms above
+the existing provisional 0.200 ms room-actor gate. Plant collection (`3b42`),
+including native player/spider background work, measures 9.093–9.197 ms; its
+active allowance is about 8.929 ms above that gate. Final collection and
+failure-suppressed success retain the same fit. These native-muted measurements
+exclude the spider-contact effect, which keeps its earlier provisional drawing
+allowance. Its separately calibrated blocking sound polls remain unchanged.
+The shared gate still approximates quiet tick checks, plant misses and broom
+blocks/rollback, differing by up to about 0.230 ms on the sampled paths.
+More positions, sound-request overhead and full bookcase passes remain unverified.
 
 Control hold/poll helpers measure about 0.084/0.306 ms. Gate and BIOS sampling
 splits remain approximate; whole-helper totals do not identify each instruction

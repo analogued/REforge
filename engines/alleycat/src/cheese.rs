@@ -13,6 +13,8 @@ use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 pub(crate) struct MouseStep {
     pub accepted: bool,
     pub drew: bool,
+    pub restored: bool,
+    pub image_drawn: bool,
     pub collected: bool,
     pub player_changed: bool,
 }
@@ -25,6 +27,8 @@ pub(crate) struct TransferStep {
     pub player_changed: bool,
     pub active: bool,
     pub finished: bool,
+    pub broom_restored: bool,
+    pub broom_drawn: bool,
 }
 
 fn check(data: &[u8]) -> Result<(), String> {
@@ -246,7 +250,7 @@ fn advance_mice_inner(
         if data[0x3eae + slot] != 0 || data[0x3eb6 + slot] >= 20 {
             return Ok(result);
         }
-        restore_mouse(data, screen, slot)?;
+        result.restored = restore_mouse(data, screen, slot)?;
         data[0x3eb2 + slot] = 1;
         data[0x583] = 0;
         data[0x55c] = 0;
@@ -290,7 +294,8 @@ fn advance_mice_inner(
     set_word(data, 0x3eca, source);
     let dest = pixel_offset(word(data, 0x3ecc + slot * 2), data[0x3ed4 + slot]);
     set_word(data, 0x3de4, dest);
-    result.drew = restore_mouse(data, screen, slot)?;
+    result.restored = restore_mouse(data, screen, slot)?;
+    result.drew = result.restored;
     if broom_enabled && broom_contact(data, slot) {
         return Ok(result);
     }
@@ -301,6 +306,7 @@ fn advance_mice_inner(
     data[0x3eae + slot] = 0;
     set_word(data, 0x3ea6 + slot * 2, dest);
     draw_mask(data, screen, source, dest, word(data, 0x3ec2 + slot * 2))?;
+    result.image_drawn = true;
     result.drew = true;
     Ok(result)
 }
@@ -388,6 +394,7 @@ fn advance_transfer_inner(
         result.player_changed = true;
     }
     if broom_enabled && data[0x1cbf] == 0 {
+        result.broom_restored = data[0x3286] == 0;
         crate::room::restore_broom(data, screen)?;
     }
     data[0x39e1] = data[0x39e1].wrapping_sub(2);
@@ -408,6 +415,7 @@ fn advance_transfer_inner(
     copy_sprite(data, screen, source, dest, Dimensions(0x1002))?;
     if broom_enabled && data[0x1cbf] == 0 {
         crate::room::draw_broom(data, screen)?;
+        result.broom_drawn = true;
     }
     set_word(data, 0x3d16, tick);
     result.accepted = true;
@@ -462,8 +470,11 @@ mod tests {
         let mut alternate = data.clone();
         let mut alternate_screen = screen.clone();
         for tick in 12..=18 {
+            let step = advance_transfer(&mut data, &mut screen, tick).unwrap();
+            assert!(step.broom_drawn);
+            assert_eq!(step.broom_restored, tick != 12);
             assert_eq!(
-                advance_transfer(&mut data, &mut screen, tick).unwrap(),
+                step,
                 advance_transfer_dev(&mut alternate, &mut alternate_screen, tick, false).unwrap()
             );
             assert_eq!(data, alternate);
@@ -545,6 +556,7 @@ mod tests {
             assert!(step.accepted && step.drew);
             assert_eq!(step.started, tick == 12);
             assert_eq!(step.finished, tick == 18);
+            assert!(!step.broom_restored && !step.broom_drawn);
             assert_eq!(
                 screen.read_rect(broom_dest, Dimensions(0x1e02)).unwrap(),
                 vec![0xaa; 120]
@@ -682,6 +694,8 @@ mod tests {
             )
             .unwrap();
             assert_eq!(step.collected, collected);
+            assert_eq!(step.restored, collected);
+            assert!(!step.image_drawn);
             assert_eq!(data[0x3eb6], phase);
         }
         assert_eq!(
@@ -721,6 +735,47 @@ mod tests {
         data[0x57b] = 102;
         assert!(near_player(&data, 0, 3));
         assert!(!near_player(&data, 0, 2));
+    }
+
+    #[test]
+    fn mouse_drawing_reports_first_restore_and_restore_only_relocation() {
+        let (mut data, mut screen) = fixture();
+        data[0x3eae] = 1;
+        data[0x3eb6] = 20;
+        set_word(&mut data, 0x3eda, 3);
+        let first = advance_mice(
+            &mut data,
+            &mut screen,
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
+        assert!(first.image_drawn && !first.restored);
+        let old_offset = word(&data, 0x3ea6);
+        assert_eq!(&data[0x3de6..0x3e16], &[0xaa; 48]);
+        set_word(&mut data, 0x3eda, 3);
+        let visible = advance_mice(
+            &mut data,
+            &mut screen,
+            2,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
+        assert!(visible.image_drawn && visible.restored);
+        data[0x3eb6] = 0;
+        set_word(&mut data, 0x3eda, 3);
+        let relocated = advance_mice(
+            &mut data,
+            &mut screen,
+            3,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
+        assert!(relocated.drew && relocated.restored && !relocated.image_drawn);
+        assert_eq!(
+            screen.read_rect(old_offset, Dimensions(0x0c02)).unwrap(),
+            [0xaa; 48]
+        );
     }
 
     #[test]

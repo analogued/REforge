@@ -61,7 +61,11 @@ pub struct ReferenceCosts {
     pub completion_draw_byte: u64,
     pub hearts_actor_draw: u64,
     pub cheese_mouse_draw: u64,
+    pub cheese_mouse_restore: u64,
+    pub cheese_mouse_collect: u64,
     pub cheese_transfer_draw: u64,
+    pub cheese_transfer_edge: u64,
+    pub cheese_transfer_broom_draw: u64,
     pub bookcase_spider_draw: u64,
     pub bookcase_spider_restore: u64,
     pub bookcase_spider_effect_draw: u64,
@@ -155,6 +159,14 @@ impl ReferenceCosts {
             bookcase_spider_draw: 5_460_700,
             bookcase_spider_restore: 890_000,
             bookcase_target_draw: 8_929_000,
+            // Native cheese helpers above the provisional room gate. Restore-
+            // only relocation uses the conservative mouse drawing allowance.
+            cheese_mouse_draw: 1_767_100,
+            cheese_mouse_restore: 690_000,
+            cheese_mouse_collect: 3_878_000,
+            cheese_transfer_draw: 1_011_600,
+            cheese_transfer_edge: 1_036_200,
+            cheese_transfer_broom_draw: 3_020_000,
             // Whole native loop intervals, fitted to the stock XT capture.
             spider_effect_poll: 151_810,
             eel_effect_poll: 84_530,
@@ -234,7 +246,11 @@ impl ReferenceCosts {
             hearts_actor_draw: 1_500_000,
             // Provisional scene-four costs above its original tick gates.
             cheese_mouse_draw: 600_000,
+            cheese_mouse_restore: 0,
+            cheese_mouse_collect: 600_000,
             cheese_transfer_draw: 2_000_000,
+            cheese_transfer_edge: 0,
+            cheese_transfer_broom_draw: 0,
             // Provisional scene-three work above the original tick gates.
             bookcase_spider_draw: 1_500_000,
             bookcase_spider_restore: 0,
@@ -359,6 +375,41 @@ impl Runtime {
             damage_resume: None,
             scene: 0,
         }
+    }
+
+    fn step_cheese_mice(&mut self, alley: &mut Alley) -> Result<(), String> {
+        alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+        let mice = alley.advance_cheese_mice(self.clock.sample().bios.tick_low)?;
+        self.clock.advance_nanos(self.costs.room_actor_gate);
+        if mice.collected {
+            // Collection includes mouse/player background work and HUD drawing.
+            self.clock.advance_nanos(self.costs.cheese_mouse_collect);
+        } else if mice.drew {
+            self.clock.advance_nanos(self.costs.cheese_mouse_draw);
+            if mice.restored && mice.image_drawn {
+                self.clock.advance_nanos(self.costs.cheese_mouse_restore);
+            }
+        }
+        Ok(())
+    }
+
+    fn step_cheese_transfer(&mut self, alley: &mut Alley) -> Result<(), String> {
+        let transfer = alley.advance_cheese_transfer(self.clock.sample().bios.tick_low)?;
+        self.clock.advance_nanos(self.costs.room_actor_gate);
+        if transfer.drew {
+            self.clock.advance_nanos(self.costs.cheese_transfer_draw);
+            if transfer.started || transfer.finished {
+                self.clock.advance_nanos(self.costs.cheese_transfer_edge);
+            }
+        }
+        if transfer.broom_restored {
+            self.clock.advance_nanos(self.costs.room_broom_restore);
+        }
+        if transfer.broom_drawn {
+            self.clock
+                .advance_nanos(self.costs.cheese_transfer_broom_draw);
+        }
+        Ok(())
     }
 
     fn step_bookcase_spider(&mut self, alley: &mut Alley) -> Result<(), String> {
@@ -867,18 +918,8 @@ impl Runtime {
                 if before_scene == 4 {
                     // Original scene-four loop: player, transfer, mice, broom,
                     // then termination. Transfers do not block room scheduling.
-                    let transfer =
-                        alley.advance_cheese_transfer(self.clock.sample().bios.tick_low)?;
-                    self.clock.advance_nanos(self.costs.room_actor_gate);
-                    if transfer.drew {
-                        self.clock.advance_nanos(self.costs.cheese_transfer_draw);
-                    }
-                    alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-                    let mice = alley.advance_cheese_mice(self.clock.sample().bios.tick_low)?;
-                    self.clock.advance_nanos(self.costs.room_actor_gate);
-                    if mice.drew {
-                        self.clock.advance_nanos(self.costs.cheese_mouse_draw);
-                    }
+                    self.step_cheese_transfer(alley)?;
+                    self.step_cheese_mice(alley)?;
                 }
                 if !(before_scene == 6 && alley.dying()) {
                     self.step_room_broom(alley)?;

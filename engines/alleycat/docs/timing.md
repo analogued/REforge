@@ -178,10 +178,10 @@ body is suppressed; mouse and broom work continues. The normal cat image stays
 hidden until the next player draw after the destination background is saved.
 Hole pairing depends on difficulty modulo four, using the executable's tables.
 
-Active mouse and transfer drawing costs are provisional allowances, separate
-from these original gates. Sound routines now consume their native random draws,
-but provisional execution timing still prevents claiming that a matching seed
-alone synchronizes an original full-game run.
+Active mouse and transfer costs use scoped XT captures described below,
+separate from these original gates. Sound routines consume their native random
+draws, but remaining provisional execution timing prevents claiming that a
+matching seed alone synchronizes an original full-game run.
 
 ### Birdcage room schedule
 
@@ -600,6 +600,31 @@ allowance. Its separately calibrated blocking sound polls remain unchanged.
 The shared gate still approximates quiet tick checks, plant misses and broom
 blocks/rollback, differing by up to about 0.230 ms on the sampled paths.
 More positions, sound-request overhead and full bookcase passes remain unverified.
+
+Cheese mouse calls (`40c2`) measure about 1.967 ms for first appearance,
+2.640–2.674 ms for sampled visible updates and 4.078 ms for collection, including
+native player-background and HUD work. The fit separates collection from drawing
+and adds restoration only when a new mouse image is also drawn. Restore-only
+relocation conservatively uses the first-drawing allowance, about 0.195 ms above
+the selected measurement; random retries and other positions remain approximate.
+Difficulty comparison keeps the same room/positions and varies its threshold
+lookup: distant updates at levels 0/7 both measure 2.657 ms; at a closer position,
+levels 0/1 measure 2.657–2.659 ms and levels 2–7 retreat in 2.696–2.697 ms.
+Those branch differences fit the same allowance; the native difficulty table
+still decides retreat, without a separate difficulty timing multiplier.
+
+Hole transfers (`3e90`) measure about 5.918–5.958 ms for ordinary visible-broom
+frames and about 6.975–7.006 ms at start/end. The fit separates ordinary frame
+work, endpoint player-background work and optional broom drawing/restoration.
+The 120-byte broom restoration reuses its measured shared allowance; transfer
+broom drawing has its own increment, excluding the movement decisions in `3150`.
+Hidden-broom start measures 5.267 ms and dog-suppressed broom start 2.248 ms,
+checking that optional work is counted once. First-capture samples that missed
+an intended setup frame are excluded; guarded continuation setup checks the
+required frame before measurement. The generic room gate remains approximate,
+with sampled idle checks differing by up to about 0.167 ms. These are selected
+native-muted paths, not complete difficulty-specific room loops or exhaustive
+random-retry timing. The earlier DOSBox profile retains its original allowances.
 
 Control hold/poll helpers measure about 0.084/0.306 ms. Gate and BIOS sampling
 splits remain approximate; whole-helper totals do not identify each instruction

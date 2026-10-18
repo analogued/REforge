@@ -617,6 +617,7 @@ fn broom_dog_contact(data: &[u8]) -> bool {
 pub(crate) struct BroomUpdate {
     pub contact: bool,
     pub drawn: bool,
+    pub restored: bool,
 }
 
 /// CS:3150's accepted tick call. Player fields are read/written in DS; the caller
@@ -640,12 +641,13 @@ pub(crate) fn advance_broom(
     if broom_player_contact(data) {
         return Ok(Some(BroomUpdate {
             contact: true,
-            drawn: false,
+            ..BroomUpdate::default()
         }));
     }
     if broom_dog_contact(data) {
         return Ok(Some(BroomUpdate::default()));
     }
+    let mut restored = false;
     data[0x32ea] = data[0x32ea].wrapping_add(1);
     let random = next_random(data) as u8;
     data[0x32eb] ^= data[0x32ea] & random;
@@ -703,6 +705,7 @@ pub(crate) fn advance_broom(
                 data[0x3281] = 0;
                 if [6, 18].contains(&word(data, 0x327a)) {
                     copy_sprite(data, screen, 0x31e8, word(data, 0x3282), 0x1e02)?;
+                    restored = true;
                     data[0x328e + cursor] -= 1;
                     draw_track(data, screen, cursor)?;
                     data[0x3286] = 1;
@@ -736,8 +739,10 @@ pub(crate) fn advance_broom(
         return Ok(Some(BroomUpdate {
             contact,
             drawn: false,
+            restored,
         }));
     }
+    restored |= data[0x3286] == 0;
     restore_broom(data, screen)?;
     let phase = word(data, 0x327a).wrapping_add(2);
     set_word(data, 0x327a, phase);
@@ -745,6 +750,7 @@ pub(crate) fn advance_broom(
     Ok(Some(BroomUpdate {
         contact: false,
         drawn: true,
+        restored,
     }))
 }
 
@@ -1095,7 +1101,8 @@ mod tests {
             update,
             BroomUpdate {
                 contact: true,
-                drawn: false
+                drawn: false,
+                restored: false,
             }
         );
         assert_eq!(
@@ -1205,7 +1212,8 @@ mod tests {
             advance_broom(&mut data, &mut screen, 1).unwrap(),
             Some(BroomUpdate {
                 contact: false,
-                drawn: true
+                drawn: true,
+                restored: false,
             })
         );
         assert_eq!((word(&data, 0x327d), data[0x327f]), (80, 162));
@@ -1215,5 +1223,36 @@ mod tests {
         assert!(advance_broom(&mut data, &mut screen, 1).unwrap().is_none());
         assert_eq!(data, previous_data);
         assert_eq!(screen.bytes().as_slice(), previous_screen);
+        let next = advance_broom(&mut data, &mut screen, 2).unwrap().unwrap();
+        assert!(next.drawn && next.restored);
+        assert_eq!((word(&data, 0x327d), data[0x327f]), (80, 164));
+    }
+
+    #[test]
+    fn cleaning_restores_the_old_broom_before_replacing_the_floor_track() {
+        let mut data = data();
+        set_word(&mut data, 0x327d, 80);
+        data[0x327f] = 165;
+        set_word(&mut data, 0x3284, pixel_offset(80, 165));
+        set_word(&mut data, 0x328a, 10);
+        data[0x3298] = 1;
+        set_word(&mut data, 0x579, 200);
+        data[0x57b] = 180;
+        set_word(&mut data, 0x327a, 6);
+        set_word(&mut data, 0x3266, 0x6100);
+        set_word(&mut data, 0x3268, 0x6100);
+        data[0x6100..0x6178].fill(0x55);
+        let mut screen = Framebuffer::default();
+        screen.fill_visible(0xaa);
+        draw_broom(&mut data, &mut screen).unwrap();
+        let step = advance_broom(&mut data, &mut screen, 1).unwrap().unwrap();
+        assert!(step.drawn && step.restored);
+        assert_eq!(data[0x3298], 0);
+        assert_eq!(word(&data, 0x327a), 8);
+        // Cleaning hides the old image before the normal redraw. Its saved
+        // background must contain the cleaned track, not the previous broom.
+        let clean_track = &data[0x32b8..0x32c2];
+        let saved = &data[0x31e8..0x3260];
+        assert_eq!(&saved[108..110], &clean_track[..2]);
     }
 }

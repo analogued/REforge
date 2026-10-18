@@ -575,6 +575,18 @@ conservatively. It is additional to the provisional scheduler allowance, whose
 random-choice paths remain uncalibrated. Cage/bird measurements use native-muted
 inputs; occasional asynchronous tone-request overhead remains approximate.
 
+The shared broom helper (`3150`) measures about 0.097 ms for a rejected tick,
+3.807 ms for first drawing and 5.507–5.522 ms for ordinary visible movement
+across the five furnished rooms. Its XT allowance now separates the tick check,
+first drawing and optional old-background restoration. Floor cleaning also
+restores the old image before redrawing; it pays that restoration once. The
+same drawing fit underestimates the measured cleaning path by about 0.204 ms;
+its track update and movement decisions remain a bounded approximation.
+Blocked/contact paths use about 0.297 ms total against measured 0.235–0.369 ms.
+These selected native-muted paths do not calibrate every random decision,
+asynchronous sound request or complete room loop. The earlier DOSBox profile
+retains its drawing-only allowance.
+
 Control hold/poll helpers measure about 0.084/0.306 ms. Gate and BIOS sampling
 splits remain approximate; whole-helper totals do not identify each instruction
 boundary. Quiet grouped-call work uses a fitted 0.800 ms allowance. Active work

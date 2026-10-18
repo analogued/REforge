@@ -49,7 +49,10 @@ pub struct ReferenceCosts {
     pub room_cage_draw: u64,
     pub room_cage_push: u64,
     pub room_bird_draw: u64,
+    pub room_broom_gate: u64,
+    pub room_broom_blocked: u64,
     pub room_broom_draw: u64,
+    pub room_broom_restore: u64,
     pub room_effect_poll: u64,
     pub spider_effect_poll: u64,
     pub eel_effect_poll: u64,
@@ -140,6 +143,12 @@ impl ReferenceCosts {
             room_cage_draw: 3_378_400,
             room_cage_push: 2_488_400,
             room_bird_draw: 1_333_410,
+            // Broom CS:3150: quiet tick check, blocked work above that check,
+            // first drawing, and optional restoration of its previous image.
+            room_broom_gate: 97_430,
+            room_broom_blocked: 200_000,
+            room_broom_draw: 3_709_620,
+            room_broom_restore: 1_706_780,
             // Whole native loop intervals, fitted to the stock XT capture.
             spider_effect_poll: 151_810,
             eel_effect_poll: 84_530,
@@ -202,7 +211,11 @@ impl ReferenceCosts {
             // The older profile did not price the cage's player redraw.
             room_cage_push: 0,
             room_bird_draw: 600_000,
+            // Preserve the older profile's drawing-only allowance.
+            room_broom_gate: 0,
+            room_broom_blocked: 0,
             room_broom_draw: 2_500_000,
+            room_broom_restore: 0,
             room_effect_poll: 50_000,
             spider_effect_poll: 50_000,
             eel_effect_poll: 50_000,
@@ -337,6 +350,22 @@ impl Runtime {
             damage_resume: None,
             scene: 0,
         }
+    }
+
+    fn step_room_broom(&mut self, alley: &mut Alley) -> Result<(), String> {
+        let broom = alley.advance_room_broom(self.clock.sample().bios.tick_low)?;
+        self.clock.advance_nanos(self.costs.room_broom_gate);
+        if let Some(broom) = broom {
+            self.clock.advance_nanos(if broom.drawn {
+                self.costs.room_broom_draw
+            } else {
+                self.costs.room_broom_blocked
+            });
+            if broom.restored {
+                self.clock.advance_nanos(self.costs.room_broom_restore);
+            }
+        }
+        Ok(())
     }
 
     /// Execute a loop attempt, including attempts which reject player movement.
@@ -828,13 +857,7 @@ impl Runtime {
                     }
                 }
                 if !(before_scene == 6 && alley.dying()) {
-                    if let Some(broom) =
-                        alley.advance_room_broom(self.clock.sample().bios.tick_low)?
-                    {
-                        if broom.drawn {
-                            self.clock.advance_nanos(self.costs.room_broom_draw);
-                        }
-                    }
+                    self.step_room_broom(alley)?;
                 }
                 if matches!(before_scene, 1 | 3..=5) || (before_scene == 6 && alley.dying()) {
                     let sample = self.clock.sample();

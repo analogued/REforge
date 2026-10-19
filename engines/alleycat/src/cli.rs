@@ -53,7 +53,7 @@ Alt drinks milk, uses paired holes in cheese and places a carried gift in the he
 Gifts are picked up automatically.
 Ordinary windows lead to fishbowl, bookcase, cheese, birdcage or milk; after success, the next leads to hearts.
 PC Speaker audio is enabled; Ctrl-S toggles the native sound flag.
-Timing uses a DOSBox-X 240-cycle model.
+Timing uses a stock 4.77 MHz XT model; unmeasured paths retain provisional costs.
 Your original executable is required; original data is never bundled.";
 
 #[cfg(feature = "dev-tools")]

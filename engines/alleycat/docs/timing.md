@@ -86,7 +86,8 @@ The divider runs even on rejected player calls. Grouped passes execute the
 clothesline routine's call-count, retrace, suppression and BIOS-tick gates, then
 windows, projectiles, the bin cat and mice. The ground dog runs after the
 player on every pass. Each actor samples virtual time at its own call stage.
-Active dog and projectile drawing costs remain provisional allowances.
+Selected running-dog and moving-projectile costs use scoped XT measurements;
+unmeasured actor states remain approximate.
 
 Clothes scrolling (`04a0`) decrements byte `0531` before other tests. On expiry
 it reloads 1, requires retrace clear, no support-disable flag or active window
@@ -215,7 +216,7 @@ Success preserves the pending-bonus flag; the next eligible window selects scene
 7 without
 advancing the selector's random state or ordinary candidate history.
 
-Room tones now emit ordered speaker writes. A pending tone expires once per
+Room tones emit ordered speaker writes. A pending tone expires once per
 distinct tick rather than catching up skipped ticks. Initial and continuation
 divisors remain distinct; bird requests and ambient shared-generator draws follow
 their original predicates. Instruction-level interrupt placement remains outside
@@ -320,8 +321,9 @@ motion and rendering active. `--disable-actors` skips the corresponding actor;
 room dogs. `--infinite-lives` preserves life counts without skipping hit effects
 or room-failure presentation. These controls require the `dev-tools` feature.
 The ten-, nine- and thirteen-tick hit effects suspend other gameplay and resume
-at their original caller stage; host pause/quit remain responsive. Audio and
-instruction-level interrupt placement remain outside this implementation.
+at their original caller stage; host pause/quit remain responsive. Their speaker
+programs are implemented; instruction-level interrupt placement remains outside
+the model.
 
 ### Ordinary-room scoring presentation
 
@@ -387,8 +389,10 @@ phase, keeping it out of saved player and broom backgrounds. Disabling
 `milk-dogs` removes eye updates and sprites without disabling milk objectives.
 
 Milk-room active-drawing costs are provisional allowances, not independently
-calibrated CPU timings. Warning audio now blocks ordinary game work for its
-original two-tick interval; the internal polling cadence remains provisional.
+calibrated CPU timings. Warning audio blocks ordinary game work until the second
+BIOS boundary after entry. Its enabled-sound polling cadence uses an XT fit;
+silent-path and PCjr-specific timing remain approximate. See
+[PC Speaker programs](#pc-speaker-programs).
 The shared scoring presentation uses scene 6's original time bonus:
 `max(2700 - elapsed BIOS ticks, 0)`, plus the external room base score. Its
 success returns at the saved alley position and makes the next eligible window
@@ -447,8 +451,9 @@ Scene-specific palette tables, carried-gift background changes and presentation
 palette requests are independent of framebuffer memory. BIOS font lettering uses
 the attributed SDL 8×8 glyphs shared with the pause display; scoring characters
 match the captured CGA/PCjr BIOS font.
-Speaker synthesis and native sound random consumers are implemented. Busy-loop
-execution rates remain provisional. Controlled helper/frame comparisons do not
+Speaker synthesis and native sound random consumers are implemented. The
+approach sweep's counted sound delay uses an XT fit; other presentation-loop
+execution costs remain provisional. Controlled helper/frame comparisons do not
 establish full original-loop timing or random-stream equivalence.
 
 ### Initial splash
@@ -495,7 +500,7 @@ The next run copies the selected skill to active difficulty, clears current
 score and progression, sets three lives and starts the clipped alley entry.
 It retains high score, room history and the random state advanced by title
 scenery and animation. Host pacing and pause state restart at this boundary.
-The development CLI's initial difficulty override is retained for subsequent
+The CLI's initial difficulty override is retained for subsequent
 runs. Speaker output restarts at a new host synthesis epoch while native sound
 preferences and the carried game state remain intact.
 
@@ -528,6 +533,11 @@ use the IBM 5160 configuration, turbo off, at `157500000/33 Hz`. They measure
 executed guest cycles, independently of host display refresh and tracing speed.
 This remains a fitted execution-cost model, not an instruction-level CPU.
 
+The measurements below cover selected routine states and positions. Their fit
+checks do not independently establish whole-game pacing, instruction-level
+interrupt placement or random-stream synchronization. Path-specific limits and
+uncalibrated work are identified alongside the costs.
+
 Accepted original movement bodies measure about 0.360 ms without redraw,
 2.480 ms for idle redraw, 2.717 ms walking, 2.961 ms rising, and 3.244 ms descending.
 Lower-support landing/release allowances include their one short beep, about
@@ -541,17 +551,14 @@ and draw; its active increment is above the roughly 0.094 ms quiet allowance.
 Moving projectiles add about 2.644 ms above the inactive helper. Clothes shifts
 add about 7.804 ms, or 8.770 ms with tile generation; normal mouse redraw adds
 about 1.362 ms above equal-tick work. These are scoped conditions, not universal
-costs for every actor state. Earlier malformed dog and partial-state release
-inputs are excluded from calibration.
+costs for every actor state.
 
 Bin animation uses valid saved-background rectangles at six emergence/retraction
 phases. A bounded fit uses about 0.399 ms per active call, 0.0394 ms per restored
 row, 0.268 ms per drawn row and 0.105 ms for a new spawn, above quiet grouped
 work. The measured frames differ from that fit by at most about 65 microseconds;
 short/final frames have proportionally larger errors. These are coefficients
-for the fixed original sprite, not general physical per-row costs. Older
-zero-height restore inputs are excluded. Zero-filled saved pixels in the valid
-diagnostic inputs affect their appearance without invalidating their dimensions.
+for the fixed original sprite, not general physical per-row costs.
 
 Airborne mouse-contact catches on all three rows measure about 7.51 ms, including
 score/HUD drawing and the initial catch tone. The active allowance is about
@@ -565,8 +572,8 @@ counted loops without claiming a separate physical PCjr hardware measurement.
 Nonblocking cage movement, including background restore and drawing, measures
 about 3.54–3.61 ms. A center-contact push, including player restoration/redraw,
 measures about 2.688 ms. The respective active increments are 3.378 and 2.488 ms
-above the existing provisional 0.200 ms room-actor gate. The push increment is
-now charged when the cage moves the player, rather than only pricing cage draws.
+above the provisional 0.200 ms room-actor gate. The push increment accounts for
+player restoration/redraw when the cage moves the player.
 These fit selected positions and do not establish every cage-contact cost.
 The fixed cage restore/draw increment is also used by the blocking fall; that
 fall's polling and release/entry overhead remain uncalibrated.
@@ -580,25 +587,24 @@ inputs; occasional asynchronous tone-request overhead remains approximate.
 
 The shared broom helper (`3150`) measures about 0.097 ms for a rejected tick,
 3.807 ms for first drawing and 5.507–5.522 ms for ordinary visible movement
-across the five furnished rooms. Its XT allowance now separates the tick check,
+across the five furnished rooms. Its XT allowance separates the tick check,
 first drawing and optional old-background restoration. Floor cleaning also
 restores the old image before redrawing; it pays that restoration once. The
 same drawing fit underestimates the measured cleaning path by about 0.204 ms;
 its track update and movement decisions remain a bounded approximation.
 Blocked/contact paths use about 0.297 ms total against measured 0.235–0.369 ms.
 These selected native-muted paths do not calibrate every random decision,
-asynchronous sound request or complete room loop. The earlier DOSBox profile
-retains its drawing-only allowance.
+asynchronous sound request or complete room loop.
 
 Bookcase spider movement (`3cb1`) measures about 5.661 ms for first drawing
 and 6.486–6.637 ms for the sampled visible movement paths. The allowance splits
 first drawing from old-background restoration: about 5.461 and 0.890 ms above
-the existing provisional 0.200 ms room-actor gate. Plant collection (`3b42`),
+the provisional 0.200 ms room-actor gate. Plant collection (`3b42`),
 including native player/spider background work, measures 9.093–9.197 ms; its
 active allowance is about 8.929 ms above that gate. Final collection and
 failure-suppressed success retain the same fit. These native-muted measurements
-exclude the spider-contact effect, which keeps its earlier provisional drawing
-allowance. Its separately calibrated blocking sound polls remain unchanged.
+exclude the spider-contact image, whose drawing allowance remains provisional.
+The blocking sound polls have a separate XT fit.
 The shared gate still approximates quiet tick checks, plant misses and broom
 blocks/rollback, differing by up to about 0.230 ms on the sampled paths.
 More positions, sound-request overhead and full bookcase passes remain unverified.
@@ -621,12 +627,10 @@ work, endpoint player-background work and optional broom drawing/restoration.
 The 120-byte broom restoration reuses its measured shared allowance; transfer
 broom drawing has its own increment, excluding the movement decisions in `3150`.
 Hidden-broom start measures 5.267 ms and dog-suppressed broom start 2.248 ms,
-checking that optional work is counted once. First-capture samples that missed
-an intended setup frame are excluded; guarded continuation setup checks the
-required frame before measurement. The generic room gate remains approximate,
-with sampled idle checks differing by up to about 0.167 ms. These are selected
-native-muted paths, not complete difficulty-specific room loops or exhaustive
-random-retry timing. The earlier DOSBox profile retains its original allowances.
+checking that optional work is counted once. The generic room gate remains
+approximate, with sampled idle checks differing by up to about 0.167 ms. These
+are selected native-muted paths, not complete difficulty-specific room loops or exhaustive
+random-retry timing.
 
 Fishbowl animation (`3850`) measures 0.752–0.754 ms, or 0.781 ms when contact
 sets the entry latch. Its quiet tick check measures 0.085 ms. The fit keeps that
@@ -639,11 +643,11 @@ previous image and drawing again measures 1.044–1.049 ms. The smaller eel imag
 measures 0.538 ms first and 0.694–0.703 ms when visible. Runtime costs distinguish
 fish/eel images and charge restoration only when it occurs, above quiet and
 accepted-call work. The sampled wrap prelude measures 1.074 ms with a visible
-fish and shares the ordinary allowance, differing by about 0.030 ms. Slot-zero
-body fixtures deliberately bypass that prelude; they do not establish natural
-whole-pass cadence. Explicit PCjr software-ID midpoint cases, at player Y20/Y80,
-measure 0.695/0.702 ms on the same XT/CGA baseline and retain their native latch
-decisions. They are not physical PCjr hardware measurements.
+fish and shares the ordinary allowance, differing by about 0.030 ms. Isolated
+slot-zero body measurements exclude that prelude. PCjr software-ID midpoint
+cases, at player Y20/Y80, measure 0.695/0.702 ms on the same XT/CGA baseline and
+retain their native latch decisions. They are not physical PCjr hardware
+measurements.
 
 Water-surface updates (`37e5`) measure 0.362–0.373 ms, including the cursor-wrap
 case. Quiet rejection measures 0.085 ms and a player-adjacent skipped tile
@@ -651,8 +655,6 @@ case. Quiet rejection measures 0.085 ms and a player-adjacent skipped tile
 Twenty controlled paths, each measured twice with empty-call subtraction, check
 these totals within 0.040 ms. They cover selected positions and sprite phases,
 not random-direction branches, all animation images, contact scans or swimming.
-These are same-capture fit checks, not independent validation of whole-game
-pacing. The earlier DOSBox profile retains its original drawing-only charges.
 
 Accepted swimming bodies (`0926`) measure 3.396–4.385 ms on the sampled ordinary
 CGA paths, with the old player image restored, a new native image drawn and an
@@ -679,21 +681,16 @@ a counted delay. Its variable full-body duration is not a fixed CPU surcharge.
 Runtime advances to the next virtual retrace start, skipping a current pulse,
 then charges about 2.637 ms for post-poll counted work before player composition.
 Phase-aligned tail captures measure 21.956/22.976 ms from clear/set alignment,
-versus 3.714 ms for the post-wait tail alone. Retained first/last 3DA read cycles
-separate polling from post-poll work. The two earlier full-body FD cases lack
-recorded start phase and are checked against a timing envelope rather than used
-to fit an average wait.
+versus 3.714 ms for the post-wait tail alone. First/last 3DA read cycles separate
+polling from post-poll work; full-body duration without a recorded start phase
+can only be checked against a timing envelope.
 
 Scoped state/full-frame and charging checks cover 41 cases across the full-body
 and split-helper batches. Fixed/aligned totals fit within 0.150 ms; the largest
-sampled difference is about 0.125 ms. These are same-capture fit checks, not
-independent whole-loop timing validation. Other palette/animation phases,
-audible requests, rare contact combinations, masked-actor cleanup and physical
-PCjr BIOS/video timing remain outside the calibration. Both game modes keep the
-agreed XT CPU baseline; comparison against PCjr hardware follows completion of
-all remaining XT captures and integration of the full XT profile. The explicit
-DOSBox comparison profile retains its former fixed swimming-body cost and omits
-the newly modeled surface wait.
+sampled difference is about 0.125 ms. Other palette/animation phases, audible
+requests, rare contact combinations, masked-actor cleanup and physical
+PCjr BIOS/video timing remain outside the calibration. Both game modes use the
+same XT CPU baseline.
 
 Control hold/poll helpers measure about 0.084/0.306 ms. Gate and BIOS sampling
 splits remain approximate; whole-helper totals do not identify each instruction
@@ -702,16 +699,16 @@ is additional to that baseline rather than charged as another entire helper.
 Consecutive original idle/walking batches of 64 and 256 passes check the combined
 fit. Their counter instrumentation adds measurable overhead, and their exact
 initial BIOS/video phases are unknown. Phase/overhead sweeps compare duration,
-final position and BIOS tick together. Agreement within this uncertainty range
-is not proof of exact intra-tick scheduling or random-stream synchronization.
+final position and BIOS tick together within that uncertainty range.
 
-`ReferenceCosts::dosbox_x_240` retains the earlier table for explicit comparisons;
-ordinary play uses `ibm_xt`. Other unmeasured effect loops, room actors,
-transitions, clipped re-entry and startup-specific work retain
-provisional allowances. Some of those derive from DOSBox-X normal core at fixed
-240 cycles/ms, an emulator throughput setting rather than a physical CPU clock.
-Changing measured costs is not a global speed multiplier and does not complete
-physical-PC timing calibration. Instruction/interrupt placement, midnight clock
+`ReferenceCosts::dosbox_x_240` retains the older DOSBox profile for explicit
+comparisons. Its room drawing allowances do not include the XT profile's added
+work breakdown or phase-dependent swimming surface wait. Ordinary play uses
+`ibm_xt`; unmeasured effect loops, room actors, transitions, clipped re-entry
+and startup-specific work retain provisional allowances. Some of those derive
+from DOSBox-X normal core at fixed 240 cycles/ms, an emulator throughput setting
+rather than a physical CPU clock. Changing measured costs is not a global speed
+multiplier and does not complete physical-PC timing calibration. Midnight clock
 reset and original keyboard transport remain outside this model.
 
 Actor helpers currently share one BIOS sample within each nonblocking call;
@@ -730,9 +727,10 @@ once per completed effect cycle even with silent output. Ordinary controls,
 player and actors remain suspended until the effect returns; then the interrupted
 pass resumes with post-player work.
 
-Effect-loop costs use bounded fixed-240 helper measurements and remain approximate,
-so exact random-call counts are not established. Its port-61 toggles are now
-synthesized, and ambient sound-state random consumers are included.
+Fence polling and random/reload costs use scoped XT fits described under
+[PC Speaker programs](#pc-speaker-programs). Internal timer/I/O placement remains
+approximate, so exact random-call counts are not established. Its port-61 toggles
+are synthesized, and ambient sound-state random consumers are included.
 
 Mouse knockdown (`2567`) clears attachment and horizontal direction, sets a
 17-update support delay and downward direction, and preserves vertical step,

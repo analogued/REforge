@@ -27,6 +27,47 @@ pub(crate) struct AttentionStep {
     pub lethal_slot: Option<usize>,
 }
 
+/// Native work boundaries, independent of the host compositor's extra redraws.
+/// The timed caller prices these operations and supplies the retrace wait.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Work {
+    DrinkGate {
+        dying: bool,
+    },
+    DrinkStop {
+        visible: bool,
+        dimensions: u16,
+    },
+    DrinkSearch {
+        found: bool,
+        aligned: bool,
+    },
+    DrinkStart {
+        dimensions: u16,
+    },
+    Retrace,
+    RestoreDrink,
+    DrawDrink,
+    EmptyBowl,
+    DrawBowl,
+    Broom {
+        restored: bool,
+    },
+    AttentionGate {
+        accepted: bool,
+        dying: bool,
+    },
+    AttentionSlot {
+        active: bool,
+    },
+    Eyes {
+        overlap: bool,
+        drinking: bool,
+        dimensions: u16,
+    },
+    End,
+}
+
 fn check(data: &[u8]) -> Result<(), String> {
     if data.len() < DATA_LENGTH {
         Err("Executable milk-room data segment is truncated".into())
@@ -181,7 +222,7 @@ pub(crate) fn advance_drinking(
     tick: u16,
     sound: &mut crate::sound::Sound,
 ) -> Result<DrinkStep, String> {
-    advance_drinking_inner(data, screen, tick, false, sound)
+    advance_drinking_inner(data, screen, tick, false, sound, &mut |_, _| tick)
 }
 
 #[cfg(feature = "dev-tools")]
@@ -192,7 +233,18 @@ pub(crate) fn advance_drinking_with_actor_mask(
     disable_broom: bool,
     sound: &mut crate::sound::Sound,
 ) -> Result<DrinkStep, String> {
-    advance_drinking_inner(data, screen, tick, disable_broom, sound)
+    advance_drinking_inner(data, screen, tick, disable_broom, sound, &mut |_, _| tick)
+}
+
+pub(crate) fn advance_drinking_timed(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    disable_broom: bool,
+    sound: &mut crate::sound::Sound,
+    work: &mut impl FnMut(Work, &mut crate::sound::Sound) -> u16,
+) -> Result<DrinkStep, String> {
+    advance_drinking_inner(data, screen, tick, disable_broom, sound, work)
 }
 
 /// CS:4943. The caller owns normal player restore/save/draw operations; their
@@ -203,9 +255,17 @@ fn advance_drinking_inner(
     tick: u16,
     disable_broom: bool,
     sound: &mut crate::sound::Sound,
+    work: &mut impl FnMut(Work, &mut crate::sound::Sound) -> u16,
 ) -> Result<DrinkStep, String> {
     check(data)?;
     let mut step = DrinkStep::default();
+    let was_drinking = data[0x44bd] != 0;
+    work(
+        Work::DrinkGate {
+            dying: data[0x1cb8] != 0,
+        },
+        sound,
+    );
     if data[0x1cb8] != 0 {
         return Ok(step);
     }
@@ -220,9 +280,18 @@ fn advance_drinking_inner(
     step.accepted = true;
     if data[0x584] != 0 {
         if data[0x44bd] != 0 {
+            work(
+                Work::DrinkStop {
+                    visible: true,
+                    dimensions: word(data, 0x565),
+                },
+                sound,
+            );
             step.drew = restore_image(data, screen)?;
             if !disable_broom {
+                let restored = data[0x3286] == 0;
                 room::restore_broom(data, screen)?;
+                work(Work::Broom { restored }, sound);
                 room::draw_broom(data, screen)?;
             }
             data[0x583] = 0;
@@ -234,6 +303,13 @@ fn advance_drinking_inner(
         return Ok(step);
     }
     if data[0x69a] != 0 {
+        work(
+            Work::DrinkStop {
+                visible: was_drinking,
+                dimensions: word(data, 0x565),
+            },
+            sound,
+        );
         stop_drinking(data, screen, &mut step)?;
         return Ok(step);
     }
@@ -255,11 +331,39 @@ fn advance_drinking_inner(
         }
     }
     if word(data, 0x44c1) >= 12 {
+        work(
+            Work::DrinkSearch {
+                found: false,
+                aligned: false,
+            },
+            sound,
+        );
+        work(
+            Work::DrinkStop {
+                visible: was_drinking,
+                dimensions: word(data, 0x565),
+            },
+            sound,
+        );
         stop_drinking(data, screen, &mut step)?;
         return Ok(step);
     }
     let distance = word(data, 0x44bf);
+    work(
+        Work::DrinkSearch {
+            found: true,
+            aligned: distance < 4,
+        },
+        sound,
+    );
     if distance >= 4 {
+        work(
+            Work::DrinkStop {
+                visible: was_drinking,
+                dimensions: word(data, 0x565),
+            },
+            sound,
+        );
         if distance <= 8 {
             data[0x572] = 4;
         }
@@ -289,6 +393,18 @@ fn advance_drinking_inner(
         0x43dc,
         pixel_offset(sprite_x, data[0x57b].wrapping_add(3)),
     );
+    if !was_drinking {
+        work(
+            Work::DrinkStart {
+                dimensions: word(data, 0x561),
+            },
+            sound,
+        );
+    }
+    work(Work::Retrace, sound);
+    if was_drinking {
+        work(Work::RestoreDrink, sound);
+    }
     restore_image(data, screen)?;
     if carry {
         let slot = usize::from(word(data, 0x44c1));
@@ -296,7 +412,8 @@ fn advance_drinking_inner(
             data[0x44c4 + slot] -= 1;
             step.consumed = true;
             if data[0x44c4 + slot] == 0 {
-                sound.request(data, tick, 0x08fd, 0x0723);
+                let request_tick = work(Work::EmptyBowl, sound);
+                sound.request(data, request_tick, 0x08fd, 0x0723);
                 data[0x698] = 0;
                 data[0x44be] = 0;
                 data[0x69a] = 0x10;
@@ -307,14 +424,18 @@ fn advance_drinking_inner(
             }
             let broom_overlap = !disable_broom && drinking_broom_contact(data);
             if broom_overlap {
+                let restored = data[0x3286] == 0;
                 room::restore_broom(data, screen)?;
+                work(Work::Broom { restored }, sound);
             }
+            work(Work::DrawBowl, sound);
             draw_bowl(data, screen, slot)?;
             if broom_overlap {
                 room::draw_broom(data, screen)?;
             }
         }
     }
+    work(Work::DrawDrink, sound);
     draw_drinking(data, screen)?;
     step.drew = true;
     step.player_changed = true;
@@ -344,16 +465,32 @@ pub(crate) fn advance_attention(
     advance_attention_with_damage(data, screen, tick, true)
 }
 
+#[cfg(test)]
 pub(crate) fn advance_attention_with_damage(
     data: &mut [u8],
     screen: &mut Framebuffer,
     tick: u16,
     suppress_damage: bool,
 ) -> Result<AttentionStep, String> {
+    advance_attention_timed(data, screen, tick, suppress_damage, &mut |_| {})
+}
+
+pub(crate) fn advance_attention_timed(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+    suppress_damage: bool,
+    work: &mut impl FnMut(Work),
+) -> Result<AttentionStep, String> {
     check(data)?;
     let mut step = AttentionStep::default();
     let difficulty_offset = usize::from(word(data, 8)) * 2;
-    if tick.wrapping_sub(word(data, 0x44d7)) <= word(data, 0x44dc + difficulty_offset) {
+    let accepted = tick.wrapping_sub(word(data, 0x44d7)) > word(data, 0x44dc + difficulty_offset);
+    work(Work::AttentionGate {
+        accepted,
+        dying: data[0x1cb8] != 0,
+    });
+    if !accepted {
         return Ok(step);
     }
     set_word(data, 0x44d7, tick);
@@ -364,6 +501,9 @@ pub(crate) fn advance_attention_with_damage(
     data[0x44fc] = 0;
     for slot in (0..12).rev() {
         let offset = slot * 2;
+        work(Work::AttentionSlot {
+            active: word(data, 0x4441 + offset) != 0,
+        });
         if word(data, 0x4441 + offset) == 0 {
             continue;
         }
@@ -405,6 +545,11 @@ pub(crate) fn advance_attention_with_damage(
         );
         data[0x44d9] = u8::from(player_overlap);
         let drinking = player_overlap && data[0x44bd] != 0;
+        work(Work::Eyes {
+            overlap: player_overlap,
+            drinking,
+            dimensions: word(data, 0x565),
+        });
         if drinking {
             restore_image(data, screen)?;
         }
@@ -444,6 +589,71 @@ pub(crate) fn remove_dogs(data: &mut [u8], screen: &mut Framebuffer) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timed_drinking_counts_native_restoration_after_host_suspension() {
+        let mut data = data();
+        data[0x44bd] = 1;
+        data[0x43e0] = 1; // The host compositor already suspended this image.
+        let mut events = Vec::new();
+        let step = advance_drinking_timed(
+            &mut data,
+            &mut Framebuffer::default(),
+            1,
+            false,
+            &mut crate::sound::Sound::default(),
+            &mut |event, _| {
+                events.push(event);
+                1
+            },
+        )
+        .unwrap();
+        assert!(step.drew);
+        assert_eq!(
+            events.iter().filter(|w| matches!(w, Work::Retrace)).count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|w| matches!(w, Work::RestoreDrink))
+                .count(),
+            1
+        );
+        assert!(!events.iter().any(|w| matches!(w, Work::DrinkStart { .. })));
+    }
+
+    #[test]
+    fn depleted_bowl_request_uses_time_after_the_retrace_wait() {
+        let mut data = data();
+        data[0] = 0xff;
+        data[0x44d0] = 208;
+        let mut sound = crate::sound::Sound::default();
+        sound.record(true);
+        let step = advance_drinking_timed(
+            &mut data,
+            &mut Framebuffer::default(),
+            1,
+            false,
+            &mut sound,
+            &mut |event, sound| {
+                if matches!(event, Work::EmptyBowl) {
+                    sound.at(9 * crate::timing::BIOS_TICK_PIT_CLOCKS);
+                }
+                9
+            },
+        )
+        .unwrap();
+        assert!(step.consumed);
+        assert_eq!(word(&data, 0x5921), 9);
+        let writes: Vec<_> = sound.drain().collect();
+        assert!(!writes.is_empty());
+        assert!(
+            writes
+                .iter()
+                .all(|write| write.tick == 9 * crate::timing::BIOS_TICK_PIT_CLOCKS)
+        );
+    }
 
     fn data() -> Vec<u8> {
         let mut data = vec![0; DATA_LENGTH];

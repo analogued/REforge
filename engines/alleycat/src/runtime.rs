@@ -9,6 +9,58 @@ use crate::timing::{
     VirtualClock, keyboard_wait_complete,
 };
 
+/// Bounded stock-XT costs for milk work; retrace waits remain phase-dependent.
+#[derive(Clone, Copy, Debug)]
+pub struct MilkCosts {
+    pub drink_gate: u64,
+    pub drink_dead: u64,
+    pub drink_stop: u64,
+    pub drink_search: u64,
+    pub drink_align: u64,
+    pub drink_prepare: u64,
+    pub drink_begin: u64,
+    pub drink_restore: u64,
+    pub drink_draw: u64,
+    pub drink_finish: u64,
+    pub bowl_draw: u64,
+    pub bowl_empty: u64,
+    pub attention_gate: u64,
+    pub attention_begin: u64,
+    pub attention_dead: u64,
+    pub attention_slot: u64,
+    pub attention_active: u64,
+    pub eye_prepare: u64,
+    pub eye_draw: u64,
+    pub overlap_finish: u64,
+}
+
+impl MilkCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            drink_gate: 100_000,
+            drink_dead: 10_060,
+            drink_stop: 60_000,
+            drink_search: 238_000,
+            drink_align: 340_000,
+            drink_prepare: 475_000,
+            drink_begin: 56_000,
+            drink_restore: 679_800,
+            drink_draw: 1_325_500,
+            drink_finish: 30_000,
+            bowl_draw: 677_000,
+            bowl_empty: 63_000,
+            attention_gate: 95_200,
+            attention_begin: 24_000,
+            attention_dead: 16_500,
+            attention_slot: 24_000,
+            attention_active: 24_000,
+            eye_prepare: 160_000,
+            eye_draw: 113_880,
+            overlap_finish: 90_000,
+        }
+    }
+}
+
 /// Scoped execution costs for a selected reference CPU profile.
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Base call allowances and active
@@ -95,6 +147,7 @@ pub struct ReferenceCosts {
     pub fishbowl_draw: u64,
     pub milk_drink_draw: u64,
     pub milk_attention_draw: u64,
+    pub milk: Option<MilkCosts>,
     pub mouse_redraw: u64,
     pub mouse_catch: u64,
     pub bin_push_sound: u64,
@@ -227,6 +280,7 @@ impl ReferenceCosts {
             fence_initial_wait: 0,
             fence_countdown: 0,
             fence_random: 79_620,
+            milk: Some(MilkCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
         }
     }
@@ -333,6 +387,7 @@ impl ReferenceCosts {
             // Provisional milk-room drawing costs, separate from native gates.
             milk_drink_draw: 1_500_000,
             milk_attention_draw: 1_000_000,
+            milk: None,
             // Full original helpers: normal draw about 1.6ms, catch about 8ms.
             // Add only work above the ordinary gated group allowance.
             mouse_redraw: 1_550_000,
@@ -457,6 +512,139 @@ impl Runtime {
                 + rows * self.costs.swimming_draw_row
                 + bytes * self.costs.swimming_draw_byte
         }
+    }
+
+    fn charge_milk(&mut self, work: crate::milk::Work, sound: &mut crate::sound::Sound) -> u16 {
+        use crate::milk::Work;
+        let c = self
+            .costs
+            .milk
+            .expect("Milk work requires its execution profile");
+        let nanos = match work {
+            Work::DrinkGate { dying } => {
+                if dying {
+                    c.drink_dead
+                } else {
+                    c.drink_gate
+                }
+            }
+            Work::DrinkStop {
+                visible,
+                dimensions,
+            } => {
+                c.drink_stop
+                    + if visible {
+                        c.drink_restore + self.swimming_image_cost(dimensions, false)
+                    } else {
+                        0
+                    }
+            }
+            Work::DrinkSearch { found, aligned } => {
+                if !found {
+                    c.drink_search
+                } else if aligned {
+                    c.drink_prepare
+                } else {
+                    c.drink_align
+                }
+            }
+            Work::DrinkStart { dimensions } => {
+                c.drink_begin + 2 * self.swimming_image_cost(dimensions, true)
+            }
+            Work::Retrace => {
+                self.clock.advance_to_retrace_set();
+                0
+            }
+            Work::RestoreDrink => c.drink_restore,
+            Work::DrawDrink => c.drink_draw + c.drink_finish,
+            Work::EmptyBowl => c.bowl_empty,
+            Work::DrawBowl => c.bowl_draw,
+            Work::Broom { restored } => {
+                self.costs.room_broom_draw
+                    + if restored {
+                        self.costs.room_broom_restore
+                    } else {
+                        0
+                    }
+            }
+            Work::AttentionGate { accepted, dying } => {
+                c.attention_gate
+                    + if !accepted {
+                        0
+                    } else if dying {
+                        c.attention_dead
+                    } else {
+                        c.attention_begin
+                    }
+            }
+            Work::AttentionSlot { active } => {
+                c.attention_slot + if active { c.attention_active } else { 0 }
+            }
+            Work::Eyes {
+                overlap,
+                drinking,
+                dimensions,
+            } => {
+                self.clock.advance_nanos(c.eye_prepare);
+                if overlap {
+                    self.clock.advance_to_retrace_set();
+                }
+                c.eye_draw
+                    + if !overlap {
+                        0
+                    } else {
+                        c.overlap_finish
+                            + if drinking {
+                                c.drink_restore + c.drink_draw
+                            } else {
+                                self.swimming_image_cost(dimensions, true)
+                                    + self.swimming_image_cost(dimensions, false)
+                            }
+                    }
+            }
+            Work::End => 0,
+        };
+        self.clock.advance_nanos(nanos);
+        sound.at(self.clock.elapsed_pit_ticks() as u64);
+        self.clock.bios_sample().tick_low
+    }
+
+    fn step_milk_drinking(&mut self, alley: &mut Alley) -> Result<(), String> {
+        alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+        let tick = self.clock.bios_sample().tick_low;
+        if self.costs.milk.is_some() {
+            alley.advance_milk_drinking_timed(tick, &mut |event, sound| {
+                self.charge_milk(event, sound)
+            })?;
+        } else {
+            let drinking = alley.advance_milk_drinking(tick)?;
+            self.clock.advance_nanos(self.costs.room_actor_gate);
+            if drinking.drew {
+                self.clock.advance_nanos(self.costs.milk_drink_draw);
+            }
+        }
+        self.controls = alley.requested_controls();
+        Ok(())
+    }
+
+    fn step_milk_attention(&mut self, alley: &mut Alley) -> Result<(), String> {
+        alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+        let tick = self.clock.bios_sample().tick_low;
+        if self.costs.milk.is_some() {
+            alley.advance_milk_attention_timed(tick, &mut |event, sound| {
+                self.charge_milk(event, sound)
+            })?;
+            self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
+        } else {
+            let attention = alley.advance_milk_attention(tick)?;
+            self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
+            self.clock.advance_nanos(self.costs.room_actor_gate);
+            if attention.drew {
+                self.clock.advance_nanos(self.costs.milk_attention_draw);
+            }
+        }
+        alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+        Ok(())
     }
 
     fn swimming_contact_cost(&self, contact: crate::fishbowl::ContactStep, dimensions: u16) -> u64 {
@@ -852,20 +1040,8 @@ impl Runtime {
         if alley.scene() == 6 {
             // CS:02ce..02d4: drinking and sleeping-dog attention precede the
             // player call. The drink helper may replace latched directions.
-            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-            let drinking = alley.advance_milk_drinking(self.clock.sample().bios.tick_low)?;
-            self.controls = alley.requested_controls();
-            self.clock.advance_nanos(self.costs.room_actor_gate);
-            if drinking.drew {
-                self.clock.advance_nanos(self.costs.milk_drink_draw);
-            }
-            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-            let attention = alley.advance_milk_attention(self.clock.sample().bios.tick_low)?;
-            self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
-            self.clock.advance_nanos(self.costs.room_actor_gate);
-            if attention.drew {
-                self.clock.advance_nanos(self.costs.milk_attention_draw);
-            }
+            self.step_milk_drinking(alley)?;
+            self.step_milk_attention(alley)?;
         }
 
         self.clock.advance_nanos(self.costs.player_gate);

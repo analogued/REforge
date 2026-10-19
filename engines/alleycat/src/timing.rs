@@ -183,6 +183,13 @@ impl VirtualClock {
         self.elapsed_scaled += if distance == 0 { period } else { distance };
     }
 
+    /// Wait for set only: an already active retrace needs no additional wait.
+    pub(crate) fn advance_to_retrace_set(&mut self) {
+        if !self.retrace() {
+            self.advance_to_next_retrace();
+        }
+    }
+
     pub fn elapsed_pit_ticks(&self) -> u128 {
         self.elapsed_scaled / NANOS_PER_SECOND
     }
@@ -436,6 +443,42 @@ impl FenceEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn set_only_retrace_wait_preserves_an_active_pulse_and_fractional_time() {
+        for phase in [76 * 224, 76 * 230, 76 * 240] {
+            let mut clock = VirtualClock::new(RetraceProfile::default().with_phase(phase));
+            if phase != 76 * 240 {
+                clock.advance_nanos(1);
+            }
+            let before = clock.elapsed_scaled;
+            assert!(clock.retrace());
+            clock.advance_to_retrace_set();
+            assert_eq!(clock.elapsed_scaled, before);
+        }
+        let mut clock = VirtualClock::new(RetraceProfile::default().with_phase(76 * 240 + 1));
+        clock.advance_nanos(1);
+        clock.advance_to_retrace_set();
+        assert!(clock.retrace());
+        assert_eq!(
+            clock.elapsed_pit_ticks(),
+            u128::from(76 * (262 - 240 + 224) - 1_u64)
+        );
+    }
+
+    #[test]
+    fn set_only_retrace_wait_handles_pulses_across_frame_wrap() {
+        let profile = RetraceProfile::new(100, 90, 10, 0).unwrap();
+        for phase in [0, 5, 10, 90, 99] {
+            let mut clock = VirtualClock::new(profile.with_phase(phase));
+            clock.advance_to_retrace_set();
+            assert_eq!(clock.elapsed_pit_ticks(), 0);
+        }
+        let mut clock = VirtualClock::new(profile.with_phase(11));
+        clock.advance_to_retrace_set();
+        assert_eq!(clock.elapsed_pit_ticks(), 79);
+        assert!(clock.retrace());
+    }
 
     fn bios(tick_low: u16, ax: u16) -> BiosSample {
         BiosSample { tick_low, ax }

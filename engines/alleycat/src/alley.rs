@@ -1436,16 +1436,41 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<crate::milk::AttentionStep, String> {
+        self.advance_milk_attention_timed(tick, &mut |_, _| tick)
+    }
+
+    pub(crate) fn advance_milk_drinking_timed(
+        &mut self,
+        tick: u16,
+        work: &mut impl FnMut(crate::milk::Work, &mut crate::sound::Sound) -> u16,
+    ) -> Result<crate::milk::DrinkStep, String> {
+        #[cfg(feature = "dev-tools")]
+        let disabled = self.dev_options.actor_disabled(Actor::Broom);
+        #[cfg(not(feature = "dev-tools"))]
+        let disabled = false;
+        self.room_actor(|data, screen, sound| {
+            crate::milk::advance_drinking_timed(data, screen, tick, disabled, sound, work)
+        })
+    }
+
+    pub(crate) fn advance_milk_attention_timed(
+        &mut self,
+        tick: u16,
+        work: &mut impl FnMut(crate::milk::Work, &mut crate::sound::Sound) -> u16,
+    ) -> Result<crate::milk::AttentionStep, String> {
         #[cfg(feature = "dev-tools")]
         if self.dev_options.actor_disabled(Actor::MilkDogs) {
             return Ok(crate::milk::AttentionStep::default());
         }
         let suppress = !self.harm_enabled(Harm::MilkDogs);
-        let step = self.room_actor(|data, screen, _sound| {
-            crate::milk::advance_attention_with_damage(data, screen, tick, suppress)
+        let step = self.room_actor(|data, screen, sound| {
+            crate::milk::advance_attention_timed(data, screen, tick, suppress, &mut |event| {
+                work(event, sound);
+            })
         })?;
         if step.warning {
-            self.sound.milk_warning(&mut self.data, tick);
+            let now = work(crate::milk::Work::End, &mut self.sound);
+            self.sound.milk_warning(&mut self.data, now);
         }
         if let Some(slot) = step.lethal_slot {
             self.compositor.restore(&mut self.screen)?;
@@ -2301,6 +2326,37 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn milk_warning_starts_after_timed_eye_work() {
+        let mut alley = Alley::synthetic();
+        set_word(&mut alley.data, 4, 6);
+        alley.player.y = 136;
+        alley.player.vertical_coordinate = 186;
+        set_word(&mut alley.data, 0x4441, 1);
+        set_word(&mut alley.data, 0x4459, 1);
+        set_word(&mut alley.data, 0x43e1, alley.player.x);
+        alley.data[0x43f9] = 136;
+        set_word(&mut alley.data, 0x44ec, 40);
+        alley.data[0x43e0] = 1;
+        let mut ended = false;
+        let step = alley
+            .advance_milk_attention_timed(1, &mut |work, sound| {
+                if matches!(work, crate::milk::Work::End) {
+                    ended = true;
+                    sound.at(7 * crate::timing::BIOS_TICK_PIT_CLOCKS + 100);
+                }
+                7
+            })
+            .unwrap();
+        assert!(step.warning && ended);
+        assert_eq!(word(&alley.data, 0x5ae2), 7);
+        assert_eq!(alley.sound.tick(), 9 * crate::timing::BIOS_TICK_PIT_CLOCKS);
+        assert_eq!(
+            alley.sound.take_busy_ticks(),
+            2 * crate::timing::BIOS_TICK_PIT_CLOCKS - 100
+        );
     }
 
     #[test]

@@ -388,11 +388,13 @@ image is suspended around room actor drawing and recomposed from its current
 phase, keeping it out of saved player and broom backgrounds. Disabling
 `milk-dogs` removes eye updates and sprites without disabling milk objectives.
 
-Milk-room active-drawing costs are provisional allowances, not independently
-calibrated CPU timings. Warning audio blocks ordinary game work until the second
-BIOS boundary after entry. Its enabled-sound polling cadence uses an XT fit;
-silent-path and PCjr-specific timing remain approximate. See
-[PC Speaker programs](#pc-speaker-programs).
+Drinking and attention use scoped XT costs described below. Drinking waits for
+retrace set before its image update; dog-eye work also waits when it overlaps
+the player. An already active retrace satisfies these waits immediately.
+Warning audio starts after attention drawing and blocks ordinary game work
+until the second BIOS boundary after that entry. Its enabled-sound polling
+cadence uses an XT fit; silent-path and PCjr-specific timing remain approximate.
+See [PC Speaker programs](#pc-speaker-programs).
 The shared scoring presentation uses scene 6's original time bonus:
 `max(2700 - elapsed BIOS ticks, 0)`, plus the external room base score. Its
 success returns at the saved alley position and makes the next eligible window
@@ -631,6 +633,32 @@ checking that optional work is counted once. The generic room gate remains
 approximate, with sampled idle checks differing by up to about 0.167 ms. These
 are selected native-muted paths, not complete difficulty-specific room loops or exhaustive
 random-retry timing.
+
+Milk drinking (`4943`) measures about 0.010 ms during pursuit, 0.097 ms for a
+rejected tick, 0.160 ms for released action, 0.398 ms for a bowl-height miss and
+0.500–0.505 ms for the sampled alignment paths. Native drinking-image restoration
+(`4b03`) measures 0.680 ms; AND/save drawing (`4b1d`) measures 1.323–1.327 ms
+across selected directions and animation halves. Consumption adds about 0.677 ms
+for bowl work and depletion about 0.063 ms. Starting/stopping also accounts for
+normal-player restoration, background saving or redrawing using its dimensions.
+Host compositor redraws do not add extra native execution charges.
+
+Sleeping-dog attention (`47d6`) measures about 0.095 ms for rejection and
+0.112 ms during pursuit. One quiet active slot measures 0.435 ms; a staged
+twelve-slot quiet scan measures 0.694 ms and twelve distant alert slots about
+3.998 ms. The fit counts actual slot tests and eye updates; twelve-slot cases
+bound the helper rather than describe a natural dog population. Eye copying
+(`4916`) measures 0.114 ms for either orientation. Overlapping eye updates
+restore and redraw the appropriate normal or drinking image.
+
+The waits at `4aa2` and `4902` use the virtual retrace phase rather than a fixed
+average duration. CPU work before the poll can move it beyond the current pulse;
+work after the final status read is charged separately. Sound requests use the
+post-wait time, and warning playback follows all attention work. Thirty-six
+fixed/aligned checks fit within 0.150 ms, with a largest sampled median difference
+of about 0.076 ms. Unrecorded starting phases only support timing envelopes.
+Other bowl-search patterns, broom overlap, lethal pursuit entry, audible-request
+overhead and complete natural room pacing remain uncalibrated.
 
 Fishbowl animation (`3850`) measures 0.752–0.754 ms, or 0.781 ms when contact
 sets the entry latch. Its quiet tick check measures 0.085 ms. The fit keeps that

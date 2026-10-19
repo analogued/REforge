@@ -368,6 +368,15 @@ X144 and the cutoff Y, preserving leading zeros. The original `3a3a` prints
 through the BIOS font; the reconstruction uses attributed SDL 8×8 digit glyphs
 in color three, matching the captured CGA/PCjr BIOS reference.
 
+Score-overlay execution still uses provisional packed-byte allowances: 0.256 ms
+for four digits, 1.536 ms for the combined Hearts background save and text, and
+1.536 ms for restoring its background. Scoped XT captures with GLaBIOS 0.2.6
+measure about 7.2 ms, 44.3 ms and 2.2 ms respectively. Most combined-frame time
+is BIOS printing; these observations do not establish original IBM BIOS costs
+or deliberate pacing. The engine retains its drawing estimates rather than
+adding that firmware-dependent slowdown. Text appears as a complete update;
+the separate 30-tick ordinary and 68-tick Hearts holds remain unchanged.
+
 The final `3a1c` loop samples a BIOS tick before waiting for retrace set. It
 sets logical background color zero to hardware green when sampled tick bit 2
 is clear, and black otherwise. After 30 wrapping ticks, it restores black and

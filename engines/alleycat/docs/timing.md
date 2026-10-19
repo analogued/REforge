@@ -793,81 +793,74 @@ hint describes the toggle keys rather than the original any-key behavior.
 ### PC Speaker programs
 
 `Sound` translates the original speaker helpers into ordered PIT-clock writes
-on ports 43h, 42h and 61h. Note/divisor, pattern and waveform tables remain in
-external executable data. The device layer is the shared `reforge_audio` PIT,
-PC Speaker and band-limited renderer; host output uses SDL's queued mono stream
-at 48 kHz. No independent host oscillator or melody scheduler advances game state.
+on ports 43h, 42h and 61h. Note/divisor, pattern and waveform tables come from
+the external executable. The shared `reforge_audio` PIT and PC Speaker devices
+execute those writes, and the band-limited renderer supplies mono PCM to SDL
+at 48 kHz. Audio rendering and host buffer requests do not advance game state.
 
-The title, asynchronous first/continuation notes, ambient/dog/broom patterns,
-collection tones, damage programs, milk warning, hearts sweep/melodies, failure
-messages, falling cage, hearts failure drop/landing and presentation wipes have
-sound paths. Raw spider/eel pulses and fence changes use speaker-control bits
-rather than substituting pitched notes.
-Ambient and upper-landing random calls use the same generator as gameplay.
-Host enable, volume, device selection and focus mute only affect playback;
-Ctrl+S changes the original sound flag and therefore its native predicates.
+Sound paths cover the title, asynchronous first/continuation notes,
+ambient/dog/broom patterns, collection tones, damage programs, milk warning,
+hearts sweep/melodies, failure messages, falling cage, hearts failure
+drop/landing and presentation wipes. Spider/eel pulses and fence changes use
+speaker-control bits directly. Ambient and upper-landing random calls use the
+same generator as gameplay. Host enable, volume, device selection and focus
+mute affect playback only; Ctrl+S changes the original sound flag and its
+native predicates.
 
-Counted beep and sweep delays use helper-specific effective XT cycle fits;
-PCjr branches halve the original counts. The hearts sweep waits even with native
-sound disabled, unlike the short beeps. PIT-counter bursts use their mode-three
-counter-difference threshold. Milk warning and upper landing end at the second
-BIOS boundary. Their inner polling costs now use the same stock-XT reference:
-milk-warning pulses average about 612 CPU cycles (128.229 microseconds), while
-upper-landing note programs average about 1044 cycles (218.74 microseconds).
-With native sound disabled, upper-landing polls average about 677 cycles
-(141.8 microseconds), preserving the original shorter path without random draws.
-The modeled intervals are 153, 261 and 169 PIT clocks respectively. Captures
-check pulse/program counts against the original phase/pitch fields. These
-replace the older DOSBox-X fixed-240 19/49-work-slot allowances.
-The blocking spider tail uses a measured whole-loop allowance of about
-151.8 microseconds per pulse. Its nine-tick exit and original phase/bit pattern
-remain separate from that allowance. Eel contact retains the original
-thirteen-tick wait, but tests its exit only after the retrace-dependent sequence:
-poll/pulse until retrace is set, emit an extra pulse, apply the saved outer BIOS
-sample's blue/white background, emit another pulse, then sample time and restart.
-The measured pulse intervals are about 84.53 microseconds on the retrace-poll
-path, 224.13 around the palette call, and 148.57 around the outer time check.
-Native-muted paths still advance the same waveform counters. These replace the
-shared provisional 50-microsecond polling allowance for spider/eel effects.
+Counted beeps and the hearts sweep preserve the original divisor/write sequence.
+Their stock 4.77 MHz XT fits use 18 effective CPU cycles per counted iteration,
+plus 112 cycles for the beep gate window or 360 for the sweep caller/helper
+cadence. Four CPU cycles correspond to one PIT input clock on this baseline.
+The measured CGA beep gate is about 23.195 ms and the sweep note interval about
+15.523 ms. PCjr game branches halve the original loop counts while using the
+same CPU baseline. The sweep waits with native sound disabled; a disabled beep
+returns without its counted delay. PIT-counter bursts use the mode-three
+counter-difference threshold to determine their wait.
 
-Fence-reset pulse spacing is fitted as about 462 XT cycles per counted BIOS
-check plus 380 cycles per random/reload cycle. The existing accumulator/countdown
-algorithm and two-/seven-tick gates are unchanged, including random consumption
-when native sound masks the output. The fit charges the whole counted-check
-cost at the BIOS sampling boundary rather than inventing instruction-level
-subdivisions. Entry/exit costs, timer-read and I/O placement remain approximate;
-the broader shared room-effect allowance is unchanged for other effects.
-These are explicit timing approximations, not measurements of original waveform
-frequency or exact random-call counts. Interrupt placement and per-instruction
-I/O overhead remain unmodeled. Actor writes are placed at their execution stage,
-with within-stage instruction timing unresolved.
+Milk warning and upper landing end at the second BIOS boundary after entry.
+Milk-warning pulses use 153 PIT clocks per poll, about 128.23 microseconds.
+Upper-landing polls use 261 PIT clocks with native sound enabled and 169 with
+it disabled, about 218.74 and 141.64 microseconds respectively. The enabled
+path includes random note programming; the disabled path consumes no random
+values. The PCjr milk-warning branch changes the waveform's phase shift but
+shares the XT polling allowance.
 
-The beep and hearts sweep retain the original divisor/write sequence. Their
-XT fits use 18 effective CPU cycles per counted iteration, plus 112 cycles for
-the beep gate window or 360 for the sweep caller/helper cadence. Four CPU cycles
-correspond to one PIT input clock on this baseline. These are calibrated costs,
-not universal 8088 opcode timings. The measured CGA beep gate is about 23.195 ms;
-the sweep note interval is about 15.523 ms. PCjr retains its halved counts on the
-same baseline, without claiming a separately measured physical PCjr fit. Silent
-sweep helper overhead remains approximate. The earlier 6% discrepancy against
-DOSBox-X fixed240 is not a correction factor for real 8088 execution. Warning
-and upper-landing fits also exclude startup/exit instructions and IRQ outliers;
-hardware refresh and prefetch produce several nearby steady interval lengths.
-The milk-warning PCjr shift branch retains its waveform change but uses the
-shared XT pulse allowance, without a separate PCjr cadence measurement. Exact
-silent warning loop cadence is not modeled: only its two-tick wait and unchanged
-phase are observable in the current implementation.
+The blocking spider effect uses about 151.8 microseconds per pulse and ends
+after nine BIOS ticks. Eel contact uses a thirteen-tick wait with a
+retrace-dependent sequence: poll/pulse until retrace is set, emit an extra
+pulse, apply the saved outer BIOS sample's blue/white background, emit another
+pulse, then sample time and restart. Its polling allowances are about
+84.53 microseconds on the retrace-poll path, 224.13 around the palette call,
+and 148.57 around the outer time check. Native-muted paths still advance the
+waveform counters.
 
-Selected controlled DOSBox-X calls compare complete data-segment results and
-ordered speaker-port values; they do not establish full-game port timestamps
-or audible waveform equality. Port-61 comparisons cover the modeled low two bits.
-Pure synthetic checks cover note/rest gates, counter wrap, native versus host
-muting, blocking work, category gains and PCM continuity across chunk boundaries.
-The first startup still has its separate data/clock copy described above.
+Fence-reset pulse spacing uses about 462 XT cycles per counted BIOS check
+plus 380 cycles per random/reload cycle. Its accumulator/countdown algorithm
+and two-/seven-tick gates also run when native sound masks the output. Runtime
+charges the whole counted-check cost at the BIOS sampling boundary. Other
+room effects use the shared room-effect polling allowance where no specific
+cost applies.
+
+These execution costs are bounded fits rather than instruction-level CPU
+emulation. Entry/exit overhead, individual timer reads, I/O placement and
+interrupt timing remain approximate. Actor writes are timestamped at their
+execution stage, with within-stage instruction timing unresolved. Silent sweep
+helper overhead and silent milk-warning polling cadence are also approximate;
+the latter preserves its two-tick wait and unchanged waveform phase. Both game
+modes use the XT baseline; a separate physical PCjr cadence is not established.
+The shared device and renderer models do not establish physical speaker response
+or acoustic fidelity.
+
+Controlled comparisons check sound-state changes and ordered speaker-port
+writes, including the modeled low two bits of port 61h. They do not establish
+full-game port timestamps or audible waveform equality. Synthetic checks cover
+note/rest gates, counter wrap, native versus host muting, blocking work,
+category gains and PCM continuity across chunk boundaries.
 
 The host keeps at most 100 ms in SDL's queue, feeding longer committed blocking
-programs from a bounded two-second staging buffer. Pauses preserve that pending
-sequence; run/title resets clear it. Device failures warn and leave game logic
-running. Uniform accepted-update diagnostics do not have a meaningful speaker
-timeline and remain silent; the normal timed headless runner executes the sound
-logic without retaining output writes.
+programs from a bounded two-second staging buffer. Pauses preserve pending
+playback; run/title resets clear it. Applying audio settings discards stale
+presentation audio. Device failures warn and leave game logic running.
+Uniform accepted-update diagnostics remain silent because they have no
+meaningful speaker timeline. The timed headless runner executes sound logic
+without retaining output writes.

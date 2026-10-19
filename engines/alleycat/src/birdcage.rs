@@ -11,6 +11,7 @@ use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct CageStep {
+    pub quiet: Option<crate::room::QuietWork>,
     pub player_moved: bool,
     pub forced_descent: bool,
     pub drew: bool,
@@ -189,10 +190,12 @@ pub(crate) fn advance_cage(
     check(data)?;
     let mut result = CageStep::default();
     if tick == word(data, 0x40ad) {
+        result.quiet = Some(crate::room::QuietWork::CageTick);
         return Ok(result);
     }
     set_word(data, 0x40ad, tick);
     if data[0x40aa] >= 164 {
+        result.quiet = Some(crate::room::QuietWork::CageReleased);
         return Ok(result);
     }
     if shelf_broom(data) {
@@ -243,6 +246,7 @@ pub(crate) fn advance_cage(
     }
     if data[0x40b1] == 0 {
         if data[0x40af] == 0 {
+            result.quiet = Some(crate::room::QuietWork::CageIdle);
             return Ok(result);
         }
         let x = word(data, 0x40a8);

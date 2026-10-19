@@ -11,6 +11,7 @@ use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct TargetStep {
+    pub quiet: Option<crate::room::QuietWork>,
     pub accepted: bool,
     pub drew: bool,
     pub collected: bool,
@@ -19,6 +20,7 @@ pub(crate) struct TargetStep {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct SpiderStep {
+    pub quiet: Option<crate::room::QuietWork>,
     pub accepted: bool,
     pub drew: bool,
     pub restored: bool,
@@ -139,7 +141,10 @@ fn advance_targets_inner(
 ) -> Result<TargetStep, String> {
     check(data)?;
     if tick == word(data, 0x37b8) {
-        return Ok(TargetStep::default());
+        return Ok(TargetStep {
+            quiet: Some(crate::room::QuietWork::PlantTick),
+            ..Default::default()
+        });
     }
     set_word(data, 0x37b8, tick);
     let mut result = TargetStep {
@@ -189,6 +194,7 @@ fn advance_targets_inner(
         return Ok(result);
     }
     set_word(data, 0x37b6, 0xfffe);
+    result.quiet = Some(crate::room::QuietWork::PlantMiss);
     Ok(result)
 }
 
@@ -261,7 +267,10 @@ fn advance_spider_inner(
 ) -> Result<SpiderStep, String> {
     check(data)?;
     if tick.wrapping_sub(word(data, 0x39c8)) < 2 {
-        return Ok(SpiderStep::default());
+        return Ok(SpiderStep {
+            quiet: Some(crate::room::QuietWork::SpiderTick),
+            ..Default::default()
+        });
     }
     set_word(data, 0x39c8, tick);
     let mut result = SpiderStep {
@@ -270,6 +279,7 @@ fn advance_spider_inner(
     };
     let broom_enabled = !disable_broom;
     if broom_enabled && broom_contact(data) {
+        result.quiet = Some(crate::room::QuietWork::SpiderBlocked);
         return Ok(result);
     }
     result.contact = spider_contact(data);
@@ -327,6 +337,7 @@ fn advance_spider_inner(
     if broom_enabled && broom_contact(data) {
         set_word(data, 0x3964, old_x);
         data[0x3966] = old_y;
+        result.quiet = Some(crate::room::QuietWork::SpiderRollback);
         return Ok(result);
     }
     let moved_contact = spider_contact(data);

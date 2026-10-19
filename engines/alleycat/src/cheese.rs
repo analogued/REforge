@@ -11,6 +11,7 @@ use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct MouseStep {
+    pub quiet: Option<crate::room::QuietWork>,
     pub accepted: bool,
     pub drew: bool,
     pub restored: bool,
@@ -21,6 +22,7 @@ pub(crate) struct MouseStep {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct TransferStep {
+    pub quiet: Option<crate::room::QuietWork>,
     pub accepted: bool,
     pub drew: bool,
     pub started: bool,
@@ -219,7 +221,10 @@ fn advance_mice_inner(
     let broom_enabled = true;
     check(data)?;
     if tick == word(data, 0x3edc) {
-        return Ok(MouseStep::default());
+        return Ok(MouseStep {
+            quiet: Some(crate::room::QuietWork::MouseTick),
+            ..Default::default()
+        });
     }
     let cursor = word(data, 0x3eda).wrapping_add(1);
     let slot = if cursor >= 4 { 0 } else { usize::from(cursor) };
@@ -232,11 +237,13 @@ fn advance_mice_inner(
         ..MouseStep::default()
     };
     if data[0x3eb2 + slot] != 0 {
+        result.quiet = Some(crate::room::QuietWork::MouseCollected);
         return Ok(result);
     }
     let mut contact = mouse_contact(data, slot);
     if !contact {
         if broom_enabled && broom_contact(data, slot) {
+            result.quiet = Some(crate::room::QuietWork::MouseBlocked);
             return Ok(result);
         }
         if data[0x3eb6 + slot] == 0 {
@@ -357,15 +364,19 @@ fn advance_transfer_inner(
     };
     if result.active {
         if tick == word(data, 0x3d16) {
+            result.quiet = Some(crate::room::QuietWork::TransferTick);
             return Ok(result);
         }
     } else {
-        if data[0x584] != 0
-            || data[0x69a] != 0
-            || data[0x39e0] == 0
-            || (broom_enabled && overlap(broom_rect(data), player_rect(data)))
-            || tick.wrapping_sub(word(data, 0x3d18)) < 12
-        {
+        if data[0x584] != 0 || data[0x69a] != 0 || data[0x39e0] == 0 {
+            result.quiet = Some(crate::room::QuietWork::TransferInactive);
+            return Ok(result);
+        }
+        if broom_enabled && overlap(broom_rect(data), player_rect(data)) {
+            return Ok(result);
+        }
+        if tick.wrapping_sub(word(data, 0x3d18)) < 12 {
+            result.quiet = Some(crate::room::QuietWork::TransferCooldown);
             return Ok(result);
         }
         let hole = usize::from(data[0x39e0] - 1);
@@ -652,6 +663,14 @@ mod tests {
             .unwrap();
             assert_eq!(update.accepted, expected.is_some());
             assert!(!update.drew);
+            assert_eq!(
+                update.quiet,
+                Some(if expected.is_some() {
+                    crate::room::QuietWork::MouseCollected
+                } else {
+                    crate::room::QuietWork::MouseTick
+                })
+            );
             if let Some(slot) = expected {
                 assert_eq!(word(&data, 0x3eda), slot);
             }
@@ -783,32 +802,27 @@ mod tests {
         let (mut data, mut screen) = fixture();
         data[0x39e0] = 1;
         data[0x55c] = 1;
-        assert!(
-            !advance_transfer(&mut data, &mut screen, 11)
-                .unwrap()
-                .accepted
-        );
+        let held = advance_transfer(&mut data, &mut screen, 11).unwrap();
+        assert!(!held.accepted);
+        assert_eq!(held.quiet, Some(crate::room::QuietWork::TransferCooldown));
         for (offset, value) in [(0x584, 1), (0x69a, 128), (0x39e0, 0)] {
             let old = data[offset];
             data[offset] = value;
-            assert!(
-                !advance_transfer(&mut data, &mut screen, 12)
-                    .unwrap()
-                    .accepted
-            );
+            let held = advance_transfer(&mut data, &mut screen, 12).unwrap();
+            assert!(!held.accepted);
+            assert_eq!(held.quiet, Some(crate::room::QuietWork::TransferInactive));
             data[offset] = old;
         }
         let old_player = (word(&data, 0x579), data[0x57b]);
         let first = advance_transfer(&mut data, &mut screen, 12).unwrap();
         assert!(first.started && first.accepted && first.active);
+        assert!(first.quiet.is_none());
         assert_eq!((data[0x39e1], data[0x69a], data[0x55c]), (12, 16, 0));
         assert_eq!((word(&data, 0x579), data[0x57b]), old_player);
         let before = data.clone();
-        assert!(
-            !advance_transfer(&mut data, &mut screen, 12)
-                .unwrap()
-                .accepted
-        );
+        let held = advance_transfer(&mut data, &mut screen, 12).unwrap();
+        assert!(!held.accepted);
+        assert_eq!(held.quiet, Some(crate::room::QuietWork::TransferTick));
         assert_eq!(data, before);
         for tick in 13..=18 {
             let step = advance_transfer(&mut data, &mut screen, tick).unwrap();

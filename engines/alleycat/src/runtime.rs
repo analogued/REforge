@@ -817,6 +817,67 @@ impl BirdCosts {
     }
 }
 
+/// Quiet room-helper returns on the shared XT baseline. Active paths retain
+/// their existing gate and drawing fit; these complete quiet costs replace it.
+#[derive(Clone, Copy, Debug)]
+pub struct QuietCosts {
+    pub cage_tick: u64,
+    pub cage_released: u64,
+    pub cage_idle: u64,
+    pub spider_tick: u64,
+    pub spider_blocked: u64,
+    pub spider_rollback: u64,
+    pub plant_tick: u64,
+    pub plant_miss: u64,
+    pub mouse_tick: u64,
+    pub mouse_collected: u64,
+    pub mouse_blocked: u64,
+    pub transfer_inactive: u64,
+    pub transfer_tick: u64,
+    pub transfer_cooldown: u64,
+}
+
+impl QuietCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            cage_tick: 78_470,
+            cage_released: 95_650,
+            cage_idle: 212_560,
+            spider_tick: 84_650,
+            spider_blocked: 183_330,
+            spider_rollback: 429_730,
+            plant_tick: 79_620,
+            plant_miss: 359_120,
+            mouse_tick: 79_620,
+            mouse_collected: 131_480,
+            mouse_blocked: 306_320,
+            transfer_inactive: 33_310,
+            transfer_tick: 88_000,
+            transfer_cooldown: 180_190,
+        }
+    }
+
+    fn nanos(self, work: crate::room::QuietWork) -> u64 {
+        use crate::room::QuietWork;
+        match work {
+            QuietWork::CageTick => self.cage_tick,
+            QuietWork::CageReleased => self.cage_released,
+            QuietWork::CageIdle => self.cage_idle,
+            QuietWork::SpiderTick => self.spider_tick,
+            QuietWork::SpiderBlocked => self.spider_blocked,
+            QuietWork::SpiderRollback => self.spider_rollback,
+            QuietWork::PlantTick => self.plant_tick,
+            QuietWork::PlantMiss => self.plant_miss,
+            QuietWork::MouseTick => self.mouse_tick,
+            QuietWork::MouseCollected => self.mouse_collected,
+            QuietWork::MouseBlocked => self.mouse_blocked,
+            QuietWork::TransferInactive => self.transfer_inactive,
+            QuietWork::TransferTick => self.transfer_tick,
+            QuietWork::TransferCooldown => self.transfer_cooldown,
+        }
+    }
+}
+
 /// Scoped execution costs for a selected reference CPU profile.
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Base call allowances and active
@@ -930,6 +991,7 @@ pub struct ReferenceCosts {
     pub setup: Option<SetupCosts>,
     pub bookkeeping: Option<BookkeepingCosts>,
     pub bird: Option<BirdCosts>,
+    pub quiet: Option<QuietCosts>,
 }
 
 impl ReferenceCosts {
@@ -1062,6 +1124,7 @@ impl ReferenceCosts {
             setup: Some(SetupCosts::ibm_xt()),
             bookkeeping: Some(BookkeepingCosts::ibm_xt()),
             bird: Some(BirdCosts::ibm_xt()),
+            quiet: Some(QuietCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
         }
     }
@@ -1226,6 +1289,7 @@ impl ReferenceCosts {
             setup: None,
             bookkeeping: None,
             bird: None,
+            quiet: None,
         }
     }
 }
@@ -1416,6 +1480,14 @@ impl Runtime {
             .bookkeeping
             .map_or(0, |costs| costs.nanos(work.bookkeeping));
         self.clock.advance_nanos(nanos + bookkeeping);
+    }
+
+    fn charge_room_gate(&mut self, work: Option<crate::room::QuietWork>) {
+        let nanos = match (self.costs.quiet, work) {
+            (Some(costs), Some(work)) => costs.nanos(work),
+            _ => self.costs.room_actor_gate,
+        };
+        self.clock.advance_nanos(nanos);
     }
 
     fn charge_bird(&mut self, step: crate::birdcage::BirdStep) {
@@ -1661,7 +1733,7 @@ impl Runtime {
     fn step_cheese_mice(&mut self, alley: &mut Alley) -> Result<(), String> {
         alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
         let mice = alley.advance_cheese_mice(self.clock.sample().bios.tick_low)?;
-        self.clock.advance_nanos(self.costs.room_actor_gate);
+        self.charge_room_gate(mice.quiet);
         if mice.collected {
             // Collection includes mouse/player background work and HUD drawing.
             self.clock.advance_nanos(self.costs.cheese_mouse_collect);
@@ -1676,7 +1748,7 @@ impl Runtime {
 
     fn step_cheese_transfer(&mut self, alley: &mut Alley) -> Result<(), String> {
         let transfer = alley.advance_cheese_transfer(self.clock.sample().bios.tick_low)?;
-        self.clock.advance_nanos(self.costs.room_actor_gate);
+        self.charge_room_gate(transfer.quiet);
         if transfer.drew {
             self.clock.advance_nanos(self.costs.cheese_transfer_draw);
             if transfer.started || transfer.finished {
@@ -1695,7 +1767,7 @@ impl Runtime {
 
     fn step_bookcase_spider(&mut self, alley: &mut Alley) -> Result<(), String> {
         let spider = alley.advance_bookcase_spider(self.clock.sample().bios.tick_low)?;
-        self.clock.advance_nanos(self.costs.room_actor_gate);
+        self.charge_room_gate(spider.quiet);
         if spider.drew {
             self.clock.advance_nanos(if spider.failure_pending {
                 self.costs.bookcase_spider_effect_draw
@@ -1716,7 +1788,7 @@ impl Runtime {
     fn step_bookcase_targets(&mut self, alley: &mut Alley) -> Result<(), String> {
         alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
         let targets = alley.advance_bookcase_targets(self.clock.sample().bios.tick_low)?;
-        self.clock.advance_nanos(self.costs.room_actor_gate);
+        self.charge_room_gate(targets.quiet);
         if targets.drew {
             self.clock.advance_nanos(self.costs.bookcase_target_draw);
         }
@@ -2001,7 +2073,7 @@ impl Runtime {
                 alley.advance_room_tone(self.clock.sample().bios.tick_low);
                 self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
                 let cage = alley.advance_room_cage(self.clock.sample().bios.tick_low)?;
-                self.clock.advance_nanos(self.costs.room_actor_gate);
+                self.charge_room_gate(cage.quiet);
                 if cage.drew {
                     self.clock.advance_nanos(self.costs.room_cage_draw);
                 }
@@ -2433,6 +2505,23 @@ impl Runtime {
 mod tests {
     use super::*;
     use crate::timing::BIOS_TICK_PIT_CLOCKS;
+
+    #[test]
+    fn quiet_cost_replaces_the_gate_and_leaves_active_and_legacy_work_alone() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut costs = ReferenceCosts::ibm_xt(machine);
+            costs.room_actor_gate = 999_000;
+            let mut r = Runtime::with_costs(machine, costs);
+            r.charge_room_gate(Some(crate::room::QuietWork::SpiderTick));
+            assert_eq!(r.clock.elapsed_nanos(), 84_650);
+            r.charge_room_gate(None);
+            assert_eq!(r.clock.elapsed_nanos(), 84_650 + 999_000);
+            let costs = ReferenceCosts::dosbox_x_240(machine);
+            let mut r = Runtime::with_costs(machine, costs);
+            r.charge_room_gate(Some(crate::room::QuietWork::SpiderTick));
+            assert_eq!(r.clock.elapsed_nanos(), u128::from(costs.room_actor_gate));
+        }
+    }
 
     #[test]
     fn whole_bird_cost_replaces_the_legacy_gate_and_drawing_allowances() {

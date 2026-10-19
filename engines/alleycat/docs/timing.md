@@ -757,9 +757,10 @@ exclude the spider-contact image. Its separate transparent draw measures
 14.201–14.261 ms at center and clamped edge positions, fitted as 14.241 ms in
 addition to caller work. The nine-tick sound wait starts after image drawing;
 its blocking sound polls have a separate XT fit.
-The shared gate still approximates quiet tick checks, plant misses and broom
-blocks/rollback, differing by up to about 0.230 ms on the sampled paths.
-More positions, sound-request overhead and full bookcase passes remain unverified.
+The quiet tick checks, plant misses and broom blocks/rollback now use the
+separate measured return costs below. Active drawing retains its 0.200 ms gate
+plus the existing increments. More positions, plant populations, sound-request
+overhead and full bookcase passes remain unverified.
 
 Cheese mouse calls (`40c2`) measure about 1.967 ms for first appearance,
 2.640–2.674 ms for sampled visible updates and 4.078 ms for collection, including
@@ -779,10 +780,10 @@ work, endpoint player-background work and optional broom drawing/restoration.
 The 120-byte broom restoration reuses its measured shared allowance; transfer
 broom drawing has its own increment, excluding the movement decisions in `3150`.
 Hidden-broom start measures 5.267 ms and dog-suppressed broom start 2.248 ms,
-checking that optional work is counted once. The generic room gate remains
-approximate, with sampled idle checks differing by up to about 0.167 ms. These
-are selected native-muted paths, not complete difficulty-specific room loops or exhaustive
-random-retry timing.
+checking that optional work is counted once. Measured inactive, same-tick, cooldown, collected-slot and broom-blocked returns
+use the quiet costs below. Other contacts and active paths retain their existing
+gate. These are selected native-muted paths, not complete difficulty-specific
+room loops or exhaustive random-retry timing.
 
 Milk drinking (`4943`) measures about 0.010 ms during pursuit, 0.097 ms for a
 rejected tick, 0.160 ms for released action, 0.398 ms for a bowl-height miss and
@@ -1173,3 +1174,39 @@ markers. Two repeats, approximate empty-call subtraction and relocation/prefetch
 changes limit precision. Controlled original-state comparisons cover the selected
 fields and final VRAM; they do not establish complete caller timing, exact internal
 BIOS-read placement or whole-game equivalence.
+
+### Quiet room-helper returns
+
+On the XT profile, these sampled non-drawing paths replace the generic 0.200 ms
+room-actor gate with their complete measured return allowance:
+
+| Helper | Return path | Allowance |
+| --- | --- | ---: |
+| Cage | Same tick | 0.07847 ms |
+| Cage | Already released | 0.09565 ms |
+| Cage | Idle without a push latch | 0.21256 ms |
+| Spider | Tick interval not reached | 0.08465 ms |
+| Spider | Broom blocks before movement | 0.18333 ms |
+| Spider | Broom rolls back proposed movement | 0.42973 ms |
+| Plants | Same tick | 0.07962 ms |
+| Plants | No plant collected | 0.35912 ms |
+| Cheese mouse | Same tick | 0.07962 ms |
+| Cheese mouse | Already collected slot | 0.13148 ms |
+| Cheese mouse | Broom blocks movement | 0.30632 ms |
+| Hole transfer | Inactive early guard | 0.03331 ms |
+| Hole transfer | Active, same tick | 0.08800 ms |
+| Hole transfer | Cooldown not finished | 0.18019 ms |
+
+The helper reports the return path it actually executes. The runtime charges its
+quiet allowance once, rather than adding it to the old gate. Active drawing,
+collection, restore and transfer frames keep their existing calibrated prices;
+unsupported quiet/contact branches retain the generic allowance. The older
+DOSBox profile also keeps its previous gate. Both software display modes use
+the shared XT baseline.
+
+These rounded medians reuse the bounded cage, bookcase and cheese captures.
+They are not new whole-room measurements. Different plant populations, early
+transfer guards, positions, sound requests and interrupt phases can change the
+work within a category. Selected native-state/full-VRAM comparisons cover the
+sampled quiet paths and neighboring active cases; exact full-loop cadence and
+physical PCjr timing remain separate validation.

@@ -6,6 +6,25 @@ use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 use crate::player::Player;
 
+/// Measured quiet return paths, separate from active drawing allowances.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum QuietWork {
+    CageTick,
+    CageReleased,
+    CageIdle,
+    SpiderTick,
+    SpiderBlocked,
+    SpiderRollback,
+    PlantTick,
+    PlantMiss,
+    MouseTick,
+    MouseCollected,
+    MouseBlocked,
+    TransferInactive,
+    TransferTick,
+    TransferCooldown,
+}
+
 fn check_data(data: &[u8]) -> Result<(), String> {
     if data.len() < DATA_LENGTH {
         Err("Executable runtime data segment is truncated".into())

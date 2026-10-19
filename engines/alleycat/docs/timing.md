@@ -409,6 +409,23 @@ directions. These calls bypass the alley's actor divider. Arrows and pickup
 reject unchanged BIOS ticks; the cat scheduler commits its tick only at indices
 1, 4 and 0, allowing the other cats within a group to run in that same tick.
 
+
+The stock-XT profile prices these four native calls by their executed paths,
+rather than a shared room gate and generic drawing increment. Equal-tick returns,
+hidden cats, arrow blocking before/after movement, cat movement/restoration,
+active gift scans, pickup latches, placement gates and gift exchanges have scoped
+allowances fitted to original-code captures. Counts stop at the actual first hit.
+Host compositor redraws do not add another native drawing charge. The retained
+DOSBox profile continues to use its earlier whole-call allowances.
+
+Ordinary cat drawing is about 1.92–2.11 ms before an old-image clear (about
+0.50 ms); arrow movement is about 3.06 ms and a platform toggle about 6.27 ms.
+Gift pickup and placement include the native player-image work; an overlapping
+arrow adds roughly 2.56 ms. These are bounded fitted costs, not instruction-exact
+execution. Unsampled positions, sprite phases, active-cat placement combinations,
+and intra-call sound-request placement remain approximate. Both game modes use
+the agreed XT baseline; physical PCjr timing is a separate comparison.
+
 Seven fixed cat rows include a rival on the player's starting row. That bottom
 rival (index zero, Y179) starts hidden. It appears after twice the external
 difficulty-dependent hiding duration: 1080, 720, 540, 360, 350, 340, 320 or 280

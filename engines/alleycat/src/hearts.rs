@@ -19,6 +19,62 @@ pub(crate) struct HeartStep {
     pub success: bool,
     pub item_changed: bool,
     pub grid_changed: bool,
+    pub work: Option<Work>,
+}
+
+/// Native call paths, separate from host compositor work and execution costs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Work {
+    CatGate,
+    CatHidden,
+    CatArrow {
+        moved: bool,
+    },
+    CatContact {
+        goal: bool,
+        restored: bool,
+        moved: bool,
+    },
+    CatDraw {
+        moving: bool,
+        recoil: bool,
+        pursued: bool,
+        respawned: bool,
+        restored: bool,
+        active_gifts: u8,
+        consumed: bool,
+        arrow: bool,
+        goal: bool,
+    },
+    ArrowGate,
+    ArrowContact {
+        moved: bool,
+    },
+    ArrowRetire {
+        bottom: bool,
+    },
+    ArrowDraw {
+        spawned: bool,
+        toggle: bool,
+    },
+    PickupGate,
+    Pickup {
+        held: bool,
+        slots: u8,
+        active: u8,
+        hit: bool,
+        latched: bool,
+        arrow: bool,
+    },
+    PlaceGate {
+        holding: bool,
+    },
+    Place {
+        blocked: bool,
+        active: u8,
+        arrow: bool,
+        consumed: bool,
+    },
 }
 
 fn check(data: &[u8]) -> Result<(), String> {
@@ -277,8 +333,21 @@ pub(crate) fn consume_item(
     screen: &mut Framebuffer,
     tick: u16,
 ) -> Result<bool, String> {
+    Ok(consume_item_counted(data, screen, tick)?.0)
+}
+
+fn consume_item_counted(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    tick: u16,
+) -> Result<(bool, u8), String> {
+    let mut active = 0;
     for index in (0..8).rev() {
-        if data[0x2b72 + index] == 0 || !overlap(item_rect(data, index), cat_rect(data)) {
+        if data[0x2b72 + index] == 0 {
+            continue;
+        }
+        active += 1;
+        if !overlap(item_rect(data, index), cat_rect(data)) {
             continue;
         }
         if data[0x45be] == 0 && data[0x70f2] != 0 {
@@ -296,9 +365,9 @@ pub(crate) fn consume_item(
             nonzero_tick(tick)
         };
         set_word(data, 0x454f, hidden);
-        return Ok(true);
+        return Ok((true, active));
     }
-    Ok(false)
+    Ok((false, active))
 }
 
 /// CS:4c10 commits its gate baseline at indices 1, 4 and 0; the other cats
@@ -312,6 +381,7 @@ pub(crate) fn advance_cat(
     check(data)?;
     let mut result = HeartStep::default();
     if tick == word(data, 0x45b8) {
+        result.work = Some(Work::CatGate);
         return Ok(result);
     }
     let mut index = word(data, 0x45b6).wrapping_add(1);
@@ -325,9 +395,11 @@ pub(crate) fn advance_cat(
     result.accepted = true;
     load_cat(data, usize::from(index))?;
     if cat_arrow_contact(data) {
+        result.work = Some(Work::CatArrow { moved: false });
         return Ok(result);
     }
     let hidden = word(data, 0x454f);
+    let respawned = hidden != 0;
     if hidden != 0 {
         let difficulty = usize::from(word(data, 8));
         if difficulty > 7 {
@@ -338,6 +410,7 @@ pub(crate) fn advance_cat(
             duration = duration.wrapping_mul(2);
         }
         if tick.wrapping_sub(hidden) < duration {
+            result.work = Some(Work::CatHidden);
             return Ok(result);
         }
         set_word(data, 0x454f, 0);
@@ -345,13 +418,20 @@ pub(crate) fn advance_cat(
         set_word(data, 0x4548, if word(data, 0x579) > 160 { 36 } else { 264 });
         data[0x454a] = 0;
     }
+    let restored = data[0x454e] == 0;
     if cat_contact(data, tick, sound) {
+        result.work = Some(Work::CatContact {
+            goal: index == 6,
+            restored,
+            moved: false,
+        });
         result.player_changed = true;
         result.success = data[0x553] != 0;
         result.drew = restore_cat(data, screen)?;
         save_cat(data, usize::from(index))?;
         return Ok(result);
     }
+    let mut pursued = false;
     if data[0x4553] != 0 {
         data[0x4553] -= 1;
         if data[0x4553] == 0 {
@@ -369,6 +449,7 @@ pub(crate) fn advance_cat(
             random <= data[0x45bf + difficulty]
         };
         if pursue {
+            pursued = true;
             let x = word(data, 0x4548) & 0x0ff8;
             let target = word(data, 0x579) & 0x0ff8;
             let mut direction = if x == target {
@@ -386,6 +467,8 @@ pub(crate) fn advance_cat(
     }
     let step = if data[0x4553] != 0 { 4 } else { 8 };
     set_word(data, 0x45bc, step);
+    let moving = data[0x454a] != 0;
+    let recoil = data[0x4553] != 0;
     let old_x = word(data, 0x4548);
     if data[0x454a] == 0 {
         let random = next_random(data) as u8;
@@ -421,9 +504,15 @@ pub(crate) fn advance_cat(
     }
     set_word(data, 0x45ba, pixel_offset(word(data, 0x4548), data[0x454b]));
     if cat_arrow_contact(data) {
+        result.work = Some(Work::CatArrow { moved: true });
         return Ok(result);
     }
     if cat_contact(data, tick, sound) {
+        result.work = Some(Work::CatContact {
+            goal: index == 6,
+            restored,
+            moved: true,
+        });
         result.player_changed = true;
         result.success = data[0x553] != 0;
         result.drew = restore_cat(data, screen)?;
@@ -431,7 +520,20 @@ pub(crate) fn advance_cat(
         restore_cat(data, screen)?;
         draw_cat(data, screen)?;
         data[0x45be] = 0;
-        result.item_changed = consume_item(data, screen, tick)?;
+        let arrow = data[0x70f2] != 0;
+        let (consumed, active_gifts) = consume_item_counted(data, screen, tick)?;
+        result.item_changed = consumed;
+        result.work = Some(Work::CatDraw {
+            moving,
+            recoil,
+            pursued,
+            respawned,
+            restored,
+            active_gifts,
+            consumed: result.item_changed,
+            arrow,
+            goal: index == 6,
+        });
         result.drew = true;
     }
     save_cat(data, usize::from(index))?;
@@ -536,6 +638,7 @@ pub(crate) fn advance_arrow(
     check(data)?;
     let mut result = HeartStep::default();
     if tick == word(data, 0x70ee) {
+        result.work = Some(Work::ArrowGate);
         return Ok(result);
     }
     set_word(data, 0x70ee, tick);
@@ -543,11 +646,13 @@ pub(crate) fn advance_arrow(
     if arrow_contact(data, tick, sound) {
         restore_arrow(data, screen)?;
         data[0x70f2] = 0;
+        result.work = Some(Work::ArrowContact { moved: false });
         result.player_changed = true;
         result.drew = true;
         return Ok(result);
     }
-    if data[0x70f2] == 0 {
+    let spawned = data[0x70f2] == 0;
+    if spawned {
         let choice = loop {
             let choice = next_random(data) & 31;
             if choice <= 25 {
@@ -574,7 +679,8 @@ pub(crate) fn advance_arrow(
         set_word(data, 0x70f0, word(data, 0x70f0).wrapping_add(4));
     }
     data[0x70f5] = data[0x70f5].wrapping_add(2);
-    let mut retire = data[0x70f5] > 191;
+    let bottom = data[0x70f5] > 191;
+    let mut retire = bottom;
     if !retire {
         if data[0x70f6] == 1 {
             let x = word(data, 0x70f3).wrapping_add(5);
@@ -589,15 +695,23 @@ pub(crate) fn advance_arrow(
     if !retire {
         set_word(data, 0x70fa, pixel_offset(word(data, 0x70f3), data[0x70f5]));
         if arrow_contact(data, tick, sound) {
+            result.work = Some(Work::ArrowContact { moved: true });
             result.player_changed = true;
             retire = true;
         }
     }
     if retire {
+        if result.work.is_none() {
+            result.work = Some(Work::ArrowRetire { bottom });
+        }
         data[0x70f2] = 0;
         restore_arrow(data, screen)?;
     } else {
         result.grid_changed = toggle_platform(data, screen)?;
+        result.work = Some(Work::ArrowDraw {
+            spawned,
+            toggle: result.grid_changed,
+        });
         restore_arrow(data, screen)?;
         draw_arrow(data, screen)?;
     }
@@ -614,16 +728,31 @@ pub(crate) fn pickup_item(
     check(data)?;
     let mut result = HeartStep::default();
     if tick == word(data, 0x2e8f) {
+        result.work = Some(Work::PickupGate);
         return Ok(result);
     }
     set_word(data, 0x2e8f, tick);
     result.accepted = true;
-    if word(data, 0x2e8d) >= 8 {
+    let held = word(data, 0x2e8d) < 8;
+    let mut slots = 0;
+    let mut active = 0;
+    let arrow = data[0x70f2] != 0;
+    if !held {
         for index in (0..8).rev() {
+            slots += 1;
+            active += u8::from(data[0x2b72 + index] != 0);
             if data[0x2b72 + index] == 0 || !overlap(item_rect(data, index), player_rect(data)) {
                 continue;
             }
             if word(data, 0x2e94) == index as u16 {
+                result.work = Some(Work::Pickup {
+                    held,
+                    slots,
+                    active,
+                    hit: false,
+                    latched: true,
+                    arrow,
+                });
                 return Ok(result);
             }
             if data[0x70f2] != 0 {
@@ -636,11 +765,27 @@ pub(crate) fn pickup_item(
                 draw_arrow(data, screen)?;
             }
             sound.request(data, tick, 0x03e8, 0x0349);
+            result.work = Some(Work::Pickup {
+                held,
+                slots,
+                active,
+                hit: true,
+                latched: false,
+                arrow,
+            });
             result.item_changed = true;
             result.drew = true;
             return Ok(result);
         }
     }
+    result.work = Some(Work::Pickup {
+        held,
+        slots,
+        active,
+        hit: false,
+        latched: false,
+        arrow,
+    });
     set_word(data, 0x2e94, 0xffff);
     Ok(result)
 }
@@ -655,6 +800,7 @@ pub(crate) fn place_item(
     let mut result = HeartStep::default();
     let item = usize::from(word(data, 0x2e8d));
     if item >= 8 || data[0x69a] != 0 {
+        result.work = Some(Work::PlaceGate { holding: item < 8 });
         return Ok(result);
     }
     result.accepted = true;
@@ -676,15 +822,24 @@ pub(crate) fn place_item(
     data[0x2e98] = y;
     set_word(data, 0x2b5a + item * 2, x);
     set_word(data, 0x2e96, x);
+    let mut active = 0;
     for other in (0..8).rev() {
+        active += u8::from(other != item && data[0x2b72 + other] != 0);
         if other != item
             && data[0x2b72 + other] != 0
             && overlap(item_rect(data, other), item_rect(data, item))
         {
+            result.work = Some(Work::Place {
+                blocked: true,
+                active,
+                arrow: false,
+                consumed: false,
+            });
             return Ok(result);
         }
     }
-    if data[0x70f2] != 0 {
+    let arrow = data[0x70f2] != 0;
+    if arrow {
         restore_arrow(data, screen)?;
     }
     set_word(data, 0x2e94, item as u16);
@@ -692,12 +847,13 @@ pub(crate) fn place_item(
     draw_item(data, screen, item, 0x2af0)?;
     set_word(data, 0x2e8d, 0xffff);
     data[0x45be] = 1;
+    let mut consumed = false;
     let previous = word(data, 0x45b6);
     for index in 0..7 {
         set_word(data, 0x45b6, index as u16);
         load_cat(data, index)?;
         if word(data, 0x454f) == 0 {
-            consume_item(data, screen, tick)?;
+            consumed |= consume_item(data, screen, tick)?;
             save_cat(data, index)?;
         }
     }
@@ -706,6 +862,12 @@ pub(crate) fn place_item(
         draw_arrow(data, screen)?;
     }
     sound.request(data, tick, 0x03e8, 0x04a5);
+    result.work = Some(Work::Place {
+        blocked: false,
+        active,
+        arrow,
+        consumed,
+    });
     result.item_changed = true;
     result.drew = true;
     Ok(result)
@@ -803,6 +965,65 @@ pub(crate) fn place_item_dev(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arrow_blocking_preserves_unsaved_cat_motion_and_skips_gift_work() {
+        for (arrow_x, moved, scratch_x) in [(100, false, 90), (120, true, 98)] {
+            let mut data = data();
+            set_word(&mut data, 0x45b6, 2);
+            let record = record_address(&data, 3).unwrap();
+            set_word(&mut data, record, 90);
+            data[record + 2] = 1;
+            data[record + 3] = 107;
+            set_word(&mut data, record + 7, 0);
+            data[0x70f2] = 1;
+            set_word(&mut data, 0x70f3, arrow_x);
+            data[0x70f5] = 107;
+            data[0x57b] = 56;
+            let mut screen = Framebuffer::default();
+            let before = screen.bytes().to_vec();
+            let step = advance_cat(
+                &mut data,
+                &mut screen,
+                1,
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
+            assert_eq!(step.work, Some(Work::CatArrow { moved }));
+            assert!(!step.drew && !step.item_changed);
+            assert_eq!(word(&data, 0x4548), scratch_x);
+            assert_eq!(word(&data, record), 90);
+            assert_eq!(screen.bytes().as_slice(), before);
+        }
+    }
+
+    #[test]
+    fn pickup_work_stops_at_the_first_active_hit_without_consuming_more_gifts() {
+        let mut data = data();
+        for slot in [6, 7] {
+            data[0x2b72 + slot] = 1;
+            set_word(&mut data, 0x2b5a + slot * 2, 200);
+            data[0x2b6a + slot] = 120;
+        }
+        let step = pickup_item(
+            &mut data,
+            &mut Framebuffer::default(),
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
+        assert!(matches!(
+            step.work,
+            Some(Work::Pickup {
+                slots: 1,
+                active: 1,
+                hit: true,
+                ..
+            })
+        ));
+        assert_eq!(word(&data, 0x2e8d), 7);
+        assert_eq!((data[0x2b72 + 6], data[0x2b72 + 7]), (1, 0));
+    }
 
     #[cfg(feature = "dev-tools")]
     #[test]

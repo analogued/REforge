@@ -61,6 +61,220 @@ impl MilkCosts {
     }
 }
 
+/// Scoped Hearts call costs fitted to stock-XT captures. Unsampled paths
+/// combine these allowances; they do not claim instruction-exact timing.
+#[derive(Clone, Copy, Debug)]
+pub struct HeartsCosts {
+    pub gate: u64,
+    pub cat_idle: u64,
+    pub cat_move_extra: u64,
+    pub cat_restore: u64,
+    pub cat_hidden: u64,
+    pub cat_respawn_extra: u64,
+    pub cat_pursuit_extra: u64,
+    pub cat_recoil_reduction: u64,
+    pub cat_block_start: u64,
+    pub cat_block_moved: u64,
+    pub cat_contact: u64,
+    pub goal_contact: u64,
+    pub cat_contact_moved_extra: u64,
+    pub cat_active_gift: u64,
+    pub cat_consume_extra: u64,
+    pub goal_consume_extra: u64,
+    pub cat_consume_arrow_extra: u64,
+    pub arrow_spawn: u64,
+    pub arrow_move: u64,
+    pub arrow_toggle_extra: u64,
+    pub arrow_bottom: u64,
+    pub arrow_edge: u64,
+    pub arrow_contact_start: u64,
+    pub arrow_contact_moved: u64,
+    pub pickup_held: u64,
+    pub pickup_slot: u64,
+    pub pickup_active: u64,
+    pub pickup_hit_extra: u64,
+    pub pickup_latch_reduction: u64,
+    pub arrow_overlay_extra: u64,
+    pub place_empty: u64,
+    pub place_action_blocked: u64,
+    pub place_overlap: u64,
+    pub place_hit: u64,
+    pub place_consume_extra: u64,
+}
+
+impl HeartsCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            gate: 80_000,
+            cat_idle: 1_917_000,
+            cat_move_extra: 83_000,
+            cat_restore: 500_000,
+            cat_hidden: 341_000,
+            cat_respawn_extra: 116_000,
+            cat_pursuit_extra: 108_000,
+            cat_recoil_reduction: 34_000,
+            cat_block_start: 288_400,
+            cat_block_moved: 671_000,
+            cat_contact: 3_091_400,
+            goal_contact: 1_310_700,
+            cat_contact_moved_extra: 400_000,
+            cat_active_gift: 67_000,
+            cat_consume_extra: 4_347_000,
+            goal_consume_extra: 4_277_000,
+            cat_consume_arrow_extra: 2_685_300,
+            arrow_spawn: 2_628_000,
+            arrow_move: 3_058_000,
+            arrow_toggle_extra: 3_210_000,
+            arrow_bottom: 719_300,
+            arrow_edge: 755_000,
+            arrow_contact_start: 3_326_700,
+            arrow_contact_moved: 963_800,
+            pickup_held: 105_500,
+            pickup_slot: 16_210,
+            pickup_active: 116_100,
+            pickup_hit_extra: 3_813_500,
+            pickup_latch_reduction: 26_400,
+            arrow_overlay_extra: 2_561_400,
+            place_empty: 9_320,
+            place_action_blocked: 20_850,
+            place_overlap: 459_800,
+            place_hit: 5_200_500,
+            place_consume_extra: 2_068_600,
+        }
+    }
+
+    fn nanos(self, work: crate::hearts::Work) -> u64 {
+        use crate::hearts::Work;
+        match work {
+            Work::CatGate | Work::ArrowGate | Work::PickupGate => self.gate,
+            Work::CatHidden => self.cat_hidden,
+            Work::CatArrow { moved } => {
+                if moved {
+                    self.cat_block_moved
+                } else {
+                    self.cat_block_start
+                }
+            }
+            Work::CatContact {
+                goal,
+                restored,
+                moved,
+            } => {
+                (if goal {
+                    self.goal_contact
+                } else {
+                    self.cat_contact
+                }) + if restored { self.cat_restore } else { 0 }
+                    + if moved {
+                        self.cat_contact_moved_extra
+                    } else {
+                        0
+                    }
+            }
+            Work::CatDraw {
+                moving,
+                recoil,
+                pursued,
+                respawned,
+                restored,
+                active_gifts,
+                consumed,
+                arrow,
+                goal,
+            } => {
+                self.cat_idle
+                    + if moving { self.cat_move_extra } else { 0 }
+                    + if pursued { self.cat_pursuit_extra } else { 0 }
+                    + if respawned { self.cat_respawn_extra } else { 0 }
+                    + if restored { self.cat_restore } else { 0 }
+                    + u64::from(active_gifts) * self.cat_active_gift
+                    + if consumed {
+                        (if goal {
+                            self.goal_consume_extra
+                        } else {
+                            self.cat_consume_extra
+                        }) + if arrow {
+                            self.cat_consume_arrow_extra
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    }
+                    - if recoil { self.cat_recoil_reduction } else { 0 }
+            }
+            Work::ArrowContact { moved } => {
+                if moved {
+                    self.arrow_contact_moved
+                } else {
+                    self.arrow_contact_start
+                }
+            }
+            Work::ArrowRetire { bottom } => {
+                if bottom {
+                    self.arrow_bottom
+                } else {
+                    self.arrow_edge
+                }
+            }
+            Work::ArrowDraw { spawned, toggle } => {
+                (if spawned {
+                    self.arrow_spawn
+                } else {
+                    self.arrow_move
+                }) + if toggle { self.arrow_toggle_extra } else { 0 }
+            }
+            Work::Pickup {
+                held: _,
+                slots,
+                active,
+                hit,
+                latched,
+                arrow,
+            } => {
+                self.pickup_held
+                    + u64::from(slots) * self.pickup_slot
+                    + u64::from(active) * self.pickup_active
+                    + if hit {
+                        self.pickup_hit_extra + if arrow { self.arrow_overlay_extra } else { 0 }
+                    } else {
+                        0
+                    }
+                    - if latched {
+                        self.pickup_latch_reduction
+                    } else {
+                        0
+                    }
+            }
+            Work::PlaceGate { holding } => {
+                if holding {
+                    self.place_action_blocked
+                } else {
+                    self.place_empty
+                }
+            }
+            Work::Place {
+                blocked,
+                active,
+                arrow,
+                consumed,
+            } => {
+                (if blocked {
+                    self.place_overlap
+                } else {
+                    self.place_hit
+                }) + u64::from(active) * self.pickup_active
+                    + if arrow { self.arrow_overlay_extra } else { 0 }
+                    + if consumed {
+                        self.place_consume_extra
+                    } else {
+                        0
+                    }
+            }
+        }
+    }
+}
+
 /// Scoped execution costs for a selected reference CPU profile.
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Base call allowances and active
@@ -112,6 +326,7 @@ pub struct ReferenceCosts {
     pub eel_restart_poll: u64,
     pub completion_draw_byte: u64,
     pub hearts_actor_draw: u64,
+    pub hearts: Option<HeartsCosts>,
     pub cheese_mouse_draw: u64,
     pub cheese_mouse_restore: u64,
     pub cheese_mouse_collect: u64,
@@ -281,6 +496,7 @@ impl ReferenceCosts {
             fence_countdown: 0,
             fence_random: 79_620,
             milk: Some(MilkCosts::ibm_xt()),
+            hearts: Some(HeartsCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
         }
     }
@@ -347,6 +563,7 @@ impl ReferenceCosts {
             completion_draw_byte: 4_000,
             // Provisional scene-seven drawing work above its tick gates.
             hearts_actor_draw: 1_500_000,
+            hearts: None,
             // Provisional scene-four costs above its original tick gates.
             cheese_mouse_draw: 600_000,
             cheese_mouse_restore: 0,
@@ -512,6 +729,21 @@ impl Runtime {
                 + rows * self.costs.swimming_draw_row
                 + bytes * self.costs.swimming_draw_byte
         }
+    }
+
+    fn charge_hearts(&mut self, step: crate::hearts::HeartStep) {
+        let nanos = match (self.costs.hearts, step.work) {
+            (Some(costs), Some(work)) => costs.nanos(work),
+            _ => {
+                self.costs.room_actor_gate
+                    + if step.drew {
+                        self.costs.hearts_actor_draw
+                    } else {
+                        0
+                    }
+            }
+        };
+        self.clock.advance_nanos(nanos);
     }
 
     fn charge_milk(&mut self, work: crate::milk::Work, sound: &mut crate::sound::Sound) -> u16 {
@@ -1236,10 +1468,7 @@ impl Runtime {
                 ] {
                     alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
                     let step = call(alley, self.clock.sample().bios.tick_low)?;
-                    self.clock.advance_nanos(self.costs.room_actor_gate);
-                    if step.drew {
-                        self.clock.advance_nanos(self.costs.hearts_actor_draw);
-                    }
+                    self.charge_hearts(step);
                 }
             } else if before_scene == 2 {
                 self.step_underwater_actors(alley)?;
@@ -1433,6 +1662,34 @@ impl Runtime {
 mod tests {
     use super::*;
     use crate::timing::BIOS_TICK_PIT_CLOCKS;
+
+    #[test]
+    fn native_hearts_work_is_independent_of_host_recomposition() {
+        let mut data = vec![0; crate::assets::DATA_LENGTH];
+        crate::assets::set_word(&mut data, 0x45b8, 1);
+        let mut step = crate::hearts::advance_cat(
+            &mut data,
+            &mut crate::cga::Framebuffer::default(),
+            1,
+            &mut crate::sound::Sound::default(),
+        )
+        .unwrap();
+        assert!(!step.accepted);
+        // A host image redraw must not turn a rejected native call into an
+        // active native drawing cost. The legacy profile retains its contract.
+        step.drew = true;
+        let mut runtime = Runtime::new(Machine::Cga);
+        runtime.costs.hearts.as_mut().unwrap().gate = 12_345;
+        let before = runtime.clock.elapsed_nanos();
+        runtime.charge_hearts(step);
+        assert_eq!(runtime.clock.elapsed_nanos() - before, 12_345);
+        let costs = ReferenceCosts::dosbox_x_240(Machine::Cga);
+        let expected = costs.room_actor_gate + costs.hearts_actor_draw;
+        let mut older = Runtime::with_costs(Machine::Cga, costs);
+        let before = older.clock.elapsed_nanos();
+        older.charge_hearts(step);
+        assert_eq!(older.clock.elapsed_nanos() - before, u128::from(expected));
+    }
 
     #[test]
     fn xt_single_support_beep_fits_the_whole_body_allowance() {

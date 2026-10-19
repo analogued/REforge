@@ -277,8 +277,9 @@ unless success or sinking suppresses harm. Air expiry at the external `0589`
 threshold forces sinking, clears horizontal motion and draws rising bubbles
 every six accepted updates. `0599` fails the room 72 ticks later. Disabling air
 damage retains warning colors but suppresses sinking and failure.
-Bowl, actor and surface execution costs use scoped XT measurements described
-below. Swimming, contact scans and room transitions remain provisional.
+Bowl, actor, surface, swimming and nonblocking contact execution costs use
+scoped XT measurements described below. Lethal-contact entry and room
+transitions retain provisional allowances.
 Controlled routine comparisons establish these rules, not full original-loop
 timing or random-stream equivalence.
 
@@ -652,6 +653,47 @@ these totals within 0.040 ms. They cover selected positions and sprite phases,
 not random-direction branches, all animation images, contact scans or swimming.
 These are same-capture fit checks, not independent validation of whole-game
 pacing. The earlier DOSBox profile retains its original drawing-only charges.
+
+Accepted swimming bodies (`0926`) measure 3.396–4.385 ms on the sampled ordinary
+CGA paths, with the old player image restored, a new native image drawn and an
+all-inactive contact scan. Air-expiry/bubble frames measure 4.914–4.917 ms.
+The fit separates a 0.700 ms movement/palette prelude, optional bubble work,
+old-player restoration, new-player drawing and contact work. Pure native
+`11e3`/`1145` calls measure five actual player shapes, from 9 rows of 4 packed
+bytes to 14 rows of 6 bytes. Restoration measures 0.544–0.928 ms and AND/save
+drawing 0.919–1.818 ms. Their setup/row/byte coefficients are fitted allowances,
+not universal CGA-memory access costs. Recording both previous and new dimensions
+avoids treating every animation frame as equally expensive.
+
+Nonblocking underwater contacts (`34a0`) measure 0.978 ms with every slot inactive
+and 3.099 ms for 24 active misses. A hidden/visible fish measures 2.121/2.456 ms;
+two visible fish measure 3.131 ms. The fit counts active tests, contacts, the
+first player restoration and actual fish/eel restorations. An accepted swimming
+body also redraws the player after contacts, as the native caller does. Final-fish
+success and immune/sinking eel contacts retain native ordering and reactivation.
+Lethal eel-contact entry is outside these nonblocking measurements; its existing
+effect-loop polling costs remain separate. Sound requests were native-muted.
+
+The native FD near-surface branch (`0b72`) waits for retrace clear then set before
+a counted delay. Its variable full-body duration is not a fixed CPU surcharge.
+Runtime advances to the next virtual retrace start, skipping a current pulse,
+then charges about 2.637 ms for post-poll counted work before player composition.
+Phase-aligned tail captures measure 21.956/22.976 ms from clear/set alignment,
+versus 3.714 ms for the post-wait tail alone. Retained first/last 3DA read cycles
+separate polling from post-poll work. The two earlier full-body FD cases lack
+recorded start phase and are checked against a timing envelope rather than used
+to fit an average wait.
+
+Scoped state/full-frame and charging checks cover 41 cases across the full-body
+and split-helper batches. Fixed/aligned totals fit within 0.150 ms; the largest
+sampled difference is about 0.125 ms. These are same-capture fit checks, not
+independent whole-loop timing validation. Other palette/animation phases,
+audible requests, rare contact combinations, masked-actor cleanup and physical
+PCjr BIOS/video timing remain outside the calibration. Both game modes keep the
+agreed XT CPU baseline; comparison against PCjr hardware follows completion of
+all remaining XT captures and integration of the full XT profile. The explicit
+DOSBox comparison profile retains its former fixed swimming-body cost and omits
+the newly modeled surface wait.
 
 Control hold/poll helpers measure about 0.084/0.306 ms. Gate and BIOS sampling
 splits remain approximate; whole-helper totals do not identify each instruction

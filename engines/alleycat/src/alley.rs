@@ -870,7 +870,8 @@ impl Alley {
         controls: Controls,
         tick: u16,
         accepted_ax: u16,
-    ) -> Result<UpdateOutcome, String> {
+    ) -> Result<(UpdateOutcome, crate::swimming::SwimmingWork), String> {
+        let previous_dimensions = word(&self.data, 0x561);
         self.player.write_data(&mut self.data)?;
         set_word(&mut self.data, 0x57f, accepted_ax);
         let suppress_air = !self.harm_enabled(Harm::Air);
@@ -936,15 +937,27 @@ impl Alley {
             });
             self.compose_actors()?;
         }
-        Ok(UpdateOutcome {
-            draw: step.draw,
-            landed: false,
-            support: crate::player::Support::None,
-            edge_reset: false,
-            bin_contact_checked: false,
-            forced_controls: None,
-            projectile_contact: false,
-        })
+        let work = crate::swimming::SwimmingWork {
+            previous_dimensions,
+            dimensions: sprite.dimensions,
+            bubble: step.bubble.is_some(),
+            // CS:0b72..0b95: FD near-surface wait, after movement and before
+            // restoring/drawing the player. Physical timing uses the XT clock.
+            surface_wait: self.data[0x697] == 0xfd && self.player.y <= 48,
+            contacts: contact,
+        };
+        Ok((
+            UpdateOutcome {
+                draw: step.draw,
+                landed: false,
+                support: crate::player::Support::None,
+                edge_reset: false,
+                bin_contact_checked: false,
+                forced_controls: None,
+                projectile_contact: false,
+            },
+            work,
+        ))
     }
 
     pub fn framebuffer(&self) -> &Framebuffer {

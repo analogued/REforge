@@ -21,6 +21,16 @@ pub(crate) struct SwimmingStep {
     pub failure: bool,
 }
 
+/// Operations performed by the full accepted body, for its scoped CPU cost.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SwimmingWork {
+    pub previous_dimensions: u16,
+    pub dimensions: u16,
+    pub bubble: bool,
+    pub surface_wait: bool,
+    pub contacts: crate::fishbowl::ContactStep,
+}
+
 fn check(data: &[u8]) -> Result<usize, String> {
     if data.len() < DATA_LENGTH {
         return Err("Executable swimming data segment is truncated".into());

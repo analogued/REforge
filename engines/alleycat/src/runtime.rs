@@ -71,6 +71,17 @@ pub struct ReferenceCosts {
     pub bookcase_spider_effect_draw: u64,
     pub bookcase_target_draw: u64,
     pub swimming_player: u64,
+    pub swimming_draw_setup: u64,
+    pub swimming_draw_row: u64,
+    pub swimming_draw_byte: u64,
+    pub swimming_restore_setup: u64,
+    pub swimming_restore_row: u64,
+    pub swimming_restore_byte: u64,
+    pub swimming_bubble: u64,
+    pub swimming_surface_delay: u64,
+    pub underwater_contact_gate: u64,
+    pub underwater_contact_test: u64,
+    pub underwater_contact_each: u64,
     pub underwater_actor_gate: u64,
     pub underwater_actor_step: u64,
     pub underwater_actor_draw: u64,
@@ -188,6 +199,23 @@ impl ReferenceCosts {
             water_surface_gate: 85_070,
             water_surface_step: 53_840,
             water_surface_draw: 228_750,
+            // Accepted swimming prelude, variable native player rectangles,
+            // and nonblocking contact scans. Row/byte values are fitted costs,
+            // not universal CGA-memory access times.
+            swimming_player: 700_000,
+            swimming_draw_setup: 58_400,
+            swimming_draw_row: 35_450,
+            swimming_draw_byte: 15_050,
+            swimming_restore_setup: 89_800,
+            swimming_restore_row: 33_350,
+            swimming_restore_byte: 4_620,
+            swimming_bubble: 535_000,
+            // Native FD near-surface clear/set wait is phase-dependent. This
+            // prices the counted delay after the final retrace read only.
+            swimming_surface_delay: 2_637_000,
+            underwater_contact_gate: 978_270,
+            underwater_contact_test: 88_370,
+            underwater_contact_each: 250_000,
             // Whole native loop intervals, fitted to the stock XT capture.
             spider_effect_poll: 151_810,
             eel_effect_poll: 84_530,
@@ -280,6 +308,17 @@ impl ReferenceCosts {
             bookcase_target_draw: 1_500_000,
             // Provisional fishbowl/swimming work, separate from BIOS gates.
             swimming_player: 3_500_000,
+            swimming_draw_setup: 0,
+            swimming_draw_row: 0,
+            swimming_draw_byte: 0,
+            swimming_restore_setup: 0,
+            swimming_restore_row: 0,
+            swimming_restore_byte: 0,
+            swimming_bubble: 0,
+            swimming_surface_delay: 0,
+            underwater_contact_gate: 0,
+            underwater_contact_test: 0,
+            underwater_contact_each: 0,
             underwater_actor_gate: 200_000,
             underwater_actor_step: 0,
             underwater_actor_draw: 250_000,
@@ -404,6 +443,60 @@ impl Runtime {
             damage_resume: None,
             scene: 0,
         }
+    }
+
+    fn swimming_image_cost(&self, dimensions: u16, restore: bool) -> u64 {
+        let rows = u64::from(dimensions >> 8);
+        let bytes = rows * u64::from(dimensions & 255) * 2;
+        if restore {
+            self.costs.swimming_restore_setup
+                + rows * self.costs.swimming_restore_row
+                + bytes * self.costs.swimming_restore_byte
+        } else {
+            self.costs.swimming_draw_setup
+                + rows * self.costs.swimming_draw_row
+                + bytes * self.costs.swimming_draw_byte
+        }
+    }
+
+    fn swimming_contact_cost(&self, contact: crate::fishbowl::ContactStep, dimensions: u16) -> u64 {
+        self.costs.underwater_contact_gate
+            + u64::from(contact.tested) * self.costs.underwater_contact_test
+            + u64::from(contact.contacts) * self.costs.underwater_contact_each
+            + if contact.contacts != 0 {
+                self.swimming_image_cost(dimensions, true)
+            } else {
+                0
+            }
+            + u64::from(contact.restored_fish) * self.costs.underwater_actor_restore
+            + u64::from(contact.restored_eels) * self.costs.underwater_eel_restore
+    }
+
+    fn charge_swimming(&mut self, work: crate::swimming::SwimmingWork, busy_ticks: u64) {
+        let prelude = self.costs.swimming_player
+            + if work.bubble {
+                self.costs.swimming_bubble
+            } else {
+                0
+            };
+        let post = self.swimming_image_cost(work.previous_dimensions, true)
+            + self.swimming_image_cost(work.dimensions, false)
+            + self.swimming_contact_cost(work.contacts, work.dimensions)
+            + if work.contacts.contacts != 0 {
+                // CS:0ba8 redraws the player after the first contact removed it.
+                self.swimming_image_cost(work.dimensions, false)
+            } else {
+                0
+            };
+        let busy_ns = busy_ticks * 1_000_000_000 / crate::timing::PIT_HZ;
+        self.clock.advance_nanos(prelude.saturating_sub(busy_ns));
+        self.clock.advance_pit_ticks(busy_ticks);
+        if work.surface_wait && self.costs.swimming_surface_delay != 0 {
+            self.clock.advance_to_next_retrace();
+            self.clock.advance_nanos(self.costs.swimming_surface_delay);
+        }
+        self.clock
+            .advance_nanos(post.saturating_sub(busy_ns.saturating_sub(prelude)));
     }
 
     fn step_fishbowl(&mut self, alley: &mut Alley) -> Result<(), String> {
@@ -817,10 +910,15 @@ impl Runtime {
             let bin_sound_ready = alley.bin_contact_sound_ready();
             let support_tone = alley.support_sound_latched();
             alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-            let outcome = if alley.scene() == 2 {
-                alley.update_swimming(self.controls, accepted.tick_low, accepted.ax)?
+            let (outcome, swimming) = if alley.scene() == 2 {
+                let (outcome, work) =
+                    alley.update_swimming(self.controls, accepted.tick_low, accepted.ax)?;
+                (outcome, Some(work))
             } else {
-                alley.update_at_tick(self.controls, accepted.tick_low)?
+                (
+                    alley.update_at_tick(self.controls, accepted.tick_low)?,
+                    None,
+                )
             };
             if alley.damage_waiting() {
                 self.damage_resume = Some(DamageResume::Player);
@@ -875,9 +973,7 @@ impl Runtime {
                 alley.upper_landing_sound(accepted.tick_low);
                 self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
             }
-            let cost = if alley.scene() == 2 {
-                self.costs.swimming_player
-            } else if releasing || outcome.forced_controls.is_some() {
+            let cost = if releasing || outcome.forced_controls.is_some() {
                 self.costs.player_support_release
             } else if outcome.landed {
                 self.costs.player_landing
@@ -893,10 +989,14 @@ impl Runtime {
                     Draw::Sprite(_) => self.costs.player_walk,
                 }
             };
-            self.clock.advance_nanos(
-                cost.saturating_sub(support_ticks * 1_000_000_000 / crate::timing::PIT_HZ),
-            );
-            self.clock.advance_pit_ticks(support_ticks);
+            if let Some(work) = swimming {
+                self.charge_swimming(work, support_ticks);
+            } else {
+                self.clock.advance_nanos(
+                    cost.saturating_sub(support_ticks * 1_000_000_000 / crate::timing::PIT_HZ),
+                );
+                self.clock.advance_pit_ticks(support_ticks);
+            }
             if outcome.edge_reset {
                 // The original calls 070d before 59cb: clear requests, accepted
                 // tick and countdown now. 069f, divider and accepted AX survive.

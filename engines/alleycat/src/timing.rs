@@ -171,6 +171,18 @@ impl VirtualClock {
         self.elapsed_scaled += period - self.elapsed_scaled % period;
     }
 
+    /// Skip the current retrace pulse, if any, and reach the next set edge.
+    /// This models a native clear-then-set wait, preserving rational phase.
+    pub(crate) fn advance_to_next_retrace(&mut self) {
+        let period = u128::from(self.retrace.period_pit_ticks) * NANOS_PER_SECOND;
+        let phase = (self.elapsed_scaled
+            + u128::from(self.retrace.phase_pit_ticks) * NANOS_PER_SECOND)
+            % period;
+        let start = u128::from(self.retrace.start_pit_ticks) * NANOS_PER_SECOND;
+        let distance = (start + period - phase) % period;
+        self.elapsed_scaled += if distance == 0 { period } else { distance };
+    }
+
     pub fn elapsed_pit_ticks(&self) -> u128 {
         self.elapsed_scaled / NANOS_PER_SECOND
     }
@@ -515,6 +527,32 @@ mod tests {
         clock.advance_to_next_bios_tick();
         assert_eq!(clock.elapsed_pit_ticks(), 131_072);
         assert_eq!(clock.bios_sample().tick_low, 2);
+    }
+
+    #[test]
+    fn clear_then_set_wait_skips_the_current_pulse_and_keeps_fractional_phase() {
+        let profile = RetraceProfile::new(100, 20, 30, 10).unwrap();
+        for (before, after) in [(0, 10), (10, 110), (15, 110), (21, 110), (90, 110)] {
+            let mut clock = VirtualClock::new(profile);
+            clock.advance_pit_ticks(before);
+            clock.advance_to_next_retrace();
+            assert_eq!(clock.elapsed_pit_ticks(), after);
+            assert!(clock.retrace());
+        }
+        let mut clock = VirtualClock::new(profile);
+        clock.advance_pit_ticks(9);
+        clock.advance_nanos(1);
+        clock.advance_to_next_retrace();
+        assert_eq!(clock.elapsed_scaled, 10 * NANOS_PER_SECOND);
+        clock.advance_to_next_retrace();
+        assert_eq!(clock.elapsed_scaled, 110 * NANOS_PER_SECOND);
+        let wrapped = RetraceProfile::new(100, 90, 10, 0).unwrap();
+        for (before, after) in [(5, 90), (95, 190)] {
+            let mut clock = VirtualClock::new(wrapped);
+            clock.advance_pit_ticks(before);
+            clock.advance_to_next_retrace();
+            assert_eq!(clock.elapsed_pit_ticks(), after);
+        }
     }
 
     #[test]

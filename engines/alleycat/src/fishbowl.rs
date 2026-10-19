@@ -33,6 +33,9 @@ pub(crate) struct SurfaceStep {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ContactStep {
     pub drew: bool,
+    pub tested: u8,
+    pub restored_fish: u8,
+    pub restored_eels: u8,
     pub contacts: u8,
     pub collected: u8,
     pub hazard_contacts: u8,
@@ -368,6 +371,7 @@ pub(crate) fn contacts_with_damage(
         if data[0x34a7 + slot] != 0 {
             continue;
         }
+        result.tested += 1;
         let kind = if slot < 12 { 0 } else { 2 };
         if !overlap(
             (
@@ -398,7 +402,15 @@ pub(crate) fn contacts_with_damage(
         data[0x351b] = data[0x351b].wrapping_add(1);
         result.contacts += 1;
         sound.request(data, tick, 0x05dc, 0x0425);
-        result.drew |= restore_actor(data, screen, slot)?;
+        let restored = restore_actor(data, screen, slot)?;
+        result.drew |= restored;
+        if restored {
+            if slot < 12 {
+                result.restored_fish += 1;
+            } else {
+                result.restored_eels += 1;
+            }
+        }
         data[0x34a7 + slot] = 1;
         if slot < 12 {
             result.collected += 1;
@@ -499,24 +511,28 @@ pub(crate) fn contacts_dev_with_damage(
     data[0x351b] = 0;
     for slot in 0..12 {
         set_word(data, 0x3511, slot as u16);
-        if data[0x34a7 + slot] != 0
-            || !overlap(
-                (
-                    word(data, 0x3447 + slot * 2),
-                    data[0x3477 + slot],
-                    word(data, 0x3513),
-                    data[0x3517],
-                ),
-                player_rect(data),
-            )
-        {
+        if data[0x34a7 + slot] != 0 {
+            continue;
+        }
+        result.tested += 1;
+        if !overlap(
+            (
+                word(data, 0x3447 + slot * 2),
+                data[0x3477 + slot],
+                word(data, 0x3513),
+                data[0x3517],
+            ),
+            player_rect(data),
+        ) {
             continue;
         }
         data[0x351b] = data[0x351b].wrapping_add(1);
         result.contacts += 1;
         result.collected += 1;
         sound.request(data, tick, 0x05dc, 0x0425);
-        result.drew |= restore_actor(data, screen, slot)?;
+        let restored = restore_actor(data, screen, slot)?;
+        result.drew |= restored;
+        result.restored_fish += u8::from(restored);
         data[0x34a7 + slot] = 1;
         data[0x3410] = data[0x3410].wrapping_sub(1);
         if data[0x3410] == 0 && data[0x5f3] == 0 {

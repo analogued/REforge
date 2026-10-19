@@ -690,8 +690,14 @@ measures about 2.688 ms. The respective active increments are 3.378 and 2.488 ms
 above the provisional 0.200 ms room-actor gate. The push increment accounts for
 player restoration/redraw when the cage moves the player.
 These fit selected positions and do not establish every cage-contact cost.
-The fixed cage restore/draw increment is also used by the blocking fall; that
-fall's polling and release/entry overhead remain uncalibrated.
+The blocking fall uses a separate fit: about 0.0966 ms per quiet BIOS poll,
+3.210 ms for each restore/five-pixel fall/draw above that poll, and 3.893 ms
+for the final restore/broken-cage image/release. An audible step adds about
+0.0264 ms for PIT programming. Native read-interval histograms separate quiet
+polls from drawing and interrupt outliers. Whole falls from heights 134 and
+159 preserve their seven-/two-changed-tick waits; their measured durations are
+phase-dependent, not fixed delays. Dog-pause and entry/caller overhead remain
+approximate; these cases do not measure complete room transitions.
 
 The bird's separately entered motion/drawing body measures about 1.04–1.09 ms
 on first appearance and 1.333 ms when it restores its previous image. The active
@@ -718,8 +724,10 @@ the provisional 0.200 ms room-actor gate. Plant collection (`3b42`),
 including native player/spider background work, measures 9.093–9.197 ms; its
 active allowance is about 8.929 ms above that gate. Final collection and
 failure-suppressed success retain the same fit. These native-muted measurements
-exclude the spider-contact image, whose drawing allowance remains provisional.
-The blocking sound polls have a separate XT fit.
+exclude the spider-contact image. Its separate transparent draw measures
+14.201–14.261 ms at center and clamped edge positions, fitted as 14.241 ms in
+addition to caller work. The nine-tick sound wait starts after image drawing;
+its blocking sound polls have a separate XT fit.
 The shared gate still approximates quiet tick checks, plant misses and broom
 blocks/rollback, differing by up to about 0.230 ms on the sampled paths.
 More positions, sound-request overhead and full bookcase passes remain unverified.
@@ -845,8 +853,8 @@ final position and BIOS tick together within that uncertainty range.
 `ReferenceCosts::dosbox_x_240` retains the older DOSBox profile for explicit
 comparisons. Its room drawing allowances do not include the XT profile's added
 work breakdown or phase-dependent swimming surface wait. Ordinary play uses
-`ibm_xt`; unmeasured effect loops, room actors, transitions, entry callers
-and startup-specific work retain provisional allowances. Some of those derive
+`ibm_xt`; unmeasured effect setup/cleanup, room actors, transitions, entry
+callers and startup-specific work retain provisional allowances. Some of those derive
 from DOSBox-X normal core at fixed 240 cycles/ms, an emulator throughput setting
 rather than a physical CPU clock. Changing measured costs is not a global speed
 multiplier and does not complete physical-PC timing calibration. Midnight clock
@@ -877,10 +885,21 @@ Mouse knockdown (`2567`) clears attachment and horizontal direction, sets a
 17-update support delay and downward direction, and preserves vertical step,
 animation phase and sprite history. Its temporary image blocks input, player
 and scenery work until eight wrapping low BIOS ticks have elapsed. The
-`5a90` model emits a tone and consumes one random value per changed tick when native sound is enabled,
-including the final tick check. Completion resumes after the interrupted actor
-batch without advancing its divider again. Effect polling has an approximate
-execution cost; the elapsed-tick exit and random predicate are retained.
+`5a90` model emits a tone and consumes one random value per changed tick when
+native sound is enabled. The sound timer sample precedes the exit timer sample,
+so the exit can observe the eighth tick while the last tone belongs to the
+seventh. A tone on the final tick is therefore not guaranteed. Completion
+resumes after the interrupted actor batch without advancing its divider again.
+
+The XT fit prices about 0.1056 ms per muted poll, or 0.1810 ms per audible
+same-tick poll plus 0.0754 ms when a new tone is programmed. The audible loop
+splits work around its two BIOS samples, about 0.0995 ms before sound sampling
+and 0.0815 ms between sound and exit sampling. Drawing the temporary image adds
+about 5.409 ms before taking the eight-tick baseline; final background cleanup
+adds about 0.742 ms. Poll/cleanup totals match the sampled terminal calls within
+about 0.005 ms. The initial collision/caller split and exact interrupt placement
+remain approximate. Whole-effect duration varies with PIT entry phase; these
+costs do not replace the original elapsed-tick wait.
 
 The following diagnostic controls require a build with `dev-tools`.
 `--step-hz` explicitly selects the former uniform diagnostic movement scheduler.

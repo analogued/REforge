@@ -1566,6 +1566,18 @@ impl Alley {
         Ok(step)
     }
 
+    pub(crate) fn start_spider_effect_wait(&mut self, tick: u16) {
+        if let Some(DamageEffect {
+            since,
+            kind: EffectKind::Spider,
+            ..
+        }) = self.damage_effect.as_mut()
+        {
+            *since = tick;
+            set_word(&mut self.data, 0x39c8, tick);
+        }
+    }
+
     pub(crate) fn advance_bookcase_targets(
         &mut self,
         tick: u16,
@@ -1994,18 +2006,25 @@ impl Alley {
         })
     }
 
-    pub(crate) fn mouse_effect_random(&mut self, tick: u16) {
+    pub(crate) fn native_sound_enabled(&self) -> bool {
+        self.data[0] != 0
+    }
+
+    pub(crate) fn mouse_effect_random(&mut self, tick: u16) -> bool {
         if self.data[0] != 0 && word(&self.data, 0x5a14) != tick {
             set_word(&mut self.data, 0x5a14, tick);
             let divisor = (next_random(&mut self.data) & 0x70) + 0x200;
             self.sound.tone(divisor, crate::sound::Category::Effects);
+            true
+        } else {
+            false
         }
     }
 
-    pub(crate) fn start_mouse_effect_wait(&mut self, tick: u16) {
+    pub(crate) fn start_mouse_effect_wait(&mut self, tick: u16) -> bool {
         // CS:25e4 samples the baseline after composing the temporary image.
         set_word(&mut self.data, 0x1f65, tick);
-        self.mouse_effect_random(tick);
+        self.mouse_effect_random(tick)
     }
 
     pub(crate) fn finish_mouse_effect(&mut self) -> Result<(), String> {
@@ -2552,6 +2571,55 @@ mod tests {
         assert_eq!(word(&alley.data, 0x2ae5), first);
         alley.finish_mouse_effect().unwrap();
         assert_eq!(alley.framebuffer().bytes(), alley.screen.bytes());
+    }
+
+    #[test]
+    fn mouse_exit_poll_can_observe_a_tick_after_the_sound_poll() {
+        use crate::runtime::Runtime;
+        use crate::timing::{BIOS_TICK_PIT_CLOCKS, PlayerGate};
+        let mut alley = actor_fixture();
+        alley.player.support_state = 2;
+        alley.data[0] = 1;
+        alley.data[0x531] = 255;
+        let mut runtime = Runtime::new(Machine::Cga);
+        runtime.clock.advance_pit_ticks(BIOS_TICK_PIT_CLOCKS);
+        runtime.player_gate = PlayerGate::new(1, 0);
+        for _ in 0..4 {
+            runtime
+                .advance_pass(&mut alley, Controls::default())
+                .unwrap();
+        }
+        assert!(alley.mouse_effect.is_some());
+        let start = word(&alley.data, 0x1f65);
+        let deadline = u64::from(start + 8) * BIOS_TICK_PIT_CLOCKS;
+        runtime
+            .clock
+            .advance_pit_ticks(deadline - 200 - runtime.clock.elapsed_pit_ticks() as u64);
+        set_word(&mut alley.data, 0x5a14, start + 7);
+        let seed = word(&alley.data, 0x2ae5);
+        let event = runtime
+            .advance_pass(&mut alley, Controls { x: -1, y: -1 })
+            .unwrap();
+        assert!(event.mouse_wait && !event.control_polled);
+        assert!(alley.mouse_effect.is_none());
+        assert_eq!(word(&alley.data, 0x5a14), start + 7);
+        assert_eq!(word(&alley.data, 0x2ae5), seed);
+        assert_eq!(runtime.clock.sample().bios.tick_low, start + 8);
+    }
+
+    #[test]
+    fn spider_wait_baseline_follows_completed_drawing_across_tick_wrap() {
+        let mut alley = Alley::synthetic();
+        alley.damage_effect = Some(DamageEffect {
+            since: u16::MAX - 1,
+            duration: 9,
+            kind: EffectKind::Spider,
+        });
+        alley.start_spider_effect_wait(0);
+        assert_eq!(word(&alley.data, 0x39c8), 0);
+        assert!(!alley.advance_damage_effect(8, 0, false).unwrap());
+        assert!(alley.advance_damage_effect(9, 0, false).unwrap());
+        assert_eq!(alley.data[0x552], 1);
     }
 
     #[test]

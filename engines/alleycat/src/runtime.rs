@@ -5,8 +5,8 @@
 use crate::alley::{Alley, DamagePoll, Machine};
 use crate::player::{Controls, Draw};
 use crate::timing::{
-    ControlsGate, FenceAction, FenceEffect, OuterLoopDivider, PlayerAcceptance, PlayerGate,
-    VirtualClock, keyboard_wait_complete,
+    ClockSample, ControlsGate, FenceAction, FenceEffect, OuterLoopDivider, PlayerAcceptance,
+    PlayerGate, VirtualClock, keyboard_wait_complete,
 };
 
 /// Bounded stock-XT costs for milk work; retrace waits remain phase-dependent.
@@ -564,6 +564,51 @@ impl TitleCosts {
     }
 }
 
+/// Scoped XT blocking-effect work; tick deadlines remain separate.
+#[derive(Clone, Copy, Debug)]
+pub struct BlockingCosts {
+    pub mouse_sound_before: u64,
+    pub mouse_sound_after: u64,
+    pub mouse_tone: u64,
+    pub mouse_cleanup: u64,
+    pub mouse_overlay: u64,
+    pub cage_poll: u64,
+    pub cage_draw: u64,
+    pub cage_release: u64,
+    pub cage_tone: u64,
+}
+
+impl BlockingCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            // Steady audible polls have two BIOS samples, about 475 and
+            // 389 cycles apart. Muted polls use ReferenceCosts directly.
+            mouse_sound_before: 99_520,
+            mouse_sound_after: 81_510,
+            mouse_tone: 75_430,
+            mouse_cleanup: 742_030,
+            mouse_overlay: 5_409_380,
+            // Mean quiet cage poll is 460.8 cycles. Restore/draw increments
+            // exclude that poll; release includes the larger broken image.
+            cage_poll: 96_550,
+            cage_draw: 3_210_000,
+            cage_release: 3_893_270,
+            cage_tone: 26_400,
+        }
+    }
+
+    fn cage_work(self, fall: crate::birdcage::FallStep, sound: bool) -> u64 {
+        if !fall.drew {
+            return 0;
+        }
+        (if fall.released {
+            self.cage_release
+        } else {
+            self.cage_draw
+        }) + if sound { self.cage_tone } else { 0 }
+    }
+}
+
 /// Scoped execution costs for a selected reference CPU profile.
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Base call allowances and active
@@ -672,6 +717,7 @@ pub struct ReferenceCosts {
     pub fence_random: u64,
     pub fence_finish: u64,
     pub mouse_effect_poll: u64,
+    pub blocking: Option<BlockingCosts>,
 }
 
 impl ReferenceCosts {
@@ -780,6 +826,10 @@ impl ReferenceCosts {
             underwater_contact_each: 250_000,
             // Whole native loop intervals, fitted to the stock XT capture.
             spider_effect_poll: 151_810,
+            mouse_effect_poll: 105_600,
+            blocking: Some(BlockingCosts::ibm_xt()),
+            // Pure image helper; contact/scheduler work remains separate.
+            bookcase_spider_effect_draw: 14_240_800,
             eel_effect_poll: 84_530,
             eel_palette_poll: 224_130,
             eel_restart_poll: 148_570,
@@ -955,6 +1005,7 @@ impl ReferenceCosts {
             fence_finish: 54_167,
             // BIOS tick read plus the short mouse-effect loop; approximate.
             mouse_effect_poll: 50_000,
+            blocking: None,
         }
     }
 }
@@ -1023,6 +1074,12 @@ impl Runtime {
                 && costs.eel_restart_poll > 0,
             "Damage-effect polling must advance virtual time"
         );
+        if let Some(cost) = costs.blocking {
+            assert!(
+                cost.mouse_sound_before + cost.mouse_sound_after > 0 && cost.cage_poll > 0,
+                "Blocking-effect polling must advance virtual time"
+            );
+        }
         Self {
             clock: VirtualClock::default(),
             player_gate: PlayerGate::new(u16::MAX, 0),
@@ -1401,6 +1458,10 @@ impl Runtime {
         if spider.restored {
             self.clock.advance_nanos(self.costs.bookcase_spider_restore);
         }
+        if spider.failure_pending && self.costs.blocking.is_some() {
+            // CS:3dd0 samples the wait baseline after drawing the image.
+            alley.start_spider_effect_wait(self.clock.sample().bios.tick_low);
+        }
         Ok(())
     }
 
@@ -1471,6 +1532,64 @@ impl Runtime {
         alley.advance_damage_effect(sample.bios.tick_low, sample.pit_counter, sample.retrace)
     }
 
+    fn step_mouse_effect(
+        &mut self,
+        alley: &mut Alley,
+        start_tick: u16,
+    ) -> Result<(ClockSample, bool), String> {
+        let sound = alley.native_sound_enabled();
+        self.clock.advance_nanos(self.costs.blocking.map_or(
+            self.costs.mouse_effect_poll,
+            |cost| {
+                if sound {
+                    cost.mouse_sound_before
+                } else {
+                    self.costs.mouse_effect_poll
+                }
+            },
+        ));
+        let tone_sample = self.clock.sample();
+        if self.costs.blocking.is_some() {
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+        }
+        let tone = alley.mouse_effect_random(tone_sample.bios.tick_low);
+        if let Some(cost) = self.costs.blocking.filter(|_| sound) {
+            self.clock
+                .advance_nanos(cost.mouse_sound_after + if tone { cost.mouse_tone } else { 0 });
+        }
+        // The exit poll follows the sound poll and can see a later tick.
+        let sample = self.clock.sample();
+        let finished = sample.bios.tick_low.wrapping_sub(start_tick) >= 8;
+        if finished {
+            alley.finish_mouse_effect()?;
+            if let Some(cost) = self.costs.blocking {
+                self.clock.advance_nanos(cost.mouse_cleanup);
+            }
+        }
+        Ok((sample, finished))
+    }
+
+    fn step_cage_effect(&mut self, alley: &mut Alley) -> Result<crate::birdcage::FallStep, String> {
+        self.clock.advance_nanos(
+            self.costs
+                .blocking
+                .map_or(self.costs.room_effect_poll, |cost| cost.cage_poll),
+        );
+        let sample = self.clock.sample();
+        alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+        let fall = alley.advance_room_fall(sample.bios.tick_low)?;
+        let work = self.costs.blocking.map_or(
+            if fall.drew {
+                self.costs.room_cage_draw
+            } else {
+                0
+            },
+            |cost| cost.cage_work(fall, alley.native_sound_enabled()),
+        );
+        self.clock.advance_nanos(work);
+        Ok(fall)
+    }
+
     fn advance_pass_inner(
         &mut self,
         alley: &mut Alley,
@@ -1506,16 +1625,18 @@ impl Runtime {
         }
         if let Some(start_tick) = self.mouse_pause {
             let mut scene_changed = false;
-            self.clock.advance_nanos(self.costs.mouse_effect_poll);
-            let sample = self.clock.sample();
-            alley.mouse_effect_random(sample.bios.tick_low);
-            if sample.bios.tick_low.wrapping_sub(start_tick) >= 8 {
-                alley.finish_mouse_effect()?;
+            let (sample, finished) = self.step_mouse_effect(alley, start_tick)?;
+            if finished {
                 self.mouse_pause = None;
                 // The suspended mouse CALL has returned. Resume after the
                 // actor batch, without repeating its divider or actor calls.
                 self.clock.advance_nanos(self.costs.loop_return);
-                if alley.finish_scene(sample.bios.tick_low)? {
+                let return_tick = if self.costs.blocking.is_some() {
+                    self.clock.sample().bios.tick_low
+                } else {
+                    sample.bios.tick_low
+                };
+                if alley.finish_scene(return_tick)? {
                     self.synchronize_scene(alley);
                     scene_changed = true;
                 }
@@ -1580,13 +1701,7 @@ impl Runtime {
         }
 
         let resumed_fall = if self.cage_falling {
-            self.clock.advance_nanos(self.costs.room_effect_poll);
-            let sample = self.clock.sample();
-            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-            let fall = alley.advance_room_fall(sample.bios.tick_low)?;
-            if fall.drew {
-                self.clock.advance_nanos(self.costs.room_cage_draw);
-            }
+            let fall = self.step_cage_effect(alley)?;
             if !fall.released {
                 return Ok(self.room_wait_outcome(alley, start_nanos));
             }
@@ -1971,9 +2086,18 @@ impl Runtime {
             });
             self.clock.advance_nanos(self.costs.actor_group);
             if mouse.paused {
+                if let Some(cost) = self.costs.blocking {
+                    self.clock.advance_nanos(cost.mouse_overlay);
+                }
                 let tick = self.clock.sample().bios.tick_low;
                 self.mouse_pause = Some(tick);
-                alley.start_mouse_effect_wait(tick);
+                if self.costs.blocking.is_some() {
+                    alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+                }
+                let tone = alley.start_mouse_effect_wait(tick);
+                if let Some(cost) = self.costs.blocking.filter(|_| tone) {
+                    self.clock.advance_nanos(cost.mouse_tone);
+                }
             }
         }
         if self.mouse_pause.is_none() {

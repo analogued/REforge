@@ -275,6 +275,55 @@ impl HeartsCosts {
     }
 }
 
+/// Completion graphics on the agreed XT baseline. Row and byte terms are
+/// fitted to these fixed native drawing routines, not general CGA bus costs.
+#[derive(Clone, Copy, Debug)]
+pub struct CompletionCosts {
+    pub wipe_setup: u64,
+    pub wipe_row: u64,
+    pub wipe_byte: u64,
+    pub wipe_initial: u64,
+    pub wipe_growth: u64,
+    pub wipe_clip: u64,
+    pub face_prepare: u64,
+    pub score_row: u64,
+    pub score_grid_extra: u64,
+}
+
+impl CompletionCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            wipe_setup: 72_430,
+            wipe_row: 49_675,
+            wipe_byte: 2_734,
+            wipe_initial: 30_000,
+            wipe_growth: 100_000,
+            wipe_clip: 4_000,
+            face_prepare: 373_267,
+            score_row: 2_985_200,
+            score_grid_extra: 678_200,
+        }
+    }
+
+    fn nanos(self, graphics: crate::completion::Graphics) -> u64 {
+        let wipe = graphics.wipe.map_or(0, |work| {
+            self.wipe_setup
+                + u64::from(work.rows) * self.wipe_row
+                + work.bytes as u64 * self.wipe_byte
+                + if work.first { self.wipe_initial } else { 0 }
+                + if work.growing { self.wipe_growth } else { 0 }
+                + u64::from(work.clips) * self.wipe_clip
+        });
+        wipe + u64::from(graphics.face_preparations) * self.face_prepare
+            + u64::from(graphics.score_rows) * self.score_row
+            + if graphics.score_grid {
+                self.score_grid_extra
+            } else {
+                0
+            }
+    }
+}
+
 /// Scoped execution costs for a selected reference CPU profile.
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Base call allowances and active
@@ -325,6 +374,7 @@ pub struct ReferenceCosts {
     pub eel_palette_poll: u64,
     pub eel_restart_poll: u64,
     pub completion_draw_byte: u64,
+    pub completion: Option<CompletionCosts>,
     pub hearts_actor_draw: u64,
     pub hearts: Option<HeartsCosts>,
     pub cheese_mouse_draw: u64,
@@ -497,6 +547,7 @@ impl ReferenceCosts {
             fence_random: 79_620,
             milk: Some(MilkCosts::ibm_xt()),
             hearts: Some(HeartsCosts::ibm_xt()),
+            completion: Some(CompletionCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
         }
     }
@@ -561,6 +612,7 @@ impl ReferenceCosts {
             // Provisional drawing allowance for wipes and cat-face stamps.
             // Original presentation tick/retrace waits are modeled separately.
             completion_draw_byte: 4_000,
+            completion: None,
             // Provisional scene-seven drawing work above its tick gates.
             hearts_actor_draw: 1_500_000,
             hearts: None,
@@ -729,6 +781,26 @@ impl Runtime {
                 + rows * self.costs.swimming_draw_row
                 + bytes * self.costs.swimming_draw_byte
         }
+    }
+
+    fn charge_completion(&mut self, work: crate::completion::Work, precharged: u64) {
+        let nanos = if let Some(costs) = self.costs.completion {
+            let calibrated_bytes =
+                work.graphics.score_bytes + work.graphics.wipe.map_or(0, |wipe| wipe.bytes);
+            let fallback_bytes = work.bytes_drawn.saturating_sub(calibrated_bytes);
+            let total = costs.nanos(work.graphics)
+                + fallback_bytes as u64 * self.costs.completion_draw_byte;
+            // A wipe's measured body includes its polling/loop work. The
+            // dispatcher already advanced time before sampling this step.
+            if work.graphics.wipe.is_some() {
+                total.saturating_sub(precharged)
+            } else {
+                total
+            }
+        } else {
+            work.bytes_drawn as u64 * self.costs.completion_draw_byte
+        };
+        self.clock.advance_nanos(nanos);
     }
 
     fn charge_hearts(&mut self, step: crate::hearts::HeartStep) {
@@ -1105,8 +1177,7 @@ impl Runtime {
             let sample = self.clock.sample();
             alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let work = alley.advance_completion(sample.bios.tick_low, sample.retrace)?;
-            self.clock
-                .advance_nanos(work.bytes_drawn as u64 * self.costs.completion_draw_byte);
+            self.charge_completion(work, self.costs.room_effect_poll);
             let changed = work.complete;
             if changed {
                 self.synchronize_scene(alley);
@@ -1662,6 +1733,50 @@ impl Runtime {
 mod tests {
     use super::*;
     use crate::timing::BIOS_TICK_PIT_CLOCKS;
+
+    #[test]
+    fn calibrated_wipe_counts_zero_byte_work_without_double_charging_dispatch() {
+        let mut wipe = crate::completion::Wipe::new(160, 96, 0);
+        let work = wipe
+            .advance(
+                &mut vec![0; crate::assets::DATA_LENGTH],
+                &mut crate::cga::Framebuffer::default(),
+                &mut crate::sound::Sound::default(),
+            )
+            .unwrap();
+        assert_eq!(work.bytes_drawn, 0);
+        let mut runtime = Runtime::new(Machine::Cga);
+        let expected = runtime.costs.completion.unwrap().nanos(work.graphics);
+        let poll = runtime.costs.room_effect_poll;
+        let before = runtime.clock.elapsed_nanos();
+        runtime.clock.advance_nanos(poll);
+        runtime.charge_completion(work, poll);
+        assert_eq!(runtime.clock.elapsed_nanos() - before, u128::from(expected));
+        assert!(expected > poll);
+
+        let mut older =
+            Runtime::with_costs(Machine::Cga, ReferenceCosts::dosbox_x_240(Machine::Cga));
+        let poll = older.costs.room_effect_poll;
+        let before = older.clock.elapsed_nanos();
+        older.clock.advance_nanos(poll);
+        older.charge_completion(work, poll);
+        assert_eq!(older.clock.elapsed_nanos() - before, u128::from(poll));
+    }
+
+    #[test]
+    fn uncalibrated_presentation_graphics_keep_the_byte_allowance() {
+        let work = crate::completion::Work {
+            bytes_drawn: 384,
+            ..crate::completion::Work::default()
+        };
+        let mut runtime = Runtime::new(Machine::Cga);
+        let before = runtime.clock.elapsed_nanos();
+        runtime.charge_completion(work, 0);
+        assert_eq!(
+            runtime.clock.elapsed_nanos() - before,
+            384 * u128::from(runtime.costs.completion_draw_byte)
+        );
+    }
 
     #[test]
     fn native_hearts_work_is_independent_of_host_recomposition() {

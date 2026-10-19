@@ -10,6 +10,25 @@ use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 pub(crate) struct Work {
     pub bytes_drawn: usize,
     pub complete: bool,
+    pub graphics: Graphics,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Graphics {
+    pub wipe: Option<WipeWork>,
+    pub face_preparations: u8,
+    pub score_rows: u8,
+    pub score_bytes: usize,
+    pub score_grid: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WipeWork {
+    pub rows: u16,
+    pub bytes: usize,
+    pub first: bool,
+    pub growing: bool,
+    pub clips: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -20,6 +39,7 @@ pub(crate) struct Wipe {
     height: u8,
     edges: u8,
     packed: u8,
+    started: bool,
 }
 
 impl Wipe {
@@ -31,6 +51,7 @@ impl Wipe {
             height: 8,
             edges: 0,
             packed,
+            started: false,
         }
     }
 
@@ -42,6 +63,14 @@ impl Wipe {
         screen: &mut Framebuffer,
         sound: &mut crate::sound::Sound,
     ) -> Result<Work, String> {
+        let mut geometry = WipeWork {
+            rows: u16::from(self.height),
+            bytes: usize::from(self.width >> 3) * 2 * usize::from(self.height),
+            first: !self.started,
+            growing: self.edges != 15,
+            clips: 0,
+        };
+        self.started = true;
         if data[0] != 0 {
             sound.tone(
                 word(data, 0x5a5a + usize::from(word(data, 0x5a56) & 6)),
@@ -69,33 +98,50 @@ impl Wipe {
             return Ok(Work {
                 bytes_drawn,
                 complete: true,
+                graphics: Graphics {
+                    wipe: Some(geometry),
+                    ..Graphics::default()
+                },
             });
         }
+        geometry.clips = self.grow();
+        Ok(Work {
+            bytes_drawn,
+            complete: false,
+            graphics: Graphics {
+                wipe: Some(geometry),
+                ..Graphics::default()
+            },
+        })
+    }
+    fn grow(&mut self) -> u8 {
+        let mut clips = 0;
         self.width = self.width.wrapping_add(32);
         self.height = self.height.wrapping_add(16);
         let (x, left) = self.x.overflowing_sub(16);
         self.x = if left { 0 } else { x };
         if left {
+            clips += 1;
             self.edges |= 1;
         }
         if self.x.wrapping_add(self.width) >= 320 {
+            clips += 1;
             self.width = 320 - self.x;
             self.edges |= 2;
         }
         let (y, top) = self.y.overflowing_sub(8);
         self.y = if top { 0 } else { y };
         if top {
+            clips += 1;
             self.edges |= 4;
         }
         let (bottom, overflow) = self.y.overflowing_add(self.height);
         if overflow || bottom >= 200 {
+            clips += 1;
             self.height = 200 - self.y;
             self.edges |= 8;
         }
-        Ok(Work {
-            bytes_drawn,
-            complete: false,
-        })
+        clips
     }
 }
 
@@ -190,18 +236,23 @@ impl Completion {
             Phase::Silhouettes => {
                 crate::room::begin_room_completion(data)?;
                 prepare_face(data, 0xaa);
+                work.graphics.face_preparations = 1;
+                work.graphics.score_grid = true;
                 data[0x369f] = 0;
                 set_word(data, 0x369a, 0);
                 set_word(data, 0x5a62, 0);
                 data[0x5a82] = 0;
                 for y in (0..=176).step_by(16).rev() {
                     work.bytes_drawn += draw_row(data, screen, y)?;
+                    work.graphics.score_rows += 1;
                 }
+                work.graphics.score_bytes = work.bytes_drawn;
                 self.phase = Phase::Award;
             }
             Phase::Award => {
                 crate::room::award_room_completion(data, self.room, tick)?;
                 prepare_face(data, 0xff);
+                work.graphics.face_preparations = 1;
                 set_word(data, 0x369a, u16::from(data[0x369e]) * 40);
                 data[0x369f] = 1;
                 set_word(data, 0x5a62, 0);
@@ -221,6 +272,8 @@ impl Completion {
                     self.phase = Phase::Digits;
                 } else {
                     work.bytes_drawn = draw_row(data, screen, y as u16)?;
+                    work.graphics.score_rows = 1;
+                    work.graphics.score_bytes = work.bytes_drawn;
                     if data[0] != 0 {
                         sound.tone(
                             word(data, 0x5a64 + usize::from(word(data, 0x5a62))),
@@ -316,6 +369,26 @@ mod tests {
         data[0x35e0..0x361c].fill(0xff);
         data[0x1f80] = 3;
         data
+    }
+
+    #[test]
+    fn zero_width_wipe_still_reports_rows_and_growth_before_drawing() {
+        let mut wipe = Wipe::new(160, 96, 0);
+        let mut data = data();
+        let mut screen = Framebuffer::default();
+        screen.fill_visible(0xaa);
+        let before = screen.bytes().to_vec();
+        let mut sound = crate::sound::Sound::default();
+        let first = wipe.advance(&mut data, &mut screen, &mut sound).unwrap();
+        assert_eq!(screen.bytes().as_slice(), before);
+        let first = first.graphics.wipe.unwrap();
+        assert_eq!((first.rows, first.bytes), (8, 0));
+        assert!(first.first && first.growing);
+        let next = wipe.advance(&mut data, &mut screen, &mut sound).unwrap();
+        let geometry = next.graphics.wipe.unwrap();
+        assert!(!geometry.first);
+        assert_eq!((geometry.rows, geometry.bytes), (24, 192));
+        assert_eq!(next.bytes_drawn, geometry.bytes);
     }
 
     #[test]

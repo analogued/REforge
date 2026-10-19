@@ -334,6 +334,21 @@ words for drawing; height starts at eight and grows by 16. Each boundary clamps
 independently. The wipes have no explicit tick or retrace wait: their pace comes
 from the execution-cost allowance for drawing and sound I/O.
 
+On the stock-XT profile, wipes use fitted setup, row and packed-byte costs plus
+geometry/clipping work. Even the initial zero-byte rectangle executes its row
+loop and consumes time. The measured wipe body replaces the presentation poll
+allowance for that step, so dispatch does not add another copy of its loop cost.
+This shared model applies to ordinary completion, Hearts returns and room-failure
+wipes; the older DOSBox profile retains its byte-based allowance.
+
+Face preparation takes about 0.373 ms, a four-face row about 2.985 ms, and the
+complete twelve-row silhouette display about 36.50 ms before its separately
+charged face preparation and unmeasured surrounding setup. These fixed native
+graphics use their own allowances; other presentation sprites and BIOS text
+retain provisional byte-based costs. Deliberate tick/retrace waits stay separate.
+The fits use silent native paths; tone I/O, unsampled geometry and exact BIOS
+sampling within a presentation step remain approximate.
+
 Between wipes, `3a96` masks the external cat-face sprite into writable scratch
 data. `3aac` draws twelve rows of four silhouettes, bottom to top, without a
 tick wait. The time bonus is sampled after this initial drawing; ordinary

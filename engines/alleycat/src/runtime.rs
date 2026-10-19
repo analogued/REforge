@@ -669,6 +669,35 @@ impl BlockingCosts {
     }
 }
 
+/// Post-scenery setup suffixes on the shared XT baseline. These whole-body
+/// allowances already include player entry, actor resets and any HUD work.
+/// They exclude scenery construction and deliberate transition waits.
+#[derive(Clone, Copy, Debug)]
+pub struct SetupCosts {
+    pub saved_alley: u64,
+    pub rooms: [u64; 7],
+}
+
+impl SetupCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            saved_alley: 8_353_900,
+            rooms: [
+                1_590_000, 5_330_200, 1_667_100, 2_924_000, 3_764_000, 1_600_000, 3_149_500,
+            ],
+        }
+    }
+
+    fn nanos(self, scene: u16, saved_alley: bool) -> u64 {
+        match scene {
+            0 if saved_alley => self.saved_alley,
+            1..=7 => self.rooms[usize::from(scene - 1)],
+            // Ground-level alley entry was not part of these captures.
+            _ => 0,
+        }
+    }
+}
+
 /// Scoped execution costs for a selected reference CPU profile.
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Base call allowances and active
@@ -779,6 +808,7 @@ pub struct ReferenceCosts {
     pub mouse_effect_poll: u64,
     pub blocking: Option<BlockingCosts>,
     pub failure: Option<FailureCosts>,
+    pub setup: Option<SetupCosts>,
 }
 
 impl ReferenceCosts {
@@ -908,6 +938,7 @@ impl ReferenceCosts {
             title: Some(TitleCosts::ibm_xt()),
             entry: Some(EntryCosts::ibm_xt()),
             window: Some(WindowCosts::ibm_xt()),
+            setup: Some(SetupCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
         }
     }
@@ -1069,6 +1100,7 @@ impl ReferenceCosts {
             mouse_effect_poll: 50_000,
             blocking: None,
             failure: None,
+            setup: None,
         }
     }
 }
@@ -2216,8 +2248,17 @@ impl Runtime {
     }
 
     fn synchronize_scene(&mut self, alley: &Alley) {
-        if self.scene != alley.scene() {
-            self.scene = alley.scene();
+        self.enter_scene(alley.scene(), alley.saved_alley_return());
+    }
+
+    fn enter_scene(&mut self, scene: u16, saved_alley: bool) {
+        if self.scene != scene {
+            self.clock.advance_nanos(
+                self.costs
+                    .setup
+                    .map_or(0, |costs| costs.nanos(scene, saved_alley)),
+            );
+            self.scene = scene;
             self.player_gate.reset();
             self.controls = Controls::default();
             self.fence = None;
@@ -2251,6 +2292,47 @@ impl Runtime {
 mod tests {
     use super::*;
     use crate::timing::BIOS_TICK_PIT_CLOCKS;
+
+    #[test]
+    fn setup_crosses_timer_boundaries_once_without_resetting_ongoing_controls() {
+        let mut runtime = Runtime::new(Machine::Cga);
+        runtime.clock.advance_nanos(54_000_000);
+        let before = runtime.clock.elapsed_nanos();
+        let tick = runtime.clock.sample().bios.tick_low;
+        runtime.enter_scene(3, false);
+        assert_eq!(runtime.clock.sample().bios.tick_low, tick.wrapping_add(1));
+        assert_eq!(
+            runtime.clock.elapsed_nanos() - before,
+            u128::from(runtime.costs.setup.unwrap().rooms[2])
+        );
+        runtime.controls.x = 1;
+        let after = runtime.clock.elapsed_nanos();
+        runtime.enter_scene(3, false);
+        assert_eq!(runtime.clock.elapsed_nanos(), after);
+        assert_eq!(runtime.controls.x, 1);
+    }
+
+    #[test]
+    fn setup_distinguishes_saved_alley_return_from_unmeasured_ground_entry() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut runtime = Runtime::new(machine);
+            runtime.enter_scene(5, false);
+            let before = runtime.clock.elapsed_nanos();
+            runtime.enter_scene(0, false);
+            assert_eq!(runtime.clock.elapsed_nanos(), before);
+            runtime.enter_scene(5, false);
+            let before = runtime.clock.elapsed_nanos();
+            runtime.enter_scene(0, true);
+            assert_eq!(
+                runtime.clock.elapsed_nanos() - before,
+                u128::from(runtime.costs.setup.unwrap().saved_alley)
+            );
+            let mut older = Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
+            older.enter_scene(5, false);
+            older.enter_scene(0, true);
+            assert_eq!(older.clock.elapsed_nanos(), 0);
+        }
+    }
 
     #[test]
     fn window_retrace_work_is_charged_without_recharging_quiet_countdown() {

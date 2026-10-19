@@ -979,6 +979,10 @@ impl Alley {
         word(&self.data, 4)
     }
 
+    pub(crate) fn saved_alley_return(&self) -> bool {
+        self.data[0x419] != 0
+    }
+
     #[cfg(feature = "dev-tools")]
     pub fn selection_trace_state(&self) -> SelectionTraceState {
         SelectionTraceState {

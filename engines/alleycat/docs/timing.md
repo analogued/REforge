@@ -894,6 +894,37 @@ subtraction also leave interrupt-phase uncertainty. The recreation presents
 ordinary construction after its memory updates, without exposing intermediate
 CGA-bank or tile writes.
 
+### Actor initialization and scene setup
+
+Post-scenery setup suffixes use these approximate stock-XT allowances:
+
+| Destination | Setup allowance |
+| --- | ---: |
+| Alley, saved window return | 8.354 ms |
+| Fishbowl | 1.590 ms |
+| Underwater | 5.330 ms |
+| Bookcase | 1.667 ms |
+| Cheese | 2.924 ms |
+| Birdcage | 3.764 ms |
+| Milk | 1.600 ms |
+| Hearts | 3.1495 ms |
+
+The XT runtime charges the combined allowance once when synchronizing a scene
+change. Player-entry preparation, actor resets, logical tone initialization and
+any score redraws within that suffix are included; their isolated helper costs
+are not added again. Ground-level alley entry remains uncalibrated and does not
+inherit the saved-window allowance. The older DOSBox profile has no added setup
+charge. Both game modes use the shared XT baseline.
+
+These bounded fits come from selected difficulty/seed states and reassembled
+native caller suffixes, after scenery preparation. Random placement retries and
+interrupt phase can change individual durations. The appended caller's relocated
+CALLs and final RET also limit instruction-level equivalence. Initialization
+currently samples supplied BIOS time rather than reproducing each internal
+timer-read position. Full scenery construction, wipe/selection bookkeeping and
+initial startup work remain separate; these small setup charges neither add
+bulk construction waits nor expose partial CGA-bank writes.
+
 ### Failure presentation execution costs
 
 Masked failure-message drawing (`1e17`) takes about 2.843 ms for the four original

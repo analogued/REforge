@@ -310,7 +310,9 @@ black wipe and removes one life. It cycles through the external bitmap messages
 "OUCH!", "ALAS!", "PITY!" and "ARGH!", revealing each over 28 changed ticks.
 Message selection is independent of the remaining life count; dog failure
 at nonzero difficulty with lives remaining uses
-the alternate eight-frame, four-tick dog presentation (`5be0`). The color wipe
+the alternate eight-frame, four-tick dog presentation (`5be0`). The message
+baseline is sampled after drawing each image; the final message/dog poll stops
+the speaker before the colour wipe begins. The color wipe
 returns the cat through a ground-level alley entry. Success takes precedence
 when both success and failure flags are present. Zero lives returns to the later
 animated title, described below. Headless runs stop at this last-life boundary.
@@ -344,7 +346,8 @@ wipes; the older DOSBox profile retains its byte-based allowance.
 Face preparation takes about 0.373 ms, a four-face row about 2.985 ms, and the
 complete twelve-row silhouette display about 36.50 ms before its separately
 charged face preparation and unmeasured surrounding setup. These fixed native
-graphics use their own allowances; other presentation sprites and BIOS text
+graphics use their own allowances. Failure messages and the alternate dog
+animation use the separate fits below; other presentation sprites and BIOS text
 retain provisional byte-based costs. Deliberate tick/retrace waits stay separate.
 The fits use silent native paths; tone I/O, unsampled geometry and exact BIOS
 sampling within a presentation step remain approximate.
@@ -864,6 +867,31 @@ Actor helpers currently share one BIOS sample within each nonblocking call;
 an original interrupt between its internal timer reads can change a boundary
 decision, such as a mouse's 53/54-tick respawn. Instruction-level interrupt
 placement is outside this execution-cost model.
+
+### Failure presentation execution costs
+
+Masked failure-message drawing (`1e17`) takes about 2.843 ms for the four original
+messages with sampled masks. Each large dog image copy takes about 4.832 ms;
+the header takes 1.144 ms and each detail copy about 1.817 ms. Runtime counts the
+header/detail work as well as the main image, replacing their generic byte cost
+on the XT profile. Two-sample medians with interrupt outliers differ by up to
+about 0.062 ms; message identity/mask do not change the fixed copy-loop bounds.
+
+Steady message polling takes about 0.1026 ms with native sound muted and
+0.1861 ms when audible; dog polling takes about 0.1056/0.1911 ms. Advancing the
+sound table adds about 0.0754 ms, fitted to a nonzero note. Terminal return/stop
+adds about 0.0577 ms for a message or 0.0612 ms for the dog, above its poll.
+Zero-note stops and exact placement of the sound and decision BIOS reads remain
+approximate; the adapter supplies one BIOS sample per poll. Native sound flags,
+not host mixer volume, select these paths.
+
+Terminal and aged one-tick wait captures separate polling from graphics. Their
+whole durations depend on PIT entry phase and do not replace the original
+28-step message reveal or four-tick dog frame gate. Each message wait starts
+after drawing; the final return retains its last drawing baseline. Complete
+failure playback, selection/life bookkeeping and surrounding transition costs
+remain outside these helper fits. The older DOSBox profile retains generic
+byte-based pricing, now including previously uncounted dog header/detail bytes.
 
 ### Blocking effects and diagnostic modes
 

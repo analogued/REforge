@@ -564,6 +564,66 @@ impl TitleCosts {
     }
 }
 
+/// Failure presentation helpers on the shared XT baseline.
+#[derive(Clone, Copy, Debug)]
+pub struct FailureCosts {
+    pub message: u64,
+    pub dog: u64,
+    pub header: u64,
+    pub detail: u64,
+    pub message_muted_poll: u64,
+    pub message_sound_poll: u64,
+    pub dog_muted_poll: u64,
+    pub dog_sound_poll: u64,
+    pub tone: u64,
+    pub message_exit: u64,
+    pub dog_exit: u64,
+}
+
+impl FailureCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            message: 2_843_340,
+            dog: 4_831_570,
+            header: 1_144_310,
+            detail: 1_817_150,
+            message_muted_poll: 102_580,
+            message_sound_poll: 186_060,
+            dog_muted_poll: 105_600,
+            dog_sound_poll: 191_090,
+            tone: 75_430,
+            message_exit: 57_710,
+            dog_exit: 61_180,
+        }
+    }
+
+    fn poll(self, poll: crate::failure::Poll, sound: bool) -> u64 {
+        match (poll, sound) {
+            (crate::failure::Poll::Message, false) => self.message_muted_poll,
+            (crate::failure::Poll::Message, true) => self.message_sound_poll,
+            (crate::failure::Poll::Dog, false) => self.dog_muted_poll,
+            (crate::failure::Poll::Dog, true) => self.dog_sound_poll,
+        }
+    }
+
+    fn nanos(self, work: crate::failure::PresentationWork) -> u64 {
+        u64::from(work.message) * self.message
+            + u64::from(work.dog) * self.dog
+            + u64::from(work.header) * self.header
+            + u64::from(work.detail) * self.detail
+            + if work.tone { self.tone } else { 0 }
+            + if work.terminal {
+                match work.poll {
+                    Some(crate::failure::Poll::Message) => self.message_exit,
+                    Some(crate::failure::Poll::Dog) => self.dog_exit,
+                    None => 0,
+                }
+            } else {
+                0
+            }
+    }
+}
+
 /// Scoped XT blocking-effect work; tick deadlines remain separate.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockingCosts {
@@ -718,6 +778,7 @@ pub struct ReferenceCosts {
     pub fence_finish: u64,
     pub mouse_effect_poll: u64,
     pub blocking: Option<BlockingCosts>,
+    pub failure: Option<FailureCosts>,
 }
 
 impl ReferenceCosts {
@@ -828,6 +889,7 @@ impl ReferenceCosts {
             spider_effect_poll: 151_810,
             mouse_effect_poll: 105_600,
             blocking: Some(BlockingCosts::ibm_xt()),
+            failure: Some(FailureCosts::ibm_xt()),
             // Pure image helper; contact/scheduler work remains separate.
             bookcase_spider_effect_draw: 14_240_800,
             eel_effect_poll: 84_530,
@@ -1006,6 +1068,7 @@ impl ReferenceCosts {
             // BIOS tick read plus the short mouse-effect loop; approximate.
             mouse_effect_poll: 50_000,
             blocking: None,
+            failure: None,
         }
     }
 }
@@ -1078,6 +1141,15 @@ impl Runtime {
             assert!(
                 cost.mouse_sound_before + cost.mouse_sound_after > 0 && cost.cage_poll > 0,
                 "Blocking-effect polling must advance virtual time"
+            );
+        }
+        if let Some(cost) = costs.failure {
+            assert!(
+                cost.message_muted_poll > 0
+                    && cost.message_sound_poll > 0
+                    && cost.dog_muted_poll > 0
+                    && cost.dog_sound_poll > 0,
+                "Failure polling must advance virtual time"
             );
         }
         Self {
@@ -1154,14 +1226,18 @@ impl Runtime {
         let (hearts_nanos, hearts_bytes) = self.costs.hearts_presentation.map_or((0, 0), |costs| {
             (costs.nanos(work.hearts), work.hearts.bytes())
         });
+        let (failure_nanos, failure_bytes) = self.costs.failure.map_or((0, 0), |costs| {
+            (costs.nanos(work.failure), work.failure.bytes())
+        });
         let nanos = if let Some(costs) = self.costs.completion {
             let calibrated_bytes =
                 work.graphics.score_bytes + work.graphics.wipe.map_or(0, |wipe| wipe.bytes);
             let fallback_bytes = work
                 .bytes_drawn
-                .saturating_sub(calibrated_bytes + hearts_bytes);
+                .saturating_sub(calibrated_bytes + hearts_bytes + failure_bytes);
             let total = costs.nanos(work.graphics)
                 + hearts_nanos
+                + failure_nanos
                 + fallback_bytes as u64 * self.costs.completion_draw_byte;
             // A wipe's measured body includes its polling/loop work. The
             // dispatcher already advanced time before sampling this step.
@@ -1172,7 +1248,10 @@ impl Runtime {
             }
         } else {
             hearts_nanos
-                + work.bytes_drawn.saturating_sub(hearts_bytes) as u64
+                + failure_nanos
+                + work
+                    .bytes_drawn
+                    .saturating_sub(hearts_bytes + failure_bytes) as u64
                     * self.costs.completion_draw_byte
         };
         self.clock.advance_nanos(nanos);
@@ -1610,11 +1689,18 @@ impl Runtime {
             return self.finish_pass_from(alley, start_nanos, false, None, resume);
         }
         if alley.completion_waiting() {
-            self.clock.advance_nanos(self.costs.room_effect_poll);
+            let poll = match (self.costs.failure, alley.failure_poll()) {
+                (Some(cost), Some(kind)) => cost.poll(kind, alley.native_sound_enabled()),
+                _ => self.costs.room_effect_poll,
+            };
+            self.clock.advance_nanos(poll);
             let sample = self.clock.sample();
             alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let work = alley.advance_completion(sample.bios.tick_low, sample.retrace)?;
-            self.charge_completion(work, self.costs.room_effect_poll);
+            self.charge_completion(work, poll);
+            if work.failure.message && self.costs.failure.is_some() {
+                alley.finish_failure_drawing(self.clock.sample().bios.tick_low);
+            }
             let changed = work.complete;
             if changed {
                 self.synchronize_scene(alley);

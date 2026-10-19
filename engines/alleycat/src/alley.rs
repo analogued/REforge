@@ -1106,6 +1106,18 @@ impl Alley {
         Ok(())
     }
 
+    pub(crate) fn failure_poll(&self) -> Option<crate::failure::Poll> {
+        self.failure
+            .as_ref()
+            .and_then(crate::failure::Failure::poll)
+    }
+
+    pub(crate) fn finish_failure_drawing(&mut self, tick: u16) {
+        if let Some(failure) = self.failure.as_mut() {
+            failure.finish_drawing(&mut self.data, tick);
+        }
+    }
+
     pub(crate) fn advance_completion(
         &mut self,
         tick: u16,

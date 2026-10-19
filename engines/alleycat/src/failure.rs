@@ -7,6 +7,32 @@ use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer};
 use crate::completion::{Wipe, Work};
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Poll {
+    Message,
+    Dog,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct PresentationWork {
+    pub message: bool,
+    pub dog: bool,
+    pub header: bool,
+    pub detail: bool,
+    pub poll: Option<Poll>,
+    pub tone: bool,
+    pub terminal: bool,
+}
+
+impl PresentationWork {
+    pub(crate) fn bytes(self) -> usize {
+        usize::from(self.message) * 192
+            + usize::from(self.dog) * 544
+            + usize::from(self.header) * 128
+            + usize::from(self.detail) * 252
+    }
+}
+
 enum Phase {
     Black(Wipe),
     Begin,
@@ -28,6 +54,22 @@ impl Failure {
             phase: Phase::Black(Wipe::new(x, y, 0)),
             center: (x, y),
             preserve_life,
+        }
+    }
+
+    pub(crate) fn poll(&self) -> Option<Poll> {
+        match self.phase {
+            Phase::Message { .. } => Some(Poll::Message),
+            Phase::Dog { .. } => Some(Poll::Dog),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn finish_drawing(&mut self, data: &mut [u8], tick: u16) {
+        // CS:1dd7 samples each message wait baseline after drawing.
+        if let Phase::Message { since } = &mut self.phase {
+            *since = tick;
+            set_word(data, 0x1830, tick);
         }
     }
 
@@ -63,20 +105,23 @@ impl Failure {
                     set_word(data, 0x5f60, 0);
                     set_word(data, 0x5f66, tick);
                     work.bytes_drawn = draw_dog(data, screen)?;
+                    work.failure.dog = true;
                     self.phase = Phase::Dog { since: tick };
                 } else {
                     set_word(data, 0x1c1b, 0x8080);
                     data[0x1c1d] = 28;
                     set_word(data, 0x1830, tick);
                     work.bytes_drawn = draw_message(data, screen)?;
+                    work.failure.message = true;
                     self.phase = Phase::Message { since: tick };
                 }
             }
             Phase::Message { since } => {
+                work.failure.poll = Some(Poll::Message);
+                let tone_cursor = word(data, 0x5a85);
                 sound.failure_tone(data, tick);
+                work.failure.tone = word(data, 0x5a85) != tone_cursor;
                 if tick != *since {
-                    *since = tick;
-                    set_word(data, 0x1830, tick);
                     let count = data[0x1c1d];
                     let mask = if count <= 20 {
                         word(data, 0x1c1e + usize::from(count & 6))
@@ -87,20 +132,29 @@ impl Failure {
                     set_word(data, 0x1c1b, mask);
                     data[0x1c1d] -= 1;
                     if data[0x1c1d] == 0 {
+                        sound.stop();
+                        work.failure.terminal = true;
                         self.phase = Phase::Fill(Wipe::new(self.center.0, self.center.1, 0xaa));
                     } else {
+                        *since = tick;
+                        set_word(data, 0x1830, tick);
                         work.bytes_drawn = draw_message(data, screen)?;
+                        work.failure.message = true;
                     }
                 }
             }
             Phase::Dog { since } => {
+                work.failure.poll = Some(Poll::Dog);
+                let tone_cursor = word(data, 0x5a85);
                 sound.failure_tone(data, tick);
+                work.failure.tone = word(data, 0x5a85) != tone_cursor;
                 if tick.wrapping_sub(*since) >= 4 {
                     *since = tick;
                     set_word(data, 0x5f66, tick);
                     let count = word(data, 0x5f60);
                     if count == 4 {
                         copy(data, screen, 0x5f68, 0x0668, 0x1004)?;
+                        work.failure.header = true;
                     }
                     if (8..14).contains(&count) {
                         copy(
@@ -110,11 +164,15 @@ impl Failure {
                             word(data, 0x60e4 + usize::from(count - 8)),
                             0x1506,
                         )?;
+                        work.failure.detail = true;
                     }
                     if count >= 16 {
+                        sound.stop();
+                        work.failure.terminal = true;
                         self.phase = Phase::Fill(Wipe::new(self.center.0, self.center.1, 0xaa));
                     } else {
                         work.bytes_drawn = draw_dog(data, screen)?;
+                        work.failure.dog = true;
                     }
                 }
             }
@@ -126,6 +184,7 @@ impl Failure {
             }
             Phase::Complete => work.complete = true,
         }
+        work.bytes_drawn = work.bytes_drawn.max(work.failure.bytes());
         Ok(work)
     }
 }
@@ -174,6 +233,98 @@ fn draw_dog(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dog_frames_report_their_header_and_detail_copies() {
+        let mut data = vec![0; DATA_LENGTH];
+        set_word(&mut data, 0x5f62, 0x3000);
+        set_word(&mut data, 0x5f64, 0x3220);
+        let mut screen = Framebuffer::default();
+        let mut sound = crate::sound::Sound::default();
+        let mut failure = Failure {
+            phase: Phase::Dog {
+                since: u16::MAX - 3,
+            },
+            center: (100, 100),
+            preserve_life: false,
+        };
+        set_word(&mut data, 0x5f60, 4);
+        let header = failure
+            .advance(&mut data, &mut screen, 0, &mut sound)
+            .unwrap();
+        assert!(header.failure.header && header.failure.dog && !header.failure.detail);
+        assert_eq!(header.bytes_drawn, 128 + 544);
+        set_word(&mut data, 0x5f60, 8);
+        set_word(&mut data, 0x60e4, 0x1000);
+        let detail = failure
+            .advance(&mut data, &mut screen, 4, &mut sound)
+            .unwrap();
+        assert!(detail.failure.detail && detail.failure.dog && !detail.failure.header);
+        assert_eq!(detail.bytes_drawn, 252 + 544);
+    }
+
+    #[test]
+    fn final_message_stops_sound_without_replacing_its_last_draw_baseline() {
+        let mut data = vec![0; DATA_LENGTH];
+        data[0x1c1d] = 1;
+        set_word(&mut data, 0x1830, u16::MAX);
+        let mut screen = Framebuffer::default();
+        let mut sound = crate::sound::Sound::default();
+        sound.gate(3);
+        sound.record(true);
+        let mut failure = Failure {
+            phase: Phase::Message { since: u16::MAX },
+            center: (100, 100),
+            preserve_life: false,
+        };
+        let work = failure
+            .advance(&mut data, &mut screen, 0, &mut sound)
+            .unwrap();
+        assert!(work.failure.terminal && !work.failure.message);
+        assert_eq!(data[0x1c1d], 0);
+        assert_eq!(word(&data, 0x1830), u16::MAX);
+        let writes: Vec<_> = sound.drain().collect();
+        assert_eq!(writes.len(), 1);
+        assert_eq!((writes[0].port, writes[0].value & 3), (0x61, 0));
+    }
+
+    #[test]
+    fn message_wait_starts_after_its_image_has_finished_drawing() {
+        let mut data = vec![0; DATA_LENGTH];
+        data[0x1c1d] = 3;
+        set_word(&mut data, 0x1c2e, 0x3000);
+        let mut screen = Framebuffer::default();
+        let mut sound = crate::sound::Sound::default();
+        let mut failure = Failure {
+            phase: Phase::Message { since: u16::MAX },
+            center: (100, 100),
+            preserve_life: false,
+        };
+        assert!(
+            failure
+                .advance(&mut data, &mut screen, 0, &mut sound)
+                .unwrap()
+                .failure
+                .message
+        );
+        failure.finish_drawing(&mut data, 1);
+        assert_eq!(word(&data, 0x1830), 1);
+        assert!(
+            !failure
+                .advance(&mut data, &mut screen, 1, &mut sound)
+                .unwrap()
+                .failure
+                .message
+        );
+        assert_eq!(data[0x1c1d], 2);
+        assert!(
+            failure
+                .advance(&mut data, &mut screen, 2, &mut sound)
+                .unwrap()
+                .failure
+                .message
+        );
+    }
 
     #[test]
     fn room_failure_loses_one_life_and_infinite_lives_only_suppresses_the_decrement() {

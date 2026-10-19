@@ -27,6 +27,37 @@ pub(crate) struct FallStep {
 pub(crate) struct BirdStep {
     pub drew: bool,
     pub caught: bool,
+    pub work: Option<BirdWork>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum BirdGate {
+    #[default]
+    SameTick,
+    NotReleased,
+    Broom,
+    Motion,
+}
+
+/// Work along the actual scheduler path; observing it consumes no extra RNG.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct BirdWork {
+    pub gate: BirdGate,
+    pub random_draws: u8,
+    pub separation: bool,
+    pub waypoint: bool,
+    pub released_waypoint: bool,
+    pub turned: bool,
+    pub tone: bool,
+    pub axes: u8,
+    pub restored: bool,
+}
+
+impl BirdWork {
+    fn random(&mut self, data: &mut [u8]) -> u16 {
+        self.random_draws += 1;
+        next_random(data)
+    }
 }
 
 fn check(data: &[u8]) -> Result<(), String> {
@@ -139,10 +170,11 @@ pub(crate) fn initialize(data: &mut [u8], screen: &mut Framebuffer) -> Result<()
 }
 
 // CS:595d consumes shared random state only when a new asynchronous tone starts.
-fn random_tone(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound) {
+fn random_tone(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound, work: &mut BirdWork) {
     if data[0] != 0 && data[0x5920] == 0 {
-        let period = (next_random(data) & 127).wrapping_add(0xaa);
+        let period = (work.random(data) & 127).wrapping_add(0xaa);
         sound.request(data, tick, period.wrapping_add(30), period);
+        work.tone = true;
     }
 }
 
@@ -377,6 +409,7 @@ pub(crate) fn advance_motion(
         return Ok(BirdStep {
             drew: false,
             caught: data[0x553] != 0,
+            work: None,
         });
     }
     data[0x40b9] = 0;
@@ -400,7 +433,21 @@ pub(crate) fn advance_motion(
     Ok(BirdStep {
         drew: true,
         caught: data[0x553] != 0,
+        work: None,
     })
+}
+
+fn scheduled_motion(
+    data: &mut [u8],
+    screen: &mut Framebuffer,
+    mut work: BirdWork,
+) -> Result<BirdStep, String> {
+    work.gate = BirdGate::Motion;
+    work.axes = u8::from(data[0x40b7] != 0) + u8::from(data[0x40b8] != 0);
+    work.restored = data[0x40b9] == 0;
+    let mut step = advance_motion(data, screen)?;
+    step.work = Some(work);
+    Ok(step)
 }
 
 /// CS:4340 scheduler, random choices, avoidance and external waypoints.
@@ -411,9 +458,10 @@ pub(crate) fn advance_bird(
     sound: &mut crate::sound::Sound,
 ) -> Result<BirdStep, String> {
     check(data)?;
-    let held = BirdStep {
+    let mut held = BirdStep {
         drew: false,
         caught: data[0x553] != 0,
+        work: Some(BirdWork::default()),
     };
     if tick == word(data, 0x40b5) {
         return Ok(held);
@@ -423,6 +471,7 @@ pub(crate) fn advance_bird(
         set_word(data, 0x40b5, tick);
     }
     if data[0x40aa] < 164 {
+        held.work.as_mut().unwrap().gate = BirdGate::NotReleased;
         return Ok(held);
     }
     capture(data);
@@ -430,26 +479,33 @@ pub(crate) fn advance_bird(
         return Ok(BirdStep {
             drew: false,
             caught: data[0x553] != 0,
+            work: Some(BirdWork {
+                gate: BirdGate::Broom,
+                ..Default::default()
+            }),
         });
     }
-    if next_random(data) as u8 <= 0x30 {
+    let mut work = BirdWork::default();
+    if work.random(data) as u8 <= 0x30 {
+        work.separation = true;
         measure_separation(data);
         let difficulty = usize::from(word(data, 8));
         if difficulty > 7 {
             return Err("Bird difficulty exceeds its avoidance table".into());
         }
         if word(data, 0x40cc) <= word(data, 0x40ce + difficulty * 2) {
-            random_tone(data, tick, sound);
+            random_tone(data, tick, sound, &mut work);
             set_word(data, 0x40c8, 255);
             data[0x40b7] = data[0x40ca];
             data[0x40b8] = data[0x40cb];
-            return advance_motion(data, screen);
+            return scheduled_motion(data, screen, work);
         }
     }
     if word(data, 0x40c8) <= 10 {
-        if next_random(data) as u8 <= 6 {
+        if work.random(data) as u8 <= 6 {
             set_word(data, 0x40c8, 255);
         } else {
+            work.waypoint = true;
             let target = usize::from(word(data, 0x40c8));
             let x = word(data, 0x40b2) & 0x0ffc;
             let tx = word(data, 0x40de + target * 2);
@@ -469,26 +525,68 @@ pub(crate) fn advance_bird(
             } else {
                 255
             };
-            if data[0x40b7] | data[0x40b8] != 0 || next_random(data) as u8 > 0x10 {
-                return advance_motion(data, screen);
+            if data[0x40b7] | data[0x40b8] != 0 || work.random(data) as u8 > 0x10 {
+                return scheduled_motion(data, screen, work);
             }
+            work.released_waypoint = true;
             set_word(data, 0x40c8, 255);
-            random_tone(data, tick, sound);
+            random_tone(data, tick, sound, &mut work);
         }
     }
-    let random = next_random(data) as u8;
+    let random = work.random(data) as u8;
     if random <= 0x30 {
+        work.turned = true;
         data[0x40b7] = if random & 1 != 0 { 1 } else { 255 };
-        data[0x40b8] = if next_random(data) & 1 != 0 { 1 } else { 255 };
+        data[0x40b8] = if work.random(data) & 1 != 0 { 1 } else { 255 };
     }
-    let target = next_random(data) & 255;
+    let target = work.random(data) & 255;
     set_word(data, 0x40c8, target);
-    advance_motion(data, screen)
+    scheduled_motion(data, screen, work)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scheduler_work_tracks_the_native_sound_draw_without_observer_rng() {
+        for (enabled, busy, draws, final_seed, tone) in [
+            (false, 0, 1, 0x8001, false),
+            (true, 0, 2, 0x4000, true),
+            (true, 2, 1, 0x8001, false),
+        ] {
+            let (mut data, mut screen) = fixture();
+            data[0] = u8::from(enabled);
+            data[0x5920] = busy;
+            data[0x40aa] = 164;
+            data[0x40b9] = 1;
+            set_word(&mut data, 0x579, 70);
+            data[0x57b] = 104;
+            set_word(&mut data, 0x40b2, 100);
+            data[0x40b4] = 104;
+            set_word(&mut data, 0x327d, 280);
+            data[0x327f] = 180;
+            set_word(&mut data, 0x40ce, 40);
+            set_word(&mut data, 0x2ae5, 2);
+            let mut sound = crate::sound::Sound::default();
+            sound.record(true);
+            let step = advance_bird(&mut data, &mut screen, 1, &mut sound).unwrap();
+            let work = step.work.unwrap();
+            assert!(step.drew && work.separation);
+            assert_eq!(work.gate, BirdGate::Motion);
+            assert_eq!(
+                (work.random_draws, word(&data, 0x2ae5)),
+                (draws, final_seed)
+            );
+            assert_eq!((work.tone, work.restored, work.axes), (tone, false, 2));
+            assert_eq!(sound.drain().count(), if tone { 4 } else { 0 });
+            let before = data.clone();
+            let held = advance_bird(&mut data, &mut screen, 1, &mut sound).unwrap();
+            assert_eq!(held.work.unwrap().gate, BirdGate::SameTick);
+            assert_eq!(held.work.unwrap().random_draws, 0);
+            assert_eq!(data, before);
+        }
+    }
 
     fn fixture() -> (Vec<u8>, Framebuffer) {
         let mut data = vec![0; DATA_LENGTH];

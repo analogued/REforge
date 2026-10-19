@@ -704,11 +704,36 @@ phase-dependent, not fixed delays. Dog-pause and entry/caller overhead remain
 approximate; these cases do not measure complete room transitions.
 
 The bird's separately entered motion/drawing body measures about 1.04–1.09 ms
-on first appearance and 1.333 ms when it restores its previous image. The active
-allowance uses the latter normal visible-frame cost; first appearance is priced
-conservatively. It is additional to the provisional scheduler allowance, whose
-random-choice paths remain uncalibrated. Cage/bird measurements use native-muted
-inputs; occasional asynchronous tone-request overhead remains approximate.
+on first appearance and 1.333 ms when it restores its previous image. Normal XT
+play prices the whole scheduler call using the decision fit below; these isolated
+motion costs are not added again. Cage measurements use native-muted inputs;
+its occasional asynchronous tone-request overhead remains approximate.
+
+Bird scheduler (`4340`) calls on the shared XT baseline measure 1.434–1.957 ms
+across sampled avoidance, waypoint and random-direction paths. Native same-tick,
+unreleased-cage and broom gates use 0.079, 0.111 and 0.279 ms respectively.
+The active fit counts actual random draws, separation tests, waypoint following,
+releases, direction changes, requested tones, moving axes and saved-background
+restoration. It consumes no extra random values. First-appearance and visible
+calls therefore pay their respective work once, replacing the generic room gate
+and fixed bird-drawing allowance.
+
+The fitted whole-call base is 1.332 ms, including normal first drawing. Each
+random draw adds 0.030 ms; separation testing 0.1142 ms; waypoint following
+0.0438 ms; waypoint release 0.0455 ms; direction changes 0.023 ms; each moving
+axis 0.008 ms; and old-background restoration 0.2775 ms. An audible asynchronous
+request adds 0.1661 ms plus its counted random draw (about 0.196 ms total).
+Native sound enable/busy flags select this work independently of host volume.
+All eighteen sampled whole-call medians fit within 0.011 ms. These correlated
+coefficients are bounded fits, not independently measured instruction costs.
+
+The shared original difficulty thresholds, fourth-slot tick rule, waypoint tables
+and sound-dependent random consumption are unchanged. Selected-state, complete
+VRAM, random-draw and sound-program comparisons cover the captured cases, not
+whole-room cadence or every seed/position. Post-motion broom suppression retains
+a conservative active allowance including first drawing; that collision branch,
+exact in-call tone timestamps and additional boundaries remain approximate.
+The older DOSBox profile retains its generic gate and fixed drawing price.
 
 The shared broom helper (`3150`) measures about 0.097 ms for a rejected tick,
 3.807 ms for first drawing and 5.507–5.522 ms for ordinary visible movement

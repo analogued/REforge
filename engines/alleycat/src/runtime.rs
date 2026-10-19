@@ -759,6 +759,64 @@ impl BookkeepingCosts {
     }
 }
 
+/// Whole bird scheduler calls on the shared XT baseline. The active allowance
+/// includes normal first drawing; restore and decision increments are fitted
+/// from bounded calls, not independent instruction timings.
+#[derive(Clone, Copy, Debug)]
+pub struct BirdCosts {
+    pub same_tick: u64,
+    pub not_released: u64,
+    pub broom: u64,
+    pub active: u64,
+    pub random_draw: u64,
+    pub separation: u64,
+    pub waypoint: u64,
+    pub released_waypoint: u64,
+    pub turned: u64,
+    pub tone: u64,
+    pub axis: u64,
+    pub restore: u64,
+}
+
+impl BirdCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            same_tick: 79_000,
+            not_released: 111_000,
+            broom: 279_000,
+            active: 1_332_000,
+            random_draw: 30_000,
+            separation: 114_200,
+            waypoint: 43_800,
+            released_waypoint: 45_500,
+            turned: 23_000,
+            tone: 166_100,
+            axis: 8_000,
+            restore: 277_500,
+        }
+    }
+
+    fn nanos(self, work: crate::birdcage::BirdWork) -> u64 {
+        use crate::birdcage::BirdGate;
+        match work.gate {
+            BirdGate::SameTick => self.same_tick,
+            BirdGate::NotReleased => self.not_released,
+            BirdGate::Broom => self.broom,
+            BirdGate::Motion => {
+                self.active
+                    + u64::from(work.random_draws) * self.random_draw
+                    + u64::from(work.separation) * self.separation
+                    + u64::from(work.waypoint) * self.waypoint
+                    + u64::from(work.released_waypoint) * self.released_waypoint
+                    + u64::from(work.turned) * self.turned
+                    + u64::from(work.tone) * self.tone
+                    + u64::from(work.axes) * self.axis
+                    + u64::from(work.restored) * self.restore
+            }
+        }
+    }
+}
+
 /// Scoped execution costs for a selected reference CPU profile.
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Base call allowances and active
@@ -871,6 +929,7 @@ pub struct ReferenceCosts {
     pub failure: Option<FailureCosts>,
     pub setup: Option<SetupCosts>,
     pub bookkeeping: Option<BookkeepingCosts>,
+    pub bird: Option<BirdCosts>,
 }
 
 impl ReferenceCosts {
@@ -1002,6 +1061,7 @@ impl ReferenceCosts {
             window: Some(WindowCosts::ibm_xt()),
             setup: Some(SetupCosts::ibm_xt()),
             bookkeeping: Some(BookkeepingCosts::ibm_xt()),
+            bird: Some(BirdCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
         }
     }
@@ -1165,6 +1225,7 @@ impl ReferenceCosts {
             failure: None,
             setup: None,
             bookkeeping: None,
+            bird: None,
         }
     }
 }
@@ -1355,6 +1416,14 @@ impl Runtime {
             .bookkeeping
             .map_or(0, |costs| costs.nanos(work.bookkeeping));
         self.clock.advance_nanos(nanos + bookkeeping);
+    }
+
+    fn charge_bird(&mut self, step: crate::birdcage::BirdStep) {
+        let nanos = match (self.costs.bird, step.work) {
+            (Some(costs), Some(work)) => costs.nanos(work),
+            _ => self.costs.room_actor_gate + u64::from(step.drew) * self.costs.room_bird_draw,
+        };
+        self.clock.advance_nanos(nanos);
     }
 
     fn charge_hearts(&mut self, step: crate::hearts::HeartStep) {
@@ -1948,10 +2017,7 @@ impl Runtime {
             }
             alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let bird = alley.advance_room_bird(self.clock.sample().bios.tick_low)?;
-            self.clock.advance_nanos(self.costs.room_actor_gate);
-            if bird.drew {
-                self.clock.advance_nanos(self.costs.room_bird_draw);
-            }
+            self.charge_bird(bird);
         }
         if matches!(alley.scene(), 1..=4 | 6..=7) {
             // These scenes expire the shared room tone before the player call.
@@ -2367,6 +2433,35 @@ impl Runtime {
 mod tests {
     use super::*;
     use crate::timing::BIOS_TICK_PIT_CLOCKS;
+
+    #[test]
+    fn whole_bird_cost_replaces_the_legacy_gate_and_drawing_allowances() {
+        let step = crate::birdcage::BirdStep {
+            drew: true,
+            work: Some(crate::birdcage::BirdWork {
+                gate: crate::birdcage::BirdGate::Motion,
+                random_draws: 3,
+                axes: 2,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut costs = ReferenceCosts::ibm_xt(machine);
+            costs.room_actor_gate = 9_000_000;
+            costs.room_bird_draw = 10_000_000;
+            let mut runtime = Runtime::with_costs(machine, costs);
+            runtime.charge_bird(step);
+            assert_eq!(runtime.clock.elapsed_nanos(), 1_438_000);
+            let legacy = ReferenceCosts::dosbox_x_240(machine);
+            let mut runtime = Runtime::with_costs(machine, legacy);
+            runtime.charge_bird(step);
+            assert_eq!(
+                runtime.clock.elapsed_nanos(),
+                u128::from(legacy.room_actor_gate + legacy.room_bird_draw)
+            );
+        }
+    }
 
     #[test]
     fn bookkeeping_is_additional_to_graphics_and_absent_from_the_older_profile() {

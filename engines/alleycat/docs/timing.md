@@ -277,9 +277,10 @@ unless success or sinking suppresses harm. Air expiry at the external `0589`
 threshold forces sinking, clears horizontal motion and draws rising bubbles
 every six accepted updates. `0599` fails the room 72 ticks later. Disabling air
 damage retains warning colors but suppresses sinking and failure.
-Swimming, bowl, actor and surface execution costs remain provisional. Controlled
-routine comparisons establish these rules, not full original-loop timing or
-random-stream equivalence.
+Bowl, actor and surface execution costs use scoped XT measurements described
+below. Swimming, contact scans and room transitions remain provisional.
+Controlled routine comparisons establish these rules, not full original-loop
+timing or random-stream equivalence.
 
 ### Dogs, projectile hits and room failure
 
@@ -625,6 +626,32 @@ required frame before measurement. The generic room gate remains approximate,
 with sampled idle checks differing by up to about 0.167 ms. These are selected
 native-muted paths, not complete difficulty-specific room loops or exhaustive
 random-retry timing. The earlier DOSBox profile retains its original allowances.
+
+Fishbowl animation (`3850`) measures 0.752–0.754 ms, or 0.781 ms when contact
+sets the entry latch. Its quiet tick check measures 0.085 ms. The fit keeps that
+check separate from drawing and uses one drawing allowance for both phases and
+contact; entering the underwater room is outside this measured call.
+
+Underwater actors (`3675`) measure 0.078 ms for a rejected tick and 0.145 ms for
+an accepted inactive slot. First fish drawing measures 0.708 ms; restoring the
+previous image and drawing again measures 1.044–1.049 ms. The smaller eel image
+measures 0.538 ms first and 0.694–0.703 ms when visible. Runtime costs distinguish
+fish/eel images and charge restoration only when it occurs, above quiet and
+accepted-call work. The sampled wrap prelude measures 1.074 ms with a visible
+fish and shares the ordinary allowance, differing by about 0.030 ms. Slot-zero
+body fixtures deliberately bypass that prelude; they do not establish natural
+whole-pass cadence. Explicit PCjr software-ID midpoint cases, at player Y20/Y80,
+measure 0.695/0.702 ms on the same XT/CGA baseline and retain their native latch
+decisions. They are not physical PCjr hardware measurements.
+
+Water-surface updates (`37e5`) measure 0.362–0.373 ms, including the cursor-wrap
+case. Quiet rejection measures 0.085 ms and a player-adjacent skipped tile
+0.139 ms; the fit distinguishes accepted opportunities from actual drawing.
+Twenty controlled paths, each measured twice with empty-call subtraction, check
+these totals within 0.040 ms. They cover selected positions and sprite phases,
+not random-direction branches, all animation images, contact scans or swimming.
+These are same-capture fit checks, not independent validation of whole-game
+pacing. The earlier DOSBox profile retains its original drawing-only charges.
 
 Control hold/poll helpers measure about 0.084/0.306 ms. Gate and BIOS sampling
 splits remain approximate; whole-helper totals do not identify each instruction

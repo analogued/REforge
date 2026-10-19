@@ -71,8 +71,16 @@ pub struct ReferenceCosts {
     pub bookcase_spider_effect_draw: u64,
     pub bookcase_target_draw: u64,
     pub swimming_player: u64,
+    pub underwater_actor_gate: u64,
+    pub underwater_actor_step: u64,
     pub underwater_actor_draw: u64,
+    pub underwater_actor_restore: u64,
+    pub underwater_eel_draw: u64,
+    pub underwater_eel_restore: u64,
+    pub water_surface_gate: u64,
+    pub water_surface_step: u64,
     pub water_surface_draw: u64,
+    pub fishbowl_gate: u64,
     pub fishbowl_draw: u64,
     pub milk_drink_draw: u64,
     pub milk_attention_draw: u64,
@@ -167,6 +175,19 @@ impl ReferenceCosts {
             cheese_transfer_draw: 1_011_600,
             cheese_transfer_edge: 1_036_200,
             cheese_transfer_broom_draw: 3_020_000,
+            // Bowl, fish/eel and surface near-calls on the same XT baseline.
+            // Drawing increments exclude their own quiet/accepted call work.
+            fishbowl_gate: 84_960,
+            fishbowl_draw: 668_000,
+            underwater_actor_gate: 78_360,
+            underwater_actor_step: 66_840,
+            underwater_actor_draw: 562_780,
+            underwater_actor_restore: 336_080,
+            underwater_eel_draw: 392_440,
+            underwater_eel_restore: 156_510,
+            water_surface_gate: 85_070,
+            water_surface_step: 53_840,
+            water_surface_draw: 228_750,
             // Whole native loop intervals, fitted to the stock XT capture.
             spider_effect_poll: 151_810,
             eel_effect_poll: 84_530,
@@ -259,8 +280,16 @@ impl ReferenceCosts {
             bookcase_target_draw: 1_500_000,
             // Provisional fishbowl/swimming work, separate from BIOS gates.
             swimming_player: 3_500_000,
+            underwater_actor_gate: 200_000,
+            underwater_actor_step: 0,
             underwater_actor_draw: 250_000,
+            underwater_actor_restore: 0,
+            underwater_eel_draw: 250_000,
+            underwater_eel_restore: 0,
+            water_surface_gate: 200_000,
+            water_surface_step: 0,
             water_surface_draw: 200_000,
+            fishbowl_gate: 200_000,
             fishbowl_draw: 500_000,
             // Provisional milk-room drawing costs, separate from native gates.
             milk_drink_draw: 1_500_000,
@@ -375,6 +404,50 @@ impl Runtime {
             damage_resume: None,
             scene: 0,
         }
+    }
+
+    fn step_fishbowl(&mut self, alley: &mut Alley) -> Result<(), String> {
+        let bowl = alley.advance_fishbowl(self.clock.sample().bios.tick_low)?;
+        self.clock.advance_nanos(self.costs.fishbowl_gate);
+        if bowl.drew {
+            self.clock.advance_nanos(self.costs.fishbowl_draw);
+        }
+        Ok(())
+    }
+
+    fn step_underwater_actors(&mut self, alley: &mut Alley) -> Result<(), String> {
+        let actor = alley.advance_underwater_actors(self.clock.sample().bios.tick_low)?;
+        self.clock.advance_nanos(self.costs.underwater_actor_gate);
+        if actor.accepted {
+            self.clock.advance_nanos(self.costs.underwater_actor_step);
+        }
+        if actor.drew {
+            self.clock.advance_nanos(if actor.eel {
+                self.costs.underwater_eel_draw
+            } else {
+                self.costs.underwater_actor_draw
+            });
+        }
+        if actor.restored {
+            self.clock.advance_nanos(if actor.eel {
+                self.costs.underwater_eel_restore
+            } else {
+                self.costs.underwater_actor_restore
+            });
+        }
+        Ok(())
+    }
+
+    fn step_water_surface(&mut self, alley: &mut Alley) -> Result<(), String> {
+        let surface = alley.advance_water_surface(self.clock.sample().bios.tick_low)?;
+        self.clock.advance_nanos(self.costs.water_surface_gate);
+        if surface.accepted {
+            self.clock.advance_nanos(self.costs.water_surface_step);
+        }
+        if surface.drew {
+            self.clock.advance_nanos(self.costs.water_surface_draw);
+        }
+        Ok(())
     }
 
     fn step_cheese_mice(&mut self, alley: &mut Alley) -> Result<(), String> {
@@ -893,16 +966,8 @@ impl Runtime {
                     }
                 }
             } else if before_scene == 2 {
-                let actor = alley.advance_underwater_actors(self.clock.sample().bios.tick_low)?;
-                self.clock.advance_nanos(self.costs.room_actor_gate);
-                if actor.drew {
-                    self.clock.advance_nanos(self.costs.underwater_actor_draw);
-                }
-                let surface = alley.advance_water_surface(self.clock.sample().bios.tick_low)?;
-                self.clock.advance_nanos(self.costs.room_actor_gate);
-                if surface.drew {
-                    self.clock.advance_nanos(self.costs.water_surface_draw);
-                }
+                self.step_underwater_actors(alley)?;
+                self.step_water_surface(alley)?;
             } else {
                 if before_scene == 3 && resume != Some(DamageResume::Spider) {
                     // Original scene-three loop: player, spider, plants, broom.
@@ -932,11 +997,7 @@ impl Runtime {
                     self.clock.advance_nanos(self.costs.ground_dog);
                 }
                 if before_scene == 1 {
-                    let bowl = alley.advance_fishbowl(self.clock.sample().bios.tick_low)?;
-                    self.clock.advance_nanos(self.costs.room_actor_gate);
-                    if bowl.drew {
-                        self.clock.advance_nanos(self.costs.fishbowl_draw);
-                    }
+                    self.step_fishbowl(alley)?;
                 }
             }
             self.clock.advance_nanos(self.costs.room_actor_gate);

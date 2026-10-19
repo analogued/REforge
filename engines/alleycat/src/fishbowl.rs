@@ -20,6 +20,8 @@ pub(crate) struct BowlStep {
 pub(crate) struct ActorStep {
     pub accepted: bool,
     pub drew: bool,
+    pub eel: bool,
+    pub restored: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -211,7 +213,8 @@ pub(crate) fn advance_actors(
     set_word(data, 0x3415, slot as u16);
     let mut result = ActorStep {
         accepted: true,
-        drew: false,
+        eel: slot >= 12,
+        ..ActorStep::default()
     };
     if data[0x34a7 + slot] != 0 {
         return Ok(result);
@@ -263,7 +266,7 @@ pub(crate) fn advance_actors(
     data[0x3477 + slot] = y;
     let dest = pixel_offset(x, y);
     set_word(data, 0x34ef, dest);
-    restore_actor(data, screen, slot)?;
+    result.restored = restore_actor(data, screen, slot)?;
     set_word(data, 0x34bf + slot * 2, dest);
     data[0x348f + slot] = 0;
     let source = if slot >= 12 {

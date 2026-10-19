@@ -11,6 +11,7 @@ pub(crate) struct Work {
     pub bytes_drawn: usize,
     pub complete: bool,
     pub graphics: Graphics,
+    pub hearts: crate::hearts_completion::PresentationWork,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -102,6 +103,7 @@ impl Wipe {
                     wipe: Some(geometry),
                     ..Graphics::default()
                 },
+                hearts: Default::default(),
             });
         }
         geometry.clips = self.grow();
@@ -112,6 +114,7 @@ impl Wipe {
                 wipe: Some(geometry),
                 ..Graphics::default()
             },
+            hearts: Default::default(),
         })
     }
     fn grow(&mut self) -> u8 {

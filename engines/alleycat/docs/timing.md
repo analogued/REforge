@@ -486,9 +486,34 @@ palette requests are independent of framebuffer memory. BIOS font lettering uses
 the attributed SDL 8×8 glyphs shared with the pause display; scoring characters
 match the captured CGA/PCjr BIOS font.
 Speaker synthesis and native sound random consumers are implemented. The
-approach sweep's counted sound delay uses an XT fit; other presentation-loop
-execution costs remain provisional. Controlled helper/frame comparisons do not
-establish full original-loop timing or random-stream equivalence.
+approach sweep's counted sound delay uses an XT fit. The XT profile also prices
+callable presentation helpers separately from their deliberate waits:
+
+- Celebration frames cost about 10.34–87.76 ms for the original difficulty
+  lists of 4, 8, 16, 24, 26 or 34 decorations. Both image phases use the same
+  fitted per-copy cost; the five-tick cadence and forty-tick lifetime remain separate.
+- The approach/large pairing cat draw costs about 24.88 ms, its panel 0.93 ms,
+  and the smaller pairing shapes 2.00 and 7.35 ms per draw. Pairing draws one
+  image on its initial frame and eight thereafter, plus the movement helpers
+  actually executed. One position update takes about 33–101 microseconds,
+  depending on movement and clamping.
+- Each falling-cat copy costs about 0.77 ms, including the equal-sized blank
+  erasing its previous position. Its landing image costs about 1.47 ms.
+
+These are scoped helper fits, not general sprite-area rates or complete animation
+measurements. The opaque copy loop is independent of pixel values; the transparent
+save/draw loop branches on source pixels, not the saved background. Sprite source
+and shape therefore matter, while changing only the background does not change
+their instruction paths. Video phase and interrupts still limit repeatability.
+Drawing advances the same timeline as waits, rather than adding a second delay
+after them. A frame can nevertheless exceed its timer deadline; measured
+throughput alone does not establish whether that slowdown was intended.
+
+Enclosing approach/pair/score/reward bookkeeping, score text and wait-poll
+execution allowances remain provisional. Sound request timestamps within a drawing
+phase are not independently fitted by the muted graphics captures. Controlled
+helper/frame comparisons do not establish full original-loop timing or
+random-stream equivalence.
 
 ### Initial splash
 

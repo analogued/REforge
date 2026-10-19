@@ -8,6 +8,45 @@ use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 use crate::completion::{Wipe, Work};
 
+/// Native presentation work, separate from tick/retrace waits and host redraws.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct PresentationWork {
+    pub sprites: [u8; 6],
+    pub pair_items: u8,
+    pub increasing_axes: u8,
+    pub decreasing_axes: u8,
+    pub upper_clamps: u8,
+    pub lower_clamps: u8,
+    pub dance_frames: u8,
+    pub dance_copies: u8,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum PresentationSprite {
+    ApproachCat,
+    ApproachPanel,
+    PairSmall,
+    PairMedium,
+    FallingCat,
+    LandingCat,
+}
+
+impl PresentationWork {
+    fn sprite(&mut self, sprite: PresentationSprite) {
+        self.sprites[sprite as usize] += 1;
+    }
+
+    pub(crate) fn bytes(self) -> usize {
+        let sizes = [448, 104, 32, 128, 72, 204];
+        self.sprites
+            .into_iter()
+            .zip(sizes)
+            .map(|(count, size)| usize::from(count) * size)
+            .sum::<usize>()
+            + usize::from(self.dance_copies) * 280
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Phase {
     Start,
@@ -48,7 +87,7 @@ fn check_data(data: &[u8]) -> Result<(), String> {
 }
 
 fn copy_sprite(
-    data: &[u8],
+    data: &mut [u8],
     screen: &mut Framebuffer,
     source: u16,
     destination: u16,
@@ -59,6 +98,8 @@ fn copy_sprite(
         dimensions,
         sprite_bytes(data, source, dimensions)?,
     )?;
+    data[0x2ae0] = dimensions.0 as u8;
+    data[0x2ae2] = 0;
     Ok(dimensions.len())
 }
 
@@ -199,9 +240,8 @@ fn initialize_pair(data: &mut [u8], group: u8) {
     data[0x4d91] = 1;
 }
 
-fn pair_frame(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, String> {
+fn pair_frame(data: &mut [u8], screen: &mut Framebuffer, work: &mut Work) -> Result<(), String> {
     data[0x4d6e] = 0;
-    let mut bytes = 0;
     for index in (0..8).rev() {
         let offset = index * 2;
         if data[0x4d91] == 0 || index == 7 {
@@ -209,36 +249,55 @@ fn pair_frame(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, String
                 word(data, 0x4d4a + offset),
                 word(data, 0x4d5a + offset) as u8,
             );
-            bytes += transparent_sprite(
+            work.bytes_drawn += transparent_sprite(
                 data,
                 screen,
                 word(data, 0x4dca),
                 destination,
                 Dimensions(word(data, 0x4dd4)),
             )?;
-        }
-        for (positions, directions, step, limit) in [
-            (0x4d4a, 0x4d6f, 0x4d6a, 0x4dd0),
-            (0x4d5a, 0x4d7f, 0x4d6c, 0x4dd2),
-        ] {
-            let old = word(data, positions + offset);
-            let direction = word(data, directions + offset);
-            let (next, finished) = if direction == 0 {
-                (old, false)
-            } else if direction == 1 {
-                let next = old.wrapping_add(word(data, step));
-                (next.min(word(data, limit)), next > word(data, limit))
-            } else {
-                let (next, overflow) = old.overflowing_sub(word(data, step));
-                (if overflow { 0 } else { next }, overflow)
+            let sprite = match word(data, 0x4dd4) {
+                0x0802 => Some(PresentationSprite::PairSmall),
+                0x1004 => Some(PresentationSprite::PairMedium),
+                0x2007 => Some(PresentationSprite::ApproachCat),
+                _ => None,
             };
-            set_word(data, positions + offset, next);
-            if finished {
-                data[0x4d6e] = data[0x4d6e].wrapping_add(1);
+            if let Some(sprite) = sprite {
+                work.hearts.sprite(sprite);
             }
         }
+        pair_position(data, offset, &mut work.hearts);
     }
-    Ok(bytes)
+    Ok(())
+}
+
+/// CS:522a, one pair item; drawing and the enclosing wait are separate.
+fn pair_position(data: &mut [u8], offset: usize, work: &mut PresentationWork) {
+    work.pair_items += 1;
+    for (positions, directions, step, limit) in [
+        (0x4d4a, 0x4d6f, 0x4d6a, 0x4dd0),
+        (0x4d5a, 0x4d7f, 0x4d6c, 0x4dd2),
+    ] {
+        let old = word(data, positions + offset);
+        let direction = word(data, directions + offset);
+        let (next, finished) = if direction == 0 {
+            (old, false)
+        } else if direction == 1 {
+            work.increasing_axes += 1;
+            let next = old.wrapping_add(word(data, step));
+            work.upper_clamps += u8::from(next > word(data, limit));
+            (next.min(word(data, limit)), next > word(data, limit))
+        } else {
+            work.decreasing_axes += 1;
+            let (next, overflow) = old.overflowing_sub(word(data, step));
+            work.lower_clamps += u8::from(overflow);
+            (if overflow { 0 } else { next }, overflow)
+        };
+        set_word(data, positions + offset, next);
+        if finished {
+            data[0x4d6e] = data[0x4d6e].wrapping_add(1);
+        }
+    }
 }
 
 fn dance_frame(
@@ -255,10 +314,10 @@ fn dance_frame(
             .get(list..list + 4)
             .ok_or("Hearts celebration list exceeds executable data")?;
         let destination = u16::from_le_bytes([entry[0], entry[1]]);
+        set_word(data, 0x5010, list as u16);
         if destination == 0 {
             return Ok(bytes);
         }
-        set_word(data, 0x5010, list as u16);
         let choice = (word(data, list + 2) ^ word(data, 0x5016)) & 2;
         bytes += copy_sprite(
             data,
@@ -369,8 +428,10 @@ impl HeartsCompletion {
                     set_word(data, 0x4dd8, destination);
                     work.bytes_drawn +=
                         transparent_sprite(data, screen, 0x4b8a, destination, Dimensions(0x2007))?;
+                    work.hearts.sprite(PresentationSprite::ApproachCat);
                     work.bytes_drawn +=
                         copy_sprite(data, screen, 0x4a82, destination + 0xf3, Dimensions(0x0d04))?;
+                    work.hearts.sprite(PresentationSprite::ApproachPanel);
                     let first = word(data, 0x4dd6) == 10;
                     if first {
                         let elapsed = sound.hearts_sweep(data);
@@ -433,7 +494,7 @@ impl HeartsCompletion {
             }
             Phase::PairFrame(group) => {
                 melody(data, tick, sound);
-                work.bytes_drawn = pair_frame(data, screen)?;
+                pair_frame(data, screen, &mut work)?;
                 set_word(data, 0x4a80, tick);
                 self.phase = Phase::PairWait { group, start: tick };
             }
@@ -497,6 +558,8 @@ impl HeartsCompletion {
                     set_word(data, 0x52c6, 0);
                     set_word(data, 0x52c8, 0);
                     work.bytes_drawn = dance_frame(data, screen, tick, sound)?;
+                    work.hearts.dance_frames = 1;
+                    work.hearts.dance_copies = (work.bytes_drawn / 280) as u8;
                     set_word(data, 0x5016, word(data, 0x5016) ^ 2);
                     self.phase = Phase::Dance {
                         start: tick,
@@ -513,6 +576,8 @@ impl HeartsCompletion {
                         self.phase = Phase::Fill(Wipe::new(self.center.0, self.center.1, 0xaa));
                     } else {
                         work.bytes_drawn = dance_frame(data, screen, tick, sound)?;
+                        work.hearts.dance_frames = 1;
+                        work.hearts.dance_copies = (work.bytes_drawn / 280) as u8;
                         set_word(data, 0x5016, word(data, 0x5016) ^ 2);
                         self.phase = Phase::Dance { start, frame: tick };
                     }
@@ -528,10 +593,12 @@ impl HeartsCompletion {
                     let destination = word(data, 0x6f24);
                     work.bytes_drawn +=
                         copy_sprite(data, screen, 0x0e, destination, Dimensions(0x0c03))?;
+                    work.hearts.sprite(PresentationSprite::FallingCat);
                     let destination = destination + 480;
                     set_word(data, 0x6f24, destination);
                     work.bytes_drawn +=
                         copy_sprite(data, screen, 0x6e10, destination, Dimensions(0x0c03))?;
+                    work.hearts.sprite(PresentationSprite::FallingCat);
                     self.phase = Phase::DropTick;
                 }
             }
@@ -552,6 +619,7 @@ impl HeartsCompletion {
                             word(data, 0x6f24),
                             Dimensions(0x1106),
                         )?;
+                        work.hearts.sprite(PresentationSprite::LandingCat);
                         self.phase = Phase::DropHold;
                     }
                 }
@@ -608,6 +676,82 @@ mod tests {
         }
         data[0x1f80] = 3;
         data
+    }
+
+    #[test]
+    fn celebration_starts_on_the_completed_black_wipe_and_keeps_its_tick_wait() {
+        let mut data = data();
+        set_word(&mut data, 8, 2);
+        set_word(&mut data, 0x52b2, 0x6000);
+        let destination = pixel_offset(80, 60);
+        set_word(&mut data, 0x6000, destination);
+        set_word(&mut data, 0x5012, 0x6200);
+        data[0x6200..0x6318].fill(0xff);
+        let mut screen = Framebuffer::from_bytes(&[0xaa; 0x4000]).unwrap();
+        let mut sound = crate::sound::Sound::default();
+        let mut presentation = HeartsCompletion::new(152, 95, true).unwrap();
+        presentation.phase = Phase::Black(Wipe::new(152, 95, 0));
+        for _ in 0..32 {
+            presentation
+                .advance(&mut data, &mut screen, 100, true, &mut sound)
+                .unwrap();
+            if matches!(presentation.phase, Phase::DanceStart) {
+                break;
+            }
+        }
+        assert!(matches!(presentation.phase, Phase::DanceStart));
+        assert!(screen.bytes()[..8000].iter().all(|byte| *byte == 0));
+        assert!(screen.bytes()[8192..16192].iter().all(|byte| *byte == 0));
+        let frame = presentation
+            .advance(&mut data, &mut screen, 100, true, &mut sound)
+            .unwrap();
+        assert_eq!(frame.bytes_drawn, 280);
+        assert_eq!(frame.hearts.bytes(), 280);
+        assert_eq!(frame.hearts.dance_frames, 1);
+        assert_eq!(frame.hearts.dance_copies, 1);
+        assert_eq!(word(&data, 0x5010), 0x6004);
+        assert_eq!(data[0x2ae0], 4);
+        let wait = presentation
+            .advance(&mut data, &mut screen, 104, true, &mut sound)
+            .unwrap();
+        assert_eq!(wait.bytes_drawn, 0);
+        assert_eq!(wait.hearts.dance_frames, 0);
+        assert!(matches!(
+            presentation.phase,
+            Phase::Dance { frame: 100, .. }
+        ));
+    }
+
+    #[test]
+    fn pairing_counts_only_the_images_drawn_on_each_native_frame() {
+        let mut data = data();
+        set_word(&mut data, 0x4dca, 0x6100);
+        set_word(&mut data, 0x4dd4, 0x0802);
+        set_word(&mut data, 0x4dc8, 2);
+        data[0x4d91] = 1;
+        let mut screen = Framebuffer::default();
+        let mut sound = crate::sound::Sound::default();
+        let mut presentation = HeartsCompletion::new(152, 95, true).unwrap();
+        presentation.phase = Phase::PairFrame(0);
+        let first = presentation
+            .advance(&mut data, &mut screen, 100, true, &mut sound)
+            .unwrap();
+        assert_eq!(first.bytes_drawn, 32);
+        assert_eq!(first.hearts.bytes(), 32);
+        assert_eq!(first.hearts.pair_items, 8);
+        for tick in [101, 102] {
+            let wait = presentation
+                .advance(&mut data, &mut screen, tick, true, &mut sound)
+                .unwrap();
+            assert_eq!(wait.hearts.bytes(), 0);
+            assert_eq!(wait.hearts.pair_items, 0);
+        }
+        let next = presentation
+            .advance(&mut data, &mut screen, 103, true, &mut sound)
+            .unwrap();
+        assert_eq!(next.bytes_drawn, 256);
+        assert_eq!(next.hearts.bytes(), 256);
+        assert_eq!(next.hearts.pair_items, 8);
     }
 
     #[test]

@@ -437,6 +437,52 @@ impl CompletionCosts {
     }
 }
 
+/// Callable Hearts presentation helpers on the shared XT baseline. These
+/// fitted values exclude deliberate BIOS/retrace waits and unmeasured glue.
+#[derive(Clone, Copy, Debug)]
+pub struct HeartsPresentationCosts {
+    pub sprites: [u64; 6],
+    pub pair_item: u64,
+    pub increasing_axis: u64,
+    pub decreasing_axis: u64,
+    pub upper_clamp: u64,
+    pub lower_clamp: u64,
+    pub dance_frame: u64,
+    pub dance_copy: u64,
+}
+
+impl HeartsPresentationCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            sprites: [
+                24_877_500, 931_500, 2_000_100, 7_347_500, 771_000, 1_472_100,
+            ],
+            pair_item: 33_400,
+            increasing_axis: 21_300,
+            decreasing_axis: 18_100,
+            upper_clamp: 12_300,
+            lower_clamp: 5_400,
+            dance_frame: 33_800,
+            dance_copy: 2_579_850,
+        }
+    }
+
+    fn nanos(self, work: crate::hearts_completion::PresentationWork) -> u64 {
+        work.sprites
+            .into_iter()
+            .zip(self.sprites)
+            .map(|(count, cost)| u64::from(count) * cost)
+            .sum::<u64>()
+            + u64::from(work.pair_items) * self.pair_item
+            + u64::from(work.increasing_axes) * self.increasing_axis
+            + u64::from(work.decreasing_axes) * self.decreasing_axis
+            + u64::from(work.upper_clamps) * self.upper_clamp
+            + u64::from(work.lower_clamps) * self.lower_clamp
+            + u64::from(work.dance_frames) * self.dance_frame
+            + u64::from(work.dance_copies) * self.dance_copy
+    }
+}
+
 /// Scoped execution costs for a selected reference CPU profile.
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Base call allowances and active
@@ -490,6 +536,7 @@ pub struct ReferenceCosts {
     pub eel_restart_poll: u64,
     pub completion_draw_byte: u64,
     pub completion: Option<CompletionCosts>,
+    pub hearts_presentation: Option<HeartsPresentationCosts>,
     pub hearts_actor_draw: u64,
     pub hearts: Option<HeartsCosts>,
     pub cheese_mouse_draw: u64,
@@ -663,6 +710,7 @@ impl ReferenceCosts {
             milk: Some(MilkCosts::ibm_xt()),
             hearts: Some(HeartsCosts::ibm_xt()),
             completion: Some(CompletionCosts::ibm_xt()),
+            hearts_presentation: Some(HeartsPresentationCosts::ibm_xt()),
             entry: Some(EntryCosts::ibm_xt()),
             window: Some(WindowCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
@@ -733,6 +781,7 @@ impl ReferenceCosts {
             // Original presentation tick/retrace waits are modeled separately.
             completion_draw_byte: 4_000,
             completion: None,
+            hearts_presentation: None,
             // Provisional scene-seven drawing work above its tick gates.
             hearts_actor_draw: 1_500_000,
             hearts: None,
@@ -944,11 +993,17 @@ impl Runtime {
     }
 
     fn charge_completion(&mut self, work: crate::completion::Work, precharged: u64) {
+        let (hearts_nanos, hearts_bytes) = self.costs.hearts_presentation.map_or((0, 0), |costs| {
+            (costs.nanos(work.hearts), work.hearts.bytes())
+        });
         let nanos = if let Some(costs) = self.costs.completion {
             let calibrated_bytes =
                 work.graphics.score_bytes + work.graphics.wipe.map_or(0, |wipe| wipe.bytes);
-            let fallback_bytes = work.bytes_drawn.saturating_sub(calibrated_bytes);
+            let fallback_bytes = work
+                .bytes_drawn
+                .saturating_sub(calibrated_bytes + hearts_bytes);
             let total = costs.nanos(work.graphics)
+                + hearts_nanos
                 + fallback_bytes as u64 * self.costs.completion_draw_byte;
             // A wipe's measured body includes its polling/loop work. The
             // dispatcher already advanced time before sampling this step.
@@ -958,7 +1013,9 @@ impl Runtime {
                 total
             }
         } else {
-            work.bytes_drawn as u64 * self.costs.completion_draw_byte
+            hearts_nanos
+                + work.bytes_drawn.saturating_sub(hearts_bytes) as u64
+                    * self.costs.completion_draw_byte
         };
         self.clock.advance_nanos(nanos);
     }
@@ -1966,6 +2023,40 @@ mod tests {
             runtime.clock.elapsed_nanos() - before,
             384 * u128::from(runtime.costs.completion_draw_byte)
         );
+    }
+
+    #[test]
+    fn hearts_helpers_replace_only_their_own_byte_allowance() {
+        let work = crate::completion::Work {
+            bytes_drawn: 280 + 384,
+            hearts: crate::hearts_completion::PresentationWork {
+                dance_frames: 1,
+                dance_copies: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut runtime = Runtime::new(machine);
+            let body = runtime
+                .costs
+                .hearts_presentation
+                .unwrap()
+                .nanos(work.hearts);
+            let before = runtime.clock.elapsed_nanos();
+            runtime.charge_completion(work, 0);
+            assert_eq!(
+                runtime.clock.elapsed_nanos() - before,
+                u128::from(body + 384 * runtime.costs.completion_draw_byte)
+            );
+            let mut older = Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
+            let before = older.clock.elapsed_nanos();
+            older.charge_completion(work, 0);
+            assert_eq!(
+                older.clock.elapsed_nanos() - before,
+                work.bytes_drawn as u128 * u128::from(older.costs.completion_draw_byte)
+            );
+        }
     }
 
     #[test]

@@ -37,11 +37,37 @@ impl HoldTiming {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum Path {
+    #[default]
+    Countdown,
+    Retrace,
+    PlayerBelow,
+    Projectile,
+    Selection,
+    PlayerHold,
+    MouseHold,
+    Holding,
+    OpenRow,
+    CopyRow,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Work {
+    pub path: Path,
+    pub selections: u32,
+    pub band_check: bool,
+    pub hold_started: bool,
+    pub hold_expired: bool,
+    pub launched: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Update {
     /// The invocation countdown expired and the retrace-clear gate passed.
     pub accepted: bool,
     pub drawn_row: Option<u8>,
     pub contact_hold: bool,
+    pub work: Work,
 }
 
 fn check_data(data: &[u8]) -> Result<(), String> {
@@ -131,7 +157,13 @@ pub(crate) fn advance_with_projectiles(
     }
     data[0x166a] = 13;
     if retrace {
-        return Ok(Update::default());
+        return Ok(Update {
+            work: Work {
+                path: Path::Retrace,
+                ..Work::default()
+            },
+            ..Update::default()
+        });
     }
     let mut update = Update {
         accepted: true,
@@ -141,25 +173,27 @@ pub(crate) fn advance_with_projectiles(
         contact(data, player);
     }
     if data[0x1673] != 0 {
+        update.work.path = Path::Projectile;
         return Ok(update);
     }
     if data[0x1665] == 0 {
         if player.y > 96 {
+            update.work.path = Path::PlayerBelow;
             return Ok(update);
         }
         let difficulty = usize::from(word(data, 8));
         if difficulty > 7 {
             return Err("Window difficulty exceeds its timing table".into());
         }
-        data[0x1677] = u8::from(
-            player.band_state == 1
-                && data[0x418] == 0
-                && tick.wrapping_sub(word(data, 0x556)) >= 72,
-        );
+        update.work.path = Path::Selection;
+        update.work.band_check = player.band_state == 1 && data[0x418] == 0;
+        data[0x1677] =
+            u8::from(update.work.band_check && tick.wrapping_sub(word(data, 0x556)) >= 72);
         // A complete generator period bounds diagnostics with malformed tables
         // or zero seed; supported original states always offer a free window.
         let mut selected = false;
         for _ in 0..=u16::MAX {
+            update.work.selections += 1;
             let id = (next_random(data) as u8) & if data[0x1677] != 0 { 3 } else { 15 };
             if id >= 12 {
                 return Ok(update);
@@ -183,23 +217,28 @@ pub(crate) fn advance_with_projectiles(
         data[0x1670] = 1;
     }
     if contact(data, player) {
+        update.work.path = Path::PlayerHold;
         update.contact_hold = true;
         return Ok(update);
     }
     data[0x1664] = u8::from(mouse_overlap(data));
     if data[0x1664] != 0 {
+        update.work.path = Path::MouseHold;
         update.contact_hold = true;
         return Ok(update);
     }
     if data[0x1665] == 16 {
+        update.work.hold_started = true;
         set_word(data, 0x166e, tick);
     }
     if data[0x1665] == 15 && tick.wrapping_sub(word(data, 0x166e)) < word(data, 0x166c) {
+        update.work.path = Path::Holding;
         if projectiles_enabled {
-            crate::projectiles::launch(data, player)?;
+            update.work.launched = crate::projectiles::launch(data, player)?;
         }
         return Ok(update);
     }
+    update.work.hold_expired = data[0x1665] == 15;
     data[0x1665] = data[0x1665].wrapping_sub(1);
     let phase = data[0x1665];
     let y = if phase > 14 {
@@ -210,8 +249,10 @@ pub(crate) fn advance_with_projectiles(
     data[0x166b] = y;
     let offset = pixel_offset(word(data, 0x1666), y);
     if phase > 14 && data[0x418] == 0 {
+        update.work.path = Path::OpenRow;
         screen.copy_rect(offset, Dimensions(0x0104), &[0; 8])?;
     } else {
+        update.work.path = Path::CopyRow;
         let row = usize::from(y.wrapping_sub(data[0x1668]));
         let source = if phase > 14 {
             0x15e0 + row * 8
@@ -443,6 +484,26 @@ mod tests {
             .is_none()
         );
         assert_eq!(data[0x166a], 12);
+    }
+
+    #[test]
+    fn selection_work_counts_retries_without_advancing_extra_random_values() {
+        let mut data = data();
+        let mut player = Player::at_alley_floor(24);
+        player.y = 24;
+        let update = advance(
+            &mut data,
+            &mut Framebuffer::default(),
+            &player,
+            110,
+            false,
+            HoldTiming::default(),
+        )
+        .unwrap();
+        assert_eq!(update.work.selections, 3);
+        assert_eq!(word(&data, 0x2ae5), 8);
+        assert_eq!((data[0x1669], data[0x1665]), (8, 28));
+        assert!(update.drawn_row.is_some());
     }
 
     #[test]

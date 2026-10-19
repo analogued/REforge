@@ -275,6 +275,76 @@ impl HeartsCosts {
     }
 }
 
+/// Scoped alley-window work on the XT baseline. Quiet countdown work is
+/// already represented in the grouped-call allowance.
+#[derive(Clone, Copy, Debug)]
+pub struct WindowCosts {
+    pub countdown: u64,
+    pub retrace: u64,
+    pub player_below: u64,
+    pub projectile: u64,
+    pub selection: u64,
+    pub player_hold: u64,
+    pub mouse_hold: u64,
+    pub holding: u64,
+    pub open_row: u64,
+    pub copy_row: u64,
+    pub new_window: u64,
+    pub selection_retry: u64,
+    pub band_check: u64,
+    pub hold_started: u64,
+    pub hold_expired: u64,
+    pub launch: u64,
+}
+
+impl WindowCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            countdown: 8_600,
+            retrace: 39_700,
+            player_below: 72_800,
+            projectile: 190_000,
+            selection: 140_800,
+            player_hold: 330_300,
+            mouse_hold: 286_100,
+            holding: 358_800,
+            open_row: 409_400,
+            copy_row: 435_000,
+            new_window: 210_700,
+            selection_retry: 203_450,
+            band_check: 37_500,
+            hold_started: 74_500,
+            hold_expired: 85_350,
+            launch: 189_500,
+        }
+    }
+
+    fn nanos(self, work: crate::windows::Work) -> u64 {
+        use crate::windows::Path;
+        let base = match work.path {
+            Path::Countdown => self.countdown,
+            Path::Retrace => self.retrace,
+            Path::PlayerBelow => self.player_below,
+            Path::Projectile => self.projectile,
+            Path::Selection => self.selection,
+            Path::PlayerHold => self.player_hold,
+            Path::MouseHold => self.mouse_hold,
+            Path::Holding => self.holding,
+            Path::OpenRow => self.open_row,
+            Path::CopyRow => self.copy_row,
+        };
+        base + if work.selections != 0 && work.path != Path::Selection {
+            self.new_window
+        } else {
+            0
+        } + u64::from(work.selections.saturating_sub(1)) * self.selection_retry
+            + u64::from(work.band_check) * self.band_check
+            + u64::from(work.hold_started) * self.hold_started
+            + u64::from(work.hold_expired) * self.hold_expired
+            + u64::from(work.launched) * self.launch
+    }
+}
+
 /// Accepted alley-entry bodies on the agreed XT baseline. The twelve-call
 /// hidden countdown and player acceptance gates remain separate game rules.
 #[derive(Clone, Copy, Debug)]
@@ -404,6 +474,7 @@ pub struct ReferenceCosts {
     pub clothes_shift: u64,
     pub clothes_new_tile: u64,
     pub window_work: u64,
+    pub window: Option<WindowCosts>,
     pub room_actor_gate: u64,
     pub room_cage_draw: u64,
     pub room_cage_push: u64,
@@ -593,6 +664,7 @@ impl ReferenceCosts {
             hearts: Some(HeartsCosts::ibm_xt()),
             completion: Some(CompletionCosts::ibm_xt()),
             entry: Some(EntryCosts::ibm_xt()),
+            window: Some(WindowCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
         }
     }
@@ -639,6 +711,7 @@ impl ReferenceCosts {
             // Original window-row helpers measured about 0.5ms at fixed240.
             // New-window and contact/hold paths still use this bounded fit.
             window_work: 480_000,
+            window: None,
             // Provisional room allowances; not independently CPU-calibrated.
             // Original tick gates, physics and blocking waits remain separate.
             room_actor_gate: 200_000,
@@ -828,6 +901,17 @@ impl Runtime {
                 + rows * self.costs.swimming_draw_row
                 + bytes * self.costs.swimming_draw_byte
         }
+    }
+
+    fn charge_window(&mut self, update: crate::windows::Update) {
+        let nanos = if let Some(costs) = self.costs.window {
+            costs.nanos(update.work).saturating_sub(costs.countdown)
+        } else if update.accepted {
+            self.costs.window_work
+        } else {
+            0
+        };
+        self.clock.advance_nanos(nanos);
     }
 
     fn player_draw_cost(
@@ -1698,9 +1782,7 @@ impl Runtime {
                 }
                 let sample = self.clock.sample();
                 let window = alley.advance_windows(sample.bios.tick_low, sample.retrace)?;
-                if window.accepted {
-                    self.clock.advance_nanos(self.costs.window_work);
-                }
+                self.charge_window(window);
                 let sample = self.clock.sample();
                 if alley.advance_projectiles(sample.bios.tick_low)? {
                     self.clock.advance_nanos(self.costs.projectile_draw);
@@ -1801,6 +1883,46 @@ impl Runtime {
 mod tests {
     use super::*;
     use crate::timing::BIOS_TICK_PIT_CLOCKS;
+
+    #[test]
+    fn window_retrace_work_is_charged_without_recharging_quiet_countdown() {
+        let mut data = vec![0; crate::assets::DATA_LENGTH];
+        let mut screen = crate::cga::Framebuffer::default();
+        let player = crate::player::Player::at_alley_floor(8);
+        data[0x166a] = 2;
+        let quiet = crate::windows::advance(
+            &mut data,
+            &mut screen,
+            &player,
+            1,
+            false,
+            crate::windows::HoldTiming::default(),
+        )
+        .unwrap();
+        let rejected = crate::windows::advance(
+            &mut data,
+            &mut screen,
+            &player,
+            1,
+            true,
+            crate::windows::HoldTiming::default(),
+        )
+        .unwrap();
+        assert!(!quiet.accepted && !rejected.accepted);
+        assert_eq!(data[0x1665], 0);
+        let mut runtime = Runtime::new(Machine::Cga);
+        let before = runtime.clock.elapsed_nanos();
+        runtime.charge_window(quiet);
+        assert_eq!(runtime.clock.elapsed_nanos(), before);
+        runtime.charge_window(rejected);
+        assert!(runtime.clock.elapsed_nanos() > before);
+        let mut older =
+            Runtime::with_costs(Machine::Cga, ReferenceCosts::dosbox_x_240(Machine::Cga));
+        let before = older.clock.elapsed_nanos();
+        older.charge_window(quiet);
+        older.charge_window(rejected);
+        assert_eq!(older.clock.elapsed_nanos(), before);
+    }
 
     #[test]
     fn calibrated_wipe_counts_zero_byte_work_without_double_charging_dispatch() {

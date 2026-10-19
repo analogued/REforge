@@ -603,6 +603,25 @@ add about 7.804 ms, or 8.770 ms with tile generation; normal mouse redraw adds
 about 1.362 ms above equal-tick work. These are scoped conditions, not universal
 costs for every actor state.
 
+Window calls preserve their thirteen-call countdown, retrace-clear gate and
+explicit fully-open hold. A countdown rejection measures about 0.009 ms;
+expiry rejected by retrace takes about 0.040 ms. Ordinary black opening rows
+measure 0.409 ms and copied closing/bonus rows about 0.435 ms. Starting the
+fully-open timer adds about 0.075 ms, and its expired-hold path adds about
+0.085 ms to the closing work. Player/mouse contact holds measure about
+0.330/0.286 ms, and an ordinary open hold about 0.359 ms. Launching its projectile
+adds about 0.190 ms without drawing a projectile image yet.
+
+Successful new-window selection takes about 0.620 ms on the sampled one-draw
+path, and 1.027 ms when two overlap retries are needed. Work records count actual
+selection draws without adding random calls. The top-row restriction's BIOS
+check has a bounded allowance; other retry/position combinations remain fitted
+rather than instruction-exact. Runtime charges window work above its quiet
+countdown share of the existing grouped-call allowance. Quiet grouped work and
+the window's explicit delays are not charged a second time. Initialization
+measures about 0.031 ms but remains within uncalibrated caller setup. The native
+difficulty-six delay and its deliberate correction remain separate timing policy.
+
 Bin animation uses valid saved-background rectangles at six emergence/retraction
 phases. A bounded fit uses about 0.399 ms per active call, 0.0394 ms per restored
 row, 0.268 ms per drawn row and 0.105 ms for a new spawn, above quiet grouped

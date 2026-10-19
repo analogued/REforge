@@ -673,19 +673,14 @@ fn advance_splash(
     clock: &mut VirtualClock,
     key_pressed: bool,
 ) -> Result<(), String> {
-    // Original gates use virtual BIOS/retrace time. These loop/drawing costs
-    // reuse the XT profile; splash-specific work remains provisional.
+    // The outer-loop prelude remains approximate; measured title helpers are
+    // charged only when executed, independently of host presentation.
     let costs = alleycat::runtime::ReferenceCosts::ibm_xt(splash.machine());
     clock.advance_nanos(costs.prelude);
     let sample = clock.sample();
     splash.sound.at(clock.elapsed_pit_ticks() as u64);
     let step = splash.advance(sample.bios.tick_low, sample.retrace, key_pressed)?;
-    clock.advance_nanos(costs.player_gate + costs.player_countdown);
-    if step.player_accepted {
-        clock.advance_nanos(costs.player_walk);
-    } else if step.redrawn {
-        clock.advance_nanos(costs.window_work);
-    }
+    clock.advance_nanos(costs.splash_nanos(step));
     Ok(())
 }
 

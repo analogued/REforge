@@ -483,6 +483,87 @@ impl HeartsPresentationCosts {
     }
 }
 
+/// Recurring title helpers on the shared XT baseline. Static construction and
+/// the enclosing title-loop/music/key bookkeeping are outside these fits.
+#[derive(Clone, Copy, Debug)]
+pub struct TitleCosts {
+    pub left_edge: u64,
+    pub right_edge: u64,
+    pub recent_direction: u64,
+    pub random_moving: u64,
+    pub random_idle: u64,
+    pub copyright: u64,
+    pub player_call: u64,
+    pub entry_wait: u64,
+    pub entry_first_crop: u64,
+    pub entry_second_crop: u64,
+    pub entry_finish: u64,
+    pub walk: u64,
+}
+
+impl TitleCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            left_edge: 41_100,
+            right_edge: 51_600,
+            recent_direction: 130_850,
+            random_moving: 193_000,
+            random_idle: 183_300,
+            copyright: 1_449_500,
+            // Provisional extra MOV/CALL work on the wrapper's retrace-set path.
+            player_call: 16_000,
+            // Whole native player calls, including their acceptance gate.
+            entry_wait: 240_850,
+            entry_first_crop: 1_836_300,
+            entry_second_crop: 2_794_300,
+            entry_finish: 3_031_700,
+            walk: 2_953_100,
+        }
+    }
+
+    fn nanos(self, work: crate::splash::TitleWork, fallback: ReferenceCosts) -> u64 {
+        use crate::splash::Steering;
+        let steering = match work.steering {
+            Some(Steering::LeftEdge) => self.left_edge,
+            Some(Steering::RightEdge) => self.right_edge,
+            Some(Steering::Recent) => self.recent_direction,
+            Some(Steering::RandomMoving) => self.random_moving,
+            Some(Steering::RandomIdle) => self.random_idle,
+            None => 0,
+        };
+        let player = match work.draw {
+            Some(Draw::Keep) if work.entering => self.entry_wait,
+            Some(Draw::StridedSprite { sprite, .. }) if sprite.dimensions == 0x0b01 => {
+                self.entry_first_crop
+            }
+            Some(Draw::StridedSprite { sprite, .. }) if sprite.dimensions == 0x0b02 => {
+                self.entry_second_crop
+            }
+            Some(Draw::Sprite(_)) if work.entering => self.entry_finish,
+            Some(Draw::Sprite(_)) => self.walk,
+            Some(Draw::Idle) => fallback.player_gate + fallback.player_idle,
+            Some(_) => fallback.player_gate + fallback.player_keep,
+            None if work.player_called => {
+                fallback.player_gate
+                    + if work.player_countdown_zero {
+                        fallback.player_zero
+                    } else {
+                        fallback.player_countdown
+                    }
+            }
+            None => 0,
+        };
+        steering
+            + player
+            + if work.copyright { self.copyright } else { 0 }
+            + if work.steering.is_some() && work.player_called {
+                self.player_call
+            } else {
+                0
+            }
+    }
+}
+
 /// Scoped execution costs for a selected reference CPU profile.
 /// Values are virtual nanoseconds.
 /// These are not physical 8088 cycle counts. Base call allowances and active
@@ -537,6 +618,7 @@ pub struct ReferenceCosts {
     pub completion_draw_byte: u64,
     pub completion: Option<CompletionCosts>,
     pub hearts_presentation: Option<HeartsPresentationCosts>,
+    pub title: Option<TitleCosts>,
     pub hearts_actor_draw: u64,
     pub hearts: Option<HeartsCosts>,
     pub cheese_mouse_draw: u64,
@@ -711,9 +793,27 @@ impl ReferenceCosts {
             hearts: Some(HeartsCosts::ibm_xt()),
             completion: Some(CompletionCosts::ibm_xt()),
             hearts_presentation: Some(HeartsPresentationCosts::ibm_xt()),
+            title: Some(TitleCosts::ibm_xt()),
             entry: Some(EntryCosts::ibm_xt()),
             window: Some(WindowCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
+        }
+    }
+
+    /// Work after one title BIOS sample; the caller charges its prelude first.
+    pub fn splash_nanos(self, step: crate::splash::SplashStep) -> u64 {
+        if let Some(costs) = self.title {
+            costs.nanos(step.work, self)
+        } else {
+            self.player_gate
+                + self.player_countdown
+                + if step.player_accepted {
+                    self.player_walk
+                } else if step.redrawn {
+                    self.window_work
+                } else {
+                    0
+                }
         }
     }
 
@@ -782,6 +882,7 @@ impl ReferenceCosts {
             completion_draw_byte: 4_000,
             completion: None,
             hearts_presentation: None,
+            title: None,
             // Provisional scene-seven drawing work above its tick gates.
             hearts_actor_draw: 1_500_000,
             hearts: None,

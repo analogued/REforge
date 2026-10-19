@@ -17,6 +17,26 @@ pub struct SplashStep {
     pub finished: bool,
     pub player_accepted: bool,
     pub redrawn: bool,
+    pub(crate) work: TitleWork,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct TitleWork {
+    pub steering: Option<Steering>,
+    pub copyright: bool,
+    pub player_called: bool,
+    pub player_countdown_zero: bool,
+    pub entering: bool,
+    pub draw: Option<Draw>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Steering {
+    LeftEdge,
+    RightEdge,
+    Recent,
+    RandomMoving,
+    RandomIdle,
 }
 
 pub struct Splash {
@@ -189,6 +209,7 @@ impl Splash {
         if tick.wrapping_sub(word(&self.data, 0x6a93)) >= 36 {
             set_word(&mut self.data, 0x6a93, tick);
             draw_copyright(&mut self.data, &mut self.framebuffer)?;
+            step.work.copyright = true;
             step.redrawn = true;
         }
         let elapsed = tick.wrapping_sub(word(&self.data, 0x6a8b));
@@ -210,9 +231,12 @@ impl Splash {
             return Ok(step);
         }
         self.advance_music_sequence(tick)?;
-        self.choose_direction(tick);
+        step.work.steering = Some(self.choose_direction(tick));
         // CS:5e1c tests retrace before even entering the player acceptance gate.
         if retrace {
+            step.work.player_called = true;
+            step.work.player_countdown_zero = self.gate.countdown == 0;
+            step.work.entering = self.player.entry_state != 0;
             self.player.horizontal_step = 4;
             let accepted = self.gate.attempt(
                 BiosSample {
@@ -240,6 +264,7 @@ impl Splash {
                     )
                     .map_err(str::to_owned)?;
                 step.player_accepted = true;
+                step.work.draw = Some(outcome.draw);
                 step.redrawn |= self.draw_player(outcome.draw)?;
                 self.player
                     .write_data(&mut self.data)
@@ -256,11 +281,13 @@ impl Splash {
         Ok(step)
     }
 
-    fn choose_direction(&mut self, tick: u16) {
+    fn choose_direction(&mut self, tick: u16) -> Steering {
         if self.player.x <= 32 {
             self.data[0x698] = 1;
+            Steering::LeftEdge
         } else if self.player.x >= 288 {
             self.data[0x698] = 0xff;
+            Steering::RightEdge
         } else if tick.wrapping_sub(word(&self.data, 0x6a88)) >= 18 {
             set_word(&mut self.data, 0x6a88, tick);
             let random = next_random(&mut self.data) as u8;
@@ -271,6 +298,13 @@ impl Splash {
             } else {
                 1
             };
+            if random > 0xa0 {
+                Steering::RandomIdle
+            } else {
+                Steering::RandomMoving
+            }
+        } else {
+            Steering::Recent
         }
     }
 
@@ -516,6 +550,8 @@ mod tests {
         assert!(!splash.advance(35, true, false).unwrap().finished);
         let step = splash.advance(36, true, false).unwrap();
         assert!(step.finished && step.redrawn && !step.player_accepted);
+        let costs = crate::runtime::ReferenceCosts::ibm_xt(Machine::Cga);
+        assert_eq!(costs.splash_nanos(step), costs.title.unwrap().copyright);
         let final_data = splash.data().to_vec();
         let final_frame = splash.framebuffer().bytes().to_vec();
         assert_eq!(
@@ -527,6 +563,49 @@ mod tests {
         );
         assert_eq!(splash.data(), final_data);
         assert_eq!(splash.framebuffer().bytes().as_slice(), final_frame);
+    }
+
+    #[test]
+    fn title_prices_copyright_and_player_work_when_they_share_a_pass() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut splash = Splash::new(&synthetic_data(), machine).unwrap();
+            let step = splash.advance(36, true, false).unwrap();
+            assert!(step.redrawn && step.player_accepted);
+            let mut costs = crate::runtime::ReferenceCosts::ibm_xt(machine);
+            costs.title.as_mut().unwrap().copyright = 0;
+            let player_and_steering = costs.splash_nanos(step);
+            costs.title.as_mut().unwrap().copyright = 5_000_000;
+            assert_eq!(costs.splash_nanos(step), player_and_steering + 5_000_000);
+            let rejected = splash.advance(36, false, false).unwrap();
+            assert!(!rejected.work.player_called);
+            assert_eq!(costs.splash_nanos(rejected), costs.title.unwrap().left_edge);
+        }
+    }
+
+    #[test]
+    fn title_entry_prices_the_final_handoff_before_ordinary_walking() {
+        let mut splash = Splash::new(&synthetic_data(), Machine::Cga).unwrap();
+        let mut costs = crate::runtime::ReferenceCosts::ibm_xt(Machine::Cga);
+        let title = costs.title.as_mut().unwrap();
+        title.entry_wait = 1;
+        title.entry_first_crop = 2;
+        title.entry_second_crop = 3;
+        title.entry_finish = 4;
+        title.walk = 5;
+        for tick in 1..=16 {
+            let mut step = splash.advance(tick, true, false).unwrap();
+            assert!(step.player_accepted);
+            // Isolate the whole player helper from the title wrapper.
+            step.work.steering = None;
+            let expected = match tick {
+                1..=12 => 1,
+                13 => 2,
+                14 => 3,
+                15 => 4,
+                _ => 5,
+            };
+            assert_eq!(costs.splash_nanos(step), expected);
+        }
     }
 
     #[test]

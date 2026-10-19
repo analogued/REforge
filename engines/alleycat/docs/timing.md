@@ -534,8 +534,29 @@ continues and tick 853 exits. Copyright updates precede this expiry test.
 The music sequence follows its native tick gate, including rests and the
 non-advancing end marker, and emits PIT channel-two writes.
 
-The host uses the virtual BIOS/retrace clock and provisional loop/drawing costs
-from the XT profile. Splash-specific costs and exact playback cadence are not established.
+The host uses the virtual BIOS/retrace clock and scoped XT title-helper costs.
+Steering with the outer retrace gate clear takes about 0.041 ms at the left
+edge, 0.052 ms at the right, 0.131 ms for a recent interior decision, and
+0.183–0.193 ms for a fresh random decision. A copyright redraw takes about
+1.45 ms. Accepted player calls cost about 0.241 ms during the entry countdown,
+1.836/2.794 ms for the two clipped shapes, 3.032 ms for the final handoff and
+2.953 ms for ordinary walking. These player values include their acceptance
+gate; the title wrapper does not add another gate allowance. Copyright drawing
+and player work are both charged when they share a pass. Call-count rejection,
+idle drawings and other unsampled paths retain existing player allowances.
+
+These are muted, isolated helper fits on the shared XT baseline. Title/music/key
+bookkeeping and the extra wrapper work on its retrace-set path remain approximate;
+an entire title pass still uses one supplied BIOS/retrace sample. The native
+32/16-call gates, steering thresholds, copyright interval and timeout rules are
+unchanged. CPU work is independent of host presentation.
+
+The sampled scenery initializer takes about 119.49 ms for its selected seed;
+its six artwork copies total about 10.81 ms, plus the first copyright redraw.
+Static construction produces the initial image outside the title-loop clock.
+These measurements are recorded separately and introduce no added startup wait;
+other seeds, setup callers and full startup timing remain uncalibrated. Exact
+playback cadence is not established by these helper captures.
 The first presentation has a separate data copy and does not advance the gameplay
 seed or clock; integrating the full original shared startup state remains deferred.
 Explicit development scene previews bypass startup. In a splash preview, finite

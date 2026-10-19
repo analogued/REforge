@@ -275,6 +275,49 @@ impl HeartsCosts {
     }
 }
 
+/// Accepted alley-entry bodies on the agreed XT baseline. The twelve-call
+/// hidden countdown and player acceptance gates remain separate game rules.
+#[derive(Clone, Copy, Debug)]
+pub struct EntryCosts {
+    pub waiting: u64,
+    pub first_crop: u64,
+    pub second_crop: u64,
+    pub finish_idle: u64,
+    pub finish_walk: u64,
+    pub finish_jump: u64,
+}
+
+impl EntryCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            waiting: 121_500,
+            first_crop: 1_711_000,
+            second_crop: 2_669_000,
+            finish_idle: 2_550_000,
+            finish_walk: 2_726_000,
+            finish_jump: 402_400,
+        }
+    }
+
+    fn nanos(self, draw: Draw, waiting: bool) -> Option<u64> {
+        match draw {
+            Draw::Keep => Some(if waiting {
+                self.waiting
+            } else {
+                self.finish_jump
+            }),
+            Draw::StridedSprite { sprite, .. } => match sprite.dimensions {
+                0x0b01 => Some(self.first_crop),
+                0x0b02 => Some(self.second_crop),
+                _ => None,
+            },
+            Draw::Idle => Some(self.finish_idle),
+            Draw::Sprite(_) => Some(self.finish_walk),
+            Draw::Erase => None,
+        }
+    }
+}
+
 /// Completion graphics on the agreed XT baseline. Row and byte terms are
 /// fitted to these fixed native drawing routines, not general CGA bus costs.
 #[derive(Clone, Copy, Debug)]
@@ -353,6 +396,7 @@ pub struct ReferenceCosts {
     pub player_landing: u64,
     pub player_support_release: u64,
     pub player_entry: u64,
+    pub entry: Option<EntryCosts>,
     pub ground_dog: u64,
     pub ground_dog_draw: u64,
     pub projectile_draw: u64,
@@ -548,6 +592,7 @@ impl ReferenceCosts {
             milk: Some(MilkCosts::ibm_xt()),
             hearts: Some(HeartsCosts::ibm_xt()),
             completion: Some(CompletionCosts::ibm_xt()),
+            entry: Some(EntryCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
         }
     }
@@ -578,8 +623,10 @@ impl ReferenceCosts {
             player_descending: 3_783_333,
             player_landing: 30_720_833,
             player_support_release: 27_937_500,
-            // Clipped re-entry is not separately cost-calibrated yet.
+            // Legacy clipped-entry allowance, also the XT fallback for
+            // unsampled drawing shapes. Selected XT bodies use EntryCosts.
             player_entry: 2_875_000,
+            entry: None,
             ground_dog: 95_833,
             ground_dog_draw: 1_500_000,
             projectile_draw: 500_000,
@@ -780,6 +827,35 @@ impl Runtime {
             self.costs.swimming_draw_setup
                 + rows * self.costs.swimming_draw_row
                 + bytes * self.costs.swimming_draw_byte
+        }
+    }
+
+    fn player_draw_cost(
+        &self,
+        draw: Draw,
+        entering: bool,
+        waiting: bool,
+        airborne: bool,
+        descending: bool,
+    ) -> u64 {
+        if entering {
+            if let Some(nanos) = self
+                .costs
+                .entry
+                .and_then(|costs| costs.nanos(draw, waiting))
+            {
+                return nanos;
+            }
+        }
+        match draw {
+            Draw::Keep => self.costs.player_keep,
+            Draw::Idle => self.costs.player_idle,
+            Draw::Erase => self.costs.player_airborne,
+            Draw::StridedSprite { .. } => self.costs.player_entry,
+            Draw::Sprite(_) if entering => self.costs.player_entry,
+            Draw::Sprite(_) if descending => self.costs.player_descending,
+            Draw::Sprite(_) if airborne => self.costs.player_airborne,
+            Draw::Sprite(_) => self.costs.player_walk,
         }
     }
 
@@ -1385,6 +1461,7 @@ impl Runtime {
             let airborne = alley.player.vertical_direction != 0;
             let descending = alley.player.vertical_direction == 1;
             let entering = alley.player.entry_state != 0;
+            let entry_waiting = alley.player.entry_delay != 0;
             let releasing = alley.player.support_state != 0 && self.controls.y != 0;
             let bin_sound_ready = alley.bin_contact_sound_ready();
             let support_tone = alley.support_sound_latched();
@@ -1457,16 +1534,7 @@ impl Runtime {
             } else if outcome.landed {
                 self.costs.player_landing
             } else {
-                match outcome.draw {
-                    Draw::Keep => self.costs.player_keep,
-                    Draw::Idle => self.costs.player_idle,
-                    Draw::Erase => self.costs.player_airborne,
-                    Draw::StridedSprite { .. } => self.costs.player_entry,
-                    Draw::Sprite(_) if entering => self.costs.player_entry,
-                    Draw::Sprite(_) if descending => self.costs.player_descending,
-                    Draw::Sprite(_) if airborne => self.costs.player_airborne,
-                    Draw::Sprite(_) => self.costs.player_walk,
-                }
+                self.player_draw_cost(outcome.draw, entering, entry_waiting, airborne, descending)
             };
             if let Some(work) = swimming {
                 self.charge_swimming(work, support_ticks);

@@ -784,6 +784,11 @@ impl Alley {
         #[cfg(feature = "dev-tools")]
         let projectile_enabled =
             projectile_enabled && !self.dev_options.actor_disabled(Actor::WindowProjectiles);
+        // The final entrance step moves the logical position inward before
+        // handling controls. CS:1069's idle draw still uses the last image's
+        // offset; walking recalculates its destination at CS:0f6d instead.
+        let entry_idle_offset = (self.player.entry_state == 1 && self.player.entry_delay == 0)
+            .then(|| pixel_offset(self.player.x, self.player.y));
         let outcome =
             self.player
                 .update_with_projectiles(controls, &self.data, projectile_enabled)?;
@@ -829,8 +834,12 @@ impl Alley {
                 let (top, bottom) = idle_sources(&mut self.data);
                 let top = sprite_bytes(&self.data, top, Dimensions(0x0602))?;
                 let bottom = sprite_bytes(&self.data, bottom, Dimensions(0x0602))?;
-                self.compositor
-                    .draw_idle(&mut self.screen, offset, top, bottom)?;
+                self.compositor.draw_idle(
+                    &mut self.screen,
+                    entry_idle_offset.unwrap_or(offset),
+                    top,
+                    bottom,
+                )?;
             }
             Draw::Sprite(sprite) => {
                 let dimensions = Dimensions(sprite.dimensions);
@@ -2086,6 +2095,68 @@ fn hardware_color(color: u8) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn final_entry_idle_keeps_the_previous_image_offset_but_walking_moves_it() {
+        for (x, direction) in [(0, 1), (304, 255)] {
+            for walking in [false, true] {
+                let mut alley = Alley::synthetic();
+                alley.screen.fill_visible(0xff);
+                alley.player = Player::at_alley_floor(x);
+                alley.player.x = x;
+                alley.player.entry_state = 1;
+                alley.player.entry_delay = 0;
+                alley.player.horizontal_direction = direction;
+                alley.player.write_data(&mut alley.data).unwrap();
+                alley.data[0x56f] = direction;
+                set_word(&mut alley.data, 0x561, 0x0b02);
+                alley.player = Player::from_data(&alley.data).unwrap();
+                for index in 0..12 {
+                    set_word(&mut alley.data, 0xf7a + index * 2, 0x3000);
+                }
+                for index in 0..8 {
+                    set_word(&mut alley.data, 0xf92 + index * 2, 0x3000);
+                }
+                for index in 0..4 {
+                    set_word(&mut alley.data, 0xfa2 + index * 2, 0x3000);
+                }
+                alley
+                    .compositor
+                    .draw(
+                        &mut alley.screen,
+                        pixel_offset(x, 180),
+                        Dimensions(0x0b02),
+                        &[0xff; 44],
+                    )
+                    .unwrap();
+                alley
+                    .update(Controls {
+                        x: if walking { direction as i8 } else { 0 },
+                        y: 0,
+                    })
+                    .unwrap();
+                let next_x = if direction == 1 {
+                    if walking { 16 } else { 8 }
+                } else if walking {
+                    288
+                } else {
+                    296
+                };
+                assert_eq!((alley.player.x, alley.player.entry_state), (next_x, 0));
+                let dimensions = Dimensions(if walking { 0x0b03 } else { 0x0c02 });
+                let mut expected = Framebuffer::default();
+                expected.fill_visible(0xff);
+                expected
+                    .copy_rect(
+                        pixel_offset(if walking { next_x } else { x }, 180),
+                        dimensions,
+                        &vec![0; dimensions.len()],
+                    )
+                    .unwrap();
+                assert_eq!(alley.screen.bytes(), expected.bytes());
+            }
+        }
+    }
 
     #[test]
     fn eel_deadline_waits_for_retrace_extra_pulses_and_palette() {

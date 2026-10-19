@@ -580,6 +580,22 @@ that allowance before advancing the sound clock, so it is counted once.
 Two-beep forced-release paths and other unmeasured contact combinations remain
 approximate. Upper-support noise and the bin-contact trio remain separate work.
 
+Clipped alley entry retains its twelve accepted-call countdown; an active dog
+can hold that countdown. Hidden countdown bodies take about 0.122 ms. The first
+and second cropped walking frames take about 1.711 and 2.669 ms, including native
+cropping and saved-background work. Final handoffs take about 2.550 ms for idle,
+2.726 ms for continued walking and 0.402 ms for a jump request without redrawing.
+These costs replace only the selected accepted-body allowance, not the player
+gate or a fixed entrance-duration wait. Left/right and sampled animation-wrap
+paths share the fits; other actor contacts remain outside this calibration.
+The native edge initializer measures about 1.050 ms but is not charged again
+separately from its still-provisional callers.
+
+On the last entrance step, logical X moves inward before controls are processed.
+An idle redraw retains the previous image offset, while walking calculates a
+new destination. Jump requests keep the existing image on that step. These
+drawing decisions are independent of the fitted execution costs.
+
 A valid running-dog helper measures about 8.489 ms, including background restore
 and draw; its active increment is above the roughly 0.094 ms quiet allowance.
 Moving projectiles add about 2.644 ms above the inactive helper. Clothes shifts
@@ -764,7 +780,7 @@ final position and BIOS tick together within that uncertainty range.
 `ReferenceCosts::dosbox_x_240` retains the older DOSBox profile for explicit
 comparisons. Its room drawing allowances do not include the XT profile's added
 work breakdown or phase-dependent swimming surface wait. Ordinary play uses
-`ibm_xt`; unmeasured effect loops, room actors, transitions, clipped re-entry
+`ibm_xt`; unmeasured effect loops, room actors, transitions, entry callers
 and startup-specific work retain provisional allowances. Some of those derive
 from DOSBox-X normal core at fixed 240 cycles/ms, an emulator throughput setting
 rather than a physical CPU clock. Changing measured costs is not a global speed

@@ -13,6 +13,22 @@ pub(crate) struct Work {
     pub graphics: Graphics,
     pub hearts: crate::hearts_completion::PresentationWork,
     pub failure: crate::failure::PresentationWork,
+    pub bookkeeping: Bookkeeping,
+}
+
+/// Arithmetic/state work emitted only by the phase that actually performs it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Bookkeeping {
+    pub progress: bool,
+    pub award: Option<AwardWork>,
+    pub life: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AwardWork {
+    pub bonus: u16,
+    /// None for an ordinary award; Hearts adds the award this many times.
+    pub multiplier: Option<u16>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -106,6 +122,7 @@ impl Wipe {
                 },
                 hearts: Default::default(),
                 failure: Default::default(),
+                bookkeeping: Default::default(),
             });
         }
         geometry.clips = self.grow();
@@ -118,6 +135,7 @@ impl Wipe {
             },
             hearts: Default::default(),
             failure: Default::default(),
+            bookkeeping: Default::default(),
         })
     }
     fn grow(&mut self) -> u8 {
@@ -241,6 +259,7 @@ impl Completion {
             }
             Phase::Silhouettes => {
                 crate::room::begin_room_completion(data)?;
+                work.bookkeeping.progress = true;
                 prepare_face(data, 0xaa);
                 work.graphics.face_preparations = 1;
                 work.graphics.score_grid = true;
@@ -257,6 +276,10 @@ impl Completion {
             }
             Phase::Award => {
                 crate::room::award_room_completion(data, self.room, tick)?;
+                work.bookkeeping.award = Some(AwardWork {
+                    bonus: word(data, 0x3697),
+                    multiplier: None,
+                });
                 prepare_face(data, 0xff);
                 work.graphics.face_preparations = 1;
                 set_word(data, 0x369a, u16::from(data[0x369e]) * 40);
@@ -532,9 +555,11 @@ mod tests {
         let mut screen = Framebuffer::default();
         let mut completion = Completion::new(80, 180, 5).unwrap();
         let mut final_tick = 0;
+        let mut progress_work = 0;
+        let mut awards = 0;
         for tick in 0..200 {
             final_tick = tick;
-            if completion
+            let work = completion
                 .advance(
                     &mut data,
                     &mut screen,
@@ -542,13 +567,15 @@ mod tests {
                     true,
                     &mut crate::sound::Sound::default(),
                 )
-                .unwrap()
-                .complete
-            {
+                .unwrap();
+            progress_work += usize::from(work.bookkeeping.progress);
+            awards += usize::from(work.bookkeeping.award.is_some());
+            if work.complete {
                 break;
             }
         }
         assert!(final_tick < 199);
+        assert_eq!((progress_work, awards), (1, 1));
         assert_eq!(
             (word(&data, 0x414), data[0x1f80], word(&data, 0x2ae5)),
             (1, 3, 0xfa59)

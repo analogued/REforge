@@ -144,7 +144,7 @@ fn add_decimal(data: &mut [u8], destination: usize, addend: &[u8; 7]) {
 }
 
 /// CS:38de..396c. The bonus score is awarded before the difficulty increases.
-fn award(data: &mut [u8], tick: u16) -> Result<(), String> {
+fn award(data: &mut [u8], tick: u16) -> Result<crate::completion::AwardWork, String> {
     let difficulty = usize::from(word(data, 8));
     if difficulty > 7 {
         return Err("Hearts completion difficulty is outside 0..7".into());
@@ -192,7 +192,10 @@ fn award(data: &mut [u8], tick: u16) -> Result<(), String> {
     data[0x369e] = 56;
     data[0x3699] = 1;
     set_word(data, 0x3722, 68);
-    Ok(())
+    Ok(crate::completion::AwardWork {
+        bonus,
+        multiplier: Some(multiplier),
+    })
 }
 
 fn score_frame(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, String> {
@@ -453,7 +456,7 @@ impl HeartsCompletion {
                 }
             }
             Phase::Score => {
-                award(data, tick)?;
+                work.bookkeeping.award = Some(award(data, tick)?);
                 work.bytes_drawn = score_frame(data, screen)?;
                 set_word(data, 0x3695, tick);
                 self.phase = Phase::ScoreHold {
@@ -902,8 +905,9 @@ mod tests {
         let mut screen = Framebuffer::default();
         let mut completion = HeartsCompletion::new(100, 20, true).unwrap();
         let mut done = false;
+        let mut awards = 0;
         for tick in 0..300 {
-            if completion
+            let work = completion
                 .advance(
                     &mut data,
                     &mut screen,
@@ -911,14 +915,18 @@ mod tests {
                     true,
                     &mut crate::sound::Sound::default(),
                 )
-                .unwrap()
-                .complete
-            {
+                .unwrap();
+            if let Some(award) = work.bookkeeping.award {
+                assert_eq!(award.multiplier, Some(3));
+                awards += 1;
+            }
+            if work.complete {
                 done = true;
                 break;
             }
         }
         assert!(done);
+        assert_eq!(awards, 1);
         assert_eq!(
             (data[0x1f80], word(&data, 8), word(&data, 0x414)),
             (4, 2, 0)

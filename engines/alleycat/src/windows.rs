@@ -269,11 +269,19 @@ pub(crate) fn advance_with_projectiles(
     Ok(update)
 }
 
-/// CS:01e5..0238 ordinary selection and forced-bonus override. This helper
-/// retains the weighted choices and two-entry history without remapping rooms.
-/// It does not save the alley return position; that precedes selection.
-pub(crate) fn choose_room(data: &mut [u8]) -> Result<u16, String> {
+/// Selection work counted along the actual RNG/history path.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct SelectionWork {
+    pub attempts: u32,
+    pub extra_draws: u32,
+    pub history_rejections: u32,
+}
+
+/// CS:01e5..0238 retains weighted choices and two-entry history.
+/// Saving the alley return position precedes this helper.
+fn choose_room(data: &mut [u8]) -> Result<(u16, SelectionWork), String> {
     check_data(data)?;
+    let mut work = SelectionWork::default();
     let selected = if data[0x418] != 0 {
         data[0x418] = 0;
         7
@@ -288,11 +296,13 @@ pub(crate) fn choose_room(data: &mut [u8]) -> Result<u16, String> {
             Ok(next_random(data))
         };
         let candidate = loop {
+            work.attempts += 1;
             let first = draw(data)?;
             let candidate = if first & 0xa0 != 0 && difficulty != 3 {
                 data[0x421 + difficulty * 4 + usize::from(first & 3)]
             } else {
                 let index = loop {
+                    work.extra_draws += 1;
                     let random = draw(data)? & 7;
                     if random < 5 {
                         break random;
@@ -304,6 +314,7 @@ pub(crate) fn choose_room(data: &mut [u8]) -> Result<u16, String> {
             if candidate != word(data, 0x41d) || candidate != word(data, 0x41f) {
                 break candidate;
             }
+            work.history_rejections += 1;
         };
         set_word(data, 0x41f, word(data, 0x41d));
         set_word(data, 0x41d, candidate);
@@ -311,11 +322,15 @@ pub(crate) fn choose_room(data: &mut [u8]) -> Result<u16, String> {
     };
     set_word(data, 4, selected);
     set_word(data, 6, 0);
-    Ok(selected)
+    Ok((selected, work))
 }
 
 /// CS:01b7..0238 saves the contact position and clock before selecting a room.
-pub(crate) fn select_room(data: &mut [u8], player: &Player, tick: u16) -> Result<u16, String> {
+pub(crate) fn select_room(
+    data: &mut [u8],
+    player: &Player,
+    tick: u16,
+) -> Result<(u16, SelectionWork), String> {
     check_data(data)?;
     set_word(data, 0x410, tick);
     set_word(data, 1, player.x);
@@ -802,7 +817,13 @@ mod tests {
             set_word(&mut data, 8, difficulty);
             set_word(&mut data, 0x41d, latest);
             set_word(&mut data, 0x41f, previous);
-            assert_eq!(choose_room(&mut data).unwrap(), room);
+            let (selected, work) = choose_room(&mut data).unwrap();
+            assert_eq!(selected, room);
+            assert!(work.attempts >= 1);
+            assert_eq!(work.history_rejections, work.attempts - 1);
+            if seed == 0x40 && latest == 4 && previous == 4 {
+                assert_eq!((work.attempts, work.extra_draws), (2, 1));
+            }
             assert_eq!(word(&data, 0x2ae5), final_seed);
             assert_eq!(
                 (
@@ -823,7 +844,12 @@ mod tests {
         let player = Player::at_alley_floor(110);
         let seed = word(&data, 0x2ae5);
         let history = data[0x41d..0x421].to_vec();
-        assert_eq!(select_room(&mut data, &player, 65535).unwrap(), 7);
+        let (room, work) = select_room(&mut data, &player, 65535).unwrap();
+        assert_eq!(room, 7);
+        assert_eq!(
+            (work.attempts, work.extra_draws, work.history_rejections),
+            (0, 0, 0)
+        );
         assert_eq!(word(&data, 0x410), 65535);
         assert_eq!(
             (word(&data, 1), data[3], data[0x419], data[0x418]),

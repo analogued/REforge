@@ -95,12 +95,7 @@ impl Failure {
             Phase::Begin => {
                 set_word(data, 0x5a85, 0);
                 set_word(data, 0x5a83, tick);
-                let index = word(data, 0x1c30) & 6;
-                set_word(data, 0x1c30, word(data, 0x1c30).wrapping_add(2));
-                set_word(data, 0x1c2e, word(data, 0x1c26 + usize::from(index)));
-                if !self.preserve_life && data[0x1f80] != 0 {
-                    data[0x1f80] -= 1;
-                }
+                work.bookkeeping.life = Some(rotate_message_and_life(data, self.preserve_life));
                 if data[0x552] == 0xdd && word(data, 8) != 0 && data[0x1f80] != 0 {
                     set_word(data, 0x5f60, 0);
                     set_word(data, 0x5f66, tick);
@@ -187,6 +182,18 @@ impl Failure {
         work.bytes_drawn = work.bytes_drawn.max(work.failure.bytes());
         Ok(work)
     }
+}
+
+/// CS:1d8e..1da9. Keep the state prefix separate from drawing and sound setup.
+fn rotate_message_and_life(data: &mut [u8], preserve_life: bool) -> bool {
+    let index = word(data, 0x1c30) & 6;
+    set_word(data, 0x1c30, word(data, 0x1c30).wrapping_add(2));
+    set_word(data, 0x1c2e, word(data, 0x1c26 + usize::from(index)));
+    let had_life = data[0x1f80] != 0;
+    if !preserve_life && had_life {
+        data[0x1f80] -= 1;
+    }
+    had_life
 }
 
 fn copy(

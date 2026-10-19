@@ -109,6 +109,7 @@ pub struct Alley {
     machine: Machine,
     completion: Option<crate::completion::Completion>,
     hearts_completion: Option<crate::hearts_completion::HeartsCompletion>,
+    selection_work: Option<crate::windows::SelectionWork>,
     /// Normal cat image held aside while the milk drinking helper owns drawing.
     milk_player_image: Option<(Dimensions, Vec<u8>)>,
     air_warning: u8,
@@ -265,6 +266,7 @@ impl Alley {
         self.failure = None;
         self.completion = None;
         self.hearts_completion = None;
+        self.selection_work = None;
         self.damage_effect = None;
         // Host shortcuts can interrupt the timed mouse-contact presentation.
         // Its runtime wait is discarded along with this run, so discard its image.
@@ -679,6 +681,7 @@ impl Alley {
             machine: Machine::Cga,
             completion: None,
             hearts_completion: None,
+            selection_work: None,
             milk_player_image: None,
             air_warning: 0,
             dog_image: None,
@@ -734,6 +737,7 @@ impl Alley {
             machine,
             completion: None,
             hearts_completion: None,
+            selection_work: None,
             milk_player_image: None,
             air_warning: 0,
             dog_image: None,
@@ -1741,6 +1745,10 @@ impl Alley {
         Ok(update)
     }
 
+    pub(crate) fn take_selection_work(&mut self) -> Option<crate::windows::SelectionWork> {
+        self.selection_work.take()
+    }
+
     /// Dispatch only after the original caller's remaining actor work finishes.
     pub(crate) fn finish_scene(&mut self, tick: u16) -> Result<bool, String> {
         if self.completion_waiting() {
@@ -1753,7 +1761,8 @@ impl Alley {
             self.player.write_data(&mut self.data)?;
             // Dispatch the original weighted selector directly. Its
             // pending-hearts override takes priority over ordinary rooms.
-            let candidate = crate::windows::select_room(&mut self.data, &self.player, tick)?;
+            let (candidate, work) =
+                crate::windows::select_room(&mut self.data, &self.player, tick)?;
             match candidate {
                 7 => self.setup_hearts(tick)?,
                 1 => self.setup_fishbowl()?,
@@ -1763,6 +1772,7 @@ impl Alley {
                 6 => self.setup_milk()?,
                 _ => return Err("Window selected an unsupported scene".into()),
             }
+            self.selection_work = Some(work);
             return Ok(true);
         }
         // Original scene-one caller tests bowl entry before room termination.
@@ -2130,6 +2140,26 @@ fn hardware_color(color: u8) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transition_work_is_consumed_once_and_restart_discards_pending_work() {
+        let mut alley = Alley::synthetic();
+        let work = crate::windows::SelectionWork {
+            attempts: 2,
+            extra_draws: 1,
+            history_rejections: 1,
+        };
+        alley.selection_work = Some(work);
+        assert_eq!(alley.take_selection_work().unwrap().attempts, 2);
+        assert!(alley.take_selection_work().is_none());
+        alley.selection_work = Some(work);
+        set_word(&mut alley.data, 0x28a2, 0xffff);
+        set_word(&mut alley.data, 0x5908, 0x7100);
+        set_word(&mut alley.data, 0x590e, 0x7100);
+        set_word(&mut alley.data, 0x7100, 0xffff);
+        alley.reset_run(0, true).unwrap();
+        assert!(alley.take_selection_work().is_none());
+    }
 
     #[test]
     fn final_entry_idle_keeps_the_previous_image_offset_but_walking_moves_it() {

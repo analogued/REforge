@@ -674,6 +674,7 @@ impl BlockingCosts {
 /// They exclude scenery construction and deliberate transition waits.
 #[derive(Clone, Copy, Debug)]
 pub struct SetupCosts {
+    pub ground_alley: u64,
     pub saved_alley: u64,
     pub rooms: [u64; 7],
 }
@@ -681,6 +682,7 @@ pub struct SetupCosts {
 impl SetupCosts {
     fn ibm_xt() -> Self {
         Self {
+            ground_alley: 8_266_600,
             saved_alley: 8_353_900,
             rooms: [
                 1_590_000, 5_330_200, 1_667_100, 2_924_000, 3_764_000, 1_600_000, 3_149_500,
@@ -691,10 +693,69 @@ impl SetupCosts {
     fn nanos(self, scene: u16, saved_alley: bool) -> u64 {
         match scene {
             0 if saved_alley => self.saved_alley,
+            0 => self.ground_alley,
             1..=7 => self.rooms[usize::from(scene - 1)],
-            // Ground-level alley entry was not part of these captures.
             _ => 0,
         }
+    }
+}
+
+/// Bounded stock-XT fits for transition arithmetic, excluding drawing/waits.
+/// Decimal conversion depends on set bits; Hearts also repeats decimal adds.
+#[derive(Clone, Copy, Debug)]
+pub struct BookkeepingCosts {
+    pub progress: u64,
+    pub ordinary: u64,
+    pub hearts: u64,
+    pub bonus_bit: u64,
+    pub multiplier: u64,
+    pub life_nonzero: u64,
+    pub life_zero: u64,
+    pub selection: u64,
+    pub selection_attempt: u64,
+    pub selection_draw: u64,
+    pub selection_rejection: u64,
+}
+
+impl BookkeepingCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            progress: 13_700,
+            ordinary: 837_000,
+            hearts: 610_000,
+            bonus_bit: 224_000,
+            multiplier: 238_000,
+            life_nonzero: 38_700,
+            life_zero: 34_400,
+            selection: 132_000,
+            selection_attempt: 91_500,
+            selection_draw: 35_300,
+            selection_rejection: 2_200,
+        }
+    }
+
+    fn nanos(self, work: crate::completion::Bookkeeping) -> u64 {
+        u64::from(work.progress) * self.progress
+            + work.award.map_or(0, |award| {
+                u64::from(award.bonus.count_ones()) * self.bonus_bit
+                    + award.multiplier.map_or(self.ordinary, |count| {
+                        self.hearts + u64::from(count) * self.multiplier
+                    })
+            })
+            + work.life.map_or(0, |had_life| {
+                if had_life {
+                    self.life_nonzero
+                } else {
+                    self.life_zero
+                }
+            })
+    }
+
+    fn selection_nanos(self, work: crate::windows::SelectionWork) -> u64 {
+        self.selection
+            + u64::from(work.attempts) * self.selection_attempt
+            + u64::from(work.extra_draws) * self.selection_draw
+            + u64::from(work.history_rejections) * self.selection_rejection
     }
 }
 
@@ -809,6 +870,7 @@ pub struct ReferenceCosts {
     pub blocking: Option<BlockingCosts>,
     pub failure: Option<FailureCosts>,
     pub setup: Option<SetupCosts>,
+    pub bookkeeping: Option<BookkeepingCosts>,
 }
 
 impl ReferenceCosts {
@@ -939,6 +1001,7 @@ impl ReferenceCosts {
             entry: Some(EntryCosts::ibm_xt()),
             window: Some(WindowCosts::ibm_xt()),
             setup: Some(SetupCosts::ibm_xt()),
+            bookkeeping: Some(BookkeepingCosts::ibm_xt()),
             ..Self::dosbox_x_240(machine)
         }
     }
@@ -1101,6 +1164,7 @@ impl ReferenceCosts {
             blocking: None,
             failure: None,
             setup: None,
+            bookkeeping: None,
         }
     }
 }
@@ -1286,7 +1350,11 @@ impl Runtime {
                     .saturating_sub(hearts_bytes + failure_bytes) as u64
                     * self.costs.completion_draw_byte
         };
-        self.clock.advance_nanos(nanos);
+        let bookkeeping = self
+            .costs
+            .bookkeeping
+            .map_or(0, |costs| costs.nanos(work.bookkeeping));
+        self.clock.advance_nanos(nanos + bookkeeping);
     }
 
     fn charge_hearts(&mut self, step: crate::hearts::HeartStep) {
@@ -2247,7 +2315,14 @@ impl Runtime {
         })
     }
 
-    fn synchronize_scene(&mut self, alley: &Alley) {
+    fn synchronize_scene(&mut self, alley: &mut Alley) {
+        if let Some(work) = alley.take_selection_work() {
+            self.clock.advance_nanos(
+                self.costs
+                    .bookkeeping
+                    .map_or(0, |costs| costs.selection_nanos(work)),
+            );
+        }
         self.enter_scene(alley.scene(), alley.saved_alley_return());
     }
 
@@ -2294,6 +2369,33 @@ mod tests {
     use crate::timing::BIOS_TICK_PIT_CLOCKS;
 
     #[test]
+    fn bookkeeping_is_additional_to_graphics_and_absent_from_the_older_profile() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut runtime = Runtime::new(machine);
+            let work = crate::completion::Work {
+                bookkeeping: crate::completion::Bookkeeping {
+                    progress: true,
+                    award: Some(crate::completion::AwardWork {
+                        bonus: 2700,
+                        multiplier: None,
+                    }),
+                    life: Some(false),
+                },
+                ..Default::default()
+            };
+            let before = runtime.clock.elapsed_nanos();
+            runtime.charge_completion(work, 0);
+            assert_eq!(runtime.clock.elapsed_nanos() - before, 2_005_100);
+            let after = runtime.clock.elapsed_nanos();
+            runtime.charge_completion(Default::default(), 0);
+            assert_eq!(runtime.clock.elapsed_nanos(), after);
+            let mut older = Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
+            older.charge_completion(work, 0);
+            assert_eq!(older.clock.elapsed_nanos(), 0);
+        }
+    }
+
+    #[test]
     fn setup_crosses_timer_boundaries_once_without_resetting_ongoing_controls() {
         let mut runtime = Runtime::new(Machine::Cga);
         runtime.clock.advance_nanos(54_000_000);
@@ -2313,13 +2415,16 @@ mod tests {
     }
 
     #[test]
-    fn setup_distinguishes_saved_alley_return_from_unmeasured_ground_entry() {
+    fn setup_distinguishes_saved_alley_return_from_ground_entry() {
         for machine in [Machine::Cga, Machine::Pcjr] {
             let mut runtime = Runtime::new(machine);
             runtime.enter_scene(5, false);
             let before = runtime.clock.elapsed_nanos();
             runtime.enter_scene(0, false);
-            assert_eq!(runtime.clock.elapsed_nanos(), before);
+            assert_eq!(
+                runtime.clock.elapsed_nanos() - before,
+                u128::from(runtime.costs.setup.unwrap().ground_alley)
+            );
             runtime.enter_scene(5, false);
             let before = runtime.clock.elapsed_nanos();
             runtime.enter_scene(0, true);

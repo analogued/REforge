@@ -512,8 +512,9 @@ Drawing advances the same timeline as waits, rather than adding a second delay
 after them. A frame can nevertheless exceed its timer deadline; measured
 throughput alone does not establish whether that slowdown was intended.
 
-Enclosing approach/pair/score/reward bookkeeping, score text and wait-poll
-execution allowances remain provisional. Sound request timestamps within a drawing
+Score arithmetic uses the transition-bookkeeping allowance below. Enclosing
+approach/pair/reward bookkeeping, score text and wait-poll execution allowances
+remain provisional. Sound request timestamps within a drawing
 phase are not independently fitted by the muted graphics captures. Controlled
 helper/frame comparisons do not establish full original-loop timing or
 random-stream equivalence.
@@ -900,6 +901,7 @@ Post-scenery setup suffixes use these approximate stock-XT allowances:
 
 | Destination | Setup allowance |
 | --- | ---: |
+| Alley, ground-level return | 8.267 ms |
 | Alley, saved window return | 8.354 ms |
 | Fishbowl | 1.590 ms |
 | Underwater | 5.330 ms |
@@ -912,18 +914,18 @@ Post-scenery setup suffixes use these approximate stock-XT allowances:
 The XT runtime charges the combined allowance once when synchronizing a scene
 change. Player-entry preparation, actor resets, logical tone initialization and
 any score redraws within that suffix are included; their isolated helper costs
-are not added again. Ground-level alley entry remains uncalibrated and does not
-inherit the saved-window allowance. The older DOSBox profile has no added setup
-charge. Both game modes use the shared XT baseline.
+are not added again. Ground-level and saved-window returns use their own
+measured suffixes. Initial static launch remains outside this scene-change
+accounting. The older DOSBox profile has no added setup charge. Both game modes
+use the shared XT baseline.
 
 These bounded fits come from selected difficulty/seed states and reassembled
 native caller suffixes, after scenery preparation. Random placement retries and
 interrupt phase can change individual durations. The appended caller's relocated
 CALLs and final RET also limit instruction-level equivalence. Initialization
 currently samples supplied BIOS time rather than reproducing each internal
-timer-read position. Full scenery construction, wipe/selection bookkeeping and
-initial startup work remain separate; these small setup charges neither add
-bulk construction waits nor expose partial CGA-bank writes.
+timer-read position. Full scenery construction and initial startup work remain
+separate; these small setup charges neither add bulk construction waits nor expose partial CGA-bank writes.
 
 ### Failure presentation execution costs
 
@@ -946,8 +948,8 @@ Terminal and aged one-tick wait captures separate polling from graphics. Their
 whole durations depend on PIT entry phase and do not replace the original
 28-step message reveal or four-tick dog frame gate. Each message wait starts
 after drawing; the final return retains its last drawing baseline. Complete
-failure playback, selection/life bookkeeping and surrounding transition costs
-remain outside these helper fits. The older DOSBox profile retains generic
+failure playback and surrounding transition costs remain outside these helper
+fits. Life/message rotation uses the separate bookkeeping allowance below. The older DOSBox profile retains generic
 byte-based pricing, now including previously uncounted dog header/detail bytes.
 
 ### Blocking effects and diagnostic modes
@@ -1107,3 +1109,42 @@ presentation audio. Device failures warn and leave game logic running.
 Uniform accepted-update diagnostics remain silent because they have no
 meaningful speaker timeline. The timed headless runner executes sound logic
 without retaining output writes.
+
+### Transition bookkeeping
+
+The XT profile charges arithmetic and state updates separately from drawing,
+sound and deliberate waits. Each phase reports its work once; later wait polls
+cannot award points or charge that arithmetic again. The older DOSBox profile
+has no additional bookkeeping charge. Both display modes use the shared XT fit.
+
+| Operation | Captured duration |
+| --- | ---: |
+| Room selection, pending Hearts | 0.132 ms |
+| Room selection, sampled ordinary paths | 0.223–0.317 ms |
+| Ordinary-room score arithmetic | 0.836–1.957 ms |
+| Hearts score arithmetic | 2.183–9.491 ms |
+| Progress increment and pending-Hearts flag | 0.0136–0.0138 ms |
+| Life decrement and message rotation | 0.0344–0.0390 ms |
+
+Selection counts actual candidate attempts, additional random draws and history
+rejections without consuming extra random values for timing. The allowance is
+0.132 ms plus 0.0915 ms per candidate, 0.0353 ms per extra draw and 0.0022 ms per
+history rejection. Longer retry paths extrapolate these bounded cases; they are
+not independently calibrated for every seed.
+
+The original binary-to-decimal conversion adds a seven-digit value for each set
+bit of the bonus. Ordinary arithmetic uses 0.837 ms plus 0.224 ms per set bit.
+Hearts uses 0.610 ms plus the same bit allowance and 0.238 ms per multiplier
+iteration. These are bounded execution fits, not exact instruction costs: carries,
+interrupts and the separately sampled BIOS time limit precision. All nine sampled
+award cases fit within 0.052 ms. The already included decimal helpers are not
+charged again. Progress uses 0.0137 ms; life/message rotation uses 0.0387 ms with
+positive lives or 0.0344 ms at zero. Preserving lives through a development option
+retains the corresponding native-path allowance.
+
+The captures isolate reassembled native blocks and selected caller suffixes.
+Graphics, BIOS text, waits and omitted branch dispatches are outside arithmetic
+markers. Two repeats, approximate empty-call subtraction and relocation/prefetch
+changes limit precision. Controlled original-state comparisons cover the selected
+fields and final VRAM; they do not establish complete caller timing, exact internal
+BIOS-read placement or whole-game equivalence.

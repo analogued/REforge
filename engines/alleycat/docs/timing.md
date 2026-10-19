@@ -868,6 +868,32 @@ an original interrupt between its internal timer reads can change a boundary
 decision, such as a mouse's 53/54-tick respawn. Instruction-level interrupt
 placement is outside this execution-cost model.
 
+### Score, HUD and decoration execution costs
+
+Scoped stock-XT measurements of the original helpers give these approximate
+durations. Values include each helper's drawing where indicated; they are not
+additional presentation waits.
+
+| Helper | Measured duration |
+| --- | ---: |
+| High-score comparison/promotion (`2690`), selected early/late decisions | 0.027–0.165 ms |
+| Lives display (`26b3`), unchanged cache | 0.011 ms |
+| Lives display, one digit redrawn | 0.443–0.444 ms |
+| Current/high score (`26fc`/`26f2`), seven digits | 3.376–3.377 ms |
+| Alley point award (`2706`), including current-score redraw | 3.503–3.513 ms |
+| Seven-digit decimal addition (`271e`), without drawing | 0.209–0.210 ms |
+| Clear one score array (`26da`/`26e1`) | 0.043 ms |
+| Ground decorations (`5400`), three difficulty/seed examples | 1.278–4.479 ms |
+
+The calibrated mouse-catch allowance already includes its score update and
+redraw. These measurements therefore do not add another HUD charge to that
+path. Setup/transition callers still need separate accounting to avoid charging
+shared work twice. Ground-decoration examples do not establish an exhaustive
+seed-dependent cost model. Two repeats per case and approximate empty-call
+subtraction also leave interrupt-phase uncertainty. The recreation presents
+ordinary construction after its memory updates, without exposing intermediate
+CGA-bank or tile writes.
+
 ### Failure presentation execution costs
 
 Masked failure-message drawing (`1e17`) takes about 2.843 ms for the four original

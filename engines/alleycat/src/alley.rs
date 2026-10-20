@@ -972,6 +972,7 @@ impl Alley {
                 support: crate::player::Support::None,
                 lower_support: false,
                 floor_mark: false,
+                airborne_support_checked: false,
                 edge_reset: false,
                 bin_contact_checked: false,
                 forced_controls: None,

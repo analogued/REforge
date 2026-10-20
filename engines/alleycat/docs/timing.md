@@ -765,6 +765,24 @@ previous walking shape and two fixed idle seeds, with periodic redraw sampled
 only in the bookcase. Other image combinations, whole-room cadence and physical
 PCjr remain outside these checks.
 
+Unsupported airborne descent with the complete retained twelve-row jump image
+uses accepted-body fits of 3.701, 3.744, 4.523, 3.808 and 3.800 ms in these five
+rooms respectively. These totals include a failed furniture-support search;
+they apply only when that search actually runs, including an update that turns
+from rising to falling. Rising and delayed/disabled searches retain their
+existing allowances. Landing, clipping and actor animation use other paths.
+
+Twenty-two cases pair FC/FD software IDs on the shared XT hardware: rising and
+unsupported falling in each room, plus the turning point in the bookcase.
+Forty-four measurements plus two controls match 51 selected fields, full video
+memory, zero PIT-tone programs and the actual support-search work flag. All
+totals, including unchanged rising costs, are within 0.097 ms of the medians;
+the earlier generic descent allowance was short by about 0.45–1.28 ms on these
+paths. These are bounded same-capture fits at one position, speed, difficulty
+and retained sprite. Other geometry, animation phases, whole-room cadence and
+physical PCjr remain outside this calibration. Native movement, search results
+and waits are unchanged; the legacy profile keeps its previous charges.
+
 Already-attached upper-support bodies have separate fits in the alley and
 bookcase room: 2.925 ms for the first fourteen-row cling pose, 0.115 ms while
 holding, 0.281 ms for jumping off and 0.266 ms for dropping off. The first pose

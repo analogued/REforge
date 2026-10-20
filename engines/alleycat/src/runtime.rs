@@ -1105,6 +1105,9 @@ pub struct ReferenceCosts {
     pub lower_support: Option<LowerSupportCosts>,
     pub floor: Option<FloorCosts>,
     pub upper_support: Option<UpperSupportCosts>,
+    /// Complete unsupported descent bodies for the retained twelve-row jump image.
+    /// Indexed by native scene; only 1,3..=6 are used.
+    pub room_descent: Option<[u64; 8]>,
     pub bin_frame: u64,
     pub bin_restore_row: u64,
     pub bin_draw_row: u64,
@@ -1239,6 +1242,9 @@ impl ReferenceCosts {
                 room_walk: 2_761_000,
                 room_mark: 327_000,
             }),
+            room_descent: Some([
+                0, 3_701_000, 0, 3_744_000, 4_523_000, 3_808_000, 3_800_000, 0,
+            ]),
             // Valid saved-background frames, less the quiet grouped baseline.
             // Fixed sprite content makes these fitted row coefficients.
             bin_frame: 399_200,
@@ -1385,6 +1391,7 @@ impl ReferenceCosts {
             lower_support: None,
             floor: None,
             upper_support: None,
+            room_descent: None,
             // Legacy clipped-entry allowance, also the XT fallback for
             // unsampled drawing shapes. Selected XT bodies use EntryCosts.
             player_entry: 2_875_000,
@@ -2639,6 +2646,29 @@ impl Runtime {
                         _ => None,
                     })
             {
+                self.clock.advance_nanos(nanos);
+                self.clock.advance_pit_ticks(support_ticks);
+            } else if let Some(nanos) = self.costs.room_descent.and_then(|costs| {
+                let scene = alley.scene();
+                match outcome.draw {
+                    Draw::Sprite(sprite)
+                        if matches!(scene, 1 | 3..=6)
+                            && airborne
+                            && !entering
+                            && outcome.airborne_support_checked
+                            && !outcome.landed
+                            && outcome.support == crate::player::Support::None
+                            && alley.player.vertical_direction == 1
+                            && sprite.dimensions == 0x0c03
+                            && alley.player.is_unclipped_airborne_sprite(sprite) =>
+                    {
+                        // Includes the failed room support search, even when
+                        // this update turns from rising to falling. No wait.
+                        Some(costs[usize::from(scene)])
+                    }
+                    _ => None,
+                }
+            }) {
                 self.clock.advance_nanos(nanos);
                 self.clock.advance_pit_ticks(support_ticks);
             } else if let Some(work) = swimming {

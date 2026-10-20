@@ -182,6 +182,48 @@ mod tests {
     }
 
     #[test]
+    fn airborne_support_work_follows_delay_direction_and_disable_gates() {
+        let data = room_tables();
+        for (direction, delay, disabled, phase, decrement, step, searched, landed) in [
+            (255, 2, 0, 128, 0, 3, false, false),
+            (1, 2, 0, 128, 0, 3, false, false),
+            (1, 1, 0, 128, 0, 3, true, false),
+            (1, 0, 0, 128, 0, 3, true, false),
+            (1, 0, 1, 128, 0, 3, false, false),
+            (255, 1, 0, 0, 1, 1, true, false),
+            (1, 1, 0, 128, 0, 7, true, true),
+        ] {
+            let mut player = Player::at_alley_floor(125);
+            player.y = 176;
+            player.vertical_coordinate = 226;
+            player.vertical_direction = direction;
+            player.support_delay = delay;
+            player.support_disabled = disabled;
+            player.phase = phase;
+            player.phase_decrement = decrement;
+            player.vertical_step = step;
+            player.airborne_sprite = Sprite {
+                source: 0x900,
+                dimensions: 0x0c03,
+            };
+            let outcome = player.update(Controls::default(), &data).unwrap();
+            assert_eq!(outcome.airborne_support_checked, searched);
+            assert_eq!(outcome.landed, landed);
+            let Draw::Sprite(sprite) = outcome.draw else {
+                panic!("Expected complete drawing");
+            };
+            assert!(player.is_unclipped_airborne_sprite(sprite));
+            player.alternate_animation = 1;
+            assert!(!player.is_unclipped_airborne_sprite(sprite));
+            player.alternate_animation = 0;
+            assert!(!player.is_unclipped_airborne_sprite(Sprite {
+                dimensions: 0x0b03,
+                ..sprite
+            }));
+        }
+    }
+
+    #[test]
     fn room_landing_uses_table_geometry_without_alley_band_clipping() {
         let mut data = room_tables();
         data[0x1029] = 136;
@@ -895,6 +937,8 @@ pub struct UpdateOutcome {
     pub lower_support: bool,
     /// The room adapter actually drew a floor mark during this accepted update.
     pub floor_mark: bool,
+    /// An airborne update ran the native support search before drawing.
+    pub airborne_support_checked: bool,
     /// The original 070d edge initializer ran during this update.
     pub edge_reset: bool,
     /// The lower-support caller tested the bin cat on this update.
@@ -944,6 +988,11 @@ fn word(data: &[u8], offset: usize) -> u16 {
 }
 
 impl Player {
+    /// Whether drawing retains the complete transition image without actor animation.
+    pub(crate) fn is_unclipped_airborne_sprite(&self, sprite: Sprite) -> bool {
+        self.alternate_animation == 0 && sprite == self.airborne_sprite
+    }
+
     /// CS:2567 drops an attached cat without resetting its airborne phase,
     /// vertical step, or sprite history, and without removing a life.
     pub(crate) fn knock_down_from_mouse(&mut self) {
@@ -1162,6 +1211,7 @@ impl Player {
             support: self.last_support,
             lower_support: false,
             floor_mark: false,
+            airborne_support_checked: false,
             edge_reset: false,
             bin_contact_checked: false,
             forced_controls: None,
@@ -1483,6 +1533,7 @@ impl Player {
                 self.support_delay -= 1;
             }
             if self.support_delay == 0 && self.vertical_direction == 1 {
+                outcome.airborne_support_checked = true;
                 support = self.check_support(data)?;
             }
         }

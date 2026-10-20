@@ -977,6 +977,25 @@ state/full-VRAM/PIT-program comparisons cover the direct and mixed cases.
 Exact within-call audio timestamps, other audible caller costs and physical
 PCjr behavior remain outside these measurements.
 
+Complete accepted-body checks (`0926`) also cover inactive controls, hidden and
+visible fish, two-fish collections, final-fish success and both horizontal
+direction changes, each with native sound off/on. Twelve selected cases measure
+3.395–6.344 ms. Nonblocking contact bookkeeping uses 0.200 ms per contact above
+the separate gate/active-test allowances; first-player restoration, actual actor
+restoration and the caller's redraw remain separate. The existing movement,
+image, sound-request and lethal-prefix coefficients are unchanged.
+
+Actual `Alley::update_swimming` state, backing/presented VRAM and PIT-program
+counts match all twelve native cases. Its returned work is priced by the actual
+runtime; all totals fit the existing 0.150 ms accepted-body bound, with a largest
+difference of 0.113 ms. Two cases have about 0.115–0.121 ms repeat spread, whose
+cause is not established by two samples. These complete-body measurements check
+composition against separately measured helper fits; they do not prove arbitrary
+contact populations, exact interrupt timing or the surrounding room-loop cadence.
+The enclosing acceptance gate, lethal waits and physical PCjr remain outside
+this batch. The 41 movement/contact/split-helper comparisons and older DOSBox
+charges also remain within their established checks.
+
 The native FD near-surface branch (`0b72`) waits for retrace clear then set before
 a counted delay. Its variable full-body duration is not a fixed CPU surcharge.
 Runtime advances to the next virtual retrace start, skipping a current pulse,

@@ -1224,7 +1224,8 @@ impl ReferenceCosts {
             swimming_surface_delay: 2_637_000,
             underwater_contact_gate: 978_270,
             underwater_contact_test: 88_370,
-            underwater_contact_each: 250_000,
+            // Nonblocking bookkeeping; active tests and images are separate.
+            underwater_contact_each: 200_000,
             // Extra execution above the muted CS:593b call already in contact
             // work. This is PIT programming/BIOS sampling, not tone duration.
             underwater_contact_sound: 126_000,

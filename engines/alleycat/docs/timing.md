@@ -698,8 +698,8 @@ are 3.178–3.228 ms, and muted takeoff 0.641–0.690 ms. Audible totals reach
 complete video memory and PIT-program counts match; the fitted totals are within
 0.150 ms, with repeat spreads up to 0.131 ms. These are bounded same-capture
 fits, excluding other geometry, upper supports, the acceptance gate, whole-loop
-cadence and physical PCjr hardware. Initial upper-support landing and other
-unmeasured paths retain earlier approximate allowances. The legacy profile
+cadence and physical PCjr hardware. Unmeasured upper-support landing shapes and
+other paths retain earlier approximate allowances. The legacy profile
 retains its coefficients and charging rules, with the same corrected
 attachment/release sound ordering.
 
@@ -926,6 +926,33 @@ a twelve-row jump image; holding/releases begin with the fourteen-row cling
 image. This bounded same-capture fit excludes the acceptance gate, other scene
 contexts, combined pose-and-release calls, suppressed movement and full-loop
 cadence. Those paths retain their fallback, as does the legacy profile.
+
+Initial upper-support landings with a complete retained ten-row falling image
+separate execution work from the noisy two-BIOS-tick wait. The alley upper
+bitfield uses 0.775 ms before the sound poll and 2.265 ms afterward; the bookcase
+shelf uses 0.575 ms before and the same suffix. These replace the generic
+26.514 ms execution allowance on the measured paths, for totals of 3.040 and
+2.840 ms excluding the wait. Other shapes and contexts retain their fallback.
+
+Eight cases pair both contexts, native sound enabled/disabled and FC/FD software
+IDs on the shared XT hardware. Sixteen measurements plus two controls isolate
+the first channel-zero latch through the final speaker-stop write. The fitted
+prefix/suffix sum is within 0.010 ms of these anchored medians. The anchors
+include sound initialization/epilogue, rather than exact helper boundaries;
+interrupt placement and BIOS latency remain approximate. Full-video expectations
+come from the functional native preflight, not an XT video-memory capture.
+
+The prefix advances the game clock before the helper samples its BIOS tick and
+PIT phase. Its wait still lasts until two BIOS ticks have elapsed from that
+sample, including with native sound off; no fixed captured total replaces it.
+Timing changes can therefore change the audible pulse count and shared random
+consumption. The existing poll model and PRNG rules are unchanged. Three-phase
+recreation checks cover current-tick sampling across a BIOS boundary, sound
+pitch/seed consistency and final stop, but do not establish exact native pulse
+counts, raw counter values or complete phase-dependent duration. The selected
+state and complete final graphics agree with the native expectations. This is
+a bounded same-capture execution fit, excluding the acceptance gate, other
+actors, whole-loop cadence and physical PCjr. The legacy profile is unchanged.
 
 Bin-forced downward transitions instead separate bookkeeping from committed
 sound. Their baseline is about 0.687 ms, plus 0.050 ms for an initially clear

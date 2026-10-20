@@ -698,10 +698,10 @@ are 3.178–3.228 ms, and muted takeoff 0.641–0.690 ms. Audible totals reach
 complete video memory and PIT-program counts match; the fitted totals are within
 0.150 ms, with repeat spreads up to 0.131 ms. These are bounded same-capture
 fits, excluding other geometry, upper supports, the acceptance gate, whole-loop
-cadence and physical PCjr hardware. Upper-support and other unmeasured paths
-retain earlier approximate allowances. The legacy profile retains its
-coefficients and charging rules, with the same corrected attachment/release
-sound ordering.
+cadence and physical PCjr hardware. Initial upper-support landing and other
+unmeasured paths retain earlier approximate allowances. The legacy profile
+retains its coefficients and charging rules, with the same corrected
+attachment/release sound ordering.
 
 Ordinary alley-floor landings produce no support beep. Complete accepted-body
 medians are about 2.85 ms with the ten-row side-fall sprite, 3.23 ms with the
@@ -732,6 +732,22 @@ request, furniture contact, drinking or hole transfer. Other room landing
 shapes, upper supports and whole-loop cadence remain outside this calibration;
 the legacy profile keeps its previous charging. Physical PCjr is not measured
 by selecting the FD software branch on XT hardware.
+
+Already-attached upper-support bodies have separate fits in the alley and
+bookcase room: 2.925 ms for the first fourteen-row cling pose, 0.115 ms while
+holding, 0.281 ms for jumping off and 0.266 ms for dropping off. The first pose
+advances support state one to two; later release preserves that image while
+selecting the next airborne sprite. These calls produce no tone or random draw;
+the initial landing's separate two-BIOS-tick sound wait is unchanged.
+
+Sixteen cases pair the two contexts, four paths and FC/FD software IDs on the
+shared XT hardware. Thirty-two repeated measurements plus two controls match
+51 selected state/drawing fields, full video memory and zero PIT-tone programs.
+Fitted totals are within 0.009 ms of the medians. The captured first pose replaces
+a twelve-row jump image; holding/releases begin with the fourteen-row cling
+image. This bounded same-capture fit excludes the acceptance gate, other scene
+contexts, combined pose-and-release calls, suppressed movement and full-loop
+cadence. Those paths retain their fallback, as does the legacy profile.
 
 Bin-forced downward transitions instead separate bookkeeping from committed
 sound. Their baseline is about 0.687 ms, plus 0.050 ms for an initially clear

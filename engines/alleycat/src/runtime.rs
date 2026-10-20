@@ -1104,6 +1104,7 @@ pub struct ReferenceCosts {
     pub forced_release: Option<ForcedReleaseCosts>,
     pub lower_support: Option<LowerSupportCosts>,
     pub floor: Option<FloorCosts>,
+    pub upper_support: Option<UpperSupportCosts>,
     pub bin_frame: u64,
     pub bin_restore_row: u64,
     pub bin_draw_row: u64,
@@ -1150,6 +1151,15 @@ pub struct FloorCosts {
     pub takeoff: u64,
     /// Complete room landing bodies indexed by native scene; only 1,3..=6 are used.
     pub room_landing: [u64; 8],
+}
+
+/// Already-supported bodies, excluding the initial landing sound wait.
+#[derive(Clone, Copy, Debug)]
+pub struct UpperSupportCosts {
+    pub pose: u64,
+    pub hold: u64,
+    pub jump: u64,
+    pub drop: u64,
 }
 
 impl ReferenceCosts {
@@ -1210,6 +1220,12 @@ impl ReferenceCosts {
                 takeoff: 641_000,
                 attach: 50_000,
                 beep_overhead: 55_000,
+            }),
+            upper_support: Some(UpperSupportCosts {
+                pose: 2_925_000,
+                hold: 115_000,
+                jump: 281_000,
+                drop: 266_000,
             }),
             floor: Some(FloorCosts {
                 landing: 950_000,
@@ -1364,6 +1380,7 @@ impl ReferenceCosts {
             forced_release: None,
             lower_support: None,
             floor: None,
+            upper_support: None,
             // Legacy clipped-entry allowance, also the XT fallback for
             // unsampled drawing shapes. Selected XT bodies use EntryCosts.
             player_entry: 2_875_000,
@@ -2442,7 +2459,11 @@ impl Runtime {
                 && alley.player.support_state == 0
                 && self.controls.y == -1;
             let entry_waiting = alley.player.entry_delay != 0;
-            let releasing = alley.player.support_state != 0 && self.controls.y != 0;
+            let supported = alley.player.support_state;
+            let releasing = supported != 0 && self.controls.y != 0;
+            let upper_support_costs = self.costs.upper_support.filter(|_| {
+                matches!(alley.scene(), 0 | 3) && !entering && !airborne && !alley.dying()
+            });
             let bin_sound_ready = alley.bin_contact_sound_ready();
             let first_bin_contact = !alley.bin_contact_latched();
             let support_tone = alley.support_sound_latched();
@@ -2550,6 +2571,26 @@ impl Runtime {
                     body + u64::from(lower_attach) * costs.attach
                         + beep_count * costs.beep_overhead,
                 );
+                self.clock.advance_pit_ticks(support_ticks);
+            } else if let Some(nanos) = upper_support_costs.and_then(|costs| {
+                match (
+                    supported,
+                    alley.player.support_state,
+                    outcome.draw,
+                    alley.player.vertical_direction,
+                ) {
+                    (1, 2, Draw::Sprite(sprite), 0)
+                        if sprite.source == 0x9da && sprite.dimensions == 0x0e03 =>
+                    {
+                        Some(costs.pose)
+                    }
+                    (2, 2, Draw::Keep, 0) => Some(costs.hold),
+                    (2, 0, Draw::Keep, 255) => Some(costs.jump),
+                    (2, 0, Draw::Keep, 1) => Some(costs.drop),
+                    _ => None,
+                }
+            }) {
+                self.clock.advance_nanos(nanos);
                 self.clock.advance_pit_ticks(support_ticks);
             } else if let Some(nanos) =
                 self.costs

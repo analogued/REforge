@@ -1083,6 +1083,7 @@ pub struct ReferenceCosts {
     pub underwater_contact_gate: u64,
     pub underwater_contact_test: u64,
     pub underwater_contact_each: u64,
+    pub underwater_contact_sound: u64,
     pub underwater_actor_gate: u64,
     pub underwater_actor_step: u64,
     pub underwater_actor_draw: u64,
@@ -1224,6 +1225,9 @@ impl ReferenceCosts {
             underwater_contact_gate: 978_270,
             underwater_contact_test: 88_370,
             underwater_contact_each: 250_000,
+            // Extra execution above the muted CS:593b call already in contact
+            // work. This is PIT programming/BIOS sampling, not tone duration.
+            underwater_contact_sound: 126_000,
             // Whole native loop intervals, fitted to the stock XT capture.
             spider_effect_poll: 151_810,
             mouse_effect_poll: 105_600,
@@ -1373,6 +1377,7 @@ impl ReferenceCosts {
             underwater_contact_gate: 0,
             underwater_contact_test: 0,
             underwater_contact_each: 0,
+            underwater_contact_sound: 0,
             underwater_actor_gate: 200_000,
             underwater_actor_step: 0,
             underwater_actor_draw: 250_000,
@@ -1791,12 +1796,14 @@ impl Runtime {
     }
 
     fn swimming_contact_cost(&self, contact: crate::fishbowl::ContactStep, dimensions: u16) -> u64 {
+        let sound_work = u64::from(contact.audible_requests) * self.costs.underwater_contact_sound;
         if let Some((cost, scan)) = self
             .costs
             .blocking
             .and_then(|cost| cost.lethal_scan(contact).map(|scan| (cost, scan)))
         {
-            return scan
+            return sound_work
+                + scan
                 + cost.eel_failure_draw
                 + if contact.contacts != 0 {
                     self.swimming_image_cost(dimensions, true)
@@ -1811,7 +1818,9 @@ impl Runtime {
         } else {
             self.costs.underwater_contact_gate
         };
-        gate + u64::from(contact.tested) * self.costs.underwater_contact_test
+        sound_work
+            + gate
+            + u64::from(contact.tested) * self.costs.underwater_contact_test
             + u64::from(contact.contacts) * self.costs.underwater_contact_each
             + if contact.contacts != 0 {
                 self.swimming_image_cost(dimensions, true)
@@ -2782,6 +2791,35 @@ mod tests {
                 legacy.swimming_contact_cost(work, 0x0c03),
                 legacy.costs.underwater_contact_gate + 3 * legacy.costs.underwater_contact_test
             );
+        }
+    }
+
+    #[test]
+    fn audible_contact_work_is_charged_once_on_both_scan_routes() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut costs = ReferenceCosts::ibm_xt(machine);
+            costs.underwater_contact_sound = 123;
+            let run = Runtime::with_costs(machine, costs);
+            let mut contact = crate::fishbowl::ContactStep {
+                visited: 13,
+                tested: 3,
+                contacts: 2,
+                collected: 2,
+                hazard_contacts: 1,
+                failure: true,
+                ..Default::default()
+            };
+            for failure in [true, false] {
+                contact.failure = failure;
+                contact.audible_requests = 0;
+                let quiet = run.swimming_contact_cost(contact, 0x0c03);
+                contact.audible_requests = 2;
+                assert_eq!(run.swimming_contact_cost(contact, 0x0c03), quiet + 246);
+                let legacy = Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
+                let audible = legacy.swimming_contact_cost(contact, 0x0c03);
+                contact.audible_requests = 0;
+                assert_eq!(legacy.swimming_contact_cost(contact, 0x0c03), audible);
+            }
         }
     }
 

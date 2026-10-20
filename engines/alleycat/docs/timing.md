@@ -952,12 +952,30 @@ eel. These controls retain the existing nonblocking timing allowances. Protectio
 is global within a scan, so a protected eel cannot precede a lethal one unless
 state is changed externally.
 
-The captures exclude subsequent sound initialization, effect-loop polling and
-the surrounding accepted swimming caller. Native waits remain separate. Sound
-requests were muted, and both software modes share the XT fit; physical PCjr
-timing is not established. Same-capture fits, relocated slice code and two
-repeats do not establish exact execution costs for every input. The older DOSBox
-profile retains its prior lethal-entry timing.
+The prefix captures exclude subsequent effect sound initialization, effect-loop
+polling and the surrounding accepted swimming caller. Native waits remain
+separate. Both software modes share the XT fit; physical PCjr timing is not
+established. Same-capture fits, relocated slice code and two repeats do not
+establish exact execution costs for every input. The older DOSBox profile retains
+its prior lethal-entry timing.
+
+Asynchronous contact requests (`593b`) have separate sound-enabled/muted pairs.
+Direct calls measure about 0.009–0.011 ms muted and 0.135–0.137 ms enabled,
+including PIT programming and a BIOS timer sample. An already-pending request
+is replaced normally. FC/FD software IDs show the same cost on XT hardware.
+The fitted extra work is 0.126 ms per enabled underwater request, above the
+muted call already represented in contact allowances. One- and two-request
+mixed prefixes measure extra work of 0.126 and 0.252 ms respectively. Six paired
+deltas fit within 0.005 ms; four composed prefix totals fit within 0.050 ms.
+
+Contact metadata counts requests using the native sound-enable flag, independently
+of host volume or host muting. The surcharge applies once to both lethal and
+nonlethal underwater scan routes. It is CPU execution work, not a wait for the
+tone's duration; asynchronous requests remain nonblocking. Other callers and
+already-audible whole-call fits receive no global surcharge. Twelve scoped
+state/full-VRAM/PIT-program comparisons cover the direct and mixed cases.
+Exact within-call audio timestamps, other audible caller costs and physical
+PCjr behavior remain outside these measurements.
 
 The native FD near-surface branch (`0b72`) waits for retrace clear then set before
 a counted delay. Its variable full-body duration is not a fixed CPU surcharge.

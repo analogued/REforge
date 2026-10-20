@@ -38,6 +38,7 @@ pub(crate) struct ContactStep {
     pub restored_fish: u8,
     pub restored_eels: u8,
     pub contacts: u8,
+    pub audible_requests: u8,
     pub collected: u8,
     pub hazard_contacts: u8,
     pub success: bool,
@@ -403,6 +404,7 @@ pub(crate) fn contacts_with_damage(
         }
         data[0x351b] = data[0x351b].wrapping_add(1);
         result.contacts += 1;
+        result.audible_requests += u8::from(data[0] != 0);
         sound.request(data, tick, 0x05dc, 0x0425);
         let restored = restore_actor(data, screen, slot)?;
         result.drew |= restored;
@@ -532,6 +534,7 @@ pub(crate) fn contacts_dev_with_damage(
         data[0x351b] = data[0x351b].wrapping_add(1);
         result.contacts += 1;
         result.collected += 1;
+        result.audible_requests += u8::from(data[0] != 0);
         sound.request(data, tick, 0x05dc, 0x0425);
         let restored = restore_actor(data, screen, slot)?;
         result.drew |= restored;
@@ -888,6 +891,30 @@ mod tests {
         data[0x348f + slot] = 1;
         set_word(data, 0x3447 + slot * 2, 100);
         data[0x3477 + slot] = 100;
+    }
+
+    #[test]
+    fn contact_requests_count_native_enablement_and_remain_nonblocking() {
+        for enabled in [0, 1] {
+            let (mut data, mut screen) = fixture();
+            data[0] = enabled;
+            data[0x3410] = 12;
+            for slot in [0, 1, 12] {
+                place_contact(&mut data, slot);
+            }
+            let mut sound = crate::sound::Sound::default();
+            sound.record(true);
+            let step = contacts_with_damage(&mut data, &mut screen, 7, false, &mut sound).unwrap();
+            assert!(step.failure);
+            assert_eq!((step.contacts, step.collected), (2, 2));
+            assert_eq!(step.audible_requests, 2 * enabled);
+            assert_eq!(sound.take_busy_ticks(), 0);
+            assert_eq!(
+                sound.drain().filter(|write| write.port == 0x43).count(),
+                usize::from(2 * enabled)
+            );
+            assert_eq!((data[0x3410], data[0x1f80]), (10, 3));
+        }
     }
 
     #[test]

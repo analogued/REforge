@@ -1170,12 +1170,16 @@ pub struct UpperSupportCosts {
     pub drop: u64,
 }
 
-/// Initial ten-row cling landing, split around the separately timed sound wait.
+/// Initial cling landing, split around the separately timed sound wait.
 #[derive(Clone, Copy, Debug)]
 pub struct UpperLandingCosts {
     pub alley_before: u64,
     pub bookcase_before: u64,
     pub after: u64,
+    /// Combined restore/draw work per retained image row above ten.
+    pub extra_row: u64,
+    /// Prefix reduction for the sampled stationary thirteen-row image.
+    pub stationary_discount: u64,
 }
 
 /// Ordinary state-zero furniture work, excluding attached cling and its sound wait.
@@ -1303,6 +1307,8 @@ impl ReferenceCosts {
                 alley_before: 775_000,
                 bookcase_before: 575_000,
                 after: 2_265_000,
+                extra_row: 187_500,
+                stationary_discount: 20_000,
             }),
             floor: Some(FloorCosts {
                 landing: 950_000,
@@ -2671,8 +2677,8 @@ impl Runtime {
             let release_ticks = alley.sound.take_busy_ticks();
             support_ticks += release_ticks;
             beep_count += u64::from(release_ticks != 0);
-            let upper_landing_costs = self.costs.upper_landing.filter(|_| {
-                airborne
+            let upper_landing_costs = self.costs.upper_landing.and_then(|costs| {
+                let eligible = airborne
                     && descending
                     && !entering
                     && supported == 0
@@ -2685,21 +2691,37 @@ impl Runtime {
                         (alley.scene(), outcome.support),
                         (0, crate::player::Support::UpperBitfield)
                             | (3, crate::player::Support::RoomTable)
-                    )
-                    && matches!(outcome.draw, Draw::Sprite(sprite)
-                        if sprite.dimensions == 0x0a03
-                            && alley.player.is_unclipped_airborne_sprite(sprite))
+                    );
+                if !eligible {
+                    return None;
+                }
+                match outcome.draw {
+                    Draw::Sprite(sprite)
+                        if alley.player.is_unclipped_airborne_sprite(sprite)
+                            && matches!(
+                                (sprite.dimensions, alley.player.horizontal_direction),
+                                (0x0a03, _) | (0x0c03, 1) | (0x0d03, 0)
+                            ) =>
+                    {
+                        Some((costs, (sprite.dimensions >> 8) - 10))
+                    }
+                    _ => None,
+                }
             });
             if outcome.landed && alley.player.support_state != 0 {
-                let tick = if let Some(costs) = upper_landing_costs {
+                let tick = if let Some((costs, extra_rows)) = upper_landing_costs {
                     // Port-anchored fits include the sound helper's setup and
                     // epilogue. Advance its prefix before sampling the BIOS
                     // tick/PIT phase, rather than adding all work after the wait.
-                    self.clock.advance_nanos(if alley.scene() == 0 {
+                    let before = if alley.scene() == 0 {
                         costs.alley_before
                     } else {
                         costs.bookcase_before
-                    });
+                    };
+                    self.clock
+                        .advance_nanos(before.saturating_sub(
+                            u64::from(extra_rows == 3) * costs.stationary_discount,
+                        ));
                     alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
                     self.clock.sample().bios.tick_low
                 } else {
@@ -2715,8 +2737,9 @@ impl Runtime {
             } else {
                 self.player_draw_cost(outcome.draw, entering, entry_waiting, airborne, descending)
             };
-            if let Some(costs) = upper_landing_costs {
-                self.clock.advance_nanos(costs.after);
+            if let Some((costs, extra_rows)) = upper_landing_costs {
+                self.clock
+                    .advance_nanos(costs.after + u64::from(extra_rows) * costs.extra_row);
                 self.clock.advance_pit_ticks(support_ticks);
             } else if let Some(costs) = forced_costs {
                 self.clock.advance_nanos(

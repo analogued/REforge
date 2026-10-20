@@ -927,20 +927,31 @@ image. This bounded same-capture fit excludes the acceptance gate, other scene
 contexts, combined pose-and-release calls, suppressed movement and full-loop
 cadence. Those paths retain their fallback, as does the legacy profile.
 
-Initial upper-support landings with a complete retained ten-row falling image
-separate execution work from the noisy two-BIOS-tick wait. The alley upper
-bitfield uses 0.775 ms before the sound poll and 2.265 ms afterward; the bookcase
-shelf uses 0.575 ms before and the same suffix. These replace the generic
-26.514 ms execution allowance on the measured paths, for totals of 3.040 and
-2.840 ms excluding the wait. Other shapes and contexts retain their fallback.
+Initial upper-support landings in the alley and bookcase separate execution
+work from the noisy two-BIOS-tick wait. Complete retained images use these XT
+allowances; the prefix is charged before sound polling, the suffix afterward:
 
-Eight cases pair both contexts, native sound enabled/disabled and FC/FD software
-IDs on the shared XT hardware. Sixteen measurements plus two controls isolate
-the first channel-zero latch through the final speaker-stop write. The fitted
-prefix/suffix sum is within 0.010 ms of these anchored medians. The anchors
-include sound initialization/epilogue, rather than exact helper boundaries;
-interrupt placement and BIOS latency remain approximate. Full-video expectations
-come from the functional native preflight, not an XT video-memory capture.
+| Retained image | Alley prefix | Bookcase prefix | Suffix | Total CPU work, alley / bookcase |
+| --- | ---: | ---: | ---: | ---: |
+| Ten-row side fall | 0.775 ms | 0.575 ms | 2.265 ms | 3.040 / 2.840 ms |
+| Twelve-row rightward jump | 0.775 ms | 0.575 ms | 2.640 ms | 3.415 / 3.215 ms |
+| Thirteen-row stationary fall | 0.755 ms | 0.555 ms | 2.828 ms | 3.583 / 3.383 ms |
+
+The suffix adds 0.1875 ms per restored/drawn row above ten; the sampled stationary
+fall has a 0.020 ms shorter prefix. Eligibility requires an initially descending,
+unattached cat, a complete unchanged airborne image and a new state-one upper
+support hit. Entry, death, forced release, clipped/alternate images, other shapes
+and unsampled directions keep their existing allowances. These measured paths
+replace the generic 26.514 ms execution allowance, excluding the deliberate wait.
+
+Twenty-four cases across both image batches pair native sound enabled/disabled
+and FC/FD software IDs on the shared XT hardware, with two valid body repeats
+per case. Incomplete trace spans are excluded; each contributing run supplies its
+own empty-call controls. The fit is within 0.010 ms of the anchored medians. Port
+anchors isolate the first channel-zero latch through the final speaker-stop
+write and include sound initialization/epilogue, rather than exact helper
+boundaries. Interrupt placement and BIOS latency remain approximate. Full-video
+expectations come from functional native preflight, not XT video-memory captures.
 
 The prefix advances the game clock before the helper samples its BIOS tick and
 PIT phase. Its wait still lasts until two BIOS ticks have elapsed from that
@@ -950,9 +961,9 @@ consumption. The existing poll model and PRNG rules are unchanged. Three-phase
 recreation checks cover current-tick sampling across a BIOS boundary, sound
 pitch/seed consistency and final stop, but do not establish exact native pulse
 counts, raw counter values or complete phase-dependent duration. The selected
-state and complete final graphics agree with the native expectations. This is
-a bounded same-capture execution fit, excluding the acceptance gate, other
-actors, whole-loop cadence and physical PCjr. The legacy profile is unchanged.
+state and complete final graphics agree with the native expectations. These are
+bounded fits to the measured cases, excluding acceptance gates, other actors,
+whole-loop cadence and physical PCjr. The legacy profile is unchanged.
 
 Bin-forced downward transitions instead separate bookkeeping from committed
 sound. Their baseline is about 0.687 ms, plus 0.050 ms for an initially clear

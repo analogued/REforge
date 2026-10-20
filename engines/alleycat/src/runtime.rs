@@ -2601,7 +2601,7 @@ impl Runtime {
             let supported = alley.player.support_state;
             let releasing = supported != 0 && self.controls.y != 0;
             let upper_support_costs = self.costs.upper_support.filter(|_| {
-                matches!(alley.scene(), 0 | 3) && !entering && !airborne && !alley.dying()
+                matches!(alley.scene(), 0 | 1 | 3..=6) && !entering && !airborne && !alley.dying()
             });
             let bin_sound_ready = alley.bin_contact_sound_ready();
             let first_bin_contact = !alley.bin_contact_latched();
@@ -2776,7 +2776,7 @@ impl Runtime {
                     {
                         Some(costs.pose)
                     }
-                    (2, 2, Draw::Keep, 0) => Some(costs.hold),
+                    (2, 2, Draw::Keep, 0) if matches!(alley.scene(), 0 | 3) => Some(costs.hold),
                     (2, 0, Draw::Keep, 255) => Some(costs.jump),
                     (2, 0, Draw::Keep, 1) => Some(costs.drop),
                     _ => None,

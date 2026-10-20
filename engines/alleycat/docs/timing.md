@@ -911,21 +911,26 @@ difficulty and sources; other clipping rows, alternate images, hidden reappearan
 actor collisions, whole-loop cadence and physical PCjr remain outside this
 same-capture calibration. The legacy profile retains its previous charges.
 
-Already-attached upper-support bodies have separate fits in the alley and
-bookcase room: 2.925 ms for the first fourteen-row cling pose, 0.115 ms while
-holding, 0.281 ms for jumping off and 0.266 ms for dropping off. The first pose
+Already-attached upper-support bodies share fits across the alley, fishbowl,
+bookcase, cheese, birdcage and milk rooms: 2.925 ms for the first fourteen-row
+cling pose, 0.281 ms for jumping off and 0.266 ms for dropping off. Holding uses
+0.115 ms in the measured alley/bookcase contexts. The first pose
 advances support state one to two; later release preserves that image while
 selecting the next airborne sprite. These calls produce no tone or random draw;
 the initial landing's separate two-BIOS-tick sound wait is unchanged.
 
-Sixteen cases pair the two contexts, four paths and FC/FD software IDs on the
-shared XT hardware. Thirty-two repeated measurements plus two controls match
-51 selected state/drawing fields, full video memory and zero PIT-tone programs.
-Fitted totals are within 0.009 ms of the medians. The captured first pose replaces
-a twelve-row jump image; holding/releases begin with the fourteen-row cling
-image. This bounded same-capture fit excludes the acceptance gate, other scene
-contexts, combined pose-and-release calls, suppressed movement and full-loop
-cadence. Those paths retain their fallback, as does the legacy profile.
+Forty cases pair the six contexts and FC/FD software IDs on the shared XT
+hardware: four paths in alley/bookcase and pose/jump/drop in the other rooms.
+Eighty body measurements plus source-specific empty-call controls match 51
+selected state/drawing fields, full video memory and zero PIT-tone programs.
+Full-video expectations come from native functional preflight.
+Fitted totals are within 0.055 ms of the medians; jump/drop deviations stay below
+0.006 ms. The small room-specific leading checks do not require separate costs.
+The captured first pose replaces a twelve-row jump image; holding/releases begin
+with the fourteen-row cling image. This bounded same-capture fit excludes the
+acceptance gate, unmeasured holds in other rooms, combined pose-and-release calls,
+suppressed movement and full-loop cadence. Those paths retain their fallback,
+as does the legacy profile.
 
 Initial upper-support landings in the alley and bookcase separate execution
 work from the noisy two-BIOS-tick wait. Complete retained images use these XT

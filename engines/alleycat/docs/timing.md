@@ -942,7 +942,7 @@ final position and BIOS tick together within that uncertainty range.
 `ReferenceCosts::dosbox_x_240` retains the older DOSBox profile for explicit
 comparisons. Its room drawing allowances do not include the XT profile's added
 work breakdown or phase-dependent swimming surface wait. Ordinary play uses
-`ibm_xt`; unmeasured effect setup/cleanup, room actors, transitions, entry
+`ibm_xt`; unmeasured contact/reset callers, room actors, transitions, entry
 callers and startup-specific work retain provisional allowances. Some of those derive
 from DOSBox-X normal core at fixed 240 cycles/ms, an emulator throughput setting
 rather than a physical CPU clock. Changing measured costs is not a global speed
@@ -1167,7 +1167,23 @@ waveform counters.
 Fence-reset pulse spacing uses about 462 XT cycles per counted BIOS check
 plus 380 cycles per random/reload cycle. Its accumulator/countdown algorithm
 and two-/seven-tick gates also run when native sound masks the output. Runtime
-charges the whole counted-check cost at the BIOS sampling boundary. Other
+charges the whole counted-check cost at the BIOS sampling boundary. Its entry
+(`59cb..59df`) costs about 0.093 ms; the final shared speaker-stop call costs
+about 0.020 ms. Spider initialization and its BIOS baseline (`3dcd..3dd8`) cost
+about 0.106 ms; its final failure-flag assignment adds about 0.006 ms before
+the caller's shared speaker stop. Eel initialization and its BIOS baseline
+(`3538..3543`) cost about 0.122 ms, including the initial speaker stop. The
+effect baselines are sampled after these setup allowances. Exit work is charged
+only when the effect finishes, separately from its final polling allowance.
+
+The enclosing fence player-reset allowance remains approximate. The native
+reset (`070d`) measures about 1.053 ms including background saving, versus
+0.235–0.238 ms for its bookkeeping without that save. These totals are not added
+to the existing player-body cost: that would risk charging overlapping work.
+They do not introduce an extra presentation or deliberate wait. Eel-contact
+drawing and other unmeasured caller work likewise remain approximate. Both
+software modes share these XT fits; the FD branch is not a physical PCjr
+measurement. Other
 room effects use the shared room-effect polling allowance where no specific
 cost applies.
 

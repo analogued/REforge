@@ -710,6 +710,10 @@ impl FailureCosts {
 /// Scoped XT blocking-effect work; tick deadlines remain separate.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockingCosts {
+    pub spider_entry: u64,
+    pub spider_exit: u64,
+    pub eel_entry: u64,
+    pub effect_stop: u64,
     pub mouse_sound_before: u64,
     pub mouse_sound_after: u64,
     pub mouse_tone: u64,
@@ -724,6 +728,12 @@ pub struct BlockingCosts {
 impl BlockingCosts {
     fn ibm_xt() -> Self {
         Self {
+            // Bounded entry/exit slices, excluding the blocking polls and
+            // contact images. Both software modes use the same XT baseline.
+            spider_entry: 106_200,
+            spider_exit: 5_550,
+            eel_entry: 121_940,
+            effect_stop: 20_110,
             // Steady audible polls have two BIOS samples, about 475 and
             // 389 cycles apart. Muted polls use ReferenceCosts directly.
             mouse_sound_before: 99_520,
@@ -1198,6 +1208,10 @@ impl ReferenceCosts {
             fence_initial_wait: 0,
             fence_countdown: 0,
             fence_random: 79_620,
+            // CS:59cb..59df and the final shared stop call, respectively.
+            // Player reset/background work remains in its enclosing allowance.
+            fence_setup: 92_710,
+            fence_finish: 20_110,
             milk: Some(MilkCosts::ibm_xt()),
             hearts: Some(HeartsCosts::ibm_xt()),
             completion: Some(CompletionCosts::ibm_xt()),
@@ -1878,7 +1892,7 @@ impl Runtime {
         }
         if spider.failure_pending && self.costs.blocking.is_some() {
             // CS:3dd0 samples the wait baseline after drawing the image.
-            alley.start_spider_effect_wait(self.clock.sample().bios.tick_low);
+            self.start_damage_effect_wait(alley);
         }
         Ok(())
     }
@@ -1936,8 +1950,39 @@ impl Runtime {
         Ok(event)
     }
 
+    fn start_damage_effect_wait(&mut self, alley: &mut Alley) {
+        if let Some(cost) = self.costs.blocking {
+            match alley.damage_poll() {
+                DamagePoll::Spider => {
+                    self.clock.advance_nanos(cost.spider_entry);
+                    alley.start_spider_effect_wait(self.clock.sample().bios.tick_low);
+                }
+                DamagePoll::EelRestart => {
+                    self.clock.advance_nanos(cost.eel_entry);
+                    alley.start_eel_effect_wait(self.clock.sample().bios.tick_low);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn start_fence_effect(&mut self, alley: &mut Alley) {
+        self.controls = Controls::default();
+        self.player_gate.reset();
+        self.clock.advance_nanos(self.costs.fence_setup);
+        alley.sound.gate(alley.sound.control() & !1);
+        self.fence = Some(FenceEffect::new(self.clock.sample().bios.tick_low));
+    }
+
+    fn stop_fence_effect(&mut self, alley: &mut Alley) {
+        self.clock.advance_nanos(self.costs.fence_finish);
+        alley.sound.stop();
+        self.fence = None;
+    }
+
     fn step_damage_effect(&mut self, alley: &mut Alley) -> Result<bool, String> {
-        let cost = match alley.damage_poll() {
+        let kind = alley.damage_poll();
+        let cost = match kind {
             DamagePoll::Ordinary => self.costs.room_effect_poll,
             DamagePoll::Spider => self.costs.spider_effect_poll,
             DamagePoll::Eel => self.costs.eel_effect_poll,
@@ -1947,7 +1992,22 @@ impl Runtime {
         self.clock.advance_nanos(cost);
         let sample = self.clock.sample();
         alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-        alley.advance_damage_effect(sample.bios.tick_low, sample.pit_counter, sample.retrace)
+        let finished = alley.advance_damage_effect(
+            sample.bios.tick_low,
+            sample.pit_counter,
+            sample.retrace,
+        )?;
+        if let Some(cost) = self.costs.blocking.filter(|_| finished) {
+            let cleanup = match kind {
+                DamagePoll::Spider => cost.spider_exit + cost.effect_stop,
+                DamagePoll::Eel | DamagePoll::EelPalette | DamagePoll::EelRestart => {
+                    cost.effect_stop
+                }
+                DamagePoll::Ordinary => 0,
+            };
+            self.clock.advance_nanos(cleanup);
+        }
+        Ok(finished)
     }
 
     fn step_mouse_effect(
@@ -2101,9 +2161,7 @@ impl Runtime {
                     self.clock.advance_nanos(self.costs.fence_random);
                 }
                 FenceAction::Complete => {
-                    self.clock.advance_nanos(self.costs.fence_finish);
-                    alley.sound.stop();
-                    self.fence = None;
+                    self.stop_fence_effect(alley);
                     let mut event = self.finish_pass(alley, start_nanos, false, None)?;
                     event.fence_wait = true;
                     return Ok(event);
@@ -2257,6 +2315,10 @@ impl Runtime {
                 )
             };
             if alley.damage_waiting() {
+                if swimming.is_some() {
+                    // CS:353f records the wait baseline after eel setup.
+                    self.start_damage_effect_wait(alley);
+                }
                 self.damage_resume = Some(DamageResume::Player);
                 return Ok(self.room_wait_outcome(alley, start_nanos));
             }
@@ -2327,11 +2389,7 @@ impl Runtime {
             if outcome.edge_reset {
                 // The original calls 070d before 59cb: clear requests, accepted
                 // tick and countdown now. 069f, divider and accepted AX survive.
-                self.controls = Controls::default();
-                self.player_gate.reset();
-                self.clock.advance_nanos(self.costs.fence_setup);
-                alley.sound.gate(alley.sound.control() & !1);
-                self.fence = Some(FenceEffect::new(self.clock.sample().bios.tick_low));
+                self.start_fence_effect(alley);
                 return Ok(PassOutcome {
                     start_nanos,
                     end_nanos: self.clock.elapsed_nanos(),

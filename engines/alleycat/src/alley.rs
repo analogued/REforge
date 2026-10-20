@@ -1609,6 +1609,19 @@ impl Alley {
         }
     }
 
+    pub(crate) fn start_eel_effect_wait(&mut self, tick: u16) {
+        if let Some(DamageEffect {
+            since,
+            kind: EffectKind::Eel { palette_tick, .. },
+            ..
+        }) = self.damage_effect.as_mut()
+        {
+            *since = tick;
+            *palette_tick = tick;
+            set_word(&mut self.data, 0x3509, tick);
+        }
+    }
+
     pub(crate) fn advance_bookcase_targets(
         &mut self,
         tick: u16,
@@ -2662,6 +2675,38 @@ mod tests {
         assert_eq!(word(&alley.data, 0x5a14), start + 7);
         assert_eq!(word(&alley.data, 0x2ae5), seed);
         assert_eq!(runtime.clock.sample().bios.tick_low, start + 8);
+    }
+
+    #[test]
+    fn eel_wait_baseline_and_palette_sample_follow_setup_across_tick_wrap() {
+        let mut alley = Alley::synthetic();
+        alley.damage_effect = Some(DamageEffect {
+            since: u16::MAX,
+            duration: 13,
+            kind: EffectKind::Eel {
+                phase: EelPhase::Restart,
+                palette_tick: u16::MAX,
+                background: 0,
+            },
+        });
+        alley.start_eel_effect_wait(0);
+        assert_eq!(word(&alley.data, 0x3509), 0);
+        assert!(matches!(
+            alley.damage_effect,
+            Some(DamageEffect {
+                since: 0,
+                kind: EffectKind::Eel {
+                    palette_tick: 0,
+                    ..
+                },
+                ..
+            })
+        ));
+        assert!(!alley.advance_damage_effect(12, 0, false).unwrap());
+        assert!(!alley.advance_damage_effect(13, 0, true).unwrap());
+        assert!(!alley.advance_damage_effect(13, 0, false).unwrap());
+        assert!(!alley.advance_damage_effect(13, 0, false).unwrap());
+        assert!(alley.advance_damage_effect(13, 0, false).unwrap());
     }
 
     #[test]

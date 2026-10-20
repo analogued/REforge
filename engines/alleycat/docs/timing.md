@@ -913,7 +913,7 @@ body also redraws the player after contacts, as the native caller does. Final-fi
 success and immune/sinking eel contacts retain native ordering and reactivation.
 Lethal eel-contact work has separate bounded measurements. A single-slot active
 miss costs about 0.107 ms, versus 0.145–0.146 ms for a lethal decision. Its
-0.0386 ms increment remains in the mixed-contact fallback below. The opaque failure-image
+0.0386 ms increment is retained only for unsupported diagnostic combinations. The opaque failure-image
 copy (`3506..3538`) costs about 1.526 ms across eight sampled positions, including
 its coordinate clamps. Movement, player drawing, the scanned contacts and this
 image are charged before sampling the thirteen-tick effect's baseline. The
@@ -935,13 +935,29 @@ two samples do not identify its cause or justify another fixed cost. Eighteen
 scoped state/full-VRAM comparisons preserve actor flags, lives and native image
 output. These are same-capture fits, not independent timing validation.
 
-The formula applies to inactive slots and active misses before the first lethal
-contact. Earlier harmless collections or protected eel contacts retain a
-provisional prorated fallback and their separate restoration costs. The captures
-exclude subsequent sound initialization, effect-loop polling and the surrounding
-accepted swimming caller. Native waits remain separate. Sound requests were
-muted, and both software modes share the XT fit; physical PCjr timing is not
-established. The older DOSBox profile retains its prior lethal-entry timing.
+Mixed prefixes additionally cover one or two fish collected before a lethal eel
+at slot 12 or 23, hidden or visible fish, and a case with 21 earlier active
+misses. Collection adds a fitted 0.215 ms per fish above an inactive slot;
+collected fish are excluded from the active-miss count. The first player
+restoration and each visible fish restoration retain their separate rectangle
+allowances. This replaces the prorated fallback for these mixed paths without
+adding the generic contact costs or charging restoration twice.
+
+Nine mixed inputs with paired endpoints measure 1.653–4.813 ms before the
+failure image and 3.178–6.337 ms including it. The composed allowances fit those medians
+within 0.050 ms, with a largest difference of about 0.026 ms. Twenty-one scoped
+state/full-VRAM comparisons also cover three complete nonlethal controls: a
+protected eel, sinking fish/eel contacts, and final-fish success followed by an
+eel. These controls retain the existing nonblocking timing allowances. Protection
+is global within a scan, so a protected eel cannot precede a lethal one unless
+state is changed externally.
+
+The captures exclude subsequent sound initialization, effect-loop polling and
+the surrounding accepted swimming caller. Native waits remain separate. Sound
+requests were muted, and both software modes share the XT fit; physical PCjr
+timing is not established. Same-capture fits, relocated slice code and two
+repeats do not establish exact execution costs for every input. The older DOSBox
+profile retains its prior lethal-entry timing.
 
 The native FD near-surface branch (`0b72`) waits for retrace clear then set before
 a counted delay. Its variable full-body duration is not a fixed CPU surcharge.

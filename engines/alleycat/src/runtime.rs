@@ -716,6 +716,7 @@ pub struct BlockingCosts {
     pub eel_scan_start: u64,
     pub eel_scan_slot: u64,
     pub eel_scan_miss: u64,
+    pub eel_scan_collect: u64,
     pub eel_lethal_test: u64,
     pub eel_failure_draw: u64,
     pub effect_stop: u64,
@@ -742,6 +743,8 @@ impl BlockingCosts {
             eel_scan_start: 127_000,
             eel_scan_slot: 37_500,
             eel_scan_miss: 88_100,
+            // Collected fish above an inactive slot; image restoration is separate.
+            eel_scan_collect: 215_000,
             // Lethal decision work above an active miss, then CS:3506..3538.
             eel_lethal_test: 38_600,
             eel_failure_draw: 1_525_600,
@@ -763,13 +766,20 @@ impl BlockingCosts {
     }
 
     fn lethal_scan(self, contact: crate::fishbowl::ContactStep) -> Option<u64> {
-        // Captures cover inactive slots and active misses before one lethal
-        // contact. Earlier collections or protected hits retain the fallback.
-        (contact.failure && contact.contacts == 0 && contact.hazard_contacts == 1).then(|| {
-            self.eel_scan_start
-                + u64::from(contact.visited) * self.eel_scan_slot
-                + u64::from(contact.tested.saturating_sub(1)) * self.eel_scan_miss
-        })
+        // Captures cover inactive slots, active misses and fish collections
+        // before one lethal eel. Global protection prevents a harmless eel
+        // from preceding a lethal one in the same native scan.
+        (contact.failure
+            && contact.contacts == contact.collected
+            && contact.hazard_contacts == 1
+            && contact.restored_eels == 0)
+            .then(|| {
+                self.eel_scan_start
+                    + u64::from(contact.visited) * self.eel_scan_slot
+                    + u64::from(contact.tested.saturating_sub(contact.collected + 1))
+                        * self.eel_scan_miss
+                    + u64::from(contact.collected) * self.eel_scan_collect
+            })
     }
 
     fn cage_work(self, fall: crate::birdcage::FallStep, sound: bool) -> u64 {
@@ -1786,10 +1796,16 @@ impl Runtime {
             .blocking
             .and_then(|cost| cost.lethal_scan(contact).map(|scan| (cost, scan)))
         {
-            return scan + cost.eel_failure_draw;
+            return scan
+                + cost.eel_failure_draw
+                + if contact.contacts != 0 {
+                    self.swimming_image_cost(dimensions, true)
+                } else {
+                    0
+                }
+                + u64::from(contact.restored_fish) * self.costs.underwater_actor_restore;
         }
-        // Prefixes with earlier harmless contacts remain provisional. They
-        // stop at the lethal slot rather than paying for a full quiet scan.
+        // Unsupported diagnostic combinations retain the partial-scan fallback.
         let gate = if contact.failure && self.costs.blocking.is_some() {
             self.costs.underwater_contact_gate * u64::from(contact.visited) / 24
         } else {
@@ -2726,7 +2742,12 @@ mod tests {
             blocking.eel_scan_start = 30;
             blocking.eel_scan_slot = 10;
             blocking.eel_scan_miss = 5;
+            blocking.eel_scan_collect = 20;
             blocking.eel_failure_draw = 100;
+            costs.swimming_restore_setup = 40;
+            costs.swimming_restore_row = 0;
+            costs.swimming_restore_byte = 0;
+            costs.underwater_actor_restore = 50;
             let run = Runtime::with_costs(machine, costs);
             let mut work = crate::fishbowl::ContactStep {
                 visited: 13,
@@ -2742,10 +2763,20 @@ mod tests {
             assert_eq!(run.swimming_contact_cost(work, 0x0c03), 380);
             work.contacts = 1;
             assert!(costs.blocking.unwrap().lethal_scan(work).is_none());
+            work.collected = 1;
+            assert_eq!(run.swimming_contact_cost(work, 0x0c03), 435);
+            work.restored_fish = 1;
+            assert_eq!(run.swimming_contact_cost(work, 0x0c03), 485);
+            work.contacts = 2;
+            work.collected = 2;
+            work.restored_fish = 2;
+            assert_eq!(run.swimming_contact_cost(work, 0x0c03), 550);
             work.failure = false;
             assert!(costs.blocking.unwrap().lethal_scan(work).is_none());
             let legacy = Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
             work.contacts = 0;
+            work.collected = 0;
+            work.restored_fish = 0;
             work.failure = true;
             assert_eq!(
                 legacy.swimming_contact_cost(work, 0x0c03),

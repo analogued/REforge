@@ -2700,7 +2700,7 @@ impl Runtime {
                         if alley.player.is_unclipped_airborne_sprite(sprite)
                             && matches!(
                                 (sprite.dimensions, alley.player.horizontal_direction),
-                                (0x0a03, _) | (0x0c03, 1) | (0x0d03, 0)
+                                (0x0a03, _) | (0x0c03, 1 | 255) | (0x0d03, 0)
                             ) =>
                     {
                         Some((costs, (sprite.dimensions >> 8) - 10))

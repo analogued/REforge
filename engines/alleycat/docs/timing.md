@@ -934,7 +934,7 @@ allowances; the prefix is charged before sound polling, the suffix afterward:
 | Retained image | Alley prefix | Bookcase prefix | Suffix | Total CPU work, alley / bookcase |
 | --- | ---: | ---: | ---: | ---: |
 | Ten-row side fall | 0.775 ms | 0.575 ms | 2.265 ms | 3.040 / 2.840 ms |
-| Twelve-row rightward jump | 0.775 ms | 0.575 ms | 2.640 ms | 3.415 / 3.215 ms |
+| Twelve-row left/right jump | 0.775 ms | 0.575 ms | 2.640 ms | 3.415 / 3.215 ms |
 | Thirteen-row stationary fall | 0.755 ms | 0.555 ms | 2.828 ms | 3.583 / 3.383 ms |
 
 The suffix adds 0.1875 ms per restored/drawn row above ten; the sampled stationary
@@ -944,11 +944,13 @@ support hit. Entry, death, forced release, clipped/alternate images, other shape
 and unsampled directions keep their existing allowances. These measured paths
 replace the generic 26.514 ms execution allowance, excluding the deliberate wait.
 
-Twenty-four cases across both image batches pair native sound enabled/disabled
+Forty cases across three image batches pair native sound enabled/disabled
 and FC/FD software IDs on the shared XT hardware, with two valid body repeats
 per case. Incomplete trace spans are excluded; each contributing run supplies its
-own empty-call controls. The fit is within 0.010 ms of the anchored medians. Port
-anchors isolate the first channel-zero latch through the final speaker-stop
+own empty-call controls. Leftward ten/twelve-row images agree with the same
+allowances; no direction-specific correction is needed. The fit is within
+0.010 ms of the anchored medians. Port anchors isolate the first channel-zero
+latch through the final speaker-stop
 write and include sound initialization/epilogue, rather than exact helper
 boundaries. Interrupt placement and BIOS latency remain approximate. Full-video
 expectations come from functional native preflight, not XT video-memory captures.

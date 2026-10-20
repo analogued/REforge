@@ -14,6 +14,20 @@ pub(crate) struct Work {
     pub hearts: crate::hearts_completion::PresentationWork,
     pub failure: crate::failure::PresentationWork,
     pub bookkeeping: Bookkeeping,
+    pub polling: Option<PollWork>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Poll {
+    Melody,
+    Reveal,
+    Dance,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PollWork {
+    pub kind: Poll,
+    pub tone: bool,
 }
 
 /// Arithmetic/state work emitted only by the phase that actually performs it.
@@ -123,6 +137,7 @@ impl Wipe {
                 hearts: Default::default(),
                 failure: Default::default(),
                 bookkeeping: Default::default(),
+                polling: None,
             });
         }
         geometry.clips = self.grow();
@@ -136,6 +151,7 @@ impl Wipe {
             hearts: Default::default(),
             failure: Default::default(),
             bookkeeping: Default::default(),
+            polling: None,
         })
     }
     fn grow(&mut self) -> u8 {
@@ -237,6 +253,13 @@ impl Completion {
         self.background
     }
 
+    pub(crate) fn poll(&self) -> Option<Poll> {
+        match self.phase {
+            Phase::Reveal { since: Some(_), .. } => Some(Poll::Reveal),
+            _ => None,
+        }
+    }
+
     pub(crate) fn advance(
         &mut self,
         data: &mut [u8],
@@ -293,6 +316,10 @@ impl Completion {
             }
             Phase::Reveal { y, since } => {
                 if let Some(start) = since {
+                    work.polling = Some(PollWork {
+                        kind: Poll::Reveal,
+                        tone: false,
+                    });
                     if tick.wrapping_sub(start) < 2 {
                         return Ok(work);
                     }
@@ -384,6 +411,28 @@ impl Completion {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reveal_poll_selection_tracks_only_the_two_tick_wait_at_wrap() {
+        let mut c = Completion::new(100, 100, 1).unwrap();
+        c.phase = Phase::Reveal {
+            y: -16,
+            since: Some(u16::MAX),
+        };
+        let mut data = vec![0; DATA_LENGTH];
+        let mut screen = Framebuffer::default();
+        let mut sound = crate::sound::Sound::default();
+        assert_eq!(c.poll(), Some(Poll::Reveal));
+        let waiting = c
+            .advance(&mut data, &mut screen, 0, true, &mut sound)
+            .unwrap();
+        assert_eq!(waiting.polling.unwrap().kind, Poll::Reveal);
+        assert_eq!(waiting.bytes_drawn, 0);
+        c.advance(&mut data, &mut screen, 1, true, &mut sound)
+            .unwrap();
+        assert_eq!(c.poll(), None);
+        assert!(matches!(c.phase, Phase::Digits));
+    }
 
     fn data() -> Vec<u8> {
         let mut data = vec![0; DATA_LENGTH];

@@ -145,6 +145,19 @@ fn melody(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound) {
     sound.melody(data, tick);
 }
 
+fn wait_melody(
+    data: &mut [u8],
+    tick: u16,
+    sound: &mut crate::sound::Sound,
+) -> crate::completion::PollWork {
+    let cursor = word(data, 0x59be);
+    melody(data, tick, sound);
+    crate::completion::PollWork {
+        kind: crate::completion::Poll::Melody,
+        tone: word(data, 0x59be) != cursor,
+    }
+}
+
 fn add_decimal(data: &mut [u8], destination: usize, addend: &[u8; 7]) {
     let mut carry = 0;
     for index in (0..7).rev() {
@@ -427,6 +440,19 @@ fn dance_tone(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound) -> Re
     Ok(())
 }
 
+fn wait_dance(
+    data: &mut [u8],
+    tick: u16,
+    sound: &mut crate::sound::Sound,
+) -> Result<crate::completion::PollWork, String> {
+    let cursor = word(data, 0x52c6);
+    dance_tone(data, tick, sound)?;
+    Ok(crate::completion::PollWork {
+        kind: crate::completion::Poll::Dance,
+        tone: word(data, 0x52c6) != cursor,
+    })
+}
+
 impl HeartsCompletion {
     pub(crate) fn new(x: u16, y: u8, success: bool) -> Result<Self, String> {
         if x > 296 || y > 198 {
@@ -455,6 +481,16 @@ impl HeartsCompletion {
 
     pub(crate) fn uses_alley_palette(&self) -> bool {
         self.alley_palette
+    }
+
+    pub(crate) fn poll(&self) -> Option<crate::completion::Poll> {
+        match self.phase {
+            Phase::ApproachWait { .. } | Phase::PairWait { .. } => {
+                Some(crate::completion::Poll::Melody)
+            }
+            Phase::Dance { .. } => Some(crate::completion::Poll::Dance),
+            _ => None,
+        }
     }
 
     pub(crate) fn advance(
@@ -503,7 +539,7 @@ impl HeartsCompletion {
                 }
             }
             Phase::ApproachWait { start, first } => {
-                melody(data, tick, sound);
+                work.polling = Some(wait_melody(data, tick, sound));
                 if tick.wrapping_sub(start) >= word(data, 0x4dd6) {
                     if first {
                         self.phase = Phase::Score;
@@ -561,7 +597,7 @@ impl HeartsCompletion {
                 self.phase = Phase::PairWait { group, start: tick };
             }
             Phase::PairWait { group, start } => {
-                melody(data, tick, sound);
+                work.polling = Some(wait_melody(data, tick, sound));
                 if tick.wrapping_sub(start) >= word(data, 0x4dc8) {
                     data[0x4d91] = 0;
                     self.phase = if data[0x4d6e] == 0 {
@@ -619,7 +655,7 @@ impl HeartsCompletion {
                 }
             }
             Phase::Dance { start, frame } => {
-                dance_tone(data, tick, sound)?;
+                work.polling = Some(wait_dance(data, tick, sound)?);
                 if tick.wrapping_sub(frame) >= 5 {
                     set_word(data, 0x52c0, tick);
                     if tick.wrapping_sub(start) >= 40 {
@@ -730,6 +766,45 @@ mod tests {
     }
 
     #[test]
+    fn pairing_poll_preserves_wrap_and_reports_only_actual_note_updates() {
+        let mut d = data();
+        d[0] = 255;
+        set_word(&mut d, 0x4dc8, 3);
+        set_word(&mut d, 0x59c0, u16::MAX);
+        set_word(&mut d, 0x59bc, u16::MAX);
+        set_word(&mut d, 0x5934, 1000);
+        let mut c = HeartsCompletion::new(100, 100, true).unwrap();
+        c.phase = Phase::PairWait {
+            group: 0,
+            start: u16::MAX,
+        };
+        let mut screen = Framebuffer::default();
+        let mut sound = crate::sound::Sound::default();
+        sound.record(true);
+        for (tick, tone) in [(0, false), (1, true), (2, false)] {
+            assert_eq!(c.poll(), Some(crate::completion::Poll::Melody));
+            let work = c
+                .advance(&mut d, &mut screen, tick, true, &mut sound)
+                .unwrap();
+            let poll = work.polling.unwrap();
+            assert_eq!(poll.kind, crate::completion::Poll::Melody);
+            assert_eq!(poll.tone, tone);
+            assert_eq!(
+                sound.drain().filter(|w| w.port == 0x43).count(),
+                usize::from(tone)
+            );
+        }
+        assert_eq!(word(&d, 0x59be), 2);
+        assert!(matches!(c.phase, Phase::PairFrame(0)));
+        assert_eq!(c.poll(), None);
+        c.phase = Phase::ScoreHold {
+            start: 2,
+            sample: None,
+        };
+        assert_eq!(c.poll(), None);
+    }
+
+    #[test]
     fn approach_and_pair_setup_report_work_only_in_the_executing_phase() {
         let mut data = data();
         let mut screen = Framebuffer::default();
@@ -808,6 +883,7 @@ mod tests {
         assert_eq!(wait.bytes_drawn, 0);
         assert_eq!(wait.hearts.dance_frames, 0);
         assert!(wait.hearts.bookkeeping.is_none());
+        assert_eq!(wait.polling.unwrap().kind, crate::completion::Poll::Dance);
         assert!(matches!(
             presentation.phase,
             Phase::Dance { frame: 100, .. }

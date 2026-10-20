@@ -542,10 +542,41 @@ These fits use relocated native instruction blocks with drawing and waits omitte
 Pair initialization includes eight silent melody checks but excludes the outer
 group loop and its call dispatch. All 24 sampled cases fit within 0.005 ms of their
 calibration medians; relocation, prefetch and interrupts limit precision. Enclosing
-dispatch, score text and wait-poll execution allowances remain provisional.
+dispatch, score text and polling outside the measured phases below retain
+provisional allowances.
 Sound-enabled execution and request timestamps within a drawing phase are not
 independently fitted by the muted captures. Controlled helper/frame comparisons
 do not establish full original-loop timing or random-stream equivalence.
+
+### Completion polling
+
+On the XT profile, these individual passes replace the generic presentation-poll
+allowance while the corresponding wait phase is active:
+
+| Wait loop | Sound disabled | Sound enabled, no new note | Extra for a note update |
+| --- | ---: | ---: | ---: |
+| Hearts approach/pairing | 0.1081 ms | 0.1882 ms | 0.0833 ms |
+| Ordinary score-row reveal | 0.0830 ms | 0.0830 ms | — |
+| Hearts celebration | 0.1056 ms | 0.1841 ms | 0.0658 ms |
+
+The sound flag is the original game's flag, independent of host mixer levels.
+Note work is added only when the native melody/tone cursor advances. The
+representative note-update fit also covers rests approximately; equal-note stop
+branches and every table entry are not separately calibrated. Drawing and one-shot
+bookkeeping remain separate. The older DOSBox profile retains its generic poll
+allowance, and both software display modes share the XT fit.
+
+These values price polling, not the complete wait. Full aged captures preserve
+the real tick loops; ordinary intervals between BIOS reads isolate their per-pass
+costs. Their phase-dependent totals are not added as extra delays. The native
+two-tick reveal, approach/pair delays and five-tick celebration cadence remain
+intact. Native sound and decision reads still share one supplied BIOS sample in
+the adapter; interrupts between the original reads can change a boundary decision.
+
+The score-flash `3a1c` helper still uses virtual-retrace polling with its existing
+allowance. Its measured total includes the current video phase and its palette
+tail uses configured BIOS video service; neither is treated as a universal fixed
+delay. Score-flash and enclosing completion dispatch remain outside these fits.
 
 ### Initial splash
 

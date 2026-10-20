@@ -598,6 +598,55 @@ impl TitleCosts {
     }
 }
 
+/// Individual completion polling passes, excluding their intended tick waits.
+#[derive(Clone, Copy, Debug)]
+pub struct CompletionPollCosts {
+    pub melody_muted: u64,
+    pub melody_sound: u64,
+    pub melody_tone: u64,
+    pub reveal: u64,
+    pub dance_muted: u64,
+    pub dance_sound: u64,
+    pub dance_tone: u64,
+}
+
+impl CompletionPollCosts {
+    fn ibm_xt() -> Self {
+        Self {
+            melody_muted: 108_100,
+            melody_sound: 188_200,
+            melody_tone: 83_300,
+            reveal: 83_000,
+            dance_muted: 105_600,
+            dance_sound: 184_100,
+            dance_tone: 65_800,
+        }
+    }
+
+    fn poll(self, kind: crate::completion::Poll, sound: bool) -> u64 {
+        use crate::completion::Poll;
+        match (kind, sound) {
+            (Poll::Melody, false) => self.melody_muted,
+            (Poll::Melody, true) => self.melody_sound,
+            (Poll::Reveal, _) => self.reveal,
+            (Poll::Dance, false) => self.dance_muted,
+            (Poll::Dance, true) => self.dance_sound,
+        }
+    }
+
+    fn tone(self, work: crate::completion::PollWork) -> u64 {
+        use crate::completion::Poll;
+        if !work.tone {
+            return 0;
+        }
+        match work.kind {
+            Poll::Melody => self.melody_tone,
+            Poll::Dance => self.dance_tone,
+            Poll::Reveal => 0,
+        }
+    }
+}
+
 /// Failure presentation helpers on the shared XT baseline.
 #[derive(Clone, Copy, Debug)]
 pub struct FailureCosts {
@@ -965,6 +1014,7 @@ pub struct ReferenceCosts {
     pub eel_restart_poll: u64,
     pub completion_draw_byte: u64,
     pub completion: Option<CompletionCosts>,
+    pub completion_poll: Option<CompletionPollCosts>,
     pub hearts_presentation: Option<HeartsPresentationCosts>,
     pub title: Option<TitleCosts>,
     pub hearts_actor_draw: u64,
@@ -1151,6 +1201,7 @@ impl ReferenceCosts {
             milk: Some(MilkCosts::ibm_xt()),
             hearts: Some(HeartsCosts::ibm_xt()),
             completion: Some(CompletionCosts::ibm_xt()),
+            completion_poll: Some(CompletionPollCosts::ibm_xt()),
             hearts_presentation: Some(HeartsPresentationCosts::ibm_xt()),
             title: Some(TitleCosts::ibm_xt()),
             entry: Some(EntryCosts::ibm_xt()),
@@ -1244,6 +1295,7 @@ impl ReferenceCosts {
             // Original presentation tick/retrace waits are modeled separately.
             completion_draw_byte: 4_000,
             completion: None,
+            completion_poll: None,
             hearts_presentation: None,
             title: None,
             // Provisional scene-seven drawing work above its tick gates.
@@ -1477,6 +1529,13 @@ impl Runtime {
         }
     }
 
+    fn completion_poll_nanos(&self, kind: Option<crate::completion::Poll>, sound: bool) -> u64 {
+        match (self.costs.completion_poll, kind) {
+            (Some(costs), Some(kind)) => costs.poll(kind, sound),
+            _ => self.costs.room_effect_poll,
+        }
+    }
+
     fn charge_completion(&mut self, work: crate::completion::Work, precharged: u64) {
         let (hearts_nanos, hearts_bytes) = self.costs.hearts_presentation.map_or((0, 0), |costs| {
             (costs.nanos(work.hearts), work.hearts.bytes())
@@ -1513,7 +1572,12 @@ impl Runtime {
             .costs
             .bookkeeping
             .map_or(0, |costs| costs.nanos(work.bookkeeping));
-        self.clock.advance_nanos(nanos + bookkeeping);
+        let tone = self
+            .costs
+            .completion_poll
+            .zip(work.polling)
+            .map_or(0, |(costs, work)| costs.tone(work));
+        self.clock.advance_nanos(nanos + bookkeeping + tone);
     }
 
     fn charge_room_gate(&mut self, work: Option<crate::room::QuietWork>) {
@@ -1966,7 +2030,8 @@ impl Runtime {
         if alley.completion_waiting() {
             let poll = match (self.costs.failure, alley.failure_poll()) {
                 (Some(cost), Some(kind)) => cost.poll(kind, alley.native_sound_enabled()),
-                _ => self.costs.room_effect_poll,
+                _ => self
+                    .completion_poll_nanos(alley.completion_poll(), alley.native_sound_enabled()),
             };
             self.clock.advance_nanos(poll);
             let sample = self.clock.sample();
@@ -2739,6 +2804,62 @@ mod tests {
             runtime.clock.elapsed_nanos() - before,
             384 * u128::from(runtime.costs.completion_draw_byte)
         );
+    }
+
+    #[test]
+    fn completion_poll_replaces_the_fallback_and_only_tone_work_is_added_later() {
+        use crate::completion::{Poll, PollWork, Work};
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            for mut costs in [
+                ReferenceCosts::ibm_xt(machine),
+                ReferenceCosts::dosbox_x_240(machine),
+            ] {
+                costs.room_effect_poll = 1000;
+                if let Some(c) = costs.completion_poll.as_mut() {
+                    c.melody_sound = 19;
+                    c.melody_tone = 23;
+                }
+                let mut r = Runtime::with_costs(machine, costs);
+                assert_eq!(r.completion_poll_nanos(None, true), 1000);
+                let poll = r.completion_poll_nanos(Some(Poll::Melody), true);
+                assert_eq!(
+                    poll,
+                    if costs.completion_poll.is_some() {
+                        19
+                    } else {
+                        1000
+                    }
+                );
+                r.clock.advance_nanos(poll);
+                r.charge_completion(
+                    Work {
+                        polling: Some(PollWork {
+                            kind: Poll::Melody,
+                            tone: true,
+                        }),
+                        ..Default::default()
+                    },
+                    poll,
+                );
+                let expected = if costs.completion_poll.is_some() {
+                    42
+                } else {
+                    1000
+                };
+                assert_eq!(r.clock.elapsed_nanos(), expected);
+                r.charge_completion(
+                    Work {
+                        polling: Some(PollWork {
+                            kind: Poll::Melody,
+                            tone: false,
+                        }),
+                        ..Default::default()
+                    },
+                    0,
+                );
+                assert_eq!(r.clock.elapsed_nanos(), expected);
+            }
+        }
     }
 
     #[test]

@@ -258,6 +258,54 @@ mod tests {
     }
 
     #[test]
+    fn room_surface_work_counts_the_first_hit_from_the_room_table_start() {
+        let mut data = room_tables();
+        crate::assets::set_word(&mut data, 0x1269 + 5 * 2, 7);
+        // Earlier entries mismatch height; the final two overlap, and the
+        // resolver must stop at the first. Entries before the room are ignored.
+        data[0x1029 + 7..0x1029 + 10].copy_from_slice(&[88, 136, 136]);
+        for index in 7..10 {
+            crate::assets::set_word(&mut data, 0x10e9 + index * 2, 120);
+            crate::assets::set_word(&mut data, 0x11a9 + index * 2, 40);
+        }
+        for (state, y, entries) in [(0, 136, 2), (1, 136, 0), (0, 112, 0), (0, 180, 0)] {
+            data[0x1089 + 8] = state;
+            let mut player = Player::at_alley_floor(125);
+            player.y = y;
+            player.vertical_coordinate = y + 50;
+            let outcome = player.update(Controls::default(), &data).unwrap();
+            assert_eq!(outcome.room_surface_entries, entries);
+            assert_eq!(outcome.room_surface_hit, entries != 0);
+        }
+        data[0x1089 + 8] = 0;
+        let mut player = Player::at_alley_floor(125);
+        player.y = 136;
+        player.vertical_coordinate = 186;
+        player.support_state = 2;
+        let outcome = player.update(Controls::default(), &data).unwrap();
+        assert_eq!(outcome.room_surface_entries, 0);
+        assert!(!outcome.room_surface_hit);
+    }
+
+    #[test]
+    fn retained_idle_shape_excludes_hidden_clipped_and_alternate_images() {
+        let mut player = Player::at_alley_floor(125);
+        for (dimensions, hidden, alternate, retained) in [
+            (0x0b03, false, 0, true),
+            (0x0c02, false, 0, true),
+            (0x0b02, false, 0, false),
+            (0x0c03, false, 0, false),
+            (0x0c02, true, 0, false),
+            (0x0b03, false, 1, false),
+        ] {
+            player.previous_dimensions = dimensions;
+            player.image_hidden = hidden;
+            player.alternate_animation = alternate;
+            assert_eq!(player.has_retained_idle_image(), retained);
+        }
+    }
+
+    #[test]
     fn retained_airborne_shape_requires_a_complete_visible_draw() {
         let data = room_tables();
         let mut player = Player::at_alley_floor(125);
@@ -542,9 +590,9 @@ mod tests {
         let mut player = Player::at_alley_floor(8);
         player.y = 142;
         player.vertical_coordinate = 192;
-        assert_eq!(player.check_support(&data).unwrap(), Support::None);
+        assert_eq!(player.check_support(&data).unwrap().0, Support::None);
         player.x = 16;
-        assert_eq!(player.check_support(&data).unwrap(), Support::LowerList);
+        assert_eq!(player.check_support(&data).unwrap().0, Support::LowerList);
     }
 
     #[test]
@@ -574,7 +622,7 @@ mod tests {
                 player.y = y;
                 player.vertical_coordinate = y + 50;
                 assert_eq!(
-                    player.check_support(&data).unwrap(),
+                    player.check_support(&data).unwrap().0,
                     expected,
                     "difficulty={difficulty}, x={x}, y={y}"
                 );
@@ -1005,6 +1053,8 @@ pub struct UpdateOutcome {
     pub airborne_support_checked: bool,
     /// Grounded movement found a state-zero ordinary-room table before controls.
     pub room_surface_hit: bool,
+    /// Entries visited before a grounded state-zero room-table hit; zero otherwise.
+    pub room_surface_entries: u8,
     /// The original 070d edge initializer ran during this update.
     pub edge_reset: bool,
     /// The lower-support caller tested the bin cat on this update.
@@ -1059,6 +1109,13 @@ impl Player {
         !self.image_hidden
             && self.alternate_animation == 0
             && self.previous_dimensions == self.airborne_sprite.dimensions
+    }
+
+    /// Saved walking/idle shapes covered by the ordinary furniture-idle fit.
+    pub(crate) fn has_retained_idle_image(&self) -> bool {
+        !self.image_hidden
+            && self.alternate_animation == 0
+            && matches!(self.previous_dimensions, 0x0b03 | 0x0c02)
     }
 
     /// Whether drawing retains the complete transition image without actor animation.
@@ -1286,6 +1343,7 @@ impl Player {
             floor_mark: false,
             airborne_support_checked: false,
             room_surface_hit: false,
+            room_surface_entries: 0,
             edge_reset: false,
             bin_contact_checked: false,
             forced_controls: None,
@@ -1363,7 +1421,8 @@ impl Player {
         }
 
         if self.y < 180 || word(data, 4) == 7 {
-            let support = self.check_support(data)?;
+            let (support, entries) = self.check_support(data)?;
+            outcome.room_surface_entries = entries;
             if support == Support::None {
                 self.horizontal_direction = 0;
                 self.vertical_direction = 1;
@@ -1611,7 +1670,7 @@ impl Player {
             }
             if self.support_delay == 0 && self.vertical_direction == 1 {
                 outcome.airborne_support_checked = true;
-                support = self.check_support(data)?;
+                support = self.check_support(data)?.0;
             }
         }
         if support != Support::None {
@@ -1715,9 +1774,9 @@ impl Player {
         self.alternate_animation = 0;
     }
 
-    fn check_support(&mut self, data: &[u8]) -> Result<Support, &'static str> {
+    fn check_support(&mut self, data: &[u8]) -> Result<(Support, u8), &'static str> {
         if word(data, 4) == 0 {
-            return Ok(self.check_alley_support(data));
+            return Ok((self.check_alley_support(data), 0));
         }
         if word(data, 4) != 7 {
             self.hole_marker = 0;
@@ -1739,9 +1798,17 @@ impl Player {
             if word(data, 4) == 4 && (39..55).contains(&hit.index) {
                 self.hole_marker = (hit.index - 38) as u8;
             }
-            Ok(Support::RoomTable)
+            let scene = usize::from(word(data, 4));
+            let entries = if matches!(scene, 1 | 3..=6) && hit.state == 0 {
+                // The resolver returns the first hit, so its index includes
+                // every visited entry from this room's native table start.
+                (hit.index - usize::from(word(data, 0x1269 + scene * 2)) + 1) as u8
+            } else {
+                0
+            };
+            Ok((Support::RoomTable, entries))
         } else {
-            Ok(Support::None)
+            Ok((Support::None, 0))
         }
     }
 

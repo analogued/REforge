@@ -974,6 +974,7 @@ impl Alley {
                 floor_mark: false,
                 airborne_support_checked: false,
                 room_surface_hit: false,
+                room_surface_entries: 0,
                 edge_reset: false,
                 bin_contact_checked: false,
                 forced_controls: None,

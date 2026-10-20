@@ -1181,6 +1181,10 @@ pub struct RoomSurfaceCosts {
     pub landing_row: u64,
     /// Bookcase support miss that starts a vertical fall without drawing.
     pub bookcase_fall: u64,
+    /// Additional setup above the ordinary ground-idle allowance.
+    pub idle_search_setup: u64,
+    /// Approximate work per visited native support entry, including the hit.
+    pub idle_search_entry: u64,
 }
 
 impl ReferenceCosts {
@@ -1271,6 +1275,8 @@ impl ReferenceCosts {
                 ],
                 landing_row: 180_000,
                 bookcase_fall: 1_041_000,
+                idle_search_setup: 190_000,
+                idle_search_entry: 50_000,
             }),
             // Valid saved-background frames, less the quiet grouped baseline.
             // Fixed sprite content makes these fitted row coefficients.
@@ -2492,6 +2498,7 @@ impl Runtime {
             let descending = alley.player.vertical_direction == 1;
             let entering = alley.player.entry_state != 0;
             let retained_airborne_image = alley.player.has_retained_airborne_image();
+            let retained_idle_image = alley.player.has_retained_idle_image();
             let grounded_room_surface = matches!(alley.scene(), 1 | 3..=6)
                 && !airborne
                 && !entering
@@ -2708,6 +2715,26 @@ impl Runtime {
                 }
                 if !grounded_room_surface || outcome.landed || alley.player.support_state != 0 {
                     return None;
+                }
+                if outcome.room_surface_hit
+                    && outcome.room_surface_entries != 0
+                    && outcome.support == crate::player::Support::RoomTable
+                    && retained_idle_image
+                    && self.controls == Controls::default()
+                    && alley.player.horizontal_direction == 0
+                    && alley.player.vertical_direction == 0
+                {
+                    let idle = match outcome.draw {
+                        Draw::Idle => Some(self.costs.player_idle),
+                        Draw::Keep => Some(self.costs.player_keep),
+                        _ => None,
+                    };
+                    if let Some(idle) = idle {
+                        return Some(
+                            idle + costs.idle_search_setup
+                                + u64::from(outcome.room_surface_entries) * costs.idle_search_entry,
+                        );
+                    }
                 }
                 match outcome.draw {
                     Draw::Sprite(sprite)

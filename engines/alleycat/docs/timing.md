@@ -749,8 +749,8 @@ airborne/supported movement, other sprite shapes and whole-loop cadence. Native
 mark counts, tile selection and pre-movement cell indexing remain unchanged;
 the legacy profile retains its previous timing charges.
 
-Idle updates in these five rooms retain the existing 2.480 ms redraw and
-0.360 ms skipped-draw allowances. Captured walk-to-idle bodies take about
+Idle updates on the floor in these five rooms retain the existing 2.480 ms
+redraw and 0.360 ms skipped-draw allowances. Captured walk-to-idle bodies take about
 2.515–2.525 ms; settled skipped updates take 0.384–0.390 ms. A periodic settled
 redraw in the bookcase takes about 2.502–2.506 ms. The largest difference from
 the existing charges is 0.045 ms, within the 0.150 ms accepted-body bound, so
@@ -831,6 +831,28 @@ These are bounded same-capture fits; other support entries, image combinations,
 whole-room cadence and physical PCjr remain outside the calibration. Movement,
 support results, random consumption and waits are unchanged, and the legacy
 profile retains its earlier charges.
+
+Idle on ordinary state-zero furniture runs the same animation gate as floor
+idle, preceded by a successful support-table search. For a retained eleven-row
+walking or twelve-row idle image, the XT profile adds 0.190 ms setup plus
+0.050 ms per visited entry to the ordinary redraw/skipped-draw allowance. The
+player reports the first hit's distance from the room's native table start;
+this avoids treating an early and late match as equal work. The fit requires
+released controls, no vertical motion and an initially grounded, unattached cat.
+It excludes attached/cling, hidden, alternate and other saved-image shapes.
+
+Twenty-four cases pair FC/FD software IDs on the shared XT hardware. Early
+matches in five rooms take 2.786–3.026 ms with a redraw and 0.649–0.865 ms without
+one; the late cheese match takes 4.188 and 2.073 ms respectively. Forty-eight
+measurements plus two controls match 50 selected fields, complete video memory,
+first-hit entry counts and zero PIT-tone programs. Fitted totals are within
+0.072 ms of the medians. Redraws consume two shared random successors; skipped
+redraws consume none. This is processing work, not an explicit wait or a separate
+idle animation. It does not establish intended pacing or whole-loop slowdown.
+The bounded same-capture fit samples one early surface per room and one late
+cheese entry, difficulty zero and fixed image choices. Individual branch/IRQ
+placement, every other support entry and physical PCjr remain outside it. Floor,
+walking, landing and legacy-profile charges are unchanged.
 
 Already-attached upper-support bodies have separate fits in the alley and
 bookcase room: 2.925 ms for the first fourteen-row cling pose, 0.115 ms while

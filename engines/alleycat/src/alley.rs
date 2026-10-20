@@ -968,6 +968,7 @@ impl Alley {
                 draw: step.draw,
                 landed: false,
                 support: crate::player::Support::None,
+                lower_support: false,
                 edge_reset: false,
                 bin_contact_checked: false,
                 forced_controls: None,
@@ -2760,6 +2761,67 @@ mod tests {
         assert_eq!(alley.data[0x1f80], 3);
         assert_eq!(alley.player.vertical_direction, 1);
         assert_eq!(alley.framebuffer().bytes(), alley.screen.bytes());
+    }
+
+    #[test]
+    fn lower_support_takeoff_preserves_attachment_then_release_sound() {
+        use crate::runtime::{ReferenceCosts, Runtime};
+        use crate::timing::{RetraceProfile, VirtualClock};
+
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            for legacy in [false, true] {
+                for latch in [0, 1] {
+                    for enabled in [false, true] {
+                        let mut alley = actor_fixture();
+                        alley.machine = machine;
+                        alley.player.y = 142;
+                        alley.player.vertical_coordinate = 192;
+                        alley.player.horizontal_direction = 1;
+                        alley.data[0xff0] = 20;
+                        alley.data[0x127c] = latch;
+                        alley.data[0x127d] = 0xa5;
+                        alley.data[0] = if enabled { 0xff } else { 0 };
+                        alley.data[0x697] = if machine == Machine::Pcjr { 0xfd } else { 0xfc };
+                        alley.sound.record(true);
+                        let costs = if legacy {
+                            ReferenceCosts::dosbox_x_240(machine)
+                        } else {
+                            ReferenceCosts::ibm_xt(machine)
+                        };
+                        let mut runtime = Runtime::with_costs(machine, costs);
+                        runtime.clock =
+                            VirtualClock::with_initial_tick(RetraceProfile::default(), 1000);
+                        let event = runtime
+                            .advance_pass(&mut alley, Controls { x: 1, y: -1 })
+                            .unwrap();
+                        assert!(event.acceptance.is_some());
+                        assert_eq!(alley.player.vertical_direction, 255);
+                        assert_eq!(&alley.data[0x127c..0x127e], &[0, 0xa5]);
+                        let writes: Vec<_> = alley.sound.drain().collect();
+                        let divisors: Vec<_> = writes
+                            .iter()
+                            .filter(|w| w.port == 0x42)
+                            .map(|w| w.value)
+                            .collect::<Vec<_>>()
+                            .chunks_exact(2)
+                            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                            .collect();
+                        let expected = if !enabled {
+                            vec![]
+                        } else if latch == 0 {
+                            vec![0x400, 0x390]
+                        } else {
+                            vec![0x390]
+                        };
+                        assert_eq!(divisors, expected);
+                        assert_eq!(
+                            writes.iter().filter(|w| w.port == 0x43).count(),
+                            expected.len()
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

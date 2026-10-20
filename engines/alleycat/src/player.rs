@@ -891,6 +891,8 @@ pub struct UpdateOutcome {
     pub draw: Draw,
     pub landed: bool,
     pub support: Support,
+    /// A lower-list hit occurred before a possible vertical transition.
+    pub lower_support: bool,
     /// The original 070d edge initializer ran during this update.
     pub edge_reset: bool,
     /// The lower-support caller tested the bin cat on this update.
@@ -1156,6 +1158,7 @@ impl Player {
             draw: Draw::Keep,
             landed: false,
             support: self.last_support,
+            lower_support: false,
             edge_reset: false,
             bin_contact_checked: false,
             forced_controls: None,
@@ -1243,6 +1246,7 @@ impl Player {
                 return Ok(outcome);
             }
             self.last_support = support;
+            outcome.lower_support = support == Support::LowerList;
             outcome.bin_contact_checked = word(data, 4) == 0;
             if outcome.bin_contact_checked && crate::bin_cat::overlaps(data, self) {
                 // Predict the one shared draw without mutating the read-only
@@ -1510,6 +1514,7 @@ impl Player {
         self.last_support = support;
         outcome.support = support;
         outcome.landed = support != Support::None;
+        outcome.lower_support = support == Support::LowerList;
         // CS:0d73 checks the updated position before alternate animation,
         // top/band clipping and the alley-edge reset at CS:0e1b.
         if self.projectile_checkpoint(data, outcome, projectile_enabled) {

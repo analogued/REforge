@@ -683,10 +683,24 @@ uncalibrated work are identified alongside the costs.
 
 Accepted original movement bodies measure about 0.360 ms without redraw,
 2.480 ms for idle redraw, 2.717 ms walking, 2.961 ms rising, and 3.244 ms descending.
-The ordinary lower-support landing/release fits include one short beep, about
-26.514/23.923 ms in the sampled audible CGA bodies. Runtime subtracts the committed
-beep duration from that allowance before advancing the sound clock, counting it
-once. Other ordinary sound/latch combinations remain approximate.
+Ordinary lower-list landing and takeoff separate execution work from sound:
+about 3.179 ms for landing or 0.641 ms for takeoff, plus 0.050 ms for an initially
+clear support-sound latch. Each emitted beep adds its existing blocking duration
+and a fitted 0.055 ms caller/programming allowance. Landing emits attachment
+only with a clear latch. Takeoff can attach and release in the same accepted
+call, producing two beeps with a clear latch or one with an already set latch.
+Native mute suppresses the tones, while retaining the logical latch changes.
+
+Sixteen complete accepted-body cases cover these sound/latch combinations and
+both FC/FD software branches on the same XT hardware. Muted landing medians
+are 3.178–3.228 ms, and muted takeoff 0.641–0.690 ms. Audible totals reach
+26.510/47.253 ms for FC landing/takeoff and 14.987/24.021 ms for FD. State,
+complete video memory and PIT-program counts match; the fitted totals are within
+0.150 ms, with repeat spreads up to 0.131 ms. These are bounded same-capture
+fits, excluding other geometry, upper supports, the acceptance gate, whole-loop
+cadence and physical PCjr hardware. Other landing/release paths retain their
+earlier approximate allowances. The legacy profile retains its coefficients and
+charging rules, with the same corrected attachment/release sound ordering.
 
 Bin-forced downward transitions instead separate bookkeeping from committed
 sound. Their baseline is about 0.687 ms, plus 0.050 ms for an initially clear

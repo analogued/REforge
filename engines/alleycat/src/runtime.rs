@@ -1102,6 +1102,7 @@ pub struct ReferenceCosts {
     pub mouse_catch: u64,
     pub bin_push_sound: u64,
     pub forced_release: Option<ForcedReleaseCosts>,
+    pub lower_support: Option<LowerSupportCosts>,
     pub bin_frame: u64,
     pub bin_restore_row: u64,
     pub bin_draw_row: u64,
@@ -1128,6 +1129,15 @@ pub struct ForcedReleaseCosts {
     pub body: u64,
     pub attach: u64,
     pub first_contact: u64,
+    pub beep_overhead: u64,
+}
+
+/// Ordinary lower-list landing/takeoff work, excluding committed tone loops.
+#[derive(Clone, Copy, Debug)]
+pub struct LowerSupportCosts {
+    pub landing: u64,
+    pub takeoff: u64,
+    pub attach: u64,
     pub beep_overhead: u64,
 }
 
@@ -1182,6 +1192,12 @@ impl ReferenceCosts {
                 first_contact: 88_000,
                 // Small fitted programming/caller work above each busy loop;
                 // shared XT CPU for both software machine branches.
+                beep_overhead: 55_000,
+            }),
+            lower_support: Some(LowerSupportCosts {
+                landing: 3_179_000,
+                takeoff: 641_000,
+                attach: 50_000,
                 beep_overhead: 55_000,
             }),
             // Valid saved-background frames, less the quiet grouped baseline.
@@ -1327,6 +1343,7 @@ impl ReferenceCosts {
             player_landing: 30_720_833,
             player_support_release: 27_937_500,
             forced_release: None,
+            lower_support: None,
             // Legacy clipped-entry allowance, also the XT fallback for
             // unsampled drawing shapes. Selected XT bodies use EntryCosts.
             player_entry: 2_875_000,
@@ -2431,16 +2448,14 @@ impl Runtime {
             if let Some(controls) = outcome.forced_controls {
                 self.controls = controls;
             }
-            // Ordinary support allowances include one beep. Forced transitions
-            // instead price their bookkeeping and actual blocking beeps apart.
+            // Track the lower-list hit before a transition clears its support
+            // result. Native attachment can be followed by release this call.
             let transitioned = outcome.support == crate::player::Support::None
                 && alley.player.vertical_direction != 0;
             let forced = outcome.forced_controls.is_some();
             let forced_costs = self.costs.forced_release.filter(|_| forced);
-            if (outcome.support == crate::player::Support::LowerList
-                || (forced && outcome.bin_contact_checked))
-                && !support_tone
-            {
+            let lower_attach = outcome.lower_support && !support_tone;
+            if lower_attach {
                 alley.support_sound(0x400, true);
             }
             let mut support_ticks = alley.sound.take_busy_ticks();
@@ -2460,7 +2475,9 @@ impl Runtime {
                     self.clock.advance_pit_ticks(ticks);
                 }
             }
-            if (transitioned && support_tone && outcome.bin_contact_checked) || forced {
+            if (transitioned && (support_tone || lower_attach) && outcome.bin_contact_checked)
+                || forced
+            {
                 alley.support_sound(0x390, false);
             }
             if alley.scene() == 0
@@ -2490,6 +2507,21 @@ impl Runtime {
                     costs.body
                         + u64::from(!support_tone) * costs.attach
                         + u64::from(first_bin_contact) * costs.first_contact
+                        + beep_count * costs.beep_overhead,
+                );
+                self.clock.advance_pit_ticks(support_ticks);
+            } else if let Some(costs) = self
+                .costs
+                .lower_support
+                .filter(|_| outcome.lower_support && (outcome.landed || transitioned))
+            {
+                let body = if outcome.landed {
+                    costs.landing
+                } else {
+                    costs.takeoff
+                };
+                self.clock.advance_nanos(
+                    body + u64::from(lower_attach) * costs.attach
                         + beep_count * costs.beep_overhead,
                 );
                 self.clock.advance_pit_ticks(support_ticks);

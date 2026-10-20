@@ -854,6 +854,35 @@ cheese entry, difficulty zero and fixed image choices. Individual branch/IRQ
 placement, every other support entry and physical PCjr remain outside it. Floor,
 walking, landing and legacy-profile charges are unchanged.
 
+Hearts common-player movement has its own bounded XT costs, separate from the
+scene's cat, arrow, gift and presentation helpers. Walking on a solid platform
+uses 2.896 ms, a first idle redraw 2.678 ms and a skipped idle update 0.547 ms.
+Unsupported descending bodies with an actual platform search take 3.056 ms;
+landings with a complete retained twelve-row jump image use 3.047 ms. The
+selected lower-edge draw from twelve saved rows to ten visible rows takes
+2.659 ms. This replaces the generic 26.514 ms landing allowance on the measured
+silent platform landings, whose medians are 3.017–3.076 ms.
+
+These fits require no entry/death or attached state, with the corresponding
+visible, non-alternate saved walking/idle/transition shape. The descent and
+landing fits require the actual support-search flag. The lower-edge fit covers
+Y189 with the same original twelve-row source, ten drawn rows and no support
+search; other clipped histories and the final bottom exit retain their fallback.
+Jump initiation, rising and losing support over a gap keep their existing costs,
+already within the 0.150 ms accepted-body bound on the selected cases.
+
+Twenty cases pair FC/FD software IDs on the shared XT. Forty repeated
+measurements plus two controls match 53 selected fields, complete backing and
+presented video memory, actual support/landing flags and zero PIT-tone programs.
+All comparisons, including the unchanged paths, are within 0.109 ms of the
+medians; changed fitted totals are within 0.030 ms. This bounded same-capture
+fit samples fixed sprites, positions and difficulty zero, with landings at two
+platform heights. It excludes other geometry/shapes, actor collisions, the
+acceptance gate, outer failure dispatch, whole-loop cadence and physical PCjr.
+Native motion, platform results, modulo-eight idle gating, redraw-only random
+consumption and deliberate waits are unchanged. Execution costs do not establish
+intended delays; the legacy profile keeps its previous timing.
+
 Already-attached upper-support bodies have separate fits in the alley and
 bookcase room: 2.925 ms for the first fourteen-row cling pose, 0.115 ms while
 holding, 0.281 ms for jumping off and 0.266 ms for dropping off. The first pose

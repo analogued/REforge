@@ -1109,6 +1109,7 @@ pub struct ReferenceCosts {
     /// Indexed by native scene; only 1,3..=6 are used.
     pub room_descent: Option<[u64; 8]>,
     pub room_surface: Option<RoomSurfaceCosts>,
+    pub hearts_player: Option<HeartsPlayerCosts>,
     pub bin_frame: u64,
     pub bin_restore_row: u64,
     pub bin_draw_row: u64,
@@ -1185,6 +1186,18 @@ pub struct RoomSurfaceCosts {
     pub idle_search_setup: u64,
     /// Approximate work per visited native support entry, including the hit.
     pub idle_search_entry: u64,
+}
+
+/// Bounded Hearts common-player bodies on the XT baseline, without actor work.
+#[derive(Clone, Copy, Debug)]
+pub struct HeartsPlayerCosts {
+    pub walk: u64,
+    pub idle: u64,
+    pub keep: u64,
+    pub descent: u64,
+    pub landing: u64,
+    /// Ten-row draw clipped from a retained twelve-row image at the lower edge.
+    pub bottom_clip: u64,
 }
 
 impl ReferenceCosts {
@@ -1277,6 +1290,14 @@ impl ReferenceCosts {
                 bookcase_fall: 1_041_000,
                 idle_search_setup: 190_000,
                 idle_search_entry: 50_000,
+            }),
+            hearts_player: Some(HeartsPlayerCosts {
+                walk: 2_896_000,
+                idle: 2_678_000,
+                keep: 547_000,
+                descent: 3_056_000,
+                landing: 3_047_000,
+                bottom_clip: 2_659_000,
             }),
             // Valid saved-background frames, less the quiet grouped baseline.
             // Fixed sprite content makes these fitted row coefficients.
@@ -1426,6 +1447,7 @@ impl ReferenceCosts {
             upper_support: None,
             room_descent: None,
             room_surface: None,
+            hearts_player: None,
             // Legacy clipped-entry allowance, also the XT fallback for
             // unsampled drawing shapes. Selected XT bodies use EntryCosts.
             player_entry: 2_875_000,
@@ -2499,6 +2521,10 @@ impl Runtime {
             let entering = alley.player.entry_state != 0;
             let retained_airborne_image = alley.player.has_retained_airborne_image();
             let retained_idle_image = alley.player.has_retained_idle_image();
+            let retained_walking_image = alley.player.has_retained_walking_image();
+            let hearts_player_costs = self.costs.hearts_player.filter(|_| {
+                alley.scene() == 7 && !entering && alley.player.support_state == 0 && !alley.dying()
+            });
             let grounded_room_surface = matches!(alley.scene(), 1 | 3..=6)
                 && !airborne
                 && !entering
@@ -2688,6 +2714,66 @@ impl Runtime {
                         _ => None,
                     })
             {
+                self.clock.advance_nanos(nanos);
+                self.clock.advance_pit_ticks(support_ticks);
+            } else if let Some(nanos) = hearts_player_costs.and_then(|costs| {
+                let supported = outcome.support == crate::player::Support::RoomTable
+                    && alley.player.vertical_direction == 0;
+                match outcome.draw {
+                    Draw::Idle | Draw::Keep
+                        if !airborne
+                            && supported
+                            && retained_idle_image
+                            && self.controls == Controls::default()
+                            && alley.player.horizontal_direction == 0 =>
+                    {
+                        Some(if outcome.draw == Draw::Idle {
+                            costs.idle
+                        } else {
+                            costs.keep
+                        })
+                    }
+                    Draw::Sprite(sprite)
+                        if !airborne
+                            && supported
+                            && retained_walking_image
+                            && !outcome.landed
+                            && sprite.dimensions == 0x0b03 =>
+                    {
+                        Some(costs.walk)
+                    }
+                    Draw::Sprite(sprite)
+                        if airborne
+                            && retained_airborne_image
+                            && sprite.dimensions == 0x0c03
+                            && alley.player.is_unclipped_airborne_sprite(sprite)
+                            && outcome.airborne_support_checked =>
+                    {
+                        if outcome.landed && supported {
+                            Some(costs.landing)
+                        } else if !outcome.landed
+                            && outcome.support == crate::player::Support::None
+                            && alley.player.vertical_direction == 1
+                        {
+                            Some(costs.descent)
+                        } else {
+                            None
+                        }
+                    }
+                    Draw::Sprite(sprite)
+                        if airborne
+                            && descending
+                            && retained_airborne_image
+                            && !outcome.landed
+                            && !outcome.airborne_support_checked
+                            && outcome.support == crate::player::Support::None
+                            && alley.player.is_hearts_ten_row_clip(sprite) =>
+                    {
+                        Some(costs.bottom_clip)
+                    }
+                    _ => None,
+                }
+            }) {
                 self.clock.advance_nanos(nanos);
                 self.clock.advance_pit_ticks(support_ticks);
             } else if let Some(nanos) = self.costs.room_surface.and_then(|costs| {

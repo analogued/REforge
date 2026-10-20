@@ -302,7 +302,49 @@ mod tests {
             player.image_hidden = hidden;
             player.alternate_animation = alternate;
             assert_eq!(player.has_retained_idle_image(), retained);
+            assert_eq!(
+                player.has_retained_walking_image(),
+                retained && dimensions == 0x0b03
+            );
         }
+    }
+
+    #[test]
+    fn hearts_bottom_clip_keeps_source_and_changes_saved_image_shape() {
+        let mut data = room_tables();
+        crate::assets::set_word(&mut data, 4, 7);
+        data[0x2be2..0x2c60].fill(2);
+        let mut player = Player::at_alley_floor(125);
+        player.y = 186;
+        player.vertical_coordinate = 236;
+        player.vertical_direction = 1;
+        player.vertical_step = 3;
+        player.phase_decrement = 0;
+        player.support_delay = 8;
+        player.airborne_sprite = Sprite {
+            source: 0x900,
+            dimensions: 0x0c03,
+        };
+        player.previous_dimensions = 0x0c03;
+        assert!(player.has_retained_airborne_image());
+        let outcome = player.update(Controls::default(), &data).unwrap();
+        let Draw::Sprite(sprite) = outcome.draw else {
+            panic!("Expected bottom-clipped drawing");
+        };
+        assert_eq!(sprite.source, 0x900);
+        assert_eq!(sprite.dimensions, 0x0a03);
+        assert!(player.is_hearts_ten_row_clip(sprite));
+        assert!(!player.has_retained_airborne_image());
+        assert!(!player.is_hearts_ten_row_clip(Sprite {
+            source: 0x901,
+            ..sprite
+        }));
+        assert!(!player.is_hearts_ten_row_clip(Sprite {
+            dimensions: 0x0903,
+            ..sprite
+        }));
+        player.alternate_animation = 1;
+        assert!(!player.is_hearts_ten_row_clip(sprite));
     }
 
     #[test]
@@ -1111,11 +1153,24 @@ impl Player {
             && self.previous_dimensions == self.airborne_sprite.dimensions
     }
 
-    /// Saved walking/idle shapes covered by the ordinary furniture-idle fit.
+    /// Saved walking/idle shapes covered by ordinary supported-idle fits.
     pub(crate) fn has_retained_idle_image(&self) -> bool {
         !self.image_hidden
             && self.alternate_animation == 0
             && matches!(self.previous_dimensions, 0x0b03 | 0x0c02)
+    }
+
+    pub(crate) fn has_retained_walking_image(&self) -> bool {
+        !self.image_hidden && self.alternate_animation == 0 && self.previous_dimensions == 0x0b03
+    }
+
+    /// Selected lower-edge clipping shape on the Hearts player path.
+    pub(crate) fn is_hearts_ten_row_clip(&self, sprite: Sprite) -> bool {
+        self.alternate_animation == 0
+            && self.y == 189
+            && self.airborne_sprite.dimensions == 0x0c03
+            && sprite.source == self.airborne_sprite.source
+            && sprite.dimensions == 0x0a03
     }
 
     /// Whether drawing retains the complete transition image without actor animation.

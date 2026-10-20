@@ -960,6 +960,22 @@ write and include sound initialization/epilogue, rather than exact helper
 boundaries. Interrupt placement and BIOS latency remain approximate. Full-video
 expectations come from functional native preflight, not XT video-memory captures.
 
+Initial cling landings on ordinary tables in the fishbowl, cheese, birdcage and
+milk rooms use the same twelve-row drawing suffix of 2.640 ms. Before sound,
+they charge 0.600 ms setup plus 0.050 ms per visited support-table entry, including
+the hit. The player reports work from its actual search rather than repeating
+the lookup for timing. This replaces the generic 26.514 ms execution allowance
+for complete retained rightward twelve-row images and state-one table hits.
+Other image/direction combinations retain their allowances.
+
+Sixteen cases pair the four contexts, native sound on/off and FC/FD software IDs
+on the same XT. Thirty-two body measurements and two controls match selected
+state, sound invariants and full-video expectations from native functional
+preflight. The four sampled supports visit 7, 4, 11 and 4 entries respectively,
+giving fitted CPU totals of 3.590, 3.440, 3.790 and 3.440 ms. All are within
+0.030 ms of the anchored medians. This is a bounded aggregate search fit, not
+instruction-exact pricing of every height/overlap branch or table position.
+
 The prefix advances the game clock before the helper samples its BIOS tick and
 PIT phase. Its wait still lasts until two BIOS ticks have elapsed from that
 sample, including with native sound off; no fixed captured total replaces it.

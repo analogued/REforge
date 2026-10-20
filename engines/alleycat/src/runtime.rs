@@ -1175,6 +1175,9 @@ pub struct UpperSupportCosts {
 pub struct UpperLandingCosts {
     pub alley_before: u64,
     pub bookcase_before: u64,
+    /// Other ordinary-room table searches, before the separate sound wait.
+    pub room_before: u64,
+    pub room_entry: u64,
     pub after: u64,
     /// Combined restore/draw work per retained image row above ten.
     pub extra_row: u64,
@@ -1306,6 +1309,8 @@ impl ReferenceCosts {
             upper_landing: Some(UpperLandingCosts {
                 alley_before: 775_000,
                 bookcase_before: 575_000,
+                room_before: 600_000,
+                room_entry: 50_000,
                 after: 2_265_000,
                 extra_row: 187_500,
                 stationary_discount: 20_000,
@@ -2690,7 +2695,7 @@ impl Runtime {
                     && matches!(
                         (alley.scene(), outcome.support),
                         (0, crate::player::Support::UpperBitfield)
-                            | (3, crate::player::Support::RoomTable)
+                            | (1 | 3..=6, crate::player::Support::RoomTable)
                     );
                 if !eligible {
                     return None;
@@ -2698,6 +2703,10 @@ impl Runtime {
                 match outcome.draw {
                     Draw::Sprite(sprite)
                         if alley.player.is_unclipped_airborne_sprite(sprite)
+                            && (matches!(alley.scene(), 0 | 3)
+                                || (outcome.room_surface_entries != 0
+                                    && sprite.dimensions == 0x0c03
+                                    && alley.player.horizontal_direction == 1))
                             && matches!(
                                 (sprite.dimensions, alley.player.horizontal_direction),
                                 (0x0a03, _) | (0x0c03, 1 | 255) | (0x0d03, 0)
@@ -2715,8 +2724,11 @@ impl Runtime {
                     // tick/PIT phase, rather than adding all work after the wait.
                     let before = if alley.scene() == 0 {
                         costs.alley_before
-                    } else {
+                    } else if alley.scene() == 3 {
                         costs.bookcase_before
+                    } else {
+                        costs.room_before
+                            + u64::from(outcome.room_surface_entries) * costs.room_entry
                     };
                     self.clock
                         .advance_nanos(before.saturating_sub(

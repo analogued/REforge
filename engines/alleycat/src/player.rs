@@ -288,6 +288,44 @@ mod tests {
     }
 
     #[test]
+    fn airborne_cling_search_counts_entries_only_when_the_search_runs() {
+        for scene in [1, 4, 5, 6] {
+            let mut data = room_tables();
+            crate::assets::set_word(&mut data, 4, scene);
+            crate::assets::set_word(&mut data, 0x1269 + usize::from(scene) * 2, 7);
+            data[0x1029 + 7..0x1029 + 10].copy_from_slice(&[88, 136, 136]);
+            for index in 7..10 {
+                crate::assets::set_word(&mut data, 0x10e9 + index * 2, 120);
+                crate::assets::set_word(&mut data, 0x11a9 + index * 2, 40);
+                data[0x1089 + index] = 1;
+            }
+            for (direction, delay, disabled, expected) in
+                [(1, 0, 0, 2), (1, 2, 0, 0), (1, 0, 1, 0), (255, 0, 0, 0)]
+            {
+                let mut player = Player::at_alley_floor(125);
+                player.y = 139;
+                player.vertical_coordinate = 189;
+                player.vertical_direction = direction;
+                player.support_delay = delay;
+                player.support_disabled = disabled;
+                player.phase = 128;
+                player.phase_decrement = 0;
+                player.airborne_sprite = Sprite {
+                    source: 0x900,
+                    dimensions: 0x0c03,
+                };
+                let outcome = player.update(Controls::default(), &data).unwrap();
+                assert_eq!(outcome.room_surface_entries, expected);
+                assert_eq!(outcome.landed, expected != 0);
+                assert!(!outcome.room_surface_hit);
+                if expected != 0 {
+                    assert_eq!(player.support_state, 1);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn retained_idle_shape_excludes_hidden_clipped_and_alternate_images() {
         let mut player = Player::at_alley_floor(125);
         for (dimensions, hidden, alternate, retained) in [
@@ -1177,7 +1215,8 @@ pub struct UpdateOutcome {
     pub airborne_support_checked: bool,
     /// Grounded movement found a state-zero ordinary-room table before controls.
     pub room_surface_hit: bool,
-    /// Entries visited before a grounded state-zero room-table hit; zero otherwise.
+    /// Entries visited before a grounded state-zero or airborne room-table hit.
+    /// The bookcase's special shelf path and non-table results report zero.
     pub room_surface_entries: u8,
     pub hearts_clipping: Option<HeartsClippingWork>,
     /// The original 070d edge initializer ran during this update.
@@ -1828,7 +1867,9 @@ impl Player {
             }
             if self.support_delay == 0 && self.vertical_direction == 1 {
                 outcome.airborne_support_checked = true;
-                support = self.check_support(data)?.0;
+                let (hit, entries) = self.check_support(data)?;
+                support = hit;
+                outcome.room_surface_entries = entries;
             }
         }
         if support != Support::None {
@@ -1974,7 +2015,9 @@ impl Player {
                 self.hole_marker = (hit.index - 38) as u8;
             }
             let scene = usize::from(word(data, 4));
-            let entries = if matches!(scene, 1 | 3..=6) && hit.state == 0 {
+            let count_table =
+                hit.state == 0 || (self.vertical_direction == 1 && matches!(scene, 1 | 4..=6));
+            let entries = if matches!(scene, 1 | 3..=6) && count_table {
                 // The resolver returns the first hit, so its index includes
                 // every visited entry from this room's native table start.
                 (hit.index - usize::from(word(data, 0x1269 + scene * 2)) + 1) as u8

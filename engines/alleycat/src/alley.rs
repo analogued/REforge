@@ -659,7 +659,11 @@ impl Alley {
     }
 
     pub(crate) fn bin_contact_sound_ready(&self) -> bool {
-        self.data[0] != 0 && self.data[0x56c] == 0
+        self.data[0] != 0 && !self.bin_contact_latched()
+    }
+
+    pub(crate) fn bin_contact_latched(&self) -> bool {
+        self.data[0x56c] != 0
     }
 
     #[cfg(test)]

@@ -1101,6 +1101,7 @@ pub struct ReferenceCosts {
     pub mouse_redraw: u64,
     pub mouse_catch: u64,
     pub bin_push_sound: u64,
+    pub forced_release: Option<ForcedReleaseCosts>,
     pub bin_frame: u64,
     pub bin_restore_row: u64,
     pub bin_draw_row: u64,
@@ -1119,6 +1120,15 @@ pub struct ReferenceCosts {
     pub bookkeeping: Option<BookkeepingCosts>,
     pub bird: Option<BirdCosts>,
     pub quiet: Option<QuietCosts>,
+}
+
+/// Complete bin-forced downward transitions, excluding committed tone loops.
+#[derive(Clone, Copy, Debug)]
+pub struct ForcedReleaseCosts {
+    pub body: u64,
+    pub attach: u64,
+    pub first_contact: u64,
+    pub beep_overhead: u64,
 }
 
 impl ReferenceCosts {
@@ -1166,6 +1176,14 @@ impl ReferenceCosts {
             } else {
                 69_985_143
             },
+            forced_release: Some(ForcedReleaseCosts {
+                body: 687_100,
+                attach: 50_000,
+                first_contact: 88_000,
+                // Small fitted programming/caller work above each busy loop;
+                // shared XT CPU for both software machine branches.
+                beep_overhead: 55_000,
+            }),
             // Valid saved-background frames, less the quiet grouped baseline.
             // Fixed sprite content makes these fitted row coefficients.
             bin_frame: 399_200,
@@ -1308,6 +1326,7 @@ impl ReferenceCosts {
             player_descending: 3_783_333,
             player_landing: 30_720_833,
             player_support_release: 27_937_500,
+            forced_release: None,
             // Legacy clipped-entry allowance, also the XT fallback for
             // unsampled drawing shapes. Selected XT bodies use EntryCosts.
             player_entry: 2_875_000,
@@ -2382,6 +2401,7 @@ impl Runtime {
             let entry_waiting = alley.player.entry_delay != 0;
             let releasing = alley.player.support_state != 0 && self.controls.y != 0;
             let bin_sound_ready = alley.bin_contact_sound_ready();
+            let first_bin_contact = !alley.bin_contact_latched();
             let support_tone = alley.support_sound_latched();
             alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
             let (outcome, swimming) = if alley.scene() == 2 {
@@ -2411,12 +2431,12 @@ impl Runtime {
             if let Some(controls) = outcome.forced_controls {
                 self.controls = controls;
             }
-            // The short support beep is already included in the fitted player
-            // cost. Upper-support noise and the bin-contact trio are additional
-            // native blocking helpers, and must advance the guest clock.
+            // Ordinary support allowances include one beep. Forced transitions
+            // instead price their bookkeeping and actual blocking beeps apart.
             let transitioned = outcome.support == crate::player::Support::None
                 && alley.player.vertical_direction != 0;
             let forced = outcome.forced_controls.is_some();
+            let forced_costs = self.costs.forced_release.filter(|_| forced);
             if (outcome.support == crate::player::Support::LowerList
                 || (forced && outcome.bin_contact_checked))
                 && !support_tone
@@ -2424,15 +2444,21 @@ impl Runtime {
                 alley.support_sound(0x400, true);
             }
             let mut support_ticks = alley.sound.take_busy_ticks();
+            let mut beep_count = u64::from(support_ticks != 0);
             if forced && bin_sound_ready {
                 alley.bin_sound();
                 let ticks = alley.sound.take_busy_ticks();
-                self.clock.advance_nanos(
-                    self.costs
-                        .bin_push_sound
-                        .saturating_sub(ticks * 1_000_000_000 / crate::timing::PIT_HZ),
-                );
-                self.clock.advance_pit_ticks(ticks);
+                if forced_costs.is_some() {
+                    support_ticks += ticks;
+                    beep_count += 3 * u64::from(ticks != 0);
+                } else {
+                    self.clock.advance_nanos(
+                        self.costs
+                            .bin_push_sound
+                            .saturating_sub(ticks * 1_000_000_000 / crate::timing::PIT_HZ),
+                    );
+                    self.clock.advance_pit_ticks(ticks);
+                }
             }
             if (transitioned && support_tone && outcome.bin_contact_checked) || forced {
                 alley.support_sound(0x390, false);
@@ -2445,7 +2471,9 @@ impl Runtime {
                 // fall initializer; walking off a bin does not play 58f8.
                 alley.clear_support_sound();
             }
-            support_ticks += alley.sound.take_busy_ticks();
+            let release_ticks = alley.sound.take_busy_ticks();
+            support_ticks += release_ticks;
+            beep_count += u64::from(release_ticks != 0);
             if outcome.landed && alley.player.support_state != 0 {
                 alley.upper_landing_sound(accepted.tick_low);
                 self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
@@ -2457,7 +2485,15 @@ impl Runtime {
             } else {
                 self.player_draw_cost(outcome.draw, entering, entry_waiting, airborne, descending)
             };
-            if let Some(work) = swimming {
+            if let Some(costs) = forced_costs {
+                self.clock.advance_nanos(
+                    costs.body
+                        + u64::from(!support_tone) * costs.attach
+                        + u64::from(first_bin_contact) * costs.first_contact
+                        + beep_count * costs.beep_overhead,
+                );
+                self.clock.advance_pit_ticks(support_ticks);
+            } else if let Some(work) = swimming {
                 self.charge_swimming(work, support_ticks);
             } else {
                 self.clock.advance_nanos(

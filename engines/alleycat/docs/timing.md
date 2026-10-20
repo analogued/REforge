@@ -683,11 +683,29 @@ uncalibrated work are identified alongside the costs.
 
 Accepted original movement bodies measure about 0.360 ms without redraw,
 2.480 ms for idle redraw, 2.717 ms walking, 2.961 ms rising, and 3.244 ms descending.
-Lower-support landing/release allowances include their one short beep, about
-26.514/23.923 ms in total. Runtime subtracts the committed beep duration from
-that allowance before advancing the sound clock, so it is counted once.
-Two-beep forced-release paths and other unmeasured contact combinations remain
-approximate. Upper-support noise and the bin-contact trio remain separate work.
+The ordinary lower-support landing/release fits include one short beep, about
+26.514/23.923 ms in the sampled audible CGA bodies. Runtime subtracts the committed
+beep duration from that allowance before advancing the sound clock, counting it
+once. Other ordinary sound/latch combinations remain approximate.
+
+Bin-forced downward transitions instead separate bookkeeping from committed
+sound. Their baseline is about 0.687 ms, plus 0.050 ms for an initially clear
+support latch and 0.088 ms for first contact. Each actually emitted beep adds its
+existing blocking duration and a fitted 0.055 ms caller/programming allowance.
+The attachment, three-tone first-contact effect and release can produce five,
+four, two or one beeps, depending on the initial latches; native mute emits none.
+The trio is included in this charge, not added again as a separate whole helper.
+Upper-support noise remains separate work.
+
+Sixteen complete accepted-body cases pair native mute/enable and both latch
+states with FC/FD software machine IDs on the same XT hardware. Muted medians
+are 0.687–0.885 ms; audible totals span 23.970–117.177 ms for FC and
+12.321–59.123 ms for FD. The latter retains its half-length native sound loops.
+All fitted totals are within 0.150 ms of these medians, with selected state,
+full video memory and PIT-program checks. This is a bounded same-capture fit;
+two repeats show up to 0.126 ms spread. It does not establish arbitrary contact
+geometry, whole-loop cadence, individual instruction placement or physical PCjr
+timing. The earlier DOSBox profile retains its previous composition.
 
 Clipped alley entry retains its twelve accepted-call countdown; an active dog
 can hold that countdown. Hidden countdown bodies take about 0.122 ms. The first

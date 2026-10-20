@@ -50,6 +50,10 @@ pub(crate) enum Work {
     DrawDrink,
     EmptyBowl,
     DrawBowl,
+    /// Shared CS:2136 entry after the sleeping-dog caller's own cleanup.
+    PursuitEntry {
+        player_dimensions: u16,
+    },
     Broom {
         restored: bool,
     },

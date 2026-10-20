@@ -516,6 +516,13 @@ impl Alley {
         Ok(drawn)
     }
 
+    pub(crate) fn pursuit_contact_dimensions(&self) -> Option<(u16, u16)> {
+        Some((
+            self.compositor.dimensions()?.0,
+            self.dog_image.as_ref()?.dimensions.0,
+        ))
+    }
+
     pub(crate) fn check_player_dog(&mut self) -> Result<bool, String> {
         let scene = self.scene();
         if !matches!(scene, 0 | 1 | 3..=5) {
@@ -1515,6 +1522,11 @@ impl Alley {
             return Ok(crate::milk::AttentionStep::default());
         }
         let suppress = !self.harm_enabled(Harm::MilkDogs);
+        let player_dimensions = if self.data[0x44bd] == 0 {
+            self.compositor.dimensions().map_or(0, |image| image.0)
+        } else {
+            0
+        };
         let step = self.room_actor(|data, screen, sound| {
             crate::milk::advance_attention_timed(data, screen, tick, suppress, &mut |event| {
                 work(event, sound);
@@ -1534,11 +1546,23 @@ impl Alley {
             self.data[0x0e..0x90].fill(0xaa);
             self.screen
                 .copy_rect(offset, Dimensions(0x0d05), &[0xaa; 130])?;
-            crate::dog::begin_death(&mut self.data)?;
-            self.player = Player::from_data(&self.data)?;
-            self.compose_actors()?;
+            self.begin_milk_pursuit(player_dimensions, work)?;
         }
         Ok(step)
+    }
+
+    fn begin_milk_pursuit(
+        &mut self,
+        player_dimensions: u16,
+        work: &mut impl FnMut(crate::milk::Work, &mut crate::sound::Sound) -> u16,
+    ) -> Result<(), String> {
+        work(
+            crate::milk::Work::PursuitEntry { player_dimensions },
+            &mut self.sound,
+        );
+        crate::dog::begin_death(&mut self.data)?;
+        self.player = Player::from_data(&self.data)?;
+        self.compose_actors()
     }
 
     pub(crate) fn advance_fishbowl(

@@ -1185,8 +1185,23 @@ work after the final status read is charged separately. Sound requests use the
 post-wait time, and warning playback follows all attention work. Thirty-six
 fixed/aligned checks fit within 0.150 ms, with a largest sampled median difference
 of about 0.076 ms. Unrecorded starting phases only support timing envelopes.
-Other bowl-search patterns, broom overlap, lethal pursuit entry, audible-request
-overhead and complete natural room pacing remain uncalibrated.
+The shared pursuit entry (`2136`) adds a one-time 9.850 ms allowance when the
+normal eleven-row cat image is present. Its original temporary dog image,
+restoration and relocation are included; preceding sleeping-body removal and
+attention scanning remain separate. Drinking-image entries retain their previous
+allowance. Other bowl-search patterns, broom overlap, lethal caller cleanup,
+audible-request overhead and complete natural room pacing remain approximate.
+
+Complete running-dog contact/entry (`20f5`) uses 3.120 ms in the alley, including
+its edge reset, and 2.065 ms in ordinary rooms. Both return sides and FC/FD
+software IDs share each fit. These apply to a complete eleven-row player and
+fifteen-row dog image; other saved-image shapes retain their existing allowance.
+Entry is charged once, whether player work or dog movement detects the contact.
+It replaces no pursuit tick gate, movement step or animation rule. Existing
+caller/gate allowances remain separate; their overlap and unsampled movement
+preludes remain approximate. Twenty-six XT samples cover these three contexts;
+all entry fits are within 0.050 ms of the sampled medians. This does not establish
+complete natural-contact or whole-room pacing.
 
 Fishbowl animation (`3850`) measures 0.752–0.754 ms, or 0.781 ms when contact
 sets the entry latch. Its quiet tick check measures 0.085 ms. The fit keeps that

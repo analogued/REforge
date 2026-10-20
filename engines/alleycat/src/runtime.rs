@@ -32,6 +32,7 @@ pub struct MilkCosts {
     pub eye_prepare: u64,
     pub eye_draw: u64,
     pub overlap_finish: u64,
+    pub pursuit_entry: u64,
 }
 
 impl MilkCosts {
@@ -57,6 +58,7 @@ impl MilkCosts {
             eye_prepare: 160_000,
             eye_draw: 113_880,
             overlap_finish: 90_000,
+            pursuit_entry: 9_850_000,
         }
     }
 }
@@ -1035,6 +1037,9 @@ pub struct ReferenceCosts {
     pub entry: Option<EntryCosts>,
     pub ground_dog: u64,
     pub ground_dog_draw: u64,
+    /// Complete contact/entry with eleven-row player and fifteen-row dog images.
+    /// Alley (with edge reset), then the shared ordinary-room path.
+    pub pursuit_contact: Option<[u64; 2]>,
     pub projectile_draw: u64,
     pub actor_group: u64,
     pub clothes_shift: u64,
@@ -1273,6 +1278,7 @@ impl ReferenceCosts {
             player_support_release: 23_923_219,
             ground_dog: 93_867,
             ground_dog_draw: 8_395_409,
+            pursuit_contact: Some([3_120_000, 2_065_000]),
             // Quiet grouped-call work, fitted against consecutive alley passes.
             actor_group: 800_000,
             projectile_draw: 2_643_667,
@@ -1517,6 +1523,7 @@ impl ReferenceCosts {
             entry: None,
             ground_dog: 95_833,
             ground_dog_draw: 1_500_000,
+            pursuit_contact: None,
             projectile_draw: 500_000,
             actor_group: 345_833,
             // Additional work above the ordinary grouped-call allowance.
@@ -1955,6 +1962,13 @@ impl Runtime {
                             }
                     }
             }
+            Work::PursuitEntry { player_dimensions } => {
+                if player_dimensions == 0x0b03 {
+                    c.pursuit_entry
+                } else {
+                    0
+                }
+            }
             Work::End => 0,
         };
         self.clock.advance_nanos(nanos);
@@ -2068,6 +2082,40 @@ impl Runtime {
         }
         self.clock
             .advance_nanos(post.saturating_sub(busy_ns.saturating_sub(prelude)));
+    }
+
+    fn pursuit_contact_cost(&self, alley: &Alley) -> u64 {
+        if alley.pursuit_contact_dimensions() != Some((0x0b03, 0x0f04)) {
+            return 0;
+        }
+        self.costs
+            .pursuit_contact
+            .map_or(0, |costs| costs[usize::from(alley.scene() != 0)])
+    }
+
+    fn check_player_dog(&mut self, alley: &mut Alley) -> Result<bool, String> {
+        let entry = self.pursuit_contact_cost(alley);
+        let started = alley.check_player_dog()?;
+        if started {
+            self.clock.advance_nanos(entry);
+        }
+        Ok(started)
+    }
+
+    fn step_ground_dog(&mut self, alley: &mut Alley) -> Result<(), String> {
+        let was_dying = alley.dying();
+        let entry = self.pursuit_contact_cost(alley);
+        let sample = self.clock.sample();
+        if alley.advance_ground_dog(sample.bios.tick_low, sample.retrace)? {
+            self.clock.advance_nanos(self.costs.ground_dog_draw);
+        }
+        if !was_dying && alley.dying() {
+            // The contact path restores images instead of drawing the normal
+            // moving dog. Charge entry once; pursuit movement has its own gate.
+            self.clock.advance_nanos(entry);
+        }
+        self.clock.advance_nanos(self.costs.ground_dog);
+        Ok(())
     }
 
     fn step_fishbowl(&mut self, alley: &mut Alley) -> Result<(), String> {
@@ -2645,7 +2693,7 @@ impl Runtime {
                 return Ok(self.room_wait_outcome(alley, start_nanos));
             }
             if !matches!(outcome.draw, Draw::Keep | Draw::Erase)
-                && alley.check_player_dog()?
+                && self.check_player_dog(alley)?
                 && alley.scene() == 0
             {
                 self.player_gate.reset();
@@ -3109,11 +3157,7 @@ impl Runtime {
                     self.step_room_broom(alley)?;
                 }
                 if matches!(before_scene, 1 | 3..=5) || (before_scene == 6 && alley.dying()) {
-                    let sample = self.clock.sample();
-                    if alley.advance_ground_dog(sample.bios.tick_low, sample.retrace)? {
-                        self.clock.advance_nanos(self.costs.ground_dog_draw);
-                    }
-                    self.clock.advance_nanos(self.costs.ground_dog);
+                    self.step_ground_dog(alley)?;
                 }
                 if before_scene == 1 {
                     self.step_fishbowl(alley)?;
@@ -3144,11 +3188,7 @@ impl Runtime {
         let resumed_projectile = resume == Some(DamageResume::Projectiles);
         if !resumed_projectile {
             let was_dying = alley.dying();
-            let sample = self.clock.sample();
-            if alley.advance_ground_dog(sample.bios.tick_low, sample.retrace)? {
-                self.clock.advance_nanos(self.costs.ground_dog_draw);
-            }
-            self.clock.advance_nanos(self.costs.ground_dog);
+            self.step_ground_dog(alley)?;
             if !was_dying && alley.dying() {
                 self.player_gate.reset();
                 self.controls = Controls::default();

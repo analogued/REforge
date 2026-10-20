@@ -194,6 +194,10 @@ struct PlayerRectangle {
 }
 
 impl PlayerCompositor {
+    pub(crate) fn dimensions(&self) -> Option<Dimensions> {
+        self.previous.as_ref().map(|image| image.dimensions)
+    }
+
     pub fn restore(&mut self, framebuffer: &mut Framebuffer) -> Result<(), String> {
         self.suspend(framebuffer)?;
         Ok(())

@@ -893,6 +893,8 @@ pub struct UpdateOutcome {
     pub support: Support,
     /// A lower-list hit occurred before a possible vertical transition.
     pub lower_support: bool,
+    /// The room adapter actually drew a floor mark during this accepted update.
+    pub floor_mark: bool,
     /// The original 070d edge initializer ran during this update.
     pub edge_reset: bool,
     /// The lower-support caller tested the bin cat on this update.
@@ -1159,6 +1161,7 @@ impl Player {
             landed: false,
             support: self.last_support,
             lower_support: false,
+            floor_mark: false,
             edge_reset: false,
             bin_contact_checked: false,
             forced_controls: None,

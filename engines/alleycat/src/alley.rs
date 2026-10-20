@@ -774,6 +774,7 @@ impl Alley {
         if self.dev_options.actor_disabled(Actor::BinCat) {
             self.data[0x1d59] = 0;
         }
+        let mut floor_mark = false;
         let image = if matches!(self.scene(), 1 | 3..=6 | 7) {
             let image = self.compositor.suspend(&mut self.screen)?;
             self.player.write_data(&mut self.data)?;
@@ -782,7 +783,7 @@ impl Alley {
                 && self.player.floor_track_due(controls)
             {
                 self.data[0x56e] = controls.x as u8;
-                crate::room::record_floor_track(&mut self.data, &mut self.screen)?;
+                floor_mark = crate::room::record_floor_track(&mut self.data, &mut self.screen)?;
             }
             image
         } else {
@@ -797,9 +798,10 @@ impl Alley {
         // offset; walking recalculates its destination at CS:0f6d instead.
         let entry_idle_offset = (self.player.entry_state == 1 && self.player.entry_delay == 0)
             .then(|| pixel_offset(self.player.x, self.player.y));
-        let outcome =
+        let mut outcome =
             self.player
                 .update_with_projectiles(controls, &self.data, projectile_enabled)?;
+        outcome.floor_mark = floor_mark;
         if outcome.projectile_contact {
             self.check_player_projectile(tick)?;
             return Ok(outcome);
@@ -969,6 +971,7 @@ impl Alley {
                 landed: false,
                 support: crate::player::Support::None,
                 lower_support: false,
+                floor_mark: false,
                 edge_reset: false,
                 bin_contact_checked: false,
                 forced_controls: None,
@@ -2333,6 +2336,31 @@ mod tests {
                 (alley.player.entry_state, alley.player.entry_delay),
                 (3, 12)
             );
+        }
+    }
+
+    #[test]
+    fn room_floor_mark_work_reports_only_a_newly_drawn_tile() {
+        for (last, count, expected) in [(18, 0, true), (17, 2, false), (18, 4, false)] {
+            let mut alley = Alley::synthetic();
+            set_word(&mut alley.data, 4, 3);
+            set_word(&mut alley.data, 0x32b6, last);
+            alley.data[0x329f] = count;
+            alley.data[0x32c2..0x32cc].fill(0x55);
+            for frame in 0..6 {
+                set_word(&mut alley.data, 0xf7a + frame * 2, 0x2000);
+            }
+            alley.data[0x2000..0x2042].fill(0xff);
+            alley.player = Player::at_alley_floor(125);
+            let outcome = alley.update_at_tick(Controls { x: 1, y: 0 }, 10).unwrap();
+            assert_eq!(outcome.floor_mark, expected);
+            assert_eq!(word(&alley.data, 0x32b6), 17);
+            assert_eq!(alley.data[0x329f], count + u8::from(expected));
+            assert_eq!(
+                alley.screen.bytes()[0x1e22],
+                if expected { 0x55 } else { 0 }
+            );
+            assert_eq!(alley.player.x, 127);
         }
     }
 

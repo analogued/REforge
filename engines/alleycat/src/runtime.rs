@@ -1143,7 +1143,7 @@ pub struct LowerSupportCosts {
     pub beep_overhead: u64,
 }
 
-/// Bounded floor bodies; room landing totals cover the twelve-row jump sprite.
+/// Bounded floor movement; room landings cover the twelve-row jump sprite.
 #[derive(Clone, Copy, Debug)]
 pub struct FloorCosts {
     pub landing: u64,
@@ -1151,6 +1151,8 @@ pub struct FloorCosts {
     pub takeoff: u64,
     /// Complete room landing bodies indexed by native scene; only 1,3..=6 are used.
     pub room_landing: [u64; 8],
+    pub room_walk: u64,
+    pub room_mark: u64,
 }
 
 /// Already-supported bodies, excluding the initial landing sound wait.
@@ -1234,6 +1236,8 @@ impl ReferenceCosts {
                 room_landing: [
                     0, 3_750_000, 0, 3_781_000, 4_582_000, 3_890_000, 3_851_000, 0,
                 ],
+                room_walk: 2_761_000,
+                room_mark: 327_000,
             }),
             // Valid saved-background frames, less the quiet grouped baseline.
             // Fixed sprite content makes these fitted row coefficients.
@@ -2458,6 +2462,13 @@ impl Runtime {
                 && alley.player.y == 180
                 && alley.player.support_state == 0
                 && self.controls.y == -1;
+            let walking_from_room_floor = matches!(alley.scene(), 1 | 3..=6)
+                && !airborne
+                && !entering
+                && alley.player.y == 180
+                && alley.player.support_state == 0
+                && self.controls.x != 0
+                && self.controls.y == 0;
             let entry_waiting = alley.player.entry_delay != 0;
             let supported = alley.player.support_state;
             let releasing = supported != 0 && self.controls.y != 0;
@@ -2610,6 +2621,15 @@ impl Runtime {
                                 && sprite.dimensions == 0x0c03 =>
                         {
                             Some(costs.room_landing[usize::from(scene)])
+                        }
+                        (1 | 3..=6, Draw::Sprite(sprite))
+                            if walking_from_room_floor
+                                && !outcome.landed
+                                && outcome.support == crate::player::Support::Floor
+                                && alley.player.vertical_direction == 0
+                                && sprite.dimensions == 0x0b03 =>
+                        {
+                            Some(costs.room_walk + u64::from(outcome.floor_mark) * costs.room_mark)
                         }
                         (_, Draw::Keep)
                             if jumping_from_floor && alley.player.vertical_direction == 255 =>

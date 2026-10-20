@@ -733,6 +733,22 @@ shapes, upper supports and whole-loop cadence remain outside this calibration;
 the legacy profile keeps its previous charging. Physical PCjr is not measured
 by selecting the FD software branch on XT hardware.
 
+Ordinary floor walking in these five rooms uses a 2.761 ms accepted-body fit
+for the eleven-row walking sprite, plus 0.327 ms only when the native floor-mark
+helper actually draws a new tile. Revisiting the same cell or reaching its
+four-mark cap adds no drawing charge. The room adapter reports the completed
+draw rather than inferring work from cat movement or host recomposition.
+
+Twenty-two cases pair FC/FD software IDs for walking with skipped/new marks in
+all five rooms and a capped mark in the bookcase. Forty-four measurements plus
+two controls match 49 selected state/drawing fields, full video memory, zero
+PIT-tone programs and the actual floor-mark work flag. Fitted totals are within
+0.064 ms of the medians; repeat spread reaches 0.125 ms. These bounded fits use
+one position, speed, direction, difficulty and image pair. They exclude entry,
+airborne/supported movement, other sprite shapes and whole-loop cadence. Native
+mark counts, tile selection and pre-movement cell indexing remain unchanged;
+the legacy profile retains its previous timing charges.
+
 Already-attached upper-support bodies have separate fits in the alley and
 bookcase room: 2.925 ms for the first fourteen-row cling pose, 0.115 ms while
 holding, 0.281 ms for jumping off and 0.266 ms for dropping off. The first pose

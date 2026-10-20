@@ -1168,13 +1168,17 @@ pub struct UpperSupportCosts {
     pub drop: u64,
 }
 
-/// Grounded state-zero furniture work, excluding attached cling and landing.
+/// Ordinary state-zero furniture work, excluding attached cling and its sound wait.
 #[derive(Clone, Copy, Debug)]
 pub struct RoomSurfaceCosts {
     /// Complete eleven-row walking bodies, indexed by native scene 1,3..=6.
     pub walk: [u64; 8],
     /// Complete upward-transition bodies that retain the previous image.
     pub jump: [u64; 8],
+    /// Complete ten-row landing reference, indexed by native scene 1,3..=6.
+    pub landing_base: [u64; 8],
+    /// Restore/draw increment per retained image row above ten.
+    pub landing_row: u64,
     /// Bookcase support miss that starts a vertical fall without drawing.
     pub bookcase_fall: u64,
 }
@@ -1262,6 +1266,10 @@ impl ReferenceCosts {
                     0, 3_044_000, 0, 3_213_000, 3_051_000, 3_183_000, 3_002_000, 0,
                 ],
                 jump: [0, 608_000, 0, 781_000, 618_000, 751_000, 565_000, 0],
+                landing_base: [
+                    0, 2_900_000, 0, 3_085_000, 2_926_000, 3_056_000, 2_854_000, 0,
+                ],
+                landing_row: 180_000,
                 bookcase_fall: 1_041_000,
             }),
             // Valid saved-background frames, less the quiet grouped baseline.
@@ -2483,6 +2491,7 @@ impl Runtime {
             let airborne = alley.player.vertical_direction != 0;
             let descending = alley.player.vertical_direction == 1;
             let entering = alley.player.entry_state != 0;
+            let retained_airborne_image = alley.player.has_retained_airborne_image();
             let grounded_room_surface = matches!(alley.scene(), 1 | 3..=6)
                 && !airborne
                 && !entering
@@ -2675,10 +2684,31 @@ impl Runtime {
                 self.clock.advance_nanos(nanos);
                 self.clock.advance_pit_ticks(support_ticks);
             } else if let Some(nanos) = self.costs.room_surface.and_then(|costs| {
+                let scene = usize::from(alley.scene());
+                if matches!(scene, 1 | 3..=6)
+                    && airborne
+                    && !entering
+                    && retained_airborne_image
+                    && outcome.landed
+                    && outcome.support == crate::player::Support::RoomTable
+                    && alley.player.support_state == 0
+                {
+                    if let Draw::Sprite(sprite) = outcome.draw {
+                        let rows = sprite.dimensions >> 8;
+                        if sprite.dimensions & 255 == 3
+                            && ((12..=13).contains(&rows) || (scene == 3 && rows == 10))
+                            && alley.player.is_unclipped_airborne_sprite(sprite)
+                        {
+                            return Some(
+                                costs.landing_base[scene]
+                                    + u64::from(rows - 10) * costs.landing_row,
+                            );
+                        }
+                    }
+                }
                 if !grounded_room_surface || outcome.landed || alley.player.support_state != 0 {
                     return None;
                 }
-                let scene = usize::from(alley.scene());
                 match outcome.draw {
                     Draw::Sprite(sprite)
                         if outcome.room_surface_hit

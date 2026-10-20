@@ -812,6 +812,26 @@ fits, excluding other table entries, geometry, animation phases, whole-room
 cadence and physical PCjr. Native movement, random consumption and deliberate
 waits remain unchanged; the legacy profile retains its earlier timing.
 
+Landings on ordinary state-zero furniture use separate fits when the previous
+saved image and new draw both retain the complete transition shape. Twelve-row
+jump-descent bodies take about 3.260, 3.445, 3.286, 3.416 and 3.214 ms in the
+fishbowl, bookcase, cheese, birdcage and milk rooms respectively. A retained
+thirteen-row vertical-fall image adds a fitted 0.180 ms; the bookcase's ten-row
+side-fall body subtracts 0.360 ms. Other shapes, clipped/alternate images and
+initial cling landings retain their other allowances.
+
+Twenty-two cases pair FC/FD software IDs on the shared XT hardware. Forty-four
+measurements plus two controls match 52 selected fields, full video memory,
+the airborne support-search flag and zero PIT-tone programs. All fitted totals
+are within 0.060 ms of the medians. This replaces the older 26.514 ms landing
+fallback on these silent paths, which actually take about 3.064–3.611 ms.
+Coverage uses one surface, position and difficulty per room, with twelve- and
+thirteen-row images in all five rooms and a ten-row image only in the bookcase.
+These are bounded same-capture fits; other support entries, image combinations,
+whole-room cadence and physical PCjr remain outside the calibration. Movement,
+support results, random consumption and waits are unchanged, and the legacy
+profile retains its earlier charges.
+
 Already-attached upper-support bodies have separate fits in the alley and
 bookcase room: 2.925 ms for the first fourteen-row cling pose, 0.115 ms while
 holding, 0.281 ms for jumping off and 0.266 ms for dropping off. The first pose

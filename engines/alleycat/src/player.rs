@@ -258,6 +258,36 @@ mod tests {
     }
 
     #[test]
+    fn retained_airborne_shape_requires_a_complete_visible_draw() {
+        let data = room_tables();
+        let mut player = Player::at_alley_floor(125);
+        player.y = 176;
+        player.vertical_coordinate = 226;
+        player.vertical_direction = 255;
+        player.vertical_step = 3;
+        player.airborne_sprite = Sprite {
+            source: 0x900,
+            dimensions: 0x0c03,
+        };
+        assert!(!player.has_retained_airborne_image());
+        let first = player.update(Controls::default(), &data).unwrap();
+        assert_eq!(first.draw, Draw::Sprite(player.airborne_sprite));
+        assert!(player.has_retained_airborne_image());
+        player.y = 0;
+        player.vertical_coordinate = 45;
+        let clipped = player.update(Controls::default(), &data).unwrap();
+        let Draw::Sprite(sprite) = clipped.draw else {
+            panic!("Expected cropped image");
+        };
+        assert_eq!(sprite.dimensions, 0x0403);
+        assert!(!player.has_retained_airborne_image());
+        player.vertical_coordinate = 35;
+        let hidden = player.update(Controls::default(), &data).unwrap();
+        assert_eq!(hidden.draw, Draw::Erase);
+        assert!(!player.has_retained_airborne_image());
+    }
+
+    #[test]
     fn room_landing_uses_table_geometry_without_alley_band_clipping() {
         let mut data = room_tables();
         data[0x1029] = 136;
@@ -1024,6 +1054,13 @@ fn word(data: &[u8], offset: usize) -> u16 {
 }
 
 impl Player {
+    /// The visible saved image has the retained transition shape, without actor animation.
+    pub(crate) fn has_retained_airborne_image(&self) -> bool {
+        !self.image_hidden
+            && self.alternate_animation == 0
+            && self.previous_dimensions == self.airborne_sprite.dimensions
+    }
+
     /// Whether drawing retains the complete transition image without actor animation.
     pub(crate) fn is_unclipped_airborne_sprite(&self, sprite: Sprite) -> bool {
         self.alternate_animation == 0 && sprite == self.airborne_sprite

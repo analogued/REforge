@@ -33,6 +33,7 @@ pub(crate) struct SurfaceStep {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ContactStep {
     pub drew: bool,
+    pub visited: u8,
     pub tested: u8,
     pub restored_fish: u8,
     pub restored_eels: u8,
@@ -368,6 +369,7 @@ pub(crate) fn contacts_with_damage(
     let mut result = ContactStep::default();
     for slot in 0..24 {
         set_word(data, 0x3511, slot as u16);
+        result.visited += 1;
         if data[0x34a7 + slot] != 0 {
             continue;
         }
@@ -511,6 +513,7 @@ pub(crate) fn contacts_dev_with_damage(
     data[0x351b] = 0;
     for slot in 0..12 {
         set_word(data, 0x3511, slot as u16);
+        result.visited += 1;
         if data[0x34a7 + slot] != 0 {
             continue;
         }
@@ -1033,6 +1036,7 @@ mod tests {
             &mut crate::sound::Sound::default(),
         )
         .unwrap();
+        assert_eq!(step.visited, 13);
         assert_eq!(
             (
                 step.failure,

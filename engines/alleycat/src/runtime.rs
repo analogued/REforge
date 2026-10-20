@@ -713,6 +713,8 @@ pub struct BlockingCosts {
     pub spider_entry: u64,
     pub spider_exit: u64,
     pub eel_entry: u64,
+    pub eel_lethal_test: u64,
+    pub eel_failure_draw: u64,
     pub effect_stop: u64,
     pub mouse_sound_before: u64,
     pub mouse_sound_after: u64,
@@ -733,6 +735,9 @@ impl BlockingCosts {
             spider_entry: 106_200,
             spider_exit: 5_550,
             eel_entry: 121_940,
+            // Lethal decision work above an active miss, then CS:3506..3538.
+            eel_lethal_test: 38_600,
+            eel_failure_draw: 1_525_600,
             effect_stop: 20_110,
             // Steady audible polls have two BIOS samples, about 475 and
             // 389 cycles apart. Muted polls use ReferenceCosts directly.
@@ -1759,8 +1764,15 @@ impl Runtime {
     }
 
     fn swimming_contact_cost(&self, contact: crate::fishbowl::ContactStep, dimensions: u16) -> u64 {
-        self.costs.underwater_contact_gate
-            + u64::from(contact.tested) * self.costs.underwater_contact_test
+        // A lethal scan stops at its first harmful eel. Prorating the quiet
+        // full-scan allowance is provisional until its enclosing prefix is
+        // measured; the decision and failure-image increments are separate.
+        let gate = if contact.failure && self.costs.blocking.is_some() {
+            self.costs.underwater_contact_gate * u64::from(contact.visited) / 24
+        } else {
+            self.costs.underwater_contact_gate
+        };
+        gate + u64::from(contact.tested) * self.costs.underwater_contact_test
             + u64::from(contact.contacts) * self.costs.underwater_contact_each
             + if contact.contacts != 0 {
                 self.swimming_image_cost(dimensions, true)
@@ -1769,6 +1781,13 @@ impl Runtime {
             }
             + u64::from(contact.restored_fish) * self.costs.underwater_actor_restore
             + u64::from(contact.restored_eels) * self.costs.underwater_eel_restore
+            + self.costs.blocking.map_or(0, |cost| {
+                if contact.failure {
+                    cost.eel_lethal_test + cost.eel_failure_draw
+                } else {
+                    0
+                }
+            })
     }
 
     fn charge_swimming(&mut self, work: crate::swimming::SwimmingWork, busy_ticks: u64) {
@@ -1781,7 +1800,7 @@ impl Runtime {
         let post = self.swimming_image_cost(work.previous_dimensions, true)
             + self.swimming_image_cost(work.dimensions, false)
             + self.swimming_contact_cost(work.contacts, work.dimensions)
-            + if work.contacts.contacts != 0 {
+            + if work.contacts.contacts != 0 && !work.contacts.failure {
                 // CS:0ba8 redraws the player after the first contact removed it.
                 self.swimming_image_cost(work.dimensions, false)
             } else {
@@ -1948,6 +1967,18 @@ impl Runtime {
         alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
         event.end_nanos = self.clock.elapsed_nanos();
         Ok(event)
+    }
+
+    fn charge_swimming_before_damage(
+        &mut self,
+        alley: &mut Alley,
+        work: crate::swimming::SwimmingWork,
+    ) {
+        if self.costs.blocking.is_some() {
+            self.charge_swimming(work, 0);
+            // CS:353f follows player work, the partial contact scan and image.
+            self.start_damage_effect_wait(alley);
+        }
     }
 
     fn start_damage_effect_wait(&mut self, alley: &mut Alley) {
@@ -2315,9 +2346,8 @@ impl Runtime {
                 )
             };
             if alley.damage_waiting() {
-                if swimming.is_some() {
-                    // CS:353f records the wait baseline after eel setup.
-                    self.start_damage_effect_wait(alley);
+                if let Some(work) = swimming {
+                    self.charge_swimming_before_damage(alley, work);
                 }
                 self.damage_resume = Some(DamageResume::Player);
                 return Ok(self.room_wait_outcome(alley, start_nanos));
@@ -2662,6 +2692,55 @@ impl Runtime {
 mod tests {
     use super::*;
     use crate::timing::BIOS_TICK_PIT_CLOCKS;
+
+    #[test]
+    fn lethal_swimming_stops_scan_pricing_and_omits_the_post_return_redraw() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut costs = ReferenceCosts::ibm_xt(machine);
+            costs.swimming_player = 0;
+            costs.swimming_draw_setup = 100;
+            costs.swimming_draw_row = 0;
+            costs.swimming_draw_byte = 0;
+            costs.swimming_restore_setup = 0;
+            costs.swimming_restore_row = 0;
+            costs.swimming_restore_byte = 0;
+            costs.underwater_contact_gate = 24_000;
+            costs.underwater_contact_test = 1_000;
+            costs.underwater_contact_each = 2_000;
+            let blocking = costs.blocking.as_mut().unwrap();
+            blocking.eel_failure_draw = 10_000;
+            blocking.eel_lethal_test = 100;
+            let work = crate::swimming::SwimmingWork {
+                previous_dimensions: 0x0c03,
+                dimensions: 0x0c03,
+                bubble: false,
+                surface_wait: false,
+                contacts: crate::fishbowl::ContactStep {
+                    visited: 13,
+                    tested: 1,
+                    contacts: 1,
+                    failure: true,
+                    ..Default::default()
+                },
+            };
+            let mut run = Runtime::with_costs(machine, costs);
+            run.charge_swimming(work, 0);
+            assert_eq!(run.clock.elapsed_nanos(), 26_200);
+            let mut full = work;
+            full.contacts.visited = 24;
+            let mut run = Runtime::with_costs(machine, costs);
+            run.charge_swimming(full, 0);
+            assert_eq!(run.clock.elapsed_nanos(), 37_200);
+            full.contacts.failure = false;
+            let mut run = Runtime::with_costs(machine, costs);
+            run.charge_swimming(full, 0);
+            assert_eq!(run.clock.elapsed_nanos(), 27_200);
+
+            let mut legacy = Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
+            legacy.charge_swimming_before_damage(&mut Alley::synthetic(), work);
+            assert_eq!(legacy.clock.elapsed_nanos(), 0);
+        }
+    }
 
     #[test]
     fn quiet_cost_replaces_the_gate_and_leaves_active_and_legacy_work_alone() {

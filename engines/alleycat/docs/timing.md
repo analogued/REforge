@@ -911,8 +911,21 @@ two visible fish measure 3.131 ms. The fit counts active tests, contacts, the
 first player restoration and actual fish/eel restorations. An accepted swimming
 body also redraws the player after contacts, as the native caller does. Final-fish
 success and immune/sinking eel contacts retain native ordering and reactivation.
-Lethal eel-contact entry is outside these nonblocking measurements; its existing
-effect-loop polling costs remain separate. Sound requests were native-muted.
+Lethal eel-contact work has separate bounded measurements. A single-slot active
+miss costs about 0.107 ms, versus 0.145–0.146 ms for a lethal decision; the XT fit
+adds 0.0386 ms above its existing active-test allowance. The opaque failure-image
+copy (`3506..3538`) costs about 1.526 ms across eight sampled positions, including
+its coordinate clamps. Movement, player drawing, the scanned contacts and this
+image are charged before sampling the thirteen-tick effect's baseline. The
+post-contact player redraw is not charged before a lethal wait.
+
+A lethal scan records how many slots it actually visited. Its quiet-loop price
+currently prorates the measured complete-scan allowance by that count; this is
+provisional, since single-slot captures exclude scan initialization/continuation.
+They do not establish the complete lethal caller's duration. Three controlled
+lethal scans match composed native decision/image outcomes and retain the active
+eel and lives; the effect-loop polling costs remain separate. Sound requests
+were native-muted. The older DOSBox profile retains its prior lethal-entry timing.
 
 The native FD near-surface branch (`0b72`) waits for retrace clear then set before
 a counted delay. Its variable full-body duration is not a fixed CPU surcharge.
@@ -1180,8 +1193,8 @@ The enclosing fence player-reset allowance remains approximate. The native
 reset (`070d`) measures about 1.053 ms including background saving, versus
 0.235–0.238 ms for its bookkeeping without that save. These totals are not added
 to the existing player-body cost: that would risk charging overlapping work.
-They do not introduce an extra presentation or deliberate wait. Eel-contact
-drawing and other unmeasured caller work likewise remain approximate. Both
+They do not introduce an extra presentation or deliberate wait. Other
+unmeasured caller work likewise remains approximate. Both
 software modes share these XT fits; the FD branch is not a physical PCjr
 measurement. Other
 room effects use the shared room-effect polling allowance where no specific

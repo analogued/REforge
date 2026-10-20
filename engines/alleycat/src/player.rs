@@ -224,6 +224,40 @@ mod tests {
     }
 
     #[test]
+    fn state_zero_surface_hit_survives_a_jump_but_excludes_cling_and_misses() {
+        for state in [0, 1] {
+            let mut data = room_tables();
+            data[0x1029] = 136;
+            data[0x1089] = state;
+            crate::assets::set_word(&mut data, 0x10e9, 120);
+            crate::assets::set_word(&mut data, 0x11a9, 40);
+            for y in [-1, 0, 1] {
+                let mut player = Player::at_alley_floor(125);
+                player.y = 136;
+                player.vertical_coordinate = 186;
+                let outcome = player.update(Controls { x: 1, y }, &data).unwrap();
+                assert_eq!(outcome.room_surface_hit, state == 0);
+                if y == 0 {
+                    assert_eq!(outcome.support, Support::RoomTable);
+                } else {
+                    assert_eq!(outcome.support, Support::None);
+                    assert_eq!(player.support_state, 0);
+                    assert_eq!(player.vertical_direction, y as u8);
+                }
+            }
+        }
+        let data = room_tables();
+        for y in [136, 180] {
+            let mut player = Player::at_alley_floor(125);
+            player.y = y;
+            player.vertical_coordinate = y + 50;
+            let outcome = player.update(Controls { x: 1, y: -1 }, &data).unwrap();
+            assert!(!outcome.room_surface_hit);
+            assert_eq!(player.vertical_direction, if y == 136 { 1 } else { 255 });
+        }
+    }
+
+    #[test]
     fn room_landing_uses_table_geometry_without_alley_band_clipping() {
         let mut data = room_tables();
         data[0x1029] = 136;
@@ -939,6 +973,8 @@ pub struct UpdateOutcome {
     pub floor_mark: bool,
     /// An airborne update ran the native support search before drawing.
     pub airborne_support_checked: bool,
+    /// Grounded movement found a state-zero ordinary-room table before controls.
+    pub room_surface_hit: bool,
     /// The original 070d edge initializer ran during this update.
     pub edge_reset: bool,
     /// The lower-support caller tested the bin cat on this update.
@@ -1212,6 +1248,7 @@ impl Player {
             lower_support: false,
             floor_mark: false,
             airborne_support_checked: false,
+            room_surface_hit: false,
             edge_reset: false,
             bin_contact_checked: false,
             forced_controls: None,
@@ -1299,6 +1336,9 @@ impl Player {
                 return Ok(outcome);
             }
             self.last_support = support;
+            outcome.room_surface_hit = matches!(word(data, 4), 1 | 3..=6)
+                && support == Support::RoomTable
+                && self.support_state == 0;
             outcome.lower_support = support == Support::LowerList;
             outcome.bin_contact_checked = word(data, 4) == 0;
             if outcome.bin_contact_checked && crate::bin_cat::overlaps(data, self) {

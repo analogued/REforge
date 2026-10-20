@@ -783,6 +783,35 @@ and retained sprite. Other geometry, animation phases, whole-room cadence and
 physical PCjr remain outside this calibration. Native movement, search results
 and waits are unchanged; the legacy profile keeps its previous charges.
 
+Grounded movement on state-zero furniture surfaces has separate accepted-body
+fits. These include the successful support search and either an eleven-row walk
+draw or an upward transition that retains the previous image:
+
+| Room | Walking | Jump initiation |
+| --- | ---: | ---: |
+| Fishbowl | 3.044 ms | 0.608 ms |
+| Bookcase | 3.213 ms | 0.781 ms |
+| Cheese | 3.051 ms | 0.618 ms |
+| Birdcage | 3.183 ms | 0.751 ms |
+| Milk | 3.002 ms | 0.565 ms |
+
+A bookcase support miss that starts a vertical fall without drawing uses
+1.041 ms. These costs require an initially grounded, unattached cat above the
+floor. The player preserves the state-zero surface hit before a jump
+clears its support result, distinguishing ordinary furniture from cling surfaces.
+Floor movement, airborne bodies and initially attached states keep their other
+charges. Jump initiation changes motion state; displacement begins on later calls.
+
+Twenty-two cases pair FC/FD software IDs on the shared XT hardware, with one
+surface, position, difficulty, rightward speed and walking-image pair per room;
+support loss is sampled only in the bookcase. Forty-four measurements plus two
+controls match 52 selected fields, full video memory, the surface-hit flag and
+zero PIT-tone programs. Fitted totals are within 0.061 ms of the medians, compared
+with earlier undercharges of about 0.20–0.68 ms. These are bounded same-capture
+fits, excluding other table entries, geometry, animation phases, whole-room
+cadence and physical PCjr. Native movement, random consumption and deliberate
+waits remain unchanged; the legacy profile retains its earlier timing.
+
 Already-attached upper-support bodies have separate fits in the alley and
 bookcase room: 2.925 ms for the first fourteen-row cling pose, 0.115 ms while
 holding, 0.281 ms for jumping off and 0.266 ms for dropping off. The first pose

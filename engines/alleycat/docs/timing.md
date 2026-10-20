@@ -521,12 +521,31 @@ Drawing advances the same timeline as waits, rather than adding a second delay
 after them. A frame can nevertheless exceed its timer deadline; measured
 throughput alone does not establish whether that slowdown was intended.
 
-Score arithmetic uses the transition-bookkeeping allowance below. Enclosing
-approach/pair/reward bookkeeping, score text and wait-poll execution allowances
-remain provisional. Sound request timestamps within a drawing
-phase are not independently fitted by the muted graphics captures. Controlled
-helper/frame comparisons do not establish full original-loop timing or
-random-stream equivalence.
+Score arithmetic uses the transition-bookkeeping allowance below. Bounded Hearts
+state work has separate XT allowances, additional to polling and drawing:
+
+| Operation | Allowance |
+| --- | ---: |
+| Approach initialization | 0.0700 ms |
+| Approach movement and destination calculation, before drawing | 0.1163 ms |
+| Completed approach return, without drawing | 0.0381 ms |
+| Pairing group initialization | 0.5676 ms |
+| Life/difficulty reward and progression reset | 0.1062–0.1155 ms |
+| Celebration initialization / difficulty-gated skip | 0.1204 / 0.01095 ms |
+
+Reward work adds 0.0040 ms when a life increases and 0.0053 ms when difficulty
+increases. Each stage reports this work once; subsequent wait polls do not repeat
+it. Sprite-byte accounting is independent, and the older DOSBox profile has no
+additional Hearts bookkeeping charge. Both software display modes use the XT fit.
+
+These fits use relocated native instruction blocks with drawing and waits omitted.
+Pair initialization includes eight silent melody checks but excludes the outer
+group loop and its call dispatch. All 24 sampled cases fit within 0.005 ms of their
+calibration medians; relocation, prefetch and interrupts limit precision. Enclosing
+dispatch, score text and wait-poll execution allowances remain provisional.
+Sound-enabled execution and request timestamps within a drawing phase are not
+independently fitted by the muted captures. Controlled helper/frame comparisons
+do not establish full original-loop timing or random-stream equivalence.
 
 ### Initial splash
 

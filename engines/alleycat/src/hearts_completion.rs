@@ -19,6 +19,17 @@ pub(crate) struct PresentationWork {
     pub lower_clamps: u8,
     pub dance_frames: u8,
     pub dance_copies: u8,
+    pub bookkeeping: Option<Bookkeeping>,
+}
+
+/// Bounded state work, emitted once rather than on subsequent waiting polls.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Bookkeeping {
+    ApproachInit,
+    Approach { drawing: bool },
+    PairInit,
+    Reward { life: bool, difficulty: bool },
+    DanceInit { active: bool },
 }
 
 #[derive(Clone, Copy)]
@@ -221,6 +232,38 @@ fn score_frame(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, Strin
     Ok(384)
 }
 
+/// CS:5060..50a1, excluding drawing and the enclosing timing loop.
+fn initialize_approach(data: &mut [u8], x: u16) {
+    let x = x.min(278).saturating_sub(16) & 0xfff0;
+    set_word(data, 0x579, x);
+    data[0x57b] = 20;
+    let delta = x.wrapping_sub(128);
+    let distance = if x < 128 { !delta } else { delta };
+    set_word(data, 0x4d6a, (distance >> 3).min(13) + 2);
+    set_word(data, 0x4dd6, 10);
+}
+
+/// CS:50b3..50f6. None denotes the return before drawing another image.
+fn move_approach(data: &mut [u8]) -> Option<u16> {
+    let x = word(data, 0x579);
+    let aligned = x & 0xfff0;
+    let x = if aligned == 128 {
+        aligned
+    } else if aligned > 128 {
+        x.wrapping_sub(word(data, 0x4d6a))
+    } else {
+        x.wrapping_add(word(data, 0x4d6a))
+    };
+    set_word(data, 0x579, x);
+    if data[0x57b] >= 84 {
+        return None;
+    }
+    data[0x57b] = data[0x57b].wrapping_add(8);
+    let destination = pixel_offset(x.wrapping_add(4), data[0x57b]);
+    set_word(data, 0x4dd8, destination);
+    Some(destination)
+}
+
 fn initialize_pair(data: &mut [u8], group: u8) {
     let offset = usize::from(group) * 2;
     for (source, destination) in [
@@ -241,6 +284,35 @@ fn initialize_pair(data: &mut [u8], group: u8) {
         set_word(data, 0x4d5a + index * 2, word(data, 0x4dce));
     }
     data[0x4d91] = 1;
+}
+
+/// CS:52a5..52c9; the caller separately starts the black wipe.
+fn reward(data: &mut [u8], tick: u16) -> Bookkeeping {
+    let life = data[0x1f80] < 9;
+    let difficulty = word(data, 8) < 7;
+    if life {
+        data[0x1f80] += 1;
+    }
+    if difficulty {
+        set_word(data, 8, word(data, 8) + 1);
+    }
+    set_word(data, 0x414, 0);
+    set_word(data, 0x412, tick);
+    Bookkeeping::Reward { life, difficulty }
+}
+
+/// CS:5313..533c; drawing the first celebration frame is separate work.
+fn initialize_dance(data: &mut [u8], tick: u16) -> bool {
+    if word(data, 8) < 2 {
+        return false;
+    }
+    set_word(data, 0x5016, 0);
+    for field in [0x52c0, 0x52c2, 0x52c4] {
+        set_word(data, field, tick);
+    }
+    set_word(data, 0x52c6, 0);
+    set_word(data, 0x52c8, 0);
+    true
 }
 
 fn pair_frame(data: &mut [u8], screen: &mut Framebuffer, work: &mut Work) -> Result<(), String> {
@@ -400,35 +472,19 @@ impl HeartsCompletion {
                 if self.success {
                     start_melody(data, tick);
                     self.presentation_palette = true;
-                    let x = self.center.0.min(278).saturating_sub(16) & 0xfff0;
-                    set_word(data, 0x579, x);
-                    data[0x57b] = 20;
-                    let delta = x.wrapping_sub(128);
-                    let distance = if x < 128 { !delta } else { delta };
-                    set_word(data, 0x4d6a, (distance >> 3).min(13) + 2);
-                    set_word(data, 0x4dd6, 10);
+                    initialize_approach(data, self.center.0);
+                    work.hearts.bookkeeping = Some(Bookkeeping::ApproachInit);
                     self.phase = Phase::Approach;
                 } else {
                     self.phase = Phase::Black(Wipe::new(self.center.0, self.center.1, 0));
                 }
             }
             Phase::Approach => {
-                let x = word(data, 0x579);
-                let aligned = x & 0xfff0;
-                let x = if aligned == 128 {
-                    aligned
-                } else if aligned > 128 {
-                    x.wrapping_sub(word(data, 0x4d6a))
-                } else {
-                    x.wrapping_add(word(data, 0x4d6a))
-                };
-                set_word(data, 0x579, x);
-                if data[0x57b] >= 84 {
-                    self.phase = Phase::PairStart(0);
-                } else {
-                    data[0x57b] = data[0x57b].wrapping_add(8);
-                    let destination = pixel_offset(x.wrapping_add(4), data[0x57b]);
-                    set_word(data, 0x4dd8, destination);
+                let destination = move_approach(data);
+                work.hearts.bookkeeping = Some(Bookkeeping::Approach {
+                    drawing: destination.is_some(),
+                });
+                if let Some(destination) = destination {
                     work.bytes_drawn +=
                         transparent_sprite(data, screen, 0x4b8a, destination, Dimensions(0x2007))?;
                     work.hearts.sprite(PresentationSprite::ApproachCat);
@@ -442,6 +498,8 @@ impl HeartsCompletion {
                     }
                     set_word(data, 0x4a80, tick);
                     self.phase = Phase::ApproachWait { start: tick, first };
+                } else {
+                    self.phase = Phase::PairStart(0);
                 }
             }
             Phase::ApproachWait { start, first } => {
@@ -493,6 +551,7 @@ impl HeartsCompletion {
             }
             Phase::PairStart(group) => {
                 initialize_pair(data, group);
+                work.hearts.bookkeeping = Some(Bookkeeping::PairInit);
                 self.phase = Phase::PairFrame(group);
             }
             Phase::PairFrame(group) => {
@@ -522,14 +581,7 @@ impl HeartsCompletion {
                 }
             }
             Phase::Reward => {
-                if data[0x1f80] < 9 {
-                    data[0x1f80] += 1;
-                }
-                if word(data, 8) < 7 {
-                    set_word(data, 8, word(data, 8) + 1);
-                }
-                set_word(data, 0x414, 0);
-                set_word(data, 0x412, tick);
+                work.hearts.bookkeeping = Some(reward(data, tick));
                 set_word(data, 0x579, 152);
                 data[0x57b] = 95;
                 self.center = (152, 95);
@@ -551,15 +603,11 @@ impl HeartsCompletion {
                 work.complete = false;
             }
             Phase::DanceStart => {
-                if word(data, 8) < 2 {
+                let active = initialize_dance(data, tick);
+                work.hearts.bookkeeping = Some(Bookkeeping::DanceInit { active });
+                if !active {
                     self.phase = Phase::Fill(Wipe::new(self.center.0, self.center.1, 0xaa));
                 } else {
-                    set_word(data, 0x5016, 0);
-                    for field in [0x52c0, 0x52c2, 0x52c4] {
-                        set_word(data, field, tick);
-                    }
-                    set_word(data, 0x52c6, 0);
-                    set_word(data, 0x52c8, 0);
                     work.bytes_drawn = dance_frame(data, screen, tick, sound)?;
                     work.hearts.dance_frames = 1;
                     work.hearts.dance_copies = (work.bytes_drawn / 280) as u8;
@@ -682,6 +730,42 @@ mod tests {
     }
 
     #[test]
+    fn approach_and_pair_setup_report_work_only_in_the_executing_phase() {
+        let mut data = data();
+        let mut screen = Framebuffer::default();
+        let mut sound = crate::sound::Sound::default();
+        let mut c = HeartsCompletion::new(296, 100, true).unwrap();
+        let start = c
+            .advance(&mut data, &mut screen, 100, true, &mut sound)
+            .unwrap();
+        assert!(matches!(
+            start.hearts.bookkeeping,
+            Some(Bookkeeping::ApproachInit)
+        ));
+        let moved = c
+            .advance(&mut data, &mut screen, 100, true, &mut sound)
+            .unwrap();
+        assert!(matches!(
+            moved.hearts.bookkeeping,
+            Some(Bookkeeping::Approach { drawing: true })
+        ));
+        assert_eq!(moved.bytes_drawn, 552);
+        let waiting = c
+            .advance(&mut data, &mut screen, 100, true, &mut sound)
+            .unwrap();
+        assert!(waiting.hearts.bookkeeping.is_none());
+        c.phase = Phase::PairStart(0);
+        let pair = c
+            .advance(&mut data, &mut screen, 100, true, &mut sound)
+            .unwrap();
+        assert!(matches!(
+            pair.hearts.bookkeeping,
+            Some(Bookkeeping::PairInit)
+        ));
+        assert_eq!(pair.bytes_drawn, 0);
+    }
+
+    #[test]
     fn celebration_starts_on_the_completed_black_wipe_and_keeps_its_tick_wait() {
         let mut data = data();
         set_word(&mut data, 8, 2);
@@ -712,6 +796,10 @@ mod tests {
         assert_eq!(frame.hearts.bytes(), 280);
         assert_eq!(frame.hearts.dance_frames, 1);
         assert_eq!(frame.hearts.dance_copies, 1);
+        assert!(matches!(
+            frame.hearts.bookkeeping,
+            Some(Bookkeeping::DanceInit { active: true })
+        ));
         assert_eq!(word(&data, 0x5010), 0x6004);
         assert_eq!(data[0x2ae0], 4);
         let wait = presentation
@@ -719,6 +807,7 @@ mod tests {
             .unwrap();
         assert_eq!(wait.bytes_drawn, 0);
         assert_eq!(wait.hearts.dance_frames, 0);
+        assert!(wait.hearts.bookkeeping.is_none());
         assert!(matches!(
             presentation.phase,
             Phase::Dance { frame: 100, .. }
@@ -861,7 +950,7 @@ mod tests {
             let mut completion = HeartsCompletion::new(100, 20, true).unwrap();
             completion.phase = Phase::Reward;
             let mut screen = Framebuffer::default();
-            completion
+            let reward = completion
                 .advance(
                     &mut data,
                     &mut screen,
@@ -870,7 +959,12 @@ mod tests {
                     &mut crate::sound::Sound::default(),
                 )
                 .unwrap();
-            completion
+            assert!(matches!(
+                reward.hearts.bookkeeping,
+                Some(Bookkeeping::Reward { life, difficulty: increased })
+                    if life == (lives < 9) && increased == (difficulty < 7)
+            ));
+            let next = completion
                 .advance(
                     &mut data,
                     &mut screen,
@@ -879,6 +973,7 @@ mod tests {
                     &mut crate::sound::Sound::default(),
                 )
                 .unwrap();
+            assert!(next.hearts.bookkeeping.is_none());
             assert_eq!(
                 (data[0x1f80], word(&data, 8)),
                 (expected_lives, expected_difficulty)

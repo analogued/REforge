@@ -449,6 +449,15 @@ pub struct HeartsPresentationCosts {
     pub lower_clamp: u64,
     pub dance_frame: u64,
     pub dance_copy: u64,
+    pub approach_init: u64,
+    pub approach_drawing: u64,
+    pub approach_finished: u64,
+    pub pair_init: u64,
+    pub reward: u64,
+    pub reward_life: u64,
+    pub reward_difficulty: u64,
+    pub dance_init: u64,
+    pub dance_skipped: u64,
 }
 
 impl HeartsPresentationCosts {
@@ -464,6 +473,15 @@ impl HeartsPresentationCosts {
             lower_clamp: 5_400,
             dance_frame: 33_800,
             dance_copy: 2_579_850,
+            approach_init: 70_000,
+            approach_drawing: 116_300,
+            approach_finished: 38_100,
+            pair_init: 567_600,
+            reward: 106_200,
+            reward_life: 4_000,
+            reward_difficulty: 5_300,
+            dance_init: 120_400,
+            dance_skipped: 10_950,
         }
     }
 
@@ -480,6 +498,22 @@ impl HeartsPresentationCosts {
             + u64::from(work.lower_clamps) * self.lower_clamp
             + u64::from(work.dance_frames) * self.dance_frame
             + u64::from(work.dance_copies) * self.dance_copy
+            + work.bookkeeping.map_or(0, |stage| {
+                use crate::hearts_completion::Bookkeeping;
+                match stage {
+                    Bookkeeping::ApproachInit => self.approach_init,
+                    Bookkeeping::Approach { drawing: true } => self.approach_drawing,
+                    Bookkeeping::Approach { drawing: false } => self.approach_finished,
+                    Bookkeeping::PairInit => self.pair_init,
+                    Bookkeeping::Reward { life, difficulty } => {
+                        self.reward
+                            + u64::from(life) * self.reward_life
+                            + u64::from(difficulty) * self.reward_difficulty
+                    }
+                    Bookkeeping::DanceInit { active: true } => self.dance_init,
+                    Bookkeeping::DanceInit { active: false } => self.dance_skipped,
+                }
+            })
     }
 }
 
@@ -2705,6 +2739,33 @@ mod tests {
             runtime.clock.elapsed_nanos() - before,
             384 * u128::from(runtime.costs.completion_draw_byte)
         );
+    }
+
+    #[test]
+    fn hearts_bookkeeping_is_separate_from_polling_drawing_and_legacy_costs() {
+        let work = crate::completion::Work {
+            bytes_drawn: 384,
+            hearts: crate::hearts_completion::PresentationWork {
+                bookkeeping: Some(crate::hearts_completion::Bookkeeping::PairInit),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            for costs in [
+                ReferenceCosts::ibm_xt(machine),
+                ReferenceCosts::dosbox_x_240(machine),
+            ] {
+                let mut r = Runtime::with_costs(machine, costs);
+                r.clock.advance_nanos(costs.room_effect_poll);
+                r.charge_completion(work, costs.room_effect_poll);
+                let body = costs.hearts_presentation.map_or(0, |c| c.pair_init);
+                let expected = costs.room_effect_poll + body + 384 * costs.completion_draw_byte;
+                assert_eq!(r.clock.elapsed_nanos(), u128::from(expected));
+                r.charge_completion(Default::default(), 0);
+                assert_eq!(r.clock.elapsed_nanos(), u128::from(expected));
+            }
+        }
     }
 
     #[test]

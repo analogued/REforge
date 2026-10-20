@@ -348,6 +348,73 @@ mod tests {
     }
 
     #[test]
+    fn hearts_clipping_reports_restored_and_drawn_rows_on_actual_paths() {
+        let mut data = room_tables();
+        crate::assets::set_word(&mut data, 4, 7);
+        for (rows, coordinate, step, kind, before, after, exited) in [
+            (12, 236, 3, HeartsClipKind::Bottom, 12, 10, false),
+            (12, 239, 2, HeartsClipKind::Bottom, 10, 8, false),
+            (12, 247, 2, HeartsClipKind::Bottom, 2, 1, true),
+            (13, 246, 2, HeartsClipKind::Bottom, 4, 2, true),
+            (12, 47, 3, HeartsClipKind::Top, 9, 6, false),
+            (12, 41, 4, HeartsClipKind::Hidden, 3, 0, false),
+        ] {
+            let mut player = Player::at_alley_floor(125);
+            player.vertical_coordinate = coordinate;
+            player.y = coordinate.saturating_sub(50);
+            player.vertical_direction = if coordinate < 50 { 255 } else { 1 };
+            player.vertical_step = step;
+            player.phase_decrement = 0;
+            player.support_delay = 8;
+            player.airborne_sprite = Sprite {
+                source: 0x900,
+                dimensions: rows << 8 | 3,
+            };
+            player.previous_dimensions = u16::from(before) << 8 | 3;
+            let outcome = player.update(Controls::default(), &data).unwrap();
+            assert_eq!(
+                outcome.hearts_clipping,
+                Some(HeartsClippingWork {
+                    kind,
+                    restored_rows: before,
+                    drawn_rows: after,
+                })
+            );
+            assert_eq!(player.take_room_exit(), exited);
+            assert_eq!(outcome.draw == Draw::Erase, kind == HeartsClipKind::Hidden);
+        }
+    }
+
+    #[test]
+    fn hearts_clipping_excludes_invalid_hidden_alternate_and_other_scene_history() {
+        for (scene, previous, hidden, alternate) in [
+            (7, 0x0c03, false, 0), // Too tall for Y197: invalid old exit fixture.
+            (7, 0x0203, true, 0),
+            (7, 0x0203, false, 1),
+            (3, 0x0203, false, 0),
+        ] {
+            let mut data = room_tables();
+            crate::assets::set_word(&mut data, 4, scene);
+            let mut player = Player::at_alley_floor(125);
+            player.y = 197;
+            player.vertical_coordinate = 247;
+            player.vertical_direction = 1;
+            player.vertical_step = 2;
+            player.phase_decrement = 0;
+            player.support_delay = 8;
+            player.airborne_sprite = Sprite {
+                source: 0x900,
+                dimensions: 0x0c03,
+            };
+            player.previous_dimensions = previous;
+            player.image_hidden = hidden;
+            player.alternate_animation = alternate;
+            let outcome = player.update(Controls::default(), &data).unwrap();
+            assert_eq!(outcome.hearts_clipping, None);
+        }
+    }
+
+    #[test]
     fn retained_airborne_shape_requires_a_complete_visible_draw() {
         let data = room_tables();
         let mut player = Player::at_alley_floor(125);
@@ -1083,6 +1150,21 @@ pub enum Support {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HeartsClipKind {
+    Bottom,
+    Top,
+    Hidden,
+}
+
+/// Actual clipping work with a valid visible saved-image history in scene seven.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HeartsClippingWork {
+    pub kind: HeartsClipKind,
+    pub restored_rows: u8,
+    pub drawn_rows: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UpdateOutcome {
     pub draw: Draw,
     pub landed: bool,
@@ -1097,6 +1179,7 @@ pub struct UpdateOutcome {
     pub room_surface_hit: bool,
     /// Entries visited before a grounded state-zero room-table hit; zero otherwise.
     pub room_surface_entries: u8,
+    pub hearts_clipping: Option<HeartsClippingWork>,
     /// The original 070d edge initializer ran during this update.
     pub edge_reset: bool,
     /// The lower-support caller tested the bin cat on this update.
@@ -1171,6 +1254,20 @@ impl Player {
             && self.airborne_sprite.dimensions == 0x0c03
             && sprite.source == self.airborne_sprite.source
             && sprite.dimensions == 0x0a03
+    }
+
+    fn hearts_retained_clip_rows(&self) -> Option<u8> {
+        if self.image_hidden
+            || self.alternate_animation != 0
+            || !matches!(self.airborne_sprite.dimensions, 0x0c03 | 0x0d03)
+            || self.y != self.vertical_coordinate.saturating_sub(50)
+        {
+            return None;
+        }
+        let rows = (self.airborne_sprite.dimensions >> 8) as u8;
+        let hidden = 50u8.saturating_sub(self.vertical_coordinate) + self.y.saturating_sub(187);
+        let visible = rows.checked_sub(hidden).filter(|rows| *rows != 0)?;
+        (self.previous_dimensions == (u16::from(visible) << 8 | 3)).then_some(visible)
     }
 
     /// Whether drawing retains the complete transition image without actor animation.
@@ -1399,6 +1496,7 @@ impl Player {
             airborne_support_checked: false,
             room_surface_hit: false,
             room_surface_entries: 0,
+            hearts_clipping: None,
             edge_reset: false,
             bin_contact_checked: false,
             forced_controls: None,
@@ -1698,6 +1796,11 @@ impl Player {
         outcome: &mut UpdateOutcome,
         projectile_enabled: bool,
     ) -> Result<(), &'static str> {
+        let restored_rows = if word(data, 4) == 7 {
+            self.hearts_retained_clip_rows()
+        } else {
+            None
+        };
         if self.advance_x(data) {
             self.horizontal_direction = 0;
             self.vertical_step = 2;
@@ -1774,12 +1877,18 @@ impl Player {
                 dimensions: word(data, 0xfd2 + index),
             };
         }
+        let mut clipping = None;
         let hidden_rows = 50u8.saturating_sub(self.vertical_coordinate);
         if hidden_rows != 0 {
             let rows = (sprite.dimensions >> 8) as u8;
             if hidden_rows >= rows {
                 self.image_hidden = true;
                 outcome.draw = Draw::Erase;
+                outcome.hearts_clipping = restored_rows.map(|restored_rows| HeartsClippingWork {
+                    kind: HeartsClipKind::Hidden,
+                    restored_rows,
+                    drawn_rows: 0,
+                });
                 return Ok(());
             }
             sprite.source = if self.alternate_animation != 0 {
@@ -1789,6 +1898,7 @@ impl Player {
             }
             .wrapping_add(u16::from(hidden_rows) * (sprite.dimensions & 255) * 2);
             sprite.dimensions -= u16::from(hidden_rows) << 8;
+            clipping = Some(HeartsClipKind::Top);
         }
         // CS:0dde..0e1a clips below Y187 in scene seven, versus Y94 for
         // the alley's band-two fall. Only the latter resets to an alley edge.
@@ -1816,8 +1926,18 @@ impl Player {
             }
             sprite.dimensions -= u16::from(hidden_rows) << 8;
             self.vertical_step = 2;
+            if hidden_rows != 0 {
+                clipping = Some(HeartsClipKind::Bottom);
+            }
         }
         outcome.draw = self.draw_sprite(sprite);
+        if let (Some(kind), Some(restored_rows)) = (clipping, restored_rows) {
+            outcome.hearts_clipping = Some(HeartsClippingWork {
+                kind,
+                restored_rows,
+                drawn_rows: (sprite.dimensions >> 8) as u8,
+            });
+        }
         Ok(())
     }
 

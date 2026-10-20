@@ -867,7 +867,8 @@ These fits require no entry/death or attached state, with the corresponding
 visible, non-alternate saved walking/idle/transition shape. The descent and
 landing fits require the actual support-search flag. The lower-edge fit covers
 Y189 with the same original twelve-row source, ten drawn rows and no support
-search; other clipped histories and the final bottom exit retain their fallback.
+search. Further valid clipped histories use the row-based fits below; alternate
+images and hidden-image reappearance retain their fallback.
 Jump initiation, rising and losing support over a gap keep their existing costs,
 already within the 0.150 ms accepted-body bound on the selected cases.
 
@@ -882,6 +883,33 @@ acceptance gate, outer failure dispatch, whole-loop cadence and physical PCjr.
 Native motion, platform results, modulo-eight idle gating, redraw-only random
 consumption and deliberate waits are unchanged. Execution costs do not establish
 intended delays; the legacy profile keeps its previous timing.
+
+Further Hearts clipping separates setup, restoration and drawing. For a valid
+visible saved image from the native twelve- or thirteen-row transition shape,
+the XT profile charges 0.060 ms per restored row and 0.128 ms per drawn row.
+Setup is 0.650 ms for lower-edge clipping, 2.000 ms for partial top clipping and
+1.893 ms when the sprite becomes fully hidden at the top. The existing full
+12→10-row control keeps its 2.659 ms total. The larger top allowance includes
+the native 360-iteration loop; these are bounded aggregate fits, not instruction
+or per-row cycle counts. No additional wait or intermediate presentation is added.
+
+The player reports clipping kind and actual restored/drawn rows only when the
+previous visible dimensions agree with the current top/bottom geometry. Hidden,
+alternate, mismatched and other original sprite shapes are excluded. Metadata
+comes from the actual clipping branch, including zero drawn rows on the hidden
+return. The final bottom exit retains the native coordinate clamp and exit flag;
+its one- or two-row image is charged without running the outer failure sequence.
+
+Eighteen cases pair FC/FD software IDs on the shared XT: progressive lower
+clipping, one/two-row bottom exits, a thirteen-row fall shape, partial
+top clipping and a fully hidden return. Thirty-six repeated measurements plus
+two controls match 53 selected fields, complete backing/presented video memory,
+clipping metadata and zero PIT-tone programs. All totals are within 0.012 ms of
+the medians. Native random consumption remains zero and idle/motion/wait rules
+are unchanged. Coverage uses fixed positions, movement phases, support delay,
+difficulty and sources; other clipping rows, alternate images, hidden reappearance,
+actor collisions, whole-loop cadence and physical PCjr remain outside this
+same-capture calibration. The legacy profile retains its previous charges.
 
 Already-attached upper-support bodies have separate fits in the alley and
 bookcase room: 2.925 ms for the first fourteen-row cling pose, 0.115 ms while

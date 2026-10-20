@@ -1198,6 +1198,31 @@ pub struct HeartsPlayerCosts {
     pub landing: u64,
     /// Ten-row draw clipped from a retained twelve-row image at the lower edge.
     pub bottom_clip: u64,
+    pub clipping: HeartsClippingCosts,
+}
+
+/// Clipped drawing/restoration work, fitted to valid retained Hearts images.
+#[derive(Clone, Copy, Debug)]
+pub struct HeartsClippingCosts {
+    pub bottom: u64,
+    pub top: u64,
+    pub hidden: u64,
+    pub restore_row: u64,
+    pub draw_row: u64,
+}
+
+impl HeartsClippingCosts {
+    fn nanos(self, work: crate::player::HeartsClippingWork) -> u64 {
+        use crate::player::HeartsClipKind;
+        let setup = match work.kind {
+            HeartsClipKind::Bottom => self.bottom,
+            HeartsClipKind::Top => self.top,
+            HeartsClipKind::Hidden => self.hidden,
+        };
+        setup
+            + u64::from(work.restored_rows) * self.restore_row
+            + u64::from(work.drawn_rows) * self.draw_row
+    }
 }
 
 impl ReferenceCosts {
@@ -1298,6 +1323,13 @@ impl ReferenceCosts {
                 descent: 3_056_000,
                 landing: 3_047_000,
                 bottom_clip: 2_659_000,
+                clipping: HeartsClippingCosts {
+                    bottom: 650_000,
+                    top: 2_000_000,
+                    hidden: 1_893_000,
+                    restore_row: 60_000,
+                    draw_row: 128_000,
+                },
             }),
             // Valid saved-background frames, less the quiet grouped baseline.
             // Fixed sprite content makes these fitted row coefficients.
@@ -2771,7 +2803,9 @@ impl Runtime {
                     {
                         Some(costs.bottom_clip)
                     }
-                    _ => None,
+                    _ => outcome
+                        .hearts_clipping
+                        .map(|work| costs.clipping.nanos(work)),
                 }
             }) {
                 self.clock.advance_nanos(nanos);

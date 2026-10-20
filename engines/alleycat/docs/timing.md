@@ -749,6 +749,22 @@ airborne/supported movement, other sprite shapes and whole-loop cadence. Native
 mark counts, tile selection and pre-movement cell indexing remain unchanged;
 the legacy profile retains its previous timing charges.
 
+Idle updates in these five rooms retain the existing 2.480 ms redraw and
+0.360 ms skipped-draw allowances. Captured walk-to-idle bodies take about
+2.515–2.525 ms; settled skipped updates take 0.384–0.390 ms. A periodic settled
+redraw in the bookcase takes about 2.502–2.506 ms. The largest difference from
+the existing charges is 0.045 ms, within the 0.150 ms accepted-body bound, so
+these measurements require no timing adjustment.
+
+Twenty-two cases pair FC/FD software IDs on the shared XT hardware. Forty-four
+measurements plus two controls match 50 selected state/drawing fields, complete
+video memory and zero PIT-tone programs. Real idle redraws consume two shared
+random successors; skipped redraws consume none, preserving the native
+modulo-eight animation gate. Coverage uses one position and difficulty, one
+previous walking shape and two fixed idle seeds, with periodic redraw sampled
+only in the bookcase. Other image combinations, whole-room cadence and physical
+PCjr remain outside these checks.
+
 Already-attached upper-support bodies have separate fits in the alley and
 bookcase room: 2.925 ms for the first fourteen-row cling pose, 0.115 ms while
 holding, 0.281 ms for jumping off and 0.266 ms for dropping off. The first pose

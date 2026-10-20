@@ -713,6 +713,9 @@ pub struct BlockingCosts {
     pub spider_entry: u64,
     pub spider_exit: u64,
     pub eel_entry: u64,
+    pub eel_scan_start: u64,
+    pub eel_scan_slot: u64,
+    pub eel_scan_miss: u64,
     pub eel_lethal_test: u64,
     pub eel_failure_draw: u64,
     pub effect_stop: u64,
@@ -735,6 +738,10 @@ impl BlockingCosts {
             spider_entry: 106_200,
             spider_exit: 5_550,
             eel_entry: 121_940,
+            // Full native prefixes to the first harmful eel, before its image.
+            eel_scan_start: 127_000,
+            eel_scan_slot: 37_500,
+            eel_scan_miss: 88_100,
             // Lethal decision work above an active miss, then CS:3506..3538.
             eel_lethal_test: 38_600,
             eel_failure_draw: 1_525_600,
@@ -753,6 +760,16 @@ impl BlockingCosts {
             cage_release: 3_893_270,
             cage_tone: 26_400,
         }
+    }
+
+    fn lethal_scan(self, contact: crate::fishbowl::ContactStep) -> Option<u64> {
+        // Captures cover inactive slots and active misses before one lethal
+        // contact. Earlier collections or protected hits retain the fallback.
+        (contact.failure && contact.contacts == 0 && contact.hazard_contacts == 1).then(|| {
+            self.eel_scan_start
+                + u64::from(contact.visited) * self.eel_scan_slot
+                + u64::from(contact.tested.saturating_sub(1)) * self.eel_scan_miss
+        })
     }
 
     fn cage_work(self, fall: crate::birdcage::FallStep, sound: bool) -> u64 {
@@ -1764,9 +1781,15 @@ impl Runtime {
     }
 
     fn swimming_contact_cost(&self, contact: crate::fishbowl::ContactStep, dimensions: u16) -> u64 {
-        // A lethal scan stops at its first harmful eel. Prorating the quiet
-        // full-scan allowance is provisional until its enclosing prefix is
-        // measured; the decision and failure-image increments are separate.
+        if let Some((cost, scan)) = self
+            .costs
+            .blocking
+            .and_then(|cost| cost.lethal_scan(contact).map(|scan| (cost, scan)))
+        {
+            return scan + cost.eel_failure_draw;
+        }
+        // Prefixes with earlier harmless contacts remain provisional. They
+        // stop at the lethal slot rather than paying for a full quiet scan.
         let gate = if contact.failure && self.costs.blocking.is_some() {
             self.costs.underwater_contact_gate * u64::from(contact.visited) / 24
         } else {
@@ -2692,6 +2715,44 @@ impl Runtime {
 mod tests {
     use super::*;
     use crate::timing::BIOS_TICK_PIT_CLOCKS;
+
+    #[test]
+    fn measured_lethal_prefix_replaces_generic_scan_costs_only_for_covered_work() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut costs = ReferenceCosts::ibm_xt(machine);
+            costs.underwater_contact_gate = 900_000;
+            costs.underwater_contact_test = 800_000;
+            let blocking = costs.blocking.as_mut().unwrap();
+            blocking.eel_scan_start = 30;
+            blocking.eel_scan_slot = 10;
+            blocking.eel_scan_miss = 5;
+            blocking.eel_failure_draw = 100;
+            let run = Runtime::with_costs(machine, costs);
+            let mut work = crate::fishbowl::ContactStep {
+                visited: 13,
+                tested: 1,
+                hazard_contacts: 1,
+                failure: true,
+                ..Default::default()
+            };
+            assert_eq!(run.swimming_contact_cost(work, 0x0c03), 260);
+            work.tested = 3;
+            assert_eq!(run.swimming_contact_cost(work, 0x0c03), 270);
+            work.visited = 24;
+            assert_eq!(run.swimming_contact_cost(work, 0x0c03), 380);
+            work.contacts = 1;
+            assert!(costs.blocking.unwrap().lethal_scan(work).is_none());
+            work.failure = false;
+            assert!(costs.blocking.unwrap().lethal_scan(work).is_none());
+            let legacy = Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
+            work.contacts = 0;
+            work.failure = true;
+            assert_eq!(
+                legacy.swimming_contact_cost(work, 0x0c03),
+                legacy.costs.underwater_contact_gate + 3 * legacy.costs.underwater_contact_test
+            );
+        }
+    }
 
     #[test]
     fn lethal_swimming_stops_scan_pricing_and_omits_the_post_return_redraw() {

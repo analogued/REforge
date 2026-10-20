@@ -912,20 +912,36 @@ first player restoration and actual fish/eel restorations. An accepted swimming
 body also redraws the player after contacts, as the native caller does. Final-fish
 success and immune/sinking eel contacts retain native ordering and reactivation.
 Lethal eel-contact work has separate bounded measurements. A single-slot active
-miss costs about 0.107 ms, versus 0.145–0.146 ms for a lethal decision; the XT fit
-adds 0.0386 ms above its existing active-test allowance. The opaque failure-image
+miss costs about 0.107 ms, versus 0.145–0.146 ms for a lethal decision. Its
+0.0386 ms increment remains in the mixed-contact fallback below. The opaque failure-image
 copy (`3506..3538`) costs about 1.526 ms across eight sampled positions, including
 its coordinate clamps. Movement, player drawing, the scanned contacts and this
 image are charged before sampling the thirteen-tick effect's baseline. The
 post-contact player redraw is not charged before a lethal wait.
 
-A lethal scan records how many slots it actually visited. Its quiet-loop price
-currently prorates the measured complete-scan allowance by that count; this is
-provisional, since single-slot captures exclude scan initialization/continuation.
-They do not establish the complete lethal caller's duration. Three controlled
-lethal scans match composed native decision/image outcomes and retain the active
-eel and lives; the effect-loop polling costs remain separate. Sound requests
-were native-muted. The older DOSBox profile retains its prior lethal-entry timing.
+A lethal scan records how many slots it visited and actively tested. Complete
+prefix captures (`34a0` to `3506`) cover lethal slots 12, 16 and 23 with varying
+numbers of earlier active misses. They replace the prorated quiet-scan estimate
+with a fitted 0.127 ms fixed allowance, 0.0375 ms per visited slot and 0.0881 ms
+per earlier active miss. This total already includes the final lethal decision;
+the generic scan and single-slot decision costs are not added again. The
+failure-image copy retains its separate allowance.
+
+Nine no-image totals, about 0.615–3.052 ms, fit within 0.005 ms of their sampled
+medians. Nine paired image-inclusive prefixes (`34a0` to `3538`) measure about
+2.161–4.697 ms and fit within 0.150 ms, with a largest difference of about
+0.118 ms. The longest image-inclusive case has about 0.124 ms of repeat spread;
+two samples do not identify its cause or justify another fixed cost. Eighteen
+scoped state/full-VRAM comparisons preserve actor flags, lives and native image
+output. These are same-capture fits, not independent timing validation.
+
+The formula applies to inactive slots and active misses before the first lethal
+contact. Earlier harmless collections or protected eel contacts retain a
+provisional prorated fallback and their separate restoration costs. The captures
+exclude subsequent sound initialization, effect-loop polling and the surrounding
+accepted swimming caller. Native waits remain separate. Sound requests were
+muted, and both software modes share the XT fit; physical PCjr timing is not
+established. The older DOSBox profile retains its prior lethal-entry timing.
 
 The native FD near-surface branch (`0b72`) waits for retrace clear then set before
 a counted delay. Its variable full-body duration is not a fixed CPU surcharge.

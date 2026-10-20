@@ -698,9 +698,24 @@ are 3.178–3.228 ms, and muted takeoff 0.641–0.690 ms. Audible totals reach
 complete video memory and PIT-program counts match; the fitted totals are within
 0.150 ms, with repeat spreads up to 0.131 ms. These are bounded same-capture
 fits, excluding other geometry, upper supports, the acceptance gate, whole-loop
-cadence and physical PCjr hardware. Other landing/release paths retain their
-earlier approximate allowances. The legacy profile retains its coefficients and
-charging rules, with the same corrected attachment/release sound ordering.
+cadence and physical PCjr hardware. Upper-support and other unmeasured paths
+retain earlier approximate allowances. The legacy profile retains its
+coefficients and charging rules, with the same corrected attachment/release
+sound ordering.
+
+Ordinary alley-floor landings produce no support beep. Complete accepted-body
+medians are about 2.85 ms with the ten-row side-fall sprite, 3.23 ms with the
+twelve-row jump sprite and 3.40 ms with the thirteen-row vertical-fall sprite.
+Their fitted cost is 0.950 ms plus 0.190 ms per row, restricted to six-byte-wide
+sprites of ten through thirteen rows; other shapes retain their fallback.
+Jumping from the floor keeps the current image and takes about 0.300 ms.
+Sixteen cases cover these paths with native sound off/on and FC/FD software
+branches on the shared XT hardware. State, full video memory and zero PIT-tone
+programs match; fitted totals are within 0.027 ms of the captured medians.
+These bounded same-capture fits replace only the selected accepted-body cost.
+They introduce no tone, drawing presentation or fixed BIOS wait. Other scene
+floors, upper supports, arbitrary shapes and whole-loop cadence remain outside
+this calibration; the legacy profile keeps its previous charging.
 
 Bin-forced downward transitions instead separate bookkeeping from committed
 sound. Their baseline is about 0.687 ms, plus 0.050 ms for an initially clear

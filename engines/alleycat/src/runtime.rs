@@ -1103,6 +1103,7 @@ pub struct ReferenceCosts {
     pub bin_push_sound: u64,
     pub forced_release: Option<ForcedReleaseCosts>,
     pub lower_support: Option<LowerSupportCosts>,
+    pub floor: Option<FloorCosts>,
     pub bin_frame: u64,
     pub bin_restore_row: u64,
     pub bin_draw_row: u64,
@@ -1139,6 +1140,14 @@ pub struct LowerSupportCosts {
     pub takeoff: u64,
     pub attach: u64,
     pub beep_overhead: u64,
+}
+
+/// Bounded alley-floor bodies for ordinary six-byte-wide player sprites.
+#[derive(Clone, Copy, Debug)]
+pub struct FloorCosts {
+    pub landing: u64,
+    pub draw_row: u64,
+    pub takeoff: u64,
 }
 
 impl ReferenceCosts {
@@ -1199,6 +1208,11 @@ impl ReferenceCosts {
                 takeoff: 641_000,
                 attach: 50_000,
                 beep_overhead: 55_000,
+            }),
+            floor: Some(FloorCosts {
+                landing: 950_000,
+                draw_row: 190_000,
+                takeoff: 300_000,
             }),
             // Valid saved-background frames, less the quiet grouped baseline.
             // Fixed sprite content makes these fitted row coefficients.
@@ -1344,6 +1358,7 @@ impl ReferenceCosts {
             player_support_release: 27_937_500,
             forced_release: None,
             lower_support: None,
+            floor: None,
             // Legacy clipped-entry allowance, also the XT fallback for
             // unsampled drawing shapes. Selected XT bodies use EntryCosts.
             player_entry: 2_875_000,
@@ -2415,6 +2430,12 @@ impl Runtime {
             let airborne = alley.player.vertical_direction != 0;
             let descending = alley.player.vertical_direction == 1;
             let entering = alley.player.entry_state != 0;
+            let jumping_from_floor = alley.scene() == 0
+                && !airborne
+                && !entering
+                && alley.player.y == 180
+                && alley.player.support_state == 0
+                && self.controls.y == -1;
             let entry_waiting = alley.player.entry_delay != 0;
             let releasing = alley.player.support_state != 0 && self.controls.y != 0;
             let bin_sound_ready = alley.bin_contact_sound_ready();
@@ -2524,6 +2545,29 @@ impl Runtime {
                     body + u64::from(lower_attach) * costs.attach
                         + beep_count * costs.beep_overhead,
                 );
+                self.clock.advance_pit_ticks(support_ticks);
+            } else if let Some(nanos) =
+                self.costs
+                    .floor
+                    .filter(|_| alley.scene() == 0)
+                    .and_then(|costs| match outcome.draw {
+                        Draw::Sprite(sprite)
+                            if outcome.landed
+                                && outcome.support == crate::player::Support::Floor
+                                && sprite.dimensions & 255 == 3
+                                && (10..=13).contains(&(sprite.dimensions >> 8)) =>
+                        {
+                            Some(costs.landing + u64::from(sprite.dimensions >> 8) * costs.draw_row)
+                        }
+                        Draw::Keep
+                            if jumping_from_floor && alley.player.vertical_direction == 255 =>
+                        {
+                            Some(costs.takeoff)
+                        }
+                        _ => None,
+                    })
+            {
+                self.clock.advance_nanos(nanos);
                 self.clock.advance_pit_ticks(support_ticks);
             } else if let Some(work) = swimming {
                 self.charge_swimming(work, support_ticks);

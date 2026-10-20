@@ -1142,12 +1142,14 @@ pub struct LowerSupportCosts {
     pub beep_overhead: u64,
 }
 
-/// Bounded alley-floor bodies for ordinary six-byte-wide player sprites.
+/// Bounded floor bodies; room landing totals cover the twelve-row jump sprite.
 #[derive(Clone, Copy, Debug)]
 pub struct FloorCosts {
     pub landing: u64,
     pub draw_row: u64,
     pub takeoff: u64,
+    /// Complete room landing bodies indexed by native scene; only 1,3..=6 are used.
+    pub room_landing: [u64; 8],
 }
 
 impl ReferenceCosts {
@@ -1213,6 +1215,9 @@ impl ReferenceCosts {
                 landing: 950_000,
                 draw_row: 190_000,
                 takeoff: 300_000,
+                room_landing: [
+                    0, 3_750_000, 0, 3_781_000, 4_582_000, 3_890_000, 3_851_000, 0,
+                ],
             }),
             // Valid saved-background frames, less the quiet grouped baseline.
             // Fixed sprite content makes these fitted row coefficients.
@@ -2430,7 +2435,7 @@ impl Runtime {
             let airborne = alley.player.vertical_direction != 0;
             let descending = alley.player.vertical_direction == 1;
             let entering = alley.player.entry_state != 0;
-            let jumping_from_floor = alley.scene() == 0
+            let jumping_from_floor = matches!(alley.scene(), 0 | 1 | 3..=6)
                 && !airborne
                 && !entering
                 && alley.player.y == 180
@@ -2549,9 +2554,8 @@ impl Runtime {
             } else if let Some(nanos) =
                 self.costs
                     .floor
-                    .filter(|_| alley.scene() == 0)
-                    .and_then(|costs| match outcome.draw {
-                        Draw::Sprite(sprite)
+                    .and_then(|costs| match (alley.scene(), outcome.draw) {
+                        (0, Draw::Sprite(sprite))
                             if outcome.landed
                                 && outcome.support == crate::player::Support::Floor
                                 && sprite.dimensions & 255 == 3
@@ -2559,7 +2563,14 @@ impl Runtime {
                         {
                             Some(costs.landing + u64::from(sprite.dimensions >> 8) * costs.draw_row)
                         }
-                        Draw::Keep
+                        (scene @ (1 | 3..=6), Draw::Sprite(sprite))
+                            if outcome.landed
+                                && outcome.support == crate::player::Support::Floor
+                                && sprite.dimensions == 0x0c03 =>
+                        {
+                            Some(costs.room_landing[usize::from(scene)])
+                        }
+                        (_, Draw::Keep)
                             if jumping_from_floor && alley.player.vertical_direction == 255 =>
                         {
                             Some(costs.takeoff)

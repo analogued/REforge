@@ -713,9 +713,25 @@ Sixteen cases cover these paths with native sound off/on and FC/FD software
 branches on the shared XT hardware. State, full video memory and zero PIT-tone
 programs match; fitted totals are within 0.027 ms of the captured medians.
 These bounded same-capture fits replace only the selected accepted-body cost.
-They introduce no tone, drawing presentation or fixed BIOS wait. Other scene
-floors, upper supports, arbitrary shapes and whole-loop cadence remain outside
-this calibration; the legacy profile keeps its previous charging.
+They introduce no tone, drawing presentation or fixed BIOS wait.
+
+In the fishbowl, bookcase, cheese, birdcage and milk rooms, the twelve-row jump
+sprite's complete floor landing body takes about 3.750, 3.781, 4.582, 3.890 and
+3.851 ms respectively. These totals include the native scene-specific support
+search; they replace the earlier audible-support fallback only for this shape
+landing on the floor. They do not normalize different room support rules.
+An upward takeoff from Y180 that retains its image uses the same 0.300 ms fit
+as the alley. Swimming and Hearts use separate movement rules and are excluded.
+
+Twenty room cases pair landing/takeoff and FC/FD software IDs on the same XT
+hardware. Forty repeated samples plus two controls match 48 selected fields,
+full video memory and zero PIT-tone programs. Fitted totals are within 0.031 ms
+of the medians; repeat spread reaches 0.121 ms in one birdcage case. These are
+bounded same-capture fits at one position and difficulty, with no floor-track
+request, furniture contact, drinking or hole transfer. Other room landing
+shapes, upper supports and whole-loop cadence remain outside this calibration;
+the legacy profile keeps its previous charging. Physical PCjr is not measured
+by selecting the FD software branch on XT hardware.
 
 Bin-forced downward transitions instead separate bookkeeping from committed
 sound. Their baseline is about 0.687 ms, plus 0.050 ms for an initially clear

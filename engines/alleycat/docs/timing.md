@@ -1016,7 +1016,7 @@ These costs replace only the selected accepted-body allowance, not the player
 gate or a fixed entrance-duration wait. Left/right and sampled animation-wrap
 paths share the fits; other actor contacts remain outside this calibration.
 The native edge initializer measures about 1.050 ms but is not charged again
-separately from its still-provisional callers.
+separately from an enclosing caller allowance.
 
 On the last entrance step, logical X moves inward before controls are processed.
 An idle redraw retains the previous image offset, while walking calculates a
@@ -1576,11 +1576,18 @@ the caller's shared speaker stop. Eel initialization and its BIOS baseline
 effect baselines are sampled after these setup allowances. Exit work is charged
 only when the effect finishes, separately from its final polling allowance.
 
-The enclosing fence player-reset allowance remains approximate. The native
-reset (`070d`) measures about 1.053 ms including background saving, versus
-0.235–0.238 ms for its bookkeeping without that save. These totals are not added
-to the existing player-body cost: that would risk charging overlapping work.
-They do not introduce an extra presentation or deliberate wait. Other
+Complete descending fence falls with a retained twelve-row image use a shared
+2.4 ms player/reset body allowance for both return sides. It replaces the
+generic airborne body. Eight complete accepted-body cases pair left/right,
+native sound on/off and FC/FD software IDs on the same XT. First/final speaker
+writes isolate about 2.393–2.407 ms of surrounding work from the phase-dependent
+effect; setup/return overlap at these port boundaries remains approximate.
+The existing effect entry, polling and final-stop allowances remain separate,
+preserving the two-/seven-tick gates and shared random consumption. The native
+reset (`070d`) alone measures about 1.053 ms including background saving, versus
+0.235–0.238 ms without that save; neither is added again to the complete body.
+Other image histories retain their previous allowance. These costs introduce no
+intermediate presentation or extra deliberate wait. Other
 unmeasured caller work likewise remains approximate. Both
 software modes share these XT fits; the FD branch is not a physical PCjr
 measurement. Other

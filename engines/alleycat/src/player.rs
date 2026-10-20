@@ -348,6 +348,34 @@ mod tests {
     }
 
     #[test]
+    fn fence_fall_fit_requires_a_complete_retained_twelve_row_image() {
+        let mut player = Player::at_alley_floor(64);
+        player.band_state = 2;
+        player.airborne_sprite = Sprite {
+            source: 0x900,
+            dimensions: 0x0c03,
+        };
+        for (dimensions, hidden, alternate, band, expected) in [
+            (0x0c03, false, 0, 2, true),
+            (0x0b03, false, 0, 2, false),
+            (0x0c03, true, 0, 2, false),
+            (0x0c03, false, 1, 2, false),
+            (0x0c03, false, 0, 0, false),
+        ] {
+            player.previous_dimensions = dimensions;
+            player.image_hidden = hidden;
+            player.alternate_animation = alternate;
+            player.band_state = band;
+            assert_eq!(player.has_retained_fence_fall_image(), expected);
+        }
+        player.band_state = 2;
+        player.previous_dimensions = 0x0d03;
+        player.airborne_sprite.dimensions = 0x0d03;
+        assert!(player.has_retained_airborne_image());
+        assert!(!player.has_retained_fence_fall_image());
+    }
+
+    #[test]
     fn hearts_bottom_clip_keeps_source_and_changes_saved_image_shape() {
         let mut data = room_tables();
         crate::assets::set_word(&mut data, 4, 7);
@@ -1273,6 +1301,13 @@ impl Player {
         !self.image_hidden
             && self.alternate_animation == 0
             && self.previous_dimensions == self.airborne_sprite.dimensions
+    }
+
+    /// Complete twelve-row image covered by the fence-fall caller timing fit.
+    pub(crate) fn has_retained_fence_fall_image(&self) -> bool {
+        self.band_state == 2
+            && self.previous_dimensions == 0x0c03
+            && self.has_retained_airborne_image()
     }
 
     /// Saved walking/idle shapes covered by ordinary supported-idle fits.

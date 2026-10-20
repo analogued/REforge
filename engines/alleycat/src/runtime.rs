@@ -1116,6 +1116,8 @@ pub struct ReferenceCosts {
     pub bin_draw_row: u64,
     pub bin_start: u64,
     pub loop_return: u64,
+    /// Complete retained-image fence fall/reset body, outside the fence effect.
+    pub fence_player: Option<u64>,
     pub fence_setup: u64,
     pub fence_bios: u64,
     pub fence_initial_wait: u64,
@@ -1435,6 +1437,9 @@ impl ReferenceCosts {
             fence_initial_wait: 0,
             fence_countdown: 0,
             fence_random: 79_620,
+            // Complete twelve-row fence falls, both return sides. Port anchors
+            // leave a small setup/return overlap within this rounded body fit.
+            fence_player: Some(2_400_000),
             // CS:59cb..59df and the final shared stop call, respectively.
             // Player reset/background work remains in its enclosing allowance.
             fence_setup: 92_710,
@@ -1610,6 +1615,7 @@ impl ReferenceCosts {
             bin_start: 120_000,
             // The observed post-player allowance includes loop return work.
             loop_return: 0,
+            fence_player: None,
             fence_setup: 29_167,
             fence_bios: 33_333,
             fence_initial_wait: 16_667,
@@ -2578,6 +2584,15 @@ impl Runtime {
             let descending = alley.player.vertical_direction == 1;
             let entering = alley.player.entry_state != 0;
             let retained_airborne_image = alley.player.has_retained_airborne_image();
+            let fence_player_cost = self.costs.fence_player.filter(|_| {
+                alley.scene() == 0
+                    && descending
+                    && !entering
+                    && alley.player.support_state == 0
+                    && matches!(alley.player.horizontal_direction, 1 | 255)
+                    && alley.player.has_retained_fence_fall_image()
+                    && !alley.dying()
+            });
             let retained_idle_image = alley.player.has_retained_idle_image();
             let retained_walking_image = alley.player.has_retained_walking_image();
             let hearts_player_costs = self.costs.hearts_player.filter(|_| {
@@ -2749,7 +2764,12 @@ impl Runtime {
             } else {
                 self.player_draw_cost(outcome.draw, entering, entry_waiting, airborne, descending)
             };
-            if let Some((costs, extra_rows)) = upper_landing_costs {
+            if let Some(nanos) = fence_player_cost.filter(|_| outcome.edge_reset) {
+                // Replaces the generic body; 070d's reset/background save is
+                // included. The deliberate fence effect starts separately below.
+                self.clock.advance_nanos(nanos);
+                self.clock.advance_pit_ticks(support_ticks);
+            } else if let Some((costs, extra_rows)) = upper_landing_costs {
                 self.clock
                     .advance_nanos(costs.after + u64::from(extra_rows) * costs.extra_row);
                 self.clock.advance_pit_ticks(support_ticks);

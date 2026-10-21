@@ -48,6 +48,9 @@ fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     (game == "mach-3").then_some(DIGITIZED_SAMPLES).into_iter()
 }
 pub fn section_index(key: &str) -> usize {
+    if key == DIGITIZED_SAMPLES {
+        return 2;
+    }
     SECTION_KEYS
         .iter()
         .position(|keys| keys.contains(&key))
@@ -500,6 +503,16 @@ impl Draft {
             &mut self.global
         };
         patch.retain(|key, _| !SECTION_KEYS[page].contains(&key.as_str()));
+        if game && page == 2 {
+            patch.remove(DIGITIZED_SAMPLES);
+        }
+    }
+    /// Native game options can share a menu page without acquiring global keys.
+    pub fn has_game_overrides(&self, page: usize) -> bool {
+        SECTION_KEYS[page]
+            .iter()
+            .any(|key| self.game.contains_key(*key))
+            || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
         if !game && key == DIGITIZED_SAMPLES {
@@ -867,9 +880,12 @@ digitized_samples = false
         assert!(cat.effective(&cat.saved).mach3.digitized_samples);
         assert!(!cat.saved.game.contains_key(DIGITIZED_SAMPLES));
         let mut draft = mach.saved.clone();
+        assert!(!draft.has_game_overrides(2));
         draft.edit(false, DIGITIZED_SAMPLES, "false".into());
         assert!(draft.global.is_empty());
         draft.edit(true, DIGITIZED_SAMPLES, "false".into());
+        assert!(draft.has_game_overrides(2));
+        assert_eq!(section_index(DIGITIZED_SAMPLES), 2);
         draft.edit(false, "sound_enabled", "false".into());
         assert!(!mach.effective(&draft).mach3.digitized_samples);
         assert!(!mach.effective(&draft).audio.enabled);
@@ -877,18 +893,36 @@ digitized_samples = false
         let loaded = session(path.clone(), "mach-3");
         assert!(!loaded.effective(&loaded.saved).mach3.digitized_samples);
         assert!(!loaded.saved.game_values().audio.enabled);
-        // Resetting shared audio must not silently re-enable native samples.
+        // Global resets leave the native override intact; resetting this game's
+        // Audio section returns it to its built-in On value in the draft.
         let mut draft = loaded.saved.clone();
-        draft.reset_section(true, 2);
+        draft.reset_section(true, 1);
         draft.reset_section(false, 2);
         assert!(!draft.game_values().mach3.digitized_samples);
         assert!(draft.game_values().audio.enabled);
+        assert!(draft.has_game_overrides(2));
         let doc = read(&path).unwrap();
         assert_eq!(
             doc["games"]["mach-3"]["gameplay"][DIGITIZED_SAMPLES].as_bool(),
             Some(false)
         );
         assert!(doc["games"]["mach-3"].get("audio").is_none());
+        draft.reset_section(true, 2);
+        assert!(draft.game_values().mach3.digitized_samples);
+        assert!(!draft.has_game_overrides(2));
+        // Cancel leaves the saved Off value intact. Apply removes only the
+        // game override, without creating a global digitized-samples setting.
+        assert!(
+            !session(path.clone(), "mach-3")
+                .saved
+                .game_values()
+                .mach3
+                .digitized_samples
+        );
+        mach.commit(draft).unwrap();
+        let reset = session(path.clone(), "mach-3");
+        assert!(reset.saved.game_values().mach3.digitized_samples);
+        assert!(!reset.saved.has_game_overrides(2));
     }
 
     #[test]
@@ -915,7 +949,11 @@ digitized_samples = false
         draft.edit(true, DIGITIZED_SAMPLES, "false".into());
         mach.commit(draft).unwrap();
         let mut draft = mach.saved.clone();
-        draft.edit(true, DIGITIZED_SAMPLES, "true".into());
+        draft.reset_section(true, 2);
+        assert!(
+            !mach.effective(&draft).mach3.digitized_samples,
+            "S overrides this run even after resetting the saved preference"
+        );
         mach.commit(draft).unwrap();
         assert!(
             !read(&path).unwrap()["games"]["mach-3"]["gameplay"]

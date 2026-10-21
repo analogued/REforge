@@ -90,7 +90,7 @@ pub(super) fn draw(
                             .checkbox(
                                 &mut inherit,
                                 if menu.page == 2 && menu.mach3_options {
-                                    "Use global defaults for shared audio settings"
+                                    "Use defaults for this section"
                                 } else {
                                     "Use global defaults for this section"
                                 },
@@ -334,6 +334,7 @@ pub(super) fn draw(
                         && !cli.contains_key(DIGITIZED_SAMPLES)
                     {
                         draft.edit(true, DIGITIZED_SAMPLES, value.get(DIGITIZED_SAMPLES));
+                        menu.game_touched[menu.page] = true;
                     }
                     let keys = SECTION_KEYS[menu.page];
                     for &key in keys {
@@ -351,6 +352,8 @@ pub(super) fn draw(
                 if ui
                     .button(if menu.scope == 0 {
                         "Reset section"
+                    } else if menu.page == 2 && menu.mach3_options {
+                        "Restore defaults"
                     } else {
                         "Restore global defaults"
                     })
@@ -377,9 +380,7 @@ pub(super) fn draw(
                     let baseline = draft.global_values();
                     draft.game.retain(|key, v| {
                         let page = section_index(key);
-                        key == DIGITIZED_SAMPLES
-                            || !menu.game_touched[page]
-                            || *v != baseline.get(key)
+                        !menu.game_touched[page] || *v != baseline.get(key)
                     });
                     menu.pending = Some(draft.clone());
                 }
@@ -571,14 +572,14 @@ fn audio_controls(
     devices: &[String],
     renderers: &[SoundRenderer],
     categories: &[SoundCategory],
-    shared_editable: bool,
+    section_editable: bool,
     mach3_options: bool,
 ) {
     let available = !renderers.is_empty();
     if !available {
         ui.weak("Audio playback is unavailable in this run. Shared defaults can still be saved.");
     }
-    let shared_enabled = shared_editable && (scope == 0 || available);
+    let shared_enabled = section_editable && (scope == 0 || available);
     ui.add_enabled_ui(shared_enabled, |ui| {
         row(
             ui,
@@ -691,34 +692,36 @@ fn audio_controls(
             );
         }
     });
-    // This native option has no global inheritance and changes guest execution.
-    // Keep it usable even when shared audio inherits defaults or host output is muted.
+    // The native option shares Audio's override/reset control, but its default
+    // is built in rather than inherited from a global digitized-samples value.
     if scope == 1 && mach3_options {
-        row(
-            ui,
-            "Digitized samples",
-            DIGITIZED_SAMPLES,
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            cli,
-            |ui| {
-                egui::ComboBox::from_id_salt(DIGITIZED_SAMPLES)
-                    .width(220.0)
-                    .selected_text(if value.mach3.digitized_samples {
-                        "On"
-                    } else {
-                        "Off"
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut value.mach3.digitized_samples, true, "On");
-                        ui.selectable_value(&mut value.mach3.digitized_samples, false, "Off");
-                    })
-                    .response
-                    .on_hover_text("Applies on next launch.");
-            },
-        );
+        ui.add_enabled_ui(section_editable, |ui| {
+            row(
+                ui,
+                "Digitized samples",
+                DIGITIZED_SAMPLES,
+                value.clone(),
+                base.clone(),
+                previous.clone(),
+                scope,
+                cli,
+                |ui| {
+                    egui::ComboBox::from_id_salt(DIGITIZED_SAMPLES)
+                        .width(220.0)
+                        .selected_text(if value.mach3.digitized_samples {
+                            "On"
+                        } else {
+                            "Off"
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut value.mach3.digitized_samples, true, "On");
+                            ui.selectable_value(&mut value.mach3.digitized_samples, false, "Off");
+                        })
+                        .response
+                        .on_hover_text("Applies on next launch.");
+                },
+            );
+        });
     }
     ui.add_enabled_ui(output_enabled, |ui| {
         row(
@@ -980,7 +983,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mach3_sample_control_is_below_renderer_and_works_when_shared_audio_is_disabled() {
+    fn mach3_sample_control_follows_section_defaults_and_cli_locks() {
         fn text_rect(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
             output.shapes.iter().find_map(|shape| match &shape.shape {
                 egui::Shape::Text(text) if text.galley.text() == label => {
@@ -989,12 +992,14 @@ mod tests {
                 _ => None,
             })
         }
-        for (scope, mach3, shared_editable, muted, locked) in [
+        for (scope, mach3, section_editable, muted, locked) in [
             (0, true, true, false, false),
             (1, false, true, false, false),
             (1, true, false, true, false),
+            (1, true, false, false, false),
             (1, true, true, false, false),
-            (1, true, false, true, true),
+            (1, true, true, true, false),
+            (1, true, true, false, true),
         ] {
             let context = egui::Context::default();
             style(&context);
@@ -1044,7 +1049,7 @@ mod tests {
                                 &[],
                                 &[SoundRenderer::Speaker],
                                 &SoundCategory::ALL,
-                                shared_editable,
+                                section_editable,
                                 mach3,
                             );
                         });
@@ -1061,16 +1066,17 @@ mod tests {
                     button = text_rect(&output, "On").unwrap().center();
                 }
                 if step == 5 {
-                    if locked {
+                    if locked || !section_editable {
                         assert!(text_rect(&output, "Off").is_none());
+                        assert!(value.mach3.digitized_samples);
                         break;
                     }
                     off = text_rect(&output, "Off")
-                        .expect("popup opens despite host mute/inheritance")
+                        .expect("popup opens only when this section is editable")
                         .center();
                 }
             }
-            if scope == 1 && mach3 && !locked {
+            if scope == 1 && mach3 && section_editable && !locked {
                 assert!(!value.mach3.digitized_samples);
                 assert_eq!(value.audio.enabled, !muted);
             }

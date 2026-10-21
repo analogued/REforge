@@ -219,9 +219,13 @@ mockup's Latency and Keep original mono controls are intentionally absent.
 Mach 3 overrides on the Audio page include **Digitized samples** immediately
 below Sound renderer. It defaults to On and is stored only as
 `[games.mach-3.gameplay] digitized_samples = true|false`. There is no global or
-Alley Cat counterpart. It remains editable when host sound is disabled or shared
-audio inherits global defaults. Restoring shared audio defaults leaves it alone;
-select On to restore its built-in value.
+Alley Cat counterpart. On this page, **Use defaults for this section** makes
+shared audio inherit global defaults and restores Digitized samples to its
+built-in On value. All section controls are grayed out until that checkbox is
+unchecked. A saved samples Off value counts as an Audio override, so the section
+reopens enabled. **Restore defaults** has the same reset behavior; Apply saves
+the reset and Cancel discards it. Resetting global audio leaves game overrides
+intact. Host mute remains separate from the native sample policy.
 
 This is a native game option, separate from host mute, volumes and rendering.
 Off skips the original digitized playback calls and their time/input effects:

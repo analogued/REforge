@@ -349,8 +349,7 @@ impl<'a> SettingsMenu<'a> {
         if self.draft.is_none() {
             self.audio_devices_loaded = false;
             let saved = self.creator.session.borrow().saved.clone();
-            self.game_editing = reforge_settings::SECTION_KEYS
-                .map(|keys| keys.iter().any(|key| saved.game.contains_key(*key)));
+            self.game_editing = [0, 1, 2].map(|page| saved.has_game_overrides(page));
             self.draft = Some(saved);
         }
         if self.page == 2 && !self.audio_devices_loaded {

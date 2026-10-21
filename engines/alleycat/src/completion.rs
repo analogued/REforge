@@ -253,6 +253,10 @@ impl Completion {
         self.background
     }
 
+    pub(crate) fn uses_alley_palette(&self) -> bool {
+        !matches!(self.phase, Phase::Black(_))
+    }
+
     pub(crate) fn poll(&self) -> Option<Poll> {
         match self.phase {
             Phase::Reveal { since: Some(_), .. } => Some(Poll::Reveal),

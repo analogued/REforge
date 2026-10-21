@@ -408,12 +408,14 @@ pub struct CompletionCosts {
 impl CompletionCosts {
     fn ibm_xt() -> Self {
         Self {
-            wipe_setup: 72_430,
-            wipe_row: 49_675,
-            wipe_byte: 2_734,
-            wipe_initial: 30_000,
-            wipe_growth: 100_000,
-            wipe_clip: 4_000,
+            // Shared cumulative drawing-work curve, checked across entries
+            // and returns. Each step adds overhead + rows + packed bytes.
+            wipe_setup: 149_501,
+            wipe_row: 51_169,
+            wipe_byte: 2_722,
+            wipe_initial: 0,
+            wipe_growth: 0,
+            wipe_clip: 0,
             face_prepare: 373_267,
             score_row: 2_985_200,
             score_grid_extra: 678_200,
@@ -2433,6 +2435,8 @@ impl Runtime {
             if work.failure.message && self.costs.failure.is_some() {
                 alley.finish_failure_drawing(self.clock.sample().bios.tick_low);
             }
+            alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
+            alley.finish_completion_step(&work, self.clock.sample().bios.tick_low)?;
             let changed = work.complete;
             if changed {
                 self.synchronize_scene(alley);
@@ -3288,6 +3292,11 @@ impl Runtime {
     }
 
     fn synchronize_scene(&mut self, alley: &mut Alley) {
+        if alley.game_over() {
+            // CS:00f3 jumps to the title before constructing another alley.
+            self.scene = alley.scene();
+            return;
+        }
         if let Some(work) = alley.take_selection_work() {
             self.clock.advance_nanos(
                 self.costs

@@ -1,6 +1,6 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
-//! Shared ordinary-room failure presentation (CS:1bf0/1d76).
+//! Shared ordinary-room neutral/failure return presentation (CS:1bf0/1d76).
 //! Imagery, speaker sequences and tick gates use the original tables.
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
@@ -65,6 +65,10 @@ impl Failure {
         }
     }
 
+    pub(crate) fn uses_alley_palette(&self) -> bool {
+        !matches!(self.phase, Phase::Black(_))
+    }
+
     pub(crate) fn finish_drawing(&mut self, data: &mut [u8], tick: u16) {
         // CS:1dd7 samples each message wait baseline after drawing.
         if let Phase::Message { since } = &mut self.phase {
@@ -95,7 +99,9 @@ impl Failure {
             Phase::Begin => {
                 set_word(data, 0x5a85, 0);
                 set_word(data, 0x5a83, tick);
-                work.bookkeeping.life = Some(rotate_message_and_life(data, self.preserve_life));
+                if data[0x552] != 0 {
+                    work.bookkeeping.life = Some(rotate_message_and_life(data, self.preserve_life));
+                }
                 if data[0x552] == 0xdd && word(data, 8) != 0 && data[0x1f80] != 0 {
                     set_word(data, 0x5f60, 0);
                     set_word(data, 0x5f66, tick);
@@ -103,6 +109,16 @@ impl Failure {
                     work.failure.dog = true;
                     self.phase = Phase::Dog { since: tick };
                 } else {
+                    // CS:1dc6 stores the selected pointer only on the message
+                    // branch. The alternate dog leaves it untouched.
+                    let source = if data[0x552] != 0 {
+                        let index = word(data, 0x1c30).wrapping_sub(2) & 6;
+                        word(data, 0x1c26 + usize::from(index))
+                    } else {
+                        // Neutral return: no rotation and no life loss.
+                        0x185b
+                    };
+                    set_word(data, 0x1c2e, source);
                     set_word(data, 0x1c1b, 0x8080);
                     data[0x1c1d] = 28;
                     set_word(data, 0x1830, tick);
@@ -186,9 +202,7 @@ impl Failure {
 
 /// CS:1d8e..1da9. Keep the state prefix separate from drawing and sound setup.
 fn rotate_message_and_life(data: &mut [u8], preserve_life: bool) -> bool {
-    let index = word(data, 0x1c30) & 6;
     set_word(data, 0x1c30, word(data, 0x1c30).wrapping_add(2));
-    set_word(data, 0x1c2e, word(data, 0x1c26 + usize::from(index)));
     let had_life = data[0x1f80] != 0;
     if !preserve_life && had_life {
         data[0x1f80] -= 1;
@@ -240,6 +254,58 @@ fn draw_dog(data: &mut [u8], screen: &mut Framebuffer) -> Result<usize, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alternate_dog_advances_the_cursor_without_storing_a_message_pointer() {
+        let mut data = vec![0; DATA_LENGTH];
+        data[0x1f80] = 3;
+        data[0x552] = 0xdd;
+        set_word(&mut data, 8, 1);
+        set_word(&mut data, 0x1c2e, 0xa55a);
+        set_word(&mut data, 0x5f62, 0x3000);
+        let mut presentation = Failure::new(160, 96, false);
+        let mut screen = Framebuffer::default();
+        let mut sound = crate::sound::Sound::default();
+        for tick in 0..16 {
+            presentation
+                .advance(&mut data, &mut screen, tick, &mut sound)
+                .unwrap();
+        }
+        assert_eq!(data[0x1f80], 2);
+        assert_eq!(word(&data, 0x1c30), 2);
+        assert_eq!(word(&data, 0x1c2e), 0xa55a);
+        assert_eq!(word(&data, 0x5f60), 2);
+    }
+
+    #[test]
+    fn neutral_return_uses_the_shared_reveal_without_rotating_or_spending_lives() {
+        let mut data = vec![0; DATA_LENGTH];
+        data[0x1f80] = 3;
+        set_word(&mut data, 0x1c30, 6);
+        data[0x185b..0x191b].fill(0xff);
+        let mut screen = Framebuffer::default();
+        let mut sound = crate::sound::Sound::default();
+        let mut presentation = Failure::new(160, 96, false);
+        let mut draws = 0;
+        let mut complete = false;
+        for tick in 0..128 {
+            let work = presentation
+                .advance(&mut data, &mut screen, tick, &mut sound)
+                .unwrap();
+            assert!(work.bookkeeping.life.is_none());
+            draws += u16::from(work.failure.message);
+            if work.complete {
+                complete = true;
+                break;
+            }
+        }
+        assert!(complete);
+        assert_eq!(draws, 28);
+        assert_eq!(data[0x1f80], 3);
+        assert_eq!(word(&data, 0x1c30), 6);
+        assert_eq!(word(&data, 0x1c2e), 0x185b);
+        assert_eq!(data[0x1c1d], 0);
+    }
 
     #[test]
     fn dog_frames_report_their_header_and_detail_copies() {

@@ -329,6 +329,19 @@ the model.
 
 ### Ordinary-room scoring presentation
 
+Ordinary window entry and fishbowl-to-underwater entry also run the shared black
+and colour wipes before constructing the destination scenery. Underwater and
+Hearts use logical colour one for the second wipe; the other rooms and alley
+returns use colour two. The source palette remains active through the black
+wipe, then changes to the destination palette. Scenery construction is atomic;
+the recreation does not expose the native intermediate drawing stores.
+
+A neutral ordinary-room exit runs the same 28-tick message reveal as failure,
+using the fixed external image at `185b`, between its wipes. It preserves lives,
+message rotation, score and saved-window return state. Hearts retains its own
+falling-cat exit. Gameplay input and actors remain suspended during these
+presentations; host pause, settings and quit remain available.
+
 Success enters the shared `1bf0`/`38b0` transition. Two `1c67` wipes expand around
 `((playerX+12)&fff0, playerY+8)`, first filling black and finally logical color
 two. Width starts at one pixel, grows by 32 and is rounded down to eight-pixel
@@ -336,12 +349,18 @@ words for drawing; height starts at eight and grows by 16. Each boundary clamps
 independently. The wipes have no explicit tick or retrace wait: their pace comes
 from the execution-cost allowance for drawing and sound I/O.
 
-On the stock-XT profile, wipes use fitted setup, row and packed-byte costs plus
-geometry/clipping work. Even the initial zero-byte rectangle executes its row
-loop and consumes time. The measured wipe body replaces the presentation poll
-allowance for that step, so dispatch does not add another copy of its loop cost.
-This shared model applies to ordinary completion, Hearts returns and room-failure
-wipes; the older DOSBox profile retains its byte-based allowance.
+On the stock-XT profile, cumulative wipe time in milliseconds is approximated by
+`0.149501 * steps + 0.051169 * rows + 0.002722 * packed_bytes`. Rows and bytes
+include repeated overdraw of growing rectangles. Each step adds its drawing work
+to this curve; no individual frame timestamps are stored. Even the initial
+zero-byte rectangle executes its row loop and consumes time. The measured wipe
+body replaces the presentation poll allowance for that step, so dispatch does
+not add another copy of its loop cost. This shared curve applies to entries,
+ordinary completion, neutral/failure returns and Hearts returns. Sound-enabled
+stock-XT checks at different origins agree within about 1.1 ms at drawing-step
+boundaries. Tone programming precedes each rectangle; the final tone stops after
+the last rectangle's drawing time. The older DOSBox profile retains its previous
+byte-based allowance.
 
 Face preparation takes about 0.373 ms, a four-face row about 2.985 ms, and the
 complete twelve-row silhouette display about 36.50 ms before its separately
@@ -349,8 +368,8 @@ charged face preparation and unmeasured surrounding setup. These fixed native
 graphics use their own allowances. Failure messages and the alternate dog
 animation use the separate fits below; other presentation sprites and BIOS text
 retain provisional byte-based costs. Deliberate tick/retrace waits stay separate.
-The fits use silent native paths; tone I/O, unsampled geometry and exact BIOS
-sampling within a presentation step remain approximate.
+The separate face/row fits use silent native paths. Exact instruction-level
+sound I/O and BIOS sampling within a presentation step remain approximate.
 
 Between wipes, `3a96` masks the external cat-face sprite into writable scratch
 data. `3aac` draws twelve rows of four silhouettes, bottom to top, without a

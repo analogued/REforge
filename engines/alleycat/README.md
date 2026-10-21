@@ -321,8 +321,16 @@ a BIOS ROM font absent from that file. The recreation uses SDL's 8×8 glyphs for
 award digits and multiplier text; all characters used there match the captured
 DOSBox-X CGA/PCjr BIOS reference. This does not establish equality with every
 historical BIOS font. Font attribution is in [THIRD_PARTY.md](THIRD_PARTY.md).
-The black and color wipes follow the original expanding geometry; their execution
-costs are provisional. Scene-specific CGA/PCjr palette tables,
+
+Window and underwater entry, neutral exits, success and failure all use the
+shared expanding wipes. Neutral ordinary exits also show the original message
+without losing a life or rotating failure messages. Palettes change between the
+black and colour wipes, and destination scenery is constructed as a complete
+image. The XT timing curve uses drawing work rather than stored frame times.
+
+The black and color wipes follow the original expanding geometry with the
+measured XT drawing-work curve. Other unmeasured execution costs remain
+provisional. Scene-specific CGA/PCjr palette tables,
 carried-gift background changes and completion flashes are applied separately
 from packed framebuffer pixels. Speaker writes accompany music, wipes and scoring.
 

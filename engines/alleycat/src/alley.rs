@@ -117,6 +117,7 @@ pub struct Alley {
     projectile_image: Option<crate::projectiles::VisibleSprite>,
     damage_effect: Option<DamageEffect>,
     failure: Option<crate::failure::Failure>,
+    entry_transition: Option<crate::transition::Entry>,
     game_over: bool,
     initial_seed: u16,
     initial_difficulty: u16,
@@ -264,6 +265,7 @@ impl Alley {
         }
         self.game_over = false;
         self.failure = None;
+        self.entry_transition = None;
         self.completion = None;
         self.hearts_completion = None;
         self.selection_work = None;
@@ -699,6 +701,7 @@ impl Alley {
             projectile_image: None,
             damage_effect: None,
             failure: None,
+            entry_transition: None,
             game_over: false,
             initial_seed: 0xfa59,
             initial_difficulty: 0,
@@ -755,6 +758,7 @@ impl Alley {
             projectile_image: None,
             damage_effect: None,
             failure: None,
+            entry_transition: None,
             game_over: false,
             initial_seed: 0xfa59,
             initial_difficulty: 0,
@@ -1120,7 +1124,10 @@ impl Alley {
     }
 
     pub(crate) fn completion_waiting(&self) -> bool {
-        self.completion.is_some() || self.hearts_completion.is_some() || self.failure.is_some()
+        self.completion.is_some()
+            || self.hearts_completion.is_some()
+            || self.failure.is_some()
+            || self.entry_transition.is_some()
     }
 
     /// Preview the ordinary birdcage success presentation without playing its
@@ -1161,7 +1168,9 @@ impl Alley {
         tick: u16,
         retrace: bool,
     ) -> Result<crate::completion::Work, String> {
-        let work = if let Some(completion) = self.completion.as_mut() {
+        let work = if let Some(entry) = self.entry_transition.as_mut() {
+            entry.advance(&mut self.data, &mut self.screen, &mut self.sound)?
+        } else if let Some(completion) = self.completion.as_mut() {
             completion.advance(
                 &mut self.data,
                 &mut self.screen,
@@ -1183,17 +1192,68 @@ impl Alley {
             return Err("No completion presentation is active".into());
         };
         self.presented = self.screen.clone();
+        Ok(work)
+    }
+
+    /// Commit phase-end sound and setup after the runtime has charged drawing.
+    pub(crate) fn finish_completion_step(
+        &mut self,
+        work: &crate::completion::Work,
+        tick: u16,
+    ) -> Result<(), String> {
+        if work.graphics.wipe.is_some_and(|wipe| !wipe.growing) {
+            self.sound.stop();
+        }
         if work.complete {
+            let destination = self
+                .entry_transition
+                .take()
+                .map(|entry| entry.destination());
             self.completion = None;
             self.hearts_completion = None;
             self.failure = None;
-            if self.data[0x1f80] == 0 {
+            if let Some(destination) = destination {
+                self.setup_scene(destination, tick)?;
+            } else if self.data[0x1f80] == 0 {
+                set_word(&mut self.data, 4, 0);
                 self.finish_run();
             } else {
                 self.return_to_alley()?;
             }
         }
-        Ok(work)
+        Ok(())
+    }
+
+    fn setup_scene(&mut self, scene: u16, tick: u16) -> Result<(), String> {
+        match scene {
+            1 => self.setup_fishbowl(),
+            2 => self.setup_underwater(tick),
+            3 => self.setup_bookcase(),
+            4 => self.setup_cheese(),
+            5 => self.setup_birdcage(),
+            6 => self.setup_milk(),
+            7 => self.setup_hearts(tick),
+            _ => Err("Transition selected an unsupported scene".into()),
+        }
+    }
+
+    fn begin_presentation(&mut self) {
+        // Wipe the image the player actually saw, including actor overlays.
+        // Their old saved backgrounds must not be restored over the wipe.
+        self.screen = self.presented.clone();
+        self.compositor = PlayerCompositor::default();
+        self.bin_image = None;
+        self.dog_image = None;
+        self.projectile_image = None;
+        self.mouse_effect = None;
+        self.milk_player_image = None;
+    }
+
+    fn begin_entry(&mut self, destination: u16) -> Result<(), String> {
+        let entry = crate::transition::Entry::new(destination, self.player.x, self.player.y)?;
+        self.begin_presentation();
+        self.entry_transition = Some(entry);
+        Ok(())
     }
 
     /// Enter the currently supported room directly for diagnostic play.
@@ -1252,7 +1312,7 @@ impl Alley {
         self.completion = None;
         self.hearts_completion = None;
         set_word(&mut self.data, 4, 2);
-        set_word(&mut self.data, 6, 0);
+        set_word(&mut self.data, 6, 1);
         self.compositor = PlayerCompositor::default();
         self.bin_image = None;
         self.mouse_effect = None;
@@ -1823,22 +1883,15 @@ impl Alley {
             // pending-hearts override takes priority over ordinary rooms.
             let (candidate, work) =
                 crate::windows::select_room(&mut self.data, &self.player, tick)?;
-            match candidate {
-                7 => self.setup_hearts(tick)?,
-                1 => self.setup_fishbowl()?,
-                3 => self.setup_bookcase()?,
-                4 => self.setup_cheese()?,
-                5 => self.setup_birdcage()?,
-                6 => self.setup_milk()?,
-                _ => return Err("Window selected an unsupported scene".into()),
-            }
+            self.begin_entry(candidate)?;
             self.selection_work = Some(work);
-            return Ok(true);
+            return Ok(false);
         }
         // Original scene-one caller tests bowl entry before room termination.
         if self.scene() == 1 && self.data[0x554] != 0 {
-            self.setup_underwater(tick)?;
-            return Ok(true);
+            self.player.write_data(&mut self.data)?;
+            self.begin_entry(2)?;
+            return Ok(false);
         }
         if self.data[0x552] != 0 {
             self.data[0x419] = 0;
@@ -1849,7 +1902,7 @@ impl Alley {
         if self.scene() == 7 {
             self.player.write_data(&mut self.data)?;
             set_word(&mut self.data, 6, 7);
-            self.compositor = PlayerCompositor::default();
+            self.begin_presentation();
             self.hearts_completion = Some(crate::hearts_completion::HeartsCompletion::new(
                 self.player.x,
                 self.player.y,
@@ -1861,7 +1914,7 @@ impl Alley {
             self.player.write_data(&mut self.data)?;
             let scene = self.scene();
             set_word(&mut self.data, 6, scene);
-            self.compositor = PlayerCompositor::default();
+            self.begin_presentation();
             self.completion = Some(crate::completion::Completion::new(
                 self.player.x,
                 self.player.y,
@@ -1869,19 +1922,16 @@ impl Alley {
             )?);
             return Ok(false);
         }
-        if self.data[0x552] != 0 {
-            self.failure = Some(crate::failure::Failure::new(
-                self.player.x,
-                self.player.y,
-                self.infinite_lives(),
-            ));
-            self.dog_image = None;
-            self.projectile_image = None;
-            self.compositor = PlayerCompositor::default();
-            return Ok(false);
-        }
-        self.return_to_alley()?;
-        Ok(true)
+        self.player.write_data(&mut self.data)?;
+        let scene = self.scene();
+        set_word(&mut self.data, 6, scene);
+        self.begin_presentation();
+        self.failure = Some(crate::failure::Failure::new(
+            self.player.x,
+            self.player.y,
+            self.infinite_lives(),
+        ));
+        Ok(false)
     }
 
     fn return_to_alley(&mut self) -> Result<(), String> {
@@ -2121,9 +2171,21 @@ impl Alley {
 
     pub fn rgba(&self) -> Vec<u8> {
         let presentation = self.hearts_completion.as_ref();
-        let palette_scene = if self.failure.is_some()
+        let palette_scene = if let Some(destination) = self
+            .entry_transition
+            .as_ref()
+            .and_then(|entry| entry.palette_destination())
+        {
+            usize::from(destination)
+        } else if self
+            .failure
+            .as_ref()
+            .is_some_and(|failure| failure.uses_alley_palette())
             || self.game_over
-            || self.completion.is_some()
+            || self
+                .completion
+                .as_ref()
+                .is_some_and(|completion| completion.uses_alley_palette())
             || presentation.is_some_and(|completion| completion.uses_alley_palette())
         {
             0
@@ -2151,22 +2213,23 @@ impl Alley {
         } else {
             self.machine.colors()
         };
-        let background = if self.failure.is_some() || self.game_over {
-            0
-        } else if let Some(completion) = presentation {
-            completion.background()
-        } else if let Some(completion) = self.completion.as_ref() {
-            completion.background()
-        } else if self.scene() == 7 && word(&self.data, 0x2e8d) < 8 {
-            1
-        } else if self.scene() == 2 {
-            match self.damage_effect.as_ref().map(|effect| effect.kind) {
-                Some(EffectKind::Eel { background, .. }) => background,
-                _ => self.air_warning,
-            }
-        } else {
-            0
-        };
+        let background =
+            if self.failure.is_some() || self.game_over || self.entry_transition.is_some() {
+                0
+            } else if let Some(completion) = presentation {
+                completion.background()
+            } else if let Some(completion) = self.completion.as_ref() {
+                completion.background()
+            } else if self.scene() == 7 && word(&self.data, 0x2e8d) < 8 {
+                1
+            } else if self.scene() == 2 {
+                match self.damage_effect.as_ref().map(|effect| effect.kind) {
+                    Some(EffectKind::Eel { background, .. }) => background,
+                    _ => self.air_warning,
+                }
+            } else {
+                0
+            };
         if background != 0 {
             // BIOS background/border requests use hardware color numbers,
             // independently of scene palette indices one through three.
@@ -2202,6 +2265,97 @@ mod tests {
     use super::*;
 
     #[test]
+    fn last_life_handoff_does_not_charge_an_unexecuted_alley_setup() {
+        let mut alley = Alley::synthetic();
+        set_word(&mut alley.data, 4, 5);
+        set_word(&mut alley.data, 0x1c26, 0x3000);
+        alley.data[0x552] = 1;
+        alley.data[0x1f80] = 1;
+        alley.player.x = 160;
+        alley.player.y = 96;
+        alley.finish_scene(0).unwrap();
+        let mut runtime = crate::runtime::Runtime::new(Machine::Cga);
+        let mut complete = false;
+        for _ in 0..30000 {
+            let pass = runtime
+                .advance_pass(&mut alley, Controls::default())
+                .unwrap();
+            if alley.game_over() {
+                assert!(pass.scene_changed);
+                assert!(pass.end_nanos - pass.start_nanos < 60_000_000);
+                complete = true;
+                break;
+            }
+        }
+        assert!(complete);
+        assert_eq!(alley.scene(), 0);
+        assert_eq!(word(&alley.data, 6), 5);
+    }
+
+    #[test]
+    fn entry_wipes_keep_the_visible_layers_and_stop_sound_after_completed_drawing() {
+        let mut alley = Alley::synthetic();
+        alley.data[0] = 0xff;
+        alley.data[0x1f80] = 3;
+        alley.player.x = 160;
+        alley.player.y = 96;
+        alley.screen.fill_visible(0x55);
+        alley.presented.fill_visible(0xff);
+        alley.begin_entry(7).unwrap();
+        assert_eq!(alley.screen.bytes(), alley.presented.bytes());
+        alley.sound.record(true);
+        let mut runtime = crate::runtime::Runtime::new(Machine::Cga);
+        for _ in 0..15 {
+            let pass = runtime
+                .advance_pass(&mut alley, Controls { x: 1, y: -1 })
+                .unwrap();
+            assert!(pass.room_wait && !pass.control_polled && !pass.scene_changed);
+        }
+        assert_eq!(alley.scene(), 0);
+        assert_eq!(alley.player.x, 160);
+        assert_eq!(
+            alley
+                .entry_transition
+                .as_ref()
+                .unwrap()
+                .palette_destination(),
+            Some(7)
+        );
+        let events: Vec<_> = alley.sound.drain().collect();
+        assert_eq!(events.iter().filter(|w| w.port == 0x43).count(), 15);
+        let stop = events.last().unwrap();
+        assert_eq!((stop.port, stop.value & 3), (0x61, 0));
+        assert_eq!(stop.tick, runtime.clock.elapsed_pit_ticks() as u64);
+        assert!(stop.tick > events[events.len() - 2].tick);
+        assert!(runtime.clock.elapsed_nanos().abs_diff(404_250_000) < 1_000_000);
+    }
+
+    #[test]
+    fn entry_and_failure_palettes_switch_only_after_the_black_wipe() {
+        for entry in [false, true] {
+            let mut alley = Alley::synthetic();
+            set_word(&mut alley.data, 4, 3);
+            alley.player.x = 160;
+            alley.player.y = 96;
+            alley.data[0x1856] = 0;
+            alley.data[0x185a] = 1;
+            alley.presented.fill_visible(0x55);
+            if entry {
+                alley.begin_entry(7).unwrap();
+            } else {
+                alley.failure = Some(crate::failure::Failure::new(160, 96, false));
+            }
+            assert_eq!(&alley.rgba()[..4], &[0, 170, 0, 255]);
+            for _ in 0..15 {
+                alley.advance_completion(0, false).unwrap();
+            }
+            // Inspect colour mapping independently of the now-black image.
+            alley.presented.fill_visible(0x55);
+            assert_eq!(&alley.rgba()[..4], &alley.machine.colors()[1]);
+        }
+    }
+
+    #[test]
     fn transition_work_is_consumed_once_and_restart_discards_pending_work() {
         let mut alley = Alley::synthetic();
         let work = crate::windows::SelectionWork {
@@ -2210,6 +2364,7 @@ mod tests {
             history_rejections: 1,
         };
         alley.selection_work = Some(work);
+        alley.begin_entry(7).unwrap();
         assert_eq!(alley.take_selection_work().unwrap().attempts, 2);
         assert!(alley.take_selection_work().is_none());
         alley.selection_work = Some(work);
@@ -2219,6 +2374,7 @@ mod tests {
         set_word(&mut alley.data, 0x7100, 0xffff);
         alley.reset_run(0, true).unwrap();
         assert!(alley.take_selection_work().is_none());
+        assert!(alley.entry_transition.is_none());
     }
 
     #[test]

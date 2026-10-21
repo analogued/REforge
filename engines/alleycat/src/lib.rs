@@ -36,4 +36,5 @@ pub mod sound;
 pub mod splash;
 mod swimming;
 pub mod timing;
+mod transition;
 mod windows;

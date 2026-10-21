@@ -46,6 +46,8 @@ pub enum Playback {
 #[derive(Clone, Debug)]
 pub struct Options {
     pub f3_mode: crate::gameplay::F3Mode,
+    /// Native sample execution; None uses the saved Mach 3 startup preference.
+    pub digitized_samples: Option<bool>,
     /// None fits the usable display; Some requests a fixed drawable multiplier.
     pub scale: Option<u32>,
     pub presentation: reforge_sdl::Presentation,
@@ -63,6 +65,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             f3_mode: crate::gameplay::F3Mode::Press,
+            digitized_samples: None,
             scale: None,
             presentation: reforge_sdl::Presentation::Pixels,
             playback: Playback::Animated,
@@ -1231,7 +1234,10 @@ fn run_inner(
     let creator = window.texture_creator();
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
-    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+        .with_mach3_options(options.digitized_samples);
+    game.session.controls.preferences.digitized_samples_enabled =
+        menu.mach3_startup_settings().digitized_samples;
     let mut menu_pause = MenuPause::default();
     let mut presentation = Presentation::default();
     let mut shown = presentation.screen();

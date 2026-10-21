@@ -89,7 +89,7 @@ fn completion_wrapper_guards_sample_and_disabled_entry_polls_ordinary_input() {
             missing: false,
         };
         let mut state = GameplayState::default();
-        state.controls.preferences.intro_audio_enabled = intro_enabled;
+        state.controls.preferences.digitized_samples_enabled = intro_enabled;
         state.controls.preferences.sound_disabled = disabled;
         state.controls.sound_poll_counter = 0x1234;
         state.keyboard.apply_scan(0x4d);

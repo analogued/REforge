@@ -230,7 +230,7 @@ impl IntroTask {
             } else {
                 match self.stage {
                     Stage::BeginCycle => {
-                        if self.state.controls.preferences.intro_audio_enabled {
+                        if self.state.controls.preferences.digitized_samples_enabled {
                             self.sequence = Some(IntroSequence::new(&self.program));
                             self.stage = Stage::Sequence;
                         } else {
@@ -275,7 +275,7 @@ impl IntroTask {
                         }
                     }
                     Stage::Pregame => {
-                        if self.state.controls.preferences.intro_audio_enabled {
+                        if self.state.controls.preferences.digitized_samples_enabled {
                             self.begin_sample(self.program.pregame(), clock)?;
                         } else {
                             self.stage = Stage::Returned;
@@ -555,7 +555,7 @@ mod tests {
     fn ordinary_space_is_polled_only_after_timer_wait() {
         let log = Log::default();
         let (mut state, mut clock) = setup(log);
-        state.controls.preferences.intro_audio_enabled = false;
+        state.controls.preferences.digitized_samples_enabled = false;
         state.procedural.counters.units = 0;
         let (intro, procedural) = programs();
         let mut task = IntroTask::begin(&intro, state, 0x1234, &clock).unwrap();

@@ -140,6 +140,13 @@ Legacy recordings without that table use this default baseline. Input and game
 assertion tables may retain a longer prefix than the displayed stop boundary;
 only polls and starts reached by the timeline enter replay and its assertions.
 
+The historical recording column `intro_audio_enabled` retains its name for
+compatibility. It represents the broader native digitized-sample switch
+(`DS:b666`, `Preferences::digitized_samples_enabled`), not just intro music.
+Existing original recordings retain their enabled startup baseline; this replay
+interface still rejects nondefault startup preferences rather than treating a
+sample-disabled run as comparable to an enabled recording.
+
 `session-state.tsv` exports per-frame RNG, best score, display mode, sound disable,
 F2 poll counter and intro audio preference. Its header is:
 

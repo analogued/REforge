@@ -1,7 +1,7 @@
 # Shared preferences
 
 Pure Rust preference model, TOML editing and coordinated atomic persistence.
-No SDL types, engine state or original game data are used.
+No SDL types, engine execution state or original game data are used.
 See [configuration](../../docs/configuration.md) for the player-facing contract.
 
 The player application installs a scoped main-thread launch context after game
@@ -10,6 +10,10 @@ engine/SDL diagnostic callers get an in-memory session without filesystem access
 Drafts contain sparse global/game patches; effective runtime settings overlay
 temporary CLI values. The menu requests activation first and commits only after
 the SDL runtime accepts the request.
+
+Mach 3 also has a per-game native startup preference for digitized samples,
+kept outside shared/global host audio keys. The engine reads it once at startup;
+later menu commits persist the next-launch choice without changing execution.
 
 ## Dependencies
 

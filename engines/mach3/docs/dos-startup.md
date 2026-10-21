@@ -46,3 +46,15 @@ See [CGA graphics](cga-graphics.md) for verified asset layouts and composition,
 and [DOS gameplay](dos-gameplay.md) for the subsequent update loop.
 See [DOS sound assets](sound-assets.md) for the headerless sample resources,
 speaker conversion, executable music sequencing and live playback.
+
+## Original sample-disable argument
+
+At `036a`–`0379`, startup reads the first byte of the first argument and compares
+it with lowercase `s` (`73h`) and uppercase `S` (`53h`). Either clears the word
+at `DS:b666`, initially enabled. This flag bypasses digitized sample calls in
+the intro, pre-game, completion and ending paths; procedural sound is separate.
+It is retained through game-over returns and new games within the process.
+REforge accepts bare `S` and `s` as hidden aliases for
+`--digitized-samples off` when Mach 3 is selected. Only those complete tokens are
+aliases; option values and data paths are not reinterpreted. Other games ignore
+the Mach 3 option. The argument is temporary and does not modify saved settings.

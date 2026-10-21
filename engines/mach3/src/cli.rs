@@ -9,7 +9,7 @@ use crate::{
 };
 use std::{ffi::OsString, path::PathBuf};
 
-const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--step|--static] [--controls] [--period-ms 1..5000] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--step|--static] [--controls] [--period-ms 1..5000] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original] [--digitized-samples on|off]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
 F10: open settings; F10, Escape or Close returns. Scaling and fullscreen changes apply live.\n\
@@ -21,6 +21,7 @@ Space returns to intro after the first post-game title pair.\n\
 --controls: flag with no value; arrows or S/X/B/N steer; Space or keypad5 fires. Gameplay has no loop cap.\n\
 Normal animation runs gameplay, sound and waits on one PIT timeline.\n\
 --audio-renderer speaker|enhanced-pcm: select host audio rendering (default speaker); timing is unchanged.\n\
+--digitized-samples on|off: execute recorded speech/music (default on); off retains procedural effects and skips sample waits.\n\
 --step, --static and custom --period-ms previews use silent nominal stepping and need DATA1 through DATA6.\n\
 P or Pause/Break freezes host simulation and playback. F1 retains original pause/end-game behavior; F2 toggles native sound, F3 switches color/monochrome.\n\
 --f3-mode press|original: toggle F3 once per press (default press), or at every active original control poll.\n\
@@ -83,6 +84,17 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
     let mut directory = None;
     while let Some(arg) = args.next() {
         match arg.to_str() {
+            Some("S" | "s") => options.digitized_samples = Some(false),
+            Some("--digitized-samples") => {
+                options.digitized_samples =
+                    Some(match args.next().as_deref().and_then(|arg| arg.to_str()) {
+                        Some("on") => true,
+                        Some("off") => false,
+                        _ => {
+                            return Err("--digitized-samples must be on or off".into());
+                        }
+                    });
+            }
             Some("--original") => {
                 if directory.is_some() {
                     return Err("--original must be supplied exactly once".into());
@@ -306,6 +318,40 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(!options.controls);
+    }
+
+    #[test]
+    fn native_sample_option_defaults_to_preferences_and_accepts_original_spellings() {
+        let (_, defaults) = parse_args(args(&["--original", "assets"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(defaults.digitized_samples, None);
+        for (extra, expected) in [
+            (vec!["S"], false),
+            (vec!["s"], false),
+            (vec!["--digitized-samples", "off"], false),
+            (vec!["--digitized-samples", "on"], true),
+        ] {
+            let mut values = vec!["--original", "assets"];
+            values.extend(extra);
+            let (_, options) = parse_args(args(&values)).unwrap().unwrap();
+            assert_eq!(options.digitized_samples, Some(expected));
+        }
+        for bad in [
+            vec!["--digitized-samples"],
+            vec!["--digitized-samples", "yes"],
+        ] {
+            let mut values = vec!["--original", "assets"];
+            values.extend(bad);
+            assert!(
+                parse_args(args(&values))
+                    .unwrap_err()
+                    .contains("--digitized-samples")
+            );
+        }
+        let (directory, options) = parse_args(args(&["--original", "s"])).unwrap().unwrap();
+        assert_eq!(directory, PathBuf::from("s"));
+        assert_eq!(options.digitized_samples, None);
     }
 
     #[test]

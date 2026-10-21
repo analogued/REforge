@@ -3,8 +3,8 @@
 use crate::settings::{SettingsMenu, VideoCapabilities};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
-    Backend, FrameLimit, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
-    SoundCategory, SoundRenderer, section_index,
+    Backend, DIGITIZED_SAMPLES, FrameLimit, Presentation, Renderer, RuntimeSettings, SECTION_KEYS,
+    SHADER_PARAMETERS, SoundCategory, SoundRenderer, section_index,
 };
 const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
 const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
@@ -87,7 +87,14 @@ pub(super) fn draw(
                     if menu.scope == 1 {
                         let mut inherit = !menu.game_editing[menu.page];
                         if ui
-                            .checkbox(&mut inherit, "Use global defaults for this section")
+                            .checkbox(
+                                &mut inherit,
+                                if menu.page == 2 && menu.mach3_options {
+                                    "Use global defaults for shared audio settings"
+                                } else {
+                                    "Use global defaults for this section"
+                                },
+                            )
                             .changed()
                         {
                             menu.game_editing[menu.page] = !inherit;
@@ -118,7 +125,7 @@ pub(super) fn draw(
                         .max_height((height - 215.0).max(80.0))
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            ui.add_enabled_ui(enabled, |ui| {
+                            ui.add_enabled_ui(enabled || menu.page == 2, |ui| {
                                 if menu.page == 0 {
                                     section(ui, "Window & scaling");
                                     row(
@@ -314,10 +321,20 @@ pub(super) fn draw(
                                         &menu.audio_devices,
                                         &menu.audio_renderers,
                                         &menu.audio_categories,
+                                        enabled,
+                                        menu.mach3_options,
                                     );
                                 }
                             });
                         });
+                    if menu.page == 2
+                        && menu.scope == 1
+                        && menu.mach3_options
+                        && original.mach3 != value.mach3
+                        && !cli.contains_key(DIGITIZED_SAMPLES)
+                    {
+                        draft.edit(true, DIGITIZED_SAMPLES, value.get(DIGITIZED_SAMPLES));
+                    }
                     let keys = SECTION_KEYS[menu.page];
                     for &key in keys {
                         if original.get(key) != value.get(key) && !cli.contains_key(key) {
@@ -360,7 +377,9 @@ pub(super) fn draw(
                     let baseline = draft.global_values();
                     draft.game.retain(|key, v| {
                         let page = section_index(key);
-                        !menu.game_touched[page] || *v != baseline.get(key)
+                        key == DIGITIZED_SAMPLES
+                            || !menu.game_touched[page]
+                            || *v != baseline.get(key)
                     });
                     menu.pending = Some(draft.clone());
                 }
@@ -552,55 +571,195 @@ fn audio_controls(
     devices: &[String],
     renderers: &[SoundRenderer],
     categories: &[SoundCategory],
+    shared_editable: bool,
+    mach3_options: bool,
 ) {
     let available = !renderers.is_empty();
     if !available {
         ui.weak("Audio playback is unavailable in this run. Shared defaults can still be saved.");
     }
-    ui.add_enabled_ui(scope == 0 || available, |ui| {
-        row(ui, "", "sound_enabled", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| { ui.checkbox(&mut value.audio.enabled, "Enable sound"); });
-        ui.add_enabled_ui(value.audio.enabled, |ui| {
-            section(ui, "Levels");
-            let volume_width = 220.0 + ui.spacing().item_spacing.x + 56.0;
-            row_with_width(ui, "Master volume", "master_volume", value.clone(), base.clone(), previous.clone(), scope, cli, volume_width, |ui| {
+    let shared_enabled = shared_editable && (scope == 0 || available);
+    ui.add_enabled_ui(shared_enabled, |ui| {
+        row(
+            ui,
+            "",
+            "sound_enabled",
+            value.clone(),
+            base.clone(),
+            previous.clone(),
+            scope,
+            cli,
+            |ui| {
+                ui.checkbox(&mut value.audio.enabled, "Enable sound");
+            },
+        );
+    });
+    let output_enabled = shared_enabled && value.audio.enabled;
+    ui.add_enabled_ui(output_enabled, |ui| {
+        section(ui, "Levels");
+        let volume_width = 220.0 + ui.spacing().item_spacing.x + 56.0;
+        row_with_width(
+            ui,
+            "Master volume",
+            "master_volume",
+            value.clone(),
+            base.clone(),
+            previous.clone(),
+            scope,
+            cli,
+            volume_width,
+            |ui| {
                 ui.spacing_mut().slider_width = 220.0;
                 ui.add(egui::Slider::new(&mut value.audio.volume, 0..=100).show_value(false));
                 ui.spacing_mut().interact_size.x = 56.0;
-                ui.add(egui::DragValue::new(&mut value.audio.volume).range(0..=100).suffix("%"));
-            });
-            for category in [SoundCategory::Music, SoundCategory::Effects, SoundCategory::Speech] {
-                row_with_width(ui, category.label(), category.key(), value.clone(), base.clone(), previous.clone(), scope, cli, volume_width, |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut value.audio.volume)
+                        .range(0..=100)
+                        .suffix("%"),
+                );
+            },
+        );
+        for category in [
+            SoundCategory::Music,
+            SoundCategory::Effects,
+            SoundCategory::Speech,
+        ] {
+            row_with_width(
+                ui,
+                category.label(),
+                category.key(),
+                value.clone(),
+                base.clone(),
+                previous.clone(),
+                scope,
+                cli,
+                volume_width,
+                |ui| {
                     ui.add_enabled_ui(scope == 0 || categories.contains(&category), |ui| {
                         ui.spacing_mut().slider_width = 220.0;
-                        ui.add(egui::Slider::new(&mut value.audio.categories.0[category.index()], 0..=100).show_value(false));
+                        ui.add(
+                            egui::Slider::new(
+                                &mut value.audio.categories.0[category.index()],
+                                0..=100,
+                            )
+                            .show_value(false),
+                        );
                         ui.spacing_mut().interact_size.x = 56.0;
-                        ui.add(egui::DragValue::new(&mut value.audio.categories.0[category.index()]).range(0..=100).suffix("%"));
-                    }).response.on_disabled_hover_text("This game does not provide this audio category.");
-                });
-            }
-            section(ui, "Playback");
-            row(ui, "Sound renderer", "audio_renderer", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut value.audio.categories.0[category.index()])
+                                .range(0..=100)
+                                .suffix("%"),
+                        );
+                    })
+                    .response
+                    .on_disabled_hover_text("This game does not provide this audio category.");
+                },
+            );
+        }
+        section(ui, "Playback");
+        row(
+            ui,
+            "Sound renderer",
+            "audio_renderer",
+            value.clone(),
+            base.clone(),
+            previous.clone(),
+            scope,
+            cli,
+            |ui| {
                 ui.add_enabled_ui(scope == 1 && available, |ui| {
-                    egui::ComboBox::from_id_salt("audio_renderer").width(220.0).selected_text(sound_renderer_label(value.audio.renderer)).show_ui(ui, |ui| {
-                        for renderer in std::iter::once(&SoundRenderer::GameDefault).chain(renderers) {
-                            ui.selectable_value(&mut value.audio.renderer, *renderer, sound_renderer_label(*renderer));
-                        }
-                    });
+                    egui::ComboBox::from_id_salt("audio_renderer")
+                        .width(220.0)
+                        .selected_text(sound_renderer_label(value.audio.renderer))
+                        .show_ui(ui, |ui| {
+                            for renderer in
+                                std::iter::once(&SoundRenderer::GameDefault).chain(renderers)
+                            {
+                                ui.selectable_value(
+                                    &mut value.audio.renderer,
+                                    *renderer,
+                                    sound_renderer_label(*renderer),
+                                );
+                            }
+                        });
                 });
-            });
-            if scope == 0 { ui.weak("Sound renderer is selected per game; Game default follows its original hardware."); }
-            row(ui, "Output device", "output_device", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| {
-                egui::ComboBox::from_id_salt(("output_device", devices)).width(220.0).truncate()
-                    .selected_text(value.audio.device.as_deref().unwrap_or("System default")).show_ui(ui, |ui| {
+            },
+        );
+        if scope == 0 {
+            ui.weak(
+                "Sound renderer is selected per game; Game default follows its original hardware.",
+            );
+        }
+    });
+    // This native option has no global inheritance and changes guest execution.
+    // Keep it usable even when shared audio inherits defaults or host output is muted.
+    if scope == 1 && mach3_options {
+        row(
+            ui,
+            "Digitized samples",
+            DIGITIZED_SAMPLES,
+            value.clone(),
+            base.clone(),
+            previous.clone(),
+            scope,
+            cli,
+            |ui| {
+                egui::ComboBox::from_id_salt(DIGITIZED_SAMPLES)
+                    .width(220.0)
+                    .selected_text(if value.mach3.digitized_samples {
+                        "On"
+                    } else {
+                        "Off"
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut value.mach3.digitized_samples, true, "On");
+                        ui.selectable_value(&mut value.mach3.digitized_samples, false, "Off");
+                    });
+            },
+        );
+        ui.weak("Applies on next launch. Off skips recorded speech and music; procedural effects remain.");
+    }
+    ui.add_enabled_ui(output_enabled, |ui| {
+        row(
+            ui,
+            "Output device",
+            "output_device",
+            value.clone(),
+            base.clone(),
+            previous.clone(),
+            scope,
+            cli,
+            |ui| {
+                egui::ComboBox::from_id_salt(("output_device", devices))
+                    .width(220.0)
+                    .truncate()
+                    .selected_text(value.audio.device.as_deref().unwrap_or("System default"))
+                    .show_ui(ui, |ui| {
                         ui.selectable_value(&mut value.audio.device, None, "System default");
-                        if let Some(name) = value.audio.device.clone().filter(|n| !devices.contains(n)) {
+                        if let Some(name) =
+                            value.audio.device.clone().filter(|n| !devices.contains(n))
+                        {
                             ui.add_enabled(false, egui::Label::new(format!("Unavailable: {name}")));
                         }
-                        for name in devices { ui.selectable_value(&mut value.audio.device, Some(name.clone()), name); }
+                        for name in devices {
+                            ui.selectable_value(&mut value.audio.device, Some(name.clone()), name);
+                        }
                     });
-            });
-            row(ui, "", "mute_unfocused", value.clone(), base.clone(), previous.clone(), scope, cli, |ui| { ui.checkbox(&mut value.audio.mute_unfocused, "Mute when unfocused"); });
-        });
+            },
+        );
+        row(
+            ui,
+            "",
+            "mute_unfocused",
+            value.clone(),
+            base.clone(),
+            previous.clone(),
+            scope,
+            cli,
+            |ui| {
+                ui.checkbox(&mut value.audio.mute_unfocused, "Mute when unfocused");
+            },
+        );
     });
 }
 fn sound_renderer_label(renderer: SoundRenderer) -> &'static str {
@@ -663,7 +822,16 @@ fn row_with_width(
         } else {
             ui.visuals().text_color()
         };
-        let tooltip = format!("Global: {}\nSaved: {}", global.get(key), saved.get(key));
+        let tooltip = format!(
+            "{}: {}\nSaved: {}",
+            if key == DIGITIZED_SAMPLES {
+                "Default"
+            } else {
+                "Global"
+            },
+            global.get(key),
+            saved.get(key)
+        );
         if !label.is_empty() {
             ui.add_sized(
                 [145.0, 22.0],
@@ -809,6 +977,104 @@ fn scale_slider(ui: &mut egui::Ui, value: &mut u32, cap: VideoCapabilities) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mach3_sample_control_is_below_renderer_and_works_when_shared_audio_is_disabled() {
+        fn text_rect(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
+            output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == label => {
+                    Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+                }
+                _ => None,
+            })
+        }
+        for (scope, mach3, shared_editable, muted, locked) in [
+            (0, true, true, false, false),
+            (1, false, true, false, false),
+            (1, true, false, true, false),
+            (1, true, true, false, false),
+            (1, true, false, true, true),
+        ] {
+            let context = egui::Context::default();
+            style(&context);
+            let mut value = RuntimeSettings::default();
+            value.audio.enabled = !muted;
+            let cli = if locked {
+                reforge_settings::Patch::from([(DIGITIZED_SAMPLES.into(), "false".into())])
+            } else {
+                Default::default()
+            };
+            let mut button = Pos2::ZERO;
+            let mut off = Pos2::ZERO;
+            for step in 0..9 {
+                let point = if step < 6 { button } else { off };
+                let events = if matches!(step, 2 | 3 | 6 | 7) {
+                    vec![
+                        egui::Event::PointerMoved(point),
+                        egui::Event::PointerButton {
+                            pos: point,
+                            button: egui::PointerButton::Primary,
+                            pressed: step == 2 || step == 6,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ]
+                } else {
+                    Vec::new()
+                };
+                let output = context.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            Pos2::ZERO,
+                            Vec2::new(900.0, 900.0),
+                        )),
+                        time: Some(step as f64 * 0.02),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            audio_controls(
+                                ui,
+                                &mut value,
+                                RuntimeSettings::default(),
+                                RuntimeSettings::default(),
+                                scope,
+                                &cli,
+                                &[],
+                                &[SoundRenderer::Speaker],
+                                &SoundCategory::ALL,
+                                shared_editable,
+                                mach3,
+                            );
+                        });
+                    },
+                );
+                let label = text_rect(&output, "Digitized samples");
+                if scope == 0 || !mach3 {
+                    assert!(label.is_none());
+                    break;
+                }
+                let label = label.expect("Mach 3 control must be visible");
+                assert!(label.top() > text_rect(&output, "Sound renderer").unwrap().bottom());
+                if step < 2 {
+                    button = text_rect(&output, "On").unwrap().center();
+                }
+                if step == 5 {
+                    if locked {
+                        assert!(text_rect(&output, "Off").is_none());
+                        break;
+                    }
+                    off = text_rect(&output, "Off")
+                        .expect("popup opens despite host mute/inheritance")
+                        .center();
+                }
+            }
+            if scope == 1 && mach3 && !locked {
+                assert!(!value.mach3.digitized_samples);
+                assert_eq!(value.audio.enabled, !muted);
+            }
+        }
+    }
 
     #[test]
     fn backend_popup_grows_when_renderer_adds_choices() {

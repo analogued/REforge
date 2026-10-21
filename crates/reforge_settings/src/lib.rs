@@ -43,6 +43,10 @@ pub const AUDIO_KEYS: &[&str] = &[
     "mute_unfocused",
 ];
 pub const SECTION_KEYS: [&[&str]; 3] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS];
+pub const DIGITIZED_SAMPLES: &str = "digitized_samples";
+fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
+    (game == "mach-3").then_some(DIGITIZED_SAMPLES).into_iter()
+}
 pub fn section_index(key: &str) -> usize {
     SECTION_KEYS
         .iter()
@@ -54,7 +58,9 @@ pub fn keys() -> impl Iterator<Item = &'static str> {
 }
 
 fn section(key: &str) -> &'static str {
-    if CRT_KEYS.contains(&key) {
+    if key == DIGITIZED_SAMPLES {
+        "gameplay"
+    } else if CRT_KEYS.contains(&key) {
         "crt"
     } else if AUDIO_KEYS.contains(&key) {
         "audio"
@@ -227,6 +233,20 @@ impl HyllianSettings {
     }
 }
 
+/// Mach 3's native sample switch changes execution, rather than host output.
+/// It has no global counterpart and is read by the engine only at startup.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Mach3Settings {
+    pub digitized_samples: bool,
+}
+impl Default for Mach3Settings {
+    fn default() -> Self {
+        Self {
+            digitized_samples: true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuntimeSettings {
     pub fullscreen: bool,
@@ -238,6 +258,7 @@ pub struct RuntimeSettings {
     pub presentation: Presentation,
     pub hyllian: HyllianSettings,
     pub audio: AudioSettings,
+    pub mach3: Mach3Settings,
 }
 impl Default for RuntimeSettings {
     fn default() -> Self {
@@ -251,6 +272,7 @@ impl Default for RuntimeSettings {
             presentation: Presentation::default(),
             hyllian: HyllianSettings::default(),
             audio: AudioSettings::default(),
+            mach3: Mach3Settings::default(),
         }
     }
 }
@@ -336,6 +358,7 @@ impl RuntimeSettings {
 
     pub fn get(&self, key: &str) -> String {
         match key {
+            DIGITIZED_SAMPLES => self.mach3.digitized_samples.to_string(),
             "window_mode" => if self.fullscreen {
                 "fullscreen"
             } else {
@@ -364,6 +387,13 @@ impl RuntimeSettings {
     }
     pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
         match key {
+            DIGITIZED_SAMPLES => {
+                self.mach3.digitized_samples = match value {
+                    "on" | "true" => true,
+                    "off" | "false" => false,
+                    _ => return Err("digitized samples must be on or off".into()),
+                };
+            }
             "window_mode" => {
                 self.fullscreen = match value {
                     "windowed" => false,
@@ -440,7 +470,9 @@ pub struct Draft {
 }
 impl Draft {
     pub fn global_values(&self) -> RuntimeSettings {
-        overlay(RuntimeSettings::default(), &self.global)
+        let mut values = overlay(RuntimeSettings::default(), &self.global);
+        values.mach3 = Mach3Settings::default();
+        values
     }
     pub fn game_values(&self) -> RuntimeSettings {
         overlay(self.global_values(), &self.game)
@@ -470,6 +502,9 @@ impl Draft {
         patch.retain(|key, _| !SECTION_KEYS[page].contains(&key.as_str()));
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
+        if !game && key == DIGITIZED_SAMPLES {
+            return;
+        }
         let base = if game {
             self.global_values()
         } else {
@@ -558,7 +593,11 @@ impl Session {
         s
     }
     pub fn effective(&self, draft: &Draft) -> RuntimeSettings {
-        overlay(draft.game_values(), &self.cli)
+        let mut values = overlay(draft.game_values(), &self.cli);
+        if self.game != "mach-3" {
+            values.mach3 = Mach3Settings::default();
+        }
+        values
     }
     pub fn commit(&mut self, draft: Draft) -> Result<(), String> {
         if self.blocked {
@@ -591,16 +630,19 @@ fn read(path: &Path) -> Result<DocumentMut, String> {
     }
 }
 fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Draft {
-    fn patch(item: Option<&Item>, warning: &mut Option<String>) -> Patch {
+    fn patch(item: Option<&Item>, game: &str, warning: &mut Option<String>) -> Patch {
         let mut p = Patch::new();
         if let Some(item) = item {
             if let Some(table) = item.as_table_like() {
-                for name in ["display", "crt", "audio"] {
+                for name in ["display", "crt", "audio"]
+                    .into_iter()
+                    .chain((game == "mach-3").then_some("gameplay"))
+                {
                     if table.get(name).is_some_and(|v| !v.is_table_like()) {
                         *warning = Some(format!("Invalid {name} section; using inherited values"));
                     }
                 }
-                for key in keys() {
+                for key in keys().chain(game_keys(game)) {
                     if let Some(v) = table.get(section(key)).and_then(|x| x.get(key)) {
                         let text: String = if let Some(s) = v.as_str() {
                             s.into()
@@ -629,8 +671,8 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
         p
     }
     let mut draft = Draft {
-        global: patch(doc.get("global"), warning),
-        game: patch(doc.get("games").and_then(|x| x.get(game)), warning),
+        global: patch(doc.get("global"), "", warning),
+        game: patch(doc.get("games").and_then(|x| x.get(game)), game, warning),
     };
     // Cross-field validation follows inheritance, so a sparse beam override is
     // checked against its inherited partner, not an unrelated built-in default.
@@ -676,7 +718,8 @@ fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(),
         (&old.global, &new.global, vec!["global"]),
         (&old.game, &new.game, vec!["games", game]),
     ] {
-        for key in keys() {
+        let scope_game = if route.len() == 2 { game } else { "" };
+        for key in keys().chain(game_keys(scope_game)) {
             if before.get(key) == after.get(key) {
                 continue;
             }
@@ -698,7 +741,7 @@ fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(),
             }
             if let Some(text) = after.get(key) {
                 let replacement = match key {
-                    "vsync" | "sound_enabled" | "mute_unfocused" => {
+                    "vsync" | "sound_enabled" | "mute_unfocused" | DIGITIZED_SAMPLES => {
                         toml_edit::Value::from(text == "true" || text == "on")
                     }
                     "scale" | "master_volume" | "music_volume" | "speech_volume"
@@ -802,6 +845,91 @@ mod tests {
             path: Some(path),
             cli: Patch::new(),
         })
+    }
+    #[test]
+    fn native_samples_are_mach3_only_persistent_and_not_inherited_from_global_audio() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(
+            &path,
+            r#"
+schema_version = 1
+[global.gameplay]
+digitized_samples = false
+[games.alley-cat.gameplay]
+digitized_samples = false
+"#,
+        )
+        .unwrap();
+        let mut mach = session(path.clone(), "mach-3");
+        let cat = session(path.clone(), "alley-cat");
+        assert!(mach.effective(&mach.saved).mach3.digitized_samples);
+        assert!(cat.effective(&cat.saved).mach3.digitized_samples);
+        assert!(!cat.saved.game.contains_key(DIGITIZED_SAMPLES));
+        let mut draft = mach.saved.clone();
+        draft.edit(false, DIGITIZED_SAMPLES, "false".into());
+        assert!(draft.global.is_empty());
+        draft.edit(true, DIGITIZED_SAMPLES, "false".into());
+        draft.edit(false, "sound_enabled", "false".into());
+        assert!(!mach.effective(&draft).mach3.digitized_samples);
+        assert!(!mach.effective(&draft).audio.enabled);
+        mach.commit(draft).unwrap();
+        let loaded = session(path.clone(), "mach-3");
+        assert!(!loaded.effective(&loaded.saved).mach3.digitized_samples);
+        assert!(!loaded.saved.game_values().audio.enabled);
+        // Resetting shared audio must not silently re-enable native samples.
+        let mut draft = loaded.saved.clone();
+        draft.reset_section(true, 2);
+        draft.reset_section(false, 2);
+        assert!(!draft.game_values().mach3.digitized_samples);
+        assert!(draft.game_values().audio.enabled);
+        let doc = read(&path).unwrap();
+        assert_eq!(
+            doc["games"]["mach-3"]["gameplay"][DIGITIZED_SAMPLES].as_bool(),
+            Some(false)
+        );
+        assert!(doc["games"]["mach-3"].get("audio").is_none());
+    }
+
+    #[test]
+    fn sample_cli_overrides_do_not_persist_and_concurrent_game_edits_survive() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let mut mach = session(path.clone(), "mach-3");
+        let mut cat = session(path.clone(), "alley-cat");
+        mach.cli.insert(DIGITIZED_SAMPLES.into(), "false".into());
+        assert!(!mach.effective(&mach.saved).mach3.digitized_samples);
+        let mut cat_draft = cat.saved.clone();
+        cat_draft.edit(true, "scale", "2".into());
+        cat.commit(cat_draft).unwrap();
+        let mut draft = mach.saved.clone();
+        draft.edit(true, "master_volume", "65".into());
+        mach.commit(draft).unwrap();
+        let loaded = session(path.clone(), "mach-3");
+        assert!(loaded.effective(&loaded.saved).mach3.digitized_samples);
+        assert_eq!(
+            session(path.clone(), "alley-cat").saved.game_values().scale,
+            Some(2)
+        );
+        let mut draft = mach.saved.clone();
+        draft.edit(true, DIGITIZED_SAMPLES, "false".into());
+        mach.commit(draft).unwrap();
+        let mut draft = mach.saved.clone();
+        draft.edit(true, DIGITIZED_SAMPLES, "true".into());
+        mach.commit(draft).unwrap();
+        assert!(
+            !read(&path).unwrap()["games"]["mach-3"]["gameplay"]
+                .as_table_like()
+                .unwrap()
+                .contains_key(DIGITIZED_SAMPLES)
+        );
+        for bad in ["yes", "0", "", "mute"] {
+            assert!(
+                RuntimeSettings::default()
+                    .set(DIGITIZED_SAMPLES, bad)
+                    .is_err()
+            );
+        }
     }
     #[test]
     fn category_levels_round_trip_inherit_and_reset_without_persisting_cli() {

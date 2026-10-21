@@ -61,6 +61,9 @@ mute_unfocused = true
 
 [games.mach-3.audio]
 audio_renderer = "enhanced-pcm"
+
+[games.mach-3.gameplay]
+digitized_samples = true
 ```
 
 Defaults are windowed, Auto scale, automatic GPU-preferred rendering, automatic
@@ -210,6 +213,29 @@ Unavailable audio does not prevent unrelated Display/CRT changes.
 locks its menu control for that run. It is never saved into preferences.
 Latency remains the existing buffering policy, and output remains mono; the
 mockup's Latency and Keep original mono controls are intentionally absent.
+
+## Mach 3 digitized samples
+
+Mach 3 overrides on the Audio page include **Digitized samples** immediately
+below Sound renderer. It defaults to On and is stored only as
+`[games.mach-3.gameplay] digitized_samples = true|false`. There is no global or
+Alley Cat counterpart. It remains editable when host sound is disabled or shared
+audio inherits global defaults. Restoring shared audio defaults leaves it alone;
+select On to restore its built-in value.
+
+This is a native game option, separate from host mute, volumes and rendering.
+Off skips the original digitized playback calls and their time/input effects:
+intro speech/music and tail, pre-game, completion, and guarded Game Over/High
+Score samples. Procedural effects and the independent native F2 switch remain.
+The chosen value persists across new games and returned intros in the same run.
+Apply saves it for the **next application launch**; it never interrupts playback
+or changes the running game's sample policy. Cancel discards pending edits.
+
+`--digitized-samples on|off` temporarily overrides the preference and locks its
+menu control for that run, without saving the override. It applies only to
+Mach 3; other detected games warn and ignore it. Host output settings still apply
+live. The native option works with either speaker or Enhanced PCM rendering and
+is distinct from setting Music or Speech volume to zero.
 
 ## Activation and persistence
 

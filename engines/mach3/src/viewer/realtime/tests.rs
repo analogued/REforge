@@ -583,7 +583,7 @@ fn retained_intro_direction_updates_initial_scene_before_pregame_playback() {
         let resources = resources();
         let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
         let state = simulation.initial.as_mut().unwrap();
-        state.controls.preferences.intro_audio_enabled = intro_enabled;
+        state.controls.preferences.digitized_samples_enabled = intro_enabled;
         state.controls.preferences.sound_disabled = sound_disabled;
         simulation.finish_splash(&frames, &resources).unwrap();
         let tick = simulation.clock.tick();
@@ -925,7 +925,7 @@ fn postgame_intro_executes_one_reset_and_preserves_retained_execution_state() {
             let Phase::Ending { state, .. } = &mut simulation.phase else {
                 unreachable!()
             };
-            state.controls.preferences.intro_audio_enabled = ending_samples;
+            state.controls.preferences.digitized_samples_enabled = ending_samples;
             until(
                 &mut simulation,
                 &frames,
@@ -1221,7 +1221,7 @@ fn mandatory_animation_skips_function_polls_but_next_title_entry_processes_them(
         unreachable!()
     };
     // This check isolates ordinary animation polls from sample key clearing.
-    state.controls.preferences.intro_audio_enabled = false;
+    state.controls.preferences.digitized_samples_enabled = false;
     let mut events = Vec::new();
     advance(&mut simulation, 100, &frames, &resources, &mut events);
     assert_eq!(simulation.state().controls.sound_poll_counter, 0);
@@ -1380,7 +1380,7 @@ fn palette_zero_survives_gameplay_return_and_title_animation() {
     let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
     let mut state = post_splash_state(&mut simulation);
     // Retain F3 until the entry poll; active sample teardown clears held keys.
-    state.controls.preferences.intro_audio_enabled = false;
+    state.controls.preferences.digitized_samples_enabled = false;
     let mut game = Gameplay::for_play(
         frames.graphics(),
         rules_with_commands(&[0xce, 0xce]),
@@ -1861,7 +1861,7 @@ fn ending_sample_guards_distinguish_equal_lower_optional_and_intro_disabled() {
         let resources = resources();
         let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
         let mut state = post_splash_state(&mut simulation);
-        state.controls.preferences.intro_audio_enabled = intro;
+        state.controls.preferences.digitized_samples_enabled = intro;
         state.controls.preferences.sound_disabled = sound;
         let mut ending = hold_entry(&frames, title, score, best, optional);
         let mut events = Vec::new();

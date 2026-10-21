@@ -257,6 +257,13 @@ const SPECS: &[Spec] = &[
         description: "Host audio rendering for normal animation (default speaker); previews stay silent",
     },
     Spec {
+        name: "--digitized-samples",
+        game: Some(Game::Mach3),
+        value: Value::Choice(&["on", "off"]),
+        dev: false,
+        description: "Enable recorded speech/music (default on); off retains procedural effects",
+    },
+    Spec {
         name: "--f3-mode",
         game: Some(Game::Mach3),
         value: Value::Choice(&["press", "original"]),
@@ -517,6 +524,13 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
     let mut entries = Vec::new();
     let mut warnings = Vec::new();
     while let Some(arg) = args.next() {
+        // Hidden original Mach 3 spelling. Normalize only bare arguments, never
+        // option values or paths; ordinary ownership checks ignore it elsewhere.
+        let arg = if arg == "S" || arg == "s" {
+            OsString::from("--digitized-samples=off")
+        } else {
+            arg
+        };
         let (name, inline) = split_option(&arg);
         let Some(spec) = SPECS
             .iter()
@@ -655,6 +669,37 @@ mod tests {
         if game == Game::Mach3 {
             mach3::cli::validate_arguments(args.into_iter()).unwrap();
         }
+    }
+    #[test]
+    fn digitized_samples_and_hidden_original_spellings_are_mach3_only() {
+        for (input, value) in [
+            (vec!["S"], "off"),
+            (vec!["s"], "off"),
+            (vec!["--digitized-samples=off"], "off"),
+            (vec!["--digitized-samples", "on"], "on"),
+            (vec!["S", "--digitized-samples=on"], "on"),
+            (vec!["--digitized-samples=on", "s"], "off"),
+        ] {
+            let result = prepare(args(&input), Game::Mach3);
+            assert!(result.warnings.is_empty());
+            assert_eq!(result.args, args(&["--digitized-samples", value]));
+            accepted(&result, Game::Mach3);
+            let other = prepare(args(&input), Game::AlleyCat);
+            assert!(other.args.is_empty());
+            assert!(!other.warnings.is_empty());
+        }
+        let result = prepare(args(&["--config", "S", "--scale", "2"]), Game::Mach3);
+        assert!(result.warnings.is_empty());
+        assert_eq!(result.args, args(&["--config", "S", "--scale", "2"]));
+        let result = prepare(
+            args(&["--digitized-samples=off", "--digitized-samples=bad"]),
+            Game::Mach3,
+        );
+        assert_eq!(result.args, args(&["--digitized-samples", "off"]));
+        assert_eq!(result.warnings.len(), 1);
+        assert!(help(Some(Game::Mach3)).contains("--digitized-samples"));
+        assert!(!help(Some(Game::AlleyCat)).contains("--digitized-samples"));
+        assert!(!help(None).contains("--digitized-samples"));
     }
     #[test]
     fn frame_limit_choices_are_shared_and_invalid_values_warn() {

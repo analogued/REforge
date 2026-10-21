@@ -804,7 +804,7 @@ impl Simulation {
                             && ending.phase() == EndingStage::Hold
                             && matches!(before, EndingStage::Approach | EndingStage::ScoreOverlay)
                             && (snapshot.title == EndingTitle::GameOver || ending.new_best());
-                        step = if sample && state.controls.preferences.intro_audio_enabled {
+                        step = if sample && state.controls.preferences.digitized_samples_enabled {
                             let (site, resource, count) = match snapshot.title {
                                 EndingTitle::GameOver => (0x27a4, Resource::Data9, 10_874),
                                 EndingTitle::HighScore => (0x29e6, Resource::Data7, 11_872),
@@ -1114,7 +1114,21 @@ pub(super) fn run(
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
         .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
-        .with_audio_categories(&reforge_audio::category::SoundCategory::ALL);
+        .with_audio_categories(&reforge_audio::category::SoundCategory::ALL)
+        .with_mach3_options(options.digitized_samples);
+    let samples = menu.mach3_startup_settings().digitized_samples;
+    simulation
+        .initial
+        .as_mut()
+        .unwrap()
+        .controls
+        .preferences
+        .digitized_samples_enabled = samples;
+    simulation
+        .session
+        .controls
+        .preferences
+        .digitized_samples_enabled = samples;
     let mut menu_pause = MenuPause::default();
     let host = creator.audio_playback();
     signal.borrow_mut().set_mode(

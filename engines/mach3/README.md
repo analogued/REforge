@@ -150,6 +150,15 @@ sample value directly while retaining PC speaker synthesis for procedural
 effects. Both use the same PIT simulation timeline, gameplay waits and input
 polls. This option leaves step, static and custom-period previews silent.
 
+Mach 3's Audio overrides place **Digitized samples** below Sound renderer.
+On is the default. Off reproduces the original sample-disable startup policy:
+it skips recorded speech/music in the intro, pre-game, completion and ending,
+including their playback time and input effects, while procedural sounds remain.
+The preference is game-specific and applies on the next application launch;
+it remains in force across subsequent games and returned intros.
+`--digitized-samples on|off` is a temporary override, independent of host mute,
+category volume, F2 and the selected renderer.
+
 F1 pauses: release it, then press and release another gameplay key to resume.
 Holding F1 at the pause decision ends the game after the current body completes.
 F2 toggles the retained sound preference while timer execution continues.

@@ -15,8 +15,8 @@ pub enum DisplayMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Preferences {
     pub display_mode: DisplayMode,
-    /// The command-line S option suppresses the intro playback call.
-    pub intro_audio_enabled: bool,
+    /// Original S/s switch: skip digitized samples, retaining procedural sound.
+    pub digitized_samples_enabled: bool,
     /// F2's persistent playback-disable flag.
     pub sound_disabled: bool,
 }
@@ -25,7 +25,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             display_mode: DisplayMode::Color,
-            intro_audio_enabled: true,
+            digitized_samples_enabled: true,
             sound_disabled: false,
         }
     }
@@ -498,6 +498,7 @@ mod tests {
         let first = session.random;
         session.update_best(123_456);
         session.controls.preferences.display_mode = DisplayMode::Monochrome;
+        session.controls.preferences.digitized_samples_enabled = false;
         session.controls.sound_poll_counter = 2;
         session.select_intro();
         assert_eq!(session.begin_game().script_index, 3);
@@ -510,6 +511,7 @@ mod tests {
             DisplayMode::Monochrome
         );
         assert_eq!(session.controls.sound_poll_counter, 2);
+        assert!(!session.controls.preferences.digitized_samples_enabled);
     }
 
     #[test]

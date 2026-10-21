@@ -181,7 +181,7 @@ impl Diagnostics {
             session.best_score,
             u8::from(session.controls.preferences.sound_disabled),
             session.controls.sound_poll_counter,
-            u8::from(session.controls.preferences.intro_audio_enabled)
+            u8::from(session.controls.preferences.digitized_samples_enabled)
         )?;
         Ok(())
     }

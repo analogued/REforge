@@ -111,8 +111,15 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
             Some("--no-config") => no_config = true,
             Some("--config") => prefs.path = remaining.next().map(PathBuf::from),
             Some(
-                name @ ("--window-mode" | "--renderer" | "--backend" | "--vsync" | "--scale"
-                | "--frame-limit" | "--presentation" | "--audio-renderer"),
+                name @ ("--window-mode"
+                | "--renderer"
+                | "--backend"
+                | "--vsync"
+                | "--scale"
+                | "--frame-limit"
+                | "--presentation"
+                | "--audio-renderer"
+                | "--digitized-samples"),
             ) => {
                 if let Some(value) = remaining.next() {
                     let key = match name {
@@ -123,6 +130,7 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
                         "--frame-limit" => "frame_limit",
                         "--presentation" => "presentation",
                         "--audio-renderer" => "audio_renderer",
+                        "--digitized-samples" => "digitized_samples",
                         _ => "vsync",
                     };
                     if let Some(text) = value.to_str() {
@@ -131,7 +139,10 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
                             prefs.cli.insert(key.into(), normalized.get(key));
                         }
                     }
-                    if matches!(name, "--scale" | "--presentation" | "--audio-renderer") {
+                    if matches!(
+                        name,
+                        "--scale" | "--presentation" | "--audio-renderer" | "--digitized-samples"
+                    ) {
                         args.push(arg);
                         args.push(value);
                     }
@@ -244,6 +255,35 @@ mod tests {
             release: detection::RELEASES.iter().find(|r| r.game == game).unwrap(),
             original: path.into(),
         })
+    }
+    #[test]
+    fn original_sample_switch_is_detected_before_game_specific_normalization() {
+        for spelling in ["S", "s"] {
+            let mach = plan(
+                extract(args(&[spelling, "--original", "mach"])),
+                synthetic_detect,
+            )
+            .unwrap();
+            let (launch, forward) = launch_settings(mach.args, Game::Mach3);
+            assert_eq!(
+                launch.cli.get("digitized_samples").map(String::as_str),
+                Some("false")
+            );
+            assert_eq!(forward, args(&["--digitized-samples", "off"]));
+            let cat = plan(
+                extract(args(&["--original", "cat", spelling])),
+                synthetic_detect,
+            )
+            .unwrap();
+            let (launch, forward) = launch_settings(cat.args, Game::AlleyCat);
+            assert!(!launch.cli.contains_key("digitized_samples"));
+            assert!(forward.is_empty());
+        }
+        // A path named S is an original-data path, not the hidden switch.
+        assert_eq!(
+            extract(args(&["--original", "S"])).original,
+            Some(PathBuf::from("S"))
+        );
     }
     #[test]
     fn audio_renderer_override_is_locked_but_forwarded_to_the_engine() {

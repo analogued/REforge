@@ -509,7 +509,7 @@ Before its fifty hold waits, the mandatory Game Over title calls `4fff` at
 High Score title calls `4fb3` at `29e6` after drawing the score overlay, playing
 `DATA7` forward for 11,872 bytes only when the current score strictly exceeds
 the retained best score. Equal scores do not select that sample. Both wrappers
-require the application intro-audio flag (`DS:b666`); optional repeated titles
+require the application digitized-sample flag (`DS:b666`); optional repeated titles
 omit these calls.
 
 These calls use the existing sample continuation and device clock. The visible

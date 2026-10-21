@@ -332,7 +332,7 @@ requested exit at a body boundary. Reaching an export limit alone does not
 represent a DOS game return and does not request that reset.
 
 Completion wrapper `4fd9` uses 9,723 forward source bytes from `DATA8` when the
-application's intro-audio flag at `b666` is set. `IntroSample` identifies that
+application's digitized-sample flag at `b666` is set. `IntroSample` identifies that
 conditional call; the executor supplies the flag and the ordinary sample-disable
 state, then uses the existing reconstructed sample routine. It does not replace
 the sample with a procedural tone or infer its duration from a renderer.
@@ -343,7 +343,7 @@ simulation budgets and drives ordinary, publication, death and native-pause wait
 through the device clock. It runs completion playback through the same sample
 cursor and executes its keyboard clear and disable effects before resuming the
 enemy update. Sound-disabled sample entry performs the ordinary keyboard poll;
-an unset application intro-audio flag skips that call altogether. Startup reset
+an unset application digitized-sample flag skips that call altogether. Startup reset
 remains a lifecycle responsibility. Live scene transitions use normalized region
 deadlines while device interrupts continue; CPU busy-loop costs remain untimed.
 Terrain collision scans finish

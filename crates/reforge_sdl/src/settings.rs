@@ -95,6 +95,7 @@ pub struct SettingsMenu<'a> {
     pub(super) audio_devices_loaded: bool,
     pub(super) audio_renderers: Vec<reforge_settings::SoundRenderer>,
     pub(super) audio_categories: Vec<reforge_settings::SoundCategory>,
+    pub(super) mach3_options: bool,
     pub(super) game_editing: [bool; 3],
     pub(super) page: usize,
     pub(super) game_touched: [bool; 3],
@@ -120,6 +121,33 @@ impl<'a> SettingsMenu<'a> {
     pub fn with_audio_categories(mut self, categories: &[reforge_settings::SoundCategory]) -> Self {
         self.audio_categories = categories.to_vec();
         self
+    }
+    /// Expose Mach 3's native startup switch, independently of host audio.
+    /// Standalone previews retain in-memory settings; app launches use their
+    /// configured per-game storage. An explicit CLI value is temporary/locked.
+    pub fn with_mach3_options(mut self, samples: Option<bool>) -> Self {
+        {
+            let mut session = self.creator.session.borrow_mut();
+            if session.game == "standalone" {
+                session.game = "mach-3".into();
+            }
+            self.mach3_options = session.game == "mach-3";
+            if self.mach3_options {
+                if let Some(value) = samples {
+                    session.cli.insert(
+                        reforge_settings::DIGITIZED_SAMPLES.into(),
+                        value.to_string(),
+                    );
+                }
+            }
+        }
+        self
+    }
+    /// Resolve once before starting simulation. Saving a later draft does not
+    /// change the running game's native sample flag.
+    pub fn mach3_startup_settings(&self) -> reforge_settings::Mach3Settings {
+        let session = self.creator.session.borrow();
+        session.effective(&session.saved).mach3
     }
     pub fn new(creator: &'a FrameCreator, capabilities: VideoCapabilities) -> Self {
         let context = egui::Context::default();
@@ -150,6 +178,7 @@ impl<'a> SettingsMenu<'a> {
             audio_devices_loaded: false,
             audio_renderers: Vec::new(),
             audio_categories: Vec::new(),
+            mach3_options: false,
             game_editing: [false; 3],
             page: 0,
             game_touched: [false; 3],
@@ -1413,7 +1442,8 @@ mod tests {
         let creator = display.texture_creator();
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
             .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
-            .with_audio_categories(&reforge_settings::SoundCategory::ALL);
+            .with_audio_categories(&reforge_settings::SoundCategory::ALL)
+            .with_mach3_options(None);
         menu.open = true;
         let mut frame =
             crate::FrameTexture::new(&creator, 320, 200, crate::FrameFormat::Rgba).unwrap();

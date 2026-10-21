@@ -176,8 +176,13 @@ F10 opens the shared Compact Display and CRT & Colour pages in either engine.
 Window mode, scale, renderer, backend, VSync, frame ceiling, Hyllian shader
 controls and Audio use draft edits with Apply/Cancel. Global and game
 preferences are saved through `reforge_settings`; CLI overrides remain temporary
-and lock their controls. See [configuration](../../docs/configuration.md) for
-the complete persistence, inheritance and fallback contract.
+and lock their controls. A dark-blue section notice and pink padlocks after
+locked controls identify these restrictions; hover the lock or disabled control
+for the argument and active value. Locked labels and controls are gray; controls
+show the active launch value without copying it into the saved draft. The icons
+sit outside radio groups, sliders, checkboxes and dropdowns without adding
+per-setting explanation rows. See [configuration](../../docs/configuration.md)
+for the complete persistence, inheritance and fallback contract.
 
 The engine adapters freeze game time while the menu is open, preserve existing
 host/native pause, and consume menu keys before native input. Escape/F10 cancel;

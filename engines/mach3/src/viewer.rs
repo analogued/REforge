@@ -2,7 +2,7 @@
 //! SDL3 presentation of startup screens and live gameplay.
 
 use reforge_sdl::{
-    FrameFormat, FrameTexture, HostPause, HostShortcut, Window,
+    FrameFormat, FrameTexture, HostPause, HostShortcut, Window, game_title,
     host_shortcut as shared_host_shortcut,
     settings::{SettingsMenu, VideoCapabilities},
 };
@@ -34,6 +34,7 @@ use crate::{
 
 // CGA mode 4 stores 320x200 pixels but fills a 4:3 display (pixel aspect 5:6).
 const DISPLAY_HEIGHT: u32 = 240;
+const GAME_NAME: &str = "Mach 3";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Playback {
@@ -88,11 +89,11 @@ enum Action {
     ToggleHostPause,
 }
 
-fn title(screen: Screen) -> &'static str {
+fn screen_status(screen: Screen) -> &'static str {
     match screen {
-        Screen::Splash => "REforge — Mach 3 — Splash (Space to advance)",
-        Screen::Intro => "REforge — Mach 3 — Intro (Space to advance)",
-        Screen::InitialScene => "REforge — Mach 3 — Initial scene (Esc to close)",
+        Screen::Splash => "Splash (Space to advance)",
+        Screen::Intro => "Intro (Space to advance)",
+        Screen::InitialScene => "Initial scene (Esc to close)",
     }
 }
 
@@ -1204,7 +1205,7 @@ fn run_inner(
     let mut host_pause = HostPause::default();
     let mut input = ControlInput::default();
     let mut window = Window::new_with_presentation(
-        title(Screen::Splash),
+        &game_title(GAME_NAME, Some(screen_status(Screen::Splash))),
         WIDTH as u32,
         DISPLAY_HEIGHT,
         scale,
@@ -1421,11 +1422,12 @@ fn run_inner(
         repaint |= menu.is_open();
         if host_pause.is_paused() {
             if repaint {
-                window.set_title(if menu.is_open() {
-                    "REforge — Mach 3 — Settings (F10 or Escape to close, Ctrl+Q to quit)"
+                let status = if menu.is_open() {
+                    "Settings (F10 or Escape to close, Ctrl+Q to quit)"
                 } else {
-                    "REforge — Mach 3 — Paused (P or Pause/Break to continue, Ctrl+Q to close)"
-                })?;
+                    "Paused (P or Pause/Break to continue, Ctrl+Q to close)"
+                };
+                window.set_title(&game_title(GAME_NAME, Some(status)))?;
                 window.present_with(&texture, |canvas| menu.paint(canvas))?;
             }
             std::thread::sleep(std::time::Duration::from_millis(4));
@@ -1489,22 +1491,22 @@ fn run_inner(
                     game.color_family,
                 ))
                 .map_err(|error| error.to_string())?;
-            let caption = if game.session.pause.state != PauseState::Running {
-                "REforge — Mach 3 — Paused (release keys, then F1 to end game or another key to resume)"
+            let status = if game.session.pause.state != PauseState::Running {
+                "Paused (release keys, then F1 to end game or another key to resume)"
             } else if shown != Screen::InitialScene {
-                title(shown)
+                screen_status(shown)
             } else if game.ending.as_ref().is_some_and(Ending::can_return) {
-                "REforge — Mach 3 — Game Over / High Score (Space to return, Esc to close)"
+                "Game Over / High Score (Space to return, Esc to close)"
             } else if game.ending.is_some() {
-                "REforge — Mach 3 — Game Over / High Score (Esc to close)"
+                "Game Over / High Score (Esc to close)"
             } else if game.gameplay.as_ref().is_some_and(Gameplay::complete) {
-                "REforge — Mach 3 — Preview complete (Esc to close)"
+                "Preview complete (Esc to close)"
             } else if options.playback == Playback::Step {
-                "REforge — Mach 3 — Opening (Enter to step, F1 to pause, Esc to close)"
+                "Opening (Enter to step, F1 to pause, Esc to close)"
             } else {
-                "REforge — Mach 3 — Opening (F1 to pause, Esc to close)"
+                "Opening (F1 to pause, Esc to close)"
             };
-            window.set_title(caption)?;
+            window.set_title(&game_title(GAME_NAME, Some(status)))?;
             window.present_with(&texture, |canvas| menu.paint(canvas))?;
             #[cfg(feature = "dev-tools")]
             if let Some(trace) = &mut game.timing {

@@ -25,6 +25,8 @@ use std::path::PathBuf;
 const BIOS_TICK_HZ: f64 = 18.2065;
 
 const DEFAULT_SEED: u16 = 0xfa59;
+#[cfg(feature = "sdl")]
+const GAME_NAME: &str = "Alley Cat";
 
 #[cfg(any(feature = "sdl", feature = "dev-tools"))]
 struct Startup {
@@ -763,7 +765,7 @@ fn splash_preview(
         #[cfg(feature = "sdl")]
         {
             let display = alleycat::platform::Display::new_with_presentation(
-                "REforge — Alley Cat splash",
+                &reforge_sdl::game_title(GAME_NAME, Some("Splash")),
                 320,
                 240,
                 scale,
@@ -890,7 +892,7 @@ fn interactive(
     use std::time::{Duration, Instant};
 
     let display = alleycat::platform::Display::new_with_presentation(
-        "REforge — Alley Cat",
+        &reforge_sdl::game_title(GAME_NAME, None),
         320,
         240,
         scale,
@@ -1069,7 +1071,7 @@ fn interactive_diagnostic(
     use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
     let display = alleycat::platform::Display::new_with_presentation(
-        "REforge — Alley Cat",
+        &reforge_sdl::game_title(GAME_NAME, None),
         320,
         240,
         scale,

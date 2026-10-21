@@ -149,7 +149,7 @@ fn until(
     }
     panic!(
         "controller did not reach expected phase: {} tick={}",
-        simulation.caption(),
+        simulation.status(),
         simulation.clock.tick()
     );
 }

@@ -19,6 +19,16 @@ use std::cell::RefCell;
 pub use reforge_settings::Presentation;
 mod pacing;
 
+/// Format the shared application/game title, optionally followed by engine status.
+/// Raw window constructors also accept unbranded titles for diagnostic windows.
+pub fn game_title(game_name: &str, status: Option<&str>) -> String {
+    let base = format!("REforge · {game_name}");
+    match status.filter(|text| !text.is_empty()) {
+        Some(status) => format!("{base} · {status}"),
+        None => base,
+    }
+}
+
 /// Restored window size for auto, and fallback if maximization is unavailable.
 const AUTO_FALLBACK_SCALE: u32 = 4;
 

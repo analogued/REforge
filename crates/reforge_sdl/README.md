@@ -9,6 +9,8 @@ physical Q position on a US keyboard. Engines decide when pausing is available
 and retain their own additional bindings. Pause repeats and desktop modifier
 combinations are ignored. The optional host pause timeline freezes deadlines
 without synthesizing DOS input or changing an engine's original pause state.
+`game_title(game_name, status)` formats the common window title as
+`REforge · Game name`, with an optional ` · Status` suffix supplied by the engine.
 Each engine retains its input mapping, pixel decoding, palettes and game clock.
 For diagnostics, `event_clock_sample()` brackets SDL’s nanosecond event clock
 with host `Instant` samples. Engines can record this clock correlation alongside

@@ -1070,19 +1070,19 @@ impl Simulation {
     fn palette(&self) -> u8 {
         self.palette_family
     }
-    fn caption(&self) -> &'static str {
+    fn status(&self) -> &'static str {
         match &self.phase {
-            Phase::Splash => "REforge — Mach 3 — Splash (Space to skip)",
-            Phase::Intro(_) => "REforge — Mach 3 — Intro (Space to start)",
-            Phase::Pregame { .. } => "REforge — Mach 3 — Get ready",
+            Phase::Splash => "Splash (Space to skip)",
+            Phase::Intro(_) => "Intro (Space to start)",
+            Phase::Pregame { .. } => "Get ready",
             Phase::Playing(runtime) if runtime.state().pause.state != PauseState::Running => {
-                "REforge — Mach 3 — Paused (release keys, then F1 to end game or another key to resume)"
+                "Paused (release keys, then F1 to end game or another key to resume)"
             }
-            Phase::Playing(_) => "REforge — Mach 3 — Playing (F1 to pause, Esc to close)",
+            Phase::Playing(_) => "Playing (F1 to pause, Esc to close)",
             Phase::Ending { ending, .. } if ending.can_return() => {
-                "REforge — Mach 3 — Game Over / High Score (Space to return, Esc to close)"
+                "Game Over / High Score (Space to return, Esc to close)"
             }
-            Phase::Ending { .. } => "REforge — Mach 3 — Game Over / High Score",
+            Phase::Ending { .. } => "Game Over / High Score",
         }
     }
 }
@@ -1101,9 +1101,9 @@ pub(super) fn run(
         .unwrap()
         .keyboard
         .set_f3_mode(options.f3_mode);
-    let mut caption = simulation.caption();
+    let mut status = simulation.status();
     let mut window = Window::new_with_presentation(
-        caption,
+        &game_title(GAME_NAME, Some(status)),
         WIDTH as u32,
         DISPLAY_HEIGHT,
         options.scale,
@@ -1396,14 +1396,14 @@ pub(super) fn run(
         }
         // Native pause can change the caption without publishing a new frame.
         // Update it even during catch-up, independently of texture presentation.
-        let next_caption = if menu.is_open() {
-            "REforge — Mach 3 — Settings (F10 or Escape to close, Ctrl+Q to quit)"
+        let next_status = if menu.is_open() {
+            "Settings (F10 or Escape to close, Ctrl+Q to quit)"
         } else {
-            simulation.caption()
+            simulation.status()
         };
-        if next_caption != caption {
-            caption = next_caption;
-            window.set_title(caption)?;
+        if next_status != status {
+            status = next_status;
+            window.set_title(&game_title(GAME_NAME, Some(status)))?;
         }
         if catch_up {
             continue;

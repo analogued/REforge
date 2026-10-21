@@ -1213,7 +1213,8 @@ pub struct RoomSurfaceCosts {
     pub idle_search_entry: u64,
 }
 
-/// Bounded Hearts common-player bodies on the XT baseline, without actor work.
+/// Hearts common-player allowances, without actor work. Ordinary actions share
+/// the XT policy; clipping retains separate bounded fits.
 #[derive(Clone, Copy, Debug)]
 pub struct HeartsPlayerCosts {
     pub walk: u64,
@@ -1258,6 +1259,8 @@ impl ReferenceCosts {
     pub fn ibm_xt(machine: Machine) -> Self {
         // One allowance per comparable action, independent of room/search depth.
         let walk = 2_720_000;
+        let idle = 2_480_000;
+        let keep = 360_000;
         let descent = 3_240_000;
         let jump = 300_000;
         let landing_base = 950_000;
@@ -1278,8 +1281,8 @@ impl ReferenceCosts {
             player_zero: 20_200,
             player_retrace: 25_000,
             player_retrace_return: 3_000,
-            player_keep: 360_000,
-            player_idle: 2_480_000,
+            player_keep: keep,
+            player_idle: idle,
             player_walk: walk,
             player_airborne: 2_870_000,
             player_descending: descent,
@@ -1347,16 +1350,16 @@ impl ReferenceCosts {
                 jump: [jump; 8],
                 landing_base: [landing_base + 10 * landing_row; 8],
                 landing_row,
-                bookcase_fall: 1_041_000,
+                bookcase_fall: keep,
                 idle_search_setup: 0,
                 idle_search_entry: 0,
             }),
             hearts_player: Some(HeartsPlayerCosts {
-                walk: 2_896_000,
-                idle: 2_678_000,
-                keep: 547_000,
-                descent: 3_056_000,
-                landing: 3_047_000,
+                walk,
+                idle,
+                keep,
+                descent,
+                landing: landing_base + 12 * landing_row,
                 bottom_clip: 2_659_000,
                 clipping: HeartsClippingCosts {
                     bottom: 650_000,

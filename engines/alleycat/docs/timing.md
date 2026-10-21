@@ -1395,12 +1395,27 @@ before continuing and skips intermediate presentation and sleep while behind.
 These bounds affect host responsiveness, not guest execution costs or BIOS
 ticks. Display refresh never supplies BIOS ticks.
 
-Gameplay directions and Alt currently use the latest host held-state snapshot
-for each batch, sampled only when the original control gate permits. A completed
-tap between guest polls can legitimately be missed. During host stalls, however,
-the latest snapshot can lose a press held at an overdue poll or apply a later
-press too early. Catch-up retains this input-timing limitation; it does not latch
-every tap or replay timestamped transitions.
+Gameplay directions and Alt retain SDL key-transition timestamps. The runner maps
+them onto the paced virtual timeline and samples their held state at the modeled
+control gate, including during catch-up. A press spanning an overdue poll is
+retained, and a later press does not affect that earlier poll. A complete tap
+between guest polls can still legitimately be missed; taps are not latched until
+consumption. Opposing directions retain left/up precedence, and either Alt key
+holds the action.
+
+When a host interval exceeds 100 ms, only its latest 100 ms are retained. Older
+input changes collapse to the start of that interval, preserving its final held
+state without replaying discarded time. Earlier catch-up debt retains its own
+history. Settings pause preserves that debt; manual pause discards it as before.
+Paused input is not replayed, settings keys remain suppressed until released,
+and restart/title return begins a fresh history. Host shortcuts remain immediate.
+
+This is host-event history, not original keyboard transport or instruction-level
+input emulation. Missing/delayed OS events, snapshot-only state corrections and
+events arriving after an atomic guest pass has already crossed their timestamp
+cannot be reconstructed retroactively. Within-helper key-read/interrupt placement
+also remains approximate. SDL keyboard timestamps use the same nanosecond clock
+as [SDL_GetTicksNS](https://wiki.libsdl.org/SDL3/SDL_GetTicksNS).
 
 The original keyboard pause (`5e70`) saves the BIOS tick count, displays the
 pause captions, waits for a later keyboard make event, then restores that count

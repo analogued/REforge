@@ -5,7 +5,7 @@ use alleycat::alley::{Alley, Machine};
 use alleycat::cga::{HEIGHT, WIDTH};
 #[cfg(feature = "dev-tools")]
 use alleycat::dev_tools::DevOptions;
-#[cfg(any(feature = "sdl", feature = "dev-tools"))]
+#[cfg(any(feature = "dev-tools", all(test, feature = "sdl")))]
 use alleycat::player::Controls;
 #[cfg(feature = "dev-tools")]
 use alleycat::runtime::PassOutcome;
@@ -885,6 +885,7 @@ fn interactive(
     #[cfg(feature = "dev-tools")] trace: &mut Option<BufWriter<File>>,
     #[cfg(feature = "dev-tools")] timing_trace: &mut Option<BufWriter<File>>,
 ) -> Result<(), String> {
+    use crate::control_history::ControlHistory;
     use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
 
@@ -911,6 +912,7 @@ fn interactive(
     alley.sound.reset();
     alley.sound.record(true);
     let mut runtime = Runtime::new(alley.machine());
+    let mut control_history = ControlHistory::new(window.control_keys());
     let start = Instant::now();
     let mut pause_clock = PauseClock::new(start);
     let pause_overlay = PauseOverlay::new(alley.pause_text()?[0], alley.machine())?;
@@ -935,6 +937,7 @@ fn interactive(
             alley.sound.reset();
             alley.sound.record(true);
             runtime = Runtime::new(alley.machine());
+            control_history = ControlHistory::new(window.control_keys());
             target_nanos = 0;
             let now = Instant::now();
             pause_clock = PauseClock::new(now);
@@ -963,6 +966,7 @@ fn interactive(
             alley.sound.reset();
             alley.sound.record(true);
             runtime = Runtime::new(alley.machine());
+            control_history = ControlHistory::new(window.control_keys());
             target_nanos = 0;
             let now = Instant::now();
             pause_clock = PauseClock::new(now);
@@ -970,14 +974,7 @@ fn interactive(
             window.present(&alley.rgba())?;
             continue;
         }
-        let held = Controls {
-            x: if input.left {
-                -1
-            } else {
-                i8::from(input.right)
-            },
-            y: if input.up { -1 } else { i8::from(input.down) },
-        };
+        let (host_now_ns, changes) = window.take_control_changes();
         let now = Instant::now();
         let pause = pause_clock.sample(now, input);
         window.audio.pause(pause.paused);
@@ -986,6 +983,9 @@ fn interactive(
             // existing manual-pause policy of discarding partial pacing budget.
             if !input.settings_changed {
                 target_nanos = runtime.clock.elapsed_nanos();
+                control_history = ControlHistory::new(window.control_keys());
+            } else {
+                control_history.boundary(target_nanos, window.control_keys());
             }
             next_present = now;
         }
@@ -1002,6 +1002,9 @@ fn interactive(
         }
         // Discard excess host stalls without resetting guest timer phases.
         let elapsed = pause.elapsed.min(Duration::from_millis(100));
+        if !pause.changed {
+            control_history.extend(host_now_ns, elapsed, target_nanos, changes);
+        }
         target_nanos += elapsed.as_nanos();
         let batch_start = Instant::now();
         catch_up_batch(
@@ -1015,10 +1018,11 @@ fn interactive(
                     return Ok(false);
                 }
                 #[cfg(not(feature = "dev-tools"))]
-                runtime.advance_pass_with_action(alley, held, input.alt)?;
+                runtime.advance_pass_with_input(alley, |at| control_history.sample(at))?;
                 #[cfg(feature = "dev-tools")]
                 {
-                    let event = runtime.advance_pass_with_action(alley, held, input.alt)?;
+                    let event =
+                        runtime.advance_pass_with_input(alley, |at| control_history.sample(at))?;
                     if let Some(output) = timing_trace.as_mut() {
                         timing_row(output, pass, &event, alley.selection_trace_state())?;
                     }

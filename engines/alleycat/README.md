@@ -96,6 +96,9 @@ the high score, shared random state and ordinary-room selection history.
 In the cheese room, hold Alt at a hole to travel to its paired hole.
 In the hearts scene, gifts are picked up automatically on contact; hold Alt
 to place a carried gift near the cat's current position.
+Directions and Alt preserve timestamped transitions during catch-up and are
+sampled at the game's control gate. Brief taps between polls can still be missed,
+as with the original polling behavior; see [input timing](docs/timing.md) for limits.
 
 Pause preserves the game state and virtual clock without catching up on resume.
 The overlay reads the original pause title from the executable and uses the

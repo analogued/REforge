@@ -2277,8 +2277,18 @@ impl Runtime {
         held: Controls,
         action: bool,
     ) -> Result<PassOutcome, String> {
+        self.advance_pass_with_input(alley, |_| (held, action))
+    }
+
+    /// Sample host history at the original control gate's virtual timestamp.
+    /// Blocking work and rejected control polls never consume an input sample.
+    pub fn advance_pass_with_input(
+        &mut self,
+        alley: &mut Alley,
+        mut sample: impl FnMut(u128) -> (Controls, bool),
+    ) -> Result<PassOutcome, String> {
         alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-        let mut event = self.advance_pass_inner(alley, held, action)?;
+        let mut event = self.advance_pass_inner(alley, &mut sample)?;
         self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
         alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
         event.end_nanos = self.clock.elapsed_nanos();
@@ -2418,8 +2428,7 @@ impl Runtime {
     fn advance_pass_inner(
         &mut self,
         alley: &mut Alley,
-        held: Controls,
-        action: bool,
+        sample_input: &mut impl FnMut(u128) -> (Controls, bool),
     ) -> Result<PassOutcome, String> {
         let start_nanos = self.clock.elapsed_nanos();
         self.synchronize_scene(alley);
@@ -2553,6 +2562,7 @@ impl Runtime {
                 .controls_gate
                 .should_poll(self.clock.sample().bios.tick_low);
         if control_polled {
+            let (held, action) = sample_input(self.clock.elapsed_nanos());
             self.controls = held;
             alley.latch_action(action);
             if alley.scene() == 6 {
@@ -3866,6 +3876,56 @@ mod tests {
                         work.bytes_drawn as u128 * u128::from(older.costs.completion_draw_byte)
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn historical_input_is_sampled_at_the_control_gate_not_pass_start() {
+        use crate::control_history::{ControlHistory, HostChange, Key, Keys};
+        use std::time::Duration;
+
+        let pressed = {
+            let mut keys = Keys::default();
+            keys.set(Key::Right, true);
+            keys
+        };
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            for (press, release, expected) in [(60, 80, 0), (100, 120, 1), (120, 140, 0)] {
+                let mut history = ControlHistory::new(Keys::default());
+                history.extend(
+                    150_000_000,
+                    Duration::from_millis(100),
+                    50_000_000,
+                    [
+                        HostChange {
+                            at_ns: press * 1_000_000,
+                            keys: pressed,
+                        },
+                        HostChange {
+                            at_ns: release * 1_000_000,
+                            keys: Keys::default(),
+                        },
+                    ],
+                );
+                let mut alley = Alley::synthetic();
+                let mut runtime = Runtime::new(machine);
+                // Deliberately make the pass begin before the 100 ms press,
+                // while its actual control sample occurs at 110 ms.
+                runtime.costs.prelude = 20_000_000;
+                runtime.clock.advance_nanos(
+                    110_000_000 - runtime.costs.prelude - runtime.costs.control_bios,
+                );
+                let mut samples = Vec::new();
+                let event = runtime
+                    .advance_pass_with_input(&mut alley, |at| {
+                        samples.push(at);
+                        history.sample(at)
+                    })
+                    .unwrap();
+                assert!(event.control_polled);
+                assert_eq!(samples, [110_000_000]);
+                assert_eq!(runtime.controls.x, expected);
             }
         }
     }

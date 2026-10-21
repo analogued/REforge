@@ -3,6 +3,7 @@
 //! Alley Cat host input and pause overlay, using REforge's shared SDL backend.
 
 use crate::alley::Machine;
+use crate::control_history::{HostChange, Key, Keys};
 use crate::menu::MenuKey;
 #[cfg(test)]
 use reforge_sdl::sdl3::keyboard::Keycode;
@@ -123,6 +124,8 @@ pub struct Window<'a> {
     settings: SettingsMenu<'a>,
     settings_was_open: bool,
     suppressed: HashSet<Scancode>,
+    control_keys: Keys,
+    control_changes: Vec<HostChange>,
 }
 
 impl<'a> Window<'a> {
@@ -145,10 +148,15 @@ impl<'a> Window<'a> {
                 ]),
             settings_was_open: false,
             suppressed: HashSet::new(),
+            control_keys: Keys::default(),
+            control_changes: Vec::new(),
         })
     }
 
     pub fn poll_input(&mut self) -> Input {
+        // Startup and diagnostic callers need only the latest snapshot; do not
+        // accumulate history across polls which have no gameplay consumer.
+        self.control_changes.clear();
         let mut presses = Input::default();
         let mut settings_changed = self.settings_was_open != self.settings.is_open();
         for event in self.display.poll_events() {
@@ -174,6 +182,19 @@ impl<'a> Window<'a> {
                 &mut self.suppressed,
                 &mut presses,
             );
+            let suppressed = match &event {
+                Event::KeyDown {
+                    scancode: Some(scan),
+                    ..
+                } => self.suppressed.contains(scan),
+                _ => false,
+            };
+            record_controls(
+                &event,
+                consumed || settings_changed || suppressed,
+                &mut self.control_keys,
+                &mut self.control_changes,
+            );
         }
         self.quit |= presses.quit;
         let held = self.display.keyboard_state();
@@ -191,6 +212,17 @@ impl<'a> Window<'a> {
                 && !self.suppressed.contains(&scan)
                 && held.is_scancode_pressed(scan)
         };
+        let mut keys = Keys::default();
+        for (scan, key) in control_scancodes() {
+            keys.set(key, held_key(scan));
+        }
+        if keys != self.control_keys {
+            self.control_keys = keys;
+            self.control_changes.push(HostChange {
+                at_ns: control_timestamp(),
+                keys,
+            });
+        }
         Input {
             up: held_key(Scancode::Up),
             down: held_key(Scancode::Down),
@@ -207,6 +239,17 @@ impl<'a> Window<'a> {
             settings_open,
             settings_changed,
         }
+    }
+
+    pub(crate) fn control_keys(&self) -> Keys {
+        self.control_keys
+    }
+
+    pub(crate) fn take_control_changes(&mut self) -> (u64, Vec<HostChange>) {
+        (
+            control_timestamp(),
+            std::mem::take(&mut self.control_changes),
+        )
     }
 
     pub fn present(&mut self, rgba: &[u8]) -> Result<(), String> {
@@ -291,6 +334,66 @@ fn route_guest_key(
     }
 }
 
+fn control_timestamp() -> u64 {
+    // SDL keyboard-event timestamps use this clock. The wrapper currently
+    // exposes only millisecond ticks, so isolate the nanosecond FFI call here.
+    // SAFETY: SDL_GetTicksNS takes no pointers and is safe on any thread.
+    unsafe { reforge_sdl::sdl3::sys::timer::SDL_GetTicksNS() }
+}
+
+fn control_scancodes() -> [(Scancode, Key); 6] {
+    [
+        (Scancode::Up, Key::Up),
+        (Scancode::Down, Key::Down),
+        (Scancode::Left, Key::Left),
+        (Scancode::Right, Key::Right),
+        (Scancode::LAlt, Key::LeftAlt),
+        (Scancode::RAlt, Key::RightAlt),
+    ]
+}
+
+fn record_controls(event: &Event, blocked: bool, keys: &mut Keys, changes: &mut Vec<HostChange>) {
+    let before = *keys;
+    let timestamp = match event {
+        Event::KeyDown {
+            timestamp,
+            scancode: Some(scan),
+            repeat: false,
+            ..
+        } if !blocked => {
+            if let Some((_, key)) = control_scancodes().into_iter().find(|(s, _)| s == scan) {
+                keys.set(key, true);
+            }
+            *timestamp
+        }
+        Event::KeyUp {
+            timestamp,
+            scancode: Some(scan),
+            ..
+        } => {
+            if let Some((_, key)) = control_scancodes().into_iter().find(|(s, _)| s == scan) {
+                keys.set(key, false);
+            }
+            *timestamp
+        }
+        Event::Window {
+            timestamp,
+            win_event: WindowEvent::FocusLost,
+            ..
+        } => {
+            *keys = Keys::default();
+            *timestamp
+        }
+        _ => return,
+    };
+    if before != *keys {
+        changes.push(HostChange {
+            at_ns: timestamp,
+            keys: *keys,
+        });
+    }
+}
+
 fn modifier_key(scancode: Scancode) -> bool {
     matches!(
         scancode,
@@ -362,6 +465,79 @@ impl Input {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_events_keep_timestamps_and_release_without_repeats_or_menu_presses() {
+        let event = |timestamp, scan, repeat| Event::KeyDown {
+            timestamp,
+            window_id: 1,
+            which: 0,
+            raw: 0,
+            scancode: Some(scan),
+            keycode: None,
+            keymod: Mod::NOMOD,
+            repeat,
+        };
+        let mut keys = Keys::default();
+        let mut changes = Vec::new();
+        record_controls(
+            &event(60, Scancode::Right, false),
+            false,
+            &mut keys,
+            &mut changes,
+        );
+        record_controls(
+            &event(70, Scancode::Right, true),
+            false,
+            &mut keys,
+            &mut changes,
+        );
+        record_controls(
+            &event(75, Scancode::Left, false),
+            true,
+            &mut keys,
+            &mut changes,
+        );
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].at_ns, 60);
+        assert_eq!(changes[0].keys.controls().0.x, 1);
+        record_controls(
+            &Event::KeyUp {
+                timestamp: 80,
+                window_id: 1,
+                which: 0,
+                raw: 0,
+                scancode: Some(Scancode::Right),
+                keycode: None,
+                keymod: Mod::NOMOD,
+                repeat: false,
+            },
+            true,
+            &mut keys,
+            &mut changes,
+        );
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[1].at_ns, 80);
+        assert_eq!(changes[1].keys, Keys::default());
+        record_controls(
+            &event(90, Scancode::LAlt, false),
+            false,
+            &mut keys,
+            &mut changes,
+        );
+        record_controls(
+            &Event::Window {
+                timestamp: 100,
+                window_id: 1,
+                win_event: WindowEvent::FocusLost,
+            },
+            false,
+            &mut keys,
+            &mut changes,
+        );
+        assert_eq!(changes.last().unwrap().at_ns, 100);
+        assert_eq!(keys, Keys::default());
+    }
 
     #[test]
     fn pause_discards_wall_time_and_requires_a_fresh_press() {

@@ -14,6 +14,8 @@ mod cheese;
 pub mod cli;
 mod clothes;
 mod completion;
+#[cfg(any(feature = "sdl", test))]
+mod control_history;
 mod decoration;
 #[cfg(feature = "dev-tools")]
 pub mod dev_tools;

@@ -954,7 +954,13 @@ fn row_with_width(
         // Keep widget widths/positions fixed; locks never cover widget content.
         let (rect, response) = ui.allocate_exact_size(Vec2::new(20.0, 22.0), egui::Sense::hover());
         if let Some(reason) = &lock_tooltip {
-            paint_lock(ui.painter(), rect.center(), CLI_LOCK);
+            if ui.is_visible() {
+                // CLI restrictions remain visible even inside an inherited or
+                // otherwise disabled section. Leave widget fading untouched.
+                let mut painter = ui.painter().clone();
+                painter.set_fade_to_color(None);
+                paint_lock(&painter, rect.center(), CLI_LOCK);
+            }
             response
                 .on_hover_text(reason)
                 .on_disabled_hover_text(reason);
@@ -1197,6 +1203,7 @@ mod tests {
             (1, true, true, false, false),
             (1, true, true, true, false),
             (1, true, true, false, true),
+            (1, true, false, false, true),
         ] {
             let context = egui::Context::default();
             style(&context);
@@ -1258,6 +1265,14 @@ mod tests {
                     break;
                 }
                 let label = label.expect("Mach 3 control must be visible");
+                if locked {
+                    assert!(
+                        output.shapes.iter().any(|shape| {
+                            matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == CLI_LOCK)
+                        }),
+                        "CLI lock must retain its colour when section defaults disable the row"
+                    );
+                }
                 assert!(label.top() > text_rect(&output, "Sound renderer").unwrap().bottom());
                 if step < 2 {
                     button = text_rect(&output, "On").unwrap().center();

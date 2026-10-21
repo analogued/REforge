@@ -443,6 +443,7 @@ impl CompletionCosts {
 
 /// Callable Hearts presentation helpers on the shared XT baseline. These
 /// fitted values exclude deliberate BIOS/retrace waits and unmeasured glue.
+/// Pairing frames retain state work but omit simulated sprite-drawing latency.
 #[derive(Clone, Copy, Debug)]
 pub struct HeartsPresentationCosts {
     pub sprites: [u64; 6],
@@ -490,11 +491,20 @@ impl HeartsPresentationCosts {
     }
 
     fn nanos(self, work: crate::hearts_completion::PresentationWork) -> u64 {
-        work.sprites
-            .into_iter()
-            .zip(self.sprites)
-            .map(|(count, cost)| u64::from(count) * cost)
-            .sum::<u64>()
+        // Pairing is paced by its native tick gates, not historical drawing
+        // throughput. Keep sprite metadata intact so these bytes cannot receive
+        // a fallback drawing charge. Other uses of the same sprites retain
+        // their measured costs, including the large approach cat.
+        let drawing = if work.pair_items == 0 {
+            work.sprites
+                .into_iter()
+                .zip(self.sprites)
+                .map(|(count, cost)| u64::from(count) * cost)
+                .sum::<u64>()
+        } else {
+            0
+        };
+        drawing
             + u64::from(work.pair_items) * self.pair_item
             + u64::from(work.increasing_axes) * self.increasing_axis
             + u64::from(work.decreasing_axes) * self.decreasing_axis
@@ -3797,6 +3807,66 @@ mod tests {
                 older.clock.elapsed_nanos() - before,
                 work.bytes_drawn as u128 * u128::from(older.costs.completion_draw_byte)
             );
+        }
+    }
+
+    #[test]
+    fn pairing_omits_drawing_latency_without_losing_byte_accounting() {
+        use crate::hearts_completion::{PresentationSprite, PresentationWork};
+
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            for sprite in [
+                PresentationSprite::PairSmall,
+                PresentationSprite::PairMedium,
+                PresentationSprite::ApproachCat,
+            ] {
+                for copies in [1, 8] {
+                    let mut hearts = PresentationWork {
+                        pair_items: 8,
+                        increasing_axes: 4,
+                        decreasing_axes: 3,
+                        upper_clamps: 1,
+                        lower_clamps: 2,
+                        ..Default::default()
+                    };
+                    hearts.sprites[sprite as usize] = copies;
+                    let mut runtime = Runtime::new(machine);
+                    let costs = runtime.costs.hearts_presentation.unwrap();
+                    let state = 8 * costs.pair_item
+                        + 4 * costs.increasing_axis
+                        + 3 * costs.decreasing_axis
+                        + costs.upper_clamp
+                        + 2 * costs.lower_clamp;
+                    let work = crate::completion::Work {
+                        bytes_drawn: hearts.bytes() + 384,
+                        hearts,
+                        ..Default::default()
+                    };
+                    runtime.charge_completion(work, 0);
+                    assert_eq!(
+                        runtime.clock.elapsed_nanos(),
+                        u128::from(state + 384 * runtime.costs.completion_draw_byte)
+                    );
+
+                    // Outside pairing, exactly the same image work still costs
+                    // its measured allowance; the legacy profile uses bytes.
+                    let standalone = PresentationWork {
+                        sprites: hearts.sprites,
+                        ..Default::default()
+                    };
+                    assert_eq!(
+                        costs.nanos(standalone),
+                        u64::from(copies) * costs.sprites[sprite as usize]
+                    );
+                    let mut older =
+                        Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
+                    older.charge_completion(work, 0);
+                    assert_eq!(
+                        older.clock.elapsed_nanos(),
+                        work.bytes_drawn as u128 * u128::from(older.costs.completion_draw_byte)
+                    );
+                }
+            }
         }
     }
 

@@ -523,11 +523,15 @@ callable presentation helpers separately from their deliberate waits:
 - Celebration frames cost about 10.34–87.76 ms for the original difficulty
   lists of 4, 8, 16, 24, 26 or 34 decorations. Both image phases use the same
   fitted per-copy cost; the five-tick cadence and forty-tick lifetime remain separate.
-- The approach/large pairing cat draw costs about 24.88 ms, its panel 0.93 ms,
-  and the smaller pairing shapes 2.00 and 7.35 ms per draw. Pairing draws one
-  image on its initial frame and eight thereafter, plus the movement helpers
-  actually executed. One position update takes about 33–101 microseconds,
-  depending on movement and clamping.
+- The approach cat draw costs about 24.88 ms and its panel 0.93 ms.
+  Pairing renders one image on its initial frame and eight thereafter, but
+  omits simulated sprite-drawing latency. Its three groups retain their native
+  one-, two- and three-BIOS-tick gates and movement/bookkeeping allowances.
+  One position update takes about 33–101 microseconds, depending on movement
+  and clamping. The measured small/medium/large drawing fits (2.00, 7.35 and
+  24.88 ms) remain available for isolated helper comparisons; pairing does not
+  charge them or a fallback byte allowance. See the
+  [pairing presentation policy](deviations.md#hearts-pairing-presentation).
 - Each falling-cat copy costs about 0.77 ms, including the equal-sized blank
   erasing its previous position. Its landing image costs about 1.47 ms.
 
@@ -536,9 +540,10 @@ measurements. The opaque copy loop is independent of pixel values; the transpare
 save/draw loop branches on source pixels, not the saved background. Sprite source
 and shape therefore matter, while changing only the background does not change
 their instruction paths. Video phase and interrupts still limit repeatability.
-Drawing advances the same timeline as waits, rather than adding a second delay
-after them. A frame can nevertheless exceed its timer deadline; measured
-throughput alone does not establish whether that slowdown was intended.
+Charged drawing advances the same timeline as waits, rather than adding a second
+delay after them. Pairing excludes drawing latency to avoid reproducing historical
+throughput stalls. Its tick gates still use integer BIOS ticks, so their elapsed
+duration depends on the starting tick phase.
 
 Score arithmetic uses the transition-bookkeeping allowance below. Bounded Hearts
 state work has separate XT allowances, additional to polling and drawing:

@@ -30,6 +30,20 @@ cargo run --locked -p reforge --release --features dev-tools -- \
 These are hold thresholds, not exact total visible durations: animation also
 depends on its invocation countdown, retrace gate, and actor contact.
 
+## Hearts pairing presentation
+
+The default XT profile omits simulated sprite-drawing latency during the three
+pairing groups in the Hearts winning presentation. This avoids slowing larger
+frames to reproduce historical drawing throughput. All images, frame counts,
+positions and movement updates remain intact, together with the original
+one-, two- and three-BIOS-tick gates and movement/bookkeeping allowances.
+The melody logic and ordered sound commands are unchanged; their timing follows
+the resulting presentation pace.
+
+This policy applies only to pairing frames. Other presentation drawing costs,
+including the shared large cat's approach animation, retain their measured
+allowances. The older DOSBox timing profile retains its byte-based drawing costs.
+
 ## Pause controls
 
 The original pauses on Esc and resumes on any key press. The recreation toggles

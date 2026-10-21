@@ -702,15 +702,17 @@ interrupt placement or random-stream synchronization. Path-specific limits and
 uncalibrated work are identified alongside the costs.
 
 Ordinary cat actions use shared execution allowances across the alley and the
-fishbowl, bookcase, cheese, birdcage and milk rooms. These are chosen modern
-pacing values based on the XT measurements, rather than a promise to reproduce
-every measured search or drawing overhead:
+fishbowl, bookcase, cheese, birdcage and milk rooms. Comparable Hearts walking,
+idle, descent and silent platform landings also use these allowances. These are
+chosen modern pacing values based on the XT measurements, rather than a promise
+to reproduce every measured search or drawing overhead:
 
 | Accepted action | Execution allowance |
 | --- | ---: |
 | Walking, complete eleven-row image | 2.720 ms |
 | Idle redraw | 2.480 ms |
 | Idle without redraw | 0.360 ms |
+| Begin falling after losing support, without redraw | 0.360 ms |
 | Jump initiation from floor or ordinary furniture | 0.300 ms |
 | Rising | 2.870 ms |
 | Unsupported descent, complete twelve-row image | 3.240 ms |
@@ -728,9 +730,11 @@ increase the shared walking allowance.
 
 Floor takeoff retains the current image. Ordinary state-zero furniture uses the
 same jump-initiation cost when its successful support hit clears into an upward
-transition. Displacement starts on subsequent accepted calls. Bookcase support
-loss that starts a stationary fall without drawing remains a distinct path with
-its 1.041 ms allowance; it is not a full falling movement update.
+transition. Displacement starts on subsequent accepted calls. Losing support
+and starting a stationary fall without drawing uses the shared 0.360 ms
+no-redraw allowance, including the bookcase's failed furniture search. This
+is a policy allowance, not a universal measured support-search duration or a
+full falling movement update.
 
 Ordinary silent alley-floor landings use 0.950 ms plus 0.190 ms per retained image
 row, for complete six-byte-wide sprites of ten through thirteen rows. Twelve-row
@@ -743,7 +747,7 @@ separate or fallback allowances.
 Ground idle and ordinary state-zero furniture idle share the same redraw and
 skipped-draw costs. The modulo-eight idle animation gate and redraw-only random
 consumption are preserved; no table-setup or per-visited-entry charge is added.
-Swimming and special Hearts platform/clipping paths retain their own costs.
+Swimming and special Hearts clipping paths retain their own costs.
 
 Ordinary lower-list landing and takeoff retain separate sound bookkeeping:
 3.179 ms for landing or 0.641 ms for takeoff, plus 0.050 ms for an initially clear
@@ -765,31 +769,34 @@ instrumentation adds work, and native IRQ phase varies. Normalized allowances
 are checked as policy values, separately from the original measured durations.
 Physical PCjr timing remains unmeasured; the older DOSBox profile is unchanged.
 
-Hearts common-player movement has its own bounded XT costs, separate from the
-scene's cat, arrow, gift and presentation helpers. Walking on a solid platform
-uses 2.896 ms, a first idle redraw 2.678 ms and a skipped idle update 0.547 ms.
-Unsupported descending bodies with an actual platform search take 3.056 ms;
-landings with a complete retained twelve-row jump image use 3.047 ms. The
-selected lower-edge draw from twelve saved rows to ten visible rows takes
-2.659 ms. This replaces the generic 26.514 ms landing allowance on the measured
-silent platform landings, whose medians are 3.017–3.076 ms.
+Hearts common-player movement remains separate from the scene's cat, arrow,
+gift and presentation helpers. Ordinary solid-platform walking, idle redraw and
+skipped idle use the shared 2.720, 2.480 and 0.360 ms allowances. Unsupported
+descent with an actual platform search uses 3.240 ms, and silent platform
+landings with a complete retained twelve-row jump image use 3.230 ms. Native
+support-lookup work no longer gives these actions different pacing from other
+rooms. Platform geometry, gaps, movement boundaries and fall/exit rules remain
+scene-specific.
 
-These fits require no entry/death or attached state, with the corresponding
+These paths require no entry/death or attached state, with the corresponding
 visible, non-alternate saved walking/idle/transition shape. The descent and
-landing fits require the actual support-search flag. The lower-edge fit covers
-Y189 with the same original twelve-row source, ten drawn rows and no support
-search. Further valid clipped histories use the row-based fits below; alternate
-images and hidden-image reappearance retain their fallback.
-Jump initiation, rising and losing support over a gap keep their existing costs,
-already within the 0.150 ms accepted-body bound on the selected cases.
+landing guards require the actual support-search flag. The selected lower-edge
+draw from twelve saved rows to ten visible rows retains its separate 2.659 ms
+fit. It covers Y189 with the same original twelve-row source, ten drawn rows
+and no support search. Further valid clipped histories use the row-based fits
+below; alternate images and hidden-image reappearance retain their fallback.
+Jump initiation keeps its existing no-redraw fallback; rising uses the shared
+2.870 ms allowance and losing support over a gap uses 0.360 ms.
 
 Twenty cases pair FC/FD software IDs on the shared XT. Forty repeated
 measurements plus two controls match 53 selected fields, complete backing and
 presented video memory, actual support/landing flags and zero PIT-tone programs.
-All comparisons, including the unchanged paths, are within 0.109 ms of the
-medians; changed fitted totals are within 0.030 ms. This bounded same-capture
-fit samples fixed sprites, positions and difficulty zero, with landings at two
-platform heights. It excludes other geometry/shapes, actor collisions, the
+The selected captures measure walking near 2.896 ms, idle redraw 2.678 ms,
+skipped idle 0.547 ms, descent 3.028–3.085 ms and landings 3.017–3.076 ms.
+Normalized policy values are checked separately from these measured durations;
+they are not exact native timing fits. This bounded comparison samples fixed
+sprites, positions and difficulty zero, with landings at two platform heights.
+It excludes other geometry/shapes, actor collisions, the
 acceptance gate, outer failure dispatch, whole-loop cadence and physical PCjr.
 Native motion, platform results, modulo-eight idle gating, redraw-only random
 consumption and deliberate waits are unchanged. Execution costs do not establish

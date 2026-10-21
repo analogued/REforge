@@ -1688,6 +1688,8 @@ pub struct Runtime {
     pub controls_gate: ControlsGate,
     pub divider: OuterLoopDivider,
     pub controls: Controls,
+    /// Responsive host input refresh; native timing charges stay unchanged.
+    pub responsive_controls: bool,
     costs: ReferenceCosts,
     machine: Machine,
     fence: Option<FenceEffect>,
@@ -1743,6 +1745,7 @@ impl Runtime {
             controls_gate: ControlsGate::new(u16::MAX - 1),
             divider: OuterLoopDivider::new(0),
             controls: Controls::default(),
+            responsive_controls: false,
             costs,
             machine,
             fence: None,
@@ -2281,7 +2284,8 @@ impl Runtime {
     }
 
     /// Sample host history at the original control gate's virtual timestamp.
-    /// Blocking work and rejected control polls never consume an input sample.
+    /// Responsive mode also refreshes requests between native
+    /// polls, without charging extra emulated work. Blocking work never samples.
     pub fn advance_pass_with_input(
         &mut self,
         alley: &mut Alley,
@@ -2561,13 +2565,15 @@ impl Runtime {
             && self
                 .controls_gate
                 .should_poll(self.clock.sample().bios.tick_low);
-        if control_polled {
+        if !resumed_fall && (control_polled || self.responsive_controls) {
             let (held, action) = sample_input(self.clock.elapsed_nanos());
             self.controls = held;
             alley.latch_action(action);
             if alley.scene() == 6 {
                 alley.latch_controls(self.controls);
             }
+        }
+        if control_polled {
             self.clock.advance_nanos(self.costs.control_decode);
             self.clock.advance_nanos(self.costs.pit_read);
             let start = self.clock.sample().pit_counter;
@@ -3928,6 +3934,79 @@ mod tests {
                 assert_eq!(runtime.controls.x, expected);
             }
         }
+    }
+
+    #[test]
+    fn responsive_requests_refresh_between_native_polls_without_extra_clock_cost() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let run = |responsive| {
+                let mut alley = Alley::synthetic();
+                let mut runtime = Runtime::new(machine);
+                runtime.responsive_controls = responsive;
+                runtime.controls_gate = ControlsGate::new(0);
+                runtime.player_gate = PlayerGate::new(0, 0);
+                let mut calls = 0;
+                let event = runtime
+                    .advance_pass_with_input(&mut alley, |_| {
+                        calls += 1;
+                        (Controls { x: 1, y: 0 }, true)
+                    })
+                    .unwrap();
+                assert!(!event.control_polled);
+                (runtime.clock.elapsed_nanos(), runtime.controls, calls)
+            };
+            let original = run(false);
+            let responsive = run(true);
+            assert_eq!(original.0, responsive.0);
+            assert_eq!(original.1, Controls::default());
+            assert_eq!(original.2, 0);
+            assert_eq!(responsive.1, Controls { x: 1, y: 0 });
+            assert_eq!(responsive.2, 1);
+        }
+    }
+
+    #[test]
+    fn responsive_constant_walking_keeps_movement_clock_and_frames_identical() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            for direction in [-1, 0, 1] {
+                let run = |responsive| {
+                    let mut alley = Alley::synthetic();
+                    let mut runtime = Runtime::new(machine);
+                    runtime.responsive_controls = responsive;
+                    let mut trace = Vec::new();
+                    while runtime.clock.elapsed_nanos() < 600_000_000 {
+                        let event = runtime
+                            .advance_pass_with_action(
+                                &mut alley,
+                                Controls { x: direction, y: 0 },
+                                false,
+                            )
+                            .unwrap();
+                        trace.push(format!("{event:?};{:?}", alley.player));
+                    }
+                    (
+                        trace,
+                        alley.framebuffer().bytes().to_vec(),
+                        runtime.clock.elapsed_nanos(),
+                    )
+                };
+                assert_eq!(run(false), run(true));
+            }
+        }
+    }
+
+    #[test]
+    fn responsive_input_does_not_interrupt_native_blocking_effects() {
+        let mut alley = Alley::synthetic();
+        let mut runtime = Runtime::new(Machine::Cga);
+        runtime.responsive_controls = true;
+        runtime.fence = Some(FenceEffect::new(runtime.clock.sample().bios.tick_low));
+        let event = runtime
+            .advance_pass_with_input(&mut alley, |_| {
+                panic!("blocking fence effect must not sample controls")
+            })
+            .unwrap();
+        assert!(event.fence_wait);
     }
 
     #[test]

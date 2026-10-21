@@ -1396,12 +1396,18 @@ These bounds affect host responsiveness, not guest execution costs or BIOS
 ticks. Display refresh never supplies BIOS ticks.
 
 Gameplay directions and Alt retain SDL key-transition timestamps. The runner maps
-them onto the paced virtual timeline and samples their held state at the modeled
-control gate, including during catch-up. A press spanning an overdue poll is
-retained, and a later press does not affect that earlier poll. A complete tap
-between guest polls can still legitimately be missed; taps are not latched until
-consumption. Opposing directions retain left/up precedence, and either Alt key
-holds the action.
+them onto the paced virtual timeline, including during catch-up. Interactive
+play defaults to Responsive input: direction and action requests are refreshed
+on each ordinary pass. The original control-gate work is still charged only
+when that gate opens, so this adds no virtual execution cost or movement updates.
+Original input, selectable under Alley Cat overrides → Controls, samples only at
+the modeled control gate. Headless reference runs retain Original input.
+
+Both modes preserve movement gates, blocking effects and timestamp ordering.
+A press spanning an overdue sample is retained, and a later press does not affect
+that earlier sample. A complete tap between samples can still be missed; taps
+are not latched until consumption. Opposing directions retain left/up precedence,
+and either Alt key holds the action.
 
 When a host interval exceeds 100 ms, only its latest 100 ms are retained. Older
 input changes collapse to the start of that interval, preserving its final held

@@ -914,6 +914,7 @@ fn interactive(
     alley.sound.reset();
     alley.sound.record(true);
     let mut runtime = Runtime::new(alley.machine());
+    runtime.responsive_controls = window.responsive_controls();
     let mut control_history = ControlHistory::new(window.control_keys());
     let start = Instant::now();
     let mut pause_clock = PauseClock::new(start);
@@ -939,6 +940,7 @@ fn interactive(
             alley.sound.reset();
             alley.sound.record(true);
             runtime = Runtime::new(alley.machine());
+            runtime.responsive_controls = window.responsive_controls();
             control_history = ControlHistory::new(window.control_keys());
             target_nanos = 0;
             let now = Instant::now();
@@ -947,6 +949,7 @@ fn interactive(
             window.present(&alley.rgba())?;
             continue;
         }
+        runtime.responsive_controls = window.responsive_controls();
         let input = window.poll_input();
         if input.quit {
             break;
@@ -968,6 +971,7 @@ fn interactive(
             alley.sound.reset();
             alley.sound.record(true);
             runtime = Runtime::new(alley.machine());
+            runtime.responsive_controls = window.responsive_controls();
             control_history = ControlHistory::new(window.control_keys());
             target_nanos = 0;
             let now = Instant::now();

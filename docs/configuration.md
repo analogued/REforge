@@ -52,6 +52,9 @@ mask_intensity = 0.35
 [games.alley-cat.display]
 scale = 4
 
+[games.alley-cat.controls]
+control_mode = "original"
+
 [games.mach-3.display]
 vsync = false
 
@@ -213,6 +216,21 @@ Unavailable audio does not prevent unrelated Display/CRT changes.
 locks its menu control for that run. It is never saved into preferences.
 Latency remains the existing buffering policy, and output remains mono; the
 mockup's Latency and Keep original mono controls are intentionally absent.
+
+## Alley Cat controls
+
+**Alley Cat overrides → Controls → Input response** offers **Responsive** (the
+built-in default) and **Original**. Responsive refreshes direction and action
+requests more often, preserving movement cadence and blocking effects. Original
+retains the original game's input polling. Apply changes the running game and
+saves the preference; Cancel discards pending edits.
+
+This option exists only for Alley Cat, without a Global defaults or Mach 3
+counterpart. It is stored as `[games.alley-cat.controls] control_mode = "original"`;
+selecting Responsive removes that override. Uncheck **Use defaults for this
+section** to edit it. Restoring section defaults removes only the Alley Cat
+Controls override on Apply; global resets leave it intact. Reference/headless
+diagnostics retain original input polling.
 
 ## Mach 3 digitized samples
 

@@ -1,16 +1,17 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
-//! Compact Display, CRT and Audio pages. Editing is separate from activation and persistence.
+//! Compact settings pages. Editing is separate from activation and persistence.
 use crate::settings::{SettingsMenu, VideoCapabilities};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
-    Backend, DIGITIZED_SAMPLES, FrameLimit, Presentation, Renderer, RuntimeSettings, SECTION_KEYS,
-    SHADER_PARAMETERS, SoundCategory, SoundRenderer, section_index,
+    Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, Presentation, Renderer,
+    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, SoundCategory, SoundRenderer, section_index,
 };
 const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
 const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
 const CLI_LOCK: Color32 = Color32::from_rgb(182, 169, 214);
 const CLI_BANNER: Color32 = Color32::from_rgb(35, 58, 72);
 const CLI_NOTICE: Color32 = Color32::from_rgb(190, 214, 228);
+const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
 pub(super) fn style(context: &egui::Context) {
     context.style_mut(|s| {
         s.animation_time = 0.0;
@@ -64,14 +65,20 @@ pub(super) fn draw(
                     ),
                 );
             });
+            // A game-only page cannot remain selected after changing scope.
+            let controls_visible = menu.scope == 1 && menu.alleycat_options;
+            if menu.page == 3 && !controls_visible {
+                menu.page = 0;
+            }
             ui.separator();
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(132.0);
                     ui.add_space(6.0);
-                    for (page, label) in
-                        ["Display", "CRT & Colour", "Audio"].into_iter().enumerate()
-                    {
+                    for (page, label) in PAGES.into_iter().enumerate() {
+                        if page == 3 && !controls_visible {
+                            continue;
+                        }
                         if ui
                             .add_sized(
                                 [132.0, 32.0],
@@ -86,7 +93,7 @@ pub(super) fn draw(
                 ui.separator();
                 ui.vertical(|ui| {
                     ui.set_width((width - 164.0).max(180.0));
-                    ui.heading(["Display", "CRT & Colour", "Audio"][menu.page]);
+                    ui.heading(PAGES[menu.page]);
                     let notice_height =
                         if section_has_cli_locks(&cli, menu.page, menu.scope, menu.mach3_options) {
                             cli_notice(ui).rect.height() + ui.spacing().item_spacing.y
@@ -98,7 +105,7 @@ pub(super) fn draw(
                         if ui
                             .checkbox(
                                 &mut inherit,
-                                if menu.page == 2 && menu.mach3_options {
+                                if menu.page == 3 || (menu.page == 2 && menu.mach3_options) {
                                     "Use defaults for this section"
                                 } else {
                                     "Use global defaults for this section"
@@ -325,7 +332,7 @@ pub(super) fn draw(
                                         menu.scope,
                                         &cli,
                                     );
-                                } else {
+                                } else if menu.page == 2 {
                                     audio_controls(
                                         ui,
                                         &mut value,
@@ -339,6 +346,14 @@ pub(super) fn draw(
                                         enabled,
                                         menu.mach3_options,
                                     );
+                                } else if menu.page == 3 {
+                                    controls_controls(
+                                        ui,
+                                        &mut value,
+                                        base.clone(),
+                                        previous.clone(),
+                                        &cli,
+                                    );
                                 }
                             });
                         });
@@ -349,6 +364,14 @@ pub(super) fn draw(
                         && !cli.contains_key(DIGITIZED_SAMPLES)
                     {
                         draft.edit(true, DIGITIZED_SAMPLES, value.get(DIGITIZED_SAMPLES));
+                        menu.game_touched[menu.page] = true;
+                    }
+                    if menu.page == 3
+                        && controls_visible
+                        && original.alleycat != value.alleycat
+                        && !cli.contains_key(CONTROL_MODE)
+                    {
+                        draft.edit(true, CONTROL_MODE, value.get(CONTROL_MODE));
                         menu.game_touched[menu.page] = true;
                     }
                     let keys = SECTION_KEYS[menu.page];
@@ -367,7 +390,7 @@ pub(super) fn draw(
                 if ui
                     .button(if menu.scope == 0 {
                         "Reset section"
-                    } else if menu.page == 2 && menu.mach3_options {
+                    } else if menu.page == 3 || (menu.page == 2 && menu.mach3_options) {
                         "Restore defaults"
                     } else {
                         "Restore global defaults"
@@ -422,6 +445,37 @@ pub(super) fn draw(
         });
     close
 }
+fn controls_controls(
+    ui: &mut egui::Ui,
+    value: &mut RuntimeSettings,
+    base: RuntimeSettings,
+    previous: RuntimeSettings,
+    cli: &reforge_settings::Patch,
+) {
+    section(ui, "Gameplay");
+    row(
+        ui,
+        "Input response",
+        CONTROL_MODE,
+        value.clone(),
+        base,
+        previous,
+        1,
+        cli,
+        |ui| {
+            egui::ComboBox::from_id_salt(CONTROL_MODE)
+            .width(220.0)
+            .selected_text(value.alleycat.control_mode.label())
+            .show_ui(ui, |ui| {
+                for mode in ControlMode::ALL {
+                    ui.selectable_value(&mut value.alleycat.control_mode, mode, mode.label());
+                }
+            })
+            .response.on_hover_text("Responsive reacts sooner to direction and action changes. Original preserves the game's original input response.");
+        },
+    );
+}
+
 fn crt_controls(
     ui: &mut egui::Ui,
     value: &mut RuntimeSettings,

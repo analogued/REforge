@@ -42,14 +42,24 @@ pub const AUDIO_KEYS: &[&str] = &[
     "output_device",
     "mute_unfocused",
 ];
-pub const SECTION_KEYS: [&[&str]; 3] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS];
+// Controls currently contains only game-specific keys, never global defaults.
+pub const SECTION_KEYS: [&[&str]; 4] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS, &[]];
 pub const DIGITIZED_SAMPLES: &str = "digitized_samples";
+pub const CONTROL_MODE: &str = "control_mode";
 fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
-    (game == "mach-3").then_some(DIGITIZED_SAMPLES).into_iter()
+    match game {
+        "mach-3" => Some(DIGITIZED_SAMPLES),
+        "alley-cat" => Some(CONTROL_MODE),
+        _ => None,
+    }
+    .into_iter()
 }
 pub fn section_index(key: &str) -> usize {
     if key == DIGITIZED_SAMPLES {
         return 2;
+    }
+    if key == CONTROL_MODE {
+        return 3;
     }
     SECTION_KEYS
         .iter()
@@ -63,6 +73,8 @@ pub fn keys() -> impl Iterator<Item = &'static str> {
 fn section(key: &str) -> &'static str {
     if key == DIGITIZED_SAMPLES {
         "gameplay"
+    } else if key == CONTROL_MODE {
+        "controls"
     } else if CRT_KEYS.contains(&key) {
         "crt"
     } else if AUDIO_KEYS.contains(&key) {
@@ -242,6 +254,43 @@ impl HyllianSettings {
 pub struct Mach3Settings {
     pub digitized_samples: bool,
 }
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ControlMode {
+    #[default]
+    Responsive,
+    Original,
+}
+impl ControlMode {
+    pub const ALL: [Self; 2] = [Self::Responsive, Self::Original];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Responsive => "responsive",
+            Self::Original => "original",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Responsive => "Responsive",
+            Self::Original => "Original",
+        }
+    }
+}
+impl std::str::FromStr for ControlMode {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "responsive" => Ok(Self::Responsive),
+            "original" => Ok(Self::Original),
+            _ => Err("control mode must be responsive or original".into()),
+        }
+    }
+}
+/// Alley Cat input policy; it has no global or other-game counterpart.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AlleyCatSettings {
+    pub control_mode: ControlMode,
+}
 impl Default for Mach3Settings {
     fn default() -> Self {
         Self {
@@ -262,6 +311,7 @@ pub struct RuntimeSettings {
     pub hyllian: HyllianSettings,
     pub audio: AudioSettings,
     pub mach3: Mach3Settings,
+    pub alleycat: AlleyCatSettings,
 }
 impl Default for RuntimeSettings {
     fn default() -> Self {
@@ -276,6 +326,7 @@ impl Default for RuntimeSettings {
             hyllian: HyllianSettings::default(),
             audio: AudioSettings::default(),
             mach3: Mach3Settings::default(),
+            alleycat: AlleyCatSettings::default(),
         }
     }
 }
@@ -362,6 +413,7 @@ impl RuntimeSettings {
     pub fn get(&self, key: &str) -> String {
         match key {
             DIGITIZED_SAMPLES => self.mach3.digitized_samples.to_string(),
+            CONTROL_MODE => self.alleycat.control_mode.as_str().into(),
             "window_mode" => if self.fullscreen {
                 "fullscreen"
             } else {
@@ -390,6 +442,7 @@ impl RuntimeSettings {
     }
     pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
         match key {
+            CONTROL_MODE => self.alleycat.control_mode = value.parse()?,
             DIGITIZED_SAMPLES => {
                 self.mach3.digitized_samples = match value {
                     "on" | "true" => true,
@@ -475,6 +528,7 @@ impl Draft {
     pub fn global_values(&self) -> RuntimeSettings {
         let mut values = overlay(RuntimeSettings::default(), &self.global);
         values.mach3 = Mach3Settings::default();
+        values.alleycat = AlleyCatSettings::default();
         values
     }
     pub fn game_values(&self) -> RuntimeSettings {
@@ -506,6 +560,9 @@ impl Draft {
         if game && page == 2 {
             patch.remove(DIGITIZED_SAMPLES);
         }
+        if game && page == 3 {
+            patch.remove(CONTROL_MODE);
+        }
     }
     /// Native game options can share a menu page without acquiring global keys.
     pub fn has_game_overrides(&self, page: usize) -> bool {
@@ -513,9 +570,10 @@ impl Draft {
             .iter()
             .any(|key| self.game.contains_key(*key))
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
+            || page == 3 && self.game.contains_key(CONTROL_MODE)
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
-        if !game && key == DIGITIZED_SAMPLES {
+        if !game && matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE) {
             return;
         }
         let base = if game {
@@ -610,6 +668,9 @@ impl Session {
         if self.game != "mach-3" {
             values.mach3 = Mach3Settings::default();
         }
+        if self.game != "alley-cat" {
+            values.alleycat = AlleyCatSettings::default();
+        }
         values
     }
     pub fn commit(&mut self, draft: Draft) -> Result<(), String> {
@@ -650,6 +711,7 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
                 for name in ["display", "crt", "audio"]
                     .into_iter()
                     .chain((game == "mach-3").then_some("gameplay"))
+                    .chain((game == "alley-cat").then_some("controls"))
                 {
                     if table.get(name).is_some_and(|v| !v.is_table_like()) {
                         *warning = Some(format!("Invalid {name} section; using inherited values"));
@@ -859,6 +921,95 @@ mod tests {
             cli: Patch::new(),
         })
     }
+    #[test]
+    fn alleycat_controls_are_game_only_sparse_and_apply_scoped() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(
+            &path,
+            r#"
+schema_version = 1
+[global.controls]
+control_mode = "original"
+[games.mach-3.controls]
+control_mode = "original"
+"#,
+        )
+        .unwrap();
+        let mut cat = session(path.clone(), "alley-cat");
+        let mut mach = session(path.clone(), "mach-3");
+        assert_eq!(
+            cat.effective(&cat.saved).alleycat.control_mode,
+            ControlMode::Responsive
+        );
+        assert_eq!(
+            mach.effective(&mach.saved).alleycat.control_mode,
+            ControlMode::Responsive
+        );
+        assert!(!mach.saved.game.contains_key(CONTROL_MODE));
+        let mut draft = cat.saved.clone();
+        draft.edit(false, CONTROL_MODE, "original".into());
+        assert!(draft.global.is_empty());
+        draft.edit(true, CONTROL_MODE, "original".into());
+        assert!(draft.has_game_overrides(3));
+        assert_eq!(section_index(CONTROL_MODE), 3);
+        assert_eq!(
+            cat.effective(&cat.saved).alleycat.control_mode,
+            ControlMode::Responsive
+        );
+        // A concurrent change to another game must survive this game's Apply.
+        let mut mach_draft = mach.saved.clone();
+        mach_draft.edit(true, DIGITIZED_SAMPLES, "false".into());
+        mach.commit(mach_draft).unwrap();
+        cat.commit(draft).unwrap();
+        let mut loaded = session(path.clone(), "alley-cat");
+        assert_eq!(
+            loaded.effective(&loaded.saved).alleycat.control_mode,
+            ControlMode::Original
+        );
+        let mut reset = loaded.saved.clone();
+        reset.reset_section(false, 3);
+        reset.reset_section(true, 2);
+        assert_eq!(
+            reset.game_values().alleycat.control_mode,
+            ControlMode::Original
+        );
+        reset.reset_section(true, 3);
+        assert_eq!(
+            reset.game_values().alleycat.control_mode,
+            ControlMode::Responsive
+        );
+        assert_eq!(
+            session(path.clone(), "alley-cat").saved,
+            loaded.saved,
+            "reset is draft-only until Apply"
+        );
+        loaded.commit(reset).unwrap();
+        let doc = read(&path).unwrap();
+        assert!(
+            doc["games"]["alley-cat"]["controls"]
+                .get(CONTROL_MODE)
+                .is_none()
+        );
+        assert_eq!(
+            doc["games"]["mach-3"]["gameplay"][DIGITIZED_SAMPLES].as_bool(),
+            Some(false)
+        );
+        assert_eq!(
+            doc["global"]["controls"][CONTROL_MODE].as_str(),
+            Some("original"),
+            "unrecognized global data is preserved"
+        );
+        // Invalid values warn and fall back without rewriting the user's file.
+        fs::write(&path, "[games.alley-cat.controls]\ncontrol_mode = 'fast'\n").unwrap();
+        let invalid = session(path.clone(), "alley-cat");
+        assert!(invalid.warning.is_some());
+        assert_eq!(
+            invalid.effective(&invalid.saved).alleycat.control_mode,
+            ControlMode::Responsive
+        );
+    }
+
     #[test]
     fn native_samples_are_mach3_only_persistent_and_not_inherited_from_global_audio() {
         let dir = TestDir::new();

@@ -18,7 +18,7 @@ use sdl3::{
 use crate::FrameCreator;
 
 use reforge_settings::Draft;
-pub use reforge_settings::{AudioSettings, RuntimeSettings, SoundRenderer};
+pub use reforge_settings::{AudioSettings, ControlMode, RuntimeSettings, SoundRenderer};
 /// An engine can restrict shared choices when its implementation requires it.
 #[derive(Clone, Copy, Debug)]
 pub struct VideoCapabilities {
@@ -96,9 +96,10 @@ pub struct SettingsMenu<'a> {
     pub(super) audio_renderers: Vec<reforge_settings::SoundRenderer>,
     pub(super) audio_categories: Vec<reforge_settings::SoundCategory>,
     pub(super) mach3_options: bool,
-    pub(super) game_editing: [bool; 3],
+    pub(super) alleycat_options: bool,
+    pub(super) game_editing: [bool; 4],
     pub(super) page: usize,
-    pub(super) game_touched: [bool; 3],
+    pub(super) game_touched: [bool; 4],
     pub(super) status: Option<String>,
     pub(super) jobs: Vec<egui::ClippedPrimitive>,
     pub(super) pending_textures: egui::TexturesDelta,
@@ -111,6 +112,16 @@ pub struct SettingsMenu<'a> {
 }
 
 impl<'a> SettingsMenu<'a> {
+    /// Expose Alley Cat's game-only input policy; no global controls are added.
+    pub fn with_alleycat_options(mut self) -> Self {
+        let mut session = self.creator.session.borrow_mut();
+        if session.game == "standalone" {
+            session.game = "alley-cat".into();
+        }
+        self.alleycat_options = session.game == "alley-cat";
+        drop(session);
+        self
+    }
     /// Declare available engine renderers; absence leaves game audio controls
     /// disabled while shared defaults can still be edited.
     pub fn with_audio_renderers(mut self, renderers: &[reforge_settings::SoundRenderer]) -> Self {
@@ -179,9 +190,10 @@ impl<'a> SettingsMenu<'a> {
             audio_renderers: Vec::new(),
             audio_categories: Vec::new(),
             mach3_options: false,
-            game_editing: [false; 3],
+            alleycat_options: false,
+            game_editing: [false; 4],
             page: 0,
-            game_touched: [false; 3],
+            game_touched: [false; 4],
             status: None,
             jobs: Vec::new(),
             pending_textures: egui::TexturesDelta::default(),
@@ -243,7 +255,7 @@ impl<'a> SettingsMenu<'a> {
                 }
                 self.draft = None;
                 self.pending = None;
-                self.game_touched = [false; 3];
+                self.game_touched = [false; 4];
                 self.events.clear();
                 self.context.memory_mut(|memory| memory.reset_areas());
             }
@@ -269,7 +281,7 @@ impl<'a> SettingsMenu<'a> {
             self.open = false;
             self.draft = None;
             self.pending = None;
-            self.game_touched = [false; 3];
+            self.game_touched = [false; 4];
             self.escape_held = true;
             self.events.clear();
             return true;
@@ -349,7 +361,7 @@ impl<'a> SettingsMenu<'a> {
         if self.draft.is_none() {
             self.audio_devices_loaded = false;
             let saved = self.creator.session.borrow().saved.clone();
-            self.game_editing = [0, 1, 2].map(|page| saved.has_game_overrides(page));
+            self.game_editing = [0, 1, 2, 3].map(|page| saved.has_game_overrides(page));
             self.draft = Some(saved);
         }
         if self.page == 2 && !self.audio_devices_loaded {
@@ -422,7 +434,7 @@ impl<'a> SettingsMenu<'a> {
                 Ok(()) => {
                     self.draft = Some(draft);
                     self.error = None;
-                    self.game_touched = [false; 3];
+                    self.game_touched = [false; 4];
                 }
                 Err(error) => {
                     self.error = Some(format!("Settings applied, but could not save: {error}"))
@@ -770,6 +782,165 @@ mod tests {
                 raw: 0,
             }
         }
+    }
+
+    #[test]
+    #[ignore = "owns SDL video; run serially with dummy/software"]
+    fn alleycat_controls_scope_draft_and_live_apply() {
+        use reforge_settings::{CONTROL_MODE, ControlMode, Launch, Patch, Session};
+        fn draw(menu: &mut SettingsMenu<'_>, events: Vec<egui::Event>) -> egui::FullOutput {
+            let context = menu.context.clone();
+            let screen = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 800.0));
+            context.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    time: Some(menu.started.elapsed().as_secs_f64()),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    crate::settings_ui::draw(menu, ctx, screen);
+                },
+            )
+        }
+        fn label(output: &egui::FullOutput, name: &str) -> Option<egui::Rect> {
+            output.shapes.iter().find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text() == name => {
+                    Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+                }
+                _ => None,
+            })
+        }
+        fn click(menu: &mut SettingsMenu<'_>, name: &str) {
+            draw(menu, vec![]);
+            let output = draw(menu, vec![]);
+            let pos = label(&output, name)
+                .unwrap_or_else(|| panic!("missing {name}"))
+                .center();
+            for pressed in [true, false] {
+                draw(
+                    menu,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        }
+        let path =
+            std::env::temp_dir().join(format!("reforge-controls-ui-{}.toml", std::process::id()));
+        assert!(!path.exists());
+        let launch = Launch {
+            game: "alley-cat".into(),
+            path: Some(path.clone()),
+            cli: Patch::from([
+                ("renderer".into(), "software".into()),
+                ("vsync".into(), "false".into()),
+            ]),
+        };
+        let _guard = launch.clone().install();
+        let mut display = crate::Window::new("controls transaction", 320, 240, Some(4)).unwrap();
+        let creator = display.texture_creator();
+        let mut menu =
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_alleycat_options();
+        menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
+        menu.prepare(display.ui_metrics(), display.settings());
+        assert!(label(&draw(&mut menu, vec![]), "Controls").is_none());
+        click(&mut menu, "Alley Cat overrides");
+        click(&mut menu, "Controls");
+        assert_eq!(menu.page, 3);
+        assert!(label(&draw(&mut menu, vec![]), "Use defaults for this section").is_some());
+        click(&mut menu, "Use defaults for this section");
+        click(&mut menu, "Responsive");
+        click(&mut menu, "Original");
+        assert_eq!(
+            menu.draft
+                .as_ref()
+                .unwrap()
+                .game_values()
+                .alleycat
+                .control_mode,
+            ControlMode::Original
+        );
+        assert_eq!(
+            display.settings().alleycat.control_mode,
+            ControlMode::Responsive
+        );
+        assert!(!path.exists(), "draft changes must not save");
+        click(&mut menu, "Apply");
+        let request = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().expect("clicked Apply"));
+        display.apply_settings(request).unwrap();
+        menu.applied();
+        assert_eq!(
+            display.settings().alleycat.control_mode,
+            ControlMode::Original
+        );
+        assert_eq!(
+            Session::load(launch.clone())
+                .saved
+                .game_values()
+                .get(CONTROL_MODE),
+            "original"
+        );
+        click(&mut menu, "Restore defaults");
+        assert_eq!(
+            menu.draft
+                .as_ref()
+                .unwrap()
+                .game_values()
+                .alleycat
+                .control_mode,
+            ControlMode::Responsive
+        );
+        menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false));
+        assert_eq!(
+            display.settings().alleycat.control_mode,
+            ControlMode::Original
+        );
+        menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, false, false));
+        menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
+        menu.prepare(display.ui_metrics(), display.settings());
+        assert_eq!(
+            menu.draft
+                .as_ref()
+                .unwrap()
+                .game_values()
+                .alleycat
+                .control_mode,
+            ControlMode::Original
+        );
+        click(&mut menu, "Restore defaults");
+        click(&mut menu, "Apply");
+        let request = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().unwrap());
+        display.apply_settings(request).unwrap();
+        menu.applied();
+        assert_eq!(
+            display.settings().alleycat.control_mode,
+            ControlMode::Responsive
+        );
+        assert!(!Session::load(launch).saved.has_game_overrides(3));
+        click(&mut menu, "Global defaults");
+        assert_eq!(menu.page, 0, "switching scope leaves the game-only page");
+        assert!(label(&draw(&mut menu, vec![]), "Controls").is_none());
+        creator.session.borrow_mut().game = "mach-3".into();
+        let mut mach_menu =
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_mach3_options(None);
+        mach_menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
+        mach_menu.prepare(display.ui_metrics(), display.settings());
+        mach_menu.scope = 1;
+        assert!(label(&draw(&mut mach_menu, vec![]), "Controls").is_none());
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

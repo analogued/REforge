@@ -174,7 +174,8 @@ the corresponding dependencies. This crate bundles no game data.
 
 ## Settings menu
 
-F10 opens the shared Compact Display and CRT & Colour pages in either engine.
+F10 opens the Compact Display, CRT & Colour and Audio pages in either engine.
+Alley Cat also exposes a game-only Controls page under its overrides.
 Window mode, scale, renderer, backend, VSync, frame ceiling, Hyllian shader
 controls and Audio use draft edits with Apply/Cancel. Global and game
 preferences are saved through `reforge_settings`; CLI overrides remain temporary

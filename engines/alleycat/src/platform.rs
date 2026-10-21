@@ -141,6 +141,7 @@ impl<'a> Window<'a> {
             frame: FrameTexture::new(creator, width, height, FrameFormat::Rgba)?,
             quit: false,
             settings: SettingsMenu::new(creator, VideoCapabilities::default())
+                .with_alleycat_options()
                 .with_audio_renderers(&[reforge_sdl::settings::SoundRenderer::Speaker])
                 .with_audio_categories(&[
                     reforge_audio::category::SoundCategory::Music,
@@ -243,6 +244,11 @@ impl<'a> Window<'a> {
 
     pub(crate) fn control_keys(&self) -> Keys {
         self.control_keys
+    }
+
+    pub(crate) fn responsive_controls(&self) -> bool {
+        self.display.settings().alleycat.control_mode
+            == reforge_sdl::settings::ControlMode::Responsive
     }
 
     pub(crate) fn take_control_changes(&mut self) -> (u64, Vec<HostChange>) {

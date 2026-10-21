@@ -1164,7 +1164,7 @@ pub struct FloorCosts {
     pub landing: u64,
     pub draw_row: u64,
     pub takeoff: u64,
-    /// Complete room landing bodies indexed by native scene; only 1,3..=6 are used.
+    /// Room landing bodies indexed by native scene; XT uses the shared twelve-row cost.
     pub room_landing: [u64; 8],
     pub room_walk: u64,
     pub room_mark: u64,
@@ -1251,10 +1251,18 @@ impl HeartsClippingCosts {
 }
 
 impl ReferenceCosts {
-    /// Stock 4.77 MHz 8088 baseline fitted to bounded MartyPC XT captures.
-    /// Shared boundaries retain approximate splits; unmeasured room/effect
-    /// allowances still come from the earlier DOSBox profile. See docs/timing.md.
+    /// XT-based profile with normalized ordinary player actions.
+    /// Movement gates and deliberate waits remain native; comparable ordinary
+    /// actions omit room-search overhead. Other helpers retain bounded capture fits or
+    /// earlier approximate allowances. See docs/timing.md.
     pub fn ibm_xt(machine: Machine) -> Self {
+        // One allowance per comparable action, independent of room/search depth.
+        let walk = 2_720_000;
+        let descent = 3_240_000;
+        let jump = 300_000;
+        let landing_base = 950_000;
+        let landing_row = 190_000;
+        let cling_prefix = 780_000;
         Self {
             prelude: 45_000,
             control_bios: 50_000,
@@ -1270,11 +1278,11 @@ impl ReferenceCosts {
             player_zero: 20_200,
             player_retrace: 25_000,
             player_retrace_return: 3_000,
-            player_keep: 360_381,
-            player_idle: 2_480_133,
-            player_walk: 2_716_686,
-            player_airborne: 2_960_990,
-            player_descending: 3_244_267,
+            player_keep: 360_000,
+            player_idle: 2_480_000,
+            player_walk: walk,
+            player_airborne: 2_870_000,
+            player_descending: descent,
             // Include the support beep once, as in the captured whole bodies.
             player_landing: 26_513_562,
             player_support_release: 23_923_219,
@@ -1317,39 +1325,31 @@ impl ReferenceCosts {
                 drop: 266_000,
             }),
             upper_landing: Some(UpperLandingCosts {
-                alley_before: 775_000,
-                bookcase_before: 575_000,
-                room_before: 600_000,
-                room_entry: 50_000,
+                alley_before: cling_prefix,
+                bookcase_before: cling_prefix,
+                room_before: cling_prefix,
+                room_entry: 0,
                 after: 2_265_000,
                 extra_row: 187_500,
                 stationary_discount: 20_000,
             }),
             floor: Some(FloorCosts {
-                landing: 950_000,
-                draw_row: 190_000,
-                takeoff: 300_000,
-                room_landing: [
-                    0, 3_750_000, 0, 3_781_000, 4_582_000, 3_890_000, 3_851_000, 0,
-                ],
-                room_walk: 2_761_000,
-                room_mark: 327_000,
+                landing: landing_base,
+                draw_row: landing_row,
+                takeoff: jump,
+                room_landing: [landing_base + 12 * landing_row; 8],
+                room_walk: walk,
+                room_mark: 0,
             }),
-            room_descent: Some([
-                0, 3_701_000, 0, 3_744_000, 4_523_000, 3_808_000, 3_800_000, 0,
-            ]),
+            room_descent: Some([descent; 8]),
             room_surface: Some(RoomSurfaceCosts {
-                walk: [
-                    0, 3_044_000, 0, 3_213_000, 3_051_000, 3_183_000, 3_002_000, 0,
-                ],
-                jump: [0, 608_000, 0, 781_000, 618_000, 751_000, 565_000, 0],
-                landing_base: [
-                    0, 2_900_000, 0, 3_085_000, 2_926_000, 3_056_000, 2_854_000, 0,
-                ],
-                landing_row: 180_000,
+                walk: [walk; 8],
+                jump: [jump; 8],
+                landing_base: [landing_base + 10 * landing_row; 8],
+                landing_row,
                 bookcase_fall: 1_041_000,
-                idle_search_setup: 190_000,
-                idle_search_entry: 50_000,
+                idle_search_setup: 0,
+                idle_search_entry: 0,
             }),
             hearts_player: Some(HeartsPlayerCosts {
                 walk: 2_896_000,
@@ -2772,8 +2772,7 @@ impl Runtime {
                         if alley.player.is_unclipped_airborne_sprite(sprite)
                             && (matches!(alley.scene(), 0 | 3)
                                 || (outcome.room_surface_entries != 0
-                                    && sprite.dimensions == 0x0c03
-                                    && alley.player.horizontal_direction == 1))
+                                    && matches!(sprite.dimensions, 0x0c03 | 0x0d03)))
                             && matches!(
                                 (sprite.dimensions, alley.player.horizontal_direction),
                                 (0x0a03, _) | (0x0c03, 1 | 255) | (0x0d03, 0)
@@ -2860,7 +2859,7 @@ impl Runtime {
                     {
                         Some(costs.pose)
                     }
-                    (2, 2, Draw::Keep, 0) if matches!(alley.scene(), 0 | 3) => Some(costs.hold),
+                    (2, 2, Draw::Keep, 0) => Some(costs.hold),
                     (2, 0, Draw::Keep, 255) => Some(costs.jump),
                     (2, 0, Draw::Keep, 1) => Some(costs.drop),
                     _ => None,
@@ -3058,8 +3057,8 @@ impl Runtime {
                             && sprite.dimensions == 0x0c03
                             && alley.player.is_unclipped_airborne_sprite(sprite) =>
                     {
-                        // Includes the failed room support search, even when
-                        // this update turns from rising to falling. No wait.
+                        // XT uses the shared falling allowance even when a room
+                        // search runs or this update turns from rising to falling.
                         Some(costs[usize::from(scene)])
                     }
                     _ => None,

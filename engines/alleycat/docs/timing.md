@@ -693,185 +693,77 @@ The default profile targets one stock 4.77 MHz 8088 PC/XT baseline for both
 CGA and PCjr, preserving the game's PCjr branches. Bounded MartyPC 0.4.1 captures
 use the IBM 5160 configuration, turbo off, at `157500000/33 Hz`. They measure
 executed guest cycles, independently of host display refresh and tracing speed.
-This remains a fitted execution-cost model, not an instruction-level CPU.
+This remains an execution-cost model, not an instruction-level CPU. Ordinary
+player actions are normalized as described below; other helpers use scoped fits.
 
 The measurements below cover selected routine states and positions. Their fit
 checks do not independently establish whole-game pacing, instruction-level
 interrupt placement or random-stream synchronization. Path-specific limits and
 uncalibrated work are identified alongside the costs.
 
-Accepted original movement bodies measure about 0.360 ms without redraw,
-2.480 ms for idle redraw, 2.717 ms walking, 2.961 ms rising, and 3.244 ms descending.
-Ordinary lower-list landing and takeoff separate execution work from sound:
-about 3.179 ms for landing or 0.641 ms for takeoff, plus 0.050 ms for an initially
-clear support-sound latch. Each emitted beep adds its existing blocking duration
-and a fitted 0.055 ms caller/programming allowance. Landing emits attachment
-only with a clear latch. Takeoff can attach and release in the same accepted
-call, producing two beeps with a clear latch or one with an already set latch.
-Native mute suppresses the tones, while retaining the logical latch changes.
+Ordinary cat actions use shared execution allowances across the alley and the
+fishbowl, bookcase, cheese, birdcage and milk rooms. These are chosen modern
+pacing values based on the XT measurements, rather than a promise to reproduce
+every measured search or drawing overhead:
 
-Sixteen complete accepted-body cases cover these sound/latch combinations and
-both FC/FD software branches on the same XT hardware. Muted landing medians
-are 3.178–3.228 ms, and muted takeoff 0.641–0.690 ms. Audible totals reach
-26.510/47.253 ms for FC landing/takeoff and 14.987/24.021 ms for FD. State,
-complete video memory and PIT-program counts match; the fitted totals are within
-0.150 ms, with repeat spreads up to 0.131 ms. These are bounded same-capture
-fits, excluding other geometry, upper supports, the acceptance gate, whole-loop
-cadence and physical PCjr hardware. Unmeasured upper-support landing shapes and
-other paths retain earlier approximate allowances. The legacy profile
-retains its coefficients and charging rules, with the same corrected
-attachment/release sound ordering.
+| Accepted action | Execution allowance |
+| --- | ---: |
+| Walking, complete eleven-row image | 2.720 ms |
+| Idle redraw | 2.480 ms |
+| Idle without redraw | 0.360 ms |
+| Jump initiation from floor or ordinary furniture | 0.300 ms |
+| Rising | 2.870 ms |
+| Unsupported descent, complete twelve-row image | 3.240 ms |
+| Ordinary silent twelve-row landing | 3.230 ms |
+| Settled attached hold | 0.115 ms |
 
-Ordinary alley-floor landings produce no support beep. Complete accepted-body
-medians are about 2.85 ms with the ten-row side-fall sprite, 3.23 ms with the
-twelve-row jump sprite and 3.40 ms with the thirteen-row vertical-fall sprite.
-Their fitted cost is 0.950 ms plus 0.190 ms per row, restricted to six-byte-wide
-sprites of ten through thirteen rows; other shapes retain their fallback.
-Jumping from the floor keeps the current image and takes about 0.300 ms.
-Sixteen cases cover these paths with native sound off/on and FC/FD software
-branches on the shared XT hardware. State, full video memory and zero PIT-tone
-programs match; fitted totals are within 0.027 ms of the captured medians.
-These bounded same-capture fits replace only the selected accepted-body cost.
-They introduce no tone, drawing presentation or fixed BIOS wait.
+These are simulated execution costs, not additional waits or frame periods.
+The BIOS-tick, call-count and retrace gates still decide when an action can run.
+Movement distances, acceleration, animation, support selection and room-specific
+rules remain unchanged. A deeper support-table match no longer increases the
+cost of an ordinary walk, jump, idle, fall or landing. The first matching entry
+is still selected by the native search. Floor marks retain their native counts,
+tile selection and pre-movement cell indexing, but drawing a new mark does not
+increase the shared walking allowance.
 
-In the fishbowl, bookcase, cheese, birdcage and milk rooms, the twelve-row jump
-sprite's complete floor landing body takes about 3.750, 3.781, 4.582, 3.890 and
-3.851 ms respectively. These totals include the native scene-specific support
-search; they replace the earlier audible-support fallback only for this shape
-landing on the floor. They do not normalize different room support rules.
-An upward takeoff from Y180 that retains its image uses the same 0.300 ms fit
-as the alley. Swimming and Hearts use separate movement rules and are excluded.
+Floor takeoff retains the current image. Ordinary state-zero furniture uses the
+same jump-initiation cost when its successful support hit clears into an upward
+transition. Displacement starts on subsequent accepted calls. Bookcase support
+loss that starts a stationary fall without drawing remains a distinct path with
+its 1.041 ms allowance; it is not a full falling movement update.
 
-Twenty room cases pair landing/takeoff and FC/FD software IDs on the same XT
-hardware. Forty repeated samples plus two controls match 48 selected fields,
-full video memory and zero PIT-tone programs. Fitted totals are within 0.031 ms
-of the medians; repeat spread reaches 0.121 ms in one birdcage case. These are
-bounded same-capture fits at one position and difficulty, with no floor-track
-request, furniture contact, drinking or hole transfer. Other room landing
-shapes, upper supports and whole-loop cadence remain outside this calibration;
-the legacy profile keeps its previous charging. Physical PCjr is not measured
-by selecting the FD software branch on XT hardware.
+Ordinary silent alley-floor landings use 0.950 ms plus 0.190 ms per retained image
+row, for complete six-byte-wide sprites of ten through thirteen rows. Twelve-row
+floor landings in the five ordinary rooms use the same 3.230 ms total. Ordinary
+state-zero furniture landings use the same row adjustment: 2.850 ms at ten rows,
+3.230 ms at twelve and 3.420 ms at thirteen. Their existing retained-image,
+shape and support-result guards remain in force. Other image histories keep
+separate or fallback allowances.
 
-Ordinary floor walking in these five rooms uses a 2.761 ms accepted-body fit
-for the eleven-row walking sprite, plus 0.327 ms only when the native floor-mark
-helper actually draws a new tile. Revisiting the same cell or reaching its
-four-mark cap adds no drawing charge. The room adapter reports the completed
-draw rather than inferring work from cat movement or host recomposition.
+Ground idle and ordinary state-zero furniture idle share the same redraw and
+skipped-draw costs. The modulo-eight idle animation gate and redraw-only random
+consumption are preserved; no table-setup or per-visited-entry charge is added.
+Swimming and special Hearts platform/clipping paths retain their own costs.
 
-Twenty-two cases pair FC/FD software IDs for walking with skipped/new marks in
-all five rooms and a capped mark in the bookcase. Forty-four measurements plus
-two controls match 49 selected state/drawing fields, full video memory, zero
-PIT-tone programs and the actual floor-mark work flag. Fitted totals are within
-0.064 ms of the medians; repeat spread reaches 0.125 ms. These bounded fits use
-one position, speed, direction, difficulty and image pair. They exclude entry,
-airborne/supported movement, other sprite shapes and whole-loop cadence. Native
-mark counts, tile selection and pre-movement cell indexing remain unchanged;
-the legacy profile retains its previous timing charges.
+Ordinary lower-list landing and takeoff retain separate sound bookkeeping:
+3.179 ms for landing or 0.641 ms for takeoff, plus 0.050 ms for an initially clear
+support-sound latch. Each emitted beep adds its blocking duration and a fitted
+0.055 ms caller/programming allowance. Landing emits attachment only with a clear
+latch. Takeoff can attach and release in the same accepted call, producing two
+beeps with a clear latch or one with an already set latch. Native mute suppresses
+the tones while retaining the logical latch changes. These paths are distinct
+from the ordinary silent landings in the table above.
 
-Idle updates on the floor in these five rooms retain the existing 2.480 ms
-redraw and 0.360 ms skipped-draw allowances. Captured walk-to-idle bodies take about
-2.515–2.525 ms; settled skipped updates take 0.384–0.390 ms. A periodic settled
-redraw in the bookcase takes about 2.502–2.506 ms. The largest difference from
-the existing charges is 0.045 ms, within the 0.150 ms accepted-body bound, so
-these measurements require no timing adjustment.
-
-Twenty-two cases pair FC/FD software IDs on the shared XT hardware. Forty-four
-measurements plus two controls match 50 selected state/drawing fields, complete
-video memory and zero PIT-tone programs. Real idle redraws consume two shared
-random successors; skipped redraws consume none, preserving the native
-modulo-eight animation gate. Coverage uses one position and difficulty, one
-previous walking shape and two fixed idle seeds, with periodic redraw sampled
-only in the bookcase. Other image combinations, whole-room cadence and physical
-PCjr remain outside these checks.
-
-Unsupported airborne descent with the complete retained twelve-row jump image
-uses accepted-body fits of 3.701, 3.744, 4.523, 3.808 and 3.800 ms in these five
-rooms respectively. These totals include a failed furniture-support search;
-they apply only when that search actually runs, including an update that turns
-from rising to falling. Rising and delayed/disabled searches retain their
-existing allowances. Landing, clipping and actor animation use other paths.
-
-Twenty-two cases pair FC/FD software IDs on the shared XT hardware: rising and
-unsupported falling in each room, plus the turning point in the bookcase.
-Forty-four measurements plus two controls match 51 selected fields, full video
-memory, zero PIT-tone programs and the actual support-search work flag. All
-totals, including unchanged rising costs, are within 0.097 ms of the medians;
-the earlier generic descent allowance was short by about 0.45–1.28 ms on these
-paths. These are bounded same-capture fits at one position, speed, difficulty
-and retained sprite. Other geometry, animation phases, whole-room cadence and
-physical PCjr remain outside this calibration. Native movement, search results
-and waits are unchanged; the legacy profile keeps its previous charges.
-
-Grounded movement on state-zero furniture surfaces has separate accepted-body
-fits. These include the successful support search and either an eleven-row walk
-draw or an upward transition that retains the previous image:
-
-| Room | Walking | Jump initiation |
-| --- | ---: | ---: |
-| Fishbowl | 3.044 ms | 0.608 ms |
-| Bookcase | 3.213 ms | 0.781 ms |
-| Cheese | 3.051 ms | 0.618 ms |
-| Birdcage | 3.183 ms | 0.751 ms |
-| Milk | 3.002 ms | 0.565 ms |
-
-A bookcase support miss that starts a vertical fall without drawing uses
-1.041 ms. These costs require an initially grounded, unattached cat above the
-floor. The player preserves the state-zero surface hit before a jump
-clears its support result, distinguishing ordinary furniture from cling surfaces.
-Floor movement, airborne bodies and initially attached states keep their other
-charges. Jump initiation changes motion state; displacement begins on later calls.
-
-Twenty-two cases pair FC/FD software IDs on the shared XT hardware, with one
-surface, position, difficulty, rightward speed and walking-image pair per room;
-support loss is sampled only in the bookcase. Forty-four measurements plus two
-controls match 52 selected fields, full video memory, the surface-hit flag and
-zero PIT-tone programs. Fitted totals are within 0.061 ms of the medians, compared
-with earlier undercharges of about 0.20–0.68 ms. These are bounded same-capture
-fits, excluding other table entries, geometry, animation phases, whole-room
-cadence and physical PCjr. Native movement, random consumption and deliberate
-waits remain unchanged; the legacy profile retains its earlier timing.
-
-Landings on ordinary state-zero furniture use separate fits when the previous
-saved image and new draw both retain the complete transition shape. Twelve-row
-jump-descent bodies take about 3.260, 3.445, 3.286, 3.416 and 3.214 ms in the
-fishbowl, bookcase, cheese, birdcage and milk rooms respectively. A retained
-thirteen-row vertical-fall image adds a fitted 0.180 ms; the bookcase's ten-row
-side-fall body subtracts 0.360 ms. Other shapes, clipped/alternate images and
-initial cling landings retain their other allowances.
-
-Twenty-two cases pair FC/FD software IDs on the shared XT hardware. Forty-four
-measurements plus two controls match 52 selected fields, full video memory,
-the airborne support-search flag and zero PIT-tone programs. All fitted totals
-are within 0.060 ms of the medians. This replaces the older 26.514 ms landing
-fallback on these silent paths, which actually take about 3.064–3.611 ms.
-Coverage uses one surface, position and difficulty per room, with twelve- and
-thirteen-row images in all five rooms and a ten-row image only in the bookcase.
-These are bounded same-capture fits; other support entries, image combinations,
-whole-room cadence and physical PCjr remain outside the calibration. Movement,
-support results, random consumption and waits are unchanged, and the legacy
-profile retains its earlier charges.
-
-Idle on ordinary state-zero furniture runs the same animation gate as floor
-idle, preceded by a successful support-table search. For a retained eleven-row
-walking or twelve-row idle image, the XT profile adds 0.190 ms setup plus
-0.050 ms per visited entry to the ordinary redraw/skipped-draw allowance. The
-player reports the first hit's distance from the room's native table start;
-this avoids treating an early and late match as equal work. The fit requires
-released controls, no vertical motion and an initially grounded, unattached cat.
-It excludes attached/cling, hidden, alternate and other saved-image shapes.
-
-Twenty-four cases pair FC/FD software IDs on the shared XT hardware. Early
-matches in five rooms take 2.786–3.026 ms with a redraw and 0.649–0.865 ms without
-one; the late cheese match takes 4.188 and 2.073 ms respectively. Forty-eight
-measurements plus two controls match 50 selected fields, complete video memory,
-first-hit entry counts and zero PIT-tone programs. Fitted totals are within
-0.072 ms of the medians. Redraws consume two shared random successors; skipped
-redraws consume none. This is processing work, not an explicit wait or a separate
-idle animation. It does not establish intended pacing or whole-loop slowdown.
-The bounded same-capture fit samples one early surface per room and one late
-cheese entry, difficulty zero and fixed image choices. Individual branch/IRQ
-placement, every other support entry and physical PCjr remain outside it. Floor,
-walking, landing and legacy-profile charges are unchanged.
+Bounded original-data comparisons cover movement/state fields, complete video
+memory, floor-mark and support-search outcomes, and speaker programs. Repeated
+original cheese-room loops on the floor and early/deep furniture retained the
+same acceleration and animation sequence and all eighteen matched countdown
+expiry pairs. The deeper condition shifted the second update by about 1 ms in
+these samples. This supports omitting incidental search work; it does not prove
+universal cadence or whole-game random-stream synchronization. Capture
+instrumentation adds work, and native IRQ phase varies. Normalized allowances
+are checked as policy values, separately from the original measured durations.
+Physical PCjr timing remains unmeasured; the older DOSBox profile is unchanged.
 
 Hearts common-player movement has its own bounded XT costs, separate from the
 scene's cat, arrow, gift and presentation helpers. Walking on a solid platform
@@ -930,82 +822,43 @@ difficulty and sources; other clipping rows, alternate images, hidden reappearan
 actor collisions, whole-loop cadence and physical PCjr remain outside this
 same-capture calibration. The legacy profile retains its previous charges.
 
-Already-attached upper-support bodies share fits across the alley, fishbowl,
-bookcase, cheese, birdcage and milk rooms: 2.925 ms for the first fourteen-row
-cling pose, 0.281 ms for jumping off and 0.266 ms for dropping off. Holding uses
-0.115 ms in the measured alley/bookcase contexts. The first pose
-advances support state one to two; later release preserves that image while
-selecting the next airborne sprite. These calls produce no tone or random draw;
-the initial landing's separate two-BIOS-tick sound wait is unchanged.
+Already-attached upper-support bodies share allowances across the alley,
+fishbowl, bookcase, cheese, birdcage and milk rooms: 2.925 ms for the first
+fourteen-row cling pose, 0.115 ms for a settled hold, 0.281 ms for jumping off
+and 0.266 ms for dropping off. The first pose advances support state one to two;
+release preserves that image while selecting the next airborne sprite. These
+calls produce no tone or random draw. Leading room checks do not need different
+allowances. Entry, death and combined pose/release paths retain their separate or fallback
+costs.
 
-Forty cases pair the six contexts and FC/FD software IDs on the shared XT
-hardware: four paths in alley/bookcase and pose/jump/drop in the other rooms.
-Eighty body measurements plus source-specific empty-call controls match 51
-selected state/drawing fields, full video memory and zero PIT-tone programs.
-Full-video expectations come from native functional preflight.
-Fitted totals are within 0.055 ms of the medians; jump/drop deviations stay below
-0.006 ms. The small room-specific leading checks do not require separate costs.
-The captured first pose replaces a twelve-row jump image; holding/releases begin
-with the fourteen-row cling image. This bounded same-capture fit excludes the
-acceptance gate, unmeasured holds in other rooms, combined pose-and-release calls,
-suppressed movement and full-loop cadence. Those paths retain their fallback,
-as does the legacy profile.
+Initial upper-support landings separate shared execution work from the native
+two-BIOS-tick sound wait. Alley bitfield, bookcase shelf and eligible ordinary
+room-table hits use the same prefix and suffix; search depth adds no time:
 
-Initial upper-support landings in the alley and bookcase separate execution
-work from the noisy two-BIOS-tick wait. Complete retained images use these XT
-allowances; the prefix is charged before sound polling, the suffix afterward:
+| Retained image | Prefix before sound | Suffix after sound | Total CPU work |
+| --- | ---: | ---: | ---: |
+| Ten-row side fall | 0.780 ms | 2.265 ms | 3.045 ms |
+| Twelve-row left/right jump | 0.780 ms | 2.640 ms | 3.420 ms |
+| Thirteen-row stationary fall | 0.760 ms | 2.8275 ms | 3.5875 ms |
 
-| Retained image | Alley prefix | Bookcase prefix | Suffix | Total CPU work, alley / bookcase |
-| --- | ---: | ---: | ---: | ---: |
-| Ten-row side fall | 0.775 ms | 0.575 ms | 2.265 ms | 3.040 / 2.840 ms |
-| Twelve-row left/right jump | 0.775 ms | 0.575 ms | 2.640 ms | 3.415 / 3.215 ms |
-| Thirteen-row stationary fall | 0.755 ms | 0.555 ms | 2.828 ms | 3.583 / 3.383 ms |
-
-The suffix adds 0.1875 ms per restored/drawn row above ten; the sampled stationary
-fall has a 0.020 ms shorter prefix. Eligibility requires an initially descending,
-unattached cat, a complete unchanged airborne image and a new state-one upper
-support hit. Entry, death, forced release, clipped/alternate images, other shapes
-and unsampled directions keep their existing allowances. These measured paths
-replace the generic 26.514 ms execution allowance, excluding the deliberate wait.
-
-Forty cases across three image batches pair native sound enabled/disabled
-and FC/FD software IDs on the shared XT hardware, with two valid body repeats
-per case. Incomplete trace spans are excluded; each contributing run supplies its
-own empty-call controls. Leftward ten/twelve-row images agree with the same
-allowances; no direction-specific correction is needed. The fit is within
-0.010 ms of the anchored medians. Port anchors isolate the first channel-zero
-latch through the final speaker-stop
-write and include sound initialization/epilogue, rather than exact helper
-boundaries. Interrupt placement and BIOS latency remain approximate. Full-video
-expectations come from functional native preflight, not XT video-memory captures.
-
-Initial cling landings on ordinary tables in the fishbowl, cheese, birdcage and
-milk rooms use the same twelve-row drawing suffix of 2.640 ms. Before sound,
-they charge 0.600 ms setup plus 0.050 ms per visited support-table entry, including
-the hit. The player reports work from its actual search rather than repeating
-the lookup for timing. This replaces the generic 26.514 ms execution allowance
-for complete retained rightward twelve-row images and state-one table hits.
-Other image/direction combinations retain their allowances.
-
-Sixteen cases pair the four contexts, native sound on/off and FC/FD software IDs
-on the same XT. Thirty-two body measurements and two controls match selected
-state, sound invariants and full-video expectations from native functional
-preflight. The four sampled supports visit 7, 4, 11 and 4 entries respectively,
-giving fitted CPU totals of 3.590, 3.440, 3.790 and 3.440 ms. All are within
-0.030 ms of the anchored medians. This is a bounded aggregate search fit, not
-instruction-exact pricing of every height/overlap branch or table position.
+The suffix adds 0.1875 ms per restored/drawn row above ten; the stationary
+thirteen-row image keeps its 0.020 ms prefix adjustment. Eligibility requires an
+initially descending, unattached cat, a complete retained airborne image and a
+new state-one support hit. The alley/bookcase admit the listed ten-, twelve-
+and thirteen-row shapes. Other ordinary rooms admit twelve-row left/right and
+thirteen-row stationary images with an actual table hit. Clipped, alternate,
+other-shape and otherwise ineligible images retain their separate allowances.
 
 The prefix advances the game clock before the helper samples its BIOS tick and
-PIT phase. Its wait still lasts until two BIOS ticks have elapsed from that
-sample, including with native sound off; no fixed captured total replaces it.
-Timing changes can therefore change the audible pulse count and shared random
-consumption. The existing poll model and PRNG rules are unchanged. Three-phase
-recreation checks cover current-tick sampling across a BIOS boundary, sound
-pitch/seed consistency and final stop, but do not establish exact native pulse
-counts, raw counter values or complete phase-dependent duration. The selected
-state and complete final graphics agree with the native expectations. These are
-bounded fits to the measured cases, excluding acceptance gates, other actors,
-whole-loop cadence and physical PCjr. The legacy profile is unchanged.
+PIT phase. The wait still lasts until two BIOS ticks have elapsed from that
+sample, including with native sound off. No fixed captured total replaces it.
+Normalization can therefore alter the phase-dependent pulse and random counts;
+the sound polling algorithm and PRNG rules remain unchanged. Checks use several
+initial PIT phases to verify current-tick sampling, pitch/seed consistency,
+final stop and the two-tick boundary, alongside selected state and complete
+final graphics. These checks do not establish exact native pulse counts,
+instruction-level IRQ placement or whole-loop phase equivalence. The older
+DOSBox profile retains its existing charging rules.
 
 Bin-forced downward transitions instead separate bookkeeping from committed
 sound. Their baseline is about 0.687 ms, plus 0.050 ms for an initially clear

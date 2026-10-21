@@ -8,6 +8,9 @@ use reforge_settings::{
 };
 const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
 const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
+const CLI_LOCK: Color32 = Color32::from_rgb(182, 169, 214);
+const CLI_BANNER: Color32 = Color32::from_rgb(35, 58, 72);
+const CLI_NOTICE: Color32 = Color32::from_rgb(190, 214, 228);
 pub(super) fn style(context: &egui::Context) {
     context.style_mut(|s| {
         s.animation_time = 0.0;
@@ -84,6 +87,12 @@ pub(super) fn draw(
                 ui.vertical(|ui| {
                     ui.set_width((width - 164.0).max(180.0));
                     ui.heading(["Display", "CRT & Colour", "Audio"][menu.page]);
+                    let notice_height =
+                        if section_has_cli_locks(&cli, menu.page, menu.scope, menu.mach3_options) {
+                            cli_notice(ui).rect.height() + ui.spacing().item_spacing.y
+                        } else {
+                            0.0
+                        };
                     if menu.scope == 1 {
                         let mut inherit = !menu.game_editing[menu.page];
                         if ui
@@ -114,6 +123,11 @@ pub(super) fn draw(
                         draft.game_values()
                     };
                     let mut value = original.clone();
+                    // Locked widgets show this run's value. The draft below still
+                    // compares/updates only unlocked keys, so CLI values never save.
+                    for (key, active) in &cli {
+                        let _ = value.set(key, active);
+                    }
                     let previous = if menu.scope == 0 {
                         saved.global_values()
                     } else {
@@ -122,7 +136,7 @@ pub(super) fn draw(
                     let enabled = menu.scope == 0 || menu.game_editing[menu.page];
                     egui::ScrollArea::vertical()
                         .id_salt(("settings_content", menu.page))
-                        .max_height((height - 215.0).max(80.0))
+                        .max_height((height - 215.0 - notice_height).max(80.0))
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.add_enabled_ui(enabled || menu.page == 2, |ui| {
@@ -235,6 +249,7 @@ pub(super) fn draw(
                                         },
                                     );
                                     if value.renderer != original.renderer
+                                        && !cli.contains_key("renderer")
                                         && !cli.contains_key("backend")
                                         && !backends(value.renderer).contains(&value.backend)
                                     {
@@ -774,6 +789,77 @@ fn sound_renderer_label(renderer: SoundRenderer) -> &'static str {
     }
 }
 
+fn section_has_cli_locks(
+    cli: &reforge_settings::Patch,
+    page: usize,
+    scope: usize,
+    mach3_options: bool,
+) -> bool {
+    SECTION_KEYS[page].iter().any(|key| cli.contains_key(*key))
+        || (page == 2 && scope == 1 && mach3_options && cli.contains_key(DIGITIZED_SAMPLES))
+}
+
+fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {
+    let shackle = [
+        center + Vec2::new(-3.5, -1.0),
+        center + Vec2::new(-3.5, -5.0),
+        center + Vec2::new(-2.0, -7.0),
+        center + Vec2::new(2.0, -7.0),
+        center + Vec2::new(3.5, -5.0),
+        center + Vec2::new(3.5, -1.0),
+    ];
+    painter.add(egui::Shape::line(
+        shackle.to_vec(),
+        egui::Stroke::new(1.4_f32, colour),
+    ));
+    painter.rect_filled(
+        egui::Rect::from_center_size(center + Vec2::new(0.0, 3.0), Vec2::new(12.0, 9.0)),
+        2.0,
+        colour,
+    );
+    let keyhole = Color32::from_gray(40);
+    painter.circle_filled(center + Vec2::new(0.0, 2.0), 1.2, keyhole);
+    painter.line_segment(
+        [center + Vec2::new(0.0, 2.0), center + Vec2::new(0.0, 5.0)],
+        egui::Stroke::new(1.2_f32, keyhole),
+    );
+}
+
+fn cli_notice(ui: &mut egui::Ui) -> egui::Response {
+    egui::Frame::NONE
+        .fill(CLI_BANNER)
+        .corner_radius(3.0)
+        .inner_margin(8.0)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_top(|ui| {
+                let (rect, _) = ui.allocate_exact_size(Vec2::new(16.0, 18.0), egui::Sense::hover());
+                paint_lock(ui.painter(), rect.center(), CLI_NOTICE);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new("Some settings are locked by command-line arguments.")
+                            .size(13.0)
+                            .color(CLI_NOTICE),
+                    )
+                    .wrap(),
+                );
+            });
+        })
+        .response
+}
+
+fn cli_tooltip(key: &str, active: &str) -> String {
+    let argument = match active {
+        "true" => "on",
+        "false" => "off",
+        _ => active,
+    };
+    format!(
+        "Locked for this run by --{} {argument}.\nRemove the command-line argument to edit this setting.\nSaved preferences are unchanged.",
+        key.replace('_', "-"),
+    )
+}
+
 fn section(ui: &mut egui::Ui, label: &str) {
     ui.add_space(8.0);
     ui.strong(label);
@@ -817,16 +903,19 @@ fn row_with_width(
     control_width: f32,
     control: impl FnOnce(&mut egui::Ui),
 ) {
-    let locked = cli.contains_key(key);
+    let lock_tooltip = cli.get(key).map(|active| cli_tooltip(key, active));
+    let locked = lock_tooltip.is_some();
     let different = scope == 1 && value.get(key) != global.get(key);
-    let dirty = value.get(key) != saved.get(key);
+    let dirty = !locked && value.get(key) != saved.get(key);
     ui.horizontal(|ui| {
-        let colour = if different && !locked {
+        let colour = if locked {
+            Color32::from_gray(100)
+        } else if different {
             ACCENT
         } else {
             ui.visuals().text_color()
         };
-        let tooltip = format!(
+        let mut tooltip = format!(
             "{}: {}\nSaved: {}",
             if key == DIGITIZED_SAMPLES {
                 "Default"
@@ -836,12 +925,16 @@ fn row_with_width(
             global.get(key),
             saved.get(key)
         );
+        if let Some(reason) = &lock_tooltip {
+            tooltip = format!("{reason}\n\n{tooltip}");
+        }
         if !label.is_empty() {
             ui.add_sized(
                 [145.0, 22.0],
                 egui::Label::new(egui::RichText::new(label).color(colour)),
             )
-            .on_hover_text(&tooltip);
+            .on_hover_text(&tooltip)
+            .on_disabled_hover_text(&tooltip);
         }
         let (rect, _) =
             ui.allocate_exact_size(Vec2::new(control_width, 22.0), egui::Sense::hover());
@@ -856,19 +949,22 @@ fn row_with_width(
         child
             .add_enabled_ui(!locked, control)
             .response
-            .on_hover_text(tooltip);
+            .on_hover_text(&tooltip)
+            .on_disabled_hover_text(&tooltip);
+        // Keep widget widths/positions fixed; locks never cover widget content.
+        let (rect, response) = ui.allocate_exact_size(Vec2::new(20.0, 22.0), egui::Sense::hover());
+        if let Some(reason) = &lock_tooltip {
+            paint_lock(ui.painter(), rect.center(), CLI_LOCK);
+            response
+                .on_hover_text(reason)
+                .on_disabled_hover_text(reason);
+        }
         let (rect, response) = ui.allocate_exact_size(Vec2::new(12.0, 22.0), egui::Sense::hover());
         if dirty {
             ui.painter().circle_filled(rect.center(), 3.0, PENDING);
             response.on_hover_text(format!("Unapplied change. Saved: {}", saved.get(key)));
         }
     });
-    if let Some(active) = cli.get(key) {
-        ui.weak(format!(
-            "This run: {active}, set by --{}",
-            key.replace('_', "-")
-        ));
-    }
 }
 fn backend_label(backend: Backend) -> &'static str {
     match backend {
@@ -981,6 +1077,107 @@ fn scale_slider(ui: &mut egui::Ui, value: &mut u32, cap: VideoCapabilities) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cli_locks_disable_radio_and_checkbox_without_inserting_rows() {
+        for key in ["window_mode", "vsync"] {
+            let mut bottoms = Vec::new();
+            for locked in [false, true] {
+                let context = egui::Context::default();
+                style(&context);
+                let cli = if locked {
+                    reforge_settings::Patch::from([(
+                        key.into(),
+                        if key == "window_mode" {
+                            "fullscreen"
+                        } else {
+                            "on"
+                        }
+                        .into(),
+                    )])
+                } else {
+                    Default::default()
+                };
+                let mut selected = false;
+                let mut target = Pos2::ZERO;
+                for step in 0..5 {
+                    let events = if matches!(step, 2 | 3) {
+                        vec![
+                            egui::Event::PointerMoved(target),
+                            egui::Event::PointerButton {
+                                pos: target,
+                                button: egui::PointerButton::Primary,
+                                pressed: step == 2,
+                                modifiers: egui::Modifiers::NONE,
+                            },
+                        ]
+                    } else {
+                        Vec::new()
+                    };
+                    let _ = context.run(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                Pos2::ZERO,
+                                Vec2::new(900.0, 600.0),
+                            )),
+                            time: Some(step as f64 * 0.02),
+                            events,
+                            ..Default::default()
+                        },
+                        |ctx| {
+                            egui::CentralPanel::default().show(ctx, |ui| {
+                                let value = RuntimeSettings::default();
+                                row(
+                                    ui,
+                                    "Setting",
+                                    key,
+                                    value.clone(),
+                                    value.clone(),
+                                    value,
+                                    1,
+                                    &cli,
+                                    |ui| {
+                                        let response = if key == "window_mode" {
+                                            ui.radio_value(&mut selected, true, "Fullscreen")
+                                        } else {
+                                            ui.checkbox(&mut selected, "Synchronise with display")
+                                        };
+                                        target = response.rect.center();
+                                        assert_eq!(response.enabled(), !locked);
+                                    },
+                                );
+                                let next = ui.label("Next row");
+                                if step == 4 {
+                                    bottoms.push(next.rect.top());
+                                }
+                            });
+                        },
+                    );
+                }
+                assert_eq!(selected, !locked);
+            }
+            assert_eq!(
+                bottoms[0], bottoms[1],
+                "locks must not add explanation rows"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_notice_is_scoped_to_the_current_section_and_native_option() {
+        let cli = reforge_settings::Patch::from([
+            ("scale".into(), "8".into()),
+            (DIGITIZED_SAMPLES.into(), "false".into()),
+        ]);
+        assert!(section_has_cli_locks(&cli, 0, 0, true));
+        assert!(section_has_cli_locks(&cli, 0, 1, false));
+        assert!(!section_has_cli_locks(&cli, 1, 1, true));
+        assert!(!section_has_cli_locks(&cli, 2, 0, true));
+        assert!(!section_has_cli_locks(&cli, 2, 1, false));
+        assert!(section_has_cli_locks(&cli, 2, 1, true));
+        assert!(!section_has_cli_locks(&Default::default(), 2, 1, true));
+        assert!(cli_tooltip(DIGITIZED_SAMPLES, "false").contains("--digitized-samples off"));
+    }
 
     #[test]
     fn mach3_sample_control_follows_section_defaults_and_cli_locks() {

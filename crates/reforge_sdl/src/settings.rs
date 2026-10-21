@@ -1443,6 +1443,15 @@ mod tests {
             .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
             .with_audio_categories(&reforge_settings::SoundCategory::ALL)
             .with_mach3_options(None);
+        // Exercise section notices and outside-control locks in the real painter.
+        creator.session.borrow_mut().cli = reforge_settings::Patch::from([
+            ("scale".into(), "8".into()),
+            ("vsync".into(), "false".into()),
+            ("presentation".into(), "hyllian".into()),
+            ("audio_renderer".into(), "enhanced-pcm".into()),
+            (reforge_settings::DIGITIZED_SAMPLES.into(), "false".into()),
+        ]);
+        let saved = creator.session.borrow().saved.clone();
         menu.open = true;
         let mut frame =
             crate::FrameTexture::new(&creator, 320, 200, crate::FrameFormat::Rgba).unwrap();
@@ -1455,6 +1464,10 @@ mod tests {
             }
             for _ in 0..3 {
                 menu.prepare(display.ui_metrics(), display.settings());
+                assert!(
+                    menu.draft.as_ref() == Some(&saved),
+                    "CLI display values must not edit the draft"
+                );
                 display
                     .present_with(&frame, |canvas| {
                         menu.paint(canvas)?;

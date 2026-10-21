@@ -1585,7 +1585,11 @@ impl Alley {
         let player_dimensions = if self.data[0x44bd] == 0 {
             self.compositor.dimensions().map_or(0, |image| image.0)
         } else {
-            0
+            // Drinking suspends the normal image in a separate owner. The
+            // lethal caller still reaches the same pursuit entry after cleanup.
+            self.milk_player_image
+                .as_ref()
+                .map_or(0, |(dimensions, _)| dimensions.0)
         };
         let step = self.room_actor(|data, screen, sound| {
             crate::milk::advance_attention_timed(data, screen, tick, suppress, &mut |event| {
@@ -2734,6 +2738,60 @@ mod tests {
             alley.sound.take_busy_ticks(),
             2 * crate::timing::BIOS_TICK_PIT_CLOCKS - 100
         );
+    }
+
+    #[test]
+    fn milk_pursuit_keeps_normal_image_metadata_while_drinking() {
+        for dimensions in [Dimensions(0x0b03), Dimensions(0x0602)] {
+            for drinking in [false, true] {
+                let mut alley = Alley::synthetic();
+                set_word(&mut alley.data, 4, 6);
+                alley.player.x = 144;
+                alley.player.y = 136;
+                alley.player.vertical_coordinate = 186;
+                alley.player.vertical_direction = 0;
+                alley.data[0x43e0] = 1;
+                alley.data[0x44c4] = 2;
+                alley.data[0x4499] = 144;
+                set_word(&mut alley.data, 0x4481, 144);
+                set_word(&mut alley.data, 0x44a5, 0x410c);
+                alley.screen.fill_visible(0xaa);
+                alley
+                    .compositor
+                    .draw(
+                        &mut alley.screen,
+                        pixel_offset(144, 136),
+                        dimensions,
+                        &vec![0; dimensions.len()],
+                    )
+                    .unwrap();
+                if drinking {
+                    alley.latch_action(true);
+                    alley.advance_milk_drinking(1).unwrap();
+                    assert!(alley.milk_player_image.is_some());
+                    assert!(alley.compositor.dimensions().is_none());
+                }
+                set_word(&mut alley.data, 0x4441, 1);
+                set_word(&mut alley.data, 0x4459, 2);
+                set_word(&mut alley.data, 0x43e1, 144);
+                alley.data[0x43f9] = 136;
+                let mut entries = Vec::new();
+                for tick in [2, 3] {
+                    alley
+                        .advance_milk_attention_timed(tick, &mut |work, _| {
+                            if let crate::milk::Work::PursuitEntry { player_dimensions } = work {
+                                entries.push(player_dimensions);
+                            }
+                            tick
+                        })
+                        .unwrap();
+                }
+                assert_eq!(entries, [dimensions.0]);
+                assert!(alley.dying());
+                assert_eq!(alley.data[0x44bd], 0);
+                assert!(alley.milk_player_image.is_none());
+            }
+        }
     }
 
     #[test]

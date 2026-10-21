@@ -1065,11 +1065,16 @@ post-wait time, and warning playback follows all attention work. Thirty-six
 fixed/aligned checks fit within 0.150 ms, with a largest sampled median difference
 of about 0.076 ms. Unrecorded starting phases only support timing envelopes.
 The shared pursuit entry (`2136`) adds a one-time 9.850 ms allowance when the
-normal eleven-row cat image is present. Its original temporary dog image,
-restoration and relocation are included; preceding sleeping-body removal and
-attention scanning remain separate. Drinking-image entries retain their previous
-allowance. Other bowl-search patterns, broom overlap, lethal caller cleanup,
-audible-request overhead and complete natural room pacing remain approximate.
+normal eleven-row cat image is retained, either by the ordinary compositor or
+in the suspended normal-image cache while drinking. Both activation paths use
+the same entry cost. Its original temporary dog image, restoration and
+relocation are included; preceding sleeping-body removal and attention scanning
+remain separate. Other retained image shapes keep their existing allowance.
+Measured full normal/drinking activation bodies take about 16.76–16.88 ms, but
+include cleanup and construction work; this total is not added as a separate
+delay or charged again over the shared entry. Other bowl-search patterns, broom
+overlap, lethal caller cleanup, audible-request overhead and complete natural
+room pacing remain approximate.
 
 Complete running-dog contact/entry (`20f5`) uses 3.120 ms in the alley, including
 its edge reset, and 2.065 ms in ordinary rooms. Both return sides and FC/FD

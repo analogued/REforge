@@ -52,6 +52,7 @@ pub(crate) enum Work {
     DrawBowl,
     /// Shared CS:2136 entry after the sleeping-dog caller's own cleanup.
     PursuitEntry {
+        /// Retained normal image, including the one suspended while drinking.
         player_dimensions: u16,
     },
     Broom {

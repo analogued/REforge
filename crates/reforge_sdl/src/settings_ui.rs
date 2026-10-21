@@ -714,10 +714,11 @@ fn audio_controls(
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut value.mach3.digitized_samples, true, "On");
                         ui.selectable_value(&mut value.mach3.digitized_samples, false, "Off");
-                    });
+                    })
+                    .response
+                    .on_hover_text("Applies on next launch.");
             },
         );
-        ui.weak("Applies on next launch. Off skips recorded speech and music; procedural effects remain.");
     }
     ui.add_enabled_ui(output_enabled, |ui| {
         row(

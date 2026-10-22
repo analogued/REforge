@@ -158,6 +158,13 @@ depth into the retirement boundary in the same update. Its restored falling
 movement then clears activity and animation phase while retaining the last
 sprite request; an unrecycled explosion clears activity and its sprite request.
 
+The original falling-variant wrapper at `2ef0` calls the explosion handler without
+supplying its slot argument. The handler reads an uninitialized local word, which
+can contain an old slot index or stack data left by an intervening interrupt.
+The reconstruction fixes this defect by passing the current craft explicitly:
+ground contact starts and advances that craft's explosion in the same update.
+Incidental stack corruption is not reproduced.
+
 The primary player-contact dispatch at `3865` accepts variants 0, 1, 2, 5 and 6.
 Variants 0, 1, 5 and 6 submit a 1,000-point award through the ordinary score
 multiplier/cap logic, start the craft explosion and hide its shadow, then request

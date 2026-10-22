@@ -2618,6 +2618,60 @@ mod tests {
     }
 
     #[test]
+    fn falling_ground_conversion_advances_the_current_craft_immediately() {
+        for index in 0..5 {
+            for (movement, drop) in [(25, 20), (26, 13)] {
+                let mut enemy = Enemy::new(&assets()).unwrap();
+                let mut random = Random::default();
+                let craft = &mut enemy.crafts[index];
+                craft.active = true;
+                craft.variant = 2;
+                craft.movement = movement;
+                craft.depth = 20;
+                craft.height = -100;
+                craft.animation_phase = 0;
+                craft.requested_sprite = 129;
+                let before = enemy.crafts;
+
+                enemy.update_half_step(&mut random, [14, 0, -100]);
+                let craft = enemy.crafts[index];
+                assert_eq!(
+                    (
+                        craft.movement,
+                        craft.animation_phase,
+                        craft.requested_sprite
+                    ),
+                    (251, 1, 118)
+                );
+                assert_eq!(craft.height, -100 - drop);
+                for (i, previous) in before.iter().enumerate() {
+                    if i != index {
+                        let other = enemy.crafts[i];
+                        assert_eq!(
+                            (
+                                other.active,
+                                other.movement,
+                                other.animation_phase,
+                                other.requested_sprite
+                            ),
+                            (
+                                previous.active,
+                                previous.movement,
+                                previous.animation_phase,
+                                previous.requested_sprite
+                            )
+                        );
+                    }
+                }
+
+                enemy.update_half_step(&mut random, [14, 0, -100]);
+                let craft = enemy.crafts[index];
+                assert_eq!((craft.animation_phase, craft.requested_sprite), (2, 118));
+            }
+        }
+    }
+
+    #[test]
     fn falling_recycle_at_player_depth_retires_with_the_new_movement() {
         let mut assets = assets();
         assets.sprites[123].width_bytes = 10;

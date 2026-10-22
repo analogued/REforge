@@ -57,10 +57,10 @@ resume behavior.
 
 ## Startup and keyboard menu
 
-The initial animated splash leads to the skill menu and controls. Its data and
-virtual clock are separate from gameplay, so time spent watching it does not
-advance the fixed development gameplay seed.
-Original shared startup state integration is deferred. Desktop shortcut
+The initial animated splash leads to the skill menu and controls. Its advanced
+shared state carries into the first game without reseeding. The host starts a
+fresh gameplay/audio presentation epoch after the menu rather than emulating
+absolute BIOS time across the questions. Desktop shortcut
 combinations, modifier keys alone and held-key repeats do not dismiss the splash;
 a fresh ordinary key press does. Explicit development scene selection bypasses
 startup, while `--scene splash` previews only that presentation.

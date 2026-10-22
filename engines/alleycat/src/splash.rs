@@ -98,6 +98,10 @@ impl Splash {
         if !repeated {
             set_word(&mut data, 0x6df8, 0);
             data[0] = 0xff;
+            data[0x69a] = 16;
+            data[0x69b] = 0; // Desktop keyboard path; joystick setup is omitted.
+            set_word(&mut data, 0x41d, 0xffff);
+            set_word(&mut data, 0x41f, 0xffff);
             crate::decoration::initialize_score_state(&mut data)?;
         }
         let mut framebuffer = Framebuffer::default();
@@ -508,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn external_data_and_gameplay_seed_are_untouched() {
+    fn external_input_is_immutable_and_title_construction_is_repeatable() {
         let mut data = synthetic_data();
         set_word(&mut data, 0x2ae5, 0x1234);
         let before = data.clone();

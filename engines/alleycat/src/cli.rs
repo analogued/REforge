@@ -803,6 +803,7 @@ fn present_menu(
     window: &mut alleycat::platform::Window,
     alley: &mut Alley,
     difficulty: Option<u16>,
+    initial: bool,
 ) -> Result<bool, String> {
     use std::time::Duration;
     window.audio.pause(true);
@@ -819,7 +820,12 @@ fn present_menu(
         let changed = input.menu_key.is_some();
         if let Some(key) = input.menu_key {
             if menu.press(key)? {
-                alley.start_new_game(menu.difficulty().ok_or("Menu has no skill selection")?, 0)?;
+                let difficulty = menu.difficulty().ok_or("Menu has no skill selection")?;
+                if initial {
+                    alley.start_initial_game(difficulty, 0)?;
+                } else {
+                    alley.start_new_game(difficulty, 0)?;
+                }
                 return Ok(true);
             }
         }
@@ -898,8 +904,8 @@ fn interactive(
         if !present_splash(&mut window, &mut startup.splash, None)? {
             return Ok(());
         }
-        alley.title_sound_preference(&startup.splash);
-        if !present_menu(&mut window, alley, startup.difficulty_override)? {
+        alley.inherit_initial_splash(&startup.splash)?;
+        if !present_menu(&mut window, alley, startup.difficulty_override, true)? {
             return Ok(());
         }
     }
@@ -951,7 +957,7 @@ fn interactive(
         }
         let restarting = input.new_game_pressed;
         if input.menu_pressed {
-            if !present_menu(&mut window, alley, None)? {
+            if !present_menu(&mut window, alley, None, false)? {
                 break;
             }
         } else if restarting {
@@ -1081,8 +1087,8 @@ fn interactive_diagnostic(
         if !present_splash(&mut window, &mut startup.splash, None)? {
             return Ok(());
         }
-        alley.title_sound_preference(&startup.splash);
-        if !present_menu(&mut window, alley, startup.difficulty_override)? {
+        alley.inherit_initial_splash(&startup.splash)?;
+        if !present_menu(&mut window, alley, startup.difficulty_override, true)? {
             return Ok(());
         }
     }
@@ -1116,7 +1122,7 @@ fn interactive_diagnostic(
         }
         let restarting = input.new_game_pressed;
         if input.menu_pressed {
-            if !present_menu(&mut window, alley, None)? {
+            if !present_menu(&mut window, alley, None, false)? {
                 break;
             }
         } else if restarting {

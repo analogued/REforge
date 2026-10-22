@@ -360,10 +360,13 @@ Its direct-drive speaker effect is synthesized. The timed runner blocks game
 work until seven BIOS ticks have elapsed and advances the effect's shared random
 state through its original call-count algorithm, using approximate loop costs.
 
-The first splash uses a separate copy of the executable data. Watching it does
-not advance the fixed gameplay seed; full shared startup state integration
-remains deferred. The later game-over title carries the previous run's random
-state into its animation and back into the next run.
+The initial splash carries its shared data into the skill menu and first game.
+Its scenery and animation advance the same random state used to generate the
+first alley, so time spent watching the title can affect the starting layout.
+The menu preserves that state, including native sound-toggle changes. Explicit
+manual restarts retain the configured development seed and reset room history;
+direct development scene starts bypass the title. The later game-over title
+carries the previous run's random state into its animation and next run.
 Windowed execution uses a virtual BIOS/PIT
 clock, two-tick control
 polling, the original 32/16-call player countdown, and a retrace gate for idle

@@ -178,9 +178,25 @@ impl Alley {
             self.sound.stop();
         }
     }
-    #[cfg(feature = "sdl")]
-    pub(crate) fn title_sound_preference(&mut self, splash: &crate::splash::Splash) {
-        self.data[0] = splash.data()[0];
+    /// Carry the completed first title's shared data into the initial menu.
+    /// Gameplay initialization runs after skill selection, without reseeding.
+    pub fn inherit_initial_splash(&mut self, splash: &crate::splash::Splash) -> Result<(), String> {
+        if !splash.finished() || splash.machine() != self.machine || splash.data()[0x41a] != 0 {
+            return Err("A completed initial title is required".into());
+        }
+        self.data = splash.data().to_vec();
+        self.player = splash.player().clone();
+        Ok(())
+    }
+
+    /// Start the first run with the shared title/menu state, retaining the
+    /// configured seed separately for explicit manual restarts.
+    pub fn start_initial_game(&mut self, difficulty: u16, tick: u16) -> Result<(), String> {
+        if self.data[0x41a] != 0 {
+            return Err("The initial menu has already completed".into());
+        }
+        self.select_starting_skill(difficulty)?;
+        self.reset_run(tick, false)
     }
     pub fn game_over(&self) -> bool {
         self.game_over
@@ -219,12 +235,18 @@ impl Alley {
 
     /// Apply the menu selection to this run and subsequent restarts.
     pub fn start_new_game(&mut self, difficulty: u16, tick: u16) -> Result<(), String> {
+        self.select_starting_skill(difficulty)?;
+        self.restart(tick)
+    }
+
+    fn select_starting_skill(&mut self, difficulty: u16) -> Result<(), String> {
         if difficulty > 7 {
             return Err("Difficulty must be 0..7".into());
         }
         self.initial_difficulty = difficulty;
         set_word(&mut self.data, 0x6df8, difficulty & 3);
-        self.restart(tick)
+        self.data[0x41a] = 1;
+        Ok(())
     }
 
     /// Begin a new run, preserving the high score and configured development controls.
@@ -2473,6 +2495,78 @@ mod tests {
         assert!(!alley.damage_waiting());
     }
     use crate::assets::word;
+
+    fn initial_title_fixture(machine: Machine, watched_ticks: u16) -> crate::splash::Splash {
+        let mut data = Alley::synthetic().data;
+        set_word(&mut data, 0x28a2, 0xffff);
+        set_word(&mut data, 0x5908, 0x7100);
+        set_word(&mut data, 0x590e, 0x7100);
+        set_word(&mut data, 0x7100, 0xffff);
+        set_word(&mut data, 0x56da, 846);
+        data[0x538c] = 0x66;
+        let mut splash = crate::splash::Splash::new(&data, machine).unwrap();
+        for tick in 0..=watched_ticks {
+            splash.advance(tick, true, tick == watched_ticks).unwrap();
+        }
+        assert!(splash.finished());
+        splash
+    }
+
+    #[test]
+    fn initial_title_state_reaches_first_game_without_reseeding() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut runs = Vec::new();
+            for watched in [20, 120, 853] {
+                let mut alley = Alley::synthetic();
+                alley.machine = machine;
+                let splash = initial_title_fixture(machine, watched);
+                alley.inherit_initial_splash(&splash).unwrap();
+                assert_eq!(alley.data, splash.data());
+                assert_eq!(alley.data[0x69a], 16);
+                assert_eq!(word(&alley.data, 0x41d), 0xffff);
+                assert_eq!(word(&alley.data, 0x41f), 0xffff);
+                // Changes made in the menu after the handoff must survive.
+                alley.data[0] = 0;
+                alley.start_initial_game(3, 42).unwrap();
+                assert_eq!(alley.data[0], 0);
+                assert_eq!(alley.data[0x41a], 1);
+                assert_eq!(alley.data[0x1f80], 3);
+                assert_eq!(word(&alley.data, 8), 3);
+                assert_eq!(word(&alley.data, 0x6df8), 3);
+                assert_eq!(word(&alley.data, 0x412), 42);
+                assert_eq!(alley.initial_seed, 0xfa59);
+                assert!(alley.start_initial_game(3, 42).is_err());
+                runs.push(alley);
+            }
+            assert_ne!(word(&runs[0].data, 0x2ae5), word(&runs[1].data, 0x2ae5));
+            assert_ne!(runs[0].framebuffer().bytes(), runs[1].framebuffer().bytes());
+            // Explicit restarts keep the configured seed, independent of how
+            // long the initial title played. Automatic game-over is separate.
+            for run in &mut runs {
+                run.restart(0).unwrap();
+            }
+            assert_eq!(word(&runs[0].data, 0x2ae5), word(&runs[1].data, 0x2ae5));
+            assert_eq!(runs[0].framebuffer().bytes(), runs[1].framebuffer().bytes());
+        }
+    }
+
+    #[test]
+    fn initial_title_handoff_rejects_unfinished_wrong_machine_and_repeated_titles() {
+        let mut alley = Alley::synthetic();
+        let completed = initial_title_fixture(Machine::Cga, 20);
+        let unfinished = crate::splash::Splash::new(completed.data(), Machine::Cga).unwrap();
+        let wrong_machine = initial_title_fixture(Machine::Pcjr, 20);
+        let mut repeated =
+            crate::splash::Splash::after_game_over(completed.data(), Machine::Cga, 0).unwrap();
+        repeated.advance(1, false, true).unwrap();
+        let before = alley.data.clone();
+        for splash in [&unfinished, &wrong_machine, &repeated] {
+            assert!(alley.inherit_initial_splash(splash).is_err());
+            assert_eq!(alley.data, before);
+        }
+        assert!(alley.start_initial_game(8, 0).is_err());
+        assert_eq!(alley.data, before);
+    }
 
     #[test]
     fn later_title_promotes_score_and_resumes_without_reseeding_or_clearing_history() {

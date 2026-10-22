@@ -644,8 +644,13 @@ Static construction produces the initial image outside the title-loop clock.
 These measurements are recorded separately and introduce no added startup wait;
 other seeds, setup callers and full startup timing remain uncalibrated. Exact
 playback cadence is not established by these helper captures.
-The first presentation has a separate data copy and does not advance the gameplay
-seed or clock; integrating the full original shared startup state remains deferred.
+The completed first presentation hands its shared data to the menu and initial
+game. Native scenery and animation random draws therefore influence the initial
+alley. The first menu selects skill without reseeding or clearing that state.
+A new gameplay/audio presentation epoch starts after the menu; title timers and
+other shared fields remain in the carried data, while run initialization resets
+its own fields. This does not establish instruction-level BIOS/video phase
+continuity across title, menu and gameplay.
 Explicit development scene previews bypass startup. In a splash preview, finite
 limits count virtual BIOS ticks and frame exports contain the splash itself.
 
@@ -685,7 +690,9 @@ initial gameplay difficulty; subsequent progression changes difficulty without
 changing the selected-skill fence sign. Controls are appended beneath the skill
 question, and `5f97` waits for a new key make before returning. Invalid skill
 keys leave the question unchanged. These menu waits have no timeout and do not
-advance the reconstruction's gameplay clock or random stream.
+advance the reconstruction's gameplay clock or random stream. They retain the
+random state already advanced by the title; only explicit later manual menu or
+restart requests reseed it.
 
 The host also accepts Ctrl+R to restart and Ctrl+M to select a new run, including
 while paused. Returning to play resets host pacing and pause state, preserving

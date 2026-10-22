@@ -431,6 +431,12 @@ retain the nominal schedule above and remain silent.
 
 ## Expanding scene transitions
 
+HUD background restoration covers its current and preceding sprite rectangles.
+Static border pixels outside those rectangles and the playfield retain their
+previous values when the alternate scene background is selected. In particular,
+the border immediately above the reveal must survive subsequent gameplay passes;
+repainting the entire area outside the playfield would incorrectly replace it.
+
 Routine `1edd` replaces the background through seven cumulative clipped regions,
 retaining the frozen world over them. Each draw calls `6147`, followed by
 `5bac` repeated `[10, 10, 10, 8, 5, 2, 2]` times. `5bac` polls bit 3 of CGA

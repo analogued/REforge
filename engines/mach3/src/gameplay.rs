@@ -115,6 +115,7 @@ pub struct Gameplay {
     last_background_layer: u16,
     remembered_draws: [Option<scene::Draw>; 29],
     remembered_requests: [usize; 29],
+    remembered_hud_rects: Vec<Rect>,
     transitions: Vec<TransitionFrame>,
     sound_returned: bool,
     initial_input_applied: bool,
@@ -126,6 +127,8 @@ impl Gameplay {
         let mut random = Random::default();
         random.next_word(); // Intro screen selection.
         random.next_word(); // Fresh-process script selection: script zero.
+        let hud = hud::Hud::new(assets)?;
+        let remembered_hud_rects = hud.draws().iter().map(|draw| draw.rect).collect();
         let mut gameplay = Self {
             body: 0,
             render_pass: 0,
@@ -145,7 +148,7 @@ impl Gameplay {
             layer: 0,
             palette_family: 1,
             noise_divisor: 0,
-            hud: hud::Hud::new(assets)?,
+            hud,
             terrain: terrain::Terrain::new(),
             enemy: enemy::Enemy::new(assets)?,
             player: player::Player::new(assets)?,
@@ -173,6 +176,7 @@ impl Gameplay {
             last_background_layer: 0,
             remembered_draws: [None; 29],
             remembered_requests: [0; 29],
+            remembered_hud_rects,
             transitions: Vec::new(),
             sound_returned: false,
             initial_input_applied: false,
@@ -677,23 +681,36 @@ impl Gameplay {
         }
         .background(assets, strip, self.strip_y, self.render_pass)?;
         let mut frame = self.frame.clone();
+        let hud_draws = if self.render_pass == 1 {
+            self.hud.draws()
+        } else {
+            Vec::new()
+        };
         if self.render_pass == 1 {
-            // HUD writes have their own normal background layer. Retain indicator
-            // pixels because their masks deliberately update the preceding frame.
+            // Restore HUD placements, including their preceding rectangles, rather
+            // than repainting static borders when the world background changes.
             let hud_background = state.background_with_layer(assets, strip, self.strip_y, 0)?;
-            let mut packed = frame.packed().to_vec();
-            for y in 0..200 {
-                for x in 0..80 {
-                    if (44..158).contains(&y) && (4..76).contains(&x) {
-                        continue;
-                    }
-                    if (13..20).contains(&y) && ((28..34).contains(&x) || (47..53).contains(&x)) {
-                        continue;
-                    }
-                    packed[y * 80 + x] = hud_background.packed()[y * 80 + x];
+            let screen = Rect {
+                x_bytes: 0,
+                y: 0,
+                width_bytes: 80,
+                height: 200,
+            };
+            for rect in self
+                .remembered_hud_rects
+                .iter()
+                .copied()
+                .chain(hud_draws.iter().map(|draw| draw.rect))
+            {
+                // Indicator masks deliberately update the preceding artwork.
+                if rect.y == 13 && matches!(rect.x_bytes, 28 | 47) {
+                    continue;
+                }
+                if let Some(clip) = presentation::dirty_region(rect, screen) {
+                    presentation::restore_background(&mut frame, &hud_background, clip)?;
                 }
             }
-            frame = Frame::from_packed(&packed)?;
+            self.remembered_hud_rects = hud_draws.iter().map(|draw| draw.rect).collect();
         }
         let current = self.world_draws();
         let requests = self.world_requests();
@@ -748,7 +765,7 @@ impl Gameplay {
             }
         }
         if self.render_pass == 1 {
-            for draw in self.hud.draws() {
+            for draw in hud_draws {
                 let sprite = assets.sprites.get(draw.resolved_sprite).ok_or_else(|| {
                     Error::InvalidData(format!("missing sprite {}", draw.resolved_sprite))
                 })?;
@@ -1933,6 +1950,20 @@ mod tests {
         game.advance_subframe(&assets, Steering::default()).unwrap();
         assert_eq!(game.selected_layer, 2);
         assert_eq!(game.snapshot().background_layer, 2);
+    }
+
+    #[test]
+    fn background_change_preserves_static_hud_border() {
+        let mut assets = synthetic_assets();
+        assets.primary.fill(0x55);
+        assets.alternate.fill(0xaa);
+        let mut game = Gameplay::new(&assets).unwrap();
+        game.alternate_background = true;
+        game.advance_subframe(&assets, Steering::default()).unwrap();
+        // This border is outside both the world reveal and HUD placements.
+        assert_eq!(game.frame().packed()[43 * 80 + 20], 0x55);
+        // The score's restore rectangle still uses the newly selected source.
+        assert_eq!(game.frame().packed()[32 * 80 + 34], 0xaa);
     }
 
     #[test]

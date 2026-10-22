@@ -122,6 +122,13 @@ launching during the phase-15 hold consumes the original shared random draws. Th
 difficulty 6 is corrected to 18 ticks by default; development builds can
 restore it with `--original-window-timing`. See [deliberate deviations](deviations.md).
 
+New fence support at Y96 records the accepted BIOS tick at `0556`. Continued
+support preserves it; leaving and landing again starts a new interval. After
+72 ticks on the fence (about 3.95 seconds), a new ordinary window selects only
+the top row and arms projectile alignment stopping. Earlier selections use the
+ordinary window pool. The Hearts-entry override suppresses this targeting mode.
+The mode belongs to the selected window; it does not retarget an existing fall.
+
 `VirtualClock` uses integer rational time with a PIT input frequency of 1,193,182
 Hz and a channel-0 divisor of 65,536. The BIOS rate is consequently about 18.2065
 Hz. The modeled mode-3 latch reloads twice per BIOS period and follows DOSBox-X's

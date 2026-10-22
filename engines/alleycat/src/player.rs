@@ -1235,6 +1235,8 @@ pub struct UpdateOutcome {
     pub draw: Draw,
     pub landed: bool,
     pub support: Support,
+    /// CS:164f starts the fence timer, even if controls leave it this update.
+    pub fence_entered: bool,
     /// A lower-list hit occurred before a possible vertical transition.
     pub lower_support: bool,
     /// The room adapter actually drew a floor mark during this accepted update.
@@ -1565,6 +1567,7 @@ impl Player {
             draw: Draw::Keep,
             landed: false,
             support: self.last_support,
+            fence_entered: false,
             lower_support: false,
             floor_mark: false,
             airborne_support_checked: false,
@@ -1648,7 +1651,9 @@ impl Player {
         }
 
         if self.y < 180 || word(data, 4) == 7 {
+            let was_on_fence = self.band_state == 1;
             let (support, entries) = self.check_support(data)?;
+            outcome.fence_entered = support == Support::Band96 && !was_on_fence;
             outcome.room_surface_entries = entries;
             if support == Support::None {
                 self.horizontal_direction = 0;
@@ -1902,7 +1907,9 @@ impl Player {
             }
             if self.support_delay == 0 && self.vertical_direction == 1 {
                 outcome.airborne_support_checked = true;
+                let was_on_fence = self.band_state == 1;
                 let (hit, entries) = self.check_support(data)?;
+                outcome.fence_entered = hit == Support::Band96 && !was_on_fence;
                 support = hit;
                 outcome.room_surface_entries = entries;
             }

@@ -835,6 +835,9 @@ impl Alley {
             self.player
                 .update_with_projectiles(controls, &self.data, projectile_enabled)?;
         outcome.floor_mark = floor_mark;
+        if outcome.fence_entered {
+            set_word(&mut self.data, 0x556, tick);
+        }
         if outcome.projectile_contact {
             self.check_player_projectile(tick)?;
             return Ok(outcome);
@@ -1003,6 +1006,7 @@ impl Alley {
                 draw: step.draw,
                 landed: false,
                 support: crate::player::Support::None,
+                fence_entered: false,
                 lower_support: false,
                 floor_mark: false,
                 airborne_support_checked: false,
@@ -2289,6 +2293,102 @@ fn hardware_color(color: u8) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fence_fixture() -> Alley {
+        let mut alley = Alley::synthetic();
+        alley.player.x = 160;
+        alley.player.y = 96;
+        alley.player.vertical_coordinate = 146;
+        set_word(&mut alley.data, 0x556, 40);
+        for offset in (0x0fb6..0x0fc2).step_by(2) {
+            set_word(&mut alley.data, offset, 0x0c03);
+        }
+        alley.player.write_data(&mut alley.data).unwrap();
+        set_word(&mut alley.data, 0x567, 0x0c03);
+        alley.player = Player::from_data(&alley.data).unwrap();
+        alley
+    }
+
+    #[test]
+    fn fence_entry_starts_timer_for_grounded_and_airborne_support() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            for airborne in [false, true] {
+                let mut alley = fence_fixture();
+                alley.machine = machine;
+                alley.player.vertical_direction = u8::from(airborne);
+                let update = alley.update_at_tick(Controls::default(), 1000).unwrap();
+                assert!(update.fence_entered);
+                assert_eq!(alley.player.band_state, 1);
+                assert_eq!(word(&alley.data, 0x556), 1000);
+
+                let update = alley.update_at_tick(Controls::default(), 1010).unwrap();
+                assert!(!update.fence_entered);
+                assert_eq!(word(&alley.data, 0x556), 1000);
+
+                // Drop from the fence, then land again later.
+                alley.update_at_tick(Controls { x: 0, y: 1 }, 1020).unwrap();
+                assert_eq!(alley.player.band_state, 0);
+                assert_eq!(word(&alley.data, 0x556), 1000);
+                alley.player.y = 96;
+                alley.player.vertical_coordinate = 146;
+                alley.player.write_data(&mut alley.data).unwrap();
+                alley.data[0x55b] = 0;
+                alley.player = Player::from_data(&alley.data).unwrap();
+                let update = alley.update_at_tick(Controls::default(), 1100).unwrap();
+                assert!(update.fence_entered);
+                assert_eq!(word(&alley.data, 0x556), 1100);
+            }
+        }
+    }
+
+    #[test]
+    fn fence_entry_timer_survives_an_immediate_jump_or_drop() {
+        for (direction, band) in [(-1, 2), (1, 0)] {
+            let mut alley = fence_fixture();
+            let update = alley
+                .update_at_tick(Controls { x: 0, y: direction }, 1000)
+                .unwrap();
+            assert!(update.fence_entered);
+            assert_eq!(alley.player.band_state, band);
+            assert_eq!(word(&alley.data, 0x556), 1000);
+        }
+    }
+
+    #[test]
+    fn rejected_fence_support_does_not_restart_timer() {
+        let mut alley = fence_fixture();
+        alley.player.band_state = 2;
+        let update = alley.update_at_tick(Controls::default(), 1000).unwrap();
+        assert!(!update.fence_entered);
+        assert_eq!(word(&alley.data, 0x556), 40);
+    }
+
+    #[test]
+    fn targeted_windows_wait_72_ticks_after_fence_entry_including_tick_wrap() {
+        for entry in [1000u16, 65520] {
+            let mut alley = fence_fixture();
+            alley.update_at_tick(Controls::default(), entry).unwrap();
+            for column in 0..4 {
+                set_word(
+                    &mut alley.data,
+                    0x1658 + column * 2,
+                    24 + column as u16 * 80,
+                );
+            }
+            alley.data[0x1660..0x1664].copy_from_slice(&[24, 56, 88, 24]);
+            for elapsed in [0, 1, 71, 72, 73] {
+                alley.data[0x1665] = 0;
+                alley.data[0x166a] = 1;
+                set_word(&mut alley.data, 0x2ae5, 0x10);
+                alley
+                    .advance_windows(entry.wrapping_add(elapsed), false)
+                    .unwrap();
+                assert_eq!(alley.data[0x1677], u8::from(elapsed >= 72));
+                assert_eq!(alley.data[0x1669], if elapsed >= 72 { 0 } else { 8 });
+                assert_eq!(word(&alley.data, 0x556), entry);
+            }
+        }
+    }
 
     #[test]
     fn last_life_handoff_does_not_charge_an_unexecuted_alley_setup() {

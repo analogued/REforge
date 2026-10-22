@@ -1,9 +1,10 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 //! Compact settings pages. Editing is separate from activation and persistence.
-//! Register interactive responses with control/value_control (or combo/collapsing)
+//! Register interactive responses with control/value_control (or Selector/collapsing)
 //! so keyboard/controller navigation targets settings rather than scroll geometry.
 use crate::settings::{SettingsMenu, VideoCapabilities};
-use crate::settings_navigation::{Kind, collapsing, combo, control, value_control};
+use crate::settings_navigation::{Kind, collapsing, control, value_control};
+use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, Presentation, Renderer,
@@ -241,30 +242,17 @@ pub(super) fn draw(
                                         menu.scope,
                                         &cli,
                                         |ui| {
-                                            combo(
-                                                egui::ComboBox::from_id_salt("renderer")
-                                                    .width(220.0)
-                                                    .selected_text(renderer_label(value.renderer))
-                                                    .show_ui(ui, |ui| {
-                                                        crate::settings_navigation::popup(
-                                                            ui,
-                                                            |ui| {
-                                                                for r in [
-                                                                    Renderer::Auto,
-                                                                    Renderer::Gpu,
-                                                                    Renderer::Sdl,
-                                                                    Renderer::Software,
-                                                                ] {
-                                                                    control(ui.selectable_value(
-                                                                        &mut value.renderer,
-                                                                        r,
-                                                                        renderer_label(r),
-                                                                    ));
-                                                                }
-                                                            },
-                                                        )
-                                                    }),
-                                            );
+                                            Selector::new(
+                                                "renderer",
+                                                [
+                                                    Renderer::Auto,
+                                                    Renderer::Gpu,
+                                                    Renderer::Sdl,
+                                                    Renderer::Software,
+                                                ]
+                                                .map(|r| Choice::new(r, renderer_label(r))),
+                                            )
+                                            .show(ui, &mut value.renderer);
                                         },
                                     );
                                     if value.renderer != original.renderer
@@ -318,25 +306,12 @@ pub(super) fn draw(
                                         menu.scope,
                                         &cli,
                                         |ui| {
-                                            combo(
-                                                egui::ComboBox::from_id_salt("frame_limit")
-                                                    .width(220.0)
-                                                    .selected_text(value.frame_limit.label())
-                                                    .show_ui(ui, |ui| {
-                                                        crate::settings_navigation::popup(
-                                                            ui,
-                                                            |ui| {
-                                                                for limit in FrameLimit::ALL {
-                                                                    control(ui.selectable_value(
-                                                                        &mut value.frame_limit,
-                                                                        limit,
-                                                                        limit.label(),
-                                                                    ));
-                                                                }
-                                                            },
-                                                        )
-                                                    }),
-                                            );
+                                            Selector::new(
+                                                "frame_limit",
+                                                FrameLimit::ALL
+                                                    .map(|limit| Choice::new(limit, limit.label())),
+                                            )
+                                            .show(ui, &mut value.frame_limit);
                                         },
                                     );
                                     ui.weak(
@@ -506,15 +481,7 @@ fn controls_controls(
         1,
         cli,
         |ui| {
-            combo(egui::ComboBox::from_id_salt(CONTROL_MODE)
-            .width(220.0)
-            .selected_text(value.alleycat.control_mode.label())
-            .show_ui(ui, |ui| crate::settings_navigation::popup(ui, |ui| {
-                for mode in ControlMode::ALL {
-                    control(ui.selectable_value(&mut value.alleycat.control_mode, mode, mode.label()));
-                }
-            })))
-            .response.on_hover_text("Responsive reacts sooner to direction and action changes. Original preserves the game's original input response.");
+            Selector::new(CONTROL_MODE, ControlMode::ALL.map(|mode| Choice::new(mode, mode.label()))).show(ui, &mut value.alleycat.control_mode).on_hover_text("Responsive reacts sooner to direction and action changes. Original preserves the game's original input response.");
         },
     );
 }
@@ -550,36 +517,24 @@ fn crt_controls(
         scope,
         cli,
         |ui| {
-            combo(
-                egui::ComboBox::from_id_salt("presentation")
-                    .width(220.0)
-                    .selected_text(if value.presentation == Presentation::Pixels {
-                        "Sharp pixels"
-                    } else if !hyllian_available {
-                        "Sharp pixels (on Apply)"
-                    } else {
-                        "Hyllian CRT"
-                    })
-                    .show_ui(ui, |ui| {
-                        crate::settings_navigation::popup(ui, |ui| {
-                            control(ui.selectable_value(
-                                &mut value.presentation,
-                                Presentation::Pixels,
-                                "Sharp pixels",
-                            ));
-                            ui.add_enabled_ui(hyllian_available, |ui| {
-                                control(ui.selectable_value(
-                                    &mut value.presentation,
-                                    Presentation::Hyllian,
-                                    "Hyllian CRT",
-                                ))
-                                .on_disabled_hover_text(
-                                    "Select Automatic or GPU with a compatible backend in Display.",
-                                );
-                            });
-                        })
-                    }),
-            );
+            Selector::new(
+                "presentation",
+                [
+                    Choice::new(Presentation::Pixels, "Sharp pixels"),
+                    Choice::new(Presentation::Hyllian, "Hyllian CRT").enabled(
+                        hyllian_available,
+                        "Select Automatic or GPU with a compatible backend in Display.",
+                    ),
+                ],
+            )
+            .selected_text(if value.presentation == Presentation::Pixels {
+                "Sharp pixels"
+            } else if !hyllian_available {
+                "Sharp pixels (on Apply)"
+            } else {
+                "Hyllian CRT"
+            })
+            .show(ui, &mut value.presentation);
         },
     );
     // Treatment-specific controls share one advanced section. The CLI layer
@@ -629,29 +584,14 @@ fn hyllian_controls(
         scope,
         cli,
         |ui| {
-            combo(
-                egui::ComboBox::from_id_salt("horizontal_filter")
-                    .width(220.0)
-                    .selected_text(if value.hyllian.catmull_rom {
-                        "Catmull–Rom"
-                    } else {
-                        "Hermite"
-                    })
-                    .show_ui(ui, |ui| {
-                        crate::settings_navigation::popup(ui, |ui| {
-                            control(ui.selectable_value(
-                                &mut value.hyllian.catmull_rom,
-                                false,
-                                "Hermite",
-                            ));
-                            control(ui.selectable_value(
-                                &mut value.hyllian.catmull_rom,
-                                true,
-                                "Catmull–Rom",
-                            ));
-                        })
-                    }),
-            );
+            Selector::new(
+                "horizontal_filter",
+                [
+                    Choice::new(false, "Hermite"),
+                    Choice::new(true, "Catmull–Rom"),
+                ],
+            )
+            .show(ui, &mut value.hyllian.catmull_rom);
         },
     );
     for (i, param) in SHADER_PARAMETERS.into_iter().enumerate() {
@@ -815,24 +755,13 @@ fn audio_controls(
             cli,
             |ui| {
                 ui.add_enabled_ui(scope == 1 && available, |ui| {
-                    combo(
-                        egui::ComboBox::from_id_salt("audio_renderer")
-                            .width(220.0)
-                            .selected_text(sound_renderer_label(value.audio.renderer))
-                            .show_ui(ui, |ui| {
-                                crate::settings_navigation::popup(ui, |ui| {
-                                    for renderer in std::iter::once(&SoundRenderer::GameDefault)
-                                        .chain(renderers)
-                                    {
-                                        control(ui.selectable_value(
-                                            &mut value.audio.renderer,
-                                            *renderer,
-                                            sound_renderer_label(*renderer),
-                                        ));
-                                    }
-                                })
-                            }),
-                    );
+                    Selector::new(
+                        "audio_renderer",
+                        std::iter::once(&SoundRenderer::GameDefault)
+                            .chain(renderers)
+                            .map(|r| Choice::new(*r, sound_renderer_label(*r))),
+                    )
+                    .show(ui, &mut value.audio.renderer);
                 });
             },
         );
@@ -856,30 +785,11 @@ fn audio_controls(
                 scope,
                 cli,
                 |ui| {
-                    combo(
-                        egui::ComboBox::from_id_salt(DIGITIZED_SAMPLES)
-                            .width(220.0)
-                            .selected_text(if value.mach3.digitized_samples {
-                                "On"
-                            } else {
-                                "Off"
-                            })
-                            .show_ui(ui, |ui| {
-                                crate::settings_navigation::popup(ui, |ui| {
-                                    control(ui.selectable_value(
-                                        &mut value.mach3.digitized_samples,
-                                        true,
-                                        "On",
-                                    ));
-                                    control(ui.selectable_value(
-                                        &mut value.mach3.digitized_samples,
-                                        false,
-                                        "Off",
-                                    ));
-                                })
-                            }),
+                    Selector::new(
+                        DIGITIZED_SAMPLES,
+                        [Choice::new(true, "On"), Choice::new(false, "Off")],
                     )
-                    .response
+                    .show(ui, &mut value.mach3.digitized_samples)
                     .on_hover_text("Applies on next launch.");
                 },
             );
@@ -896,36 +806,29 @@ fn audio_controls(
             scope,
             cli,
             |ui| {
-                combo(
-                    egui::ComboBox::from_id_salt(("output_device", devices))
-                        .width(220.0)
-                        .truncate()
-                        .selected_text(value.audio.device.as_deref().unwrap_or("System default"))
-                        .show_ui(ui, |ui| {
-                            crate::settings_navigation::popup(ui, |ui| {
-                                control(ui.selectable_value(
-                                    &mut value.audio.device,
-                                    None,
-                                    "System default",
-                                ));
-                                if let Some(name) =
-                                    value.audio.device.clone().filter(|n| !devices.contains(n))
-                                {
-                                    control(ui.add_enabled(
-                                        false,
-                                        egui::Label::new(format!("Unavailable: {name}")),
-                                    ));
-                                }
-                                for name in devices {
-                                    control(ui.selectable_value(
-                                        &mut value.audio.device,
-                                        Some(name.clone()),
-                                        name,
-                                    ));
-                                }
-                            })
-                        }),
-                );
+                Selector::new(
+                    ("output_device", devices),
+                    std::iter::once(Choice::new(None, "System default"))
+                        .chain(
+                            value
+                                .audio
+                                .device
+                                .clone()
+                                .filter(|name| !devices.contains(name))
+                                .map(|name| {
+                                    Choice::new(Some(name.clone()), format!("Unavailable: {name}"))
+                                        .enabled(false, "This output device is unavailable.")
+                                }),
+                        )
+                        .chain(
+                            devices
+                                .iter()
+                                .map(|name| Choice::new(Some(name.clone()), name)),
+                        ),
+                )
+                .truncate()
+                .selected_text(value.audio.device.as_deref().unwrap_or("System default"))
+                .show(ui, &mut value.audio.device);
             },
         );
         row(
@@ -1162,23 +1065,13 @@ fn backend_selector(ui: &mut egui::Ui, value: &mut RuntimeSettings) -> egui::Res
     let choices = backends(value.renderer);
     // egui remembers the popup's size. A short GPU list must not constrain
     // the longer Automatic/SDL list after switching renderers.
-    combo(
-        egui::ComboBox::from_id_salt(("backend", value.renderer.as_str()))
-            .width(220.0)
-            .selected_text(backend_label(value.backend))
-            .show_ui(ui, |ui| {
-                crate::settings_navigation::popup(ui, |ui| {
-                    for backend in choices {
-                        control(ui.selectable_value(
-                            &mut value.backend,
-                            backend,
-                            backend_label(backend),
-                        ));
-                    }
-                })
-            }),
+    Selector::new(
+        ("backend", value.renderer.as_str()),
+        choices
+            .into_iter()
+            .map(|backend| Choice::new(backend, backend_label(backend))),
     )
-    .response
+    .show(ui, &mut value.backend)
 }
 fn backends(renderer: Renderer) -> Vec<Backend> {
     let mut values = vec![Backend::Auto];

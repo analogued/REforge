@@ -16,6 +16,7 @@ use sdl3::{
 };
 
 use crate::FrameCreator;
+use crate::settings_selector::InputMode;
 
 use reforge_settings::Draft;
 pub use reforge_settings::{AudioSettings, ControlMode, RuntimeSettings, SoundRenderer};
@@ -238,7 +239,9 @@ impl<'a> SettingsMenu<'a> {
         self.pending = None;
         self.game_touched = [false; 4];
         self.events.clear();
+        let mode = self.navigation.mode;
         self.navigation = Default::default();
+        self.navigation.set_mode(&self.context, mode);
         self.navigation.focus_first = self.open;
         self.context.memory_mut(|memory| {
             memory.close_popup();
@@ -254,6 +257,8 @@ impl<'a> SettingsMenu<'a> {
     pub fn handle_gamepad(&mut self, pad: crate::gamepad::PadEvent) -> bool {
         if pad.settings {
             self.toggle();
+            self.navigation
+                .set_mode(&self.context, InputMode::Controller);
             return true;
         }
         if !self.open {
@@ -261,9 +266,16 @@ impl<'a> SettingsMenu<'a> {
         }
         if pad.cancel {
             self.back();
-        } else {
             self.navigation
-                .controller(pad, self.started.elapsed().as_secs_f64());
+                .set_mode(&self.context, InputMode::Controller);
+        } else {
+            if self
+                .navigation
+                .controller(pad, self.started.elapsed().as_secs_f64())
+            {
+                self.navigation
+                    .set_mode(&self.context, InputMode::Controller);
+            }
             let mut events = Vec::new();
             self.navigation.take_events(&mut events);
             self.events.extend(events.into_iter().map(MenuEvent::Ui));
@@ -313,6 +325,7 @@ impl<'a> SettingsMenu<'a> {
             }
             if !repeat {
                 self.toggle();
+                self.navigation.set_mode(&self.context, InputMode::Keyboard);
                 if self.open {
                     if let Event::KeyDown { window_id, .. } = event {
                         start_text_input(*window_id);
@@ -340,6 +353,7 @@ impl<'a> SettingsMenu<'a> {
         {
             if !self.escape_held {
                 self.back();
+                self.navigation.set_mode(&self.context, InputMode::Keyboard);
             }
             self.escape_held = true;
             return true;
@@ -355,6 +369,33 @@ impl<'a> SettingsMenu<'a> {
             self.escape_held = false;
             return true;
         }
+        if self.open {
+            let mode = match event {
+                Event::MouseButtonDown { .. } => Some(InputMode::Mouse),
+                Event::MouseWheel { x, y, .. } if *x != 0.0 || *y != 0.0 => Some(InputMode::Mouse),
+                Event::KeyDown {
+                    scancode: Some(scan),
+                    ..
+                } if !matches!(
+                    scan,
+                    Scancode::LShift
+                        | Scancode::RShift
+                        | Scancode::LCtrl
+                        | Scancode::RCtrl
+                        | Scancode::LAlt
+                        | Scancode::RAlt
+                        | Scancode::LGui
+                        | Scancode::RGui
+                ) =>
+                {
+                    Some(InputMode::Keyboard)
+                }
+                _ => None,
+            };
+            if let Some(mode) = mode {
+                self.navigation.set_mode(&self.context, mode);
+            }
+        }
         match event {
             Event::Window {
                 win_event: WindowEvent::FocusLost,
@@ -363,7 +404,9 @@ impl<'a> SettingsMenu<'a> {
                 self.focused = false;
                 self.modifiers = egui::Modifiers::default();
                 self.escape_held = false;
+                let mode = self.navigation.mode;
                 self.navigation = Default::default();
+                self.navigation.set_mode(&self.context, mode);
             }
             Event::Window {
                 win_event: WindowEvent::FocusGained,
@@ -1707,53 +1750,56 @@ mod tests {
         let mut frame =
             crate::FrameTexture::new(&creator, 320, 200, crate::FrameFormat::Rgba).unwrap();
         frame.update(&[170, 0, 170, 255].repeat(320 * 200)).unwrap();
-        for page in [0, 1, 2] {
-            menu.page = page;
-            if page == 2 {
-                menu.scope = 1;
-                menu.game_editing[2] = true;
-            }
-            for _ in 0..3 {
-                menu.prepare(display.ui_metrics(), display.settings());
-                assert!(
-                    menu.draft.as_ref() == Some(&saved),
-                    "CLI display values must not edit the draft"
-                );
-                display
-                    .present_with(&frame, |canvas| {
-                        menu.paint(canvas)?;
-                        if let Some(path) = std::env::var_os("REFORGE_SETTINGS_TEST_IMAGE") {
-                            let logical = canvas.logical_size();
-                            let viewport = canvas.viewport();
-                            let clip = canvas.clip_rect();
-                            let scale = canvas.scale();
-                            canvas
-                                .set_logical_size(
-                                    0,
-                                    0,
-                                    sdl3::sys::render::SDL_LOGICAL_PRESENTATION_DISABLED,
-                                )
-                                .map_err(|error| error.to_string())?;
-                            canvas.set_viewport(None);
-                            canvas.set_clip_rect(None);
-                            canvas.set_scale(1.0, 1.0).map_err(|e| e.to_string())?;
-                            canvas
-                                .read_pixels(None)
-                                .map_err(|error| error.to_string())?
-                                .save_bmp(path)
-                                .map_err(|error| error.to_string())?;
-                            canvas
-                                .set_logical_size(logical.0, logical.1, logical.2)
-                                .map_err(|error| error.to_string())?;
-                            canvas.set_viewport(viewport);
-                            canvas.set_clip_rect(clip);
-                            canvas
-                                .set_scale(scale.0, scale.1)
-                                .map_err(|e| e.to_string())?;
-                        }
-                        Ok(())
-                    })
-                    .unwrap();
+        for mode in [InputMode::Mouse, InputMode::Keyboard] {
+            menu.navigation.set_mode(&menu.context, mode);
+            for page in [0, 1, 2] {
+                menu.page = page;
+                if page == 2 {
+                    menu.scope = 1;
+                    menu.game_editing[2] = true;
+                }
+                for _ in 0..3 {
+                    menu.prepare(display.ui_metrics(), display.settings());
+                    assert!(
+                        menu.draft.as_ref() == Some(&saved),
+                        "CLI display values must not edit the draft"
+                    );
+                    display
+                        .present_with(&frame, |canvas| {
+                            menu.paint(canvas)?;
+                            if let Some(path) = std::env::var_os("REFORGE_SETTINGS_TEST_IMAGE") {
+                                let logical = canvas.logical_size();
+                                let viewport = canvas.viewport();
+                                let clip = canvas.clip_rect();
+                                let scale = canvas.scale();
+                                canvas
+                                    .set_logical_size(
+                                        0,
+                                        0,
+                                        sdl3::sys::render::SDL_LOGICAL_PRESENTATION_DISABLED,
+                                    )
+                                    .map_err(|error| error.to_string())?;
+                                canvas.set_viewport(None);
+                                canvas.set_clip_rect(None);
+                                canvas.set_scale(1.0, 1.0).map_err(|e| e.to_string())?;
+                                canvas
+                                    .read_pixels(None)
+                                    .map_err(|error| error.to_string())?
+                                    .save_bmp(path)
+                                    .map_err(|error| error.to_string())?;
+                                canvas
+                                    .set_logical_size(logical.0, logical.1, logical.2)
+                                    .map_err(|error| error.to_string())?;
+                                canvas.set_viewport(viewport);
+                                canvas.set_clip_rect(clip);
+                                canvas
+                                    .set_scale(scale.0, scale.1)
+                                    .map_err(|e| e.to_string())?;
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
+                }
             }
         }
     }

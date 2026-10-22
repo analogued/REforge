@@ -4,6 +4,7 @@
 use egui::{Context, Event, Id, Key, Modifiers, Response, Ui, WidgetText};
 
 use crate::gamepad::PadEvent;
+use crate::settings_selector::InputMode;
 
 const DIRECTIONS: [Key; 4] = [
     Key::ArrowUp,
@@ -21,6 +22,7 @@ pub(super) struct Navigation {
     events: Vec<Event>,
     deferred: Vec<Event>,
     pub focus_first: bool,
+    pub mode: InputMode,
 }
 
 fn pulse(events: &mut Vec<Event>, key: Key, shift: bool, repeat: bool) {
@@ -66,7 +68,10 @@ impl Navigation {
                 memory.set_focus_lock_filter(
                     target.id,
                     egui::EventFilter {
-                        horizontal_arrows: matches!(target.kind, Kind::Slider | Kind::Number),
+                        horizontal_arrows: matches!(
+                            target.kind,
+                            Kind::Slider | Kind::Number | Kind::Selector
+                        ),
                         vertical_arrows: matches!(target.kind, Kind::Number),
                         ..Default::default()
                     },
@@ -107,7 +112,9 @@ impl Navigation {
             // Widget-owned arrows still adjust sliders, values and text carets.
             if arrow
                 && current.is_some_and(|index| match targets[index].kind {
-                    Kind::Slider => matches!(key, Key::ArrowLeft | Key::ArrowRight),
+                    Kind::Slider | Kind::Selector => {
+                        matches!(key, Key::ArrowLeft | Key::ArrowRight)
+                    }
                     Kind::Number => true,
                     Kind::Control => false,
                 })
@@ -145,13 +152,18 @@ impl Navigation {
     pub fn take_events(&mut self, events: &mut Vec<Event>) {
         events.append(&mut self.events);
     }
-    pub fn controller(&mut self, pad: PadEvent, now: f64) {
+    pub fn controller(&mut self, pad: PadEvent, now: f64) -> bool {
         // Opposing directions cancel for menu navigation only.
         let a = pad.actions;
         let held = u8::from(a.up && !a.down)
             | (u8::from(a.down && !a.up) << 1)
             | (u8::from(a.left && !a.right) << 2)
             | (u8::from(a.right && !a.left) << 3);
+        let fresh =
+            held & !self.held != 0 || pad.pressed.action || pad.previous || pad.next || pad.pause;
+        if fresh && self.mode != InputMode::Controller {
+            self.repeat = [now + FIRST_REPEAT; 4];
+        }
         for (index, key) in DIRECTIONS.into_iter().enumerate() {
             if held & !self.held & (1 << index) != 0 {
                 pulse(&mut self.events, key, false, false);
@@ -165,11 +177,23 @@ impl Navigation {
         if pad.previous != pad.next {
             pulse(&mut self.events, Key::Tab, pad.previous, false);
         }
+        if fresh {
+            self.mode = InputMode::Controller;
+        }
+        fresh
+    }
+
+    pub fn set_mode(&mut self, context: &Context, mode: InputMode) {
+        self.mode = mode;
+        crate::settings_selector::set_mode(context, mode);
     }
 
     pub fn drain(&mut self, now: f64, events: &mut Vec<Event>) {
         for (index, key) in DIRECTIONS.into_iter().enumerate() {
-            if self.held & (1 << index) != 0 && now >= self.repeat[index] {
+            if self.mode == InputMode::Controller
+                && self.held & (1 << index) != 0
+                && now >= self.repeat[index]
+            {
                 // A host stall must not cause a burst of menu adjustments.
                 pulse(&mut self.events, key, false, true);
                 self.repeat[index] = now + REPEAT;
@@ -184,6 +208,7 @@ pub(super) enum Kind {
     Control,
     Slider,
     Number,
+    Selector,
 }
 #[derive(Clone)]
 struct Target {
@@ -218,10 +243,6 @@ pub(super) fn value_control(response: Response, kind: Kind) -> Response {
             });
         });
     }
-    response
-}
-pub(super) fn combo<R>(response: egui::InnerResponse<Option<R>>) -> egui::InnerResponse<Option<R>> {
-    control(response.response.clone());
     response
 }
 pub(super) fn collapsing<R>(response: egui::CollapsingResponse<R>) -> egui::CollapsingResponse<R> {
@@ -321,6 +342,10 @@ pub(super) fn filter_popup_input(context: &Context, events: &mut Vec<Event>) {
     if Some(state.items[index]) != focused {
         context.memory_mut(|memory| memory.request_focus(state.items[index]));
     }
+}
+
+pub(super) fn popup_anchor(context: &Context, anchor: Id) {
+    context.data_mut(|data| data.insert_temp(anchor_key(), anchor));
 }
 
 pub(super) fn close_popup(context: &Context) {
@@ -779,6 +804,185 @@ mod tests {
             assert!(!menu.is_open());
             // Keep the two iterations independent, with no filesystem settings.
             creator.session.borrow_mut().saved = Default::default();
+        }
+    }
+
+    #[test]
+    fn adaptive_menu_handoff_uses_real_sdl_events_at_both_ui_densities() {
+        const NAME: &str = "settings_navigation::tests::adaptive_menu_handoff_uses_real_sdl_events_at_both_ui_densities";
+        if std::env::var("REFORGE_ADAPTIVE_MENU_TEST").as_deref() != Ok(NAME) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env("REFORGE_ADAPTIVE_MENU_TEST", NAME)
+                .env("SDL_VIDEODRIVER", "dummy")
+                .env("SDL_RENDER_DRIVER", "software")
+                .env("SDL_AUDIO_DRIVER", "dummy")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        use crate::settings::{SettingsMenu, UiMetrics, VideoCapabilities};
+        use sdl3::{
+            event::Event as SdlEvent,
+            keyboard::{Keycode, Mod, Scancode},
+            mouse::{MouseButton, MouseState},
+        };
+        let display = crate::Window::new("adaptive settings", 320, 240, Some(4)).unwrap();
+        let creator = display.texture_creator();
+        let key = |scancode, keycode, pressed| {
+            if pressed {
+                SdlEvent::KeyDown {
+                    timestamp: 0,
+                    window_id: 0,
+                    which: 0,
+                    raw: 0,
+                    scancode: Some(scancode),
+                    keycode: Some(keycode),
+                    keymod: Mod::NOMOD,
+                    repeat: false,
+                }
+            } else {
+                SdlEvent::KeyUp {
+                    timestamp: 0,
+                    window_id: 0,
+                    which: 0,
+                    raw: 0,
+                    scancode: Some(scancode),
+                    keycode: Some(keycode),
+                    keymod: Mod::NOMOD,
+                    repeat: false,
+                }
+            }
+        };
+        let selector = |menu: &SettingsMenu<'_>| {
+            menu.context.data(|data| {
+                data.get_temp::<Targets>(targets_key())
+                    .unwrap()
+                    .0
+                    .into_iter()
+                    .find(|t| matches!(t.kind, Kind::Selector))
+                    .unwrap()
+            })
+        };
+        for mach3 in [true, false] {
+            for density in [1.0, 2.25] {
+                let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+                menu = if mach3 {
+                    menu.with_mach3_options(None)
+                } else {
+                    menu.with_alleycat_options()
+                };
+                let metrics = UiMetrics {
+                    drawable: (1920, 1440),
+                    window: (1920, 1440),
+                    pixels_per_point: density,
+                };
+                menu.handle_event(&key(Scancode::F10, Keycode::F10, true));
+                assert!(menu.navigation.mode == InputMode::Keyboard);
+                for _ in 0..4 {
+                    menu.prepare(metrics, display.settings());
+                }
+                let first = selector(&menu);
+                menu.context.memory_mut(|m| m.request_focus(first.id));
+                menu.prepare(metrics, display.settings());
+                menu.handle_event(&key(Scancode::Right, Keycode::Right, true));
+                menu.handle_event(&key(Scancode::Right, Keycode::Right, false));
+                menu.prepare(metrics, display.settings());
+                assert_eq!(
+                    menu.draft.as_ref().unwrap().global_values().renderer,
+                    reforge_settings::Renderer::Gpu
+                );
+                assert!(!menu.context.memory(|m| m.any_popup_open()));
+                let target = selector(&menu);
+                assert_eq!(target.rect.width(), 220.0);
+                assert!(target.rect.height() <= 24.0);
+                let position = target.visible.center() * density;
+                menu.handle_event(&SdlEvent::MouseMotion {
+                    timestamp: 0,
+                    window_id: 0,
+                    which: 0,
+                    mousestate: MouseState::from_sdl_state(0),
+                    x: position.x,
+                    y: position.y,
+                    xrel: 1.0,
+                    yrel: 1.0,
+                });
+                menu.prepare(metrics, display.settings());
+                assert!(menu.navigation.mode == InputMode::Keyboard);
+                for pressed in [true, false] {
+                    let event = if pressed {
+                        SdlEvent::MouseButtonDown {
+                            timestamp: 0,
+                            window_id: 0,
+                            which: 0,
+                            mouse_btn: MouseButton::Left,
+                            clicks: 1,
+                            x: position.x,
+                            y: position.y,
+                        }
+                    } else {
+                        SdlEvent::MouseButtonUp {
+                            timestamp: 0,
+                            window_id: 0,
+                            which: 0,
+                            mouse_btn: MouseButton::Left,
+                            clicks: 1,
+                            x: position.x,
+                            y: position.y,
+                        }
+                    };
+                    menu.handle_event(&event);
+                    assert!(menu.navigation.mode == InputMode::Mouse);
+                    menu.prepare(metrics, display.settings());
+                }
+                assert!(
+                    menu.context.memory(|m| m.any_popup_open()),
+                    "single click at density {density}"
+                );
+                menu.handle_event(&key(Scancode::Right, Keycode::Right, true));
+                menu.handle_event(&key(Scancode::Right, Keycode::Right, false));
+                menu.prepare(metrics, display.settings());
+                assert_eq!(
+                    menu.draft.as_ref().unwrap().global_values().renderer,
+                    reforge_settings::Renderer::Sdl
+                );
+                assert!(!menu.context.memory(|m| m.any_popup_open()));
+                assert_eq!(menu.context.memory(|m| m.focused()), Some(target.id));
+                let right = PadEvent {
+                    actions: Actions {
+                        right: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                menu.handle_gamepad(right);
+                menu.prepare(metrics, display.settings());
+                assert!(menu.navigation.mode == InputMode::Controller);
+                menu.navigation.set_mode(&menu.context, InputMode::Mouse);
+                menu.handle_gamepad(right); // unchanged axis notification while held
+                assert!(menu.navigation.mode == InputMode::Mouse);
+                let mut repeated = Vec::new();
+                menu.navigation.drain(1_000_000.0, &mut repeated);
+                assert!(
+                    repeated.is_empty(),
+                    "mouse mode suppresses held-controller repeat"
+                );
+                menu.handle_gamepad(PadEvent::default());
+                menu.handle_gamepad(right);
+                assert!(menu.navigation.mode == InputMode::Controller);
+                menu.handle_event(&SdlEvent::Window {
+                    timestamp: 0,
+                    window_id: 0,
+                    win_event: sdl3::event::WindowEvent::FocusLost,
+                });
+                assert_eq!(menu.navigation.held, 0);
+            }
         }
     }
 

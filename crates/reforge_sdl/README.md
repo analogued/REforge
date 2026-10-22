@@ -177,6 +177,19 @@ the corresponding dependencies. This crate bundles no game data.
 F10 opens the Compact Display, CRT & Colour, Audio and Controls pages in either engine.
 Controls offers a shared stick dead zone, with Alley Cat's additional input-response
 choice under its game overrides.
+Selectors switch live between dropdowns for mouse input and horizontal carousels
+for keyboard/controller navigation. They retain the same Compact dimensions,
+identity, focus and value. Left/Right cycles available choices; Enter/Space or
+controller A cycles forward. Up/Down and Tab/Shift+Tab (controller shoulders)
+navigate controls. Disabled or command-line-locked choices remain unavailable.
+A mouse button press switches back before that press is handled, so one click
+opens a carousel as a dropdown. Nonzero wheel input also selects mouse mode;
+hover and cursor movement do not. Navigation dismisses an open dropdown without
+committing its highlighted choice and returns to its owning field. Escape or
+controller B dismisses a dropdown before closing the menu on a fresh press.
+Held-stick repeat is suppressed after switching to mouse/keyboard input until
+fresh controller input takes over. These are host UI controls, independent of
+reconstructed gameplay input and clocks.
 Window mode, scale, renderer, backend, VSync, frame ceiling, Hyllian shader
 controls and Audio use draft edits with Apply/Cancel. Global and game
 preferences are saved through `reforge_settings`; CLI overrides remain temporary

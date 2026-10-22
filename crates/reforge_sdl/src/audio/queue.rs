@@ -9,7 +9,8 @@ use std::{collections::VecDeque, time::Duration};
 pub struct Policy {
     pub prefill: Duration,
     pub target: Duration,
-    /// Allowed lateness beyond the playback position established at resume.
+    /// Allowed extra lateness beyond normal prefill at startup/reset, or beyond
+    /// the playback position established at resume while running.
     pub max_lateness: Duration,
     /// Reject excess pending data without silently truncating future sound.
     pub max_pending: Duration,
@@ -254,6 +255,23 @@ impl Queue {
         }
         self.presentation = Some(position);
         let mut queued = sink.queued()?;
+        if self.phase == Phase::Priming {
+            let begin = self
+                .blocks
+                .front()
+                .map_or(self.input_end, |block| block.start + block.offset as u64);
+            if position.saturating_sub(begin)
+                > (self.prefill as u64).saturating_add(self.max_lateness)
+            {
+                // Startup/reset has no playback anchor yet. Do not adopt a
+                // stalled producer's oldest PCM as permanent baseline latency.
+                // Keep normal prefill behind presentation, including when
+                // catch-up generates the expired prefix in subsequent chunks.
+                self.play_position = Some(position.saturating_sub(self.prefill as u64));
+                self.stats.recoveries = self.stats.recoveries.saturating_add(1);
+                self.phase = Phase::Recovering;
+            }
+        }
         if self.phase == Phase::Running {
             let oldest = self
                 .submitted_end

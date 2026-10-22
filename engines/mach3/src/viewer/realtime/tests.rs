@@ -55,6 +55,58 @@ fn shared_prefill_allows_startup_and_catchup_recovery() {
     assert!(signal.borrow().error.is_none());
 }
 
+#[test]
+fn stalled_startup_and_device_reset_wait_for_current_prefill() {
+    const TEST: &str =
+        "viewer::realtime::tests::stalled_startup_and_device_reset_wait_for_current_prefill";
+    const MARKER: &str = "REFORGE_MACH3_PREFILL_TEST";
+    if std::env::var(MARKER).as_deref() != Ok(TEST) {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--test-threads=1"])
+            .env(MARKER, TEST)
+            .env("SDL_AUDIO_DRIVER", "dummy")
+            .env("SDL_AUDIODRIVER", "dummy")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    use reforge_sdl::audio::queue::Phase;
+    let at = |ms| PIT_HZ * ms / 1000;
+    for reset in [false, true] {
+        let host = Playback::new(Default::default());
+        let signal = signal(CHUNK as u32);
+        let mut audio = PlaybackAudio::new(signal.clone(), host.clone());
+        assert!(host.available());
+        let epoch = if reset {
+            audio.service(at(60), at(60));
+            assert_eq!(audio.queue.phase(), Phase::Running);
+            // Reopen the endpoint as a device-setting change would, then let
+            // the production adapter reset at its generated-sample boundary.
+            host.start(RATE).unwrap();
+            assert!(audio.sync_settings(at(60), AudioRenderer::Speaker));
+            60
+        } else {
+            0
+        };
+        for ms in (10..=280).step_by(10) {
+            audio.service(at(epoch + ms), at(epoch + 300));
+            assert_eq!(audio.queue.phase(), Phase::Recovering);
+            assert_eq!(host.queued_samples().unwrap(), 0);
+        }
+        audio.service(at(epoch + 320), at(epoch + 320));
+        assert_eq!(audio.queue.phase(), Phase::Running);
+        assert_eq!(audio.queue.stats().recoveries, 1);
+        assert!(audio.queue.stats().expired >= RATE as u64 / 5);
+        assert!(signal.borrow().error.is_none());
+    }
+}
+
 fn frames() -> StartupFrames {
     StartupFrames::from_test_graphics(GraphicsAssets {
         primary: vec![0; 28_960],

@@ -319,3 +319,132 @@ fn explicit_debt_rebase_on_pause_keeps_existing_and_future_pcm() {
     assert_eq!(q.stats().rebases, 1);
     assert_eq!(q.stats().recoveries, 0);
 }
+
+#[test]
+fn stall_before_first_resume_or_after_reset_does_not_become_permanent_delay() {
+    for epoch in [0, 1000] {
+        let mut q = queue();
+        let mut d = Device {
+            paused: true,
+            ..Default::default()
+        };
+        if epoch != 0 {
+            q.push(0, pcm(0, 50)).unwrap();
+            q.service(&mut d, 50).unwrap();
+            q.reset(&mut d, epoch as u64).unwrap();
+        }
+        let clears = d.clears;
+        // Presentation has advanced during a stall, while synthesis catches up
+        // in small chunks. Fifty old samples must not start playback at zero.
+        for end in (10..=300).step_by(10) {
+            q.push(
+                (epoch + end - 10) as u64,
+                pcm(epoch + end - 10, epoch + end),
+            )
+            .unwrap();
+            q.service(&mut d, (epoch + 300) as u64).unwrap();
+            if end < 300 {
+                assert!(d.paused, "stale startup PCM resumed at {end} ms");
+                assert!(d.input.is_empty());
+            }
+        }
+        assert_eq!(q.phase(), Phase::Running);
+        assert_eq!(d.input.front(), Some(&((epoch + 251) as i16)));
+        assert_eq!(q.stats().expired, 250);
+        assert_eq!(q.stats().recoveries, 1);
+        assert_eq!(d.clears, clears, "priming has no submitted PCM to clear");
+        // Catch-up completes without establishing the stall as normal latency.
+        d.consume(40);
+        q.push((epoch + 300) as u64, pcm(epoch + 300, epoch + 340))
+            .unwrap();
+        q.service(&mut d, (epoch + 340) as u64).unwrap();
+        d.consume(50);
+        assert_eq!(d.played, pcm(epoch + 250, epoch + 340));
+    }
+}
+
+#[test]
+fn startup_expiry_keeps_the_complete_future_tail() {
+    let mut q = queue();
+    let mut d = Device::default();
+    q.push(0, pcm(0, 3000)).unwrap();
+    q.service(&mut d, 300).unwrap();
+    for now in (310..=3050).step_by(10) {
+        d.consume(10);
+        q.service(&mut d, now).unwrap();
+    }
+    assert_eq!(d.played, pcm(250, 3000));
+    assert_eq!(q.stats().expired, 250);
+    assert_eq!(q.stats().recoveries, 1);
+    assert_eq!(d.clears, 0);
+}
+
+#[test]
+fn normal_prefill_tolerance_and_future_reset_epochs_are_preserved() {
+    let mut q = queue();
+    let mut d = Device::default();
+    q.push(0, pcm(0, 50)).unwrap();
+    // Normal prefill plus exactly the extra lateness budget is accepted.
+    q.service(&mut d, 150).unwrap();
+    assert_eq!(q.stats().expired, 0);
+    assert_eq!(q.stats().recoveries, 0);
+    d.consume(50);
+    assert_eq!(d.played, pcm(0, 50));
+    // A reset's generated epoch can legitimately lead presentation, e.g. after
+    // a blocking sound program. Its future PCM must not be treated as old.
+    q.reset(&mut d, 1000).unwrap();
+    q.push(1000, pcm(1000, 1050)).unwrap();
+    q.service(&mut d, 300).unwrap();
+    d.consume(50);
+    assert_eq!(&d.played[50..], pcm(1000, 1050));
+    assert_eq!(q.stats().expired, 0);
+}
+
+#[test]
+fn startup_stall_matrix_bounds_initial_delay_and_preserves_every_retained_sample() {
+    for epoch in [0, 1000] {
+        for prefill in [0, 10, 50, 100] {
+            for lateness in [0, 20, 100] {
+                for stall in [0, 40, 60, 100, 149, 150, 151, 300, 1000] {
+                    for chunk in [1, 7, 50] {
+                        let mut q = Queue::new(
+                            1000,
+                            Policy {
+                                prefill: Duration::from_millis(prefill),
+                                max_lateness: Duration::from_millis(lateness),
+                                ..Default::default()
+                            },
+                        )
+                        .unwrap();
+                        let mut d = Device::default();
+                        if epoch != 0 {
+                            q.reset(&mut d, epoch).unwrap();
+                        }
+                        let mut end = epoch;
+                        while q.phase() != Phase::Running {
+                            q.push(end, pcm(end as usize, (end + chunk) as usize))
+                                .unwrap();
+                            end += chunk;
+                            q.service(&mut d, epoch + stall).unwrap();
+                            assert!(end <= epoch + stall + prefill + chunk);
+                        }
+                        let first = *d.input.front().unwrap() as u64 - 1;
+                        assert!((epoch + stall).saturating_sub(first) <= prefill + lateness);
+                        q.push(end, pcm(end as usize, (epoch + 2000) as usize))
+                            .unwrap();
+                        q.service(&mut d, epoch + stall).unwrap();
+                        let mut consumed = 0;
+                        while consumed < epoch + 2000 - first {
+                            let count = 10.min(epoch + 2000 - first - consumed);
+                            d.consume(count as usize);
+                            consumed += count;
+                            q.service(&mut d, epoch + stall + consumed).unwrap();
+                        }
+                        assert_eq!(d.played, pcm(first as usize, (epoch + 2000) as usize));
+                        assert_eq!(q.stats().expired, first - epoch);
+                    }
+                }
+            }
+        }
+    }
+}

@@ -263,12 +263,17 @@ endpoint's `set_prefill(Duration)` override, including enough queue capacity.
 Pending overflow or noncontiguous input returns an error without silently
 truncating future sound. `phase`, `pending_samples` and `stats` expose diagnostics.
 
-Priming waits without blocking the engine. Running playback preserves submitted
-order while buffering absorbs interruptions. It estimates nominal playback
+Priming waits without blocking the engine. Before the first resume after startup
+or reset, it bounds the oldest sample's delay by normal prefill plus the
+additional-lateness budget. If that bound is exceeded, it discards the expired
+prefix and waits for current prefill, preserving future PCM. The default bound
+is 150 ms; startup recovery then targets a 50 ms prefill offset. Running playback
+preserves submitted order while buffering absorbs interruptions. It estimates nominal playback
 progress from the presentation position at resume, then compares that progress
 to the oldest unconverted submitted sample. An empty SDL input queue alone is
-not an underrun: converted audio may still be held by the device. Only excessive
-lateness enters recovery, pauses/clears the device once, and removes expired PCM.
+not an underrun: converted audio may still be held by the device. During running
+playback, excessive lateness enters recovery, pauses/clears the device once, and
+removes expired PCM. Startup recovery has no submitted device audio to clear.
 Recovery retains future data and waits for a fresh prefill before resuming. Its
 cutoff may advance while waiting for simulation catch-up; normal submissions
 have no unconditional age trimming. The budget is conservative and does not

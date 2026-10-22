@@ -1024,11 +1024,13 @@ fn row_with_width(
         if different && !locked {
             child.visuals_mut().override_text_color = Some(ACCENT);
         }
-        child
-            .add_enabled_ui(!locked, draw_control)
-            .response
-            .on_hover_text(&tooltip)
-            .on_disabled_hover_text(&tooltip);
+        crate::settings_navigation::row_controls(&mut child, rect, |child| {
+            child
+                .add_enabled_ui(!locked, draw_control)
+                .response
+                .on_hover_text(&tooltip)
+                .on_disabled_hover_text(&tooltip);
+        });
         // Keep widget widths/positions fixed; locks never cover widget content.
         let (rect, response) = ui.allocate_exact_size(Vec2::new(20.0, 22.0), egui::Sense::hover());
         if let Some(reason) = &lock_tooltip {

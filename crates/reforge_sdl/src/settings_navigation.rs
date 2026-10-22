@@ -214,6 +214,7 @@ pub(super) enum Kind {
 struct Target {
     id: Id,
     rect: egui::Rect,
+    vertical_rect: egui::Rect,
     visible: egui::Rect,
     layer: egui::LayerId,
     kind: Kind,
@@ -237,6 +238,7 @@ pub(super) fn value_control(response: Response, kind: Kind) -> Response {
             targets.0.push(Target {
                 id: response.id,
                 rect: response.rect,
+                vertical_rect: response.rect,
                 visible: response.interact_rect,
                 layer: response.layer_id,
                 kind,
@@ -245,6 +247,24 @@ pub(super) fn value_control(response: Response, kind: Kind) -> Response {
     }
     response
 }
+/// All controls in a labelled settings row occupy one vertical navigation
+/// column, regardless of their individual text widths or radio-button position.
+/// Actual hit/focus rectangles and horizontal navigation remain unchanged.
+pub(super) fn row_controls(ui: &mut Ui, bounds: egui::Rect, draw: impl FnOnce(&mut Ui)) {
+    let first = scroll_start(ui.ctx());
+    draw(ui);
+    ui.ctx().data_mut(|data| {
+        let targets = data.get_temp_mut_or_default::<Targets>(targets_key());
+        for target in targets.0.iter_mut().skip(first) {
+            // A row can open a popup. Its separate layer retains its own layout.
+            if target.layer == ui.layer_id() {
+                target.vertical_rect.min.x = bounds.min.x;
+                target.vertical_rect.max.x = bounds.max.x;
+            }
+        }
+    });
+}
+
 pub(super) fn collapsing<R>(response: egui::CollapsingResponse<R>) -> egui::CollapsingResponse<R> {
     control(response.header_response.clone());
     response
@@ -266,7 +286,10 @@ fn directional_target(targets: &[Target], current: usize, key: Key) -> Option<us
             }
             let delta = candidate.rect.center() - source.rect.center();
             let (forward, cross) = if vertical {
-                (delta.y * sign, delta.x.abs())
+                let a = source.vertical_rect;
+                let b = candidate.vertical_rect;
+                let gap = (a.left() - b.right()).max(b.left() - a.right()).max(0.0);
+                (delta.y * sign, gap)
             } else {
                 (delta.x * sign, delta.y.abs())
             };
@@ -982,6 +1005,217 @@ mod tests {
                     win_event: sdl3::event::WindowEvent::FocusLost,
                 });
                 assert_eq!(menu.navigation.held, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn display_arrows_visit_each_row_from_wide_and_narrow_controls() {
+        const NAME: &str = "settings_navigation::tests::display_arrows_visit_each_row_from_wide_and_narrow_controls";
+        if std::env::var("REFORGE_DISPLAY_ROWS_TEST").as_deref() != Ok(NAME) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env("REFORGE_DISPLAY_ROWS_TEST", NAME)
+                .env("SDL_VIDEODRIVER", "dummy")
+                .env("SDL_RENDER_DRIVER", "software")
+                .env("SDL_AUDIO_DRIVER", "dummy")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        use crate::settings::{SettingsMenu, UiMetrics, VideoCapabilities};
+        use sdl3::{
+            event::Event as SdlEvent,
+            keyboard::{Keycode, Mod, Scancode},
+        };
+        let display = crate::Window::new("settings row navigation", 320, 240, Some(4)).unwrap();
+        let creator = display.texture_creator();
+        for mach3 in [true, false] {
+            for (size, density, auto_scale) in [
+                ((1280, 960), 1.0, true),
+                ((1280, 960), 1.0, false),
+                ((2560, 1920), 2.25, true),
+                ((2560, 1920), 2.25, false),
+                ((1920, 1440), 2.25, true),
+                ((1920, 1440), 2.25, false),
+            ] {
+                for controller in [false, true] {
+                    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+                    menu = if mach3 {
+                        menu.with_mach3_options(None)
+                    } else {
+                        menu.with_alleycat_options()
+                    };
+                    menu.toggle();
+                    let metrics = UiMetrics {
+                        drawable: size,
+                        window: size,
+                        pixels_per_point: density,
+                    };
+                    menu.prepare(metrics, display.settings());
+                    menu.draft.as_mut().unwrap().edit(
+                        false,
+                        "scale",
+                        if auto_scale { "auto" } else { "4" }.into(),
+                    );
+                    for _ in 0..4 {
+                        menu.prepare(metrics, display.settings());
+                    }
+                    let targets = menu
+                        .context
+                        .data(|data| data.get_temp::<Targets>(targets_key()).unwrap().0);
+                    let renderer = targets
+                        .iter()
+                        .position(|t| matches!(t.kind, Kind::Selector))
+                        .unwrap();
+                    let top_controls: Vec<_> = targets[..renderer]
+                        .iter()
+                        .filter(|t| matches!(t.kind, Kind::Control))
+                        .collect();
+                    let count = top_controls.len();
+                    let windowed = top_controls[count - 3].id;
+                    let fullscreen = top_controls[count - 2].id;
+                    let auto = top_controls[count - 1].id;
+                    let backend = targets[renderer + 1].id;
+                    let vsync = targets[renderer + 2].id;
+                    let limit = targets[renderer + 3].id;
+                    let cancel = targets.last().unwrap().id;
+                    let slider = targets[..renderer]
+                        .iter()
+                        .find(|t| matches!(t.kind, Kind::Slider))
+                        .map(|t| t.id);
+                    let below_scale = slider.unwrap_or(targets[renderer].id);
+                    let above_renderer = slider.unwrap_or(auto);
+                    for (source, key, expected, label) in [
+                        (
+                            windowed,
+                            Key::ArrowRight,
+                            fullscreen,
+                            "Windowed -> Fullscreen",
+                        ),
+                        (
+                            fullscreen,
+                            Key::ArrowLeft,
+                            windowed,
+                            "Fullscreen -> Windowed",
+                        ),
+                        (windowed, Key::ArrowDown, auto, "Windowed -> Window scale"),
+                        (
+                            auto,
+                            Key::ArrowDown,
+                            below_scale,
+                            "Window scale -> next row",
+                        ),
+                        (
+                            targets[renderer].id,
+                            Key::ArrowUp,
+                            above_renderer,
+                            "Renderer -> previous row",
+                        ),
+                        (
+                            fullscreen,
+                            Key::ArrowDown,
+                            auto,
+                            "Fullscreen -> Window scale",
+                        ),
+                        (backend, Key::ArrowDown, vsync, "Backend -> VSync"),
+                        (vsync, Key::ArrowDown, limit, "VSync -> Frame limit"),
+                        (limit, Key::ArrowUp, vsync, "Frame limit -> VSync"),
+                        (vsync, Key::ArrowUp, backend, "VSync -> Backend"),
+                        (cancel, Key::ArrowUp, limit, "Cancel -> Frame limit"),
+                    ] {
+                        menu.context.memory_mut(|m| m.request_focus(source));
+                        menu.prepare(metrics, display.settings());
+                        if controller {
+                            menu.handle_gamepad(PadEvent {
+                                actions: Actions {
+                                    up: key == Key::ArrowUp,
+                                    down: key == Key::ArrowDown,
+                                    left: key == Key::ArrowLeft,
+                                    right: key == Key::ArrowRight,
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            });
+                        } else {
+                            for pressed in [true, false] {
+                                let (scancode, keycode) = match key {
+                                    Key::ArrowUp => (Scancode::Up, Keycode::Up),
+                                    Key::ArrowDown => (Scancode::Down, Keycode::Down),
+                                    Key::ArrowLeft => (Scancode::Left, Keycode::Left),
+                                    Key::ArrowRight => (Scancode::Right, Keycode::Right),
+                                    _ => unreachable!(),
+                                };
+                                let event = if pressed {
+                                    SdlEvent::KeyDown {
+                                        timestamp: 0,
+                                        window_id: 0,
+                                        which: 0,
+                                        raw: 0,
+                                        scancode: Some(scancode),
+                                        keycode: Some(keycode),
+                                        keymod: Mod::NOMOD,
+                                        repeat: false,
+                                    }
+                                } else {
+                                    SdlEvent::KeyUp {
+                                        timestamp: 0,
+                                        window_id: 0,
+                                        which: 0,
+                                        raw: 0,
+                                        scancode: Some(scancode),
+                                        keycode: Some(keycode),
+                                        keymod: Mod::NOMOD,
+                                        repeat: false,
+                                    }
+                                };
+                                menu.handle_event(&event);
+                            }
+                        }
+                        menu.prepare(metrics, display.settings());
+                        assert_eq!(
+                            menu.context.memory(|m| m.focused()),
+                            Some(expected),
+                            "{label}; mach3={mach3} size={size:?} density={density} controller={controller} auto_scale={auto_scale}"
+                        );
+                        menu.handle_gamepad(PadEvent::default());
+                        menu.prepare(metrics, display.settings());
+                        let target = menu.context.data(|data| {
+                            data.get_temp::<Targets>(targets_key())
+                                .unwrap()
+                                .0
+                                .into_iter()
+                                .find(|t| t.id == expected)
+                                .unwrap()
+                        });
+                        assert!(
+                            target.visible.is_positive(),
+                            "focused row must be revealed: {label}"
+                        );
+                    }
+                    menu.context.memory_mut(|m| m.request_focus(vsync));
+                    menu.prepare(metrics, display.settings());
+                    let before = menu.draft.as_ref().unwrap().global_values().vsync;
+                    menu.handle_gamepad(PadEvent {
+                        pressed: Actions {
+                            action: true,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    });
+                    menu.prepare(metrics, display.settings());
+                    assert_ne!(
+                        menu.draft.as_ref().unwrap().global_values().vsync,
+                        before,
+                        "VSync must activate once focused"
+                    );
+                }
             }
         }
     }

@@ -141,9 +141,15 @@ impl ScriptRules {
     }
 }
 
-/// The original uses a signed comparison after wrapping word arithmetic.
-pub(crate) fn delay_threshold(difficulty: u16) -> i16 {
+/// Raw original arithmetic, retained for interpreting external observations.
+fn original_delay_threshold(difficulty: u16) -> i16 {
     20_u16.wrapping_sub(difficulty.wrapping_shl(3)) as i16
+}
+
+/// Preserve immediate high-level dispatch without the original word overflow
+/// reintroducing long waits at difficulty 4,099 and later periods.
+pub(crate) fn delay_threshold(difficulty: u16) -> i16 {
+    original_delay_threshold(difficulty.min(3))
 }
 
 /// Artwork has ten families; later original reads escape those tables and can
@@ -194,12 +200,26 @@ mod tests {
 
     #[test]
     fn event_delay_preserves_signed_and_word_wraparound() {
+        for (difficulty, expected) in [
+            (0, 20),
+            (1, 12),
+            (2, 4),
+            (3, -4),
+            (4098, -32764),
+            (4099, 32764),
+            (8191, 28),
+            (8192, 20),
+            (32768, 20),
+            (65535, 28),
+        ] {
+            assert_eq!(original_delay_threshold(difficulty), expected);
+        }
         assert_eq!(delay_threshold(0), 20);
         assert_eq!(delay_threshold(1), 12);
         assert_eq!(delay_threshold(2), 4);
-        assert_eq!(delay_threshold(3), -4);
-        assert_eq!(delay_threshold(8192), 20);
-        assert_eq!(delay_threshold(u16::MAX), 28);
+        for difficulty in 3..=u16::MAX {
+            assert_eq!(delay_threshold(difficulty), -4);
+        }
     }
 
     #[test]

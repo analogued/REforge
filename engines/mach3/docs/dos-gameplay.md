@@ -598,7 +598,14 @@ load image without executing or relocating it. Normal endings follow edge zero;
 entering a goal follows edge one. Both reset the cursor and clear primary and
 special activity while retaining the random stream and current terrain selector.
 The parser preserves signed, wrapping delay arithmetic, including several
-commands in a single invocation at higher difficulty.
+commands in a single invocation at higher difficulty, with an overflow correction:
+the delay operand stops increasing at difficulty 3. The original computes the
+signed word `20 - 8*difficulty`; it is negative from 3 through 4,098, but wraps to
+32,764 at 4,099, reintroducing long waits. Runtime keeps immediate command
+dispatch above difficulty 2. The stored difficulty still increments and wraps
+from 65,535 to zero. Patrol population likewise uses an unsigned difficulty
+comparison: one craft at zero, two at one, and up to three thereafter. This fixes
+the original signed comparison disabling every patrol at 32,768 and above.
 
 The implementation handles the enemy command families, all terrain selectors,
 procedural special modes, continuous gate recycling, palette/background
@@ -608,7 +615,8 @@ remains a wrapping word. HUD marker and patrol artwork selection reuses visual
 family 9 at higher difficulties, including its marker placement. The original
 indexes beyond the ten visual families: at difficulty 10 its zero-filled choices
 can leave HUD selection retrying forever before the first encounter. This defect
-is fixed without limiting difficulty, command pacing or the other gameplay rules.
+is fixed without limiting the stored difficulty. The separate command-delay and
+patrol-population overflow corrections are described above.
 The external rule decoder retains raw wrapping table access for inspection;
 runtime visual selection applies the correction. Invalid supplied resources can
 still produce a reported retry error. These later paths

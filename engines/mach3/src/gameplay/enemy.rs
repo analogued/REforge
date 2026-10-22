@@ -96,7 +96,7 @@ pub(crate) enum EnemyCollision {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EnemyContext {
     pub speeds: [i16; 3],
-    pub difficulty: i16,
+    pub difficulty: u16,
     pub alternate_shadows: bool,
     pub horizon: i16,
     pub patrol_sources: Option<[usize; 3]>,
@@ -321,7 +321,7 @@ impl Enemy {
                 0xa2 => {
                     craft.depth = 188;
                     craft.lateral = -1000 - 280 * i as i16;
-                    if i > 2 || i as i16 > context.difficulty {
+                    if i > 2 || i as u16 > context.difficulty {
                         craft.active = false;
                         self.shadows[i].active = false;
                     }
@@ -1200,8 +1200,8 @@ fn boss_animation_sprite(phase: u8) -> usize {
         2
     }
 }
-fn patrol_sources(difficulty: i16) -> [usize; 3] {
-    let start = match progression::visual_difficulty(difficulty as u16) {
+fn patrol_sources(difficulty: u16) -> [usize; 3] {
+    let start = match progression::visual_difficulty(difficulty) {
         0 => 187,
         family => 175 + 3 * usize::from((family - 1).min(3)),
     };
@@ -2948,8 +2948,33 @@ mod tests {
     }
 
     #[test]
+    fn patrol_population_does_not_disappear_when_difficulty_exceeds_signed_range() {
+        let mut enemy = Enemy::new(&assets()).unwrap();
+        let mut random = Random::default();
+        for difficulty in 0..=u16::MAX {
+            let context = EnemyContext {
+                difficulty,
+                ..EnemyContext::default()
+            };
+            enemy
+                .spawn_command_with_context(0xa2, &mut random, [14, 0, -100], 5, context)
+                .unwrap();
+            let expected = match difficulty {
+                0 => 1,
+                1 => 2,
+                _ => 3,
+            };
+            assert_eq!(
+                enemy.crafts.iter().filter(|craft| craft.active).count(),
+                expected,
+                "difficulty {difficulty}"
+            );
+        }
+    }
+
+    #[test]
     fn later_patrol_difficulties_reuse_the_last_artwork_family() {
-        for difficulty in [9, 10, 11, 12, i16::MAX, -1] {
+        for difficulty in [9, 10, 11, 12, 32767, 32768, u16::MAX] {
             let resources = assets();
             let mut enemy = Enemy::new(&resources).unwrap();
             let mut random = Random::default();

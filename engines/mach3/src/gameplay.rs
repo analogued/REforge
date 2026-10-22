@@ -1101,7 +1101,7 @@ impl Gameplay {
     fn enemy_context(&self) -> Result<enemy::EnemyContext, Error> {
         Ok(enemy::EnemyContext {
             speeds: self.speeds,
-            difficulty: self.difficulty as i16,
+            difficulty: self.difficulty,
             alternate_shadows: self.overlay.wrapping_add(self.layer) as i16 > 0,
             horizon: self.player.snapshot().horizon,
             patrol_sources: self
@@ -1987,6 +1987,116 @@ mod tests {
     }
 
     #[test]
+    fn command_delay_accepts_its_boundary_without_high_difficulty_overflow() {
+        let assets = synthetic_assets();
+        for (difficulty, threshold) in [
+            (0, 20_i16),
+            (1, 12),
+            (2, 4),
+            (3, -4),
+            (4098, -32764),
+            (4099, 32764),
+            (8191, 28),
+            (8192, 20),
+            (8195, -4),
+            (12290, -32764),
+            (12291, 32764),
+            (32767, 28),
+            (32768, 20),
+            (65535, 28),
+        ] {
+            let threshold = if difficulty >= 3 { -4 } else { threshold };
+            let mut game = Gameplay::for_play(
+                &assets,
+                synthetic_rules(&[0x85]),
+                SessionState::default().begin_game(),
+            )
+            .unwrap();
+            game.difficulty = difficulty;
+            game.script_delay = (threshold - 1) as u16;
+            game.parse_commands(&assets, &mut |_| {}).unwrap();
+            assert_eq!(game.script_cursor, 0, "difficulty {difficulty}");
+            assert!(!game.enemy.active());
+            assert_eq!(game.script_delay, threshold as u16);
+            game.parse_commands(&assets, &mut |_| {}).unwrap();
+            assert_eq!(game.script_cursor, 1, "difficulty {difficulty}");
+            assert!(game.enemy.active());
+            assert_eq!(game.script_delay, 0);
+            assert_eq!(game.difficulty, difficulty);
+        }
+    }
+
+    #[test]
+    fn stage_completion_wraps_difficulty_and_resumes_with_first_visual_family() {
+        let assets = synthetic_assets();
+        let mut data = synthetic_rules(&[0x9b, 0x85]).data_segment().to_vec();
+        data[0x04ac + 9 * 3..0x04ac + 10 * 3].copy_from_slice(&[184, 185, 186]);
+        let rules = ScriptRules::from_data_segment(&data).unwrap();
+        let mut game =
+            Gameplay::for_play(&assets, rules, SessionState::default().begin_game()).unwrap();
+        game.difficulty = u16::MAX;
+        assert_eq!(
+            game.enemy_context().unwrap().patrol_sources,
+            Some([184, 185, 186])
+        );
+        game.script_delay = 28;
+        game.parse_commands(&assets, &mut |_| {}).unwrap();
+        assert_eq!(game.difficulty, 0);
+        assert_eq!(game.script_cursor, 1);
+        assert_eq!(game.enemy.snapshots()[1].movement, 27);
+        assert_eq!(
+            game.enemy_context().unwrap().patrol_sources,
+            Some([1, 2, 3])
+        );
+        for _ in 0..8 {
+            assert!(game.advance(&assets).unwrap());
+            assert!((1..=3).contains(&game.snapshot().hud.marker_requested));
+            assert_eq!(game.difficulty, 0);
+        }
+        // The next accepted stage, rather than a fixture assignment, advances 0→1.
+        game.enemy.clear_primary();
+        game.script_cursor = 0;
+        game.script_delay = 20;
+        game.parse_commands(&assets, &mut |_| {}).unwrap();
+        assert_eq!(game.difficulty, 1);
+    }
+
+    #[test]
+    fn uninterrupted_stage_sequence_continues_through_visual_family_limit() {
+        let assets = synthetic_assets();
+        let mut data = synthetic_rules(&[0x9b]).data_segment().to_vec();
+        for family in 0..10 {
+            data[0x04ac + family * 3..0x04af + family * 3].copy_from_slice(&[1, 2, 3]);
+        }
+        let rules = ScriptRules::from_data_segment(&data).unwrap();
+        let mut game =
+            Gameplay::for_play(&assets, rules, SessionState::default().begin_game()).unwrap();
+        game.difficulty = 9;
+        let mut reached = vec![9];
+        for _ in 0..1600 {
+            assert!(
+                game.advance_subframe(
+                    &assets,
+                    Steering {
+                        up: true,
+                        ..Steering::default()
+                    }
+                )
+                .unwrap()
+            );
+            if reached.last() != Some(&game.difficulty) {
+                reached.push(game.difficulty);
+            }
+            if game.difficulty == 12 {
+                break;
+            }
+        }
+        assert_eq!(reached, [9, 10, 11, 12]);
+        assert!(game.progression >= 3);
+        assert!(!game.complete());
+    }
+
+    #[test]
     fn high_difficulty_keeps_gameplay_rules_and_reuses_valid_hud_and_patrol_artwork() {
         let assets = synthetic_assets();
         let mut data = synthetic_rules(&[0x85]).data_segment().to_vec();
@@ -2007,7 +2117,7 @@ mod tests {
                     .unwrap();
             game.difficulty = difficulty;
             let context = game.enemy_context().unwrap();
-            assert_eq!(context.difficulty, difficulty as i16);
+            assert_eq!(context.difficulty, difficulty);
             assert_eq!(context.patrol_sources, Some([184, 185, 186]));
             game.enemy
                 .spawn_command_with_context(0xa2, &mut game.random, [14, 0, -100], 3, context)

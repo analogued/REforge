@@ -262,6 +262,10 @@ impl<'a> Window<'a> {
         self.present_with_pause(rgba, None)
     }
 
+    pub fn presentation_due(&self) -> bool {
+        self.display.presentation_due()
+    }
+
     pub fn present_with_pause(
         &mut self,
         rgba: &[u8],

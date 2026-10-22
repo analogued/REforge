@@ -187,6 +187,11 @@ sit outside radio groups, sliders, checkboxes and dropdowns without adding
 per-setting explanation rows. See [configuration](../../docs/configuration.md)
 for the complete persistence, inheritance and fallback contract.
 
+`Window::presentation_due()` offers a nonblocking check of the same ceiling used
+by presentation. Engines can service input and simulation between redraws;
+VSync can still block the eventual Present call. Explicit presentation calls
+retain the shared limiter, including for engines that do not use this check.
+
 The engine adapters freeze game time while the menu is open, preserve existing
 host/native pause, and consume menu keys before native input. Escape/F10 cancel;
 Ctrl+Q and window close remain global. Controls held across a menu boundary need

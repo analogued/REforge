@@ -1395,6 +1395,13 @@ before continuing and skips intermediate presentation and sleep while behind.
 These bounds affect host responsiveness, not guest execution costs or BIOS
 ticks. Display refresh never supplies BIOS ticks.
 
+Gameplay, title, skill-menu and pause redraws use the shared SDL frame ceiling.
+The runner checks whether presentation is due without sleeping in that check,
+so event polling and due simulation work continue between capped redraws. VSync
+may still block presentation itself; elapsed host time includes that wait and
+simulation catches up afterward. Pending catch-up work skips intermediate
+presentation. There is no additional engine-level redraw ceiling.
+
 Gameplay directions and Alt retain SDL key-transition timestamps. The runner maps
 them onto the paced virtual timeline, including during catch-up. Interactive
 play defaults to Responsive input: direction and action requests are refreshed

@@ -698,7 +698,6 @@ fn present_splash(
     let mut clock = VirtualClock::new(RetraceProfile::for_machine(splash.machine()));
     let start = Instant::now();
     let mut pause_clock = alleycat::platform::PauseClock::new(start);
-    let mut next_present = start;
     let mut target_nanos = 0;
     window.present(&splash.rgba())?;
     while !splash.finished()
@@ -724,9 +723,6 @@ fn present_splash(
         target_nanos += pause.elapsed.min(Duration::from_millis(100)).as_nanos();
         window.audio.pause(pause.paused);
         let mut key_pressed = input.continue_pressed;
-        if pause.changed {
-            next_present = now;
-        }
         while !pause.paused
             && !splash.finished()
             && (clock.elapsed_nanos() < target_nanos || key_pressed)
@@ -737,9 +733,8 @@ fn present_splash(
         window
             .audio
             .service(&mut splash.sound, clock.elapsed_pit_ticks() as u64);
-        if now >= next_present {
+        if pause.changed || window.presentation_due() {
             window.present(&splash.rgba())?;
-            next_present = now + Duration::from_millis(16);
         }
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -807,10 +802,9 @@ fn present_menu(
     alley: &mut Alley,
     difficulty: Option<u16>,
 ) -> Result<bool, String> {
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
     window.audio.pause(true);
     let mut menu = alley.menu(difficulty)?;
-    let mut next_present = Instant::now();
     window.present(&menu.rgba())?;
     loop {
         let input = window.poll_input();
@@ -820,19 +814,17 @@ fn present_menu(
         if input.sound_pressed {
             alley.toggle_sound();
         }
+        let changed = input.menu_key.is_some();
         if let Some(key) = input.menu_key {
             if menu.press(key)? {
                 alley.start_new_game(menu.difficulty().ok_or("Menu has no skill selection")?, 0)?;
                 return Ok(true);
             }
-            next_present = Instant::now();
         }
         // The native question screen is static, but the host menu needs frames
         // for pointer hover, live settings and window resize updates.
-        let now = Instant::now();
-        if now >= next_present || input.settings_changed {
+        if window.presentation_due() || changed || input.settings_changed {
             window.present(&menu.rgba())?;
-            next_present = now + Duration::from_millis(16);
         }
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -920,7 +912,6 @@ fn interactive(
     let mut pause_clock = PauseClock::new(start);
     let pause_overlay = PauseOverlay::new(alley.pause_text()?[0], alley.machine())?;
     let mut target_nanos = 0;
-    let mut next_present = start;
     #[cfg(feature = "dev-tools")]
     let mut index = 0;
     #[cfg(feature = "dev-tools")]
@@ -945,7 +936,6 @@ fn interactive(
             target_nanos = 0;
             let now = Instant::now();
             pause_clock = PauseClock::new(now);
-            next_present = now;
             window.present(&alley.rgba())?;
             continue;
         }
@@ -976,7 +966,6 @@ fn interactive(
             target_nanos = 0;
             let now = Instant::now();
             pause_clock = PauseClock::new(now);
-            next_present = now;
             window.present(&alley.rgba())?;
             continue;
         }
@@ -993,15 +982,13 @@ fn interactive(
             } else {
                 control_history.boundary(target_nanos, window.control_keys());
             }
-            next_present = now;
         }
         if pause.paused {
-            if now >= next_present {
+            if pause.changed || window.presentation_due() {
                 window.present_with_pause(
                     &alley.rgba(),
                     (!input.settings_open).then_some(&pause_overlay),
                 )?;
-                next_present = now + Duration::from_millis(16);
             }
             std::thread::sleep(Duration::from_millis(1));
             continue;
@@ -1051,9 +1038,8 @@ fn interactive(
             // and sleep must not make a slow catch-up batch fall further behind.
             continue;
         }
-        if now >= next_present {
+        if pause.changed || window.presentation_due() {
             window.present(&alley.rgba())?;
-            next_present = now + Duration::from_millis(16);
         }
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -1101,7 +1087,6 @@ fn interactive_diagnostic(
     let mut deadline = Instant::now() + period;
     let mut pause_clock = PauseClock::new(Instant::now());
     let pause_overlay = PauseOverlay::new(alley.pause_text()?[0], alley.machine())?;
-    let mut next_present = Instant::now();
     let mut index = 0;
     window.present(&alley.rgba())?;
     while steps.is_none_or(|steps| index < steps) {
@@ -1114,7 +1099,6 @@ fn interactive_diagnostic(
             next_control_poll = now;
             controls = Controls::default();
             pause_clock = PauseClock::new(now);
-            next_present = now;
             window.present(&alley.rgba())?;
             continue;
         }
@@ -1136,7 +1120,6 @@ fn interactive_diagnostic(
             next_control_poll = now;
             controls = Controls::default();
             pause_clock = PauseClock::new(now);
-            next_present = now;
             window.present(&alley.rgba())?;
             continue;
         }
@@ -1151,12 +1134,11 @@ fn interactive_diagnostic(
             next_control_poll += duration;
         }
         if pause.changed || pause.paused {
-            if pause.changed || now >= next_present {
+            if pause.changed || window.presentation_due() {
                 window.present_with_pause(
                     &alley.rgba(),
                     (pause.paused && !input.settings_open).then_some(&pause_overlay),
                 )?;
-                next_present = now + Duration::from_millis(16);
             }
             std::thread::sleep(Duration::from_millis(1));
             continue;

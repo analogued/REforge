@@ -792,16 +792,20 @@ impl Window {
         self.present_with(frame, |_| Ok(()))
     }
 
-    /// Draw an optional engine overlay in logical display coordinates, after the
-    /// uploaded frame and before presentation. The engine supplies its contents.
-    pub fn present_with(
-        &mut self,
-        frame: &FrameTexture<'_>,
-        overlay: impl FnOnce(&mut WindowCanvas) -> Result<(), String>,
-    ) -> Result<(), String> {
-        if !std::rc::Rc::ptr_eq(&self.creator.owner, &frame.creator.owner) {
-            return Err("frame belongs to a different display".into());
-        }
+    /// Check the shared frame ceiling without sleeping or reserving a frame.
+    /// Engines can keep servicing events and simulation until presentation is due.
+    /// VSync may still block Present; do not present intermediate catch-up work.
+    pub fn presentation_due(&self) -> bool {
+        let (refresh, synchronized) = self.presentation_timing();
+        self.pacer.ready(
+            std::time::Instant::now(),
+            self.requested.frame_limit,
+            refresh,
+            synchronized,
+        )
+    }
+
+    fn presentation_timing(&self) -> (Option<f32>, bool) {
         let refresh = self
             .canvas
             .window()
@@ -814,6 +818,20 @@ impl Window {
         let synchronized =
             unsafe { sdl3::sys::render::SDL_GetRenderVSync(self.canvas.raw(), &mut vsync) }
                 && vsync != 0;
+        (refresh, synchronized)
+    }
+
+    /// Draw an optional engine overlay in logical display coordinates, after the
+    /// uploaded frame and before presentation. The engine supplies its contents.
+    pub fn present_with(
+        &mut self,
+        frame: &FrameTexture<'_>,
+        overlay: impl FnOnce(&mut WindowCanvas) -> Result<(), String>,
+    ) -> Result<(), String> {
+        if !std::rc::Rc::ptr_eq(&self.creator.owner, &frame.creator.owner) {
+            return Err("frame belongs to a different display".into());
+        }
+        let (refresh, synchronized) = self.presentation_timing();
         self.pacer
             .wait(self.requested.frame_limit, refresh, synchronized);
         frame.ensure()?;

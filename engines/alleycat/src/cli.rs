@@ -817,17 +817,23 @@ fn present_menu(
         if input.sound_pressed {
             alley.toggle_sound();
         }
-        let changed = input.menu_key.is_some();
-        if let Some(key) = input.menu_key {
-            if menu.press(key)? {
-                let difficulty = menu.difficulty().ok_or("Menu has no skill selection")?;
-                if initial {
-                    alley.start_initial_game(difficulty, 0)?;
-                } else {
-                    alley.start_new_game(difficulty, 0)?;
-                }
-                return Ok(true);
+        let changed = input.menu_key.is_some()
+            || input.controller_confirm
+            || input.controller_menu_delta != 0;
+        let finished = if let Some(key) = input.menu_key {
+            menu.press(key)?
+        } else {
+            menu.controller(input.controller_menu_delta, input.controller_confirm)?
+        };
+        if finished {
+            let difficulty = menu.difficulty().ok_or("Menu has no skill selection")?;
+            if initial {
+                alley.start_initial_game(difficulty, 0)?;
+            } else {
+                alley.start_new_game(difficulty, 0)?;
             }
+            window.reset_controller();
+            return Ok(true);
         }
         // The native question screen is static, but the host menu needs frames
         // for pointer hover, live settings and window resize updates.
@@ -982,6 +988,7 @@ fn interactive(
         let pause = pause_clock.sample(now, input);
         window.audio.pause(pause.paused);
         if pause.changed {
+            window.reset_controller();
             // Preserve pending guest work across the settings panel; retain the
             // existing manual-pause policy of discarding partial pacing budget.
             if !input.settings_changed {

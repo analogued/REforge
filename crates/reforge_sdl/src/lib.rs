@@ -6,6 +6,7 @@
 
 pub use sdl3;
 pub mod audio;
+pub mod gamepad;
 mod hyllian;
 mod input;
 mod resources;

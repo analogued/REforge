@@ -40,10 +40,15 @@ impl EventTime {
 
 #[derive(Default)]
 pub(super) struct InputHistory {
-    pending: VecDeque<(Instant, u8)>,
+    pending: VecDeque<(Instant, Change)>,
     consumed: Option<Instant>,
     ordered: Option<Instant>,
     epoch: Option<Instant>,
+}
+
+enum Change {
+    Scan(u8),
+    Joystick(u8),
 }
 
 impl InputHistory {
@@ -57,6 +62,14 @@ impl InputHistory {
     }
 
     pub fn push(&mut self, at: Instant, scan: u8) {
+        self.push_change(at, Change::Scan(scan));
+    }
+
+    pub fn push_joystick(&mut self, at: Instant, mask: u8) {
+        self.push_change(at, Change::Joystick(mask & 31));
+    }
+
+    fn push_change(&mut self, at: Instant, change: Change) {
         // Never rewrite executed polls or reorder delivered make/break bytes.
         // Equal/nonmonotonic timestamps retain receipt order. A late-delivered
         // transition becomes eligible at the next unexecuted poll.
@@ -65,14 +78,16 @@ impl InputHistory {
             .into_iter()
             .chain(self.ordered)
             .fold(at, Instant::max);
-        self.pending.push_back((at, scan));
+        self.pending.push_back((at, change));
         self.ordered = Some(at);
     }
 
     pub fn apply_until(&mut self, session: &mut SessionState, at: Instant) {
         while self.pending.front().is_some_and(|(time, _)| *time <= at) {
-            let (_, scan) = self.pending.pop_front().unwrap();
-            session.keyboard.apply_scan(scan);
+            match self.pending.pop_front().unwrap().1 {
+                Change::Scan(scan) => session.keyboard.apply_scan(scan),
+                Change::Joystick(mask) => session.joystick = mask,
+            }
         }
         self.consumed = Some(self.consumed.map_or(at, |old| old.max(at)));
     }
@@ -90,6 +105,26 @@ impl InputHistory {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scheduled_controller_changes_preserve_keyboard_and_late_delivery_policy() {
+        let start = Instant::now();
+        let mut session = SessionState::default();
+        let mut history = InputHistory::default();
+        history.push(start, 0x4d);
+        history.push_joystick(start + Duration::from_millis(20), 9);
+        history.push_joystick(start + Duration::from_millis(40), 0);
+        history.apply_until(&mut session, start + Duration::from_millis(10));
+        assert_eq!(session.joystick, 0);
+        history.apply_until(&mut session, start + Duration::from_millis(30));
+        assert_eq!(session.joystick, 9);
+        history.apply_until(&mut session, start + Duration::from_millis(50));
+        assert_eq!(session.joystick, 0);
+        assert_eq!(session.keyboard.held_keys(0).actions, 8);
+        history.push_joystick(start, 16); // Arrived after the already executed poll.
+        assert_eq!(session.joystick, 0);
+        history.apply_until(&mut session, start + Duration::from_millis(50));
+        assert_eq!(session.joystick, 16);
+    }
     use super::*;
     use std::time::Duration;
 

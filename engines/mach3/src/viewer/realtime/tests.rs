@@ -185,6 +185,106 @@ fn rules() -> ScriptRules {
     rules_with_commands(&[0])
 }
 
+#[test]
+fn digital_joystick_advances_intro_and_is_not_cleared_as_a_keyboard_table() {
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    simulation
+        .initial
+        .as_mut()
+        .unwrap()
+        .controls
+        .preferences
+        .digitized_samples_enabled = false;
+    simulation.finish_splash(&frames, &resources).unwrap();
+    simulation.receive_joystick(10, 24);
+    simulation.receive_joystick(200_000, 0);
+    let mut events = Vec::new();
+    until(&mut simulation, &frames, &resources, &mut events, |s| {
+        matches!(s.phase, Phase::Playing(_))
+    });
+    assert_eq!(simulation.state().joystick, 24);
+    assert_eq!(simulation.state().keyboard.held_keys(0).actions, 0);
+    assert!(
+        events
+            .iter()
+            .any(|(_, e)| matches!(e, GameplayEvent::InputPoll { mask: 24, .. }))
+    );
+    for _ in 0..1000 {
+        if simulation.clock.tick() == 200_000 {
+            break;
+        }
+        advance(&mut simulation, 200_000, &frames, &resources, &mut events);
+    }
+    assert_eq!(simulation.clock.tick(), 200_000);
+    assert_eq!(
+        simulation.state().joystick,
+        0,
+        "release survived foreground handoffs"
+    );
+    simulation.clear_input().unwrap();
+    assert_eq!(simulation.state().joystick, 0);
+}
+
+#[test]
+fn joystick_history_preserves_polls_pixels_and_state_across_catch_up_batches() {
+    let run = |chunk: u64| {
+        let frames = frames();
+        let resources = resources();
+        let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+        start(&mut simulation, &frames, &resources);
+        until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+            matches!(s.phase, Phase::Playing(_))
+        });
+        simulation.clear_input().unwrap();
+        let at = simulation.clock.tick();
+        for (offset, mask) in [(1, 9), (100_000, 0), (220_000, 4), (320_000, 0)] {
+            simulation.receive_joystick(at + offset, mask);
+        }
+        simulation.receive(at + 150_000, 0x4d);
+        simulation.receive(at + 400_000, 0xcd);
+        let end = at + 600_000;
+        let mut events = Vec::new();
+        let mut images = Vec::new();
+        for _ in 0..10_000 {
+            if simulation.clock.tick() == end {
+                break;
+            }
+            let checkpoint = at + ((simulation.clock.tick() - at) / 100_000 + 1) * 100_000;
+            let target = (simulation.clock.tick() + chunk).min(end).min(checkpoint);
+            advance(&mut simulation, target, &frames, &resources, &mut events);
+            if simulation.clock.tick() == checkpoint {
+                images.push(simulation.visible.clone());
+            }
+        }
+        assert_eq!(simulation.clock.tick(), end);
+        let masks = events
+            .iter()
+            .filter_map(|(_, e)| {
+                if let GameplayEvent::InputPoll { mask, .. } = e {
+                    Some(*mask)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        for expected in [0, 8, 9, 12] {
+            assert!(masks.contains(&expected), "{masks:?}");
+        }
+        assert_eq!(simulation.state().joystick, 0);
+        (events, images, format!("{:?}", simulation.state()))
+    };
+    let punctual = run(1000);
+    let delayed = run(600_000);
+    assert_eq!(punctual.0, delayed.0);
+    assert!(
+        punctual.1 == delayed.1,
+        "framebuffers differ at common simulation checkpoints"
+    );
+    assert_eq!(punctual.2, delayed.2);
+}
+
 fn rules_with_commands(commands: &[u8]) -> ScriptRules {
     let mut data = vec![0; 0x10000];
     for difficulty in 0..12 {

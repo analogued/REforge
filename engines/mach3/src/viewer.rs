@@ -474,7 +474,9 @@ fn advance_game_pass_observed(
     #[cfg(feature = "dev-tools")] timing: &mut Option<TimingTrace>,
     #[cfg(feature = "dev-tools")] poll_time: (std::time::Instant, Option<std::time::Instant>),
 ) -> Result<bool, String> {
-    let result = session.keyboard.poll_controls(&mut session.controls, 0);
+    let result = session
+        .keyboard
+        .poll_controls(&mut session.controls, session.joystick);
     if result.display_toggled {
         gameplay.reset_video_palette();
     }
@@ -854,7 +856,7 @@ impl GamePlayback {
                 let result = self
                     .session
                     .keyboard
-                    .poll_controls(&mut self.session.controls, 0);
+                    .poll_controls(&mut self.session.controls, self.session.joystick);
                 if result.display_toggled {
                     if let Some(gameplay) = &mut self.gameplay {
                         gameplay.reset_video_palette();
@@ -1017,7 +1019,7 @@ impl GamePlayback {
                     let result = self
                         .session
                         .keyboard
-                        .poll_controls(&mut self.session.controls, 0);
+                        .poll_controls(&mut self.session.controls, self.session.joystick);
                     if result.display_toggled {
                         gameplay.reset_video_palette();
                     }
@@ -1233,6 +1235,7 @@ fn run_inner(
         game.timing = Some(TimingTrace::create(path, options.body_period)?);
     }
     let creator = window.texture_creator();
+    let mut gamepads = reforge_sdl::gamepad::Gamepads::new(window.settings().stick_dead_zone);
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
@@ -1270,15 +1273,22 @@ fn run_inner(
     }
     loop {
         let mut repaint = false;
+        gamepads.set_dead_zone(window.settings().stick_dead_zone);
         for event in window.poll_events() {
+            let pad = gamepads.handle(&event);
             let clock = reforge_sdl::event_clock_sample();
             let received = std::time::Instant::now();
             let time = EventTime::sample(&event, clock, &host_pause, received);
             repaint |= matches!(event, Event::Window { .. });
             let was_scene = presentation.screen() == Screen::InitialScene;
             // Quit remains global; Escape closes settings before it can quit.
-            let menu_consumed = !host_quit(&event) && menu.handle_event(&event);
+            if pad.is_some_and(|pad| pad.settings) {
+                menu.toggle();
+            }
+            let menu_consumed = !host_quit(&event)
+                && (menu.handle_event(&event) || pad.is_some_and(|pad| pad.settings));
             if menu_pause.update(menu.is_open(), &mut host_pause, received) {
+                gamepads.reset();
                 game.reset_host_input(&mut input, &host_pause, received);
                 presentation.focus_lost();
                 step_key_held = false;
@@ -1291,7 +1301,15 @@ fn run_inner(
                 }
                 continue;
             }
-            let action = event_action(&mut presentation, event.clone(), host_pause.is_paused());
+            let action = if pad.is_some_and(|pad| pad.pause) {
+                Action::ToggleHostPause
+            } else if pad.is_some_and(|pad| pad.pressed.action) && !host_pause.is_paused() {
+                // Navigation only: gameplay receives the separate joystick mask.
+                presentation.advance_screen();
+                Action::Space
+            } else {
+                event_action(&mut presentation, event.clone(), host_pause.is_paused())
+            };
             if action == Action::Close {
                 #[cfg(feature = "dev-tools")]
                 if let Some(trace) = &mut game.trace {
@@ -1306,6 +1324,7 @@ fn run_inner(
             }
             if action == Action::ToggleHostPause {
                 if was_scene {
+                    gamepads.reset();
                     game.toggle_host_pause(&mut host_pause, &mut input, received);
                     step_key_held = false;
                     repaint = true;
@@ -1344,6 +1363,12 @@ fn run_inner(
                     trace.event(&event, "ignored_host_pause", &host_pause, &game.session);
                 }
                 continue;
+            }
+            if let Some(pad) = pad {
+                if game.history.accepts(time.host) {
+                    game.history
+                        .push_joystick(time.timeline, pad.actions.bits());
+                }
             }
             match &event {
                 Event::KeyDown {
@@ -1414,6 +1439,7 @@ fn run_inner(
         }
         prepare_settings(&mut menu, &mut window);
         if menu_pause.update(menu.is_open(), &mut host_pause, std::time::Instant::now()) {
+            gamepads.reset();
             game.reset_host_input(&mut input, &host_pause, std::time::Instant::now());
             presentation.focus_lost();
             step_key_held = false;

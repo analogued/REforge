@@ -40,8 +40,12 @@ back to ordinary SDL renderers; unavailable CRT effects retain plain pixels,
 including with `SDL_RENDER_DRIVER=software`. See the
 [shared presentation documentation](crates/reforge_sdl/README.md) for backend
 requirements and the bundled shader's attribution.
-Ctrl+Q quits either game, and Pause/Break toggles pause during gameplay.
-Alley Cat also accepts P for pause.
+Ctrl+Q quits either game, and P or Pause/Break toggles host pause.
+Both games accept SDL-recognized gamepads: left stick or D-pad moves, the bottom
+face button performs the game action (Alley Cat) or fires (Mach 3), Start/Menu
+pauses, and Back/View opens or closes settings. Keyboard controls remain usable.
+The Controls page provides a shared stick dead zone with per-game overrides;
+see [controller preferences](docs/configuration.md#controllers).
 F10 opens the shared Compact settings menu. Window mode/scale, renderer/backend,
 VSync, a frame limiter, Hyllian CRT controls and Audio preferences use draft edits
 with Apply and Cancel. Saved global and per-game

@@ -345,6 +345,7 @@ pub struct SessionState {
     pub controls: Controls,
     pub keyboard: KeyboardState,
     pub pause: PauseControl,
+    pub joystick: u8,
 }
 
 impl SessionState {
@@ -397,6 +398,7 @@ impl SessionState {
 
     /// Release frontend-held controls without cancelling the native pause handshake.
     pub fn clear_held_keys(&mut self) {
+        self.joystick = 0;
         self.keyboard.clear();
     }
 

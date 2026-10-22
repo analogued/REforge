@@ -42,8 +42,9 @@ pub const AUDIO_KEYS: &[&str] = &[
     "output_device",
     "mute_unfocused",
 ];
-// Controls currently contains only game-specific keys, never global defaults.
-pub const SECTION_KEYS: [&[&str]; 4] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS, &[]];
+pub const STICK_DEAD_ZONE: &str = "stick_dead_zone";
+pub const CONTROL_KEYS: &[&str] = &[STICK_DEAD_ZONE];
+pub const SECTION_KEYS: [&[&str]; 4] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS, CONTROL_KEYS];
 pub const DIGITIZED_SAMPLES: &str = "digitized_samples";
 pub const CONTROL_MODE: &str = "control_mode";
 fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
@@ -73,7 +74,7 @@ pub fn keys() -> impl Iterator<Item = &'static str> {
 fn section(key: &str) -> &'static str {
     if key == DIGITIZED_SAMPLES {
         "gameplay"
-    } else if key == CONTROL_MODE {
+    } else if key == CONTROL_MODE || CONTROL_KEYS.contains(&key) {
         "controls"
     } else if CRT_KEYS.contains(&key) {
         "crt"
@@ -312,6 +313,8 @@ pub struct RuntimeSettings {
     pub audio: AudioSettings,
     pub mach3: Mach3Settings,
     pub alleycat: AlleyCatSettings,
+    /// Percentage of each left-stick axis required to activate a direction.
+    pub stick_dead_zone: u8,
 }
 impl Default for RuntimeSettings {
     fn default() -> Self {
@@ -327,6 +330,7 @@ impl Default for RuntimeSettings {
             audio: AudioSettings::default(),
             mach3: Mach3Settings::default(),
             alleycat: AlleyCatSettings::default(),
+            stick_dead_zone: 35,
         }
     }
 }
@@ -412,6 +416,7 @@ impl RuntimeSettings {
 
     pub fn get(&self, key: &str) -> String {
         match key {
+            STICK_DEAD_ZONE => self.stick_dead_zone.to_string(),
             DIGITIZED_SAMPLES => self.mach3.digitized_samples.to_string(),
             CONTROL_MODE => self.alleycat.control_mode.as_str().into(),
             "window_mode" => if self.fullscreen {
@@ -442,6 +447,13 @@ impl RuntimeSettings {
     }
     pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
         match key {
+            STICK_DEAD_ZONE => {
+                self.stick_dead_zone = value
+                    .parse::<u8>()
+                    .ok()
+                    .filter(|v| (5..=90).contains(v))
+                    .ok_or("stick dead zone must be 5..90 percent")?;
+            }
             CONTROL_MODE => self.alleycat.control_mode = value.parse()?,
             DIGITIZED_SAMPLES => {
                 self.mach3.digitized_samples = match value {
@@ -708,10 +720,9 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
         let mut p = Patch::new();
         if let Some(item) = item {
             if let Some(table) = item.as_table_like() {
-                for name in ["display", "crt", "audio"]
+                for name in ["display", "crt", "audio", "controls"]
                     .into_iter()
                     .chain((game == "mach-3").then_some("gameplay"))
-                    .chain((game == "alley-cat").then_some("controls"))
                 {
                     if table.get(name).is_some_and(|v| !v.is_table_like()) {
                         *warning = Some(format!("Invalid {name} section; using inherited values"));
@@ -819,8 +830,8 @@ fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(),
                     "vsync" | "sound_enabled" | "mute_unfocused" | DIGITIZED_SAMPLES => {
                         toml_edit::Value::from(text == "true" || text == "on")
                     }
-                    "scale" | "master_volume" | "music_volume" | "speech_volume"
-                    | "effects_volume"
+                    "scale" | STICK_DEAD_ZONE | "master_volume" | "music_volume"
+                    | "speech_volume" | "effects_volume"
                         if text != "auto" =>
                     {
                         toml_edit::Value::from(text.parse::<i64>().map_err(|e| e.to_string())?)
@@ -891,6 +902,35 @@ pub fn default_path() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn controller_dead_zone_inherits_overrides_resets_and_validates() {
+        use super::*;
+        let doc: DocumentMut = "[global.controls]\nstick_dead_zone = 40\n[games.mach-3.controls]\nstick_dead_zone = 20\n[games.alley-cat.controls]\nstick_dead_zone = 55\n".parse().unwrap();
+        let mut warning = None;
+        let mut mach = read_draft(&doc, "mach-3", &mut warning);
+        assert!(warning.is_none());
+        assert_eq!(mach.global_values().stick_dead_zone, 40);
+        assert_eq!(mach.game_values().stick_dead_zone, 20);
+        assert!(mach.has_game_overrides(3));
+        mach.reset_section(true, 3);
+        assert_eq!(mach.game_values().stick_dead_zone, 40);
+        assert!(!mach.has_game_overrides(3));
+        let alley = read_draft(&doc, "alley-cat", &mut warning);
+        assert_eq!(alley.game_values().stick_dead_zone, 55);
+        assert_eq!(
+            read_draft(&doc, "another-game", &mut warning)
+                .game_values()
+                .stick_dead_zone,
+            40
+        );
+        let mut settings = RuntimeSettings::default();
+        for valid in [5, 35, 90] {
+            settings.set(STICK_DEAD_ZONE, &valid.to_string()).unwrap();
+        }
+        for invalid in ["0", "4", "91", "256", "-1", "NaN", "0.35"] {
+            assert!(settings.set(STICK_DEAD_ZONE, invalid).is_err());
+        }
+    }
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);

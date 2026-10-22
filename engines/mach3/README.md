@@ -159,6 +159,13 @@ it remains in force across subsequent games and returned intros.
 `--digitized-samples on|off` is a temporary override, independent of host mute,
 category volume, F2 and the selected renderer.
 
+SDL gamepads use the left stick/D-pad for digital steering and the bottom face
+button for Fire and title navigation. Start/Menu toggles host pause; Back/View
+toggles settings. The original joystick path also reduces axes to directional
+bits; stick displacement does not provide proportional steering. See
+[controller preferences](../../docs/configuration.md#controllers) for shared
+dead-zone settings and per-game overrides.
+
 F1 pauses: release it, then press and release another gameplay key to resume.
 Holding F1 at the pause decision ends the game after the current body completes.
 F2 toggles the retained sound preference while timer execution continues.

@@ -75,6 +75,7 @@ impl GameplayRuntime {
         session.controls = state.controls.clone();
         session.keyboard = state.keyboard.clone();
         session.pause = state.pause.clone();
+        session.joystick = state.joystick;
     }
 
     pub fn schedule_scan<O: FnMut(Stamp, ClockEvent)>(
@@ -91,6 +92,15 @@ impl GameplayRuntime {
         clock: &Clock<O>,
     ) -> Result<(), Error> {
         self.task.clear_input(clock)
+    }
+
+    pub fn schedule_joystick<O: FnMut(Stamp, ClockEvent)>(
+        &mut self,
+        tick: u64,
+        mask: u8,
+        clock: &Clock<O>,
+    ) -> Result<(), Error> {
+        self.task.schedule_joystick(tick, mask, clock)
     }
 
     /// Stop at one publication or return so the caller can present each image
@@ -121,5 +131,8 @@ impl GameplayRuntime {
 
     pub fn into_parts(self) -> Result<(Gameplay, GameplayState), Error> {
         self.task.into_parts()
+    }
+    pub fn take_scheduled_joysticks(&mut self) -> std::collections::VecDeque<(u64, u8)> {
+        self.task.take_scheduled_joysticks()
     }
 }

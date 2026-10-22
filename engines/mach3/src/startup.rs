@@ -106,11 +106,16 @@ impl Presentation {
             return false;
         }
         self.space_held = true;
+        self.advance_screen();
+        true
+    }
+
+    /// A fresh controller confirmation has its own held/release tracking.
+    pub fn advance_screen(&mut self) {
         self.screen = match self.screen {
             Screen::Splash => Screen::Intro,
             Screen::Intro | Screen::InitialScene => Screen::InitialScene,
         };
-        true
     }
 
     /// Return to intro while retaining the key latch that initiated the return.

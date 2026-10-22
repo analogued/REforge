@@ -15,10 +15,15 @@ pub(crate) enum Key {
     Right,
     LeftAlt,
     RightAlt,
+    PadUp,
+    PadDown,
+    PadLeft,
+    PadRight,
+    PadAction,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct Keys(u8);
+pub(crate) struct Keys(u16);
 
 impl Keys {
     pub fn set(&mut self, key: Key, pressed: bool) {
@@ -34,18 +39,18 @@ impl Keys {
         let down = |key| self.0 & (1 << key as u8) != 0;
         (
             Controls {
-                x: if down(Key::Left) {
+                x: if down(Key::Left) || down(Key::PadLeft) {
                     -1
                 } else {
-                    i8::from(down(Key::Right))
+                    i8::from(down(Key::Right) || down(Key::PadRight))
                 },
-                y: if down(Key::Up) {
+                y: if down(Key::Up) || down(Key::PadUp) {
                     -1
                 } else {
-                    i8::from(down(Key::Down))
+                    i8::from(down(Key::Down) || down(Key::PadDown))
                 },
             },
-            down(Key::LeftAlt) || down(Key::RightAlt),
+            down(Key::LeftAlt) || down(Key::RightAlt) || down(Key::PadAction),
         )
     }
 }
@@ -111,6 +116,28 @@ impl ControlHistory {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn controller_and_keyboard_releases_remain_independent_at_scheduled_polls() {
+        let mut keys = Keys::default();
+        keys.set(Key::Right, true);
+        keys.set(Key::PadRight, true);
+        keys.set(Key::PadUp, true);
+        keys.set(Key::LeftAlt, true);
+        keys.set(Key::PadAction, true);
+        let mut history = ControlHistory::new(keys);
+        keys.set(Key::PadRight, false);
+        keys.set(Key::PadAction, false);
+        history.boundary(100, keys);
+        assert_eq!(history.sample(99), (Controls { x: 1, y: -1 }, true));
+        assert_eq!(history.sample(100), (Controls { x: 1, y: -1 }, true));
+        keys.set(Key::Right, false);
+        keys.set(Key::LeftAlt, false);
+        history.boundary(200, keys);
+        assert_eq!(history.sample(200), (Controls { x: 0, y: -1 }, false));
+        keys.set(Key::PadUp, false);
+        history.boundary(300, keys);
+        assert_eq!(history.sample(300), (Controls::default(), false));
+    }
     use super::*;
 
     fn right() -> Keys {

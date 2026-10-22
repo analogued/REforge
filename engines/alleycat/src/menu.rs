@@ -105,6 +105,9 @@ pub struct Menu {
     controls: Vec<Line>,
     difficulty: Option<u16>,
     stage: MenuStage,
+    question_frame: Framebuffer,
+    skill_rows: [u8; 4],
+    controller_selection: u16,
 }
 
 impl Menu {
@@ -120,15 +123,18 @@ impl Menu {
         // Keep the native Ctrl-S sound instruction; describe host pause keys.
         controls[4].text = b"   Esc / P / Pause toggles paws mode.".to_vec();
         let mut framebuffer = Framebuffer::default();
-        for line in questions {
+        for line in &questions {
             line.draw(&mut framebuffer)?;
         }
         Ok(Self {
             machine,
+            question_frame: framebuffer.clone(),
+            skill_rows: std::array::from_fn(|i| questions[i + 1].row),
             framebuffer,
             controls,
             difficulty: None,
             stage: MenuStage::Difficulty,
+            controller_selection: 0,
         })
     }
 
@@ -161,11 +167,36 @@ impl Menu {
         match self.stage {
             MenuStage::Difficulty => {
                 if let Some(difficulty) = key.difficulty() {
+                    self.framebuffer = self.question_frame.clone();
                     self.select_difficulty(difficulty)?;
                 }
             }
             MenuStage::Controls => self.stage = MenuStage::Finished,
             MenuStage::Finished => {}
+        }
+        Ok(self.finished())
+    }
+
+    /// Optional host controller navigation; keyboard-only pixels remain native.
+    pub fn controller(&mut self, delta: i8, confirm: bool) -> Result<bool, String> {
+        if self.stage == MenuStage::Difficulty {
+            self.controller_selection =
+                (self.controller_selection as i16 + i16::from(delta)).rem_euclid(4) as u16;
+            if confirm {
+                self.select_difficulty(self.controller_selection)?;
+            } else if delta != 0 {
+                self.framebuffer = self.question_frame.clone();
+                self.framebuffer.copy_rect(
+                    pixel_offset(
+                        39 * 8,
+                        self.skill_rows[usize::from(self.controller_selection)] * 8,
+                    ),
+                    Dimensions(0x0801),
+                    &crate::font::character(b'<')?,
+                )?;
+            }
+        } else if self.stage == MenuStage::Controls && confirm {
+            self.stage = MenuStage::Finished;
         }
         Ok(self.finished())
     }
@@ -198,6 +229,31 @@ impl Menu {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn controller_selects_each_skill_then_requires_a_separate_confirmation() {
+        for (delta, expected) in [(0, 0), (1, 1), (2, 2), (-1, 3)] {
+            let mut menu = Menu::new(&synthetic_data(), Machine::Cga).unwrap();
+            let initial = menu.framebuffer.clone();
+            assert!(!menu.controller(delta, false).unwrap());
+            if delta != 0 {
+                assert!(menu.framebuffer.bytes() != initial.bytes());
+            }
+            assert!(!menu.controller(0, true).unwrap());
+            assert_eq!(menu.difficulty(), Some(expected));
+            assert_eq!(menu.stage(), MenuStage::Controls);
+            assert!(!menu.controller(1, false).unwrap());
+            assert!(menu.controller(0, true).unwrap());
+        }
+        let mut keyboard = Menu::new(&synthetic_data(), Machine::Cga).unwrap();
+        keyboard.press(MenuKey::Kitten).unwrap();
+        let mut mixed = Menu::new(&synthetic_data(), Machine::Cga).unwrap();
+        mixed.controller(1, false).unwrap();
+        mixed.press(MenuKey::Kitten).unwrap();
+        assert!(
+            mixed.framebuffer.bytes() == keyboard.framebuffer.bytes(),
+            "keyboard selection must remove an old controller highlight"
+        );
+    }
     use super::*;
     use crate::assets::{DATA_LENGTH, set_word};
 

@@ -50,6 +50,7 @@ pub struct IntroTask {
     sample_state: SampleSoundState,
     iterations: u16,
     scans: VecDeque<(u64, u8)>,
+    joysticks: VecDeque<(u64, u8)>,
     scan_latched: bool,
     committed_tick: u64,
 }
@@ -108,6 +109,7 @@ impl IntroTask {
             sample_state: SampleSoundState::default(),
             iterations: 0,
             scans: VecDeque::new(),
+            joysticks: VecDeque::new(),
             scan_latched: false,
             committed_tick: clock.tick(),
         })
@@ -143,12 +145,38 @@ impl IntroTask {
         Ok(())
     }
 
+    /// Digital joystick state changes do not generate keyboard interrupts.
+    pub fn schedule_joystick<O: FnMut(Stamp, ClockEvent)>(
+        &mut self,
+        tick: u64,
+        mask: u8,
+        clock: &Clock<O>,
+    ) -> Result<(), Error> {
+        self.check_clock(clock)?;
+        if tick < clock.tick() || self.joysticks.back().is_some_and(|(last, _)| tick < *last) {
+            return Err(invalid(
+                "joystick deliveries must be ordered and cannot precede committed time",
+            ));
+        }
+        if self.stage == Stage::Returned {
+            return Err(invalid("intro foreground has returned"));
+        }
+        self.joysticks.push_back((tick, mask & 31));
+        Ok(())
+    }
+
+    /// Transfer undelivered controller history when the foreground returns.
+    pub fn take_scheduled_joysticks(&mut self) -> VecDeque<(u64, u8)> {
+        std::mem::take(&mut self.joysticks)
+    }
+
     pub fn discard_scheduled_scans<O: FnMut(Stamp, ClockEvent)>(
         &mut self,
         clock: &Clock<O>,
     ) -> Result<(), Error> {
         self.check_clock(clock)?;
         self.scans.clear();
+        self.joysticks.clear();
         Ok(())
     }
 
@@ -292,6 +320,10 @@ impl IntroTask {
                 .scans
                 .front()
                 .map_or(target, |(tick, _)| target.min(*tick));
+            let deadline = self
+                .joysticks
+                .front()
+                .map_or(deadline, |(tick, _)| deadline.min(*tick));
             let progress = clock.advance_to(deadline)?;
             // Received same-tick input is latched before the entered IRQ's body,
             // its IRET and foreground polling. IRQ0 still has PIC priority.
@@ -350,6 +382,13 @@ impl IntroTask {
         &mut self,
         clock: &mut Clock<O>,
     ) -> Result<(), Error> {
+        while self
+            .joysticks
+            .front()
+            .is_some_and(|(tick, _)| *tick <= clock.tick())
+        {
+            self.state.joystick = self.joysticks.pop_front().unwrap().1;
+        }
         if !self.scan_latched
             && self
                 .scans

@@ -5,6 +5,7 @@
 use crate::alley::Machine;
 use crate::control_history::{HostChange, Key, Keys};
 use crate::menu::MenuKey;
+use reforge_sdl::gamepad::{Actions, Gamepads};
 #[cfg(test)]
 use reforge_sdl::sdl3::keyboard::Keycode;
 use reforge_sdl::sdl3::{
@@ -40,6 +41,8 @@ pub struct Input {
     pub sound_pressed: bool,
     pub settings_open: bool,
     pub settings_changed: bool,
+    pub controller_menu_delta: i8,
+    pub controller_confirm: bool,
 }
 
 /// Host pause bookkeeping shared by the normal and diagnostic runners.
@@ -126,6 +129,7 @@ pub struct Window<'a> {
     suppressed: HashSet<Scancode>,
     control_keys: Keys,
     control_changes: Vec<HostChange>,
+    gamepads: Gamepads,
 }
 
 impl<'a> Window<'a> {
@@ -136,6 +140,7 @@ impl<'a> Window<'a> {
         height: u32,
     ) -> Result<Self, String> {
         Ok(Self {
+            gamepads: Gamepads::new(display.settings().stick_dead_zone),
             audio: crate::sound::playback::Player::new(creator.audio_playback())?,
             display,
             frame: FrameTexture::new(creator, width, height, FrameFormat::Rgba)?,
@@ -158,9 +163,12 @@ impl<'a> Window<'a> {
         // Startup and diagnostic callers need only the latest snapshot; do not
         // accumulate history across polls which have no gameplay consumer.
         self.control_changes.clear();
+        self.gamepads
+            .set_dead_zone(self.display.settings().stick_dead_zone);
         let mut presses = Input::default();
         let mut settings_changed = self.settings_was_open != self.settings.is_open();
         for event in self.display.poll_events() {
+            let pad = self.gamepads.handle(&event);
             if host_shortcut(&event) == Some(HostShortcut::Quit) {
                 self.quit = true;
             }
@@ -175,6 +183,9 @@ impl<'a> Window<'a> {
                 self.quit = true;
             }
             let was_open = self.settings.is_open();
+            if pad.is_some_and(|pad| pad.settings) {
+                self.settings.toggle();
+            }
             let consumed = self.settings.handle_event(&event);
             settings_changed |= was_open != self.settings.is_open();
             route_guest_key(
@@ -196,6 +207,33 @@ impl<'a> Window<'a> {
                 &mut self.control_keys,
                 &mut self.control_changes,
             );
+            if let Some(pad) = pad {
+                if !consumed && !settings_changed {
+                    presses.pause_pressed |= pad.pause;
+                    presses.continue_pressed |= pad.pressed.action;
+                    if !presses.controller_confirm && pad.pressed.up {
+                        presses.controller_menu_delta =
+                            presses.controller_menu_delta.saturating_sub(1);
+                    }
+                    if !presses.controller_confirm && pad.pressed.down {
+                        presses.controller_menu_delta =
+                            presses.controller_menu_delta.saturating_add(1);
+                    }
+                    presses.controller_confirm |= pad.pressed.action;
+                    set_pad_keys(&mut self.control_keys, pad.actions);
+                } else {
+                    self.gamepads.reset();
+                    set_pad_keys(&mut self.control_keys, Actions::default());
+                }
+                self.control_changes.push(HostChange {
+                    at_ns: event.get_timestamp(),
+                    keys: self.control_keys,
+                });
+            }
+            if presses.pause_pressed {
+                self.gamepads.reset();
+                set_pad_keys(&mut self.control_keys, Actions::default());
+            }
         }
         self.quit |= presses.quit;
         let held = self.display.keyboard_state();
@@ -217,6 +255,12 @@ impl<'a> Window<'a> {
         for (scan, key) in control_scancodes() {
             keys.set(key, held_key(scan));
         }
+        let pad = if settings_open || settings_changed {
+            Actions::default()
+        } else {
+            self.gamepads.actions()
+        };
+        set_pad_keys(&mut keys, pad);
         if keys != self.control_keys {
             self.control_keys = keys;
             self.control_changes.push(HostChange {
@@ -225,11 +269,11 @@ impl<'a> Window<'a> {
             });
         }
         Input {
-            up: held_key(Scancode::Up),
-            down: held_key(Scancode::Down),
-            left: held_key(Scancode::Left),
-            right: held_key(Scancode::Right),
-            alt: held_key(Scancode::LAlt) || held_key(Scancode::RAlt),
+            up: held_key(Scancode::Up) || pad.up,
+            down: held_key(Scancode::Down) || pad.down,
+            left: held_key(Scancode::Left) || pad.left,
+            right: held_key(Scancode::Right) || pad.right,
+            alt: held_key(Scancode::LAlt) || held_key(Scancode::RAlt) || pad.action,
             quit: self.quit,
             pause_pressed: presses.pause_pressed,
             continue_pressed: presses.continue_pressed,
@@ -239,11 +283,18 @@ impl<'a> Window<'a> {
             sound_pressed: presses.sound_pressed,
             settings_open,
             settings_changed,
+            controller_menu_delta: presses.controller_menu_delta,
+            controller_confirm: presses.controller_confirm,
         }
     }
 
     pub(crate) fn control_keys(&self) -> Keys {
         self.control_keys
+    }
+
+    pub(crate) fn reset_controller(&mut self) {
+        self.gamepads.reset();
+        set_pad_keys(&mut self.control_keys, Actions::default());
     }
 
     pub(crate) fn responsive_controls(&self) -> bool {
@@ -349,6 +400,18 @@ fn control_timestamp() -> u64 {
     // exposes only millisecond ticks, so isolate the nanosecond FFI call here.
     // SAFETY: SDL_GetTicksNS takes no pointers and is safe on any thread.
     unsafe { reforge_sdl::sdl3::sys::timer::SDL_GetTicksNS() }
+}
+
+fn set_pad_keys(keys: &mut Keys, pad: Actions) {
+    for (key, held) in [
+        (Key::PadUp, pad.up),
+        (Key::PadDown, pad.down),
+        (Key::PadLeft, pad.left),
+        (Key::PadRight, pad.right),
+        (Key::PadAction, pad.action),
+    ] {
+        keys.set(key, held);
+    }
 }
 
 fn control_scancodes() -> [(Scancode, Key); 6] {

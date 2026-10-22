@@ -112,7 +112,7 @@ pub struct SettingsMenu<'a> {
 }
 
 impl<'a> SettingsMenu<'a> {
-    /// Expose Alley Cat's game-only input policy; no global controls are added.
+    /// Expose Alley Cat's game-only input policy beside shared controller settings.
     pub fn with_alleycat_options(mut self) -> Self {
         let mut session = self.creator.session.borrow_mut();
         if session.game == "standalone" {
@@ -214,6 +214,26 @@ impl<'a> SettingsMenu<'a> {
         self.open
     }
 
+    /// Toggle from a host control (for example a gamepad's View/Back button).
+    pub fn toggle(&mut self) {
+        self.open = !self.open;
+        if self.open {
+            // SAFETY: settings run on SDL's main thread. The focused window is
+            // borrowed, checked for null, and is not retained or destroyed here.
+            unsafe {
+                let window = sdl3::sys::keyboard::SDL_GetKeyboardFocus();
+                if !window.is_null() {
+                    sdl3::sys::keyboard::SDL_StartTextInput(window);
+                }
+            }
+        }
+        self.draft = None;
+        self.pending = None;
+        self.game_touched = [false; 4];
+        self.events.clear();
+        self.context.memory_mut(|memory| memory.reset_areas());
+    }
+
     pub fn set_error(&mut self, error: String) {
         self.pending = None;
         self.error = Some(error);
@@ -247,17 +267,12 @@ impl<'a> SettingsMenu<'a> {
                 return self.open;
             }
             if !repeat {
-                self.open = !self.open;
+                self.toggle();
                 if self.open {
                     if let Event::KeyDown { window_id, .. } = event {
                         start_text_input(*window_id);
                     }
                 }
-                self.draft = None;
-                self.pending = None;
-                self.game_touched = [false; 4];
-                self.events.clear();
-                self.context.memory_mut(|memory| memory.reset_areas());
             }
             return true;
         }
@@ -850,7 +865,7 @@ mod tests {
             SettingsMenu::new(&creator, VideoCapabilities::default()).with_alleycat_options();
         menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
         menu.prepare(display.ui_metrics(), display.settings());
-        assert!(label(&draw(&mut menu, vec![]), "Controls").is_none());
+        assert!(label(&draw(&mut menu, vec![]), "Controls").is_some());
         click(&mut menu, "Alley Cat overrides");
         click(&mut menu, "Controls");
         assert_eq!(menu.page, 3);
@@ -931,15 +946,18 @@ mod tests {
         );
         assert!(!Session::load(launch).saved.has_game_overrides(3));
         click(&mut menu, "Global defaults");
-        assert_eq!(menu.page, 0, "switching scope leaves the game-only page");
-        assert!(label(&draw(&mut menu, vec![]), "Controls").is_none());
+        assert_eq!(menu.page, 3, "Controls is now shared across scopes");
+        assert!(label(&draw(&mut menu, vec![]), "Stick dead zone").is_some());
+        assert!(label(&draw(&mut menu, vec![]), "Input response").is_none());
         creator.session.borrow_mut().game = "mach-3".into();
         let mut mach_menu =
             SettingsMenu::new(&creator, VideoCapabilities::default()).with_mach3_options(None);
         mach_menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
         mach_menu.prepare(display.ui_metrics(), display.settings());
         mach_menu.scope = 1;
-        assert!(label(&draw(&mut mach_menu, vec![]), "Controls").is_none());
+        mach_menu.page = 3;
+        assert!(label(&draw(&mut mach_menu, vec![]), "Stick dead zone").is_some());
+        assert!(label(&draw(&mut mach_menu, vec![]), "Input response").is_none());
         std::fs::remove_file(path).unwrap();
     }
 

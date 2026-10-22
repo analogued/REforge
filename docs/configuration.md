@@ -6,6 +6,8 @@ window mode (windowed or borderless desktop fullscreen), window scale (Auto or
 pixels or Hyllian CRT with adjustable shader controls. Colour profiles and white
 points remain future work. Audio offers enable sound, master/category volumes, per-game
 sound renderer, output device and focus muting.
+Controls offers a shared controller stick dead zone and Alley Cat's game-specific
+input response.
 With Auto selected, the disabled scale slider shows the resolved windowed
 multiplier. Turning Auto off starts manual scaling at that value.
 
@@ -14,7 +16,7 @@ Global defaults and the current game's overrides, leaving the menu open.
 Cancel, Escape and F10 discard unapplied edits. Reset section clears only the
 selected global section when editing Global defaults. Restore global defaults
 clears only the current game's overrides for the selected section when editing
-that game. Display, CRT & Colour and Audio reset independently.
+that game. Display, CRT & Colour, Audio and Controls reset independently.
 Both operations remain drafts until Apply.
 
 Game fields differing from the global draft use cyan text. An amber dot marks
@@ -48,6 +50,9 @@ frame_limit = "display"
 [global.crt]
 presentation = "hyllian"
 mask_intensity = 0.35
+
+[global.controls]
+stick_dead_zone = 35
 
 [games.alley-cat.display]
 scale = 4
@@ -258,6 +263,46 @@ menu control for that run, without saving the override. It applies only to
 Mach 3; other detected games warn and ignore it. Host output settings still apply
 live. The native option works with either speaker or Enhanced PCM rendering and
 is distinct from setting Music or Speech volume to zero.
+
+## Controllers
+
+SDL-recognized gamepads work in both games without Steam. Drivers, pairing and
+device permissions are operating-system setup; SDL reports available devices.
+The first available recognized controller is used, with a replacement selected
+if it disconnects. Device-open failures warn and leave keyboard play available.
+
+| Controller input   | Alley Cat                        | Mach 3          |
+| ------------------ | -------------------------------- | --------------- |
+| Left stick / D-pad | Move, jump and swim              | Steer           |
+| Bottom face button | Contextual action (keyboard Alt) | Fire            |
+| Start/Menu         | Host pause                       | Host pause      |
+| Back/View          | Toggle settings                  | Toggle settings |
+
+The bottom face button advances title/start screens. Alley Cat's skill question
+accepts Up/Down to choose among its four initial skills and the bottom button to
+confirm; another fresh press starts play after the instructions. Settings editing
+currently uses keyboard/mouse. Bindings are fixed; the right stick, triggers and
+remaining buttons are unassigned.
+
+**Stick dead zone** is an integer percentage from 5 to 90, default 35. Set it in
+Global defaults → Controls, or uncheck the defaults checkbox in a game's Controls
+page to override it. TOML uses `[global.controls] stick_dead_zone = 35` and
+`[games.<game-id>.controls] stick_dead_zone = 35`. Apply activates and saves the
+value; Cancel discards edits. There is no corresponding command-line option.
+
+Each left-stick axis activates a digital direction at that displacement and
+releases below five sevenths of that threshold (approximately 25% at the default
+35%). D-pad directions bypass the dead zone. Diagonals combine directions;
+displacement beyond the threshold does not change movement speed. Neither engine
+gets jump assistance, buffered taps or altered movement physics. Keyboard and
+controller holds remain independent; conflicts follow the engine's existing
+direction rules.
+
+Focus, pause and settings boundaries discard pending host controller input.
+Controls held across these boundaries, remapping or reconnection must return to
+neutral before controlling the game again. Unplugging releases controller actions.
+Engine adapters retain timestamped transitions on their own simulation timelines;
+host catch-up does not substitute the latest stick position for earlier polls.
 
 ## Activation and persistence
 

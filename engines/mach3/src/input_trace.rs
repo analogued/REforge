@@ -102,7 +102,7 @@ impl InputTrace {
             held.actions,
             functions,
             result.map_or_else(String::new, |value| value.to_string()),
-            detail.replace(['\t', '\r', '\n'], " "),
+            format!("{detail} joystick={}", session.joystick).replace(['\t', '\r', '\n'], " "),
         );
         self.write(row.as_bytes());
     }
@@ -168,6 +168,26 @@ impl InputTrace {
                     "event={win_event:?} disposition={disposition} native={:?}",
                     session.pause.state
                 ),
+            ),
+            Event::GamepadAxisMotion {
+                which, axis, value, ..
+            } => (
+                "gamepad_axis",
+                format!("device={which:?} axis={axis:?} value={value} disposition={disposition}"),
+            ),
+            Event::GamepadButtonDown { which, button, .. }
+            | Event::GamepadButtonUp { which, button, .. } => (
+                "gamepad_button",
+                format!(
+                    "device={which:?} button={button:?} down={} disposition={disposition}",
+                    matches!(event, Event::GamepadButtonDown { .. })
+                ),
+            ),
+            Event::GamepadAdded { which, .. }
+            | Event::GamepadRemoved { which, .. }
+            | Event::GamepadRemapped { which, .. } => (
+                "gamepad_device",
+                format!("device={which:?} event={event:?} disposition={disposition}"),
             ),
             Event::Quit { .. } => ("quit", disposition.to_owned()),
             _ => return,

@@ -276,6 +276,7 @@ struct Simulation {
     intro_choice: bool,
     palette_family: u8,
     scans: VecDeque<(u64, u8)>,
+    joysticks: VecDeque<(u64, u8)>,
     splash_wait: crate::startup::SplashWait,
 }
 impl Simulation {
@@ -321,6 +322,7 @@ impl Simulation {
             intro_choice,
             palette_family: 1,
             scans: VecDeque::new(),
+            joysticks: VecDeque::new(),
             splash_wait: crate::startup::SplashWait::default(),
         })
     }
@@ -372,9 +374,11 @@ impl Simulation {
         self.session.controls = controls;
         self.session.keyboard = keyboard;
         self.session.pause = pause;
+        self.session.joystick = self.state().joystick;
     }
     fn clear_input(&mut self) -> Result<(), String> {
         self.scans.clear();
+        self.joysticks.clear();
         let result = match &mut self.phase {
             Phase::Intro(task) | Phase::Pregame { task, .. } => task.clear_input(&self.clock),
             Phase::Playing(runtime) => runtime.clear_input(&self.clock),
@@ -385,6 +389,7 @@ impl Simulation {
             }
             Phase::Splash => {
                 self.initial.as_mut().unwrap().keyboard.clear();
+                self.initial.as_mut().unwrap().joystick = 0;
                 Ok(())
             }
         };
@@ -399,6 +404,21 @@ impl Simulation {
             .max(self.clock.tick())
             .max(self.scans.back().map_or(0, |(at, _)| *at));
         self.scans.push_back((tick, raw));
+    }
+    fn receive_joystick(&mut self, tick: u64, mask: u8) {
+        let tick = tick
+            .max(self.clock.tick())
+            .max(self.joysticks.back().map_or(0, |(at, _)| *at));
+        self.joysticks.push_back((tick, mask & 31));
+    }
+    fn deliver_joysticks(&mut self, mask: &mut u8) {
+        while self
+            .joysticks
+            .front()
+            .is_some_and(|(at, _)| *at <= self.clock.tick())
+        {
+            *mask = self.joysticks.pop_front().unwrap().1;
+        }
     }
     fn advance(
         &mut self,
@@ -415,6 +435,27 @@ impl Simulation {
         let before = std::mem::discriminant(&self.phase);
         let mut assigned = Vec::new();
         let target = self.scans.front().map_or(target, |(at, _)| target.min(*at));
+        let target = self
+            .joysticks
+            .front()
+            .map_or(target, |(at, _)| target.min(*at));
+        while self
+            .joysticks
+            .front()
+            .is_some_and(|(tick, _)| *tick <= target)
+        {
+            let (tick, mask) = *self.joysticks.front().unwrap();
+            match &mut self.phase {
+                Phase::Intro(task) | Phase::Pregame { task, .. } => {
+                    task.schedule_joystick(tick, mask, &self.clock)
+                }
+                Phase::Playing(runtime) => runtime.schedule_joystick(tick, mask, &self.clock),
+                Phase::Splash => break,
+                Phase::Ending { .. } => break,
+            }
+            .map_err(|e| e.to_string())?;
+            self.joysticks.pop_front();
+        }
         // Assign only the earliest timestamp group. If the foreground returns
         // before that deadline, its future bytes remain input to the next phase.
         while self.scans.front().is_some_and(|(tick, _)| *tick <= target) {
@@ -442,12 +483,20 @@ impl Simulation {
                 Phase::Splash => {
                     loop {
                         match self.clock.advance_to(target).map_err(|e| e.to_string())? {
-                            Progress::Reached => break,
+                            Progress::Reached => {
+                                let mut mask = self.initial.as_ref().unwrap().joystick;
+                                self.deliver_joysticks(&mut mask);
+                                self.initial.as_mut().unwrap().joystick = mask;
+                                break;
+                            }
                             Progress::Interrupt(irq) if irq.irq == 0 => {
                                 let complete = self.splash_wait.interrupt();
                                 crate::timer::return_interrupt(&mut self.clock);
                                 self.clock.check().map_err(|e| e.to_string())?;
                                 if complete {
+                                    let mut mask = self.initial.as_ref().unwrap().joystick;
+                                    self.deliver_joysticks(&mut mask);
+                                    self.initial.as_mut().unwrap().joystick = mask;
                                     self.finish_splash(frames, resources)?;
                                     repaint = true;
                                     break;
@@ -465,6 +514,9 @@ impl Simulation {
                         .advance_until(target, &memory, &resources.procedural, &mut self.clock)
                         .map_err(|e| e.to_string())?;
                     if progress == IntroProgress::Returned {
+                        for change in task.take_scheduled_joysticks().into_iter().rev() {
+                            self.joysticks.push_front(change);
+                        }
                         let mut state = task.into_state().map_err(|e| e.to_string())?;
                         let start = self.session.begin_game();
                         let mut game = Gameplay::for_play(frames.graphics(), rules.clone(), start)
@@ -511,6 +563,9 @@ impl Simulation {
                         .advance_until(target, &memory, &resources.procedural, &mut self.clock)
                         .map_err(|e| e.to_string())?;
                     if progress == IntroProgress::Returned {
+                        for change in task.take_scheduled_joysticks().into_iter().rev() {
+                            self.joysticks.push_front(change);
+                        }
                         let state = task.into_state().map_err(|e| e.to_string())?;
                         self.phase = Phase::Playing(Box::new(
                             GameplayRuntime::begin(*game, state, CS, 64, &self.clock)
@@ -550,6 +605,9 @@ impl Simulation {
                             self.phase = Phase::Playing(runtime);
                         }
                         GameplayProgress::Returned => {
+                            for change in runtime.take_scheduled_joysticks().into_iter().rev() {
+                                self.joysticks.push_front(change);
+                            }
                             let (game, state) = runtime.into_parts().map_err(|e| e.to_string())?;
                             // GameplayTask already executes the caller's 0452
                             // reset through Gameplay::return_sound exactly once.
@@ -627,7 +685,10 @@ impl Simulation {
         site: u16,
         events: &mut Vec<(u64, GameplayEvent)>,
     ) -> u8 {
-        let poll = state.keyboard.poll_controls(&mut state.controls, 0);
+        self.deliver_joysticks(&mut state.joystick);
+        let poll = state
+            .keyboard
+            .poll_controls(&mut state.controls, state.joystick);
         if poll.display_toggled {
             self.palette_family = 1;
         }
@@ -661,7 +722,13 @@ impl Simulation {
             } = step
             {
                 let memory = DosSampleMemory::new(&resources.sound.samples, *b"MACH3\0\0\0");
-                if self.advance_ending_sample(target, &mut task, &mut sample_state, &memory)? {
+                if self.advance_ending_sample(
+                    target,
+                    &mut task,
+                    &mut sample_state,
+                    &mut state.joystick,
+                    &memory,
+                )? {
                     state.keyboard.clear_table();
                     state.controls.sound_poll_counter &= 0xff00;
                     state.controls.preferences.sound_disabled = sample_state.disabled;
@@ -868,10 +935,12 @@ impl Simulation {
         target: u64,
         task: &mut SampleTask,
         state: &mut SampleSoundState,
+        joystick: &mut u8,
         memory: &DosSampleMemory<'_>,
     ) -> Result<bool, String> {
         let mut scan_latched = false;
         loop {
+            self.deliver_joysticks(joystick);
             if !scan_latched
                 && self
                     .scans
@@ -912,6 +981,10 @@ impl Simulation {
                 .scans
                 .front()
                 .map_or(target, |(tick, _)| target.min(*tick));
+            let deadline = self
+                .joysticks
+                .front()
+                .map_or(deadline, |(tick, _)| deadline.min(*tick));
             let progress = self.clock.advance_to(deadline).map_err(|e| e.to_string())?;
             // advance_to may already enter IRQ0 at the scan timestamp.
             if !scan_latched
@@ -942,6 +1015,7 @@ impl Simulation {
     ) -> Result<(), String> {
         let mut scan_latched = false;
         loop {
+            self.deliver_joysticks(&mut state.joystick);
             if !scan_latched
                 && self
                     .scans
@@ -978,6 +1052,10 @@ impl Simulation {
             .scans
             .front()
             .map_or(target, |(tick, _)| (*tick).min(target));
+        let next_scan = self
+            .joysticks
+            .front()
+            .map_or(next_scan, |(tick, _)| next_scan.min(*tick));
         match self
             .clock
             .advance_to(next_scan)
@@ -1075,6 +1153,7 @@ pub(super) fn run(
         options.presentation,
     )?;
     let creator = window.texture_creator();
+    let mut gamepads = reforge_sdl::gamepad::Gamepads::new(window.settings().stick_dead_zone);
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
@@ -1141,11 +1220,17 @@ pub(super) fn run(
     let mut repaint = true;
     loop {
         let mut catch_up = false;
+        gamepads.set_dead_zone(window.settings().stick_dead_zone);
         for event in window.poll_events() {
+            let pad = gamepads.handle(&event);
             let received = Instant::now();
             let time =
                 EventTime::sample(&event, reforge_sdl::event_clock_sample(), &pause, received);
-            let menu_consumed = !host_quit(&event) && menu.handle_event(&event);
+            if pad.is_some_and(|pad| pad.settings) {
+                menu.toggle();
+            }
+            let menu_consumed = !host_quit(&event)
+                && (menu.handle_event(&event) || pad.is_some_and(|pad| pad.settings));
             if host_quit(&event)
                 || (!menu_consumed
                     && matches!(
@@ -1168,6 +1253,7 @@ pub(super) fn run(
                 return Ok(());
             }
             if menu_pause.update(menu.is_open(), &mut pause, received) {
+                gamepads.reset();
                 input.fresh.clear();
                 space_held = false;
                 navigation_space_release = false;
@@ -1183,8 +1269,11 @@ pub(super) fn run(
             let mut disposition = "handled";
             if menu_consumed {
                 disposition = "settings_menu";
-            } else if host_shortcut(&event) == Some(HostShortcut::TogglePause) {
+            } else if host_shortcut(&event) == Some(HostShortcut::TogglePause)
+                || pad.is_some_and(|pad| pad.pause)
+            {
                 pause.toggle(received);
+                gamepads.reset();
                 input.fresh.clear();
                 space_held = false;
                 navigation_space_release = false;
@@ -1206,6 +1295,7 @@ pub(super) fn run(
                     ..
                 }
             ) {
+                gamepads.reset();
                 input.fresh.clear();
                 space_held = false;
                 navigation_space_release = false;
@@ -1214,6 +1304,16 @@ pub(super) fn run(
                 disposition = "focus_reset";
             } else if !history.accepts(time.host) {
                 disposition = "ignored_before_reset";
+            } else if let Some(pad) = pad {
+                if matches!(simulation.phase, Phase::Splash) && pad.pressed.action {
+                    simulation.finish_splash(frames, &resources)?;
+                    gamepads.reset();
+                    repaint = true;
+                } else {
+                    simulation
+                        .receive_joystick(ticks_since(epoch, time.timeline), pad.actions.bits());
+                    disposition = "queued_gamepad";
+                }
             } else if !input.accept(&event) {
                 disposition = "ignored_repeat";
             } else if matches!(simulation.phase, Phase::Splash) {
@@ -1291,6 +1391,7 @@ pub(super) fn run(
         }
         let received = Instant::now();
         if menu_pause.update(menu.is_open(), &mut pause, received) {
+            gamepads.reset();
             input.fresh.clear();
             space_held = false;
             navigation_space_release = false;

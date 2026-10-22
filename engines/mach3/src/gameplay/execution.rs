@@ -123,6 +123,7 @@ pub struct GameplayTask {
     sample: Option<SampleTask>,
     sample_state: SampleSoundState,
     scans: VecDeque<(u64, u8)>,
+    joysticks: VecDeque<(u64, u8)>,
     scan_latched: bool,
     committed_tick: u64,
     transition_period: Option<u64>,
@@ -175,6 +176,7 @@ impl GameplayTask {
             sample: None,
             sample_state: SampleSoundState::default(),
             scans: VecDeque::new(),
+            joysticks: VecDeque::new(),
             scan_latched: false,
             committed_tick: clock.tick(),
             transition_period: None,
@@ -237,6 +239,7 @@ impl GameplayTask {
         clock.check()?;
         self.check_clock(clock)?;
         self.scans.clear();
+        self.joysticks.clear();
         Ok(())
     }
 
@@ -277,6 +280,32 @@ impl GameplayTask {
         }
         self.scans.push_back((tick, raw));
         Ok(())
+    }
+
+    /// Digital joystick state changes do not generate keyboard interrupts.
+    pub fn schedule_joystick<O: FnMut(Stamp, ClockEvent)>(
+        &mut self,
+        tick: u64,
+        mask: u8,
+        clock: &Clock<O>,
+    ) -> Result<(), Error> {
+        clock.check()?;
+        self.check_clock(clock)?;
+        if tick < clock.tick() || self.joysticks.back().is_some_and(|(last, _)| tick < *last) {
+            return Err(invalid(
+                "joystick deliveries must be ordered and cannot precede committed time",
+            ));
+        }
+        if matches!(self.stage, Stage::Returned) {
+            return Err(invalid("foreground has returned"));
+        }
+        self.joysticks.push_back((tick, mask & 31));
+        Ok(())
+    }
+
+    /// Transfer undelivered controller history when the foreground returns.
+    pub fn take_scheduled_joysticks(&mut self) -> VecDeque<(u64, u8)> {
+        std::mem::take(&mut self.joysticks)
     }
 
     /// Stop at the budget, one publication, or main-loop return. Reuse remaining
@@ -483,6 +512,9 @@ impl GameplayTask {
                 return Ok(GameplayProgress::Pending);
             }
             let mut deadline = target;
+            if let Some((tick, _)) = self.joysticks.front() {
+                deadline = deadline.min(*tick);
+            }
             if let Some((tick, _)) = self.scans.front() {
                 deadline = deadline.min(*tick);
             }
@@ -662,6 +694,13 @@ impl GameplayTask {
         &mut self,
         clock: &mut Clock<O>,
     ) -> Result<(), Error> {
+        while self
+            .joysticks
+            .front()
+            .is_some_and(|(tick, _)| *tick <= clock.tick())
+        {
+            self.state.joystick = self.joysticks.pop_front().unwrap().1;
+        }
         // Same-tick bytes are serviced one at a time through the one-byte latch.
         if !self.scan_latched
             && self

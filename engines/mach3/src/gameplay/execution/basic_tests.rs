@@ -7,6 +7,45 @@ use std::{cell::RefCell, rc::Rc};
 
 type Log = Rc<RefCell<Vec<(Stamp, ClockEvent)>>>;
 
+#[test]
+fn joystick_taps_between_polls_are_missed_and_never_generate_keyboard_irqs() {
+    let assets = crate::gameplay::tests::synthetic_assets();
+    let program = program();
+    let resources = GameplayResources {
+        graphics: &assets,
+        procedural: &program,
+        samples: &Memory,
+    };
+    let log = Log::default();
+    let (state, mut clock) = context(log.clone());
+    let mut task =
+        GameplayTask::begin(Gameplay::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
+    task.schedule_joystick(10, 4, &clock).unwrap();
+    task.schedule_joystick(20, 0, &clock).unwrap();
+    assert!(task.schedule_joystick(19, 4, &clock).is_err());
+    let mut polls = Vec::new();
+    while clock.tick() < 100_000 {
+        task.advance_until(100_000, &resources, &mut clock, &mut |_, e| {
+            if let GameplayEvent::InputPoll { mask, .. } = e {
+                polls.push(mask);
+            }
+        })
+        .unwrap();
+    }
+    assert!(!polls.is_empty());
+    assert!(polls.iter().all(|&mask| mask == 0));
+    assert!(
+        !log.borrow()
+            .iter()
+            .any(|(_, e)| matches!(e, ClockEvent::Interrupt(irq) if irq.irq == 1))
+    );
+    assert!(task.schedule_joystick(99_999, 4, &clock).is_err());
+    task.schedule_joystick(100_010, 4, &clock).unwrap();
+    task.clear_input(&clock).unwrap();
+    assert!(task.take_scheduled_joysticks().is_empty());
+    assert_eq!(task.state().joystick, 0);
+}
+
 pub(super) fn program() -> ProceduralProgram {
     let mut bytes = vec![0; 0x78c6];
     for (instruction, base, count) in [

@@ -4,7 +4,8 @@ use crate::settings::{SettingsMenu, VideoCapabilities};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, Presentation, Renderer,
-    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, SoundCategory, SoundRenderer, section_index,
+    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, SoundCategory,
+    SoundRenderer, section_index,
 };
 const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
 const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
@@ -65,20 +66,13 @@ pub(super) fn draw(
                     ),
                 );
             });
-            // A game-only page cannot remain selected after changing scope.
             let controls_visible = menu.scope == 1 && menu.alleycat_options;
-            if menu.page == 3 && !controls_visible {
-                menu.page = 0;
-            }
             ui.separator();
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(132.0);
                     ui.add_space(6.0);
                     for (page, label) in PAGES.into_iter().enumerate() {
-                        if page == 3 && !controls_visible {
-                            continue;
-                        }
                         if ui
                             .add_sized(
                                 [132.0, 32.0],
@@ -353,6 +347,8 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         &cli,
+                                        menu.scope,
+                                        controls_visible,
                                     );
                                 }
                             });
@@ -451,7 +447,26 @@ fn controls_controls(
     base: RuntimeSettings,
     previous: RuntimeSettings,
     cli: &reforge_settings::Patch,
+    scope: usize,
+    alleycat: bool,
 ) {
+    section(ui, "Controller");
+    row(
+        ui,
+        "Stick dead zone",
+        STICK_DEAD_ZONE,
+        value.clone(),
+        base.clone(),
+        previous.clone(),
+        scope,
+        cli,
+        |ui| {
+            ui.add(egui::Slider::new(&mut value.stick_dead_zone, 5..=90).suffix("%"));
+        },
+    );
+    if !alleycat {
+        return;
+    }
     section(ui, "Gameplay");
     row(
         ui,

@@ -174,8 +174,9 @@ the corresponding dependencies. This crate bundles no game data.
 
 ## Settings menu
 
-F10 opens the Compact Display, CRT & Colour and Audio pages in either engine.
-Alley Cat also exposes a game-only Controls page under its overrides.
+F10 opens the Compact Display, CRT & Colour, Audio and Controls pages in either engine.
+Controls offers a shared stick dead zone, with Alley Cat's additional input-response
+choice under its game overrides.
 Window mode, scale, renderer, backend, VSync, frame ceiling, Hyllian shader
 controls and Audio use draft edits with Apply/Cancel. Global and game
 preferences are saved through `reforge_settings`; CLI overrides remain temporary
@@ -246,6 +247,28 @@ VSync is counted within each interval and needs no extra timer wait when it
 already meets the ceiling. A stall resets presentation debt, while each engine
 retains its own simulation catch-up policy. See [configuration](../../docs/configuration.md)
 for persistence, defaults and shader parameter ranges.
+
+## Gamepads
+
+`gamepad::Gamepads` owns one SDL-recognized gamepad, handles hot-plugging and
+normalizes the left stick/D-pad and bottom face button into digital `Actions`.
+`PadEvent` retains independent direction/button press edges and host pause/settings
+shortcuts. Adapters call `handle` in SDL queue order and retain the source event's
+timestamp using their existing clock correlation/history. This module neither
+executes gameplay nor synthesizes DOS keyboard interrupts.
+
+The stick uses independent axis thresholds and hysteresis; no combination window,
+pulse modulation or analog movement is added. `set_dead_zone` applies the shared
+preference, and `reset` rejects stale events and suppresses held controls until
+neutral. Keyboard and controller sources must be merged without cancelling each
+other's held actions. Engines decide their own opposing-direction rules and map
+Start/Back to host pause/settings. The manager survives renderer recreation because
+it belongs to the engine adapter, independently of the presentation window.
+
+Unit tests cover conversion and boundary rules. An isolated SDL virtual-gamepad
+test exercises events, device identity and disconnects without physical hardware.
+See [controller preferences](../../docs/configuration.md#controllers) for bindings,
+configuration and current scope.
 
 ## Host audio preferences
 

@@ -7,7 +7,18 @@
 
 use reforge_settings::AudioSettings;
 use sdl3::audio::{AudioDevice, AudioFormat, AudioSpec, AudioStreamOwner};
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, time::Duration};
+
+/// Initial/resume buffering for host scheduling jitter, independent of game time.
+pub const DEFAULT_PREFILL: Duration = Duration::from_millis(50);
+const MAX_QUEUE: Duration = Duration::from_millis(250);
+
+fn prefill_samples(rate: u32, prefill: Duration) -> usize {
+    // Round up fractional samples, within the endpoint's quarter-second ceiling.
+    (u128::from(rate) * prefill.as_nanos())
+        .div_ceil(1_000_000_000)
+        .min(u128::from(rate / 4)) as usize
+}
 
 /// Names are saved instead of transient SDL device instance IDs.
 pub fn playback_devices() -> Result<Vec<String>, String> {
@@ -149,7 +160,8 @@ impl AudioOutput {
 }
 
 /// A main-thread playback endpoint shared with the settings/window owner.
-/// Engines retain synthesis, queue targets and prefill policy.
+/// Engines retain synthesis, queue targets and recovery; startup prefill has a
+/// shared default with an explicit engine override.
 #[derive(Clone)]
 pub struct Playback(Rc<RefCell<PlaybackState>>);
 struct PlaybackState {
@@ -158,6 +170,7 @@ struct PlaybackState {
     rate: Option<u32>,
     focused: bool,
     generation: u64,
+    prefill: Duration,
 }
 impl Playback {
     /// Create an inactive endpoint without initializing SDL audio.
@@ -168,6 +181,7 @@ impl Playback {
             rate: None,
             focused: true,
             generation: 0,
+            prefill: DEFAULT_PREFILL,
         })))
     }
     pub fn settings(&self) -> AudioSettings {
@@ -175,6 +189,39 @@ impl Playback {
     }
     pub fn generation(&self) -> u64 {
         self.0.borrow().generation
+    }
+    /// Override startup/resume buffering for an engine with a specific need.
+    /// Its queue target must accommodate this duration. This does not change
+    /// synthesis, pause state or already-playing audio, and is not a saved option.
+    pub fn set_prefill(&self, prefill: Duration) -> Result<(), String> {
+        if prefill > MAX_QUEUE {
+            return Err("audio prefill exceeds the 250 ms queue ceiling".into());
+        }
+        self.0.borrow_mut().prefill = prefill;
+        Ok(())
+    }
+    /// Required mono input samples, available after the engine registers its rate.
+    pub fn prefill_samples(&self) -> Option<usize> {
+        let state = self.0.borrow();
+        state.rate.map(|rate| prefill_samples(rate, state.prefill))
+    }
+    /// Resume a primed stream without waiting; false means disabled/unavailable
+    /// output or insufficient queued data. Keep servicing it until ready. Engines
+    /// decide when startup/recovery may resume, and retain their own pause logic.
+    pub fn resume_when_ready(&self) -> Result<bool, String> {
+        let mut state = self.0.borrow_mut();
+        let Some(rate) = state.rate else {
+            return Ok(false);
+        };
+        let required = prefill_samples(rate, state.prefill);
+        let Some(output) = &mut state.output else {
+            return Ok(false);
+        };
+        if output.queued_samples()? < required {
+            return Ok(false);
+        }
+        output.set_paused(false)?;
+        Ok(true)
     }
     pub fn available(&self) -> bool {
         self.0.borrow().output.is_some()
@@ -317,6 +364,75 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[test]
+    fn prefill_duration_converts_rates_without_exceeding_queue_capacity() {
+        assert_eq!(prefill_samples(48_000, DEFAULT_PREFILL), 2400);
+        assert_eq!(prefill_samples(44_100, DEFAULT_PREFILL), 2205);
+        assert_eq!(prefill_samples(44_100, Duration::from_millis(5)), 221);
+        assert_eq!(prefill_samples(11_025, MAX_QUEUE), 2756);
+    }
+
+    #[test]
+    fn shared_prefill_default_override_and_device_reopen() {
+        const TEST: &str = "audio::tests::shared_prefill_default_override_and_device_reopen";
+        if std::env::var(CHILD_MARKER).as_deref() != Ok(TEST) {
+            run_child(TEST, "dummy");
+            return;
+        }
+        let host = Playback::new(Default::default());
+        assert_eq!(host.prefill_samples(), None);
+        assert!(!host.resume_when_ready().unwrap());
+        host.start(44_100).unwrap();
+        assert_eq!(host.prefill_samples(), Some(2205));
+        host.queue(&vec![1000; 2204]).unwrap();
+        assert!(!host.resume_when_ready().unwrap());
+        assert!(
+            host.0
+                .borrow()
+                .output
+                .as_ref()
+                .unwrap()
+                .stream
+                .device_paused()
+                .unwrap()
+        );
+        host.queue(&[1000]).unwrap();
+        assert!(host.resume_when_ready().unwrap());
+        assert!(
+            !host
+                .0
+                .borrow()
+                .output
+                .as_ref()
+                .unwrap()
+                .stream
+                .device_paused()
+                .unwrap()
+        );
+        host.set_paused(true).unwrap();
+        host.clear().unwrap();
+        host.set_prefill(Duration::from_millis(5)).unwrap();
+        assert!(host.set_prefill(Duration::from_secs(1)).is_err());
+        assert_eq!(host.clone().prefill_samples(), Some(221));
+        host.queue(&[1000; 220]).unwrap();
+        assert!(!host.resume_when_ready().unwrap());
+        host.queue(&[1000]).unwrap();
+        assert!(host.resume_when_ready().unwrap());
+        // Opening another device/rate retains the engine override, recalculated
+        // in input samples rather than copied from the previous stream.
+        host.start(48_000).unwrap();
+        assert_eq!(host.prefill_samples(), Some(240));
+        assert!(!host.resume_when_ready().unwrap());
+        host.set_prefill(DEFAULT_PREFILL).unwrap();
+        assert_eq!(host.prefill_samples(), Some(2400));
+        host.apply(AudioSettings {
+            enabled: false,
+            ..host.settings()
+        })
+        .unwrap();
+        assert!(!host.resume_when_ready().unwrap());
     }
 
     #[test]

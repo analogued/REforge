@@ -1,5 +1,6 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Synthetic controller checks; no SDL window, output device or originals.
+//! Synthetic controller checks; no SDL window or originals. Host playback
+//! checks use an isolated dummy-device child process.
 
 use super::*;
 use crate::{
@@ -7,6 +8,53 @@ use crate::{
     sound::{Resource, Tone},
 };
 use std::sync::atomic::{AtomicU64, Ordering};
+
+#[test]
+fn shared_prefill_allows_startup_and_catchup_recovery() {
+    const TEST: &str =
+        "viewer::realtime::tests::shared_prefill_allows_startup_and_catchup_recovery";
+    const MARKER: &str = "REFORGE_MACH3_PREFILL_TEST";
+    if std::env::var(MARKER).as_deref() != Ok(TEST) {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--test-threads=1"])
+            .env(MARKER, TEST)
+            .env("SDL_AUDIO_DRIVER", "dummy")
+            .env("SDL_AUDIODRIVER", "dummy")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let host = Playback::new(Default::default());
+    let signal = signal(CHUNK as u32);
+    let mut audio = PlaybackAudio::new(signal.clone(), host.clone());
+    assert!(host.available());
+    let at = |ms| PIT_HZ * ms / 1000;
+    for ms in [10, 20, 30, 40] {
+        audio.service(at(ms), at(ms));
+        assert!(!audio.started, "must use shared 50 ms prefill");
+    }
+    audio.service(at(60), at(60));
+    assert!(audio.started);
+    audio.service(at(60), at(400));
+    assert!(audio.recovering);
+    assert!(!audio.started);
+    assert_eq!(host.queued_samples().unwrap(), 0);
+    // Recovery first retains only this engine's 30 ms recent-audio window.
+    // Later committed samples must still fill the larger shared startup buffer.
+    audio.service(at(410), at(410));
+    assert!(!audio.started);
+    assert!(!audio.recovering);
+    audio.service(at(440), at(440));
+    assert!(audio.started);
+    assert!(signal.borrow().error.is_none());
+    assert_eq!(LATE_AUDIO_RETENTION, RATE as usize * 30 / 1000);
+}
 
 fn frames() -> StartupFrames {
     StartupFrames::from_test_graphics(GraphicsAssets {

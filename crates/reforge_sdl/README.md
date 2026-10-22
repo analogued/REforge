@@ -251,8 +251,19 @@ for persistence, defaults and shader parameter ranges.
 
 `FrameCreator::audio_playback()` shares a `Playback` endpoint with the window's
 settings application and focus handling. Engines register their mono PCM rate,
-then retain control of synthesis, queue recovery and prefill/resume. The shared
-endpoint handles output selection and stream gain, without advancing an engine
+then retain control of synthesis, queue recovery and when playback may resume.
+The shared endpoint defaults to 50 ms of prefill, converted to input samples at
+the registered rate. `Playback::resume_when_ready()` checks that threshold without
+waiting; engines continue producing PCM while it returns false. An engine with a
+specific requirement can call `set_prefill(Duration)` before playback; its queue
+target must accommodate the chosen duration, within the 250 ms hard queue limit.
+The override stays with the shared endpoint across device/rate changes. This is
+an engine policy override, not a user setting. Normal pause/resume of an already
+primed stream may still use `set_paused` directly.
+
+Both current engines use the shared 50 ms default. Their queue targets, handling
+of late audio, native sound timing and simulation clocks remain engine-specific.
+The endpoint handles output selection and stream gain without advancing a game
 clock. Device/enable/renderer/category changes increment an endpoint generation; engines
 refill and apply their own renderer policy at the current native timestamp.
 

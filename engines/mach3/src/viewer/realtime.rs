@@ -30,7 +30,8 @@ use std::{
 
 const RATE: u32 = 48_000;
 const CHUNK: u64 = 11_931;
-const PREFILL: usize = RATE as usize * 30 / 1000;
+// Late-output retention is engine policy, independent of the host prefill.
+const LATE_AUDIO_RETENTION: usize = RATE as usize * 30 / 1000;
 const CS: u16 = 0x1234;
 type DeviceClock = Clock<Box<dyn FnMut(Stamp, ClockEvent)>>;
 
@@ -204,7 +205,7 @@ impl PlaybackAudio {
             }
             return;
         }
-        let cutoff = samples_at(wanted).saturating_sub(PREFILL as u64);
+        let cutoff = samples_at(wanted).saturating_sub(LATE_AUDIO_RETENTION as u64);
         let overdue = wanted.saturating_sub(committed) > PIT_HZ / 10;
         let mut error = None;
         if let Some(output) = &mut self.output {
@@ -238,13 +239,9 @@ impl PlaybackAudio {
                 self.recovering = false;
             }
             if !self.started && !overdue && error.is_none() {
-                match output.queued_samples() {
-                    Ok(queued) if queued >= PREFILL => {
-                        error = output.set_paused(false).err();
-                        self.started = error.is_none();
-                    }
+                match output.resume_when_ready() {
+                    Ok(started) => self.started = started,
                     Err(e) => error = Some(e),
-                    _ => {}
                 }
             }
         } else {

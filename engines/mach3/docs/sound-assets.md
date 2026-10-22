@@ -419,7 +419,8 @@ By default, PC speaker drive edges feed the shared signal renderer at their simu
 The viewer synthesizes 48 kHz mono signed 16-bit PCM and queues it through
 [`reforge_sdl::audio::AudioOutput`](../../../crates/reforge_sdl/README.md), which
 delegates native device format conversion to SDL. Playback is prefilled before
-resume. Bounded recovery drops expired PCM and clears excessive queued data,
+resume using the shared 50 ms default. Its separate 30 ms late-audio retention
+window remains engine-specific. Bounded recovery drops expired PCM and clears excessive queued data,
 without resetting the PIT or advancing gameplay from a device callback. Device
 failure warns and mutes host output; guest sample, procedural and wait execution
 continues on the same timeline.

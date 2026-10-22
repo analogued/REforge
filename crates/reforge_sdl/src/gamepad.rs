@@ -33,18 +33,22 @@ pub struct PadEvent {
     pub pressed: Actions,
     pub pause: bool,
     pub settings: bool,
+    /// Menu-only edges. They do not add reconstructed game actions.
+    pub cancel: bool,
+    pub previous: bool,
+    pub next: bool,
 }
 
 #[derive(Default)]
 struct Digital {
     axes: [i16; 2],
     directions: [i8; 2],
-    buttons: u8,
+    buttons: u16,
     armed: bool,
     focused: bool,
     dead_zone: u8,
 }
-fn button_bit(button: Button) -> u8 {
+fn button_bit(button: Button) -> u16 {
     match button {
         Button::DPadUp => 1,
         Button::DPadDown => 2,
@@ -53,6 +57,9 @@ fn button_bit(button: Button) -> u8 {
         Button::South => 16,
         Button::Start => 32,
         Button::Back => 64,
+        Button::East => 128,
+        Button::LeftShoulder => 256,
+        Button::RightShoulder => 512,
         _ => 0,
     }
 }
@@ -140,6 +147,9 @@ impl Digital {
             },
             pause: self.focused && buttons & 32 != 0,
             settings: self.focused && buttons & 64 != 0,
+            cancel: self.focused && self.armed && buttons & 128 != 0,
+            previous: self.focused && self.armed && buttons & 256 != 0,
+            next: self.focused && self.armed && buttons & 512 != 0,
         }
     }
 }
@@ -213,6 +223,9 @@ impl Gamepads {
                 Button::South,
                 Button::Start,
                 Button::Back,
+                Button::East,
+                Button::LeftShoulder,
+                Button::RightShoulder,
             ]
             .into_iter()
             .filter(|&b| pad.button(b))
@@ -386,6 +399,34 @@ mod tests {
             16,
             "a second device cannot steer the active one"
         );
+        device
+            .set_virtual_button(Button::South as u32, false)
+            .unwrap();
+        for event in events.poll_iter() {
+            pads.handle(&event);
+        }
+        for button in [Button::East, Button::LeftShoulder, Button::RightShoulder] {
+            device.set_virtual_button(button as u32, true).unwrap();
+            let notifications = events
+                .poll_iter()
+                .filter_map(|event| pads.handle(&event))
+                .collect::<Vec<_>>();
+            assert!(notifications.iter().any(|pad| match button {
+                Button::East => pad.cancel,
+                Button::LeftShoulder => pad.previous,
+                Button::RightShoulder => pad.next,
+                _ => unreachable!(),
+            }));
+            assert_eq!(
+                pads.actions().bits(),
+                0,
+                "menu buttons do not add game actions"
+            );
+            device.set_virtual_button(button as u32, false).unwrap();
+            for event in events.poll_iter() {
+                pads.handle(&event);
+            }
+        }
         device
             .set_virtual_button(Button::Start as u32, true)
             .unwrap();

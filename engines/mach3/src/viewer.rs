@@ -1282,11 +1282,8 @@ fn run_inner(
             repaint |= matches!(event, Event::Window { .. });
             let was_scene = presentation.screen() == Screen::InitialScene;
             // Quit remains global; Escape closes settings before it can quit.
-            if pad.is_some_and(|pad| pad.settings) {
-                menu.toggle();
-            }
-            let menu_consumed = !host_quit(&event)
-                && (menu.handle_event(&event) || pad.is_some_and(|pad| pad.settings));
+            let pad_consumed = pad.is_some_and(|pad| menu.handle_gamepad(pad));
+            let menu_consumed = !host_quit(&event) && (menu.handle_event(&event) || pad_consumed);
             if menu_pause.update(menu.is_open(), &mut host_pause, received) {
                 gamepads.reset();
                 game.reset_host_input(&mut input, &host_pause, received);

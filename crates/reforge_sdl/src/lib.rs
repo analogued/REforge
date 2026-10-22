@@ -11,6 +11,7 @@ mod hyllian;
 mod input;
 mod resources;
 pub mod settings;
+mod settings_navigation;
 mod settings_ui;
 pub use input::{EventClockSample, HostPause, HostShortcut, event_clock_sample, host_shortcut};
 use reforge_settings::Session;

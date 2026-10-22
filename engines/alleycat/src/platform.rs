@@ -183,10 +183,8 @@ impl<'a> Window<'a> {
                 self.quit = true;
             }
             let was_open = self.settings.is_open();
-            if pad.is_some_and(|pad| pad.settings) {
-                self.settings.toggle();
-            }
-            let consumed = self.settings.handle_event(&event);
+            let pad_consumed = pad.is_some_and(|pad| self.settings.handle_gamepad(pad));
+            let consumed = self.settings.handle_event(&event) || pad_consumed;
             settings_changed |= was_open != self.settings.is_open();
             route_guest_key(
                 &event,
@@ -222,7 +220,9 @@ impl<'a> Window<'a> {
                     presses.controller_confirm |= pad.pressed.action;
                     set_pad_keys(&mut self.control_keys, pad.actions);
                 } else {
-                    self.gamepads.reset();
+                    if settings_changed {
+                        self.gamepads.reset();
+                    }
                     set_pad_keys(&mut self.control_keys, Actions::default());
                 }
                 self.control_changes.push(HostChange {

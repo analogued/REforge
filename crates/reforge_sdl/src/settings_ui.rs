@@ -52,8 +52,8 @@ pub(super) fn draw(
         .show(context, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Editing");
-                ui.selectable_value(&mut menu.scope, 0, "Global defaults");
-                ui.selectable_value(
+                let first = ui.selectable_value(&mut menu.scope, 0, "Global defaults");
+                let game_scope = ui.selectable_value(
                     &mut menu.scope,
                     1,
                     format!(
@@ -65,6 +65,14 @@ pub(super) fn draw(
                         }
                     ),
                 );
+                if menu.navigation.focus_first {
+                    if menu.scope == 0 {
+                        first.request_focus();
+                    } else {
+                        game_scope.request_focus();
+                    }
+                    menu.navigation.focus_first = false;
+                }
             });
             let controls_visible = menu.scope == 1 && menu.alleycat_options;
             ui.separator();
@@ -234,18 +242,20 @@ pub(super) fn draw(
                                                 .width(220.0)
                                                 .selected_text(renderer_label(value.renderer))
                                                 .show_ui(ui, |ui| {
-                                                    for r in [
-                                                        Renderer::Auto,
-                                                        Renderer::Gpu,
-                                                        Renderer::Sdl,
-                                                        Renderer::Software,
-                                                    ] {
-                                                        ui.selectable_value(
-                                                            &mut value.renderer,
-                                                            r,
-                                                            renderer_label(r),
-                                                        );
-                                                    }
+                                                    crate::settings_navigation::popup(ui, |ui| {
+                                                        for r in [
+                                                            Renderer::Auto,
+                                                            Renderer::Gpu,
+                                                            Renderer::Sdl,
+                                                            Renderer::Software,
+                                                        ] {
+                                                            ui.selectable_value(
+                                                                &mut value.renderer,
+                                                                r,
+                                                                renderer_label(r),
+                                                            );
+                                                        }
+                                                    })
                                                 });
                                         },
                                     );
@@ -304,13 +314,15 @@ pub(super) fn draw(
                                                 .width(220.0)
                                                 .selected_text(value.frame_limit.label())
                                                 .show_ui(ui, |ui| {
-                                                    for limit in FrameLimit::ALL {
-                                                        ui.selectable_value(
-                                                            &mut value.frame_limit,
-                                                            limit,
-                                                            limit.label(),
-                                                        );
-                                                    }
+                                                    crate::settings_navigation::popup(ui, |ui| {
+                                                        for limit in FrameLimit::ALL {
+                                                            ui.selectable_value(
+                                                                &mut value.frame_limit,
+                                                                limit,
+                                                                limit.label(),
+                                                            );
+                                                        }
+                                                    })
                                                 });
                                         },
                                     );
@@ -352,6 +364,7 @@ pub(super) fn draw(
                                     );
                                 }
                             });
+                            crate::settings_navigation::scroll_focus(ui);
                         });
                     if menu.page == 2
                         && menu.scope == 1
@@ -481,11 +494,11 @@ fn controls_controls(
             egui::ComboBox::from_id_salt(CONTROL_MODE)
             .width(220.0)
             .selected_text(value.alleycat.control_mode.label())
-            .show_ui(ui, |ui| {
+            .show_ui(ui, |ui| crate::settings_navigation::popup(ui, |ui| {
                 for mode in ControlMode::ALL {
                     ui.selectable_value(&mut value.alleycat.control_mode, mode, mode.label());
                 }
-            })
+            }))
             .response.on_hover_text("Responsive reacts sooner to direction and action changes. Original preserves the game's original input response.");
         },
     );
@@ -532,21 +545,23 @@ fn crt_controls(
                     "Hyllian CRT"
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut value.presentation,
-                        Presentation::Pixels,
-                        "Sharp pixels",
-                    );
-                    ui.add_enabled_ui(hyllian_available, |ui| {
+                    crate::settings_navigation::popup(ui, |ui| {
                         ui.selectable_value(
                             &mut value.presentation,
-                            Presentation::Hyllian,
-                            "Hyllian CRT",
-                        )
-                        .on_disabled_hover_text(
-                            "Select Automatic or GPU with a compatible backend in Display.",
+                            Presentation::Pixels,
+                            "Sharp pixels",
                         );
-                    });
+                        ui.add_enabled_ui(hyllian_available, |ui| {
+                            ui.selectable_value(
+                                &mut value.presentation,
+                                Presentation::Hyllian,
+                                "Hyllian CRT",
+                            )
+                            .on_disabled_hover_text(
+                                "Select Automatic or GPU with a compatible backend in Display.",
+                            );
+                        });
+                    })
                 });
         },
     );
@@ -603,8 +618,10 @@ fn hyllian_controls(
                     "Hermite"
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut value.hyllian.catmull_rom, false, "Hermite");
-                    ui.selectable_value(&mut value.hyllian.catmull_rom, true, "Catmull–Rom");
+                    crate::settings_navigation::popup(ui, |ui| {
+                        ui.selectable_value(&mut value.hyllian.catmull_rom, false, "Hermite");
+                        ui.selectable_value(&mut value.hyllian.catmull_rom, true, "Catmull–Rom");
+                    })
                 });
         },
     );
@@ -757,15 +774,17 @@ fn audio_controls(
                         .width(220.0)
                         .selected_text(sound_renderer_label(value.audio.renderer))
                         .show_ui(ui, |ui| {
-                            for renderer in
-                                std::iter::once(&SoundRenderer::GameDefault).chain(renderers)
-                            {
-                                ui.selectable_value(
-                                    &mut value.audio.renderer,
-                                    *renderer,
-                                    sound_renderer_label(*renderer),
-                                );
-                            }
+                            crate::settings_navigation::popup(ui, |ui| {
+                                for renderer in
+                                    std::iter::once(&SoundRenderer::GameDefault).chain(renderers)
+                                {
+                                    ui.selectable_value(
+                                        &mut value.audio.renderer,
+                                        *renderer,
+                                        sound_renderer_label(*renderer),
+                                    );
+                                }
+                            })
                         });
                 });
             },
@@ -798,8 +817,14 @@ fn audio_controls(
                             "Off"
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut value.mach3.digitized_samples, true, "On");
-                            ui.selectable_value(&mut value.mach3.digitized_samples, false, "Off");
+                            crate::settings_navigation::popup(ui, |ui| {
+                                ui.selectable_value(&mut value.mach3.digitized_samples, true, "On");
+                                ui.selectable_value(
+                                    &mut value.mach3.digitized_samples,
+                                    false,
+                                    "Off",
+                                );
+                            })
                         })
                         .response
                         .on_hover_text("Applies on next launch.");
@@ -823,15 +848,24 @@ fn audio_controls(
                     .truncate()
                     .selected_text(value.audio.device.as_deref().unwrap_or("System default"))
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut value.audio.device, None, "System default");
-                        if let Some(name) =
-                            value.audio.device.clone().filter(|n| !devices.contains(n))
-                        {
-                            ui.add_enabled(false, egui::Label::new(format!("Unavailable: {name}")));
-                        }
-                        for name in devices {
-                            ui.selectable_value(&mut value.audio.device, Some(name.clone()), name);
-                        }
+                        crate::settings_navigation::popup(ui, |ui| {
+                            ui.selectable_value(&mut value.audio.device, None, "System default");
+                            if let Some(name) =
+                                value.audio.device.clone().filter(|n| !devices.contains(n))
+                            {
+                                ui.add_enabled(
+                                    false,
+                                    egui::Label::new(format!("Unavailable: {name}")),
+                                );
+                            }
+                            for name in devices {
+                                ui.selectable_value(
+                                    &mut value.audio.device,
+                                    Some(name.clone()),
+                                    name,
+                                );
+                            }
+                        })
                     });
             },
         );
@@ -1060,9 +1094,11 @@ fn backend_selector(ui: &mut egui::Ui, value: &mut RuntimeSettings) -> egui::Res
         .width(220.0)
         .selected_text(backend_label(value.backend))
         .show_ui(ui, |ui| {
-            for backend in choices {
-                ui.selectable_value(&mut value.backend, backend, backend_label(backend));
-            }
+            crate::settings_navigation::popup(ui, |ui| {
+                for backend in choices {
+                    ui.selectable_value(&mut value.backend, backend, backend_label(backend));
+                }
+            })
         })
         .response
 }

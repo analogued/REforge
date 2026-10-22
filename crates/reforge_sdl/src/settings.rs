@@ -81,7 +81,8 @@ pub struct SettingsMenu<'a> {
     pub(super) context: egui::Context,
     pub(super) capabilities: VideoCapabilities,
     pub(super) open: bool,
-    pub(super) events: Vec<Event>,
+    events: Vec<MenuEvent>,
+    pub(super) navigation: crate::settings_navigation::Navigation,
     pub(super) textures: HashMap<TextureId, crate::resources::TextureLease>,
     pub(super) generation: usize,
     pub(super) draft: Option<Draft>,
@@ -109,6 +110,11 @@ pub struct SettingsMenu<'a> {
     pub(super) modifiers: egui::Modifiers,
     pub(super) error: Option<String>,
     pub(super) escape_held: bool,
+}
+
+enum MenuEvent {
+    Sdl(Event),
+    Ui(egui::Event),
 }
 
 impl<'a> SettingsMenu<'a> {
@@ -176,6 +182,7 @@ impl<'a> SettingsMenu<'a> {
             capabilities,
             open: false,
             events: Vec::new(),
+            navigation: Default::default(),
             textures: HashMap::new(),
             generation: creator.generation(),
             draft: None,
@@ -231,7 +238,45 @@ impl<'a> SettingsMenu<'a> {
         self.pending = None;
         self.game_touched = [false; 4];
         self.events.clear();
+        self.navigation = Default::default();
+        self.navigation.focus_first = self.open;
+        self.context.memory_mut(|memory| {
+            memory.close_popup();
+            if let Some(id) = memory.focused() {
+                memory.surrender_focus(id);
+            }
+        });
         self.context.memory_mut(|memory| memory.reset_areas());
+    }
+
+    /// Route only events accepted by the shared active-gamepad owner. Open menu
+    /// input is consumed here, including pause, and never reaches either game.
+    pub fn handle_gamepad(&mut self, pad: crate::gamepad::PadEvent) -> bool {
+        if pad.settings {
+            self.toggle();
+            return true;
+        }
+        if !self.open {
+            return false;
+        }
+        if pad.cancel {
+            self.back();
+        } else {
+            self.navigation
+                .controller(pad, self.started.elapsed().as_secs_f64());
+            let mut events = Vec::new();
+            self.navigation.take_events(&mut events);
+            self.events.extend(events.into_iter().map(MenuEvent::Ui));
+        }
+        true
+    }
+
+    fn back(&mut self) {
+        if self.context.memory(|memory| memory.any_popup_open()) {
+            crate::settings_navigation::close_popup(&self.context);
+        } else {
+            self.toggle();
+        }
     }
 
     pub fn set_error(&mut self, error: String) {
@@ -293,12 +338,10 @@ impl<'a> SettingsMenu<'a> {
             }
         ) && (self.open || self.escape_held)
         {
-            self.open = false;
-            self.draft = None;
-            self.pending = None;
-            self.game_touched = [false; 4];
+            if !self.escape_held {
+                self.back();
+            }
             self.escape_held = true;
-            self.events.clear();
             return true;
         }
         if matches!(
@@ -320,6 +363,7 @@ impl<'a> SettingsMenu<'a> {
                 self.focused = false;
                 self.modifiers = egui::Modifiers::default();
                 self.escape_held = false;
+                self.navigation = Default::default();
             }
             Event::Window {
                 win_event: WindowEvent::FocusGained,
@@ -338,10 +382,10 @@ impl<'a> SettingsMenu<'a> {
                 }
             )
         {
-            self.events.push(event.clone());
+            self.events.push(MenuEvent::Sdl(event.clone()));
         }
         if self.open && is_menu_input(event) {
-            self.events.push(event.clone());
+            self.events.push(MenuEvent::Sdl(event.clone()));
             true
         } else {
             false
@@ -403,8 +447,16 @@ impl<'a> SettingsMenu<'a> {
             .or_default()
             .native_pixels_per_point = Some(self.density);
         for event in self.events.drain(..) {
-            translate_event(&event, metrics, &mut self.modifiers, &mut input.events);
+            match event {
+                MenuEvent::Sdl(event) => {
+                    translate_event(&event, metrics, &mut self.modifiers, &mut input.events)
+                }
+                MenuEvent::Ui(event) => input.events.push(event),
+            }
         }
+        self.navigation
+            .drain(self.started.elapsed().as_secs_f64(), &mut input.events);
+        crate::settings_navigation::filter_popup_input(&self.context, &mut input.events);
         input.modifiers = self.modifiers;
         let context = self.context.clone();
         let output = context.run(input, |ctx| {
@@ -418,6 +470,7 @@ impl<'a> SettingsMenu<'a> {
                 self.draft = None;
                 self.pending = None;
             }
+            crate::settings_navigation::paint_focus(ctx);
         });
         self.pending_textures.append(output.textures_delta);
         self.density = output.pixels_per_point;
@@ -682,6 +735,14 @@ fn ui_key(keycode: Keycode) -> Option<Key> {
         Keycode::End => Key::End,
         Keycode::PageUp => Key::PageUp,
         Keycode::PageDown => Key::PageDown,
+        Keycode::Backspace => Key::Backspace,
+        Keycode::Delete => Key::Delete,
+        Keycode::A => Key::A,
+        Keycode::C => Key::C,
+        Keycode::V => Key::V,
+        Keycode::X => Key::X,
+        Keycode::Y => Key::Y,
+        Keycode::Z => Key::Z,
         _ => return None,
     })
 }

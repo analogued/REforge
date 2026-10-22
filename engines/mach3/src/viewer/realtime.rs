@@ -1244,11 +1244,8 @@ pub(super) fn run(
             let received = Instant::now();
             let time =
                 EventTime::sample(&event, reforge_sdl::event_clock_sample(), &pause, received);
-            if pad.is_some_and(|pad| pad.settings) {
-                menu.toggle();
-            }
-            let menu_consumed = !host_quit(&event)
-                && (menu.handle_event(&event) || pad.is_some_and(|pad| pad.settings));
+            let pad_consumed = pad.is_some_and(|pad| menu.handle_gamepad(pad));
+            let menu_consumed = !host_quit(&event) && (menu.handle_event(&event) || pad_consumed);
             if host_quit(&event)
                 || (!menu_consumed
                     && matches!(

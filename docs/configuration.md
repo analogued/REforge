@@ -8,6 +8,13 @@ points remain future work. Audio offers enable sound, master/category volumes, p
 sound renderer, output device and focus muting.
 Controls offers a shared controller stick dead zone and Alley Cat's game-specific
 input response.
+Navigate with Tab/Shift+Tab or the arrow keys; Enter/Space activates a control.
+Arrow keys adjust sliders and numeric fields. The controller's View/Back button
+opens settings, D-pad/left stick navigates, A (bottom face button) confirms,
+B (right face button) goes back, and the shoulders move to the previous/next
+control. Held directions repeat. Escape/B closes a dropdown first, then cancels
+the menu on a fresh press. Focus is outlined and scrolls into view; disabled
+settings are skipped. Menu input does not reach gameplay.
 With Auto selected, the disabled scale slider shows the resolved windowed
 multiplier. Turning Auto off starts manual scaling at that value.
 

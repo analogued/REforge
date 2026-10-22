@@ -457,6 +457,7 @@ impl<'a> SettingsMenu<'a> {
         self.navigation
             .drain(self.started.elapsed().as_secs_f64(), &mut input.events);
         crate::settings_navigation::filter_popup_input(&self.context, &mut input.events);
+        self.navigation.navigate(&self.context, &mut input.events);
         input.modifiers = self.modifiers;
         let context = self.context.clone();
         let output = context.run(input, |ctx| {

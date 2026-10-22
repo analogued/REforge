@@ -19,6 +19,7 @@ pub(super) struct Navigation {
     held: u8,
     repeat: [f64; 4],
     events: Vec<Event>,
+    deferred: Vec<Event>,
     pub focus_first: bool,
 }
 
@@ -38,6 +39,109 @@ fn pulse(events: &mut Vec<Event>, key: Key, shift: bool, repeat: bool) {
 }
 
 impl Navigation {
+    pub fn navigate(&mut self, context: &Context, events: &mut Vec<Event>) {
+        if context.memory(|memory| memory.any_popup_open()) {
+            if events.iter().any(|event| {
+                matches!(
+                    event,
+                    Event::MouseWheel { .. } | Event::PointerButton { pressed: true, .. }
+                )
+            }) {
+                context.data_mut(|data| data.insert_temp(reveal_key(), false));
+            }
+            return;
+        }
+        let mut targets = context
+            .data(|data| data.get_temp::<Targets>(targets_key()).unwrap_or_default())
+            .0;
+        if let Some(root) = targets.first().map(|target| target.layer) {
+            targets.retain(|target| target.layer == root);
+        }
+        let mut input = std::mem::take(&mut self.deferred);
+        input.append(events);
+        let mut focused = context.memory(|memory| memory.focused());
+        let initial_focus = focused;
+        if let Some(target) = targets.iter().find(|target| Some(target.id) == focused) {
+            context.memory_mut(|memory| {
+                memory.set_focus_lock_filter(
+                    target.id,
+                    egui::EventFilter {
+                        horizontal_arrows: matches!(target.kind, Kind::Slider | Kind::Number),
+                        vertical_arrows: matches!(target.kind, Kind::Number),
+                        ..Default::default()
+                    },
+                )
+            });
+        }
+        for event in input {
+            if matches!(
+                &event,
+                Event::MouseWheel { .. } | Event::PointerButton { pressed: true, .. }
+            ) {
+                context.data_mut(|data| data.insert_temp(reveal_key(), false));
+            }
+            let Event::Key {
+                key,
+                pressed,
+                modifiers,
+                ..
+            } = &event
+            else {
+                events.push(event);
+                continue;
+            };
+            let arrow = matches!(
+                key,
+                Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight
+            );
+            if !arrow && *key != Key::Tab {
+                events.push(event);
+                continue;
+            }
+            context.data_mut(|data| data.insert_temp(reveal_key(), true));
+            if targets.is_empty() {
+                self.deferred.push(event);
+                continue;
+            }
+            let current = targets.iter().position(|target| Some(target.id) == focused);
+            // Widget-owned arrows still adjust sliders, values and text carets.
+            if arrow
+                && current.is_some_and(|index| match targets[index].kind {
+                    Kind::Slider => matches!(key, Key::ArrowLeft | Key::ArrowRight),
+                    Kind::Number => true,
+                    Kind::Control => false,
+                })
+            {
+                // Do not apply a value edit to a control first reached by an
+                // earlier direction in this same input batch. Its egui focus
+                // filter will be established before the next batch instead.
+                if focused == initial_focus {
+                    events.push(event);
+                }
+                continue;
+            }
+            if !pressed {
+                continue;
+            }
+            let next = if *key == Key::Tab {
+                let step = if modifiers.shift { -1 } else { 1 };
+                let index = current.unwrap_or(if modifiers.shift {
+                    0
+                } else {
+                    targets.len() - 1
+                });
+                Some((index as isize + step).rem_euclid(targets.len() as isize) as usize)
+            } else if let Some(index) = current {
+                directional_target(&targets, index, *key).or(Some(index))
+            } else {
+                Some(0)
+            };
+            if let Some(index) = next {
+                focused = Some(targets[index].id);
+                context.memory_mut(|memory| memory.request_focus(targets[index].id));
+            }
+        }
+    }
     pub fn take_events(&mut self, events: &mut Vec<Event>) {
         events.append(&mut self.events);
     }
@@ -73,6 +177,85 @@ impl Navigation {
         }
         events.append(&mut self.events);
     }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum Kind {
+    Control,
+    Slider,
+    Number,
+}
+#[derive(Clone)]
+struct Target {
+    id: Id,
+    rect: egui::Rect,
+    visible: egui::Rect,
+    layer: egui::LayerId,
+    kind: Kind,
+}
+#[derive(Clone, Default)]
+struct Targets(Vec<Target>);
+fn targets_key() -> Id {
+    Id::new("reforge_settings_controls")
+}
+pub(super) fn begin_frame(context: &Context) {
+    context.data_mut(|data| data.insert_temp(targets_key(), Targets::default()));
+}
+pub(super) fn control(response: Response) -> Response {
+    value_control(response, Kind::Control)
+}
+pub(super) fn value_control(response: Response, kind: Kind) -> Response {
+    if response.enabled() && response.sense.is_focusable() {
+        response.ctx.data_mut(|data| {
+            let targets = data.get_temp_mut_or_default::<Targets>(targets_key());
+            targets.0.retain(|target| target.id != response.id);
+            targets.0.push(Target {
+                id: response.id,
+                rect: response.rect,
+                visible: response.interact_rect,
+                layer: response.layer_id,
+                kind,
+            });
+        });
+    }
+    response
+}
+pub(super) fn combo<R>(response: egui::InnerResponse<Option<R>>) -> egui::InnerResponse<Option<R>> {
+    control(response.response.clone());
+    response
+}
+pub(super) fn collapsing<R>(response: egui::CollapsingResponse<R>) -> egui::CollapsingResponse<R> {
+    control(response.header_response.clone());
+    response
+}
+fn directional_target(targets: &[Target], current: usize, key: Key) -> Option<usize> {
+    let source = &targets[current];
+    let vertical = matches!(key, Key::ArrowUp | Key::ArrowDown);
+    let sign = if matches!(key, Key::ArrowUp | Key::ArrowLeft) {
+        -1.0
+    } else {
+        1.0
+    };
+    targets
+        .iter()
+        .enumerate()
+        .filter_map(|(index, candidate)| {
+            if index == current || candidate.layer != source.layer {
+                return None;
+            }
+            let delta = candidate.rect.center() - source.rect.center();
+            let (forward, cross) = if vertical {
+                (delta.y * sign, delta.x.abs())
+            } else {
+                (delta.x * sign, delta.y.abs())
+            };
+            if forward <= 0.5 || cross > forward {
+                return None;
+            }
+            Some((index, forward + cross * 2.0))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(index, _)| index)
 }
 
 #[derive(Clone, Default)]
@@ -126,6 +309,7 @@ pub(super) fn filter_popup_input(context: &Context, events: &mut Vec<Event>) {
             _ => return true,
         };
         if *pressed {
+            context.data_mut(|data| data.insert_temp(reveal_key(), true));
             index = match key {
                 Key::Home => 0,
                 Key::End => state.items.len() - 1,
@@ -173,7 +357,7 @@ impl Choices<'_> {
         text: impl Into<WidgetText>,
     ) -> Response {
         let selected = *current == value;
-        let response = self.ui.selectable_value(current, value, text);
+        let response = control(self.ui.selectable_value(current, value, text));
         if response.enabled() {
             self.items.push((response.id, selected));
         }
@@ -196,6 +380,7 @@ pub(super) fn popup<R>(ui: &mut Ui, contents: impl FnOnce(&mut Choices<'_>) -> R
         items: Vec::new(),
         chosen: false,
     };
+    let first = scroll_start(&context);
     let result = contents(&mut choices);
     if !inside && !choices.chosen {
         if let Some((id, _)) = choices
@@ -214,7 +399,7 @@ pub(super) fn popup<R>(ui: &mut Ui, contents: impl FnOnce(&mut Choices<'_>) -> R
     if choices.chosen {
         close_popup(&context);
     }
-    scroll_focus(choices.ui);
+    scroll_focus(choices.ui, first);
     context.data_mut(|data| {
         data.insert_temp(active_popup_key(), state.clone());
         data.insert_temp(key, state);
@@ -222,7 +407,18 @@ pub(super) fn popup<R>(ui: &mut Ui, contents: impl FnOnce(&mut Choices<'_>) -> R
     result
 }
 
-pub(super) fn scroll_focus(ui: &Ui) {
+fn reveal_key() -> Id {
+    Id::new("reforge_settings_reveal_focus")
+}
+pub(super) fn scroll_start(context: &Context) -> usize {
+    context.data(|data| {
+        data.get_temp::<Targets>(targets_key())
+            .unwrap_or_default()
+            .0
+            .len()
+    })
+}
+pub(super) fn scroll_focus(ui: &Ui, first: usize) {
     let focused = ui.memory(|memory| memory.focused());
     let key = ui.id().with("reforge_scrolled_focus");
     let changed = ui.ctx().data_mut(|data| {
@@ -230,23 +426,59 @@ pub(super) fn scroll_focus(ui: &Ui) {
         data.insert_temp(key, focused);
         previous != focused
     });
-    if changed {
-        if let Some(response) = focused.and_then(|id| ui.ctx().read_response(id)) {
-            if response.layer_id == ui.layer_id() && response.rect.intersects(ui.min_rect()) {
-                response.scroll_to_me_animation(None, egui::style::ScrollAnimation::none());
+    // Geometry overlap does not prove membership: scrolled content can overlap
+    // a header/footer in virtual coordinates. Only this area's controls count.
+    let belongs = ui.ctx().data(|data| {
+        data.get_temp::<Targets>(targets_key())
+            .is_some_and(|targets| {
+                targets
+                    .0
+                    .iter()
+                    .skip(first)
+                    .any(|target| Some(target.id) == focused)
+            })
+    });
+    if belongs {
+        let target = ui.ctx().data(|data| {
+            data.get_temp::<Targets>(targets_key()).and_then(|targets| {
+                targets
+                    .0
+                    .into_iter()
+                    .find(|target| Some(target.id) == focused)
+            })
+        });
+        if let Some(target) = target {
+            let clipped = !ui.clip_rect().contains_rect(target.rect);
+            let reveal = ui
+                .ctx()
+                .data(|data| data.get_temp::<bool>(reveal_key()).unwrap_or(false));
+            if changed || (clipped && reveal) {
+                ui.scroll_to_rect_animation(
+                    target.rect,
+                    None,
+                    egui::style::ScrollAnimation::none(),
+                );
+                if clipped {
+                    ui.ctx().request_discard("Reveal focused settings control");
+                }
             }
         }
     }
 }
 
 pub(super) fn paint_focus(context: &Context) {
-    if let Some(response) = context
-        .memory(|memory| memory.focused())
-        .and_then(|id| context.read_response(id))
-    {
-        if response.enabled() && response.interact_rect.is_positive() {
-            context.layer_painter(response.layer_id).rect_stroke(
-                response.interact_rect.expand(2.0),
+    let focused = context.memory(|memory| memory.focused());
+    if let Some(target) = context.data(|data| {
+        data.get_temp::<Targets>(targets_key()).and_then(|targets| {
+            targets
+                .0
+                .into_iter()
+                .find(|target| Some(target.id) == focused)
+        })
+    }) {
+        if target.visible.is_positive() {
+            context.layer_painter(target.layer).rect_stroke(
+                target.visible.expand(2.0),
                 3.0,
                 egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(100, 200, 226)),
                 egui::StrokeKind::Outside,
@@ -259,6 +491,97 @@ pub(super) fn paint_focus(context: &Context) {
 mod tests {
     use super::*;
     use crate::gamepad::Actions;
+
+    #[test]
+    fn rapid_stick_navigation_keeps_focus_on_a_visible_enabled_control() {
+        const NAME: &str = "settings_navigation::tests::rapid_stick_navigation_keeps_focus_on_a_visible_enabled_control";
+        if std::env::var("REFORGE_RAPID_NAV_TEST").as_deref() != Ok(NAME) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env("REFORGE_RAPID_NAV_TEST", NAME)
+                .env("SDL_VIDEO_DRIVER", "dummy")
+                .env("SDL_VIDEODRIVER", "dummy")
+                .env("SDL_RENDER_DRIVER", "software")
+                .env("SDL_AUDIO_DRIVER", "dummy")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        use crate::settings::{SettingsMenu, UiMetrics, VideoCapabilities};
+        let display = crate::Window::new("rapid navigation", 320, 240, Some(4)).unwrap();
+        let creator = display.texture_creator();
+        for (size, density) in [((1280, 960), 1.0), ((1280, 960), 2.25)] {
+            for settle in [1, 10] {
+                for seed in [0, 1, 8, 12, 14] {
+                    for (up, horizontal) in [(true, 0), (false, 0), (true, 1), (false, -1)] {
+                        let metrics = UiMetrics {
+                            drawable: size,
+                            window: size,
+                            pixels_per_point: density,
+                        };
+                        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+                            .with_mach3_options(None);
+                        menu.toggle();
+                        for _ in 0..settle {
+                            menu.prepare(metrics, display.settings());
+                        }
+                        for _ in 0..seed {
+                            menu.handle_gamepad(PadEvent {
+                                next: true,
+                                ..Default::default()
+                            });
+                            menu.prepare(metrics, display.settings());
+                        }
+                        for index in 0..4 {
+                            let actions = Actions {
+                                up,
+                                down: !up,
+                                left: horizontal < 0,
+                                right: horizontal > 0,
+                                ..Default::default()
+                            };
+                            menu.handle_gamepad(PadEvent {
+                                actions,
+                                ..Default::default()
+                            });
+                            menu.prepare(metrics, display.settings());
+                            for released in [false, true] {
+                                let id = menu.context.memory(|memory| memory.focused()).unwrap_or_else(|| panic!("lost focus size={size:?} settle={settle} seed={seed} up={up} step={index} released={released}"));
+                                let target = menu
+                                    .context
+                                    .data(|data| {
+                                        data.get_temp::<Targets>(targets_key())
+                                            .unwrap()
+                                            .0
+                                            .into_iter()
+                                            .find(|target| target.id == id)
+                                    })
+                                    .unwrap_or_else(|| panic!("unregistered focus {id:?}"));
+                                if released {
+                                    assert!(
+                                        target.visible.is_positive(),
+                                        "invisible focus size={size:?} settle={settle} seed={seed} up={up} horizontal={horizontal} step={index} rect={:?} visible={:?}",
+                                        target.rect,
+                                        target.visible
+                                    );
+                                }
+                                if !released {
+                                    menu.handle_gamepad(PadEvent::default());
+                                    menu.prepare(metrics, display.settings());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn shared_menu_is_usable_without_a_pointer_in_both_games() {
@@ -533,6 +856,20 @@ mod tests {
         events.clear();
         navigation.drain(100.0, &mut events);
         assert!(events.is_empty(), "host reset must not repeat old controls");
+        let context = Context::default();
+        context.memory_mut(|memory| memory.open_popup(Id::new("authored scrolling popup")));
+        context.data_mut(|data| data.insert_temp(reveal_key(), true));
+        events.push(Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, -1.0),
+            modifiers: Modifiers::NONE,
+        });
+        navigation.navigate(&context, &mut events);
+        assert_eq!(
+            context.data(|data| data.get_temp::<bool>(reveal_key())),
+            Some(false),
+            "manual popup scrolling stops automatic focus tracking"
+        );
     }
 
     #[test]
@@ -550,6 +887,7 @@ mod tests {
                     ..Default::default()
                 },
                 |context| {
+                    begin_frame(context);
                     egui::CentralPanel::default().show(context, |ui| {
                         let mut scroll = egui::ScrollArea::vertical().max_height(80.0);
                         if manual_top {
@@ -557,13 +895,15 @@ mod tests {
                         }
                         offset = scroll
                             .show(ui, |ui| {
+                                let first = scroll_start(ui.ctx());
                                 for index in 0..30 {
-                                    let response = ui.button(format!("Authored control {index}"));
+                                    let response =
+                                        control(ui.button(format!("Authored control {index}")));
                                     if index == 29 && focus_last {
                                         response.request_focus();
                                     }
                                 }
-                                scroll_focus(ui);
+                                scroll_focus(ui, first);
                             })
                             .state
                             .offset

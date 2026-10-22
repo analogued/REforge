@@ -7,6 +7,11 @@ use super::{
 use reforge_sdl::audio::Playback;
 use std::collections::VecDeque;
 
+// Keep several device periods available before starting/resuming the stream.
+// Short prefills can underrun as the device pulls audio, making the opening
+// notes discontinuous despite correct generated PCM.
+const PREFILL_SAMPLES: usize = RATE as usize / 20;
+
 pub struct Player {
     renderer: Renderer,
     host: Playback,
@@ -88,7 +93,7 @@ impl Player {
         let buffer = self.pending.make_contiguous();
         self.host.queue(&buffer[..count])?;
         self.pending.drain(..count);
-        if self.host.queued_samples()? >= 480 {
+        if self.host.queued_samples()? >= PREFILL_SAMPLES {
             self.host.set_paused(false)?;
         }
         Ok(())
@@ -104,6 +109,55 @@ impl Drop for Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_prefills_before_device_consumption() {
+        const TEST: &str = "sound::playback::tests::startup_prefills_before_device_consumption";
+        const MARKER: &str = "REFORGE_ALLEYCAT_AUDIO_TEST";
+        if std::env::var(MARKER).as_deref() != Ok(TEST) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST, "--test-threads=1"])
+                .env(MARKER, TEST)
+                .env("SDL_AUDIO_DRIVER", "dummy")
+                .env("SDL_AUDIODRIVER", "dummy")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let host = Playback::new(Default::default());
+        let mut player = Player::new(host.clone()).unwrap();
+        player.reset().unwrap();
+        let mut sound = Sound::default();
+        sound.record(true);
+        sound.tone(1000, super::super::Category::Music);
+        for ms in [20, 40] {
+            player.service(&mut sound, reforge_audio::PIT_HZ * ms / 1000);
+            let queued = host.queued_samples().unwrap();
+            assert!(queued > 480 && queued < PREFILL_SAMPLES);
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            assert_eq!(
+                host.queued_samples().unwrap(),
+                queued,
+                "short prefill must remain paused"
+            );
+        }
+        player.service(&mut sound, reforge_audio::PIT_HZ * 60 / 1000);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while host.queued_samples().unwrap() >= PREFILL_SAMPLES {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "prefilled stream must start playing"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(!player.failed);
+    }
 
     #[test]
     fn blocking_program_survives_queue_budget_and_pause() {

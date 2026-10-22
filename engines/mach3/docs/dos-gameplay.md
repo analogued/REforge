@@ -604,9 +604,14 @@ The implementation handles the enemy command families, all terrain selectors,
 procedural special modes, continuous gate recycling, palette/background
 selection, and acceleration/deceleration of the three world speeds. Scene
 changes produce seven expanding viewport draws over a frozen world. Difficulty
-remains a wrapping word; patrol and effect resources use the external data rather
-than an invented upper-level clamp. A resource retry cycle that would stall the
-original is reported instead of hanging the native viewer. These later paths
+remains a wrapping word. HUD marker and patrol artwork selection reuses visual
+family 9 at higher difficulties, including its marker placement. The original
+indexes beyond the ten visual families: at difficulty 10 its zero-filled choices
+can leave HUD selection retrying forever before the first encounter. This defect
+is fixed without limiting difficulty, command pacing or the other gameplay rules.
+The external rule decoder retains raw wrapping table access for inspection;
+runtime visual selection applies the correction. Invalid supplied resources can
+still produce a reported retry error. These later paths
 have static analysis and synthetic algorithm tests; runtime comparisons cover
 the complete first no-input game and targeted controlled prefixes.
 

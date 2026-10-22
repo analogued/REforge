@@ -146,6 +146,12 @@ pub(crate) fn delay_threshold(difficulty: u16) -> i16 {
     20_u16.wrapping_sub(difficulty.wrapping_shl(3)) as i16
 }
 
+/// Artwork has ten families; later original reads escape those tables and can
+/// trap HUD/patrol selection in a retry loop. Keep gameplay difficulty intact.
+pub(super) fn visual_difficulty(difficulty: u16) -> u16 {
+    difficulty.min(9)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

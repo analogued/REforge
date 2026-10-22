@@ -153,8 +153,12 @@ impl PassTask {
                         game.hud.set_progression(game.progression);
                         game.hud.set_score_multiplier(1);
                         if let Some(rules) = &game.rules {
-                            game.hud
-                                .set_marker_styles(assets, rules.marker_styles(game.difficulty)?)?;
+                            game.hud.set_marker_styles(
+                                assets,
+                                rules.marker_styles(super::progression::visual_difficulty(
+                                    game.difficulty,
+                                ))?,
+                            )?;
                         }
                         let effects = game.hud.update_with_weapon(
                             game.body,

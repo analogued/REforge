@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Enemy movement, ground shadows, seeking projectiles and explosions.
 
-use super::Random;
+use super::{Random, progression};
 use crate::{
     Error,
     assets::GraphicsAssets,
@@ -846,13 +846,7 @@ impl Enemy {
         let craft = &mut self.crafts[i];
         let sources = context
             .patrol_sources
-            .or_else(|| patrol_sources(context.difficulty))
-            .ok_or_else(|| {
-                Error::InvalidData(format!(
-                    "patrol difficulty {} requires the original adjacent source resource",
-                    context.difficulty
-                ))
-            })?;
+            .unwrap_or_else(|| patrol_sources(context.difficulty));
         if craft.requested_sprite == craft.resolved_sprite
             && sources
                 .iter()
@@ -1206,16 +1200,12 @@ fn boss_animation_sprite(phase: u8) -> usize {
         2
     }
 }
-fn patrol_sources(difficulty: i16) -> Option<[usize; 3]> {
-    let start = match difficulty {
+fn patrol_sources(difficulty: i16) -> [usize; 3] {
+    let start = match progression::visual_difficulty(difficulty as u16) {
         0 => 187,
-        1..=9 => 175 + 3 * usize::try_from((difficulty - 1).min(3)).unwrap(),
-        // The next two original triplets lie in zero padding. An equal resolved
-        // source makes the original retry loop stall rather than select artwork.
-        10..=11 => return Some([0; 3]),
-        _ => return None,
+        family => 175 + 3 * usize::from((family - 1).min(3)),
     };
-    Some([start, start + 1, start + 2])
+    [start, start + 1, start + 2]
 }
 
 /// Resource-defined sweep reconstructed as affine segments. Division truncates
@@ -2937,11 +2927,12 @@ mod tests {
         );
     }
     #[test]
-    fn patrol_reports_original_retry_stall_without_fabricating_a_source() {
+    fn malformed_patrol_choices_report_retry_stall() {
         let mut enemy = Enemy::new(&assets()).unwrap();
         let mut random = Random::default();
         let context = EnemyContext {
             difficulty: 10,
+            patrol_sources: Some([0; 3]),
             ..EnemyContext::default()
         };
         enemy
@@ -2954,15 +2945,33 @@ mod tests {
         assert!(matches!(error,Error::InvalidData(message) if message.contains("stalls")));
         assert_eq!(enemy.crafts[0].requested_sprite, 0);
         assert_eq!(random.state(), before);
-        let missing = EnemyContext {
-            difficulty: 12,
-            ..context
-        };
-        assert!(
+    }
+
+    #[test]
+    fn later_patrol_difficulties_reuse_the_last_artwork_family() {
+        for difficulty in [9, 10, 11, 12, i16::MAX, -1] {
+            let resources = assets();
+            let mut enemy = Enemy::new(&resources).unwrap();
+            let mut random = Random::default();
+            let context = EnemyContext {
+                difficulty,
+                ..EnemyContext::default()
+            };
             enemy
-                .update_half_step_with_context(&mut random, [14, 0, -100], missing)
-                .is_err()
-        );
+                .spawn_command_with_context(0xa2, &mut random, [14, 0, -100], 3, context)
+                .unwrap();
+            for _ in 0..16 {
+                enemy
+                    .update_half_step_with_context(&mut random, [14, 0, -100], context)
+                    .unwrap();
+                enemy.project(&resources, true, 106, 0).unwrap();
+                for craft in enemy.crafts.iter().take(3) {
+                    if craft.active {
+                        assert!((184..=186).contains(&craft.requested_sprite));
+                    }
+                }
+            }
+        }
     }
 
     #[test]

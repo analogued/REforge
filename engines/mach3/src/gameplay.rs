@@ -1107,7 +1107,7 @@ impl Gameplay {
             patrol_sources: self
                 .rules
                 .as_ref()
-                .map(|rules| rules.patrol_sources(self.difficulty))
+                .map(|rules| rules.patrol_sources(progression::visual_difficulty(self.difficulty)))
                 .transpose()?,
         })
     }
@@ -1984,6 +1984,44 @@ mod tests {
         assert_ne!(game.pass_frame(), game.frame());
         assert_eq!(game.frame(), &transitions.last().unwrap().frame);
         assert_eq!(game.snapshot().render_pass, 3);
+    }
+
+    #[test]
+    fn high_difficulty_keeps_gameplay_rules_and_reuses_valid_hud_and_patrol_artwork() {
+        let assets = synthetic_assets();
+        let mut data = synthetic_rules(&[0x85]).data_segment().to_vec();
+        data[0x04ac + 9 * 3..0x04ac + 10 * 3].copy_from_slice(&[184, 185, 186]);
+        for choice in 0..3 {
+            let offset = 9 * 6 + choice * 2;
+            data[0x04ca + offset..0x04cc + offset]
+                .copy_from_slice(&(choice as i16 + 1).to_le_bytes());
+            data[0x0506 + offset..0x0508 + offset]
+                .copy_from_slice(&(choice as i16 + 4).to_le_bytes());
+        }
+        let rules = ScriptRules::from_data_segment(&data).unwrap();
+        // The decoder still exposes the original bad entries for inspection.
+        assert_eq!(rules.patrol_sources(10).unwrap(), [0; 3]);
+        for difficulty in [9, 10, 11, 12, 255, u16::MAX] {
+            let mut game =
+                Gameplay::for_play(&assets, rules.clone(), SessionState::default().begin_game())
+                    .unwrap();
+            game.difficulty = difficulty;
+            let context = game.enemy_context().unwrap();
+            assert_eq!(context.difficulty, difficulty as i16);
+            assert_eq!(context.patrol_sources, Some([184, 185, 186]));
+            game.enemy
+                .spawn_command_with_context(0xa2, &mut game.random, [14, 0, -100], 3, context)
+                .unwrap();
+            for _ in 0..8 {
+                assert!(game.advance(&assets).unwrap());
+                let state = game.snapshot();
+                assert_eq!(state.difficulty, difficulty);
+                let choice = usize::from(state.hud.marker_requested - 184);
+                assert!(choice < 3);
+                assert_eq!(state.hud.marker_x, 37 - choice as i32);
+                assert_eq!(state.hud.marker_y, 8 + choice as i32);
+            }
+        }
     }
 
     #[test]

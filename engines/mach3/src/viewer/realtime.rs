@@ -34,6 +34,10 @@ use std::{
 const RATE: u32 = 48_000;
 const CHUNK: u64 = 11_931;
 const CS: u16 = 0x1234;
+// An original Fire alias not emitted by the host keyboard mapping. The sample
+// intro observes IRQ1 scan bytes, not joystick bits. Keep this source separate
+// from physical Space, including its release after the intro has returned.
+const CONTROLLER_INTRO_SCAN: u8 = 0x77;
 type DeviceClock = Clock<Box<dyn FnMut(Stamp, ClockEvent)>>;
 
 pub(super) struct Resources {
@@ -277,6 +281,7 @@ struct Simulation {
     palette_family: u8,
     scans: VecDeque<(u64, u8)>,
     joysticks: VecDeque<(u64, u8)>,
+    controller_intro_held: bool,
     splash_wait: crate::startup::SplashWait,
 }
 impl Simulation {
@@ -323,6 +328,7 @@ impl Simulation {
             palette_family: 1,
             scans: VecDeque::new(),
             joysticks: VecDeque::new(),
+            controller_intro_held: false,
             splash_wait: crate::startup::SplashWait::default(),
         })
     }
@@ -379,6 +385,7 @@ impl Simulation {
     fn clear_input(&mut self) -> Result<(), String> {
         self.scans.clear();
         self.joysticks.clear();
+        self.controller_intro_held = false;
         let result = match &mut self.phase {
             Phase::Intro(task) | Phase::Pregame { task, .. } => task.clear_input(&self.clock),
             Phase::Playing(runtime) => runtime.clear_input(&self.clock),
@@ -410,6 +417,17 @@ impl Simulation {
             .max(self.clock.tick())
             .max(self.joysticks.back().map_or(0, |(at, _)| *at));
         self.joysticks.push_back((tick, mask & 31));
+    }
+    fn receive_gamepad(&mut self, tick: u64, pad: reforge_sdl::gamepad::PadEvent) {
+        if self.controller_intro_held && !pad.actions.action {
+            self.receive(tick, CONTROLLER_INTRO_SCAN | 128);
+            self.controller_intro_held = false;
+        }
+        if matches!(self.phase, Phase::Intro(_)) && pad.pressed.action {
+            self.receive(tick, CONTROLLER_INTRO_SCAN);
+            self.controller_intro_held = true;
+        }
+        self.receive_joystick(tick, pad.actions.bits());
     }
     fn deliver_joysticks(&mut self, mask: &mut u8) {
         while self
@@ -1310,8 +1328,7 @@ pub(super) fn run(
                     gamepads.reset();
                     repaint = true;
                 } else {
-                    simulation
-                        .receive_joystick(ticks_since(epoch, time.timeline), pad.actions.bits());
+                    simulation.receive_gamepad(ticks_since(epoch, time.timeline), pad);
                     disposition = "queued_gamepad";
                 }
             } else if !input.accept(&event) {

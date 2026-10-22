@@ -186,6 +186,139 @@ fn rules() -> ScriptRules {
 }
 
 #[test]
+fn controller_intro_action_matches_space_with_samples_enabled_or_disabled() {
+    use reforge_sdl::gamepad::{Actions, PadEvent};
+    let frames = frames();
+    let resources = resources();
+    for (samples, disabled) in [(true, false), (false, false), (true, true)] {
+        // A held first press and a short tap during a later sample both follow
+        // the original keyboard's group/tail waits, rather than ending audio.
+        for (press, release) in [(10, None), (20_000, Some(21_000))] {
+            // With samples off, a tap between ordinary polls is intentionally missed.
+            if release.is_some() && (!samples || disabled) {
+                continue;
+            }
+            let run = |controller: bool| {
+                let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+                let preferences = &mut simulation.initial.as_mut().unwrap().controls.preferences;
+                preferences.digitized_samples_enabled = samples;
+                preferences.sound_disabled = disabled;
+                simulation.finish_splash(&frames, &resources).unwrap();
+                if controller {
+                    simulation.receive_gamepad(
+                        press,
+                        PadEvent {
+                            actions: Actions {
+                                action: true,
+                                ..Default::default()
+                            },
+                            pressed: Actions {
+                                action: true,
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                    );
+                    if let Some(at) = release {
+                        simulation.receive_gamepad(at, PadEvent::default());
+                    }
+                } else {
+                    simulation.receive(press, 0x39);
+                    if let Some(at) = release {
+                        simulation.receive(at, 0xb9);
+                    }
+                }
+                until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+                    matches!(s.phase, Phase::Pregame { .. })
+                });
+                let returned = (simulation.clock.tick(), simulation.state().next_playback);
+                assert_eq!(returned.1, if samples && !disabled { 6 } else { 0 });
+                if release.is_none() {
+                    // The alias must be released even after leaving the intro.
+                    let at = simulation.clock.tick();
+                    if controller {
+                        simulation.receive_gamepad(at, PadEvent::default());
+                    } else {
+                        simulation.receive(at, 0xb9);
+                    }
+                }
+                until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+                    matches!(s.phase, Phase::Playing(_))
+                });
+                assert_eq!(simulation.state().joystick, 0);
+                assert_eq!(simulation.state().keyboard.held_keys(0).actions, 0);
+                returned
+            };
+            assert_eq!(
+                run(true),
+                run(false),
+                "samples={samples} disabled={disabled} press={press}"
+            );
+        }
+    }
+}
+
+#[test]
+fn controller_intro_alias_preserves_space_and_clears_at_host_boundaries() {
+    use reforge_sdl::gamepad::{Actions, PadEvent};
+    let frames = frames();
+    let resources = resources();
+    let held = PadEvent {
+        actions: Actions {
+            action: true,
+            ..Default::default()
+        },
+        pressed: Actions {
+            action: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    simulation
+        .initial
+        .as_mut()
+        .unwrap()
+        .controls
+        .preferences
+        .digitized_samples_enabled = false;
+    simulation.finish_splash(&frames, &resources).unwrap();
+    simulation.receive(10, 0x39);
+    simulation.receive_gamepad(10, held);
+    until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+        matches!(s.phase, Phase::Playing(_))
+    });
+    let at = simulation.clock.tick();
+    simulation.receive_gamepad(at, PadEvent::default());
+    advance(&mut simulation, at, &frames, &resources, &mut Vec::new());
+    assert_ne!(
+        simulation.state().keyboard.held_keys(0).actions & 16,
+        0,
+        "controller release must not release physical Space"
+    );
+    assert!(!simulation.controller_intro_held);
+    simulation.clear_input().unwrap();
+    simulation.receive_gamepad(at, held);
+    assert!(
+        simulation.scans.is_empty(),
+        "gameplay uses only joystick input"
+    );
+
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    simulation.finish_splash(&frames, &resources).unwrap();
+    simulation.receive_gamepad(10, held);
+    assert!(simulation.controller_intro_held);
+    simulation.clear_input().unwrap();
+    simulation.receive_gamepad(20, PadEvent::default());
+    assert!(
+        simulation.scans.is_empty(),
+        "no stale alias release after host reset"
+    );
+    assert!(!simulation.controller_intro_held);
+    assert_eq!(simulation.state().keyboard.held_keys(0).actions, 0);
+}
+
+#[test]
 fn digital_joystick_advances_intro_and_is_not_cleared_as_a_keyboard_table() {
     let frames = frames();
     let resources = resources();

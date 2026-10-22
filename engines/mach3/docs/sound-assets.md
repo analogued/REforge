@@ -416,14 +416,15 @@ frontend supplies explicit bootstrap pins/vectors and the DOS allocation name
 or a universal DOS heap assumption.
 
 By default, PC speaker drive edges feed the shared signal renderer at their simulation ticks.
-The viewer synthesizes 48 kHz mono signed 16-bit PCM and queues it through
-[`reforge_sdl::audio::AudioOutput`](../../../crates/reforge_sdl/README.md), which
-delegates native device format conversion to SDL. Playback is prefilled before
-resume using the shared 50 ms default. Its separate 30 ms late-audio retention
-window remains engine-specific. Bounded recovery drops expired PCM and clears excessive queued data,
-without resetting the PIT or advancing gameplay from a device callback. Device
-failure warns and mutes host output; guest sample, procedural and wait execution
-continues on the same timeline.
+The viewer synthesizes 48 kHz mono signed 16-bit PCM and feeds timestamped blocks
+to the shared [`reforge_sdl::audio::queue`](../../../crates/reforge_sdl/README.md).
+Its shared policy prefills 50 ms, preserves buffer-covered interruptions, and
+recovers only when output exceeds the conservative lateness budget. Recovery
+discards expired presentation audio and retains future PCM; ordinary submissions
+do not trim a fixed-age tail. SDL handles native device format conversion.
+Neither recovery nor device failure resets the PIT or advances gameplay from a
+callback. Device failure warns and mutes host output; sample, procedural and wait
+execution continues on the same native timeline.
 
 Ending playback uses this clock for the guarded mandatory Game Over `DATA9`
 sample and the strictly improved High Score `DATA7` sample before their hold

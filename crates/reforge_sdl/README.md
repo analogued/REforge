@@ -250,22 +250,41 @@ for persistence, defaults and shader parameter ranges.
 ## Host audio preferences
 
 `FrameCreator::audio_playback()` shares a `Playback` endpoint with the window's
-settings application and focus handling. Engines register their mono PCM rate,
-then retain control of synthesis, queue recovery and when playback may resume.
-The shared endpoint defaults to 50 ms of prefill, converted to input samples at
-the registered rate. `Playback::resume_when_ready()` checks that threshold without
-waiting; engines continue producing PCM while it returns false. An engine with a
-specific requirement can call `set_prefill(Duration)` before playback; its queue
-target must accommodate the chosen duration, within the 250 ms hard queue limit.
-The override stays with the shared endpoint across device/rate changes. This is
-an engine policy override, not a user setting. Normal pause/resume of an already
-primed stream may still use `set_paused` directly.
+settings application and focus handling. Both engines feed timestamped mono PCM
+to `audio::queue::Queue`. Positions are input-sample indices on the engine's
+presentation timeline; engines convert from their own virtual clocks. Generated
+PCM can extend ahead of that position, as with Alley Cat's blocking programs.
+Wall-clock timestamps must not be passed as a substitute.
 
-Both current engines use the shared 50 ms default. Their queue targets, handling
-of late audio, native sound timing and simulation clocks remain engine-specific.
-The endpoint handles output selection and stream gain without advancing a game
-clock. Device/enable/renderer/category changes increment an endpoint generation; engines
-refill and apply their own renderer policy at the current native timestamp.
+The shared `Policy` defaults to 50 ms prefill, a 100 ms device-input queue target,
+a 100 ms additional-lateness budget, and at most ten seconds pending. Engines
+can supply an explicit policy override. `Policy::for_output` honors the
+endpoint's `set_prefill(Duration)` override, including enough queue capacity.
+Pending overflow or noncontiguous input returns an error without silently
+truncating future sound. `phase`, `pending_samples` and `stats` expose diagnostics.
+
+Priming waits without blocking the engine. Running playback preserves submitted
+order while buffering absorbs interruptions. It estimates nominal playback
+progress from the presentation position at resume, then compares that progress
+to the oldest unconverted submitted sample. An empty SDL input queue alone is
+not an underrun: converted audio may still be held by the device. Only excessive
+lateness enters recovery, pauses/clears the device once, and removes expired PCM.
+Recovery retains future data and waits for a fresh prefill before resuming. Its
+cutoff may advance while waiting for simulation catch-up; normal submissions
+have no unconditional age trimming. The budget is conservative and does not
+promise exact physical speaker latency.
+
+Engines retain sound sequencing, device execution and the mapping of their
+presentation target, including discarded host-stall time. Pause retains queued
+and pending PCM; the engine freezes its supplied position. If an explicit pause
+boundary discards simulation catch-up debt, `rebase` updates the presentation
+observation without consuming PCM or changing its generated epoch. Restart and
+explicit audio-setting boundaries reset presentation state at the next generated-sample
+epoch, independently of native sound execution. Device/enable/renderer/category
+changes increment an endpoint generation; engines finish old synthesis and then
+reset presentation at that boundary. The shared layer never advances a game
+clock. The lower-level `resume_when_ready`/`set_paused` operations remain available
+for simple direct playback, but engine streaming uses the timestamped queue.
 
 `RuntimeSettings` and `Window::apply_settings` resolve/activate both video and
 audio preferences in one menu transaction. A failed explicit device open retains

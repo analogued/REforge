@@ -20,7 +20,10 @@ use reforge_audio::{
     render::{CategorizedRenderer, Config},
     speaker::PcSpeaker,
 };
-use reforge_sdl::audio::Playback;
+use reforge_sdl::audio::{
+    Playback,
+    queue::{Policy, Queue},
+};
 use reforge_sdl::settings::SoundRenderer;
 use std::{
     cell::RefCell,
@@ -30,8 +33,6 @@ use std::{
 
 const RATE: u32 = 48_000;
 const CHUNK: u64 = 11_931;
-// Late-output retention is engine policy, independent of the host prefill.
-const LATE_AUDIO_RETENTION: usize = RATE as usize * 30 / 1000;
 const CS: u16 = 0x1234;
 type DeviceClock = Clock<Box<dyn FnMut(Stamp, ClockEvent)>>;
 
@@ -139,11 +140,9 @@ fn resolve_renderer(renderer: SoundRenderer, default: AudioRenderer) -> AudioRen
 
 struct PlaybackAudio {
     signal: Rc<RefCell<Synthesis>>,
-    output: Option<Playback>,
     host: Playback,
     generation: u64,
-    started: bool,
-    recovering: bool,
+    queue: Queue,
 }
 impl PlaybackAudio {
     fn new(signal: Rc<RefCell<Synthesis>>, host: Playback) -> Self {
@@ -152,11 +151,10 @@ impl PlaybackAudio {
         }
         Self {
             signal,
-            output: host.available().then(|| host.clone()),
+            queue: Queue::new(RATE, Policy::for_output(&host))
+                .expect("valid fixed-rate playback policy"),
             generation: host.generation(),
             host,
-            started: false,
-            recovering: false,
         }
     }
     fn sync_settings(&mut self, tick: u64, default_renderer: AudioRenderer) -> bool {
@@ -165,89 +163,59 @@ impl PlaybackAudio {
         }
         let mode = resolve_renderer(self.host.settings().renderer, default_renderer);
         let volumes = self.host.settings().categories;
-        self.signal.borrow_mut().advance(tick, None);
-        if let Err(error) = self.signal.borrow_mut().renderer.set_volumes(volumes) {
+        let mut signal = self.signal.borrow_mut();
+        signal.advance(tick, None);
+        if let Err(error) = signal.renderer.set_volumes(volumes) {
             eprintln!("warning: invalid category levels: {error}");
         }
-        self.signal.borrow_mut().set_mode(mode, tick);
-        self.signal.borrow_mut().blocks.clear();
+        signal.set_mode(mode, tick);
+        signal.blocks.clear();
+        let epoch = signal.generated;
+        drop(signal);
+        if let Err(error) = self.queue.reset(&mut self.host, epoch) {
+            self.disable(error);
+        }
         self.generation = self.host.generation();
-        self.output = self.host.available().then(|| self.host.clone());
-        self.started = false;
-        self.recovering = false;
         true
     }
     fn pause(&mut self, paused: bool) {
-        let result = self
-            .output
-            .as_mut()
-            .map(|o| o.set_paused(paused || !self.started));
-        if let Some(Err(error)) = result {
+        if let Err(error) = self.queue.set_paused(&mut self.host, paused) {
             self.disable(error);
         }
     }
     fn disable(&mut self, error: String) {
         eprintln!("warning: audio output stopped; simulation continues: {error}");
         self.host.stop();
-        self.output = None;
     }
     fn service(&mut self, committed: u64, wanted: u64) {
         self.signal.borrow_mut().advance(committed, None);
         let mut signal = self.signal.borrow_mut();
-        if let Some(error) = signal.error.take() {
-            // A synthesis failure is permanent. Retain the stopped renderer;
-            // future device execution must still proceed independently.
-            signal.error = Some(error.clone());
+        if let Some(error) = &signal.error {
+            let error = error.clone();
             signal.blocks.clear();
             drop(signal);
-            if self.output.is_some() {
+            if self.host.available() {
                 self.disable(error);
             }
             return;
         }
-        let cutoff = samples_at(wanted).saturating_sub(LATE_AUDIO_RETENTION as u64);
-        let overdue = wanted.saturating_sub(committed) > PIT_HZ / 10;
-        let mut error = None;
-        if let Some(output) = &mut self.output {
-            if overdue && !self.recovering {
-                error = output.set_paused(true).and_then(|_| output.clear()).err();
-                self.started = false;
-                self.recovering = true;
-            }
-            while let Some(block) = signal.blocks.pop_front() {
-                let skip = cutoff
-                    .saturating_sub(block.start)
-                    .min(block.samples.len() as u64) as usize;
-                let samples = &block.samples[skip..];
-                if samples.is_empty() || error.is_some() {
-                    continue;
-                }
-                match output.queued_samples() {
-                    Ok(queued) if queued + samples.len() > RATE as usize / 10 => {
-                        // Discard stale presentation data, never device phase.
-                        error = output.set_paused(true).and_then(|_| output.clear()).err();
-                        self.started = false;
-                    }
-                    Err(e) => error = Some(e),
-                    _ => {}
-                }
-                if error.is_none() {
-                    error = output.queue(samples).err();
-                }
-            }
-            if !overdue {
-                self.recovering = false;
-            }
-            if !self.started && !overdue && error.is_none() {
-                match output.resume_when_ready() {
-                    Ok(started) => self.started = started,
-                    Err(e) => error = Some(e),
-                }
-            }
-        } else {
+        if !self.host.available() {
             signal.blocks.clear();
+            return;
+        }
+        let mut error = None;
+        for block in signal.blocks.drain(..) {
+            if let Err(e) = self.queue.push(block.start, block.samples) {
+                error = Some(e);
+                break;
+            }
         }
         drop(signal);
+        if error.is_none() {
+            // Both the generated positions and this target use the native PIT
+            // timeline. Paused host time never enters this presentation position.
+            error = self.queue.service(&mut self.host, samples_at(wanted)).err();
+        }
         if let Some(error) = error {
             self.disable(error);
         }

@@ -730,9 +730,11 @@ fn present_splash(
             advance_splash(splash, &mut clock, key_pressed)?;
             key_pressed = false;
         }
-        window
-            .audio
-            .service(&mut splash.sound, clock.elapsed_pit_ticks() as u64);
+        window.audio.service(
+            &mut splash.sound,
+            clock.elapsed_pit_ticks() as u64,
+            target_nanos,
+        );
         if pause.changed || window.presentation_due() {
             window.present(&splash.rgba())?;
         }
@@ -982,6 +984,10 @@ fn interactive(
             } else {
                 control_history.boundary(target_nanos, window.control_keys());
             }
+            // Manual pause can discard catch-up debt and move this target
+            // backward, or forward over committed blocking work. Retain audio
+            // across that explicit mapping boundary instead of aging/replaying it.
+            window.audio.rebase_presentation(target_nanos);
         }
         if pause.paused {
             if pause.changed || window.presentation_due() {
@@ -1030,9 +1036,11 @@ fn interactive(
                 Ok(true)
             },
         )?;
-        window
-            .audio
-            .service(&mut alley.sound, runtime.clock.elapsed_pit_ticks() as u64);
+        window.audio.service(
+            &mut alley.sound,
+            runtime.clock.elapsed_pit_ticks() as u64,
+            target_nanos,
+        );
         if runtime.clock.elapsed_nanos() < target_nanos && !alley.game_over() {
             // Retain debt and repump events immediately. Intermediate rendering
             // and sleep must not make a slow catch-up batch fall further behind.

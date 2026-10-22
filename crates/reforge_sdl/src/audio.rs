@@ -8,6 +8,7 @@
 use reforge_settings::AudioSettings;
 use sdl3::audio::{AudioDevice, AudioFormat, AudioSpec, AudioStreamOwner};
 use std::{cell::RefCell, rc::Rc, time::Duration};
+pub mod queue;
 
 /// Initial/resume buffering for host scheduling jitter, independent of game time.
 pub const DEFAULT_PREFILL: Duration = Duration::from_millis(50);
@@ -160,8 +161,8 @@ impl AudioOutput {
 }
 
 /// A main-thread playback endpoint shared with the settings/window owner.
-/// Engines retain synthesis, queue targets and recovery; startup prefill has a
-/// shared default with an explicit engine override.
+/// Engines retain synthesis and timeline mapping. [`queue::Queue`] owns streaming
+/// buffering/recovery, with shared defaults and explicit engine overrides.
 #[derive(Clone)]
 pub struct Playback(Rc<RefCell<PlaybackState>>);
 struct PlaybackState {
@@ -204,6 +205,9 @@ impl Playback {
     pub fn prefill_samples(&self) -> Option<usize> {
         let state = self.0.borrow();
         state.rate.map(|rate| prefill_samples(rate, state.prefill))
+    }
+    pub fn prefill_duration(&self) -> Duration {
+        self.0.borrow().prefill
     }
     /// Resume a primed stream without waiting; false means disabled/unavailable
     /// output or insufficient queued data. Keep servicing it until ready. Engines

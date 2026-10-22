@@ -30,6 +30,7 @@ fn shared_prefill_allows_startup_and_catchup_recovery() {
         );
         return;
     }
+    use reforge_sdl::audio::queue::Phase;
     let host = Playback::new(Default::default());
     let signal = signal(CHUNK as u32);
     let mut audio = PlaybackAudio::new(signal.clone(), host.clone());
@@ -37,23 +38,21 @@ fn shared_prefill_allows_startup_and_catchup_recovery() {
     let at = |ms| PIT_HZ * ms / 1000;
     for ms in [10, 20, 30, 40] {
         audio.service(at(ms), at(ms));
-        assert!(!audio.started, "must use shared 50 ms prefill");
+        assert_eq!(audio.queue.phase(), Phase::Priming);
     }
     audio.service(at(60), at(60));
-    assert!(audio.started);
+    assert_eq!(audio.queue.phase(), Phase::Running);
     audio.service(at(60), at(400));
-    assert!(audio.recovering);
-    assert!(!audio.started);
+    assert_eq!(audio.queue.phase(), Phase::Recovering);
     assert_eq!(host.queued_samples().unwrap(), 0);
-    // Recovery first retains only this engine's 30 ms recent-audio window.
-    // Later committed samples must still fill the larger shared startup buffer.
+    // Full catch-up can now prime from the nominal playback position, without
+    // repeatedly limiting each submission to a 30 ms tail.
     audio.service(at(410), at(410));
-    assert!(!audio.started);
-    assert!(!audio.recovering);
+    assert_eq!(audio.queue.phase(), Phase::Running);
     audio.service(at(440), at(440));
-    assert!(audio.started);
+    assert_eq!(audio.queue.phase(), Phase::Running);
+    assert_eq!(audio.queue.stats().recoveries, 1);
     assert!(signal.borrow().error.is_none());
-    assert_eq!(LATE_AUDIO_RETENTION, RATE as usize * 30 / 1000);
 }
 
 fn frames() -> StartupFrames {
@@ -401,6 +400,27 @@ struct Outcome {
     transactions: Vec<(u64, ClockEvent)>,
 }
 
+#[derive(Default)]
+struct QueueSink {
+    queued: usize,
+}
+impl reforge_sdl::audio::queue::Sink for QueueSink {
+    fn queued(&self) -> Result<usize, String> {
+        Ok(self.queued)
+    }
+    fn submit(&mut self, samples: &[i16]) -> Result<(), String> {
+        self.queued += samples.len();
+        Ok(())
+    }
+    fn pause(&mut self, _: bool) -> Result<(), String> {
+        Ok(())
+    }
+    fn clear(&mut self) -> Result<(), String> {
+        self.queued = 0;
+        Ok(())
+    }
+}
+
 fn gameplay_run(budget: u64, render_chunk: u32, discard_output: bool) -> (Outcome, Vec<i16>) {
     gameplay_run_mode(budget, render_chunk, discard_output, AudioRenderer::Speaker)
 }
@@ -480,10 +500,10 @@ fn gameplay_run_levels(
         signal: signal.clone(),
         host: Playback::new(Default::default()),
         generation: 0,
-        output: None,
-        started: false,
-        recovering: false,
+        queue: Queue::new(RATE, Policy::default()).unwrap(),
     };
+    let mut queued = Queue::new(RATE, Policy::default()).unwrap();
+    let mut sink = QueueSink::default();
     let mut pcm = Vec::new();
     let mut events = Vec::new();
     let end = start + 500_000;
@@ -499,6 +519,24 @@ fn gameplay_run_levels(
             signal.borrow_mut().set_mode(mode, simulation.clock.tick());
         }
         if discard_output {
+            // Exercise recovery with this same production-generated PCM, not
+            // just absent output. The target jumps by250ms once while native
+            // execution continues unchanged; controlled device input is empty.
+            let mut synthesis = signal.borrow_mut();
+            synthesis.advance(simulation.clock.tick(), None);
+            for block in &synthesis.blocks {
+                queued.push(block.start, block.samples.clone()).unwrap();
+            }
+            drop(synthesis);
+            sink.queued = 0;
+            let jump = if simulation.clock.tick() >= start + 200_000 {
+                RATE as u64 / 4
+            } else {
+                0
+            };
+            queued
+                .service(&mut sink, samples_at(simulation.clock.tick()) + jump)
+                .unwrap();
             audio.service(simulation.clock.tick(), end);
         } else {
             let mut synthesis = signal.borrow_mut();
@@ -513,6 +551,9 @@ fn gameplay_run_levels(
     };
     assert!(runtime.game().snapshot().body > 0);
     assert!(signal.borrow().error.is_none());
+    if discard_output {
+        assert!(queued.stats().recoveries > 0);
+    }
     let outcome = Outcome {
         tick: simulation.clock.tick(),
         state: format!("{:?}", simulation.state()),

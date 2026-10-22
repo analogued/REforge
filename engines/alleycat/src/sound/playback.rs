@@ -4,93 +4,95 @@ use super::{
     Sound,
     render::{RATE, Renderer},
 };
-use reforge_sdl::audio::Playback;
-use std::collections::VecDeque;
+use reforge_sdl::audio::{
+    Playback,
+    queue::{Policy, Queue},
+};
 
 pub struct Player {
     renderer: Renderer,
     host: Playback,
     generation: u64,
-    paused: bool,
     failed: bool,
-    pending: VecDeque<i16>,
+    queue: Queue,
+    generated: u64,
 }
 impl Player {
     pub fn new(host: Playback) -> Result<Self, String> {
         if let Err(error) = host.start(RATE) {
             eprintln!("REforge: audio unavailable; simulation continues: {error}");
         }
+        let queue = Queue::new(RATE, Policy::for_output(&host))?;
         Ok(Self {
             renderer: Renderer::new(host.settings().categories)?,
             generation: host.generation(),
             host,
-            paused: false,
             failed: false,
-            pending: VecDeque::new(),
+            queue,
+            generated: 0,
         })
     }
     pub fn pause(&mut self, paused: bool) {
-        if self.paused == paused {
-            return;
-        }
-        self.paused = paused;
-        if paused {
-            let _ = self.host.set_paused(true);
+        if let Err(error) = self.queue.set_paused(&mut self.host, paused) {
+            self.fail(error);
         }
     }
+    pub fn rebase_presentation(&mut self, nanos: u128) {
+        self.queue.rebase(presentation_sample(nanos));
+    }
+    fn fail(&mut self, error: String) {
+        eprintln!("REforge: speaker playback stopped; simulation continues: {error}");
+        self.host.stop();
+        self.failed = true;
+    }
     pub fn reset(&mut self) -> Result<(), String> {
-        self.host.set_paused(true)?;
-        self.host.clear()?;
-        self.pending.clear();
+        self.queue.reset(&mut self.host, 0)?;
+        self.generated = 0;
         self.renderer = Renderer::new(self.host.settings().categories)?;
         Ok(())
     }
-    pub fn service(&mut self, sound: &mut Sound, until: u64) {
+    pub fn service(&mut self, sound: &mut Sound, until: u64, presentation_nanos: u128) {
         if self.failed {
             sound.drain().for_each(drop);
             return;
         }
-        if let Err(error) = self.feed(sound, until) {
-            eprintln!("REforge: speaker playback stopped; simulation continues: {error}");
-            self.host.stop();
-            self.failed = true;
+        if let Err(error) = self.feed(sound, until, presentation_nanos) {
+            self.fail(error);
         }
     }
-    fn feed(&mut self, sound: &mut Sound, until: u64) -> Result<(), String> {
+    fn feed(
+        &mut self,
+        sound: &mut Sound,
+        until: u64,
+        presentation_nanos: u128,
+    ) -> Result<(), String> {
         let changed = self.generation != self.host.generation();
-        // Render old committed work with its old gain, then change levels at
-        // that boundary. Discard stale presentation audio after a settings edit.
-        let mut pcm = self.renderer.render(sound.drain(), until)?;
+        // Synthesis always executes all committed device work, including work
+        // whose host presentation is muted, reset or expired.
+        let start = self.generated;
+        let pcm = self.renderer.render(sound.drain(), until)?;
+        self.generated = self
+            .generated
+            .checked_add(pcm.len() as u64)
+            .ok_or("audio position overflow")?;
         if changed {
             self.renderer.set_volumes(self.host.settings().categories)?;
             self.generation = self.host.generation();
-            pcm.clear();
-            self.pending.clear();
+            self.queue.reset(&mut self.host, self.generated)?;
         }
-        if !self.host.settings().enabled || !self.host.available() {
-            self.pending.clear();
+        if changed || !self.host.settings().enabled || !self.host.available() {
             return Ok(());
         }
-        // A native blocking helper can commit more than one presentation queue
-        // of future sound. Feed it progressively while the host catches up to
-        // that committed game time, rather than cutting the beginning off.
-        self.pending.extend(pcm);
-        let overflow = self.pending.len().saturating_sub(RATE as usize * 2);
-        self.pending.drain(..overflow);
-        if self.paused {
-            return Ok(());
-        }
-        let queued = self.host.queued_samples()?;
-        let count = self
-            .pending
-            .len()
-            .min((RATE as usize / 10).saturating_sub(queued));
-        let buffer = self.pending.make_contiguous();
-        self.host.queue(&buffer[..count])?;
-        self.pending.drain(..count);
-        self.host.resume_when_ready()?;
-        Ok(())
+        self.queue.push(start, pcm)?;
+        // The runner supplies its paced virtual target, not the possibly-ahead
+        // end of a blocking helper. Its stall clamp and pause mapping remain
+        // engine policy; no discarded host time enters this sample position.
+        let position = presentation_sample(presentation_nanos);
+        self.queue.service(&mut self.host, position)
     }
+}
+fn presentation_sample(nanos: u128) -> u64 {
+    (nanos.saturating_mul(u128::from(RATE)) / 1_000_000_000).min(u128::from(u64::MAX)) as u64
 }
 impl Drop for Player {
     fn drop(&mut self) {
@@ -131,9 +133,16 @@ mod tests {
         sound.record(true);
         sound.tone(1000, super::super::Category::Music);
         for ms in [20, 40] {
-            player.service(&mut sound, reforge_audio::PIT_HZ * ms / 1000);
+            player.service(
+                &mut sound,
+                reforge_audio::PIT_HZ * ms / 1000,
+                u128::from(ms) * 1_000_000,
+            );
             let queued = host.queued_samples().unwrap();
-            assert!(queued > 480 && queued < prefill);
+            assert_eq!(queued, 0);
+            assert!(
+                player.queue.pending_samples() > 480 && player.queue.pending_samples() < prefill
+            );
             std::thread::sleep(std::time::Duration::from_millis(30));
             assert_eq!(
                 host.queued_samples().unwrap(),
@@ -141,7 +150,7 @@ mod tests {
                 "short prefill must remain paused"
             );
         }
-        player.service(&mut sound, reforge_audio::PIT_HZ * 60 / 1000);
+        player.service(&mut sound, reforge_audio::PIT_HZ * 60 / 1000, 60_000_000);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while host.queued_samples().unwrap() >= prefill {
             assert!(
@@ -184,23 +193,34 @@ mod tests {
         let mut sound = Sound::default();
         sound.record(true);
         sound.hearts_sweep(&mut data);
+        sound.tone(1000, super::super::Category::Music);
+        sound.at(reforge_audio::PIT_HZ * 3);
+        sound.stop();
         let until = sound.tick();
-        player.service(&mut sound, until);
+        player.service(&mut sound, until, 0);
         assert!(!player.failed);
         // Keep at least one further queue budget pending. Its exact duration
         // depends on the guest execution profile, not the buffering contract.
-        assert!(player.pending.len() > RATE as usize / 10);
+        assert!(player.queue.pending_samples() > RATE as usize * 2);
         assert!(host.queued_samples().unwrap() <= RATE as usize / 10);
+        assert_eq!(player.queue.stats().expired, 0);
+        assert_eq!(
+            player.queue.pending_samples() as u64 + player.queue.stats().submitted,
+            player.generated
+        );
         player.pause(true);
-        let retained = player.pending.len();
-        player.service(&mut sound, until);
-        assert_eq!(player.pending.len(), retained);
+        let retained = player.queue.pending_samples();
+        player.service(&mut sound, until, 0);
+        assert_eq!(player.queue.pending_samples(), retained);
         host.clear().unwrap();
         player.pause(false);
-        player.service(&mut sound, until);
-        assert_eq!(player.pending.len(), retained - RATE as usize / 10);
+        player.service(&mut sound, until, 0);
+        assert_eq!(
+            player.queue.pending_samples(),
+            retained - RATE as usize / 10
+        );
         player.reset().unwrap();
-        assert!(player.pending.is_empty());
+        assert!(player.queue.pending_samples() == 0);
         assert_eq!(host.queued_samples().unwrap(), 0);
     }
 }

@@ -103,8 +103,12 @@ the high score, shared random state and ordinary-room selection history.
 SDL gamepads use the left stick/D-pad for these same directions and the bottom
 face button for Alt's contextual action. Up remains jump; diagonal-jump timing
 is unchanged. Start/Menu toggles host pause and Back/View toggles settings.
-The bottom button advances titles and confirms skill selection; Up/Down chooses
-the skill. See [controller preferences](../../docs/configuration.md#controllers).
+The bottom button advances titles and confirms skill selection. Advancing the
+title with it shows the skill cursor on Kitten immediately. Otherwise, the first
+controller Up/Down/A or keyboard Up/Down/Enter/Space reveals the cursor on Kitten
+without moving or selecting. Subsequent Up/Down inputs choose a skill; controller
+A or keyboard Enter/Space confirms it. K/H/T/A still select a skill directly.
+See [controller preferences](../../docs/configuration.md#controllers).
 In the cheese room, hold Alt at a hole to travel to its paired hole.
 In the hearts scene, gifts are picked up automatically on contact; hold Alt
 to place a carried gift near the cat's current position.

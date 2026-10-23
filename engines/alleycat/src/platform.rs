@@ -514,6 +514,9 @@ impl Input {
                     Scancode::H => MenuKey::HouseCat,
                     Scancode::T => MenuKey::Tomcat,
                     Scancode::A => MenuKey::AlleyCat,
+                    Scancode::Up => MenuKey::Up,
+                    Scancode::Down => MenuKey::Down,
+                    Scancode::Return | Scancode::KpEnter | Scancode::Space => MenuKey::Confirm,
                     _ => MenuKey::Other,
                 });
             }
@@ -865,7 +868,11 @@ mod tests {
             (Scancode::H, MenuKey::HouseCat),
             (Scancode::T, MenuKey::Tomcat),
             (Scancode::A, MenuKey::AlleyCat),
-            (Scancode::Return, MenuKey::Other),
+            (Scancode::Up, MenuKey::Up),
+            (Scancode::Down, MenuKey::Down),
+            (Scancode::Return, MenuKey::Confirm),
+            (Scancode::KpEnter, MenuKey::Confirm),
+            (Scancode::Space, MenuKey::Confirm),
         ] {
             let mut input = Input::default();
             input.record_press(scancode, 0, false);

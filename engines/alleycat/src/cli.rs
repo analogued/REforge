@@ -687,11 +687,19 @@ fn advance_splash(
 }
 
 #[cfg(feature = "sdl")]
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SplashExit {
+    Quit,
+    Keyboard,
+    Controller,
+}
+
+#[cfg(feature = "sdl")]
 fn present_splash(
     window: &mut alleycat::platform::Window,
     splash: &mut Splash,
     ticks: Option<usize>,
-) -> Result<bool, String> {
+) -> Result<SplashExit, String> {
     use std::time::{Duration, Instant};
     window.audio.reset()?;
     splash.sound.record(true);
@@ -699,13 +707,14 @@ fn present_splash(
     let start = Instant::now();
     let mut pause_clock = alleycat::platform::PauseClock::new(start);
     let mut target_nanos = 0;
+    let mut advance_source = None;
     window.present(&splash.rgba())?;
     while !splash.finished()
         && ticks.is_none_or(|limit| usize::from(clock.bios_sample().tick_low) < limit)
     {
         let input = window.poll_input();
         if input.quit {
-            return Ok(false);
+            return Ok(SplashExit::Quit);
         }
         if input.sound_pressed {
             splash.toggle_sound();
@@ -727,6 +736,17 @@ fn present_splash(
             && !splash.finished()
             && (clock.elapsed_nanos() < target_nanos || key_pressed)
         {
+            if key_pressed {
+                // Splash latches its first advance request until it can finish.
+                // Do not let later input change the source of that request.
+                advance_source.get_or_insert(
+                    if input.controller_confirm && input.menu_key.is_none() {
+                        SplashExit::Controller
+                    } else {
+                        SplashExit::Keyboard
+                    },
+                );
+            }
             advance_splash(splash, &mut clock, key_pressed)?;
             key_pressed = false;
         }
@@ -742,7 +762,7 @@ fn present_splash(
     }
     window.audio.pause(true);
     window.present(&splash.rgba())?;
-    Ok(true)
+    Ok(advance_source.unwrap_or(SplashExit::Keyboard))
 }
 
 #[cfg(feature = "dev-tools")]
@@ -804,10 +824,14 @@ fn present_menu(
     alley: &mut Alley,
     difficulty: Option<u16>,
     initial: bool,
+    controller_title: bool,
 ) -> Result<bool, String> {
     use std::time::Duration;
     window.audio.pause(true);
     let mut menu = alley.menu(difficulty)?;
+    if controller_title {
+        menu.reveal_cursor()?;
+    }
     window.present(&menu.rgba())?;
     loop {
         let input = window.poll_input();
@@ -850,7 +874,7 @@ fn present_game_over(
     alley: &mut Alley,
 ) -> Result<bool, String> {
     let mut splash = alley.game_over_splash()?;
-    if !present_splash(window, &mut splash, None)? {
+    if present_splash(window, &mut splash, None)? == SplashExit::Quit {
         return Ok(false);
     }
     alley.start_after_game_over(&splash)?;
@@ -907,11 +931,18 @@ fn interactive(
     let creator = display.texture_creator();
     let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
     if let Some(mut startup) = startup {
-        if !present_splash(&mut window, &mut startup.splash, None)? {
+        let splash_exit = present_splash(&mut window, &mut startup.splash, None)?;
+        if splash_exit == SplashExit::Quit {
             return Ok(());
         }
         alley.inherit_initial_splash(&startup.splash)?;
-        if !present_menu(&mut window, alley, startup.difficulty_override, true)? {
+        if !present_menu(
+            &mut window,
+            alley,
+            startup.difficulty_override,
+            true,
+            splash_exit == SplashExit::Controller,
+        )? {
             return Ok(());
         }
     }
@@ -963,7 +994,7 @@ fn interactive(
         }
         let restarting = input.new_game_pressed;
         if input.menu_pressed {
-            if !present_menu(&mut window, alley, None, false)? {
+            if !present_menu(&mut window, alley, None, false, false)? {
                 break;
             }
         } else if restarting {
@@ -1091,11 +1122,18 @@ fn interactive_diagnostic(
     let creator = display.texture_creator();
     let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
     if let Some(mut startup) = startup {
-        if !present_splash(&mut window, &mut startup.splash, None)? {
+        let splash_exit = present_splash(&mut window, &mut startup.splash, None)?;
+        if splash_exit == SplashExit::Quit {
             return Ok(());
         }
         alley.inherit_initial_splash(&startup.splash)?;
-        if !present_menu(&mut window, alley, startup.difficulty_override, true)? {
+        if !present_menu(
+            &mut window,
+            alley,
+            startup.difficulty_override,
+            true,
+            splash_exit == SplashExit::Controller,
+        )? {
             return Ok(());
         }
     }
@@ -1129,7 +1167,7 @@ fn interactive_diagnostic(
         }
         let restarting = input.new_game_pressed;
         if input.menu_pressed {
-            if !present_menu(&mut window, alley, None, false)? {
+            if !present_menu(&mut window, alley, None, false, false)? {
                 break;
             }
         } else if restarting {

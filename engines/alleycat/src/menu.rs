@@ -16,6 +16,9 @@ pub enum MenuKey {
     HouseCat,
     Tomcat,
     AlleyCat,
+    Up,
+    Down,
+    Confirm,
     Other,
 }
 
@@ -26,7 +29,7 @@ impl MenuKey {
             Self::HouseCat => Some(1),
             Self::Tomcat => Some(2),
             Self::AlleyCat => Some(3),
-            Self::Other => None,
+            Self::Up | Self::Down | Self::Confirm | Self::Other => None,
         }
     }
 }
@@ -107,7 +110,7 @@ pub struct Menu {
     stage: MenuStage,
     question_frame: Framebuffer,
     skill_rows: [u8; 4],
-    controller_selection: u16,
+    cursor_selection: Option<u16>,
 }
 
 impl Menu {
@@ -134,7 +137,7 @@ impl Menu {
             controls,
             difficulty: None,
             stage: MenuStage::Difficulty,
-            controller_selection: 0,
+            cursor_selection: None,
         })
     }
 
@@ -168,7 +171,15 @@ impl Menu {
             MenuStage::Difficulty => {
                 if let Some(difficulty) = key.difficulty() {
                     self.framebuffer = self.question_frame.clone();
+                    self.cursor_selection = None;
                     self.select_difficulty(difficulty)?;
+                } else {
+                    match key {
+                        MenuKey::Up => return self.controller(-1, false),
+                        MenuKey::Down => return self.controller(1, false),
+                        MenuKey::Confirm => return self.controller(0, true),
+                        _ => {}
+                    }
                 }
             }
             MenuStage::Controls => self.stage = MenuStage::Finished,
@@ -177,23 +188,40 @@ impl Menu {
         Ok(self.finished())
     }
 
-    /// Optional host controller navigation; keyboard-only pixels remain native.
+    /// Reveal the first choice without moving or selecting it. Used when a
+    /// controller advanced the title, or for the first navigation input here.
+    pub fn reveal_cursor(&mut self) -> Result<(), String> {
+        if self.stage == MenuStage::Difficulty && self.cursor_selection.is_none() {
+            self.cursor_selection = Some(0);
+            self.draw_cursor()?;
+        }
+        Ok(())
+    }
+
+    fn draw_cursor(&mut self) -> Result<(), String> {
+        let selection = self.cursor_selection.expect("visible menu cursor");
+        self.framebuffer = self.question_frame.clone();
+        self.framebuffer.copy_rect(
+            pixel_offset(39 * 8, self.skill_rows[usize::from(selection)] * 8),
+            Dimensions(0x0801),
+            &crate::font::character(b'<')?,
+        )
+    }
+
+    /// Controller and keyboard navigation share one visible selection. The
+    /// first input reveals Kitten; only subsequent input can move or confirm.
     pub fn controller(&mut self, delta: i8, confirm: bool) -> Result<bool, String> {
-        if self.stage == MenuStage::Difficulty {
-            self.controller_selection =
-                (self.controller_selection as i16 + i16::from(delta)).rem_euclid(4) as u16;
+        if self.stage == MenuStage::Difficulty && (delta != 0 || confirm) {
+            let Some(selection) = self.cursor_selection else {
+                self.reveal_cursor()?;
+                return Ok(false);
+            };
+            let selection = (selection as i16 + i16::from(delta)).rem_euclid(4) as u16;
+            self.cursor_selection = Some(selection);
             if confirm {
-                self.select_difficulty(self.controller_selection)?;
-            } else if delta != 0 {
-                self.framebuffer = self.question_frame.clone();
-                self.framebuffer.copy_rect(
-                    pixel_offset(
-                        39 * 8,
-                        self.skill_rows[usize::from(self.controller_selection)] * 8,
-                    ),
-                    Dimensions(0x0801),
-                    &crate::font::character(b'<')?,
-                )?;
+                self.select_difficulty(selection)?;
+            } else {
+                self.draw_cursor()?;
             }
         } else if self.stage == MenuStage::Controls && confirm {
             self.stage = MenuStage::Finished;
@@ -233,6 +261,7 @@ mod tests {
     fn controller_selects_each_skill_then_requires_a_separate_confirmation() {
         for (delta, expected) in [(0, 0), (1, 1), (2, 2), (-1, 3)] {
             let mut menu = Menu::new(&synthetic_data(), Machine::Cga).unwrap();
+            menu.reveal_cursor().unwrap();
             let initial = menu.framebuffer.clone();
             assert!(!menu.controller(delta, false).unwrap());
             if delta != 0 {
@@ -289,6 +318,94 @@ mod tests {
         menu.framebuffer()
             .read_rect(pixel_offset(column * 8, row * 8), Dimensions(0x0801))
             .unwrap()
+    }
+
+    #[test]
+    fn first_navigation_reveals_kitten_without_moving_or_selecting() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            for key in [MenuKey::Up, MenuKey::Down, MenuKey::Confirm] {
+                let mut menu = Menu::new(&synthetic_data(), machine).unwrap();
+                assert_eq!(menu.cursor_selection, None);
+                assert!(!menu.press(key).unwrap());
+                assert_cursor_on_kitten(&menu);
+            }
+            for (delta, confirm) in [(-1, false), (1, false), (0, true), (1, true)] {
+                let mut menu = Menu::new(&synthetic_data(), machine).unwrap();
+                assert!(!menu.controller(0, false).unwrap());
+                assert_eq!(
+                    menu.cursor_selection, None,
+                    "idle polling must not reveal the cursor"
+                );
+                assert!(!menu.controller(delta, confirm).unwrap());
+                assert_cursor_on_kitten(&menu);
+            }
+        }
+    }
+
+    fn assert_cursor_on_kitten(menu: &Menu) {
+        assert_eq!(menu.stage(), MenuStage::Difficulty);
+        assert_eq!(menu.difficulty(), None);
+        assert_eq!(menu.cursor_selection, Some(0));
+        assert_eq!(cell(menu, 4, 39), crate::font::character(b'<').unwrap());
+        for row in [5, 6, 7] {
+            assert_eq!(cell(menu, row, 39), [0; 16]);
+        }
+        assert_eq!(
+            cell(menu, 9, 0),
+            [0; 16],
+            "revealing must not append instructions"
+        );
+    }
+
+    #[test]
+    fn controller_title_cursor_is_visible_before_confirmation_and_ignores_idle() {
+        for machine in [Machine::Cga, Machine::Pcjr] {
+            let mut menu = Menu::new(&synthetic_data(), machine).unwrap();
+            menu.reveal_cursor().unwrap();
+            assert_cursor_on_kitten(&menu);
+            let shown = menu.framebuffer().bytes().to_vec();
+            assert!(!menu.controller(0, false).unwrap());
+            menu.reveal_cursor().unwrap();
+            assert_eq!(menu.framebuffer().bytes().as_slice(), shown);
+            assert!(!menu.controller(0, true).unwrap());
+            assert_eq!(menu.difficulty(), Some(0));
+            assert_eq!(menu.stage(), MenuStage::Controls);
+            assert!(!menu.controller(0, false).unwrap());
+            assert!(menu.controller(0, true).unwrap());
+        }
+    }
+
+    #[test]
+    fn keyboard_and_controller_share_cursor_and_wrap_then_confirm() {
+        for confirm_with_keyboard in [true, false] {
+            let mut menu = Menu::new(&synthetic_data(), Machine::Cga).unwrap();
+            menu.press(MenuKey::Down).unwrap(); // Reveal, without moving.
+            menu.press(MenuKey::Down).unwrap();
+            assert_eq!(menu.cursor_selection, Some(1));
+            menu.controller(-1, false).unwrap();
+            assert_eq!(menu.cursor_selection, Some(0));
+            menu.press(MenuKey::Up).unwrap();
+            assert_eq!(menu.cursor_selection, Some(3));
+            menu.press(MenuKey::Down).unwrap();
+            assert_cursor_on_kitten(&menu);
+            menu.controller(-1, false).unwrap();
+            if confirm_with_keyboard {
+                menu.press(MenuKey::Confirm).unwrap();
+            } else {
+                menu.controller(0, true).unwrap();
+            }
+            assert_eq!(menu.difficulty(), Some(3));
+            assert_eq!(menu.stage(), MenuStage::Controls);
+            assert!(menu.press(MenuKey::Confirm).unwrap());
+        }
+        let mut explicit = Menu::with_difficulty(&synthetic_data(), Machine::Cga, 7).unwrap();
+        let before = explicit.framebuffer().bytes().to_vec();
+        explicit.reveal_cursor().unwrap();
+        assert_eq!(explicit.framebuffer().bytes().as_slice(), before);
+        assert_eq!(
+            explicit.cursor_selection, None,
+            "CLI difficulty keeps its controls-only screen"
+        );
     }
 
     #[test]

@@ -202,6 +202,7 @@ impl Enemy {
         self.spawn_command_with_sound(command, random, player_lateral, count, &mut |_| {})
     }
 
+    #[cfg(test)]
     pub(crate) fn spawn_command_with_sound(
         &mut self,
         command: u8,

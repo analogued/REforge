@@ -152,7 +152,8 @@ impl PassTask {
                         game.hud.set_orientation(game.player.snapshot().orientation);
                         game.hud.set_progression(game.progression);
                         game.hud.set_score_multiplier(1);
-                        if let Some(rules) = &game.rules {
+                        {
+                            let rules = &game.rules;
                             game.hud.set_marker_styles(
                                 assets,
                                 rules.marker_styles(super::progression::visual_difficulty(
@@ -210,7 +211,7 @@ impl PassTask {
                     }
                 }
                 Stage::Commands(task) => {
-                    if game.rules.is_some() && game.resume_commands(assets, task, sound)? {
+                    if game.resume_commands(assets, task, sound)? {
                         return Ok(PassProgress::Transition);
                     }
                     self.stage = Stage::FinishPass;

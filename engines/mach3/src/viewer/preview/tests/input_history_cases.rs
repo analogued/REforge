@@ -533,8 +533,13 @@ fn transition_holds_and_new_session_preserve_current_scans_not_old_taps() {
         now + unit * 2,
         now + unit * 2,
     );
-    game.begin_game(&assets, None, &options, now + unit * 2)
-        .unwrap();
+    game.begin_game(
+        &assets,
+        &crate::gameplay::test_support::diagnostic_rules(),
+        &options,
+        now + unit * 2,
+    )
+    .unwrap();
     assert_eq!(game.session.keyboard.held_keys(0).actions, 8);
     game.advance(&assets, &options, now + unit * 3).unwrap();
     assert_eq!(

@@ -186,7 +186,7 @@ impl GamePlayback {
     fn begin_game(
         &mut self,
         assets: &GraphicsAssets,
-        rules: Option<&ScriptRules>,
+        rules: &ScriptRules,
         options: &Options,
         now: std::time::Instant,
     ) -> Result<(), String> {
@@ -197,14 +197,7 @@ impl GamePlayback {
         self.history.apply_until(&mut self.session, now);
         let start = self.session.begin_game();
         self.gameplay = Some(
-            if let Some(rules) = rules {
-                Gameplay::for_play(assets, rules.clone(), start)
-            } else if options.controls {
-                Gameplay::with_steering(assets)
-            } else {
-                Gameplay::new(assets)
-            }
-            .map_err(|error| error.to_string())?,
+            Gameplay::for_play(assets, rules.clone(), start).map_err(|error| error.to_string())?,
         );
         self.visible_frame = Some(self.gameplay.as_ref().unwrap().frame().clone());
         self.pending_publication = false;
@@ -730,7 +723,7 @@ impl GamePlayback {
 pub(super) fn run(
     frames: &StartupFrames,
     options: Options,
-    rules: Option<ScriptRules>,
+    rules: ScriptRules,
 ) -> Result<(), String> {
     let scale = options.scale;
     if scale.is_some_and(|scale| !(1..=16).contains(&scale)) {
@@ -1005,7 +998,7 @@ pub(super) fn run(
             if shown == Screen::InitialScene && options.playback != Playback::Static {
                 game.begin_game(
                     frames.graphics(),
-                    rules.as_ref(),
+                    &rules,
                     &options,
                     host_pause.now(std::time::Instant::now()),
                 )?;

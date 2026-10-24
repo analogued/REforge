@@ -56,7 +56,7 @@ fn program() -> ProceduralProgram {
 }
 
 fn setup(assets: &GraphicsAssets, state: Option<GameplayState>) -> (GameplayTask, TestClock) {
-    let mut game = Gameplay::new(assets).unwrap();
+    let mut game = Gameplay::test_game(assets).unwrap();
     let mut records = game.enemy.snapshots();
     records[1].active = true;
     records[1].movement = 27;

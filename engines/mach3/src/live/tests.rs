@@ -99,7 +99,8 @@ fn begin(
 ) -> (GameplayRuntime, Clock<impl FnMut(Stamp, ClockEvent)>) {
     let (state, clock) = context(log, steering_enabled);
     let runtime =
-        GameplayRuntime::begin(Gameplay::new(assets).unwrap(), state, CS, 64, &clock).unwrap();
+        GameplayRuntime::begin(Gameplay::test_game(assets).unwrap(), state, CS, 64, &clock)
+            .unwrap();
     (runtime, clock)
 }
 
@@ -602,7 +603,7 @@ fn native_return_executes_one_ordered_reset_transaction_even_when_polled_again()
     };
     let log = Log::default();
     let (state, mut clock) = context(log.clone(), true);
-    let mut game = Gameplay::new(&assets).unwrap();
+    let mut game = Gameplay::test_game(&assets).unwrap();
     game.request_game_over();
     let mut runtime = GameplayRuntime::begin(game, state, CS, 64, &clock).unwrap();
     log.borrow_mut().clear();

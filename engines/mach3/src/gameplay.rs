@@ -12,6 +12,8 @@ mod progression;
 mod session;
 mod special;
 mod terrain;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod weapon;
 
 use crate::{
@@ -78,7 +80,7 @@ pub struct Gameplay {
     body_limit: Option<u16>,
     static_lateral: i16,
     random: Random,
-    rules: Option<ScriptRules>,
+    rules: ScriptRules,
     script_index: u16,
     difficulty: u16,
     progression: u16,
@@ -122,21 +124,27 @@ pub struct Gameplay {
 }
 
 impl Gameplay {
-    pub fn new(assets: &GraphicsAssets) -> Result<Self, Error> {
+    fn initial(
+        assets: &GraphicsAssets,
+        rules: ScriptRules,
+        random: [u16; 3],
+        script_index: u16,
+        body_limit: Option<u16>,
+    ) -> Result<Self, Error> {
         let initial_frame = scene::initial_frame(assets)?;
-        let mut random = Random::default();
-        random.next_word(); // Intro screen selection.
-        random.next_word(); // Fresh-process script selection: script zero.
+        let random = Random { words: random };
+        let mut terrain = terrain::Terrain::new();
+        terrain.set_data_segment(rules.data_segment());
         let hud = hud::Hud::new(assets)?;
         let remembered_hud_rects = hud.draws().iter().map(|draw| draw.rect).collect();
         let mut gameplay = Self {
             body: 0,
             render_pass: 0,
-            body_limit: Some(DEFAULT_EXPORT_BODY_LIMIT),
+            body_limit,
             static_lateral: 0,
             random,
-            rules: None,
-            script_index: 0,
+            rules,
+            script_index,
             difficulty: 0,
             progression: 1,
             speeds: [28, 22, 16],
@@ -149,7 +157,7 @@ impl Gameplay {
             palette_family: 1,
             noise_divisor: 0,
             hud,
-            terrain: terrain::Terrain::new(),
+            terrain,
             enemy: enemy::Enemy::new(assets)?,
             player: player::Player::new(assets)?,
             weapon: weapon::Weapon::new(assets)?,
@@ -186,11 +194,25 @@ impl Gameplay {
         Ok(gameplay)
     }
 
-    /// A short controlled prefix, independently verified with held steering.
-    pub fn with_steering(assets: &GraphicsAssets) -> Result<Self, Error> {
-        let mut gameplay = Self::new(assets)?;
-        gameplay.body_limit = Some(DEFAULT_CONTROLLED_EXPORT_BODY_LIMIT);
-        Ok(gameplay)
+    #[cfg(test)]
+    pub(crate) fn test_game(assets: &GraphicsAssets) -> Result<Self, Error> {
+        let mut random = Random::default();
+        random.next_word();
+        random.next_word();
+        Self::initial(
+            assets,
+            test_support::diagnostic_rules(),
+            random.state(),
+            0,
+            Some(DEFAULT_EXPORT_BODY_LIMIT),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_controlled_game(assets: &GraphicsAssets) -> Result<Self, Error> {
+        let mut game = Self::test_game(assets)?;
+        game.body_limit = Some(DEFAULT_CONTROLLED_EXPORT_BODY_LIMIT);
+        Ok(game)
     }
 
     /// Construct a bounded game using external encounter rules and retained session state.
@@ -200,14 +222,8 @@ impl Gameplay {
         start: GameStart,
         limit: u16,
     ) -> Result<Self, Error> {
-        let mut gameplay = Self::new(assets)?;
-        gameplay.random = Random {
-            words: start.random,
-        };
-        gameplay.script_index = start.script_index;
-        gameplay.body_limit = Some(limit);
-        gameplay.terrain.set_data_segment(rules.data_segment());
-        gameplay.rules = Some(rules);
+        let mut gameplay =
+            Self::initial(assets, rules, start.random, start.script_index, Some(limit))?;
         gameplay.enemy.reset_for_game(assets)?;
         if let Some(world) = start.retained_world {
             gameplay.enemy = enemy::Enemy::restore_snapshots(
@@ -476,127 +492,6 @@ impl Gameplay {
     }
 
     fn finish_pass(&mut self, sound: &mut Foreground<'_>) -> Result<(), Error> {
-        if self.rules.is_none() && !self.enemy.active() {
-            let old_delay = self.script_delay;
-            self.script_delay += 1;
-            if old_delay >= 20 {
-                self.script_delay = 1; // Non-wave handler repeats the delay gate once.
-                match self.script_cursor {
-                    0 => self.terrain_selector = 5,
-                    1 => {} // Palette-family 1 is already active.
-                    2 => {
-                        self.enemy.spawn_command_with_sound(
-                            0x91,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                            sound,
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    3 => self.terrain_selector = 7,
-                    4 => {
-                        self.enemy.spawn_command_with_sound(
-                            0x84,
-                            &mut self.random,
-                            0,
-                            usize::from(self.primary_count),
-                            sound,
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    5 => self.terrain_selector = 6,
-                    6 => {
-                        self.enemy.spawn_command_with_sound(
-                            0x8e,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                            sound,
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    7 => self.terrain_selector = 3,
-                    8 => {
-                        self.enemy.spawn_command_with_sound(
-                            0x8a,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                            sound,
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    9 => self.terrain_selector = 7,
-                    10 => {
-                        self.random.next_word();
-                        self.primary_count += 1;
-                    }
-                    11 => {
-                        self.enemy.spawn_command_with_sound(
-                            0x88,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                            sound,
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    12 => self.terrain_selector = 9,
-                    13 => self.special.spawn_command_40(&mut self.random, 28, false),
-                    14 => {
-                        self.enemy.spawn_command_with_sound(
-                            0x97,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                            sound,
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    15 => self.terrain_selector = 9,
-                    16 => self.special.spawn_command_40(&mut self.random, 28, false),
-                    17 => {
-                        self.enemy.spawn_command_with_sound(
-                            0x96,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                            sound,
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    18 => self.terrain_selector = 2,
-                    19 => {
-                        self.random.next_word();
-                        self.primary_count += 1;
-                    }
-                    20 => {
-                        self.enemy.spawn_command_with_sound(
-                            0x84,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                            sound,
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    21 => self.terrain_selector = 2,
-                    22 => {
-                        self.enemy.spawn_command_with_sound(
-                            0x92,
-                            &mut self.random,
-                            self.player.snapshot().coordinates[1],
-                            usize::from(self.primary_count),
-                            sound,
-                        )?;
-                        self.script_delay = 0;
-                    }
-                    _ => return Err(Error::InvalidData("unsupported opening command".into())),
-                }
-                self.script_cursor += 1;
-            }
-        }
         let lateral = self.player.snapshot().coordinates[1];
         self.terrain.recycle_at_speed(
             self.terrain_selector,
@@ -1104,11 +999,10 @@ impl Gameplay {
             difficulty: self.difficulty,
             alternate_shadows: self.overlay.wrapping_add(self.layer) as i16 > 0,
             horizon: self.player.snapshot().horizon,
-            patrol_sources: self
-                .rules
-                .as_ref()
-                .map(|rules| rules.patrol_sources(progression::visual_difficulty(self.difficulty)))
-                .transpose()?,
+            patrol_sources: Some(
+                self.rules
+                    .patrol_sources(progression::visual_difficulty(self.difficulty))?,
+            ),
         })
     }
 
@@ -1164,11 +1058,7 @@ impl Gameplay {
     }
 
     fn follow_edge(&mut self, goal: bool) -> Result<(), Error> {
-        self.script_index = self
-            .rules
-            .as_ref()
-            .ok_or_else(|| Error::InvalidData("progression requires external rules".into()))?
-            .progression(self.script_index, goal)?;
+        self.script_index = self.rules.progression(self.script_index, goal)?;
         self.progression = self.progression.wrapping_add(1);
         self.script_cursor = 0;
         self.enemy.clear_primary();
@@ -1209,11 +1099,7 @@ impl Gameplay {
                 ));
             }
             self.script_delay = 0;
-            let command = self
-                .rules
-                .as_ref()
-                .expect("external parser rules")
-                .next(self.script_index, self.script_cursor)?;
+            let command = self.rules.next(self.script_index, self.script_cursor)?;
             self.script_cursor = self.script_cursor.wrapping_add(1);
             match command {
                 ScriptCommand::Terrain(selector) => self.terrain_selector = selector,
@@ -1378,7 +1264,7 @@ mod tests {
     // Authored near-contact geometry deliberately overrides normal boss/patrol
     // depths. This tests dispatch effects, not reachability in ordinary play.
     fn synthetic_primary_contact(assets: &GraphicsAssets, variant: u8) -> Gameplay {
-        let mut game = Gameplay::new(assets).unwrap();
+        let mut game = Gameplay::test_game(assets).unwrap();
         let mut records = game.enemy.snapshots();
         records[1].active = true;
         records[1].variant = variant;
@@ -1514,7 +1400,7 @@ mod tests {
     #[test]
     fn initializer_moves_player_and_world_without_advancing_gameplay() {
         let assets = synthetic_assets();
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         let before = game.snapshot();
         game.initialize_input(&assets, 8 | 16).unwrap();
         let after = game.snapshot();
@@ -1549,14 +1435,14 @@ mod tests {
     fn initializer_retains_poll_bits_and_rejects_late_or_invalid_input() {
         let assets = synthetic_assets();
         for mask in [0, 16, 128] {
-            let mut game = Gameplay::new(&assets).unwrap();
+            let mut game = Gameplay::test_game(&assets).unwrap();
             game.initialize_input(&assets, mask).unwrap();
             assert_eq!(game.snapshot().player.effective_input, u16::from(mask));
             assert_eq!(game.snapshot().player.coordinates, [14, 0, -100]);
             assert_eq!(game.snapshot().player.velocity, [0, 0]);
             assert!(!game.snapshot().player.game_over);
         }
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         assert!(game.initialize_input(&assets, 32).is_err());
         game.advance_subframe(&assets, Steering::default()).unwrap();
         assert!(game.initialize_input(&assets, 8).is_err());
@@ -1593,7 +1479,7 @@ mod tests {
     #[test]
     fn first_pass_wait_follows_selected_layer_changes_and_signed_overlay() {
         let assets = synthetic_assets();
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         game.render_pass = 1;
         for (layer, overlay, alternate, expected) in [
             (0, 0, false, true),
@@ -1625,7 +1511,7 @@ mod tests {
     #[test]
     fn authored_events_and_supported_boundary_preserve_the_final_state() {
         let assets = synthetic_assets();
-        let mut gameplay = Gameplay::new(&assets).unwrap();
+        let mut gameplay = Gameplay::test_game(&assets).unwrap();
         assert_eq!(gameplay.frame(), &scene::initial_frame(&assets).unwrap());
         for body in 1..=360 {
             assert!(gameplay.advance(&assets).unwrap());
@@ -1695,7 +1581,7 @@ mod tests {
     #[test]
     fn displayed_passes_sample_input_and_finish_the_boundary_only_after_pass_three() {
         let assets = synthetic_assets();
-        let mut gameplay = Gameplay::with_steering(&assets).unwrap();
+        let mut gameplay = Gameplay::test_controlled_game(&assets).unwrap();
         gameplay.body_limit = Some(1);
         let initial = gameplay.snapshot();
         assert!(gameplay.at_body_boundary());
@@ -1736,7 +1622,7 @@ mod tests {
     #[test]
     fn input_changes_between_passes_do_not_repeat_world_motion() {
         let assets = synthetic_assets();
-        let mut gameplay = Gameplay::new(&assets).unwrap();
+        let mut gameplay = Gameplay::test_game(&assets).unwrap();
         let left = Steering {
             left: true,
             ..Steering::default()
@@ -1773,11 +1659,11 @@ mod tests {
     #[test]
     fn formation_count_command_consumes_one_word_and_waits_to_spawn() {
         let assets = synthetic_assets();
-        let mut baseline = Gameplay::new(&assets).unwrap();
+        let mut baseline = Gameplay::test_game(&assets).unwrap();
         baseline.script_cursor = 9;
         baseline.script_delay = 20;
         baseline.terrain_selector = 7;
-        let mut formation = Gameplay::new(&assets).unwrap();
+        let mut formation = Gameplay::test_game(&assets).unwrap();
         formation.script_cursor = 10;
         formation.script_delay = 20;
         formation.terrain_selector = 7;
@@ -1805,7 +1691,7 @@ mod tests {
     #[test]
     fn gate_allocation_preserves_the_delay_before_the_scripted_enemy() {
         let assets = synthetic_assets();
-        let mut gameplay = Gameplay::new(&assets).unwrap();
+        let mut gameplay = Gameplay::test_game(&assets).unwrap();
         gameplay.script_cursor = 13;
         gameplay.script_delay = 20;
         gameplay.terrain_selector = 7;
@@ -1841,7 +1727,7 @@ mod tests {
 
     #[test]
     fn zero_movement_entries_keep_order_until_their_movement_changes() {
-        let mut gameplay = Gameplay::new(&synthetic_assets()).unwrap();
+        let mut gameplay = Gameplay::test_game(&synthetic_assets()).unwrap();
         gameplay.world_order = vec![4, 5, 6, 15];
         gameplay.sort_world(&[(4, 100, 253), (5, 300, 0), (6, 900, 0), (15, 200, 2)]);
         assert_eq!(gameplay.world_order, [5, 6, 15, 4]);
@@ -1851,7 +1737,7 @@ mod tests {
 
     #[test]
     fn equal_depth_objects_retain_their_order_from_the_preceding_pass() {
-        let mut gameplay = Gameplay::new(&synthetic_assets()).unwrap();
+        let mut gameplay = Gameplay::test_game(&synthetic_assets()).unwrap();
         let mut depths: Vec<_> = gameplay
             .world_order
             .iter()
@@ -1917,7 +1803,7 @@ mod tests {
     fn transition_compositor_does_not_change_the_pinned_body_layer() {
         let mut assets = synthetic_assets();
         assets.primary.fill(0x55);
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         game.advance_subframe(&assets, Steering::default()).unwrap();
         assert_eq!(game.selected_layer, 0);
         game.layer = 2;
@@ -1958,7 +1844,7 @@ mod tests {
         let mut assets = synthetic_assets();
         assets.primary.fill(0x55);
         assets.alternate.fill(0xaa);
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         game.alternate_background = true;
         game.advance_subframe(&assets, Steering::default()).unwrap();
         // This border is outside both the world reveal and HUD placements.
@@ -2166,7 +2052,7 @@ mod tests {
     #[test]
     fn new_game_reprojects_reset_shots_and_preserves_unused_enemy_coordinates() {
         let assets = synthetic_assets();
-        let previous = Gameplay::new(&assets).unwrap();
+        let previous = Gameplay::test_game(&assets).unwrap();
         let ending = Ending::new(&assets, &previous.snapshot(), previous.frame()).unwrap();
         let mut session = SessionState::default();
         session.remember_ending(&ending.snapshot(), ending.special_snapshots());
@@ -2260,7 +2146,7 @@ mod tests {
     #[test]
     fn speed_limits_and_deceleration_keep_the_three_speeds_in_step() {
         let assets = synthetic_assets();
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         game.speed_mode = 1;
         for _ in 0..40 {
             game.advance_speed();
@@ -2279,7 +2165,7 @@ mod tests {
     #[test]
     fn weapon_hits_destroy_craft_pay_score_and_leave_other_slots_available() {
         let assets = synthetic_assets();
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         game.enemy
             .spawn_command(0x84, &mut game.random, 0, 1)
             .unwrap();
@@ -2301,7 +2187,7 @@ mod tests {
     #[test]
     fn weapon_terrain_conversion_does_not_consume_the_projectile_or_collect_fuel() {
         let assets = synthetic_assets();
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         game.terrain.spawn_goal_barrier(28, 0);
         let target = game.terrain.snapshots()[0];
         let mut shots = game.weapon.snapshot().shots;
@@ -2320,7 +2206,7 @@ mod tests {
     #[test]
     fn extra_life_awards_fill_only_missing_symbols_and_terrain_awards_cap_separately() {
         let assets = synthetic_assets();
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         game.apply_enemy_effects(enemy::EnemyEffects {
             lives: 1,
             difficulty: 1,
@@ -2375,8 +2261,8 @@ mod tests {
         );
         state.request(Effect::Reset, 0x1234, 0, &mut clock);
         let assets = synthetic_assets();
-        let mut plain = Gameplay::new(&assets).unwrap();
-        let mut active = Gameplay::new(&assets).unwrap();
+        let mut plain = Gameplay::test_game(&assets).unwrap();
+        let mut active = Gameplay::test_game(&assets).unwrap();
         for pass in 0..60 {
             let wait = Wait::from_call(1, 1);
             while !wait.poll(&mut state.counters) {
@@ -2417,7 +2303,7 @@ mod tests {
     fn repeated_gate_contacts_emit_individual_tones_before_body_noise() {
         let mut assets = synthetic_assets();
         assets.sprites[13].descriptor[2] = 100;
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         let mut records = game.special.snapshots();
         for record in &mut records {
             record.active = true;
@@ -2452,7 +2338,7 @@ mod tests {
     #[test]
     fn a_boundary_exit_requests_default_once_and_a_bounded_export_does_not() {
         let assets = synthetic_assets();
-        let mut game = Gameplay::new(&assets).unwrap();
+        let mut game = Gameplay::test_game(&assets).unwrap();
         game.request_game_over();
         let mut actions = Vec::new();
         for _ in 0..2 {
@@ -2470,7 +2356,7 @@ mod tests {
                 effect: Effect::Reset
             }]
         );
-        let mut bounded = Gameplay::new(&assets).unwrap();
+        let mut bounded = Gameplay::test_game(&assets).unwrap();
         bounded.body_limit = Some(0);
         bounded
             .advance_subframe_with_sound(&assets, Steering::default(), &mut |a| actions.push(a))

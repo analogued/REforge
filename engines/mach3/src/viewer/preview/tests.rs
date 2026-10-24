@@ -362,8 +362,8 @@ fn running_playback(
     options: &Options,
 ) -> GamePlayback {
     GamePlayback {
-        visible_frame: Some(Gameplay::new(assets).unwrap().frame().clone()),
-        gameplay: Some(Gameplay::new(assets).unwrap()),
+        visible_frame: Some(Gameplay::test_game(assets).unwrap().frame().clone()),
+        gameplay: Some(Gameplay::test_game(assets).unwrap()),
         next_frame: Some(start + options.body_period / 4),
         ..GamePlayback::default()
     }
@@ -687,8 +687,13 @@ fn pending_publication_survives_focus_and_host_pause_and_is_reset_by_new_game() 
         assert_eq!(game.visible_frame.as_ref(), Some(&prepared));
         game.advance(&assets, &options, start + unit * 5).unwrap();
         assert!(game.pending_publication);
-        game.begin_game(&assets, None, &options, start + unit * 5)
-            .unwrap();
+        game.begin_game(
+            &assets,
+            &crate::gameplay::test_support::diagnostic_rules(),
+            &options,
+            start + unit * 5,
+        )
+        .unwrap();
         assert!(!game.pending_publication);
         assert_eq!(
             game.visible_frame.as_ref(),
@@ -825,8 +830,13 @@ fn timing_spans_observe_catch_up_and_blocking_waits_without_changing_state() {
             plain.gameplay.as_ref().unwrap().frame()
         );
     }
-    game.begin_game(&assets, None, &options, late + unit * 26)
-        .unwrap();
+    game.begin_game(
+        &assets,
+        &crate::gameplay::test_support::diagnostic_rules(),
+        &options,
+        late + unit * 26,
+    )
+    .unwrap();
     game.timing.as_mut().unwrap().flush().unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
     let rows: Vec<Vec<_>> = text
@@ -1045,7 +1055,7 @@ fn deferred_pause_exit_finishes_the_committed_body_and_four_input_polls() {
             })
             .collect(),
     };
-    let mut gameplay = Gameplay::with_steering(&assets).unwrap();
+    let mut gameplay = Gameplay::test_controlled_game(&assets).unwrap();
     let mut session = SessionState::default();
     session.keyboard.apply_scan(0x3c); // Held F2 at all four input sites.
     session.controls.poll(session.keyboard.held_keys(0)); // Body-entry poll.

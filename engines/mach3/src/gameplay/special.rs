@@ -127,6 +127,7 @@ impl Special {
 
     /// Allocation happens after drawing and consumes two random words. The
     /// selected runtime's initialized sentinel permits the first word's check.
+    #[cfg(test)]
     pub(crate) fn spawn_command_40(
         &mut self,
         random: &mut Random,

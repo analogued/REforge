@@ -216,7 +216,7 @@ pub fn run_preview(
     options: Options,
     rules: ScriptRules,
 ) -> Result<(), String> {
-    preview::run(frames, options, Some(rules))
+    preview::run(frames, options, rules)
 }
 
 /// Run animated gameplay on the reconstructed PIT timeline with live sound.
@@ -231,7 +231,7 @@ pub fn run_live(
     if options.playback != Playback::Animated || options.body_period != NOMINAL_PREVIEW_BODY_PERIOD
     {
         eprintln!("warning: step/static and custom-period diagnostics use silent nominal stepping");
-        return preview::run(frames, options, Some(rules));
+        return preview::run(frames, options, rules);
     }
     if options
         .scale

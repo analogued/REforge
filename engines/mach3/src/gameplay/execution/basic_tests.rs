@@ -18,8 +18,14 @@ fn joystick_taps_between_polls_are_missed_and_never_generate_keyboard_irqs() {
     };
     let log = Log::default();
     let (state, mut clock) = context(log.clone());
-    let mut task =
-        GameplayTask::begin(Gameplay::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
+    let mut task = GameplayTask::begin(
+        Gameplay::test_game(&assets).unwrap(),
+        state,
+        0x1234,
+        64,
+        &clock,
+    )
+    .unwrap();
     task.schedule_joystick(10, 4, &clock).unwrap();
     task.schedule_joystick(20, 0, &clock).unwrap();
     assert!(task.schedule_joystick(19, 4, &clock).is_err());
@@ -131,8 +137,14 @@ fn run_observed(chunk: u64, end: u64, observe: &mut dyn FnMut(Stamp, &ClockEvent
     state
         .procedural
         .request(Effect::Noise { divisor: 1850 }, 0x1234, 0, &mut clock);
-    let mut task =
-        GameplayTask::begin(Gameplay::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
+    let mut task = GameplayTask::begin(
+        Gameplay::test_game(&assets).unwrap(),
+        state,
+        0x1234,
+        64,
+        &clock,
+    )
+    .unwrap();
     for (tick, raw) in [
         (20_000, 0x4b),
         (33_300, 0xcb),
@@ -270,8 +282,14 @@ fn publication_wait_retains_the_old_image_and_defers_noise_until_after_publicati
         samples: &Memory,
     };
     let (state, mut clock) = context(Log::default());
-    let mut task =
-        GameplayTask::begin(Gameplay::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
+    let mut task = GameplayTask::begin(
+        Gameplay::test_game(&assets).unwrap(),
+        state,
+        0x1234,
+        64,
+        &clock,
+    )
+    .unwrap();
     let mut events = Vec::new();
     assert_eq!(
         task.advance_until(33_301, &resources, &mut clock, &mut |tick, event| events
@@ -330,7 +348,7 @@ fn death_waits_suspend_gameplay_and_only_then_commit_the_life_reset() {
         samples: &Memory,
     };
     let (state, mut clock) = context(Log::default());
-    let mut gameplay = Gameplay::new(&assets).unwrap();
+    let mut gameplay = Gameplay::test_game(&assets).unwrap();
     gameplay.player.hit(2);
     let mut task = GameplayTask::begin(gameplay, state, 0x1234, 64, &clock).unwrap();
     let mut events = Vec::new();
@@ -402,8 +420,14 @@ fn native_pause_runs_irqs_and_four_separate_waits_before_resuming() {
         samples: &Memory,
     };
     let (state, mut clock) = context(Log::default());
-    let mut task =
-        GameplayTask::begin(Gameplay::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
+    let mut task = GameplayTask::begin(
+        Gameplay::test_game(&assets).unwrap(),
+        state,
+        0x1234,
+        64,
+        &clock,
+    )
+    .unwrap();
     for (tick, raw) in [
         (10_000, 0x3b),
         (40_000, 0xbb),
@@ -457,7 +481,7 @@ fn late_input_is_prospective_and_invalid_context_does_not_start_execution() {
     let (state, mut clock) = context(Log::default());
     assert!(
         GameplayTask::begin(
-            Gameplay::new(&assets).unwrap(),
+            Gameplay::test_game(&assets).unwrap(),
             state.clone(),
             0x9999,
             64,
@@ -467,7 +491,7 @@ fn late_input_is_prospective_and_invalid_context_does_not_start_execution() {
     );
     assert!(
         GameplayTask::begin(
-            Gameplay::new(&assets).unwrap(),
+            Gameplay::test_game(&assets).unwrap(),
             state.clone(),
             0x1234,
             0,
@@ -475,8 +499,14 @@ fn late_input_is_prospective_and_invalid_context_does_not_start_execution() {
         )
         .is_err()
     );
-    let mut task =
-        GameplayTask::begin(Gameplay::new(&assets).unwrap(), state, 0x1234, 64, &clock).unwrap();
+    let mut task = GameplayTask::begin(
+        Gameplay::test_game(&assets).unwrap(),
+        state,
+        0x1234,
+        64,
+        &clock,
+    )
+    .unwrap();
     task.advance_until(33_301, &resources, &mut clock, &mut |_, _| {})
         .unwrap();
     let before = format!("{:?}", task.game().snapshot());

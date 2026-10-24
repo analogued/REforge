@@ -1264,8 +1264,9 @@ impl HeartsClippingCosts {
 impl ReferenceCosts {
     /// XT-based profile with normalized ordinary player actions.
     /// Movement gates and deliberate waits remain native; comparable ordinary
-    /// actions omit room-search overhead. Other helpers retain bounded capture fits or
-    /// earlier approximate allowances. See docs/timing.md.
+    /// actions omit room-search overhead. This complete profile supplies its own
+    /// bounded capture fits and explicit provisional defaults, independently of
+    /// the legacy DOSBox comparison profile. See docs/timing.md.
     pub fn ibm_xt(machine: Machine) -> Self {
         // One allowance per comparable action, independent of room/search depth.
         let walk = 2_720_000;
@@ -1477,7 +1478,23 @@ impl ReferenceCosts {
             bookkeeping: Some(BookkeepingCosts::ibm_xt()),
             bird: Some(BirdCosts::ibm_xt()),
             quiet: Some(QuietCosts::ibm_xt()),
-            ..Self::dosbox_x_240(machine)
+            // Provisional caller/polling allowances, not independent XT
+            // measurements. Active helper increments already account for this
+            // shared room baseline; changing it requires reviewing those fits.
+            room_actor_gate: 200_000,
+            room_effect_poll: 50_000,
+            // Return work is already included in the enclosing allowances.
+            loop_return: 0,
+            // Explicit fallback drawing defaults. The component models above
+            // supersede these on their covered paths. Keep the established
+            // values for unsupported shapes, diagnostic overrides and score
+            // text whose firmware-dependent drawing slowdown is not modeled.
+            player_entry: 2_875_000,
+            completion_draw_byte: 4_000,
+            window_work: 480_000,
+            hearts_actor_draw: 1_500_000,
+            milk_drink_draw: 1_500_000,
+            milk_attention_draw: 1_000_000,
         }
     }
 
@@ -1498,6 +1515,8 @@ impl ReferenceCosts {
         }
     }
 
+    /// Legacy fixed-240 DOSBox-X profile for explicit comparison runs.
+    /// Ordinary play and construction of the XT profile do not use this profile.
     pub fn dosbox_x_240(machine: Machine) -> Self {
         // Rounded guest-time stage medians from the fixed-240 reference.
         // Software-breakpoint observation and state-dependent paths limit these
@@ -1532,8 +1551,8 @@ impl ReferenceCosts {
             room_descent: None,
             room_surface: None,
             hearts_player: None,
-            // Legacy clipped-entry allowance, also the XT fallback for
-            // unsampled drawing shapes. Selected XT bodies use EntryCosts.
+            // Legacy clipped-entry allowance; XT entry costs and fallbacks
+            // are specified independently in ibm_xt.
             player_entry: 2_875_000,
             entry: None,
             ground_dog: 95_833,

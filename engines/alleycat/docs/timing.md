@@ -1257,15 +1257,20 @@ fit. Their counter instrumentation adds measurable overhead, and their exact
 initial BIOS/video phases are unknown. Phase/overhead sweeps compare duration,
 final position and BIOS tick together within that uncertainty range.
 
-`ReferenceCosts::dosbox_x_240` retains the older DOSBox profile for explicit
-comparisons. Its room drawing allowances do not include the XT profile's added
-work breakdown or phase-dependent swimming surface wait. Ordinary play uses
-`ibm_xt`; unmeasured contact/reset callers, room actors, transitions, entry
-callers and startup-specific work retain provisional allowances. Some of those derive
-from DOSBox-X normal core at fixed 240 cycles/ms, an emulator throughput setting
-rather than a physical CPU clock. Changing measured costs is not a global speed
-multiplier and does not complete physical-PC timing calibration. Midnight clock
-reset and original keyboard transport remain outside this model.
+Ordinary play selects the complete, independent `ReferenceCosts::ibm_xt`
+profile. It combines scoped XT measurements, approved shared action allowances
+and explicit provisional defaults. The latter retain the established caller,
+polling and fallback drawing estimates; they are not newly measured XT costs.
+Active helper increments account for the shared room baseline, so changing that
+baseline requires reviewing the related fits together.
+
+`ReferenceCosts::dosbox_x_240` retains the older fixed-240 DOSBox-X profile only
+for explicit comparisons; it supplies no defaults to `ibm_xt`. Its room drawing
+allowances do not include the XT profile's added work breakdown or phase-dependent
+swimming surface wait. Fixed 240 cycles/ms is an emulator throughput setting,
+not a physical CPU clock. Changing measured costs is not a global speed multiplier
+and does not complete physical-PC timing calibration. Midnight clock reset and
+original keyboard transport remain outside this model.
 
 Actor helpers currently share one BIOS sample within each nonblocking call;
 an original interrupt between its internal timer reads can change a boundary

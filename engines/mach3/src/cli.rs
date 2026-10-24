@@ -55,9 +55,7 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
         crate::executable::data_segment(&program).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
-    if options.playback != Playback::Animated
-        || options.body_period != crate::gameplay::NOMINAL_PREVIEW_BODY_PERIOD
-    {
+    if options.is_preview() {
         return crate::viewer::run_preview(&frames, options, rules);
     }
     let samples = crate::sound::SoundAssets::load(&directory).map_err(|e| e.to_string())?;
@@ -169,7 +167,7 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     .ok_or_else(|| {
                         "--period-ms must be an integer between 1 and 5000".to_string()
                     })?;
-                options.body_period = std::time::Duration::from_millis(period);
+                options.preview_period = Some(std::time::Duration::from_millis(period));
             }
             #[cfg(feature = "dev-tools")]
             Some("--trace-input") => {
@@ -372,10 +370,8 @@ mod tests {
                 let (_, options) = parse_args(args(&values)).unwrap().unwrap();
                 assert_eq!(options.audio_renderer, renderer);
                 assert_eq!(options.playback, Playback::Animated);
-                assert_eq!(
-                    options.body_period,
-                    crate::gameplay::NOMINAL_PREVIEW_BODY_PERIOD
-                );
+                assert_eq!(options.preview_period, None);
+                assert!(!options.is_preview());
             }
         }
         let (_, options) = parse_args(args(&[
@@ -484,7 +480,11 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(options.audio_renderer, AudioRenderer::EnhancedPcm);
-        assert_eq!(options.body_period, std::time::Duration::from_millis(12));
+        assert_eq!(
+            options.preview_period,
+            Some(std::time::Duration::from_millis(12))
+        );
+        assert!(options.is_preview());
     }
 
     #[test]

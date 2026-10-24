@@ -1048,7 +1048,7 @@ pub(super) fn run(
     let mut timing = options
         .timing_trace
         .as_ref()
-        .map(|p| TimingTrace::create(p, options.body_period))
+        .map(|p| TimingTrace::create(p, options.nominal_body_period()))
         .transpose()?;
     let mut repaint = true;
     loop {

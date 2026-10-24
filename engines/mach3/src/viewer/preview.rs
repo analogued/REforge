@@ -207,7 +207,7 @@ impl GamePlayback {
         self.body_polled = false;
         self.quit_after_body_entry = false;
         self.pending_step = false;
-        self.next_frame = Some(now + options.body_period / 4);
+        self.next_frame = Some(now + options.nominal_body_period() / 4);
         #[cfg(feature = "dev-tools")]
         if let Some(trace) = &mut self.timing {
             let end = trace.now();
@@ -276,7 +276,7 @@ impl GamePlayback {
         now: std::time::Instant,
     ) -> Result<bool, String> {
         let mut repaint = false;
-        let unit = options.body_period / 4;
+        let unit = options.nominal_body_period() / 4;
         // These intervals have deliberate waits, not ordinary deadline debt.
         // Fold their scan history without manufacturing additional guest polls.
         if options.playback != Playback::Animated
@@ -667,10 +667,9 @@ impl GamePlayback {
                 self.pending_step = false;
             }
             self.color_family = gameplay.palette_family();
-            let period = self
-                .ending
-                .as_ref()
-                .map_or(unit, |state| options.body_period * state.wait_units() / 4);
+            let period = self.ending.as_ref().map_or(unit, |state| {
+                options.nominal_body_period() * state.wait_units() / 4
+            });
             #[cfg(feature = "dev-tools")]
             let previous_deadline = self.next_frame;
             self.next_frame = if gameplay.complete()
@@ -729,7 +728,9 @@ pub(super) fn run(
     if scale.is_some_and(|scale| !(1..=16).contains(&scale)) {
         return Err("window scale must be auto or an integer between 1 and 16".into());
     }
-    if options.body_period.is_zero() || options.body_period > std::time::Duration::from_secs(5) {
+    if options.nominal_body_period().is_zero()
+        || options.nominal_body_period() > std::time::Duration::from_secs(5)
+    {
         return Err("opening period must be greater than zero and at most five seconds".into());
     }
     let mut game = GamePlayback::default();
@@ -756,7 +757,7 @@ pub(super) fn run(
             &game.session,
             &format!(
                 "period_ns={} controls={} playback={:?} f3_mode={}",
-                options.body_period.as_nanos(),
+                options.nominal_body_period().as_nanos(),
                 options.controls,
                 options.playback,
                 options.f3_mode.as_str()
@@ -765,7 +766,7 @@ pub(super) fn run(
     }
     #[cfg(feature = "dev-tools")]
     if let Some(path) = &options.timing_trace {
-        game.timing = Some(TimingTrace::create(path, options.body_period)?);
+        game.timing = Some(TimingTrace::create(path, options.nominal_body_period())?);
     }
     let creator = window.texture_creator();
     let mut gamepads = reforge_sdl::gamepad::Gamepads::new(window.settings().stick_dead_zone);

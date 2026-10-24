@@ -57,7 +57,8 @@ pub struct Options {
     pub playback: Playback,
     pub controls: bool,
     pub audio_renderer: crate::sound::render::AudioRenderer,
-    pub body_period: std::time::Duration,
+    /// Explicit silent-preview override; None leaves normal playback on the PIT clock.
+    pub preview_period: Option<std::time::Duration>,
     #[cfg(feature = "dev-tools")]
     pub input_trace: Option<std::path::PathBuf>,
     #[cfg(feature = "dev-tools")]
@@ -74,12 +75,23 @@ impl Default for Options {
             playback: Playback::Animated,
             controls: false,
             audio_renderer: crate::sound::render::AudioRenderer::Speaker,
-            body_period: NOMINAL_PREVIEW_BODY_PERIOD,
+            preview_period: None,
             #[cfg(feature = "dev-tools")]
             input_trace: None,
             #[cfg(feature = "dev-tools")]
             timing_trace: None,
         }
+    }
+}
+
+impl Options {
+    /// Whether command-line options request silent nominal stepping.
+    pub(crate) fn is_preview(&self) -> bool {
+        self.playback != Playback::Animated || self.preview_period.is_some()
+    }
+
+    fn nominal_body_period(&self) -> std::time::Duration {
+        self.preview_period.unwrap_or(NOMINAL_PREVIEW_BODY_PERIOD)
     }
 }
 
@@ -210,7 +222,7 @@ fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
     event_action(presentation, event, false) != Action::Close
 }
 
-/// Run with externally decoded encounter rules, including retained-session restarts.
+/// Run a silent nominal preview, including retained-session restarts.
 pub fn run_preview(
     frames: &StartupFrames,
     options: Options,
@@ -228,10 +240,8 @@ pub fn run_live(
     intro: crate::sound::IntroProgram,
     procedural: crate::sound::ProceduralProgram,
 ) -> Result<(), String> {
-    if options.playback != Playback::Animated || options.body_period != NOMINAL_PREVIEW_BODY_PERIOD
-    {
-        eprintln!("warning: step/static and custom-period diagnostics use silent nominal stepping");
-        return preview::run(frames, options, rules);
+    if options.is_preview() {
+        return Err("step/static and custom-period options require run_preview".into());
     }
     if options
         .scale
@@ -449,4 +459,23 @@ fn display_rgb(frame: &Frame, mode: DisplayMode, family: u8) -> Vec<u8> {
         }
     }
     output
+}
+
+#[cfg(test)]
+mod options_tests {
+    use super::*;
+
+    #[test]
+    fn preview_selection_depends_on_intent_rather_than_period_value() {
+        let mut options = Options::default();
+        assert!(!options.is_preview());
+        options.preview_period = Some(NOMINAL_PREVIEW_BODY_PERIOD);
+        assert!(options.is_preview());
+        assert_eq!(options.nominal_body_period(), NOMINAL_PREVIEW_BODY_PERIOD);
+        for playback in [Playback::Step, Playback::Static] {
+            options.playback = playback;
+            options.preview_period = None;
+            assert!(options.is_preview());
+        }
+    }
 }

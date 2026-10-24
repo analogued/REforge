@@ -10,7 +10,7 @@ fn overdue_polls_use_received_history_and_match_punctual_execution() {
         controls: true,
         ..Options::default()
     };
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     for lateness in [
         Duration::from_micros(100),
         Duration::from_millis(1),
@@ -105,7 +105,7 @@ fn late_delivery_is_prospective_and_catch_up_repolls_keep_history_order() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let mut game = running_playback(&assets, start, &options);
     let mut input = ControlInput::default();
     game.advance(&assets, &options, start + unit).unwrap();
@@ -183,7 +183,7 @@ fn historical_f1_tap_enters_native_pause_without_replaying_its_release() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let poll = start + unit;
     let late = poll + Duration::from_millis(10);
     let mut game = running_playback(&assets, start, &options);
@@ -218,7 +218,7 @@ fn historical_function_keys_keep_four_poll_priority_and_counter_rules() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let mut delayed = running_playback(&assets, start, &options);
     let mut punctual = running_playback(&assets, start, &options);
     let mut delayed_input = ControlInput::default();
@@ -283,7 +283,7 @@ fn frontend_resets_discard_history_and_reject_buffered_or_repeat_keys() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     for focus in [false, true] {
         let mut game = running_playback(&assets, start, &options);
         let mut input = ControlInput::default();
@@ -372,7 +372,7 @@ fn deliberate_waits_fold_taps_without_replaying_discarded_deadlines() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let late = start + unit * 20;
     for boundary in ["transition", "native_resume", "ending", "step", "static"] {
         let mut options = options.clone();
@@ -467,7 +467,7 @@ fn transition_holds_and_new_session_preserve_current_scans_not_old_taps() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let now = start + unit * 10;
     let mut game = running_playback(&assets, start, &options);
     let mut input = ControlInput::default();

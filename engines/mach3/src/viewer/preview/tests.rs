@@ -364,7 +364,7 @@ fn running_playback(
     GamePlayback {
         visible_frame: Some(Gameplay::test_game(assets).unwrap().frame().clone()),
         gameplay: Some(Gameplay::test_game(assets).unwrap()),
-        next_frame: Some(start + options.body_period / 4),
+        next_frame: Some(start + options.nominal_body_period() / 4),
         ..GamePlayback::default()
     }
 }
@@ -404,7 +404,7 @@ fn f3_restores_palette_at_body_steering_and_native_pause_polls() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let green_game = || {
         let mut data = vec![0; 65536];
         data[0x04ac..0x04af].copy_from_slice(&[1, 2, 3]);
@@ -514,7 +514,7 @@ fn publication_wait_retains_pixels_and_consumes_no_input_poll() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let mut game = running_playback(&assets, start, &options);
     let initial = game.visible_frame.clone();
     game.advance(&assets, &options, start + unit).unwrap();
@@ -579,7 +579,7 @@ fn changed_layer_publishes_immediately_then_restores_the_extra_wait() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let mut data = vec![0; 65536];
     data[0x04ac..0x04af].copy_from_slice(&[1, 2, 3]);
     for index in 0..21 {
@@ -620,7 +620,7 @@ fn f3_repaints_previous_pixels_while_first_pass_publication_is_pending() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let mut game = running_playback(&assets, start, &options);
     let old = game.visible_frame.clone();
     // Skip the body's function-key poll to exercise one F3 mode switch at
@@ -649,7 +649,7 @@ fn pending_publication_survives_focus_and_host_pause_and_is_reset_by_new_game() 
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     for focus in [false, true] {
         let mut game = running_playback(&assets, start, &options);
         game.advance(&assets, &options, start + unit).unwrap();
@@ -713,7 +713,7 @@ fn ordinary_simulation_matches_at_15_30_60_and_120_presentations_per_second() {
     };
     let start = Instant::now();
     let end = start + Duration::from_secs(1);
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let mut reference = running_playback(&assets, start, &options);
     for scan in [0x4d, 0x39, 0x3c] {
         reference.session.keyboard.apply_scan(scan);
@@ -771,7 +771,7 @@ fn timing_spans_observe_catch_up_and_blocking_waits_without_changing_state() {
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
     let assets = synthetic_assets();
     let options = Options::default();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let origin = Instant::now();
     let path = std::env::temp_dir().join(format!(
         "mach3-timing-viewer-{}-{}.tsv",
@@ -782,11 +782,12 @@ fn timing_spans_observe_catch_up_and_blocking_waits_without_changing_state() {
             .as_nanos()
     ));
     let mut ticks = 0;
-    let mut trace = TimingTrace::create_with_clock(&path, options.body_period, origin, move || {
-        ticks += 1;
-        origin + Duration::from_micros(ticks)
-    })
-    .unwrap();
+    let mut trace =
+        TimingTrace::create_with_clock(&path, options.nominal_body_period(), origin, move || {
+            ticks += 1;
+            origin + Duration::from_micros(ticks)
+        })
+        .unwrap();
     trace.begin_game();
     let mut game = running_playback(&assets, origin, &options);
     let mut plain = running_playback(&assets, origin, &options);
@@ -894,7 +895,7 @@ fn bounded_catch_up_keeps_debt_without_changing_step_or_static_playback() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let late = start + options.body_period / 4 * 100;
+    let late = start + options.nominal_body_period() / 4 * 100;
     let mut game = running_playback(&assets, start, &options);
     game.advance(&assets, &options, late).unwrap();
     assert_eq!(pass_count(&game), 48);
@@ -928,7 +929,7 @@ fn catch_up_stops_for_native_pause_and_preserves_transition_waits() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let late = start + unit * 100;
     let mut paused = running_playback(&assets, start, &options);
     paused.session.keyboard.apply_scan(0x3b);
@@ -977,7 +978,7 @@ fn ending_frames_keep_their_visible_waits_instead_of_catching_up() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let mut game = running_playback(&assets, start, &options);
     #[cfg(feature = "dev-tools")]
     let path = std::env::temp_dir().join(format!(
@@ -990,9 +991,13 @@ fn ending_frames_keep_their_visible_waits_instead_of_catching_up() {
     ));
     #[cfg(feature = "dev-tools")]
     {
-        let mut trace =
-            TimingTrace::create_with_clock(&path, options.body_period, start, move || start)
-                .unwrap();
+        let mut trace = TimingTrace::create_with_clock(
+            &path,
+            options.nominal_body_period(),
+            start,
+            move || start,
+        )
+        .unwrap();
         trace.begin_game();
         game.timing = Some(trace);
     }
@@ -1023,7 +1028,7 @@ fn ending_frames_keep_their_visible_waits_instead_of_catching_up() {
     );
     assert_eq!(
         game.next_frame,
-        Some(late + options.body_period * expected.wait_units() / 4)
+        Some(late + options.nominal_body_period() * expected.wait_units() / 4)
     );
     #[cfg(feature = "dev-tools")]
     {
@@ -1214,7 +1219,7 @@ fn input_tracing_preserves_historical_poll_results() {
         controls: true,
         ..Options::default()
     };
-    let unit = options.body_period / 4;
+    let unit = options.nominal_body_period() / 4;
     let read_rows = |game: &mut GamePlayback, path: &std::path::Path| {
         game.trace.as_mut().unwrap().flush().unwrap();
         std::fs::read_to_string(path)

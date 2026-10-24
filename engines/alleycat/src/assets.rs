@@ -208,12 +208,22 @@ pub(crate) fn clothes_tile(
     (tile, occupancy)
 }
 
+/// Initial scenery rejects repeated random patterns. States 0 and 1 cannot
+/// escape zero, while every other state stays outside that absorbing pair.
+pub(crate) fn validate_startup_seed(seed: u16) -> Result<(), String> {
+    match seed {
+        0 => Err("Alley random seed must be nonzero".into()),
+        1 => Err("Alley random seed 1 reaches zero and cannot initialize scenery".into()),
+        _ => Ok(()),
+    }
+}
+
 /// Reconstructs the original alley initialization using the caller's mutable DS.
 /// DS:0008 selects difficulty (0..7), DS:6df8 selects the sign, and DS:2ae5
 /// supplies the shared random state. Window occupancy and moving support state
 /// are written back for movement and subsequent random consumers.
-/// A zero seed is rejected: the original initializer's pattern-rejection loop
-/// cannot complete with zero. The startup PIT seeder separately substitutes fa59.
+/// Seeds 0 and 1 are rejected: the original pattern-rejection loop cannot
+/// complete once the generator reaches zero.
 pub fn initialize_alley(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
     if data.len() < DATA_LENGTH {
         return Err("Executable runtime data segment is truncated".into());
@@ -222,9 +232,7 @@ pub fn initialize_alley(data: &mut [u8], screen: &mut Framebuffer) -> Result<(),
     if difficulty > 7 {
         return Err("Alley difficulty must be in 0..7".into());
     }
-    if word(data, 0x2ae5) == 0 {
-        return Err("Alley random seed must be nonzero".into());
-    }
+    validate_startup_seed(word(data, 0x2ae5))?;
     screen.fill_visible(0xaa);
     draw_sidewalk(screen, data)?;
     byte_list(screen, data, 0x28a0)?;
@@ -280,15 +288,28 @@ mod tests {
     }
 
     #[test]
-    fn zero_seed_is_rejected_before_alley_data_or_framebuffer_changes() {
-        let mut data = vec![0x5a; DATA_LENGTH];
-        set_word(&mut data, 8, 0);
-        set_word(&mut data, 0x2ae5, 0);
-        let original_data = data.clone();
-        let mut framebuffer = Framebuffer::from_bytes(&[0xa5; crate::cga::MEMORY_SIZE]).unwrap();
-        let error = initialize_alley(&mut data, &mut framebuffer).unwrap_err();
-        assert!(error.contains("seed must be nonzero"));
-        assert_eq!(data, original_data);
-        assert_eq!(framebuffer.bytes(), &[0xa5; crate::cga::MEMORY_SIZE]);
+    fn unusable_seeds_are_rejected_before_alley_data_or_framebuffer_changes() {
+        for seed in [0, 1] {
+            let mut data = vec![0x5a; DATA_LENGTH];
+            set_word(&mut data, 8, 0);
+            set_word(&mut data, 0x2ae5, seed);
+            let original_data = data.clone();
+            let mut framebuffer =
+                Framebuffer::from_bytes(&[0xa5; crate::cga::MEMORY_SIZE]).unwrap();
+            let error = initialize_alley(&mut data, &mut framebuffer).unwrap_err();
+            assert!(error.contains("seed"));
+            assert_eq!(data, original_data);
+            assert_eq!(framebuffer.bytes(), &[0xa5; crate::cga::MEMORY_SIZE]);
+        }
+    }
+
+    #[test]
+    fn usable_random_states_never_enter_the_absorbing_pair() {
+        assert_eq!(random_successor(0), 0);
+        assert_eq!(random_successor(1), 0);
+        for seed in 2..=u16::MAX {
+            assert!(validate_startup_seed(seed).is_ok());
+            assert!(random_successor(seed) >= 2);
+        }
     }
 }

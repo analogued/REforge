@@ -2,7 +2,7 @@
 
 //! CS:1bf0 entries with no intervening return presentation.
 
-use crate::cga::Framebuffer;
+use crate::framebuffer::Framebuffer;
 use crate::presentation::{Wipe, Work};
 use crate::sound::Sound;
 

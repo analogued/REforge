@@ -3,7 +3,7 @@
 //! Accumulating post-title questions and controls, using external menu text.
 
 use crate::alley::Machine;
-use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::framebuffer::{Dimensions, Framebuffer, pixel_offset};
 
 const TEXT_POINTERS: usize = 0x6d37;
 const TEXT_POSITIONS: usize = 0x6d63;

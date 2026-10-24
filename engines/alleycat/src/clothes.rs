@@ -3,7 +3,7 @@
 //! Original clothesline gates, garment selection, support shifts and cat carry.
 
 use crate::assets::{DATA_LENGTH, clothes_tile, next_random, set_word, word};
-use crate::cga::{Dimensions, Framebuffer};
+use crate::framebuffer::{Dimensions, Framebuffer};
 use crate::player::Player;
 
 /// CS:0658: an airborne cat in this row inhibits scrolling. An attached cat

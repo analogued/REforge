@@ -6,7 +6,7 @@
 //! in original state even while the damaging dog remains deliberately absent.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, word};
-use crate::cga::{Dimensions, pixel_offset};
+use crate::framebuffer::{Dimensions, pixel_offset};
 use crate::player::{Controls, Player};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -7,7 +7,7 @@
 //! Air expiry forces sinking and bubbles before the delayed room failure.
 
 use crate::assets::{DATA_LENGTH, set_word, word};
-use crate::cga::pixel_offset;
+use crate::framebuffer::pixel_offset;
 use crate::player::{Controls, Draw, Sprite};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

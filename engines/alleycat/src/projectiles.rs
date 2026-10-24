@@ -4,7 +4,7 @@
 //! The caller owns background composition and pauses gameplay during the effect.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, word};
-use crate::cga::{Dimensions, pixel_offset};
+use crate::framebuffer::{Dimensions, pixel_offset};
 use crate::player::Player;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -4,7 +4,7 @@
 //! Imagery, speaker sequences and tick gates use the original tables.
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
-use crate::cga::{Dimensions, Framebuffer};
+use crate::framebuffer::{Dimensions, Framebuffer};
 use crate::presentation::{Wipe, Work};
 
 #[derive(Clone, Copy, Debug)]

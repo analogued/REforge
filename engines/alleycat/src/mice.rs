@@ -4,7 +4,7 @@
 //! Images describe completed actor changes; the alley owns their composition.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, word};
-use crate::cga::pixel_offset;
+use crate::framebuffer::pixel_offset;
 use crate::player::Player;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

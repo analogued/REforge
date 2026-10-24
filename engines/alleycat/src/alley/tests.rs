@@ -1111,7 +1111,10 @@ fn deferred_scenery_matches_the_previous_initial_title_handoff_and_following_pas
                 let mut splash = crate::splash::Splash::new(&data, machine).unwrap();
                 let mut deferred = Alley::for_initial_title(&splash, seed, skill).unwrap();
                 assert_eq!(deferred.data, splash.data());
-                assert_eq!(deferred.screen.bytes(), &[0; crate::cga::MEMORY_SIZE]);
+                assert_eq!(
+                    deferred.screen.bytes(),
+                    &[0; crate::framebuffer::MEMORY_SIZE]
+                );
                 for tick in 0..=watched {
                     splash.advance(tick, true, tick == watched).unwrap();
                 }

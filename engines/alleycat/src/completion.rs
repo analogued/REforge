@@ -4,7 +4,7 @@
 //! Tick waits and speaker writes are independent of host rendering.
 
 use crate::assets::{DATA_LENGTH, set_word, word};
-use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::framebuffer::{Dimensions, Framebuffer, pixel_offset};
 
 use crate::presentation::{AwardWork, Poll, PollWork, Wipe, Work};
 

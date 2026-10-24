@@ -3,8 +3,8 @@
 //! Ordinary room drawing, table support and the nonlethal room broom.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
-use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 use crate::collision::overlaps;
+use crate::framebuffer::{Dimensions, Framebuffer, pixel_offset};
 use crate::player::Player;
 
 /// Measured quiet return paths, separate from active drawing allowances.

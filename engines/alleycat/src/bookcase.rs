@@ -7,8 +7,8 @@
 //! The caller completes that wait before setting the room-failure flag.
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
-use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 use crate::collision::overlaps;
+use crate::framebuffer::{Dimensions, Framebuffer, pixel_offset};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct TargetStep {
@@ -233,7 +233,7 @@ pub(crate) fn draw_spider_failure(data: &mut [u8], screen: &mut Framebuffer) -> 
     let y = data[0x57b].saturating_sub(4);
     let dimensions = Dimensions(0x1506);
     let saved = screen.zero_transparent_rect(
-        crate::cga::pixel_offset(x, y),
+        crate::framebuffer::pixel_offset(x, y),
         dimensions,
         sprite_bytes(data, 0x37c0, dimensions)?,
     )?;

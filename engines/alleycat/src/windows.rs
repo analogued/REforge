@@ -7,7 +7,7 @@
 //! one-tick hold is corrected by default, with an optional development override.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
-use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::framebuffer::{Dimensions, Framebuffer, pixel_offset};
 use crate::player::Player;
 
 #[derive(Clone, Copy, Debug, Default)]

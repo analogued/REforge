@@ -7,8 +7,8 @@
 //! the warning animation and reports lethal attention for the shared dog pursuit.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
-use crate::cga::{Dimensions, Framebuffer, pixel_offset};
 use crate::collision::overlaps;
+use crate::framebuffer::{Dimensions, Framebuffer, pixel_offset};
 use crate::room;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

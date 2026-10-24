@@ -2,7 +2,7 @@
 //! Shared work descriptions and native wipes for success, failure and room entry.
 
 use crate::assets::{set_word, word};
-use crate::cga::{Framebuffer, pixel_offset};
+use crate::framebuffer::{Framebuffer, pixel_offset};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Work {

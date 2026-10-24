@@ -1,6 +1,7 @@
 // Copyright (c) 2026 analogued. License has not yet been selected.
 
-//! The original packed, two-bank 320 by 200 framebuffer and rectangle operations.
+//! Packed, two-bank 320 by 200 framebuffer shared by the CGA and PCjr paths.
+//! Includes rectangle operations and player sprite compositing.
 
 pub const WIDTH: usize = 320;
 pub const HEIGHT: usize = 200;

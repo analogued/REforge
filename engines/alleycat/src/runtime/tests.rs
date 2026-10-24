@@ -254,7 +254,7 @@ fn setup_distinguishes_saved_alley_return_from_ground_entry() {
 #[test]
 fn window_retrace_work_is_charged_without_recharging_quiet_countdown() {
     let mut data = vec![0; crate::assets::DATA_LENGTH];
-    let mut screen = crate::cga::Framebuffer::default();
+    let mut screen = crate::framebuffer::Framebuffer::default();
     let player = crate::player::Player::at_alley_floor(8);
     data[0x166a] = 2;
     let quiet = crate::windows::advance(
@@ -296,7 +296,7 @@ fn calibrated_wipe_counts_zero_byte_work_without_double_charging_dispatch() {
     let work = wipe
         .advance(
             &mut vec![0; crate::assets::DATA_LENGTH],
-            &mut crate::cga::Framebuffer::default(),
+            &mut crate::framebuffer::Framebuffer::default(),
             &mut crate::sound::Sound::default(),
         )
         .unwrap();
@@ -638,7 +638,7 @@ fn native_hearts_work_is_independent_of_host_recomposition() {
     crate::assets::set_word(&mut data, 0x45b8, 1);
     let mut step = crate::hearts::advance_cat(
         &mut data,
-        &mut crate::cga::Framebuffer::default(),
+        &mut crate::framebuffer::Framebuffer::default(),
         1,
         &mut crate::sound::Sound::default(),
     )

@@ -8,7 +8,7 @@
 
 use crate::alley::Machine;
 use crate::assets::{DATA_LENGTH, idle_sources, next_random, set_word, sprite_bytes, word};
-use crate::cga::{Dimensions, Framebuffer, PlayerCompositor, pixel_offset};
+use crate::framebuffer::{Dimensions, Framebuffer, PlayerCompositor, pixel_offset};
 use crate::player::{Controls, Draw, Player};
 use crate::timing::{BiosSample, PlayerGate};
 

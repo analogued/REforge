@@ -2,7 +2,7 @@
 
 //! External assets from the supported executable, never bundled with the program.
 
-use crate::cga::{Dimensions, Framebuffer};
+use crate::framebuffer::{Dimensions, Framebuffer};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
@@ -295,11 +295,14 @@ mod tests {
             set_word(&mut data, 0x2ae5, seed);
             let original_data = data.clone();
             let mut framebuffer =
-                Framebuffer::from_bytes(&[0xa5; crate::cga::MEMORY_SIZE]).unwrap();
+                Framebuffer::from_bytes(&[0xa5; crate::framebuffer::MEMORY_SIZE]).unwrap();
             let error = initialize_alley(&mut data, &mut framebuffer).unwrap_err();
             assert!(error.contains("seed"));
             assert_eq!(data, original_data);
-            assert_eq!(framebuffer.bytes(), &[0xa5; crate::cga::MEMORY_SIZE]);
+            assert_eq!(
+                framebuffer.bytes(),
+                &[0xa5; crate::framebuffer::MEMORY_SIZE]
+            );
         }
     }
 

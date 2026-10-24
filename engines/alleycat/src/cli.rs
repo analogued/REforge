@@ -1,10 +1,10 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
 use alleycat::alley::{Alley, Machine};
-#[cfg(any(feature = "sdl", feature = "dev-tools"))]
-use alleycat::cga::{HEIGHT, WIDTH};
 #[cfg(feature = "dev-tools")]
 use alleycat::dev_tools::DevOptions;
+#[cfg(any(feature = "sdl", feature = "dev-tools"))]
+use alleycat::framebuffer::{HEIGHT, WIDTH};
 #[cfg(any(feature = "dev-tools", all(test, feature = "sdl")))]
 use alleycat::player::Controls;
 #[cfg(feature = "dev-tools")]

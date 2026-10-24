@@ -5,7 +5,7 @@
 //! with the original presentation stages.
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
-use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::framebuffer::{Dimensions, Framebuffer, pixel_offset};
 use crate::presentation::{Wipe, Work};
 
 /// Native presentation work, separate from tick/retrace waits and host redraws.

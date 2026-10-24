@@ -3,7 +3,7 @@
 //! Nonhazardous alley decorations and the original decimal score display.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
-use crate::cga::{Dimensions, Framebuffer};
+use crate::framebuffer::{Dimensions, Framebuffer};
 
 const LIVES: usize = 0x1f80;
 const PREVIOUS_LIVES: usize = 0x1f81;

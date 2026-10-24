@@ -5,10 +5,10 @@
 use crate::assets::{
     Assets, idle_sources, initialize_alley, next_random, set_word, sprite_bytes, word,
 };
-use crate::cga::{Dimensions, Framebuffer, PlayerCompositor, pixel_offset};
 use crate::decoration::{award_points, draw_ground_objects, draw_hud, initialize_score_state};
 #[cfg(feature = "dev-tools")]
 use crate::dev_tools::{Actor, Damage, DevOptions};
+use crate::framebuffer::{Dimensions, Framebuffer, PlayerCompositor, pixel_offset};
 use crate::mice::{Blend, Contact, Image, Mice};
 use crate::player::{Controls, Draw, Player, UpdateOutcome};
 use std::path::Path;

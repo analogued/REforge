@@ -6,7 +6,7 @@
 //! The caller owns compositing and schedules scene 6 only during its pursuit.
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, word};
-use crate::cga::{Dimensions, pixel_offset};
+use crate::framebuffer::{Dimensions, pixel_offset};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct VisibleSprite {
@@ -318,7 +318,10 @@ fn advance_position(data: &mut [u8], dying: bool) {
 }
 
 #[cfg(test)]
-pub(crate) fn draw(data: &mut [u8], screen: &mut crate::cga::Framebuffer) -> Result<(), String> {
+pub(crate) fn draw(
+    data: &mut [u8],
+    screen: &mut crate::framebuffer::Framebuffer,
+) -> Result<(), String> {
     let sprite = visible_sprite(data)?;
     set_word(data, 0x1cc2, sprite.dimensions.0);
     let background = if sprite.opaque {
@@ -343,7 +346,10 @@ pub(crate) fn draw(data: &mut [u8], screen: &mut crate::cga::Framebuffer) -> Res
 }
 
 #[cfg(test)]
-pub(crate) fn restore(data: &mut [u8], screen: &mut crate::cga::Framebuffer) -> Result<(), String> {
+pub(crate) fn restore(
+    data: &mut [u8],
+    screen: &mut crate::framebuffer::Framebuffer,
+) -> Result<(), String> {
     let dimensions = Dimensions(word(data, 0x1cc2));
     let source = data
         .get(0x1c40..0x1c40 + dimensions.len())
@@ -357,7 +363,7 @@ pub(crate) fn restore(data: &mut [u8], screen: &mut crate::cga::Framebuffer) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cga::Framebuffer;
+    use crate::framebuffer::Framebuffer;
 
     fn data() -> Vec<u8> {
         let mut data = vec![0; DATA_LENGTH];

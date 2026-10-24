@@ -13,6 +13,7 @@ pub mod cga;
 mod cheese;
 pub mod cli;
 mod clothes;
+mod collision;
 mod completion;
 #[cfg(any(feature = "sdl", test))]
 mod control_history;

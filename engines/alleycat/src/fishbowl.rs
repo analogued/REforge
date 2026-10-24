@@ -8,6 +8,7 @@
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::collision::overlaps;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct BowlStep {
@@ -66,13 +67,6 @@ fn copy_sprite(
     data[0x2ae0] = dimensions.0 as u8;
     data[0x2ae2] = 0;
     Ok(())
-}
-
-fn overlap(a: (u16, u8, u16, u8), b: (u16, u8, u16, u8)) -> bool {
-    a.0.wrapping_add(a.2) >= b.0
-        && a.0.saturating_sub(b.2) <= b.0
-        && a.1.wrapping_add(a.3) >= b.1
-        && a.1.saturating_sub(b.3) <= b.1
 }
 
 fn player_rect(data: &[u8]) -> (u16, u8, u16, u8) {
@@ -161,7 +155,7 @@ pub(crate) fn advance_bowl(
     set_word(data, 0x35d8, phase);
     let source = word(data, 0x35d0 + usize::from(phase & 6));
     copy_sprite(data, screen, source, 0x15c9, Dimensions(0x0a02))?;
-    let entered = overlap((228, 138, 16, 10), player_rect(data));
+    let entered = overlaps((228, 138, 16, 10), player_rect(data));
     if entered {
         data[0x554] = 1;
     }
@@ -376,7 +370,7 @@ pub(crate) fn contacts_with_damage(
         }
         result.tested += 1;
         let kind = if slot < 12 { 0 } else { 2 };
-        if !overlap(
+        if !overlaps(
             (
                 word(data, 0x3447 + slot * 2),
                 data[0x3477 + slot],
@@ -520,7 +514,7 @@ pub(crate) fn contacts_dev_with_damage(
             continue;
         }
         result.tested += 1;
-        if !overlap(
+        if !overlaps(
             (
                 word(data, 0x3447 + slot * 2),
                 data[0x3477 + slot],

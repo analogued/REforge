@@ -8,6 +8,7 @@
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::collision::overlaps;
 use crate::room;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -201,15 +202,8 @@ fn stop_drinking(
     Ok(())
 }
 
-fn overlap(a: (u16, u8, u16, u8), b: (u16, u8, u16, u8)) -> bool {
-    a.0.wrapping_add(a.2) >= b.0
-        && a.0.saturating_sub(b.2) <= b.0
-        && a.1.wrapping_add(a.3) >= b.1
-        && a.1.saturating_sub(b.3) <= b.1
-}
-
 fn drinking_broom_contact(data: &[u8]) -> bool {
-    overlap(
+    overlaps(
         (word(data, 0x327d), data[0x327f], 16, 30),
         (
             word(data, 0x579).saturating_sub(8),
@@ -539,7 +533,7 @@ pub(crate) fn advance_attention_timed(
                 set_word(data, 0x4459 + offset, level - 1);
             }
         }
-        let player_overlap = overlap(
+        let player_overlap = overlaps(
             (
                 word(data, 0x43e1 + offset).wrapping_sub(20),
                 data[0x43f9 + offset],

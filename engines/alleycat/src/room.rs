@@ -4,6 +4,7 @@
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::collision::overlaps;
 use crate::player::Player;
 
 /// Measured quiet return paths, separate from active drawing allowances.
@@ -397,15 +398,6 @@ pub(crate) struct TableSupport {
 pub(crate) struct SupportCheck {
     pub hit: Option<TableSupport>,
     pub exit: bool,
-}
-
-fn overlaps(first: (u16, u8, u16, u8), second: (u16, u8, u16, u8)) -> bool {
-    let (x, y, width, height) = first;
-    let (other_x, other_y, other_width, other_height) = second;
-    x.wrapping_add(width) >= other_x
-        && x.saturating_sub(other_width) <= other_x
-        && y.wrapping_add(height) >= other_y
-        && y.saturating_sub(other_height) <= other_y
 }
 
 /// CS:16c6 support and neutral-exit result. Exit returns original CF=0, so it

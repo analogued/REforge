@@ -8,6 +8,7 @@
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::collision::overlaps;
 use crate::player::Player;
 use crate::room::{SupportCheck, TableSupport, draw_list, initialize_broom};
 
@@ -83,13 +84,6 @@ fn check(data: &[u8]) -> Result<(), String> {
     } else {
         Ok(())
     }
-}
-
-fn overlap(a: (u16, u8, u16, u8), b: (u16, u8, u16, u8)) -> bool {
-    a.0.wrapping_add(a.2) >= b.0
-        && a.0.saturating_sub(b.2) <= b.0
-        && a.1.wrapping_add(a.3) >= b.1
-        && a.1.saturating_sub(b.3) <= b.1
 }
 
 fn player_rect(data: &[u8]) -> (u16, u8, u16, u8) {
@@ -302,7 +296,7 @@ fn draw_cat(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
 
 /// CS:4dd0 contact leaves the existing support marker and vertical phase alone.
 pub(crate) fn cat_contact(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound) -> bool {
-    if !overlap(player_rect(data), cat_rect(data)) {
+    if !overlaps(player_rect(data), cat_rect(data)) {
         return false;
     }
     if word(data, 0x45b6) == 6 {
@@ -324,7 +318,7 @@ pub(crate) fn cat_contact(data: &mut [u8], tick: u16, sound: &mut crate::sound::
 }
 
 fn cat_arrow_contact(data: &[u8]) -> bool {
-    data[0x70f2] != 0 && overlap(arrow_rect(data), cat_rect(data))
+    data[0x70f2] != 0 && overlaps(arrow_rect(data), cat_rect(data))
 }
 
 /// CS:4e75 consumes one item, scanning the active slots from seven down to zero.
@@ -347,7 +341,7 @@ fn consume_item_counted(
             continue;
         }
         active += 1;
-        if !overlap(item_rect(data, index), cat_rect(data)) {
+        if !overlaps(item_rect(data, index), cat_rect(data)) {
             continue;
         }
         if data[0x45be] == 0 && data[0x70f2] != 0 {
@@ -585,7 +579,7 @@ fn draw_arrow(data: &mut [u8], screen: &mut Framebuffer) -> Result<(), String> {
 
 /// CS:62a6 does not retire the arrow; CS:6106 owns its active flag.
 pub(crate) fn arrow_contact(data: &mut [u8], tick: u16, sound: &mut crate::sound::Sound) -> bool {
-    if data[0x70f2] == 0 || !overlap(arrow_rect(data), player_rect(data)) {
+    if data[0x70f2] == 0 || !overlaps(arrow_rect(data), player_rect(data)) {
         return false;
     }
     data[0x571] = 1;
@@ -741,7 +735,7 @@ pub(crate) fn pickup_item(
         for index in (0..8).rev() {
             slots += 1;
             active += u8::from(data[0x2b72 + index] != 0);
-            if data[0x2b72 + index] == 0 || !overlap(item_rect(data, index), player_rect(data)) {
+            if data[0x2b72 + index] == 0 || !overlaps(item_rect(data, index), player_rect(data)) {
                 continue;
             }
             if word(data, 0x2e94) == index as u16 {
@@ -827,7 +821,7 @@ pub(crate) fn place_item(
         active += u8::from(other != item && data[0x2b72 + other] != 0);
         if other != item
             && data[0x2b72 + other] != 0
-            && overlap(item_rect(data, other), item_rect(data, item))
+            && overlaps(item_rect(data, other), item_rect(data, item))
         {
             result.work = Some(Work::Place {
                 blocked: true,

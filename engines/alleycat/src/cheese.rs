@@ -8,6 +8,7 @@
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::collision::overlaps;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct MouseStep {
@@ -41,13 +42,6 @@ fn check(data: &[u8]) -> Result<(), String> {
     }
 }
 
-fn overlap(a: (u16, u8, u16, u8), b: (u16, u8, u16, u8)) -> bool {
-    a.0.wrapping_add(a.2) >= b.0
-        && a.0.saturating_sub(b.2) <= b.0
-        && a.1.wrapping_add(a.3) >= b.1
-        && a.1.saturating_sub(b.3) <= b.1
-}
-
 fn player_rect(data: &[u8]) -> (u16, u8, u16, u8) {
     (word(data, 0x579), data[0x57b], 24, 14)
 }
@@ -61,11 +55,11 @@ fn mouse_rect(data: &[u8], slot: usize) -> (u16, u8, u16, u8) {
 }
 
 pub(crate) fn mouse_contact(data: &[u8], slot: usize) -> bool {
-    overlap(mouse_rect(data, slot), player_rect(data))
+    overlaps(mouse_rect(data, slot), player_rect(data))
 }
 
 fn broom_contact(data: &[u8], slot: usize) -> bool {
-    overlap(mouse_rect(data, slot), broom_rect(data))
+    overlaps(mouse_rect(data, slot), broom_rect(data))
 }
 
 // CS:431c uses one's complements on borrowed differences rather than ABS.
@@ -372,7 +366,7 @@ fn advance_transfer_inner(
             result.quiet = Some(crate::room::QuietWork::TransferInactive);
             return Ok(result);
         }
-        if broom_enabled && overlap(broom_rect(data), player_rect(data)) {
+        if broom_enabled && overlaps(broom_rect(data), player_rect(data)) {
             return Ok(result);
         }
         if tick.wrapping_sub(word(data, 0x3d18)) < 12 {

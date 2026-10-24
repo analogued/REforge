@@ -8,6 +8,7 @@
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::collision::overlaps;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct TargetStep {
@@ -37,14 +38,6 @@ fn check(data: &[u8]) -> Result<(), String> {
     }
 }
 
-// CS:2e29 uses inclusive endpoints, wrapping sums and borrow-clamped lows.
-fn overlap(a: (u16, u8, u16, u8), b: (u16, u8, u16, u8)) -> bool {
-    a.0.wrapping_add(a.2) >= b.0
-        && a.0.saturating_sub(b.2) <= b.0
-        && a.1.wrapping_add(a.3) >= b.1
-        && a.1.saturating_sub(b.3) <= b.1
-}
-
 fn spider_rect(data: &[u8]) -> (u16, u8, u16, u8) {
     (word(data, 0x3964), data[0x3966], 24, 14)
 }
@@ -54,11 +47,11 @@ fn player_rect(data: &[u8]) -> (u16, u8, u16, u8) {
 }
 
 pub(crate) fn spider_contact(data: &[u8]) -> bool {
-    overlap(spider_rect(data), player_rect(data))
+    overlaps(spider_rect(data), player_rect(data))
 }
 
 fn broom_contact(data: &[u8]) -> bool {
-    overlap(
+    overlaps(
         spider_rect(data),
         (word(data, 0x327d), data[0x327f], 16, 30),
     )
@@ -155,7 +148,7 @@ fn advance_targets_inner(
         let offset = slot * 2;
         set_word(data, 0x37b6, offset as u16);
         if word(data, 0x37b0 + offset) == 0
-            || !overlap((word(data, 0x37a3 + offset), 24, 16, 16), player_rect(data))
+            || !overlaps((word(data, 0x37a3 + offset), 24, 16, 16), player_rect(data))
         {
             continue;
         }

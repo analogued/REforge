@@ -8,6 +8,7 @@
 
 use crate::assets::{DATA_LENGTH, next_random, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
+use crate::collision::overlaps;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct CageStep {
@@ -69,19 +70,8 @@ fn check(data: &[u8]) -> Result<(), String> {
     }
 }
 
-// CS:2e29: inclusive endpoints, wrapping addition, and borrow-clamped lower
-// endpoints. Preserve byte arithmetic for Y, including its overflow behavior.
-fn overlap(first: (u16, u8, u16, u8), second: (u16, u8, u16, u8)) -> bool {
-    let (x, y, w, h) = first;
-    let (other_x, other_y, ow, oh) = second;
-    x.wrapping_add(w) >= other_x
-        && x.saturating_sub(ow) <= other_x
-        && y.wrapping_add(h) >= other_y
-        && y.saturating_sub(oh) <= other_y
-}
-
 pub(crate) fn cage_contact(data: &[u8]) -> bool {
-    overlap(
+    overlaps(
         (word(data, 0x40a8), data[0x40aa], 24, 16),
         (word(data, 0x579), data[0x57b], 24, 14),
     )
@@ -90,7 +80,7 @@ pub(crate) fn cage_contact(data: &[u8]) -> bool {
 /// CS:452d sets success only while failure is clear. Its original CF is not a
 /// reliable contact result because the failure comparison overwrites flags.
 pub(crate) fn capture(data: &mut [u8]) -> bool {
-    let hit = overlap(
+    let hit = overlaps(
         (word(data, 0x40b2), data[0x40b4], 8, 5),
         (word(data, 0x579), data[0x57b], 24, 14),
     );
@@ -101,7 +91,7 @@ pub(crate) fn capture(data: &mut [u8]) -> bool {
 }
 
 pub(crate) fn broom_contact(data: &mut [u8]) -> bool {
-    let hit = overlap(
+    let hit = overlaps(
         (word(data, 0x40b2), data[0x40b4], 8, 5),
         (word(data, 0x327d), data[0x327f], 16, 30),
     );

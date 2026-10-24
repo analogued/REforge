@@ -316,7 +316,7 @@ fn eel_deadline_waits_for_retrace_extra_pulses_and_palette() {
 }
 use crate::assets::word;
 
-fn initial_title_fixture(machine: Machine, watched_ticks: u16) -> crate::splash::Splash {
+fn initial_title_data() -> Vec<u8> {
     let mut data = Alley::synthetic().data;
     set_word(&mut data, 0x28a2, 0xffff);
     set_word(&mut data, 0x5908, 0x7100);
@@ -324,7 +324,11 @@ fn initial_title_fixture(machine: Machine, watched_ticks: u16) -> crate::splash:
     set_word(&mut data, 0x7100, 0xffff);
     set_word(&mut data, 0x56da, 846);
     data[0x538c] = 0x66;
-    let mut splash = crate::splash::Splash::new(&data, machine).unwrap();
+    data
+}
+
+fn initial_title_fixture(machine: Machine, watched_ticks: u16) -> crate::splash::Splash {
+    let mut splash = crate::splash::Splash::new(&initial_title_data(), machine).unwrap();
     for tick in 0..=watched_ticks {
         splash.advance(tick, true, tick == watched_ticks).unwrap();
     }
@@ -1084,5 +1088,72 @@ fn moving_clothes_recompose_the_carried_cat_without_extra_random_calls_or_ghosts
             &band[row * 80..row * 80 + 79]
         );
         assert_eq!(clean[row * 80], 0);
+    }
+}
+
+#[test]
+fn deferred_scenery_matches_the_previous_initial_title_handoff_and_following_passes() {
+    use crate::runtime::Runtime;
+    for machine in [Machine::Cga, Machine::Pcjr] {
+        for seed in [2, 0xfa59] {
+            for (skill, watched) in [(0, 20), (3, 120)] {
+                let mut data = initial_title_data();
+                // Authored valid scrolling tables for the subsequent timed passes.
+                data[0x541..0x544].copy_from_slice(&[0, 9, 10]);
+                for (row, offset) in [0x140, 0x68f, 0xb40].into_iter().enumerate() {
+                    set_word(&mut data, 0x51d + row * 2, offset);
+                }
+                set_word(&mut data, 0x2ae5, seed);
+                // Reproduce the former eager alley construction, whose state
+                // is discarded when the title returns.
+                let mut eager =
+                    Alley::from_runtime_data(data.clone(), seed, skill, machine).unwrap();
+                let mut splash = crate::splash::Splash::new(&data, machine).unwrap();
+                let mut deferred = Alley::for_initial_title(&splash, seed, skill).unwrap();
+                assert_eq!(deferred.data, splash.data());
+                assert_eq!(deferred.screen.bytes(), &[0; crate::cga::MEMORY_SIZE]);
+                for tick in 0..=watched {
+                    splash.advance(tick, true, tick == watched).unwrap();
+                }
+                assert!(splash.finished());
+                for game in [&mut eager, &mut deferred] {
+                    #[cfg(feature = "dev-tools")]
+                    {
+                        let mut options = DevOptions::default();
+                        options.set_disabled_damage("all").unwrap();
+                        game.set_dev_options(options).unwrap();
+                    }
+                    game.inherit_initial_splash(&splash).unwrap();
+                    game.start_initial_game(skill, 0).unwrap();
+                    game.sound.record(true);
+                }
+                let mut first_clock = Runtime::new(machine);
+                let mut second_clock = Runtime::new(machine);
+                for pass in 0..128 {
+                    let controls = Controls {
+                        x: if pass < 64 { 1 } else { -1 },
+                        y: 0,
+                    };
+                    let first = first_clock.advance_pass(&mut eager, controls).unwrap();
+                    let second = second_clock.advance_pass(&mut deferred, controls).unwrap();
+                    assert_eq!(format!("{first:?}"), format!("{second:?}"));
+                    assert_eq!(eager.data, deferred.data);
+                    assert_eq!(
+                        format!("{:?}", eager.player),
+                        format!("{:?}", deferred.player)
+                    );
+                    assert_eq!(eager.screen.bytes(), deferred.screen.bytes());
+                    assert_eq!(eager.framebuffer().bytes(), deferred.framebuffer().bytes());
+                    assert_eq!(
+                        eager.sound.drain().collect::<Vec<_>>(),
+                        deferred.sound.drain().collect::<Vec<_>>()
+                    );
+                }
+                eager.restart(0).unwrap();
+                deferred.restart(0).unwrap();
+                assert_eq!(eager.data, deferred.data);
+                assert_eq!(eager.framebuffer().bytes(), deferred.framebuffer().bytes());
+            }
+        }
     }
 }

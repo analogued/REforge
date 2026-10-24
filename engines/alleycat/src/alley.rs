@@ -738,8 +738,28 @@ impl Alley {
         difficulty: u16,
         machine: Machine,
     ) -> Result<Self, String> {
-        let assets = Assets::load(original)?;
-        let mut data = assets.runtime_data();
+        Self::from_assets(&Assets::load(original)?, seed, difficulty, machine)
+    }
+
+    pub(crate) fn from_assets(
+        assets: &Assets,
+        seed: u16,
+        difficulty: u16,
+        machine: Machine,
+    ) -> Result<Self, String> {
+        Self::from_runtime_data(assets.runtime_data(), seed, difficulty, machine)
+    }
+
+    fn from_runtime_data(
+        mut data: Vec<u8>,
+        seed: u16,
+        difficulty: u16,
+        machine: Machine,
+    ) -> Result<Self, String> {
+        crate::assets::validate_startup_seed(seed)?;
+        if difficulty > 7 {
+            return Err("Alley difficulty must be in 0..7".into());
+        }
         // Original startup enables sound. Host mute/volume must not change this
         // native flag: the speaker routines also affect timing and shared RNG.
         data[0] = 0xff;
@@ -760,14 +780,41 @@ impl Alley {
         crate::bin_cat::initialize(&mut data)?;
         crate::windows::initialize(&mut data)?;
         let mice = Mice::initialize(&mut data, 8)?;
-        let mut alley = Self {
+        let mut alley = Self::unstarted(data, seed, difficulty, machine);
+        alley.presented = screen.clone();
+        alley.screen = screen;
+        alley.mice = mice;
+        // The first accepted neutral update establishes the original idle image.
+        alley.advance_player_update(Controls::default())?;
+        Ok(alley)
+    }
+
+    /// Hold the title's shared state until its first menu selection. No alley
+    /// scenery or actors are initialized and discarded before that handoff.
+    #[cfg(any(feature = "sdl", feature = "dev-tools", test))]
+    pub(crate) fn for_initial_title(
+        splash: &crate::splash::Splash,
+        seed: u16,
+        difficulty: u16,
+    ) -> Result<Self, String> {
+        crate::assets::validate_startup_seed(seed)?;
+        if difficulty > 7 {
+            return Err("Alley difficulty must be in 0..7".into());
+        }
+        let mut alley = Self::unstarted(splash.data().to_vec(), seed, difficulty, splash.machine());
+        alley.player = splash.player().clone();
+        Ok(alley)
+    }
+
+    fn unstarted(data: Vec<u8>, seed: u16, difficulty: u16, machine: Machine) -> Self {
+        Self {
             sound: crate::sound::Sound::default(),
             data,
-            presented: screen.clone(),
-            screen,
+            presented: Framebuffer::default(),
+            screen: Framebuffer::default(),
             compositor: PlayerCompositor::default(),
             bin_image: None,
-            mice,
+            mice: Mice::default(),
             mouse_effect: None,
             player: Player::at_alley_floor(8),
             machine,
@@ -782,16 +829,11 @@ impl Alley {
             failure: None,
             entry_transition: None,
             game_over: false,
-            initial_seed: 0xfa59,
-            initial_difficulty: 0,
+            initial_seed: seed,
+            initial_difficulty: difficulty,
             #[cfg(feature = "dev-tools")]
             dev_options: DevOptions::default(),
-        };
-        alley.initial_seed = seed;
-        alley.initial_difficulty = difficulty;
-        // The first accepted neutral update establishes the original idle image.
-        alley.advance_player_update(Controls::default())?;
-        Ok(alley)
+        }
     }
 
     /// Advance one already-accepted player update, without polling time or

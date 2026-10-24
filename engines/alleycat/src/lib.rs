@@ -1,6 +1,6 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
-//! Alley rendering and accepted player updates, independent of host presentation.
+//! Reconstructed Alley Cat gameplay and timing, independent of host presentation.
 
 extern crate self as alleycat;
 

@@ -190,7 +190,8 @@ gameplay immediately. `--scene splash` previews only the title screen. In that p
 and `--step-hz` are not available for splash previews. Headless gameplay runs
 continue to bypass the splash by default.
 
-`--seed` selects a nonzero 16-bit random seed, in decimal or `0xHEX` notation.
+`--seed` selects a 16-bit random seed from 2 through 65535, in decimal or
+`0xHEX` notation. Seeds 0 and 1 cannot initialize scenery and are rejected.
 The internal default remains `0xfa59` in both builds.
 
 `--original-window-timing` restores the original one-tick window hold at

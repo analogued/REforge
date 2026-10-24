@@ -339,7 +339,8 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
     let seed = options.dev.seed;
     #[cfg(not(feature = "dev-tools"))]
     let seed = DEFAULT_SEED;
-    let alley = Alley::load(&options.original, seed, options.difficulty, options.machine)?;
+    crate::assets::validate_startup_seed(seed)?;
+    let assets = crate::assets::Assets::load(&options.original)?;
     #[cfg(any(feature = "sdl", feature = "dev-tools"))]
     let startup = {
         #[cfg(feature = "dev-tools")]
@@ -348,7 +349,6 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
         #[cfg(not(feature = "dev-tools"))]
         let enabled = true;
         if enabled {
-            let assets = alleycat::assets::Assets::load(&options.original)?;
             let mut data = assets.runtime_data();
             alleycat::assets::set_word(&mut data, 0x2ae5, seed);
             Some(Startup {
@@ -359,6 +359,16 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
         } else {
             None
         }
+    };
+    let alley = {
+        #[cfg(any(feature = "sdl", feature = "dev-tools"))]
+        if let Some(startup) = &startup {
+            Alley::for_initial_title(&startup.splash, seed, options.difficulty)?
+        } else {
+            Alley::from_assets(&assets, seed, options.difficulty, options.machine)?
+        }
+        #[cfg(not(any(feature = "sdl", feature = "dev-tools")))]
+        Alley::from_assets(&assets, seed, options.difficulty, options.machine)?
     };
     #[cfg(feature = "dev-tools")]
     {

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 publish = false
-description = "An early Alley Cat reconstruction for modern desktop systems"
+description = "Alley Cat reconstruction for modern desktop systems"
 
 [features]
 default = ["sdl"]

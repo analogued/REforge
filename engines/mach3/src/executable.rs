@@ -6,6 +6,13 @@ use std::path::Path;
 
 pub const DATA_SEGMENT_OFFSET: usize = 0x95a0;
 
+/// Borrow the data segment only after validating the expanded image boundary.
+pub fn data_segment(program: &[u8]) -> Result<&[u8], Error> {
+    program
+        .get(DATA_SEGMENT_OFFSET..)
+        .ok_or_else(|| Error::InvalidData("truncated program data segment".into()))
+}
+
 fn word(data: &[u8], offset: usize) -> Result<u16, Error> {
     let bytes = data
         .get(offset..offset + 2)

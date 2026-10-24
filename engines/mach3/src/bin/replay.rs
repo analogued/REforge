@@ -35,9 +35,7 @@ fn run() -> Result<bool, Error> {
     let assets_directory = PathBuf::from(assets_directory);
     let assets = GraphicsAssets::load(&assets_directory)?;
     let program = executable::load_program(&assets_directory)?;
-    let data = program
-        .get(executable::DATA_SEGMENT_OFFSET..)
-        .ok_or_else(|| Error::InvalidData("truncated program data segment".into()))?;
+    let data = executable::data_segment(&program)?;
     let rules = ScriptRules::from_data_segment(data)?;
     let startup = if PathBuf::from(recording).join("timeline.tsv").exists() {
         Some(mach3::startup::StartupFrames::load(&assets_directory)?)

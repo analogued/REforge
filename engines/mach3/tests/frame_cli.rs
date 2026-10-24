@@ -56,6 +56,10 @@ fn program_file() -> Vec<u8> {
     for index in 0..21 {
         image[mach3::executable::DATA_SEGMENT_OFFSET + 0x0a3e + 50 * index] = 0xcf;
     }
+    pack_program(image)
+}
+
+fn pack_program(mut image: Vec<u8>) -> Vec<u8> {
     let size = image.len() as u16;
     image.extend(size.to_le_bytes());
     image.push(0xb3);
@@ -157,4 +161,39 @@ fn opening_export_preserves_existing_directories_and_rejects_unsupported_steps()
         fs::read(directory.0.join("data2")).unwrap(),
         vec![0; 28_960]
     );
+}
+
+#[test]
+fn short_expanded_program_reports_an_error_instead_of_panicking() {
+    let directory = TestDirectory::new();
+    for (name, bytes) in [
+        ("DATA1", 0x4000),
+        ("DATA2", 28_960),
+        ("DATA3", 16_000),
+        ("DATA6", 0x4000),
+    ] {
+        fs::write(directory.0.join(name), vec![0; bytes]).unwrap();
+    }
+    fs::write(directory.0.join("DATA4"), sprite_file(0)).unwrap();
+    fs::write(directory.0.join("DATA5"), sprite_file(255)).unwrap();
+    fs::write(directory.0.join("MACH3.EXE"), pack_program(vec![0; 64])).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_mach3-opening"))
+        .args(["--steps", "0"])
+        .arg(&directory.0)
+        .arg(directory.0.join("output"))
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(1), "{result:?}");
+    assert!(String::from_utf8_lossy(&result.stderr).contains("truncated program data segment"));
+    assert!(!directory.0.join("output").exists());
+    #[cfg(feature = "viewer")]
+    {
+        let result = Command::new(env!("CARGO_BIN_EXE_mach3-viewer"))
+            .args(["--static", "--original"])
+            .arg(&directory.0)
+            .output()
+            .unwrap();
+        assert_eq!(result.status.code(), Some(1), "{result:?}");
+        assert!(String::from_utf8_lossy(&result.stderr).contains("truncated program data segment"));
+    }
 }

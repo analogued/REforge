@@ -52,7 +52,7 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let frames = StartupFrames::load(&directory).map_err(|error| error.to_string())?;
     let program = crate::executable::load_program(&directory).map_err(|error| error.to_string())?;
     let rules = crate::gameplay::ScriptRules::from_data_segment(
-        &program[crate::executable::DATA_SEGMENT_OFFSET..],
+        crate::executable::data_segment(&program).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
     if options.playback != Playback::Animated || options.body_period != crate::gameplay::BODY_PERIOD

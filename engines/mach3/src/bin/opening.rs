@@ -134,7 +134,7 @@ fn run() -> Result<(), Error> {
     };
     let assets = GraphicsAssets::load(&directory)?;
     let program = mach3::executable::load_program(&directory)?;
-    let rules = ScriptRules::from_data_segment(&program[mach3::executable::DATA_SEGMENT_OFFSET..])?;
+    let rules = ScriptRules::from_data_segment(mach3::executable::data_segment(&program)?)?;
     let mut session = SessionState::default();
     session.select_intro();
     let mut gameplay = Gameplay::from_game_start(&assets, rules, session.begin_game(), steps)?;

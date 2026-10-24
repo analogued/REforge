@@ -53,64 +53,9 @@ increments it, and fetches a command when the threshold is met. After handling
 a command it repeats the activity and delay checks. It does not necessarily
 consume the next command in the same invocation.
 
-The verified fresh-process opening selects script 0. With no gameplay input
-and the initial threshold, its first events are:
-
-| Completed loop body | Event |
-| --- | --- |
-| 21 | Terrain selector becomes 5; terrain slots 15 through 22 become active |
-| 41 | Palette-family-1 command |
-| 61 | First primary wave starts in slot 5; further script delay waits for the wave to clear |
-| 98 | First primary wave clears after passing the player depth |
-| 118 | Terrain selector becomes 7; recycled slots adopt a second sprite family |
-| 138 | Second primary wave starts and steers toward the player |
-| 174 | Second primary collides with the player, becomes an explosion, and adds 1,000 pending score points |
-| 181 | Second primary explosion clears |
-| 184 | Player death completes; remaining lives decrease to five and fuel resets |
-| 187 | The removed life icon's source resolves on the bottom HUD update |
-| 201 | Terrain selector becomes 6; recycled slots 20 through 22 remain inactive |
-| 221 | Third primary wave starts with orbital movement |
-| 257 | Third primary collides with the recovered player and becomes an explosion |
-| 264 | Third primary explosion clears |
-| 267 | Second player death completes; remaining lives decrease to four |
-| 284 | Terrain selector becomes 3; recycled rows choose terrain kinds 0 or 1 |
-| 304 | Fourth primary wave starts with lateral orbit and fixed height |
-| 312 | A kind-0 terrain row becomes a frozen near effect |
-| 313 | The near effect deals one damage unit to the player |
-| 340 | Fourth primary collides with the player and becomes an explosion |
-| 347 | Fourth primary explosion clears |
-| 350 | Third player death completes; remaining lives decrease to three |
-| 355 | The third removed life icon resolves on the bottom HUD update |
-| 367 | Terrain selector becomes 7 |
-| 387 | Formation count increases to two |
-| 407 | Fifth primary wave starts with both axes orbiting |
-| 464 | Terrain selector becomes 9; recycled rows mix two sprite families |
-| 484 | Five procedural gate records are created |
-| 504 | Sixth encounter starts a single craft on the scripted sweep |
-| 542 | The sweep craft collides with the player and becomes an explosion |
-| 549 | Sixth primary explosion clears |
-| 552 | Fourth player death completes; remaining lives decrease to two |
-| 555 | The fourth removed life icon resolves on the bottom HUD update |
-| 569 | Terrain selector 9 is selected again |
-| 589 | A second group of five procedural gates is created |
-| 609 | Seventh encounter starts two craft on staggered relative sweeps |
-| 645 | Second sweep craft collides with the player and becomes an explosion |
-| 648 | First sweep craft reaches the terminal row and retires |
-| 652 | Second sweep craft's explosion clears |
-| 655 | Fifth player death completes; one life remains |
-| 659 | The fifth removed life icon resolves on the bottom HUD update |
-| 672 | Terrain selector becomes 2; recycled rows use the fuel-bearing family |
-| 692 | Formation count increases to three |
-| 712 | Eighth encounter starts three seeking craft |
-| 756 | Sixth death clears the last requested life icon; play resumes |
-| 758, 779, 797, 799 | Kind-1 proximity effects grant fuel |
-| 772 | Terrain selector 2 is selected again |
-| 792 | Ninth encounter starts three craft that retain far coordinates and seek near the player |
-| 826 | The second craft in the ninth wave collides with the player |
-| 836 | Seventh death sets the game-over flag; the current body completes |
-
-These counts are logical loop positions, not durations. Newly created objects
-may receive their resolved sprite and projected rectangle in subsequent updates.
+The fresh neutral-input diagnostic selects script 0. Its event positions depend
+on the initial state and input history; they are not universal encounter timings.
+Loop indices describe logical updates rather than elapsed duration.
 
 ## Repeatability
 
@@ -121,12 +66,9 @@ its results for script selection, object placement, and some behavior and HUD
 choices. Preserving the order and number of calls matters even when an object
 is inactive or not visible.
 
-Two fresh executions with matching configuration and intro input matched every
-visible packed framebuffer byte, all 29 scene records, and selected control
-and random-state words through 80 completed loop bodies. This includes the
-first primary wave. This establishes a repeatable opening under those conditions;
-different input, collisions, later script branches, or restarting within an
-existing process can change the subsequent sequence.
+Matching initial state and sampled input make execution repeatable. Different
+input, collisions and retained state across games can change the sequence.
+See [validation scope](#validation-scope) for the comparison boundaries.
 
 See [CGA graphics](cga-graphics.md) for composition and object records. Captures,
 raw state, and comparison reports remain external to the repository.
@@ -290,9 +232,6 @@ other entries sort by descending depth, retaining their preceding order at equal
 depth. Inactive records still participate.
 The initial HUD indicator artwork is preserved until banking changes its selection.
 
-Native frames and checked HUD, player, terrain, enemy, gate, target, camera,
-random state, and retained drawing order match the original at every
-completed-body boundary from 0 through 836.
 The simulation uses interpreted rules and decoded resources. It does not load
 captured frames or state. `advance_subframe` exposes each of the three displayed
 passes; `advance_with_inputs` completes all three and then the end-of-body events.
@@ -473,7 +412,9 @@ or reorder the suspended foreground work.
 ## Player steering
 
 `2277` polls held inputs three times per body. Original Up/S, Down/X, Left/B,
-and Right/N map to bits 1, 2, 4, and 8. The native viewer exposes these aliases and arrow keys.
+and Right/N map to bits 1, 2, 4, and 8. The native viewer exposes these aliases
+and arrow keys. The original joystick path also reduces axes to directional
+bits; stick displacement does not provide proportional steering.
 Up and Right acceleration run before Down and Left. Opposing directions remain
 separate bits and suppress friction; at the positive speed limit the negative
 operation wins. Release reduces each velocity toward zero by one per update.
@@ -491,11 +432,6 @@ A damage response replaces held directions with recentering commands. All sixtee
 response rows are represented by authored pose/duration programs and a separate
 death program, verified against reachable original phases.
 
-The controlled prefix is verified through body 90 using held keys, releases,
-diagonals, opposite directions, coordinate limits, camera movement, and the first
-enemy spawn. All 91 completed-body frames and checked state match the original.
-The first injected key in that capture reached the keyboard handler after the
-first player poll; a separate poll trace establishes samples zero, Left, Left.
 `advance_with_inputs` and the exporter's input TSV support exact per-poll replay;
 animated playback samples held state separately at each pass. Manual stepping
 samples the same held state for all three updates in a body. Live gameplay
@@ -506,7 +442,7 @@ continues until game over; bounded exports retain explicit limits for comparison
 A completed death removes one requested life icon. When the first icon was
 already clear, the death sets `DS:b66a` instead. Zero icons therefore allow one
 more recovery. The game-over flag is checked at the next loop entry, so the
-remaining updates and drawing of body 836 still run.
+remaining updates and drawing of the current body still run.
 
 After gameplay returns to `0452`, `26eb` displays Game Over and `2859` displays
 High Score. They reuse craft slot 5 over the frozen world. Each title has 35
@@ -667,3 +603,21 @@ after an executed poll apply prospectively; no rollback is performed.
 The viewer does not emulate hardware keyboard transport or physical key timing;
 externally scripted per-poll input is a separate replay interface. See
 [input timing and tracing](input-tracing.md) for frontend boundary rules.
+
+## Validation scope
+
+Original-code comparisons cover all completed-body frames and checked modeled
+state through the first neutral-input game's body 836, plus a controlled steering
+prefix through body 90. That prefix exercises held/released keys, diagonals,
+opposing directions, coordinate limits, camera movement and enemy spawning.
+Targeted session recordings additionally exercise endings, returned intros,
+restarts and initializer inputs. The [replay interface](gameplay-recordings.md)
+describes the supported capture boundaries and explicit unsupported cases.
+
+Static inspection and synthetic tests cover additional algorithm branches,
+including paths not reached by the neutral-input diagnostic. These comparisons
+do not establish exhaustive high-difficulty gameplay, other hardware modes,
+physical input latency or instruction-exact original elapsed time. Events tied
+to particular body numbers in this document refer to that diagnostic's state/input
+history, rather than timing promises for every play session. Detailed capture
+sequences, receipts and comparison reports remain with the private evidence.

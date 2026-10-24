@@ -138,6 +138,14 @@ measure physical key changes accurately.
 
 ## History boundaries
 
+P or Pause/Break toggles modern host pause on a fresh press. OS repeats and
+Alt/Ctrl/Super combinations are ignored; unrelated keys and focus changes do
+not resume playback. These shortcuts do not generate native F1 input.
+
+Settings temporarily host-pauses simulation and audio, restoring the preceding
+host-pause state when closed. Both menu boundaries clear held gameplay controls
+and pending history while preserving the native F1 phase and device deadlines.
+
 In the silent nominal preview, native F1 waits, displayed transitions, ending
 animation, static previews and
 manual stepping fold received history to the current scheduling time without

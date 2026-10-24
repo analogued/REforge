@@ -1,125 +1,89 @@
 # REforge
 
-Rust reconstructions of DOS games for modern desktop systems, currently
-[Alley Cat](engines/alleycat/README.md) and [Mach 3](engines/mach3/README.md).
-Each game requires its original files, supplied separately. REforge reads their
-assets and tables and implements the reconstructed behavior natively.
-The games are still in development. Both engines include PC Speaker audio
-in their normal timed playback, with shared host audio preferences.
+Play classic DOS games on a modern desktop, using your original game files.
+REforge recreates their behavior natively, with modern display, audio and
+controller options. Linux is the current development platform.
 
-## Build and run
+## Supported engines
 
-Install Rust 1.85 or newer, Cargo and SDL3 3.4 or newer development/runtime libraries.
-One Cargo workspace and lockfile cover the application and both engine crates.
+| Engine | Games | Player guide |
+| --- | --- | --- |
+| Alley Cat | Alley Cat | [Playing Alley Cat](docs/games/alleycat.md) |
+| Mach 3 | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
+
+Each engine currently supports one verified DOS release. See its guide for the
+required files and current limitations. Original game data is not included.
+
+## Features
+
+- Sharp pixels or optional Hyllian CRT scanlines.
+- Automatic window sizing, manual scaling and borderless fullscreen.
+- Keyboard and gamepad controls.
+- Separate master, music, effects and speech levels, where the game supports them.
+- Shared preferences with per-game overrides, changed through an in-game menu.
+
+Game-specific features, including Alley Cat's Responsive controls and Mach 3's
+Enhanced PCM audio, are described in the player guides.
+
+## Getting started
+
+Build from the repository root with Rust 1.85 or newer, Cargo and SDL3 3.4 or
+newer development/runtime libraries installed:
 
 ```sh
 cargo build --locked --release -p reforge
-cargo run --locked --release -p reforge -- --list
-cargo run --locked --release -p reforge -- --original /path/to/CAT.EXE
-cargo run --locked --release -p reforge -- --controls --original /path/to/mach3-files
 ```
 
-The built application is `target/release/reforge`, unless `CARGO_TARGET_DIR`
-selects another output path. Run `reforge --original <path> --help` for game-specific options.
-Both games default to `--scale auto`, opening a normal window at the largest
-integer multiple of the aspect-corrected 320×240 display area that fits the
-compositor's maximum client area. Auto briefly measures that area through
-maximization, accounting for desktop panels and window decorations, then restores
-a compact window. If maximization is unavailable, auto falls back to scale 4.
-`--scale 1..16` requests a fixed drawable pixel multiplier; `--scale 4` requests
-1280×960 pixels. SDL retains integer presentation and adds black margins when
-later user resizing leaves extra space.
-
-Presentation defaults to sharp nearest-neighbour pixels. Add
-`--presentation hyllian` for the shared Hyllian CRT shader, or
-`--presentation pixels` to select the default explicitly. The initial CRT
-setting is the same for both engines; colour profiles and adjustable monitor
-presets are not yet exposed. Both modes prefer the shared SDL GPU renderer,
-with shader variants for Vulkan, Metal and Direct3D 12. GPU initialization falls
-back to ordinary SDL renderers; unavailable CRT effects retain plain pixels,
-including with `SDL_RENDER_DRIVER=software`. See the
-[shared presentation documentation](crates/reforge_sdl/README.md) for backend
-requirements and the bundled shader's attribution.
-Ctrl+Q quits either game, and P or Pause/Break toggles host pause.
-Both games accept SDL-recognized gamepads: left stick or D-pad moves, the bottom
-face button performs the game action (Alley Cat) or fires (Mach 3), Start/Menu
-pauses, and Back/View opens or closes settings. Keyboard controls remain usable.
-The Controls page provides a shared stick dead zone with per-game overrides;
-see [controller preferences](docs/configuration.md#controllers).
-F10 opens the shared Compact settings menu. Window mode/scale, renderer/backend,
-VSync, a frame limiter, Hyllian CRT controls and Audio preferences use draft edits
-with Apply and Cancel. Saved global and per-game
-preferences live in a TOML file; explicit CLI settings remain temporary and lock
-their controls for that run. Escape or F10 cancels pending edits and returns to
-the previous pause state. See [configuration](docs/configuration.md) for file
-locations, inheritance and renderer fallback behavior.
-Each game retains its additional bindings.
-See each game's README for supported input versions, controls and current limits.
-
-`--original` accepts a game directory or a required original file. For Alley Cat,
-it locates `CAT.EXE`; for Mach 3, detection checks `MACH3.EXE` and `DATA1` through
-`DATA6` in the same directory. Normal animated Mach 3 also loads sound resources
-`DATA7` through `DATAH`; supply the complete original directory. Step, static and
-custom-period previews remain silent. Detection checks case-insensitive DOS
-filenames, then
-exact file sizes, then SHA-256 hashes. The catalog currently contains one verified
-reference per game; its reference IDs do not claim a historical version number.
-Additional releases can have separate file records and select the same engine.
-
-A directory matching both games is ambiguous; select a required original file
-inside it instead. Missing, incomplete, unknown or mismatched data stops startup.
-Unrelated extra files are allowed. Renamed required files are not detected.
-
-Unknown options, options for another game, unavailable development options and
-invalid/missing values produce warnings and are ignored. A bad repeated value
-retains the previous valid value or engine default. Recognized options consume
-only their own values; a missing value does not swallow the next option. Supported
-options can appear before or after `--original`, including `--option=value`.
-Conflicting modes produce warnings and are reduced to a valid configuration.
-Original-data and non-audio runtime I/O failures remain errors. Engine-specific standalone
-diagnostic binaries keep their own stricter interfaces.
-
-Use `--features dev-tools` to include Alley Cat's development scene selector,
-fixed-seed controls, actor/damage switches and diagnostics. Optimization is
-independent: a release build can include these tools, while a normal build omits
-them. Mach 3's `--trace-input` and `--trace-timing` also require `dev-tools`.
-Its package provides separate frame, opening, replay and sound exporters, all
-requiring `dev-tools`.
+The application is written to `target/release/reforge` unless you select another
+Cargo output directory. Launch a game using its original files:
 
 ```sh
-cargo run --locked --release -p reforge --features dev-tools -- \
-  --original /path/to/CAT.EXE --scene cheese --disable-damage all
+./target/release/reforge --original /path/to/alley-cat
+./target/release/reforge --controls --original /path/to/mach3
 ```
 
-`--no-default-features` omits window support. Alley Cat headless diagnostics also
-require `dev-tools`; Mach 3's package provides separate exporters for headless
-work under the same feature. For example:
-`cargo run --locked -p mach3 --features dev-tools --bin mach3-replay -- --help`.
+Use the directories containing the required files, as described in each engine's
+player guide. Mach 3 currently requires `--controls` for steering and shooting.
+REforge detects the game from its files; there is no separate game selector.
 
-## Source organization
+## Settings and shared controls
 
-- `app/`: the `reforge` application, release detection and option catalog.
-- `engines/alleycat/`: the `alleycat` engine library and legacy game binary.
-- `engines/mach3/`: the `mach3` engine library and its viewer/export/replay binaries.
-- `crates/reforge_sdl/`: shared SDL3 windows, events, frame presentation and
-  queued audio output.
-- `crates/reforge_settings/`: shared preference resolution and TOML persistence.
-- `crates/reforge_audio/`: shared deterministic PIT and PC speaker devices,
-  with signal rendering independent of host playback.
+Press **F10** to open Settings. Choose windowed or fullscreen play, adjust scaling,
+try CRT presentation, or change audio levels and your controller's stick dead zone.
+**Apply** activates and saves edits; **Cancel** discards them. Preferences can be
+shared globally or overridden for an individual game.
 
-Game-specific gameplay, asset formats, timing and randomness stay in their own
-engine crates. Engine IDs, Cargo packages and Rust crate names use `alleycat`
-and `mach3`; game catalog IDs remain `alley-cat` and `mach-3`. An engine can
-support multiple games when their implementation is shared. Both engines use
-the shared SDL3 backend; their pixel decoding and palettes remain engine-specific.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for style, commits and validation.
+| Action | Keyboard | Gamepad |
+| --- | --- | --- |
+| Pause / resume | P or Pause/Break | Start/Menu |
+| Open / close Settings | F10 | Back/View |
+| Quit | Ctrl+Q | — |
+
+Game-specific controls are in the player guides. The left stick or D-pad supplies
+movement, and the bottom face button performs the game's main action.
+
+See the [settings reference](docs/configuration.md) for all options, saved-file
+locations and command-line overrides. For available launch options, run:
+
+```sh
+./target/release/reforge --original /path/to/game --help
+```
+
+## Development
+
+REforge is under active development. Please include the game, your system,
+REforge revision, relevant settings and steps to reproduce when reporting a bug.
+
+For source layout, validation and contribution guidance, see
+[CONTRIBUTING.md](CONTRIBUTING.md) and the technical engine documentation for
+[Alley Cat](engines/alleycat/README.md) and [Mach 3](engines/mach3/README.md).
 
 ## License
 
-The repository-wide project license has not been selected; no project license
-is granted yet. Existing third-party terms and attribution remain in
-[Alley Cat notices](engines/alleycat/THIRD_PARTY.md),
-[Mach 3 notices](engines/mach3/docs/dependencies.md), and
-[shared SDL3 notices](crates/reforge_sdl/docs/dependencies.md), and
-[settings dependency notices](crates/reforge_settings/README.md#dependencies), with their license texts.
+The project license has not yet been selected. Third-party terms and attribution
+are retained in the [Alley Cat notices](engines/alleycat/THIRD_PARTY.md),
+[Mach 3 notices](engines/mach3/docs/dependencies.md),
+[shared SDL3 notices](crates/reforge_sdl/docs/dependencies.md),
+[audio notices](crates/reforge_audio/docs/dependencies.md) and
+[settings notices](crates/reforge_settings/README.md#dependencies).
 Original game data is not included or licensed by this repository.

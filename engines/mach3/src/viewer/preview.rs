@@ -199,6 +199,11 @@ impl GamePlayback {
         self.gameplay = Some(
             Gameplay::for_play(assets, rules.clone(), start).map_err(|error| error.to_string())?,
         );
+        #[cfg(feature = "dev-tools")]
+        self.gameplay
+            .as_mut()
+            .unwrap()
+            .capture_pass_snapshots(self.timing.is_some());
         self.visible_frame = Some(self.gameplay.as_ref().unwrap().frame().clone());
         self.pending_publication = false;
         self.color_family = self.gameplay.as_ref().unwrap().palette_family();
@@ -1059,9 +1064,9 @@ pub(super) fn run(
             } else if game.gameplay.as_ref().is_some_and(Gameplay::complete) {
                 "Preview complete (Esc to close)"
             } else if options.playback == Playback::Step {
-                "Opening (Enter to step, F1 to pause, Esc to close)"
+                "Gameplay preview (Enter to step, F1 to pause, Esc to close)"
             } else {
-                "Opening (F1 to pause, Esc to close)"
+                "Gameplay preview (F1 to pause, Esc to close)"
             };
             window.set_title(&game_title(GAME_NAME, Some(status)))?;
             window.present_with(&texture, |canvas| menu.paint(canvas))?;

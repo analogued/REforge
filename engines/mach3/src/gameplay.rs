@@ -110,6 +110,7 @@ pub struct Gameplay {
     frame: Frame,
     pass_frame: Frame,
     pass_snapshot: Option<Box<Snapshot>>,
+    capture_pass_snapshots: bool,
     updating_before_render: bool,
     selected_layer: u16,
     previous_pass_one_layer: u16,
@@ -177,6 +178,7 @@ impl Gameplay {
             frame: initial_frame.clone(),
             pass_frame: initial_frame,
             pass_snapshot: None,
+            capture_pass_snapshots: false,
             updating_before_render: false,
             selected_layer: 0,
             previous_pass_one_layer: 0,
@@ -199,13 +201,15 @@ impl Gameplay {
         let mut random = Random::default();
         random.next_word();
         random.next_word();
-        Self::initial(
+        let mut game = Self::initial(
             assets,
             test_support::diagnostic_rules(),
             random.state(),
             0,
             Some(DEFAULT_EXPORT_BODY_LIMIT),
-        )
+        )?;
+        game.capture_pass_snapshots(true);
+        Ok(game)
     }
 
     #[cfg(test)]
@@ -224,6 +228,7 @@ impl Gameplay {
     ) -> Result<Self, Error> {
         let mut gameplay =
             Self::initial(assets, rules, start.random, start.script_index, Some(limit))?;
+        gameplay.capture_pass_snapshots(true);
         gameplay.enemy.reset_for_game(assets)?;
         if let Some(world) = start.retained_world {
             gameplay.enemy = enemy::Enemy::restore_snapshots(
@@ -276,6 +281,7 @@ impl Gameplay {
     ) -> Result<Self, Error> {
         let mut gameplay = Self::from_game_start(assets, rules, start, 0)?;
         gameplay.body_limit = None;
+        gameplay.capture_pass_snapshots(false);
         Ok(gameplay)
     }
 
@@ -353,7 +359,16 @@ impl Gameplay {
         &self.pass_frame
     }
 
-    /// State at the last ordinary framebuffer checkpoint, before end-of-body events.
+    /// Enable diagnostic state capture at future ordinary framebuffer checkpoints.
+    /// Live playback leaves this disabled; disabling it clears the saved state.
+    pub fn capture_pass_snapshots(&mut self, enabled: bool) {
+        self.capture_pass_snapshots = enabled;
+        if !enabled {
+            self.pass_snapshot = None;
+        }
+    }
+
+    /// State at the last captured framebuffer checkpoint, before end-of-body events.
     pub fn pass_snapshot(&self) -> Option<&Snapshot> {
         self.pass_snapshot.as_deref()
     }
@@ -1859,6 +1874,7 @@ mod tests {
         assets.alternate.fill(0x55);
         let start = SessionState::default().begin_game();
         let mut game = Gameplay::for_play(&assets, synthetic_rules(&[0xd6, 0x85]), start).unwrap();
+        game.capture_pass_snapshots(true);
         game.script_delay = 20;
         game.advance(&assets).unwrap();
         let pass_state = game.pass_snapshot().unwrap();

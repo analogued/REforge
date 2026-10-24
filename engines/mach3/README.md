@@ -32,8 +32,10 @@ additional hardware modes remain outside the supported set.
 `assets`, `frame` and `scene` decode graphics, draw packed frames and compose the
 fixed initial scene. `executable` expands the external program without executing
 DOS code. `gameplay::Gameplay` owns reconstructed state, `session_replay` consumes
-recorded inputs, and `viewer::realtime` runs the normal PIT-driven frontend.
-The library exposes headless continuations independently of host audio output.
+recorded inputs, and `viewer::run_live` runs the normal PIT-driven frontend.
+`viewer::run_preview` provides silent nominal stepping; its scheduler is separate
+from live execution and the host-audio adapter. The library exposes headless
+continuations independently of host audio output.
 
 With the `viewer` feature, `mach3::cli::run(args)` accepts `OsString` arguments
 excluding the executable name, allowing REforge to dispatch the same interface.

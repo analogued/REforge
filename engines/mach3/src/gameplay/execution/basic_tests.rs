@@ -115,6 +115,15 @@ fn run(chunk: u64, end: u64) -> ResultLog {
 }
 
 fn run_observed(chunk: u64, end: u64, observe: &mut dyn FnMut(Stamp, &ClockEvent)) -> ResultLog {
+    run_diagnostics(chunk, end, observe, true)
+}
+
+fn run_diagnostics(
+    chunk: u64,
+    end: u64,
+    observe: &mut dyn FnMut(Stamp, &ClockEvent),
+    capture: bool,
+) -> ResultLog {
     let assets = crate::gameplay::tests::synthetic_assets();
     let program = program();
     let resources = GameplayResources {
@@ -137,14 +146,9 @@ fn run_observed(chunk: u64, end: u64, observe: &mut dyn FnMut(Stamp, &ClockEvent
     state
         .procedural
         .request(Effect::Noise { divisor: 1850 }, 0x1234, 0, &mut clock);
-    let mut task = GameplayTask::begin(
-        Gameplay::test_game(&assets).unwrap(),
-        state,
-        0x1234,
-        64,
-        &clock,
-    )
-    .unwrap();
+    let mut gameplay = Gameplay::test_game(&assets).unwrap();
+    gameplay.capture_pass_snapshots(capture);
+    let mut task = GameplayTask::begin(gameplay, state, 0x1234, 64, &clock).unwrap();
     for (tick, raw) in [
         (20_000, 0x4b),
         (33_300, 0xcb),
@@ -524,4 +528,34 @@ fn late_input_is_prospective_and_invalid_context_does_not_start_execution() {
             .is_err()
     );
     assert!(task.schedule_scan(clock.tick(), 0xcd, &clock).is_err());
+}
+
+#[test]
+fn optional_pass_snapshots_preserve_execution_events_and_every_frame() {
+    let captured = run_diagnostics(10_000, 2_000_000, &mut |_, _| {}, true);
+    let plain = run_diagnostics(10_000, 2_000_000, &mut |_, _| {}, false);
+    assert!(!captured.checkpoints.is_empty());
+    assert!(
+        captured
+            .checkpoints
+            .iter()
+            .all(|(state, _)| state.starts_with("Some("))
+    );
+    assert!(plain.checkpoints.iter().all(|(state, _)| state == "None"));
+    assert_eq!(captured.clock, plain.clock);
+    assert_eq!(captured.game, plain.game);
+    assert_eq!(captured.state, plain.state);
+    assert_eq!(captured.final_game, plain.final_game);
+    assert_eq!(
+        captured
+            .checkpoints
+            .into_iter()
+            .map(|(_, frame)| frame)
+            .collect::<Vec<_>>(),
+        plain
+            .checkpoints
+            .into_iter()
+            .map(|(_, frame)| frame)
+            .collect::<Vec<_>>(),
+    );
 }

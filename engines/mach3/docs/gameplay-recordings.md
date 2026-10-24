@@ -25,6 +25,11 @@ The CLI automatically uses the timeline when present. The library retains
 `replay_first_game` and adds `replay_session` with optional externally loaded
 `StartupFrames` for returned intro pixels.
 
+For direct library use, `Gameplay::for_play` omits per-pass diagnostic state.
+Call `capture_pass_snapshots(true)` before stepping when an observer needs
+`pass_snapshot()`. Bounded `from_game_start` exports and both replay entry points
+enable this capture; ordinary live playback does not. Frame publication is unchanged.
+
 Replay preserves the original per-poll F3 behavior, including repeated mode
 switches while F3 is held. The interactive viewer's default `--f3-mode press`
 policy is not applied to recorded original inputs. Select `--f3-mode original`

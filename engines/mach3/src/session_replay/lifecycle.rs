@@ -177,6 +177,7 @@ pub fn replay_session(
             retained_world: None,
         },
     )?;
+    gameplay.capture_pass_snapshots(true);
     let initializer = first_initializer(recording)?;
     if let Some(mask) = initializer {
         gameplay.initialize_input(assets, mask)?;
@@ -429,6 +430,7 @@ impl<R: BufRead> Lifecycle<'_, R> {
                 }
                 let start = self.session.begin_game();
                 *self.gameplay = Gameplay::for_play(self.assets, self.rules.clone(), start)?;
+                self.gameplay.capture_pass_snapshots(true);
                 self.game += 1;
                 self.reset = true;
                 self.started = false;

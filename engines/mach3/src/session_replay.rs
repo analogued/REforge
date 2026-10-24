@@ -451,6 +451,7 @@ pub fn replay_first_game(
             retained_world: None,
         },
     )?;
+    gameplay.capture_pass_snapshots(true);
     if let Some(mask) = first_initializer(recording)? {
         gameplay.initialize_input(assets, mask)?;
     }

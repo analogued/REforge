@@ -466,7 +466,14 @@ fn advance(
     events: &mut Vec<(u64, GameplayEvent)>,
 ) {
     simulation
-        .advance(target, frames, &rules(), resources, true, events)
+        .advance(
+            target,
+            frames,
+            &rules(),
+            resources,
+            true,
+            &mut |tick, event| events.push((tick, event)),
+        )
         .unwrap();
     simulation.clock.check().unwrap();
 }
@@ -981,7 +988,7 @@ fn retained_intro_direction_updates_initial_scene_before_pregame_playback() {
                     &rules(),
                     &resources,
                     steering_enabled,
-                    &mut events,
+                    &mut |tick, event| events.push((tick, event)),
                 )
                 .unwrap();
         }
@@ -1647,7 +1654,14 @@ fn pending_native_pause_f3_marks_unchanged_frame_for_repaint() {
         let target = simulation.clock.tick() + 1;
         let mut events = Vec::new();
         let dirty = simulation
-            .advance(target, &frames, &rules(), &resources, true, &mut events)
+            .advance(
+                target,
+                &frames,
+                &rules(),
+                &resources,
+                true,
+                &mut |tick, event| events.push((tick, event)),
+            )
             .unwrap();
         assert!(
             !events
@@ -1845,7 +1859,7 @@ fn optional_poll_precedes_wait_and_draw_and_uses_any_nonzero_mask() {
                         frames: &frames,
                         sound: &resources,
                     },
-                    &mut events,
+                    &mut |tick, event| events.push((tick, event)),
                 )
                 .unwrap();
             step = next;
@@ -1938,7 +1952,7 @@ fn intertitle_executes_separate_waits_and_release_before_setup() {
                 frames: &frames,
                 sound: &resources,
             },
-            &mut events,
+            &mut |tick, event| events.push((tick, event)),
         )
         .unwrap();
     assert!(returned.is_none());
@@ -2001,7 +2015,7 @@ fn following_title_release_gate_defers_best_score_and_preserves_previous_image()
                 frames: &frames,
                 sound: &resources,
             },
-            &mut Vec::new(),
+            &mut |_, _| {},
         )
         .unwrap();
     assert!(!dirty);
@@ -2021,7 +2035,7 @@ fn following_title_release_gate_defers_best_score_and_preserves_previous_image()
                 frames: &frames,
                 sound: &resources,
             },
-            &mut Vec::new(),
+            &mut |_, _| {},
         )
         .unwrap();
     assert!(!dirty);
@@ -2061,7 +2075,7 @@ fn score_overlay_is_drawn_before_hold_poll_without_consuming_timer_units() {
                 frames: &frames,
                 sound: &resources,
             },
-            &mut events,
+            &mut |tick, event| events.push((tick, event)),
         )
         .unwrap();
     assert!(dirty);
@@ -2149,7 +2163,7 @@ fn mandatory_hold_samples_select_original_resources_and_preserve_publication() {
                     frames: &frames,
                     sound: &resources,
                 },
-                &mut events,
+                &mut |tick, event| events.push((tick, event)),
             )
             .unwrap();
         assert!(matches!(step, EndingStep::Sample { .. }));
@@ -2255,7 +2269,7 @@ fn ending_sample_guards_distinguish_equal_lower_optional_and_intro_disabled() {
                     frames: &frames,
                     sound: &resources,
                 },
-                &mut events,
+                &mut |tick, event| events.push((tick, event)),
             )
             .unwrap();
         assert_eq!(matches!(step, EndingStep::Sample { .. }), expected);
@@ -2297,7 +2311,7 @@ fn ordinary_sound_bypass_polls_once_and_ignores_mask_without_sample_teardown() {
                     frames: &frames,
                     sound: &resources,
                 },
-                &mut events,
+                &mut |tick, event| events.push((tick, event)),
             )
             .unwrap();
         assert!(matches!(step, EndingStep::Poll));
@@ -2364,7 +2378,7 @@ fn ending_sample_matches_direct_sample_task_hardware_transactions() {
                 frames: &frames,
                 sound: &resources,
             },
-            &mut Vec::new(),
+            &mut |_, _| {},
         )
         .unwrap();
     assert!(!matches!(step, EndingStep::Sample { .. }));
@@ -2405,7 +2419,7 @@ fn ending_sample_input_boundaries_and_teardown_are_budget_partition_invariant() 
                         frames: &frames,
                         sound: &resources,
                     },
-                    &mut events,
+                    &mut |tick, event| events.push((tick, event)),
                 )
                 .unwrap();
             step = next;
@@ -2446,7 +2460,7 @@ fn sample_irq0_priority_services_all_same_tick_scans_before_foreground() {
                 frames: &frames,
                 sound: &resources,
             },
-            &mut Vec::new(),
+            &mut |_, _| {},
         )
         .unwrap();
     let log = logged_ending_clock(&mut simulation);
@@ -2465,7 +2479,7 @@ fn sample_irq0_priority_services_all_same_tick_scans_before_foreground() {
                 frames: &frames,
                 sound: &resources,
             },
-            &mut Vec::new(),
+            &mut |_, _| {},
         )
         .unwrap();
     let EndingStep::Sample {
@@ -2570,4 +2584,62 @@ fn settings_boundary_preserves_live_native_pause_and_device_clock() {
     assert_eq!(simulation.state().keyboard.held_keys(0).actions, 0);
     assert!(simulation.scans.is_empty());
     assert_eq!(simulation.visible, visible);
+}
+
+#[test]
+fn disabling_event_recording_preserves_live_execution_pixels_and_pcm() {
+    fn run(record: bool) -> (Outcome, Vec<i16>) {
+        let frames = frames();
+        let resources = resources();
+        let signal = signal(CHUNK as u32);
+        let mut simulation = Simulation::new(&frames, signal.clone()).unwrap();
+        let log = logged_initial_signal_clock(&mut simulation, signal.clone());
+        enter_playing(&mut simulation, &frames, &resources);
+        let start = simulation.clock.tick();
+        simulation.receive(start + 20_000, 0x4b);
+        simulation.receive(start + 50_000, 0xcb);
+        let end = start + 500_000;
+        let mut events = Vec::new();
+        while simulation.clock.tick() < end {
+            let target = (simulation.clock.tick() + 10_000).min(end);
+            simulation
+                .advance(
+                    target,
+                    &frames,
+                    &rules(),
+                    &resources,
+                    true,
+                    &mut |tick, event| {
+                        if record {
+                            events.push((tick, event));
+                        }
+                    },
+                )
+                .unwrap();
+        }
+        let Phase::Playing(runtime) = &simulation.phase else {
+            panic!()
+        };
+        assert!(runtime.game().pass_snapshot().is_none());
+        assert_eq!(events.is_empty(), !record);
+        let mut synthesis = signal.borrow_mut();
+        synthesis.advance(end, None);
+        let pcm = synthesis
+            .blocks
+            .drain(..)
+            .flat_map(|block| block.samples)
+            .collect();
+        let outcome = Outcome {
+            tick: simulation.clock.tick(),
+            state: format!("{:?}", simulation.state()),
+            world: format!("{:?}", runtime.game().snapshot()),
+            session: format!("{:?}", simulation.session),
+            visible: simulation.visible.clone(),
+            events: Vec::new(),
+            generated: synthesis.generated,
+            transactions: log.borrow().clone(),
+        };
+        (outcome, pcm)
+    }
+    assert_eq!(run(true), run(false));
 }

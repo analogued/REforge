@@ -228,7 +228,9 @@ impl PassTask {
     pub(super) fn publish(&mut self, game: &mut Gameplay) {
         assert!(matches!(self.stage, Stage::Publish));
         game.pass_frame = game.frame.clone();
-        game.pass_snapshot = Some(Box::new(game.snapshot()));
+        if game.capture_pass_snapshots {
+            game.pass_snapshot = Some(Box::new(game.snapshot()));
+        }
         game.updating_before_render = false;
         self.stage = Stage::Tail;
     }
@@ -244,12 +246,14 @@ mod tests {
         // These tests exercise negative delays at difficulty three, whose HUD
         // marker family must also have distinct synthetic sprite sources.
         data[0x04b5..0x04b8].copy_from_slice(&[1, 2, 3]);
-        Gameplay::for_play(
+        let mut game = Gameplay::for_play(
             assets,
             crate::gameplay::ScriptRules::from_data_segment(&data).unwrap(),
             SessionState::default().begin_game(),
         )
-        .unwrap()
+        .unwrap();
+        game.capture_pass_snapshots(true);
+        game
     }
 
     #[test]

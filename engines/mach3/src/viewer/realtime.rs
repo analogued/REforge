@@ -260,7 +260,7 @@ impl Simulation {
         rules: &ScriptRules,
         resources: &Resources,
         controls: bool,
-        events: &mut Vec<(u64, GameplayEvent)>,
+        observe: &mut impl FnMut(u64, GameplayEvent),
     ) -> Result<bool, String> {
         let memory = DosSampleMemory::new(&resources.samples, *b"MACH3\0\0\0");
         let mut repaint = false;
@@ -357,13 +357,13 @@ impl Simulation {
                         let poll = state
                             .keyboard
                             .poll_controls(&mut state.controls, state.joystick);
-                        events.push((
+                        observe(
                             self.clock.tick(),
                             GameplayEvent::InputPoll {
                                 site: 0x2289,
                                 mask: poll.mask,
                             },
-                        ));
+                        );
                         if poll.display_toggled {
                             game.reset_video_palette();
                         }
@@ -421,7 +421,7 @@ impl Simulation {
                                 samples: &memory,
                             },
                             &mut self.clock,
-                            &mut |tick, event| events.push((tick, event)),
+                            observe,
                         )
                         .map_err(|e| e.to_string())?;
                     runtime.synchronize_session(&mut self.session);
@@ -478,7 +478,7 @@ impl Simulation {
                             frames,
                             sound: resources,
                         },
-                        events,
+                        observe,
                     )?;
                     repaint |= dirty;
                     if let Some(choice) = returned {
@@ -516,7 +516,7 @@ impl Simulation {
         &mut self,
         state: &mut GameplayState,
         site: u16,
-        events: &mut Vec<(u64, GameplayEvent)>,
+        observe: &mut impl FnMut(u64, GameplayEvent),
     ) -> u8 {
         self.deliver_joysticks(&mut state.joystick);
         let poll = state
@@ -525,13 +525,13 @@ impl Simulation {
         if poll.display_toggled {
             self.palette_family = 1;
         }
-        events.push((
+        observe(
             self.clock.tick(),
             GameplayEvent::InputPoll {
                 site,
                 mask: poll.mask,
             },
-        ));
+        );
         poll.mask
     }
 
@@ -542,7 +542,7 @@ impl Simulation {
         mut step: EndingStep,
         target: u64,
         resources: &EndingResources<'_>,
-        events: &mut Vec<(u64, GameplayEvent)>,
+        observe: &mut impl FnMut(u64, GameplayEvent),
     ) -> Result<(EndingStep, bool, Option<bool>), String> {
         use crate::gameplay::{EndingStage, EndingTitle};
         let mut dirty = false;
@@ -594,7 +594,7 @@ impl Simulation {
                     } else {
                         0x2864
                     };
-                    if self.ending_poll(state, site, events) != 0 {
+                    if self.ending_poll(state, site, observe) != 0 {
                         // Busy-loop instruction costs remain approximated, as
                         // in native pause. Device IRQs and received scans run.
                         step = EndingStep::Entry {
@@ -622,7 +622,7 @@ impl Simulation {
                             (EndingTitle::HighScore, EndingStage::Departure) => 0x2a2c,
                             _ => unreachable!("only animation loops permit return"),
                         };
-                        if self.ending_poll(state, site, events) != 0 {
+                        if self.ending_poll(state, site, observe) != 0 {
                             return Ok((step, dirty, ending.returned_intro_choice()));
                         }
                     }
@@ -680,13 +680,13 @@ impl Simulation {
                                 count,
                                 reverse: false,
                             };
-                            events.push((
+                            observe(
                                 self.clock.tick(),
                                 GameplayEvent::Action(crate::sound::GameplayAction::PlaySample {
                                     site,
                                     request,
                                 }),
-                            ));
+                            );
                             let mut sample_state = Box::new(SampleSoundState {
                                 disabled: state.controls.preferences.sound_disabled,
                                 ..SampleSoundState::default()
@@ -713,7 +713,7 @@ impl Simulation {
                                 }
                                 SampleStart::RegularKeyboardPoll => {
                                     // The wrapper ignores the return mask, including F1/Fire.
-                                    self.ending_poll(state, 0x73b2, events);
+                                    self.ending_poll(state, 0x73b2, observe);
                                     EndingStep::Poll
                                 }
                             }
@@ -1238,7 +1238,14 @@ pub(super) fn run(
             let now = pause.now(Instant::now());
             let wanted = ticks_since(epoch, now).max(simulation.clock.tick());
             let budget = wanted.min(simulation.clock.tick().saturating_add(CHUNK));
-            let mut events = Vec::new();
+            #[cfg(feature = "dev-tools")]
+            let mut events = trace.as_ref().map(|_| Vec::new());
+            let mut observe = |_tick, _event| {
+                #[cfg(feature = "dev-tools")]
+                if let Some(events) = &mut events {
+                    events.push((_tick, _event));
+                }
+            };
             let phase_before = std::mem::discriminant(&simulation.phase);
             #[cfg(feature = "dev-tools")]
             let start = timing.as_mut().map(TimingTrace::now);
@@ -1248,13 +1255,13 @@ pub(super) fn run(
                 &rules,
                 &resources,
                 options.controls,
-                &mut events,
+                &mut observe,
             )?;
             audio.service(simulation.clock.tick(), wanted);
             #[cfg(feature = "dev-tools")]
             {
                 if let Some(trace) = &mut trace {
-                    for (tick, event) in events {
+                    for (tick, event) in events.into_iter().flatten() {
                         trace.boundary(
                             "pit_event",
                             instant_at(epoch, tick),

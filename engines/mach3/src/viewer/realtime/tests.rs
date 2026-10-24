@@ -3,9 +3,15 @@
 //! checks use an isolated dummy-device child process.
 
 use super::*;
+use crate::sound::render::{AudioRenderer, RenderingPolicy};
 use crate::{
     assets::{GraphicsAssets, Sprite},
     sound::{Resource, Tone},
+};
+use reforge_audio::render::{CategorizedRenderer, Config};
+use reforge_sdl::audio::{
+    Playback,
+    queue::{Policy, Queue},
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -33,7 +39,7 @@ fn shared_prefill_allows_startup_and_catchup_recovery() {
     use reforge_sdl::audio::queue::Phase;
     let host = Playback::new(Default::default());
     let signal = signal(CHUNK as u32);
-    let mut audio = PlaybackAudio::new(signal.clone(), host.clone());
+    let mut audio = AudioOutput::new(signal.clone(), host.clone());
     assert!(host.available());
     let at = |ms| PIT_HZ * ms / 1000;
     for ms in [10, 20, 30, 40] {
@@ -81,7 +87,7 @@ fn stalled_startup_and_device_reset_wait_for_current_prefill() {
     for reset in [false, true] {
         let host = Playback::new(Default::default());
         let signal = signal(CHUNK as u32);
-        let mut audio = PlaybackAudio::new(signal.clone(), host.clone());
+        let mut audio = AudioOutput::new(signal.clone(), host.clone());
         assert!(host.available());
         let epoch = if reset {
             audio.service(at(60), at(60));
@@ -781,7 +787,7 @@ fn gameplay_run_levels(
     ] {
         simulation.receive(start + offset, raw);
     }
-    let mut audio = PlaybackAudio {
+    let mut audio = AudioOutput {
         signal: signal.clone(),
         host: Playback::new(Default::default()),
         generation: 0,

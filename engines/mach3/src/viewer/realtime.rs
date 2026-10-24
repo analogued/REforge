@@ -4,6 +4,9 @@
 use super::*;
 #[cfg(test)]
 mod tests;
+use super::audio_output::{AudioOutput, Synthesis, resolve_renderer};
+#[cfg(test)]
+use super::audio_output::{RATE, samples_at};
 use crate::{
     gameplay::execution::{GameplayEvent, GameplayProgress, GameplayResources, GameplayState},
     live::GameplayRuntime,
@@ -11,19 +14,10 @@ use crate::{
         DosSampleMemory, Effect, FarPointer, IntroProgram, IntroProgress, IntroTask,
         ProceduralProgram, Resource, SampleBus, SamplePlayer, SampleRequest, SampleSoundState,
         SoundAction, SoundAssets,
-        render::{AudioRenderer, RenderingPolicy},
     },
     timer::{Clock, ClockEvent, Progress, SampleStart, SampleTask, Stamp, Wait},
 };
-use reforge_audio::{
-    PIT_HZ,
-    render::{CategorizedRenderer, Config},
-    speaker::PcSpeaker,
-};
-use reforge_sdl::audio::{
-    Playback,
-    queue::{Policy, Queue},
-};
+use reforge_audio::{PIT_HZ, speaker::PcSpeaker};
 use reforge_sdl::settings::SoundRenderer;
 use std::{
     cell::RefCell,
@@ -31,7 +25,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const RATE: u32 = 48_000;
 const CHUNK: u64 = 11_931;
 const CS: u16 = 0x1234;
 // An original Fire alias not emitted by the host keyboard mapping. The sample
@@ -51,184 +44,6 @@ struct EndingResources<'a> {
     sound: &'a Resources,
 }
 
-struct PcmBlock {
-    start: u64,
-    samples: Vec<i16>,
-}
-struct Synthesis {
-    renderer: CategorizedRenderer,
-    policy: RenderingPolicy,
-    blocks: VecDeque<PcmBlock>,
-    generated: u64,
-    error: Option<String>,
-}
-impl Synthesis {
-    #[cfg(test)]
-    fn new() -> Result<Self, String> {
-        Self::with_mode(AudioRenderer::Speaker)
-    }
-    fn with_mode(mode: AudioRenderer) -> Result<Self, String> {
-        Ok(Self {
-            renderer: CategorizedRenderer::new(
-                Config {
-                    clock_hz: PIT_HZ as u32,
-                    sample_rate: RATE,
-                    chunk_ticks: CHUNK as u32,
-                },
-                0,
-            )
-            .map_err(|e| e.to_string())?,
-            policy: RenderingPolicy::new(mode, false),
-            blocks: VecDeque::new(),
-            generated: 0,
-            error: None,
-        })
-    }
-    fn set_mode(&mut self, mode: AudioRenderer, tick: u64) {
-        if let Some(level) = self.policy.set_mode(mode) {
-            self.advance(tick, Some(level));
-            self.blocks.clear();
-        }
-    }
-    fn observe(&mut self, stamp: Stamp, event: ClockEvent) {
-        let old_category = self.policy.category();
-        let level = match event {
-            ClockEvent::Action(action) => self.policy.action(stamp.tick, action),
-            ClockEvent::Device(events) => events
-                .drive
-                .and_then(|edge| self.policy.drive(edge.tick, edge.high)),
-            ClockEvent::Interrupt(_) => None,
-        };
-        if let Some(level) = level
-            .or_else(|| (old_category != self.policy.category()).then(|| self.renderer.level()))
-        {
-            self.advance(stamp.tick, Some(level));
-        }
-    }
-    fn advance(&mut self, tick: u64, level: Option<i16>) {
-        if self.error.is_some() {
-            return;
-        }
-        let Self {
-            renderer,
-            blocks,
-            generated,
-            ..
-        } = self;
-        let mut output = |samples: &[i16]| {
-            blocks.push_back(PcmBlock {
-                start: *generated,
-                samples: samples.to_vec(),
-            });
-            *generated += samples.len() as u64;
-            Ok(())
-        };
-        let result = if let Some(level) = level {
-            renderer.level_at(tick, self.policy.category(), level, &mut output)
-        } else {
-            renderer.finish_until(tick, &mut output)
-        };
-        if let Err(error) = result {
-            self.error = Some(error.to_string());
-        }
-    }
-}
-
-fn resolve_renderer(renderer: SoundRenderer, default: AudioRenderer) -> AudioRenderer {
-    match renderer {
-        SoundRenderer::GameDefault => default,
-        SoundRenderer::Speaker => AudioRenderer::Speaker,
-        SoundRenderer::EnhancedPcm => AudioRenderer::EnhancedPcm,
-    }
-}
-
-struct PlaybackAudio {
-    signal: Rc<RefCell<Synthesis>>,
-    host: Playback,
-    generation: u64,
-    queue: Queue,
-}
-impl PlaybackAudio {
-    fn new(signal: Rc<RefCell<Synthesis>>, host: Playback) -> Self {
-        if let Err(error) = host.start(RATE) {
-            eprintln!("warning: audio output unavailable; simulation continues: {error}");
-        }
-        Self {
-            signal,
-            queue: Queue::new(RATE, Policy::for_output(&host))
-                .expect("valid fixed-rate playback policy"),
-            generation: host.generation(),
-            host,
-        }
-    }
-    fn sync_settings(&mut self, tick: u64, default_renderer: AudioRenderer) -> bool {
-        if self.generation == self.host.generation() {
-            return false;
-        }
-        let mode = resolve_renderer(self.host.settings().renderer, default_renderer);
-        let volumes = self.host.settings().categories;
-        let mut signal = self.signal.borrow_mut();
-        signal.advance(tick, None);
-        if let Err(error) = signal.renderer.set_volumes(volumes) {
-            eprintln!("warning: invalid category levels: {error}");
-        }
-        signal.set_mode(mode, tick);
-        signal.blocks.clear();
-        let epoch = signal.generated;
-        drop(signal);
-        if let Err(error) = self.queue.reset(&mut self.host, epoch) {
-            self.disable(error);
-        }
-        self.generation = self.host.generation();
-        true
-    }
-    fn pause(&mut self, paused: bool) {
-        if let Err(error) = self.queue.set_paused(&mut self.host, paused) {
-            self.disable(error);
-        }
-    }
-    fn disable(&mut self, error: String) {
-        eprintln!("warning: audio output stopped; simulation continues: {error}");
-        self.host.stop();
-    }
-    fn service(&mut self, committed: u64, wanted: u64) {
-        self.signal.borrow_mut().advance(committed, None);
-        let mut signal = self.signal.borrow_mut();
-        if let Some(error) = &signal.error {
-            let error = error.clone();
-            signal.blocks.clear();
-            drop(signal);
-            if self.host.available() {
-                self.disable(error);
-            }
-            return;
-        }
-        if !self.host.available() {
-            signal.blocks.clear();
-            return;
-        }
-        let mut error = None;
-        for block in signal.blocks.drain(..) {
-            if let Err(e) = self.queue.push(block.start, block.samples) {
-                error = Some(e);
-                break;
-            }
-        }
-        drop(signal);
-        if error.is_none() {
-            // Both the generated positions and this target use the native PIT
-            // timeline. Paused host time never enters this presentation position.
-            error = self.queue.service(&mut self.host, samples_at(wanted)).err();
-        }
-        if let Some(error) = error {
-            self.disable(error);
-        }
-    }
-}
-
-fn samples_at(tick: u64) -> u64 {
-    (u128::from(tick) * u128::from(RATE) / u128::from(PIT_HZ)) as u64
-}
 fn ticks_since(epoch: Instant, now: Instant) -> u64 {
     (now.saturating_duration_since(epoch).as_nanos() * u128::from(PIT_HZ) / 1_000_000_000)
         .min(u128::from(u64::MAX)) as u64
@@ -1202,7 +1017,7 @@ pub(super) fn run(
         .renderer
         .set_volumes(host.settings().categories)
         .map_err(|e| e.to_string())?;
-    let mut audio = PlaybackAudio::new(signal, host);
+    let mut audio = AudioOutput::new(signal, host);
     let mut pause = HostPause::default();
     let mut input = ControlInput::default();
     let mut history = InputHistory::default();

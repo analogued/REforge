@@ -422,7 +422,7 @@ impl Enemy {
                 self.update_craft(task.next_slot, random, task.player, task.context, sound)?
             else {
                 task.pending_sample = true;
-                return Ok(Some(GameplayAction::IntroSample {
+                return Ok(Some(GameplayAction::PlaySample {
                     site: 0x42bf,
                     request: SampleRequest {
                         resource: Resource::Data8,
@@ -3078,7 +3078,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             sample,
-            GameplayAction::IntroSample { site: 0x42bf, .. }
+            GameplayAction::PlaySample { site: 0x42bf, .. }
         ));
         assert_eq!(direct.crafts[0].animation_phase, 0);
         assert_eq!(direct.crafts[0].depth, 22);
@@ -3140,7 +3140,7 @@ mod tests {
                     site: 0x42bc,
                     effect: Effect::Tone(Tone::First)
                 },
-                GameplayAction::IntroSample {
+                GameplayAction::PlaySample {
                     site: 0x42bf,
                     request: SampleRequest {
                         resource: Resource::Data8,

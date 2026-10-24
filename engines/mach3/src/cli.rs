@@ -55,15 +55,16 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
         crate::executable::data_segment(&program).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
-    if options.playback != Playback::Animated || options.body_period != crate::gameplay::BODY_PERIOD
+    if options.playback != Playback::Animated
+        || options.body_period != crate::gameplay::NOMINAL_PREVIEW_BODY_PERIOD
     {
-        return crate::viewer::run_with_rules(&frames, options, rules);
+        return crate::viewer::run_preview(&frames, options, rules);
     }
     let samples = crate::sound::SoundAssets::load(&directory).map_err(|e| e.to_string())?;
     let intro = crate::sound::IntroProgram::from_expanded(&program).map_err(|e| e.to_string())?;
     let procedural =
         crate::sound::ProceduralProgram::from_expanded(&program).map_err(|e| e.to_string())?;
-    crate::viewer::run_with_sound(&frames, options, rules, samples, intro, procedural)
+    crate::viewer::run_live(&frames, options, rules, samples, intro, procedural)
 }
 
 /// Validate the viewer argument contract without loading original data or SDL.
@@ -371,7 +372,10 @@ mod tests {
                 let (_, options) = parse_args(args(&values)).unwrap().unwrap();
                 assert_eq!(options.audio_renderer, renderer);
                 assert_eq!(options.playback, Playback::Animated);
-                assert_eq!(options.body_period, crate::gameplay::BODY_PERIOD);
+                assert_eq!(
+                    options.body_period,
+                    crate::gameplay::NOMINAL_PREVIEW_BODY_PERIOD
+                );
             }
         }
         let (_, options) = parse_args(args(&[

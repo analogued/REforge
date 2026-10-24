@@ -33,9 +33,10 @@ pub enum GameplayAction {
         site: u16,
         units: u16,
     },
-    /// Wrapper 4fd9 plays DATA8 only when the application's b666 flag is set.
-    /// The executor supplies that flag and the ordinary sample-disable state.
-    IntroSample {
+    /// A native digitized-sample call, including completion and ending speech.
+    /// Its wrapper checks the application flag; ordinary sound-disable behavior
+    /// is handled by the sample executor.
+    PlaySample {
         site: u16,
         request: SampleRequest,
     },

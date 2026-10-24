@@ -563,7 +563,7 @@ impl GameplayTask {
                     GameplayAction::Wait { site, units } => {
                         self.wait = Some((site, Wait::from_call(units, units)))
                     }
-                    GameplayAction::IntroSample { request, .. } => {
+                    GameplayAction::PlaySample { request, .. } => {
                         if self.state.controls.preferences.digitized_samples_enabled {
                             self.sample_state.disabled =
                                 self.state.controls.preferences.sound_disabled;

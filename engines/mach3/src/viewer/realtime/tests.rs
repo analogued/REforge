@@ -2163,7 +2163,7 @@ fn mandatory_hold_samples_select_original_resources_and_preserve_publication() {
             events,
             [(
                 0,
-                GameplayEvent::Action(crate::sound::GameplayAction::IntroSample { site, request })
+                GameplayEvent::Action(crate::sound::GameplayAction::PlaySample { site, request })
             )]
         );
         assert!(log.borrow().iter().any(|(_, event)| *event
@@ -2256,7 +2256,7 @@ fn ending_sample_guards_distinguish_equal_lower_optional_and_intro_disabled() {
         assert_eq!(
             events.iter().any(|(_, event)| matches!(
                 event,
-                GameplayEvent::Action(crate::sound::GameplayAction::IntroSample { .. })
+                GameplayEvent::Action(crate::sound::GameplayAction::PlaySample { .. })
             )),
             expected
         );

@@ -126,7 +126,7 @@ fn completion_wrapper_guards_sample_and_disabled_entry_polls_ordinary_input() {
         );
         assert!(events.iter().any(|(_, e)| matches!(
             e,
-            GameplayEvent::Action(GameplayAction::IntroSample { site: 0x42bf, .. })
+            GameplayEvent::Action(GameplayAction::PlaySample { site: 0x42bf, .. })
         )));
         assert_eq!(clock.handlers()[1], keyboard_handler(CS));
     }

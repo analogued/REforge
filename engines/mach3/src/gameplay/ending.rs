@@ -234,7 +234,7 @@ impl Ending {
     }
 
     pub fn period(&self) -> std::time::Duration {
-        super::BODY_PERIOD * self.wait_units() / 4
+        super::NOMINAL_PREVIEW_BODY_PERIOD * self.wait_units() / 4
     }
 
     pub fn can_return(&self) -> bool {

@@ -26,8 +26,8 @@ use crate::{
     assets::GraphicsAssets,
     frame::{Frame, HEIGHT, WIDTH},
     gameplay::{
-        BODY_PERIOD, DisplayMode, Ending, Gameplay, PauseEvent, PauseState, ScriptRules,
-        SessionState, Steering, TransitionFrame,
+        DisplayMode, Ending, Gameplay, NOMINAL_PREVIEW_BODY_PERIOD, PauseEvent, PauseState,
+        ScriptRules, SessionState, Steering, TransitionFrame,
     },
     startup::{Presentation, Screen, StartupFrames},
 };
@@ -72,7 +72,7 @@ impl Default for Options {
             playback: Playback::Animated,
             controls: false,
             audio_renderer: crate::sound::render::AudioRenderer::Speaker,
-            body_period: BODY_PERIOD,
+            body_period: NOMINAL_PREVIEW_BODY_PERIOD,
             #[cfg(feature = "dev-tools")]
             input_trace: None,
             #[cfg(feature = "dev-tools")]
@@ -208,23 +208,8 @@ fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
     event_action(presentation, event, false) != Action::Close
 }
 
-/// Open a resizable nearest-neighbor viewer. No audio subsystem is initialized.
-pub fn run(frames: &StartupFrames, scale: u32) -> Result<(), String> {
-    run_with_options(
-        frames,
-        Options {
-            scale: Some(scale),
-            ..Options::default()
-        },
-    )
-}
-
-pub fn run_with_options(frames: &StartupFrames, options: Options) -> Result<(), String> {
-    run_inner(frames, options, None)
-}
-
 /// Run with externally decoded encounter rules, including retained-session restarts.
-pub fn run_with_rules(
+pub fn run_preview(
     frames: &StartupFrames,
     options: Options,
     rules: ScriptRules,
@@ -233,7 +218,7 @@ pub fn run_with_rules(
 }
 
 /// Run animated gameplay on the reconstructed PIT timeline with live sound.
-pub fn run_with_sound(
+pub fn run_live(
     frames: &StartupFrames,
     options: Options,
     rules: ScriptRules,
@@ -241,7 +226,8 @@ pub fn run_with_sound(
     intro: crate::sound::IntroProgram,
     procedural: crate::sound::ProceduralProgram,
 ) -> Result<(), String> {
-    if options.playback != Playback::Animated || options.body_period != BODY_PERIOD {
+    if options.playback != Playback::Animated || options.body_period != NOMINAL_PREVIEW_BODY_PERIOD
+    {
         eprintln!("warning: step/static and custom-period diagnostics use silent nominal stepping");
         return run_inner(frames, options, Some(rules));
     }

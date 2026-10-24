@@ -332,7 +332,7 @@ requested exit at a body boundary. Reaching an export limit alone does not
 represent a DOS game return and does not request that reset.
 
 Completion wrapper `4fd9` uses 9,723 forward source bytes from `DATA8` when the
-application's digitized-sample flag at `b666` is set. `IntroSample` identifies that
+application's digitized-sample flag at `b666` is set. `PlaySample` identifies that
 conditional call; the executor supplies the flag and the ordinary sample-disable
 state, then uses the existing reconstructed sample routine. It does not replace
 the sample with a procedural tone or infer its duration from a renderer.

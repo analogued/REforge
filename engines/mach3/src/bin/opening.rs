@@ -5,7 +5,8 @@ use mach3::{
     Error,
     assets::GraphicsAssets,
     gameplay::{
-        Ending, Gameplay, LAST_BODY, STEERING_LAST_BODY, ScriptRules, SessionState, Steering,
+        DEFAULT_CONTROLLED_EXPORT_BODY_LIMIT, DEFAULT_EXPORT_BODY_LIMIT, Ending, Gameplay,
+        ScriptRules, SessionState, Steering,
     },
     startup::StartupFrames,
 };
@@ -19,7 +20,7 @@ use std::{
 const HELP: &str = "Usage: mach3-opening [--steps 0..836] [--ending] [--inputs input.tsv] [--subframes] <assets-directory> <new-output-directory>\n\n\
 Export the no-input opening from the initial frame through the requested body.\n\
 Writes numbered CGA frames and state/object TSV tables; output directory must be new.\n\
-Default: 836 bodies, including the complete first no-input run. Audio is deferred.\n\
+Default: 836 bodies, including the complete first no-input run. This logical export is silent.\n\
 --ending: also export the first title pair and selected return intro image.\n\
 --inputs: held action TSV (body, update, mask); defaults to 90 bodies, explicit --steps permits up to 836.\n\
 --subframes: also export the three displayed passes as NNN-1.cga through NNN-3.cga.";
@@ -39,7 +40,7 @@ fn run() -> Result<(), Error> {
         println!("{HELP}");
         return Ok(());
     }
-    let mut steps = LAST_BODY;
+    let mut steps = DEFAULT_EXPORT_BODY_LIMIT;
     let mut steps_set = false;
     if args.peek().is_some_and(|arg| arg == "--steps") {
         args.next();
@@ -47,7 +48,7 @@ fn run() -> Result<(), Error> {
         steps = args
             .next()
             .and_then(|arg| arg.to_str().and_then(|arg| arg.parse::<u16>().ok()))
-            .filter(|steps| *steps <= LAST_BODY)
+            .filter(|steps| *steps <= DEFAULT_EXPORT_BODY_LIMIT)
             .ok_or_else(|| {
                 Error::InvalidData("--steps must be an integer between 0 and 836".into())
             })?;
@@ -56,7 +57,7 @@ fn run() -> Result<(), Error> {
     if include_ending {
         args.next();
     }
-    if include_ending && steps != LAST_BODY {
+    if include_ending && steps != DEFAULT_EXPORT_BODY_LIMIT {
         return Err(Error::InvalidData(
             "--ending requires the complete no-input run".into(),
         ));
@@ -77,7 +78,7 @@ fn run() -> Result<(), Error> {
             return Err(Error::InvalidData("input export excludes --ending".into()));
         }
         if !steps_set {
-            steps = STEERING_LAST_BODY;
+            steps = DEFAULT_CONTROLLED_EXPORT_BODY_LIMIT;
         }
         let text = fs::read_to_string(path)?;
         let mut lines = text.lines();
@@ -95,7 +96,7 @@ fn run() -> Result<(), Error> {
                 .collect::<Option<Vec<_>>>()
                 .filter(|row| {
                     row.len() == 3
-                        && (1..=LAST_BODY).contains(&row[0])
+                        && (1..=DEFAULT_EXPORT_BODY_LIMIT).contains(&row[0])
                         && (1..=3).contains(&row[1])
                         && row[2] <= 31
                 })

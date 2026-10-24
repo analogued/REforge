@@ -867,7 +867,7 @@ impl Simulation {
                             };
                             events.push((
                                 self.clock.tick(),
-                                GameplayEvent::Action(crate::sound::GameplayAction::IntroSample {
+                                GameplayEvent::Action(crate::sound::GameplayAction::PlaySample {
                                     site,
                                     request,
                                 }),

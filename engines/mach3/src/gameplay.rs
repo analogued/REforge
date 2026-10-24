@@ -132,7 +132,7 @@ impl Gameplay {
         let mut gameplay = Self {
             body: 0,
             render_pass: 0,
-            body_limit: Some(LAST_BODY),
+            body_limit: Some(DEFAULT_EXPORT_BODY_LIMIT),
             static_lateral: 0,
             random,
             rules: None,
@@ -189,7 +189,7 @@ impl Gameplay {
     /// A short controlled prefix, independently verified with held steering.
     pub fn with_steering(assets: &GraphicsAssets) -> Result<Self, Error> {
         let mut gameplay = Self::new(assets)?;
-        gameplay.body_limit = Some(STEERING_LAST_BODY);
+        gameplay.body_limit = Some(DEFAULT_CONTROLLED_EXPORT_BODY_LIMIT);
         Ok(gameplay)
     }
 
@@ -1338,14 +1338,15 @@ fn draw_clipped(
 }
 
 /// Final completed body of the currently verified, no-input gameplay batch.
-pub const LAST_BODY: u16 = 836;
+pub const DEFAULT_EXPORT_BODY_LIMIT: u16 = 836;
 
 /// Verified prefix for steering-controlled playback.
-pub const STEERING_LAST_BODY: u16 = 90;
+pub const DEFAULT_CONTROLLED_EXPORT_BODY_LIMIT: u16 = 90;
 
 /// Four nominal 36.413 Hz timer units per ordinary completed loop body.
 /// Original CPU/render costs and startup timer transitions are not emulated.
-pub const BODY_PERIOD: std::time::Duration = std::time::Duration::from_nanos(109_850_804);
+pub const NOMINAL_PREVIEW_BODY_PERIOD: std::time::Duration =
+    std::time::Duration::from_nanos(109_850_804);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Random {
@@ -1679,14 +1680,14 @@ mod tests {
         }
         // Synthetic descriptor geometry does not reproduce the original
         // collision route. Exercise the bounded guard independently of it.
-        gameplay.body = LAST_BODY;
+        gameplay.body = DEFAULT_EXPORT_BODY_LIMIT;
         let final_frame = gameplay.frame().clone();
         let final_random = gameplay.snapshot().random;
         for _ in 0..3 {
             assert!(!gameplay.advance(&assets).unwrap());
         }
         assert!(gameplay.complete());
-        assert_eq!(gameplay.snapshot().body, LAST_BODY);
+        assert_eq!(gameplay.snapshot().body, DEFAULT_EXPORT_BODY_LIMIT);
         assert_eq!(gameplay.snapshot().random, final_random);
         assert_eq!(gameplay.frame(), &final_frame);
     }
@@ -2139,7 +2140,10 @@ mod tests {
         let assets = synthetic_assets();
         let start = SessionState::default().begin_game();
         let mut game = Gameplay::for_play(&assets, synthetic_rules(&[0x85]), start).unwrap();
-        for boundary in [STEERING_LAST_BODY, LAST_BODY] {
+        for boundary in [
+            DEFAULT_CONTROLLED_EXPORT_BODY_LIMIT,
+            DEFAULT_EXPORT_BODY_LIMIT,
+        ] {
             game.body = boundary - 1;
             for expected in [boundary, boundary + 1] {
                 assert!(game.advance(&assets).unwrap());

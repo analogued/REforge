@@ -151,9 +151,12 @@ fn opening_export_preserves_existing_directories_and_rejects_unsupported_steps()
         first
     );
     assert!(
-        !export(&(mach3::gameplay::LAST_BODY + 1).to_string(), "unsupported")
-            .status
-            .success()
+        !export(
+            &(mach3::gameplay::DEFAULT_EXPORT_BODY_LIMIT + 1).to_string(),
+            "unsupported"
+        )
+        .status
+        .success()
     );
     assert!(!directory.0.join("unsupported").exists());
     assert!(!export("0", "data2").status.success());

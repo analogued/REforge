@@ -1556,10 +1556,14 @@ full-game port timestamps or audible waveform equality. Synthetic checks cover
 note/rest gates, counter wrap, native versus host muting, blocking work,
 category gains and PCM continuity across chunk boundaries.
 
-The host keeps at most 100 ms in SDL's queue, feeding longer committed blocking
-programs from a bounded two-second staging buffer. Pauses preserve pending
-playback; run/title resets clear it. Applying audio settings discards stale
-presentation audio. Device failures warn and leave game logic running.
+Host playback uses the shared [timestamped queue and recovery policy](../../../crates/reforge_sdl/README.md#host-audio-preferences).
+Alley Cat supplies its paced presentation position separately from its generated
+audio endpoint, so future sound committed by blocking programs survives recovery.
+Pause retains PCM and freezes its presentation timeline; manual pause rebases
+the observation when it discards catch-up debt. Run/title and explicit audio
+settings boundaries reset presentation state. Device failures warn and leave
+game logic running. Buffer limits, prefill and recovery thresholds are defined
+by the shared policy rather than an engine-local staging buffer.
 Uniform accepted-update diagnostics remain silent because they have no
 meaningful speaker timeline. The timed headless runner executes sound logic
 without retaining output writes.

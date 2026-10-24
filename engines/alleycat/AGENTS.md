@@ -1,32 +1,13 @@
-# Repository instructions
+# Alley Cat engine instructions
 
-- Read the combined repository's root `AGENTS.md`, `CONTRIBUTING.md` and this
-  crate's `CONTRIBUTING.md` before game work.
-- Keep `docs/` focused on maintained implementation and reference documentation
-  useful to users and contributors. Add documentation only when an actual need
-  arises; an empty `docs/` is fine. Do not create a preset collection of documents.
-- Keep discussions, brainstorming, speculative designs, experiments, internal
-  audits, retrospectives, session logs, and planning notes outside the source
-  repository. Do not move them to another tracked directory to avoid this rule.
-  Promote verified findings into concise implementation documentation when useful.
-- This repository contains authored project source and documented RE knowledge.
-  Original game files and raw generated evidence are external inputs. Keep them
-  outside Git unless a specific redistribution basis has been established.
-- The recreation must require external original game data at runtime. Read the
-  original graphics and game tables from the supported executable; do not bundle
-  extracted assets or replace them to make the program self-contained.
-- These instructions must remain usable in a standalone clone. Do not require
-  umbrella instructions or local files outside the repository.
-- Resolve original data, analysis, captures, and tool paths through configuration.
-  Do not hard-code a user's paths or require a particular parent directory layout.
-- Preserve original inputs and persistent intermediate evidence. Put reproducible
-  build/cache output in the configured working directory.
-- Follow the root instructions for supporting RE tool/helper placement. Keep
-  private investigation scripts and profiles outside source Git; preserve frozen
-  evidence copies when promoting maintained working tools. Shared REforge runtime
-  infrastructure belongs in root `crates/` when reuse justifies extraction.
-- The RE method is a game-specific decision. This scaffold does not select one.
-  Add project-specific instructions and build/test commands as they are established.
-- The repository-wide REforge license has not been chosen. Once chosen,
-  keep its full text in root `LICENSE`, state it in the README, and add short copyright
-  and SPDX license headers to authored code files. Preserve third-party notices.
+- Read the combined repository's root `AGENTS.md`, root `CONTRIBUTING.md` and
+  this crate's `CONTRIBUTING.md`. They define shared rules and validation.
+- Reconstruct the supported executable's behavior in authored Rust, using its
+  external graphics and game tables. Keep behavior and evidence tied to the
+  input identity documented in `README.md`.
+- Preserve native movement/support rules, shared random consumption, actor order
+  and timer/retrace/call-count gates. Consult `docs/timing.md` and
+  `docs/deviations.md` before changing pacing or intentional behavior differences.
+- Verify behavior against controlled original-code evidence before claiming
+  fidelity. Distinguish helper comparisons, staged integration and natural
+  gameplay; a window smoke test alone does not establish equivalence.

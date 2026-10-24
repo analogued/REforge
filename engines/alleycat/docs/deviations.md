@@ -30,6 +30,33 @@ cargo run --locked -p reforge --release --features dev-tools -- \
 These are hold thresholds, not exact total visible durations: animation also
 depends on its invocation countdown, retrace gate, and actor contact.
 
+## Responsive controls
+
+Interactive play defaults to Responsive input, which refreshes direction and
+action requests on each ordinary simulation pass instead of waiting for the
+original control poll. Movement gates, blocking effects and the modeled
+control-poll cost remain unchanged; movement updates do not become more frequent.
+Earlier input can change which action is selected at an existing update.
+
+Original polling remains selectable in the Alley Cat settings. See the
+[Responsive controls feature](../README.md#responsive-controls) for how to switch.
+Headless reference and uniform diagnostic runs retain original input unless
+explicitly selected by a runtime caller.
+
+## Shared ordinary-action timing
+
+The default XT profile uses common execution allowances for comparable ordinary
+cat actions across rooms. Extra furniture-search and floor-mark drawing work
+does not slow those actions, while native search results, movement, animation,
+tick/retrace gates and explicit scene-specific rules remain intact. Swimming and
+the bookcase broom's distinct gate are preserved separately.
+
+These are approved modern pacing choices based on the XT measurements, not
+exact reproductions of every measured processing cost or a global speed change.
+The [execution-cost reference](timing.md#reference-execution-costs) records the
+current allowances, eligibility guards and measurement limits. The older DOSBox
+profile retains its existing costs for comparisons.
+
 ## Hearts pairing presentation
 
 The default XT profile omits simulated sprite-drawing latency during the three

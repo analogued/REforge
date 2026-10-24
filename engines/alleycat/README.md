@@ -1,11 +1,26 @@
 # Alley Cat
 
-An early Rust reconstruction of **Alley Cat** for modern desktop systems,
-initially targeting Linux. The current program supports alley movement,
-alley and room actors, damage, window entry, the fishbowl, bookcase, cheese, birdcage and milk rooms,
-and the hearts bonus scene, with PC Speaker music and effects.
-It is not a complete game.
+A Rust reconstruction of **Alley Cat** for modern desktop systems, initially
+targeting Linux. It includes the alley, all five ordinary rooms, the underwater
+section and the hearts bonus scene, with actors, damage, progression and
+PC Speaker music and effects. Original hardware timing remains approximate;
+the [timing reference](docs/timing.md) describes the model and its limits,
+including the deferred physical PCjr timing comparison.
 Alley Cat is the `alleycat` engine crate in **REforge**.
+
+## Responsive controls
+
+Responsive controls reduce the wait before the game reads direction and action
+requests. They are enabled by default and preserve movement speed, physics and
+blocking effects. Original input polling remains available under
+F10 → Alley Cat overrides → Controls → Input response.
+Uncheck **Use defaults for this section** to edit; Apply activates and saves the
+selection, and Cancel discards it. The preference persists across restarts.
+
+Directions and Alt preserve timestamped transitions during catch-up. Brief taps
+between input samples can still be missed; see [input timing](docs/timing.md)
+for the implementation and limits. Headless and uniform diagnostic runs retain
+original input unless explicitly selected by a runtime caller.
 
 ## Sound
 
@@ -18,10 +33,11 @@ separately from generated sound, so future audio committed by a blocking program
 survives host recovery. Ordinary submissions preserve sample order; excessive
 lateness triggers bounded presentation recovery without changing native sound
 execution. Pause retains audio, and restart/settings boundaries reset its queue.
-The title, room-scoring jingles, hearts success sweep and melodies, and recurring
-alley/room background patterns use Music. Movement, interactions, damage and
-wipes use Effects. The single original speaker's interruptions are preserved. Speech
-has no sources and its game-specific level is disabled.
+The title, room-scoring jingles, hearts melodies and recurring alley/room
+background patterns use Music. The Hearts approach sweep, movement,
+interactions, damage and wipes use Effects. The single original speaker's
+interruptions are preserved. Speech has no sources and its game-specific level
+is disabled.
 
 F10 → Audio controls host enable, Master/Music/Effects levels, output device
 and focus muting. Master defaults to 80%; these levels are independent of the
@@ -112,16 +128,6 @@ See [controller preferences](../../docs/configuration.md#controllers).
 In the cheese room, hold Alt at a hole to travel to its paired hole.
 In the hearts scene, gifts are picked up automatically on contact; hold Alt
 to place a carried gift near the cat's current position.
-Directions and Alt preserve timestamped transitions during catch-up. Responsive
-controls are the interactive default: they refresh requests each ordinary loop
-pass without adding virtual execution cost. Movement gates and blocking effects
-retain their timing. F10 → Alley Cat overrides → Controls → Input response lets
-you select Original, which reads requests only at the original control gate.
-Uncheck **Use defaults for this section** to edit; Apply activates and saves the
-selection, and Cancel discards it. The preference persists across restarts.
-Brief taps between input samples can still be missed; see
-[input timing](docs/timing.md) for limits. Headless and uniform diagnostic runs
-retain original input unless explicitly selected by a runtime caller.
 
 Pause preserves the game state and virtual clock without catching up on resume.
 The overlay reads the original pause title from the executable and uses the
@@ -150,17 +156,17 @@ resizing or maximizing. The
 and converts explicit pixel targets to window coordinates using drawable density.
 The desktop can constrain window size or further transform the image. The shared
 backend prefers SDL's shader-capable GPU renderer for both presentation modes,
-with ordinary SDL/software fallbacks; vsync is requested by default and falls back with a warning when
-unsupported. Presentation sync does not replace the virtual game clock.
-Host display vsync is requested when
-supported; game timing still follows the virtual PIT/video clocks. Composite
-monitor simulation is not implemented. Raw framebuffer and PPM exports remain
+with ordinary SDL/software fallbacks. VSync is requested by default and falls
+back with a warning when unsupported; game timing still follows the virtual
+PIT/video clocks. Composite monitor simulation is not implemented.
+Raw framebuffer and PPM exports remain
 320×200 for data comparisons.
 
 `--difficulty` accepts 0 through 7 and sets the initial difficulty, skipping the
-skill question while retaining the controls and key-to-start wait. Normal builds
-accept
-`--original`, `--machine`, `--scale`, `--presentation`, `--difficulty` and `--help`.
+skill question while retaining the controls and key-to-start wait. Use `--help`
+for the complete option list. The [application README](../../README.md) and
+[configuration reference](../../docs/configuration.md#file-and-precedence)
+describe shared renderer, backend, frame-limit and preference overrides.
 
 ## Development tools
 
@@ -229,7 +235,7 @@ harmful defaults as a normal build.
 
 ## Current behavior
 
-The implemented slice includes seeded alley initialization, CGA bank addressing,
+The engine implements seeded alley initialization, CGA bank addressing,
 sprite composition and background restoration, and player movement on the floor,
 dumpsters, and occupied upper platforms. Ground decorations use the original's
 weighted random selection and external sprites. Current score, high score and
@@ -356,11 +362,10 @@ without losing a life or rotating failure messages. Palettes change between the
 black and colour wipes, and destination scenery is constructed as a complete
 image. The XT timing curve uses drawing work rather than stored frame times.
 
-The black and color wipes follow the original expanding geometry with the
-measured XT drawing-work curve. Other unmeasured execution costs remain
-provisional. Scene-specific CGA/PCjr palette tables,
-carried-gift background changes and completion flashes are applied separately
-from packed framebuffer pixels. Speaker writes accompany music, wipes and scoring.
+Other unmeasured execution costs remain provisional. Scene-specific CGA/PCjr
+palette tables, carried-gift background changes and completion flashes are applied
+separately from packed framebuffer pixels. Speaker writes accompany music,
+wipes and scoring.
 
 Starting through the menu or restarting runs the clipped alley-edge entry
 animation. Direct development starts bypass this initial entry. Falling behind

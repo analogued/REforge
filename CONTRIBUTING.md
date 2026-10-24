@@ -69,6 +69,13 @@ with it, and identify local adaptations and any authored helpers in those files.
 Ordinary library API calls do not require upstream source notices at each call
 site; keep applicable dependency notices centrally in the repository.
 
+Maintain direct dependency, imported-code and asset attribution in the root
+`THIRD_PARTY.md`, with one text per distinct license under `LICENSES/`. Keep
+component-specific copyright notices in the inventory and existing notices in
+imported source. Do not maintain per-version license directories or manually
+duplicate indirect Cargo notices; [release packaging](docs/releases.md) generates
+one combined notices document for the selected target and features.
+
 The project license remains undecided. Assess proposed reuse against the candidate
 licenses and record any constraints before adoption; do not silently narrow the
 choice.

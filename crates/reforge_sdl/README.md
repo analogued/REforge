@@ -169,7 +169,7 @@ check expects space for a 1280×960 rendering area. Dummy/software checks do not
 establish the compositor's final monitor-pixel mapping.
 
 Authored project code has no selected license yet. Preserve the
-[dependency notices and license texts](docs/dependencies.md) when distributing
+[dependency notices and license texts](../../THIRD_PARTY.md) when distributing
 the corresponding dependencies. This crate bundles no game data.
 
 ## Settings menu
@@ -246,7 +246,7 @@ Textures, clipping, font filtering and renderer coordinate-state restoration
 are handled by the adapter. Hardware uses premultiplied alpha; the tested SDL
 software triangle path requires conversion to standard alpha for correct
 transparency. Software glyph/edge rasterization can differ from GPU output.
-See the [dependency and font notices](docs/dependencies.md#settings-ui).
+See the [dependency and font notices](../../THIRD_PARTY.md#bundled-fonts).
 
 `RuntimeSettings::default` supplies shared Auto/windowed defaults. Engines pass
 `VideoCapabilities` to restrict available choices when required; both current

@@ -7,8 +7,8 @@ SPIR-V in `hyllian.spv`, Metal source in `hyllian.msl`, and Direct3D 12 DXIL in
 retained for inspection; change `hyllian.frag` and regenerate all targets.
 They are embedded by REforge; building and running REforge needs no shader
 compiler, Qt, DOSBox Staging installation or shader files alongside the executable.
-Retain [the MIT license and attribution](LICENSE-MIT.txt) when redistributing
-these shaders. MIT permits use with the project's candidate permissive or GPL
+Retain [the MIT license and attribution](../../../THIRD_PARTY.md#hyllian-crt-shader)
+when redistributing these shaders. MIT permits use with the project's candidate permissive or GPL
 licenses; it does not select a license for the rest of REforge.
 
 ## Provenance and adaptations
@@ -127,8 +127,8 @@ SPIR-V and their interfaces, but does not validate native Metal or D3D12 renderi
 ## Compiler licenses
 
 The generated shader assets remain the compiled/translated form of this
-MIT-licensed adaptation; retain `LICENSE-MIT.txt` and its notices. Compiler
-licenses are separate from shader licensing. Qt Shader Baker is a developer tool
+MIT-licensed adaptation; retain the root `LICENSES/MIT.txt` and THIRD_PARTY.md
+notices. Compiler licenses are separate from shader licensing. Qt Shader Baker is a developer tool
 under Qt's [commercial/GPLv3 terms](https://doc.qt.io/qt-6/qtshadertools-index.html#licenses-and-attributions),
 with its SPIRV-Cross translator under Apache-2.0 (and bundled MIT Khronos
 definitions). The glslang compiler has

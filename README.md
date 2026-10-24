@@ -81,9 +81,7 @@ For source layout, validation and contribution guidance, see
 ## License
 
 The project license has not yet been selected. Third-party terms and attribution
-are retained in the [Alley Cat notices](engines/alleycat/THIRD_PARTY.md),
-[Mach 3 notices](engines/mach3/docs/dependencies.md),
-[shared SDL3 notices](crates/reforge_sdl/docs/dependencies.md),
-[audio notices](crates/reforge_audio/docs/dependencies.md) and
-[settings notices](crates/reforge_settings/README.md#dependencies).
+are in [THIRD_PARTY.md](THIRD_PARTY.md), with license texts in
+[LICENSES/](LICENSES/). Release packages include a combined third-party notices
+document; see [release packaging](docs/releases.md).
 Original game data is not included or licensed by this repository.

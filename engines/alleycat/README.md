@@ -354,7 +354,7 @@ Scoring cat faces come from the executable. The original award lettering uses
 a BIOS ROM font absent from that file. The recreation uses SDL's 8×8 glyphs for
 award digits and multiplier text; all characters used there match the captured
 DOSBox-X CGA/PCjr BIOS reference. This does not establish equality with every
-historical BIOS font. Font attribution is in [THIRD_PARTY.md](THIRD_PARTY.md).
+historical BIOS font. Font attribution is in [THIRD_PARTY.md](../../THIRD_PARTY.md).
 
 Window and underwater entry, neutral exits, success and failure all use the
 shared expanding wipes. Neutral ordinary exits also show the original message
@@ -437,5 +437,5 @@ conventions. Development does not require a particular parent workspace.
 
 REforge's repository-wide license has not been selected; no project license is granted yet.
 Dependency attribution and license notices are in
-[THIRD_PARTY.md](THIRD_PARTY.md). Those notices do not grant rights to the
+[THIRD_PARTY.md](../../THIRD_PARTY.md). Those notices do not grant rights to the
 original game data.

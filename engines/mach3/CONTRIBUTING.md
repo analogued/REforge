@@ -9,7 +9,7 @@ within this crate.
 
 Tests use authored synthetic data and must not import original game material.
 Preserve third-party style and notices, including the complete dependency terms
-linked from [dependency notices](docs/dependencies.md).
+linked from [dependency notices](../../THIRD_PARTY.md).
 
 ## Rust validation
 
@@ -37,7 +37,7 @@ to build the frame renderer, opening exporter, replay tool and sound exporter.
 Use `--features viewer` to build the windowed viewer, or `--features viewer,dev-tools`
 for both. The `viewer` feature exposes `mach3::cli::run` for REforge dispatch and
 the standalone `mach3-viewer` binary. Dependencies are recorded in the root
-`Cargo.lock` and [dependency notices](docs/dependencies.md). Once Cargo has
+`Cargo.lock` and [dependency notices](../../THIRD_PARTY.md). Once Cargo has
 fetched them, use `--offline` for local checks and builds.
 
 The opt-in `dev-tools` feature enables all four diagnostic/export binaries and

@@ -154,5 +154,5 @@ near the timestamp limit, output failures, level headroom and WAV boundaries.
 Device results remain identical with different output rates.
 
 Authored code follows the repository-wide license decision, which remains
-undecided. See [dependency notices](docs/dependencies.md) for the optional
+undecided. See [dependency notices](../../THIRD_PARTY.md) for the optional
 renderer dependency and its retained terms.

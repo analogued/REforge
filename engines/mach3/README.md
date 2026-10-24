@@ -247,7 +247,7 @@ than wide. Explicit numeric drawable targets use 320-by-240 display units
 multiplied by the selected scale. The default pixels presentation resizes with
 nearest-neighbor sampling and
 centered black borders and preserves 4:3. Source rows can occupy different numbers of screen
-rows because of the pixel-aspect correction. See [dependency notices](docs/dependencies.md).
+rows because of the pixel-aspect correction. See [dependency notices](../../THIRD_PARTY.md).
 After Cargo has fetched the locked dependencies, these commands can use `--offline`.
 
 For reproducible frame and state export without SDL3:
@@ -278,4 +278,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for formatting and commit conventions.
 
 Authored code follows [REforge's repository license decision](../../README.md#license),
 which remains undecided. Preserve the complete third-party notices in
-the [dependency notices](docs/dependencies.md).
+the [dependency notices](../../THIRD_PARTY.md).

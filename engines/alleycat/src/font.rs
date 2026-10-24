@@ -23,7 +23,7 @@
 // src/render/SDL_render_debug_font.h, converted to a Rust row table.
 // Upstream credits Marcel Sondaar and International Business Machines
 // (public domain VGA fonts); the font definition is marked Public Domain.
-// The SDL source-file notice above is retained; see THIRD_PARTY.md.
+// The SDL source-file notice above is retained; see the root THIRD_PARTY.md.
 // Authored CGA packing helper: Copyright (c) 2026 analogued.
 // Project license has not yet been selected.
 

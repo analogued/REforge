@@ -3,7 +3,7 @@
 //! CS:1bf0 entries with no intervening return presentation.
 
 use crate::cga::Framebuffer;
-use crate::completion::{Wipe, Work};
+use crate::presentation::{Wipe, Work};
 use crate::sound::Sound;
 
 enum Phase {

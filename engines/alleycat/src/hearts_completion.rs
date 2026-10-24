@@ -6,7 +6,7 @@
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer, pixel_offset};
-use crate::completion::{Wipe, Work};
+use crate::presentation::{Wipe, Work};
 
 /// Native presentation work, separate from tick/retrace waits and host redraws.
 #[derive(Clone, Copy, Debug, Default)]
@@ -149,11 +149,11 @@ fn wait_melody(
     data: &mut [u8],
     tick: u16,
     sound: &mut crate::sound::Sound,
-) -> crate::completion::PollWork {
+) -> crate::presentation::PollWork {
     let cursor = word(data, 0x59be);
     melody(data, tick, sound);
-    crate::completion::PollWork {
-        kind: crate::completion::Poll::Melody,
+    crate::presentation::PollWork {
+        kind: crate::presentation::Poll::Melody,
         tone: word(data, 0x59be) != cursor,
     }
 }
@@ -168,7 +168,7 @@ fn add_decimal(data: &mut [u8], destination: usize, addend: &[u8; 7]) {
 }
 
 /// CS:38de..396c. The bonus score is awarded before the difficulty increases.
-fn award(data: &mut [u8], tick: u16) -> Result<crate::completion::AwardWork, String> {
+fn award(data: &mut [u8], tick: u16) -> Result<crate::presentation::AwardWork, String> {
     let difficulty = usize::from(word(data, 8));
     if difficulty > 7 {
         return Err("Hearts completion difficulty is outside 0..7".into());
@@ -216,7 +216,7 @@ fn award(data: &mut [u8], tick: u16) -> Result<crate::completion::AwardWork, Str
     data[0x369e] = 56;
     data[0x3699] = 1;
     set_word(data, 0x3722, 68);
-    Ok(crate::completion::AwardWork {
+    Ok(crate::presentation::AwardWork {
         bonus,
         multiplier: Some(multiplier),
     })
@@ -444,11 +444,11 @@ fn wait_dance(
     data: &mut [u8],
     tick: u16,
     sound: &mut crate::sound::Sound,
-) -> Result<crate::completion::PollWork, String> {
+) -> Result<crate::presentation::PollWork, String> {
     let cursor = word(data, 0x52c6);
     dance_tone(data, tick, sound)?;
-    Ok(crate::completion::PollWork {
-        kind: crate::completion::Poll::Dance,
+    Ok(crate::presentation::PollWork {
+        kind: crate::presentation::Poll::Dance,
         tone: word(data, 0x52c6) != cursor,
     })
 }
@@ -483,12 +483,12 @@ impl HeartsCompletion {
         self.alley_palette
     }
 
-    pub(crate) fn poll(&self) -> Option<crate::completion::Poll> {
+    pub(crate) fn poll(&self) -> Option<crate::presentation::Poll> {
         match self.phase {
             Phase::ApproachWait { .. } | Phase::PairWait { .. } => {
-                Some(crate::completion::Poll::Melody)
+                Some(crate::presentation::Poll::Melody)
             }
-            Phase::Dance { .. } => Some(crate::completion::Poll::Dance),
+            Phase::Dance { .. } => Some(crate::presentation::Poll::Dance),
             _ => None,
         }
     }
@@ -782,12 +782,12 @@ mod tests {
         let mut sound = crate::sound::Sound::default();
         sound.record(true);
         for (tick, tone) in [(0, false), (1, true), (2, false)] {
-            assert_eq!(c.poll(), Some(crate::completion::Poll::Melody));
+            assert_eq!(c.poll(), Some(crate::presentation::Poll::Melody));
             let work = c
                 .advance(&mut d, &mut screen, tick, true, &mut sound)
                 .unwrap();
             let poll = work.polling.unwrap();
-            assert_eq!(poll.kind, crate::completion::Poll::Melody);
+            assert_eq!(poll.kind, crate::presentation::Poll::Melody);
             assert_eq!(poll.tone, tone);
             assert_eq!(
                 sound.drain().filter(|w| w.port == 0x43).count(),
@@ -883,7 +883,7 @@ mod tests {
         assert_eq!(wait.bytes_drawn, 0);
         assert_eq!(wait.hearts.dance_frames, 0);
         assert!(wait.hearts.bookkeeping.is_none());
-        assert_eq!(wait.polling.unwrap().kind, crate::completion::Poll::Dance);
+        assert_eq!(wait.polling.unwrap().kind, crate::presentation::Poll::Dance);
         assert!(matches!(
             presentation.phase,
             Phase::Dance { frame: 100, .. }

@@ -422,7 +422,7 @@ impl CompletionCosts {
         }
     }
 
-    fn nanos(self, graphics: crate::completion::Graphics) -> u64 {
+    fn nanos(self, graphics: crate::presentation::Graphics) -> u64 {
         let wipe = graphics.wipe.map_or(0, |work| {
             self.wipe_setup
                 + u64::from(work.rows) * self.wipe_row
@@ -637,8 +637,8 @@ impl CompletionPollCosts {
         }
     }
 
-    fn poll(self, kind: crate::completion::Poll, sound: bool) -> u64 {
-        use crate::completion::Poll;
+    fn poll(self, kind: crate::presentation::Poll, sound: bool) -> u64 {
+        use crate::presentation::Poll;
         match (kind, sound) {
             (Poll::Melody, false) => self.melody_muted,
             (Poll::Melody, true) => self.melody_sound,
@@ -648,8 +648,8 @@ impl CompletionPollCosts {
         }
     }
 
-    fn tone(self, work: crate::completion::PollWork) -> u64 {
-        use crate::completion::Poll;
+    fn tone(self, work: crate::presentation::PollWork) -> u64 {
+        use crate::presentation::Poll;
         if !work.tone {
             return 0;
         }
@@ -873,7 +873,7 @@ impl BookkeepingCosts {
         }
     }
 
-    fn nanos(self, work: crate::completion::Bookkeeping) -> u64 {
+    fn nanos(self, work: crate::presentation::Bookkeeping) -> u64 {
         u64::from(work.progress) * self.progress
             + work.award.map_or(0, |award| {
                 u64::from(award.bonus.count_ones()) * self.bonus_bit
@@ -1810,14 +1810,14 @@ impl Runtime {
         }
     }
 
-    fn completion_poll_nanos(&self, kind: Option<crate::completion::Poll>, sound: bool) -> u64 {
+    fn completion_poll_nanos(&self, kind: Option<crate::presentation::Poll>, sound: bool) -> u64 {
         match (self.costs.completion_poll, kind) {
             (Some(costs), Some(kind)) => costs.poll(kind, sound),
             _ => self.costs.room_effect_poll,
         }
     }
 
-    fn charge_completion(&mut self, work: crate::completion::Work, precharged: u64) {
+    fn charge_presentation(&mut self, work: crate::presentation::Work, precharged: u64) {
         let (hearts_nanos, hearts_bytes) = self.costs.hearts_presentation.map_or((0, 0), |costs| {
             (costs.nanos(work.hearts), work.hearts.bytes())
         });
@@ -2447,22 +2447,22 @@ impl Runtime {
             let resume = self.damage_resume.take();
             return self.finish_pass_from(alley, start_nanos, false, None, resume);
         }
-        if alley.completion_waiting() {
+        if alley.presentation_active() {
             let poll = match (self.costs.failure, alley.failure_poll()) {
                 (Some(cost), Some(kind)) => cost.poll(kind, alley.native_sound_enabled()),
                 _ => self
-                    .completion_poll_nanos(alley.completion_poll(), alley.native_sound_enabled()),
+                    .completion_poll_nanos(alley.presentation_poll(), alley.native_sound_enabled()),
             };
             self.clock.advance_nanos(poll);
             let sample = self.clock.sample();
             alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-            let work = alley.advance_completion(sample.bios.tick_low, sample.retrace)?;
-            self.charge_completion(work, poll);
+            let work = alley.advance_presentation(sample.bios.tick_low, sample.retrace)?;
+            self.charge_presentation(work, poll);
             if work.failure.message && self.costs.failure.is_some() {
                 alley.finish_failure_drawing(self.clock.sample().bios.tick_low);
             }
             alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
-            alley.finish_completion_step(&work, self.clock.sample().bios.tick_low)?;
+            alley.finish_presentation_step(&work, self.clock.sample().bios.tick_low)?;
             let changed = work.complete;
             if changed {
                 self.synchronize_scene(alley);
@@ -2714,7 +2714,7 @@ impl Runtime {
                 (outcome, Some(work))
             } else {
                 (
-                    alley.update_at_tick(self.controls, accepted.tick_low)?,
+                    alley.advance_player_update_at_tick(self.controls, accepted.tick_low)?,
                     None,
                 )
             };
@@ -3558,10 +3558,10 @@ mod tests {
     fn bookkeeping_is_additional_to_graphics_and_absent_from_the_older_profile() {
         for machine in [Machine::Cga, Machine::Pcjr] {
             let mut runtime = Runtime::new(machine);
-            let work = crate::completion::Work {
-                bookkeeping: crate::completion::Bookkeeping {
+            let work = crate::presentation::Work {
+                bookkeeping: crate::presentation::Bookkeeping {
                     progress: true,
-                    award: Some(crate::completion::AwardWork {
+                    award: Some(crate::presentation::AwardWork {
                         bonus: 2700,
                         multiplier: None,
                     }),
@@ -3570,13 +3570,13 @@ mod tests {
                 ..Default::default()
             };
             let before = runtime.clock.elapsed_nanos();
-            runtime.charge_completion(work, 0);
+            runtime.charge_presentation(work, 0);
             assert_eq!(runtime.clock.elapsed_nanos() - before, 2_005_100);
             let after = runtime.clock.elapsed_nanos();
-            runtime.charge_completion(Default::default(), 0);
+            runtime.charge_presentation(Default::default(), 0);
             assert_eq!(runtime.clock.elapsed_nanos(), after);
             let mut older = Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
-            older.charge_completion(work, 0);
+            older.charge_presentation(work, 0);
             assert_eq!(older.clock.elapsed_nanos(), 0);
         }
     }
@@ -3667,7 +3667,7 @@ mod tests {
 
     #[test]
     fn calibrated_wipe_counts_zero_byte_work_without_double_charging_dispatch() {
-        let mut wipe = crate::completion::Wipe::new(160, 96, 0);
+        let mut wipe = crate::presentation::Wipe::new(160, 96, 0);
         let work = wipe
             .advance(
                 &mut vec![0; crate::assets::DATA_LENGTH],
@@ -3681,7 +3681,7 @@ mod tests {
         let poll = runtime.costs.room_effect_poll;
         let before = runtime.clock.elapsed_nanos();
         runtime.clock.advance_nanos(poll);
-        runtime.charge_completion(work, poll);
+        runtime.charge_presentation(work, poll);
         assert_eq!(runtime.clock.elapsed_nanos() - before, u128::from(expected));
         assert!(expected > poll);
 
@@ -3690,19 +3690,19 @@ mod tests {
         let poll = older.costs.room_effect_poll;
         let before = older.clock.elapsed_nanos();
         older.clock.advance_nanos(poll);
-        older.charge_completion(work, poll);
+        older.charge_presentation(work, poll);
         assert_eq!(older.clock.elapsed_nanos() - before, u128::from(poll));
     }
 
     #[test]
     fn uncalibrated_presentation_graphics_keep_the_byte_allowance() {
-        let work = crate::completion::Work {
+        let work = crate::presentation::Work {
             bytes_drawn: 384,
-            ..crate::completion::Work::default()
+            ..crate::presentation::Work::default()
         };
         let mut runtime = Runtime::new(Machine::Cga);
         let before = runtime.clock.elapsed_nanos();
-        runtime.charge_completion(work, 0);
+        runtime.charge_presentation(work, 0);
         assert_eq!(
             runtime.clock.elapsed_nanos() - before,
             384 * u128::from(runtime.costs.completion_draw_byte)
@@ -3711,7 +3711,7 @@ mod tests {
 
     #[test]
     fn completion_poll_replaces_the_fallback_and_only_tone_work_is_added_later() {
-        use crate::completion::{Poll, PollWork, Work};
+        use crate::presentation::{Poll, PollWork, Work};
         for machine in [Machine::Cga, Machine::Pcjr] {
             for mut costs in [
                 ReferenceCosts::ibm_xt(machine),
@@ -3734,7 +3734,7 @@ mod tests {
                     }
                 );
                 r.clock.advance_nanos(poll);
-                r.charge_completion(
+                r.charge_presentation(
                     Work {
                         polling: Some(PollWork {
                             kind: Poll::Melody,
@@ -3750,7 +3750,7 @@ mod tests {
                     1000
                 };
                 assert_eq!(r.clock.elapsed_nanos(), expected);
-                r.charge_completion(
+                r.charge_presentation(
                     Work {
                         polling: Some(PollWork {
                             kind: Poll::Melody,
@@ -3767,7 +3767,7 @@ mod tests {
 
     #[test]
     fn hearts_bookkeeping_is_separate_from_polling_drawing_and_legacy_costs() {
-        let work = crate::completion::Work {
+        let work = crate::presentation::Work {
             bytes_drawn: 384,
             hearts: crate::hearts_completion::PresentationWork {
                 bookkeeping: Some(crate::hearts_completion::Bookkeeping::PairInit),
@@ -3782,11 +3782,11 @@ mod tests {
             ] {
                 let mut r = Runtime::with_costs(machine, costs);
                 r.clock.advance_nanos(costs.room_effect_poll);
-                r.charge_completion(work, costs.room_effect_poll);
+                r.charge_presentation(work, costs.room_effect_poll);
                 let body = costs.hearts_presentation.map_or(0, |c| c.pair_init);
                 let expected = costs.room_effect_poll + body + 384 * costs.completion_draw_byte;
                 assert_eq!(r.clock.elapsed_nanos(), u128::from(expected));
-                r.charge_completion(Default::default(), 0);
+                r.charge_presentation(Default::default(), 0);
                 assert_eq!(r.clock.elapsed_nanos(), u128::from(expected));
             }
         }
@@ -3794,7 +3794,7 @@ mod tests {
 
     #[test]
     fn hearts_helpers_replace_only_their_own_byte_allowance() {
-        let work = crate::completion::Work {
+        let work = crate::presentation::Work {
             bytes_drawn: 280 + 384,
             hearts: crate::hearts_completion::PresentationWork {
                 dance_frames: 1,
@@ -3811,14 +3811,14 @@ mod tests {
                 .unwrap()
                 .nanos(work.hearts);
             let before = runtime.clock.elapsed_nanos();
-            runtime.charge_completion(work, 0);
+            runtime.charge_presentation(work, 0);
             assert_eq!(
                 runtime.clock.elapsed_nanos() - before,
                 u128::from(body + 384 * runtime.costs.completion_draw_byte)
             );
             let mut older = Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
             let before = older.clock.elapsed_nanos();
-            older.charge_completion(work, 0);
+            older.charge_presentation(work, 0);
             assert_eq!(
                 older.clock.elapsed_nanos() - before,
                 work.bytes_drawn as u128 * u128::from(older.costs.completion_draw_byte)
@@ -3853,12 +3853,12 @@ mod tests {
                         + 3 * costs.decreasing_axis
                         + costs.upper_clamp
                         + 2 * costs.lower_clamp;
-                    let work = crate::completion::Work {
+                    let work = crate::presentation::Work {
                         bytes_drawn: hearts.bytes() + 384,
                         hearts,
                         ..Default::default()
                     };
-                    runtime.charge_completion(work, 0);
+                    runtime.charge_presentation(work, 0);
                     assert_eq!(
                         runtime.clock.elapsed_nanos(),
                         u128::from(state + 384 * runtime.costs.completion_draw_byte)
@@ -3876,7 +3876,7 @@ mod tests {
                     );
                     let mut older =
                         Runtime::with_costs(machine, ReferenceCosts::dosbox_x_240(machine));
-                    older.charge_completion(work, 0);
+                    older.charge_presentation(work, 0);
                     assert_eq!(
                         older.clock.elapsed_nanos(),
                         work.bytes_drawn as u128 * u128::from(older.costs.completion_draw_byte)

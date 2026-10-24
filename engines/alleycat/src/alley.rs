@@ -790,15 +790,17 @@ impl Alley {
         alley.initial_seed = seed;
         alley.initial_difficulty = difficulty;
         // The first accepted neutral update establishes the original idle image.
-        alley.update(Controls::default())?;
+        alley.advance_player_update(Controls::default())?;
         Ok(alley)
     }
 
-    pub fn update(&mut self, controls: Controls) -> Result<UpdateOutcome, String> {
-        self.update_at_tick(controls, word(&self.data, 0x57d))
+    /// Advance one already-accepted player update, without polling time or
+    /// scheduling the other actors. Runtime owns complete game-loop passes.
+    pub fn advance_player_update(&mut self, controls: Controls) -> Result<UpdateOutcome, String> {
+        self.advance_player_update_at_tick(controls, word(&self.data, 0x57d))
     }
 
-    pub(crate) fn update_at_tick(
+    pub(crate) fn advance_player_update_at_tick(
         &mut self,
         controls: Controls,
         tick: u16,
@@ -1149,7 +1151,7 @@ impl Alley {
         }
     }
 
-    pub(crate) fn completion_waiting(&self) -> bool {
+    pub(crate) fn presentation_active(&self) -> bool {
         self.completion.is_some()
             || self.hearts_completion.is_some()
             || self.failure.is_some()
@@ -1172,7 +1174,7 @@ impl Alley {
             .and_then(crate::failure::Failure::poll)
     }
 
-    pub(crate) fn completion_poll(&self) -> Option<crate::completion::Poll> {
+    pub(crate) fn presentation_poll(&self) -> Option<crate::presentation::Poll> {
         self.completion
             .as_ref()
             .and_then(crate::completion::Completion::poll)
@@ -1189,11 +1191,11 @@ impl Alley {
         }
     }
 
-    pub(crate) fn advance_completion(
+    pub(crate) fn advance_presentation(
         &mut self,
         tick: u16,
         retrace: bool,
-    ) -> Result<crate::completion::Work, String> {
+    ) -> Result<crate::presentation::Work, String> {
         let work = if let Some(entry) = self.entry_transition.as_mut() {
             entry.advance(&mut self.data, &mut self.screen, &mut self.sound)?
         } else if let Some(completion) = self.completion.as_mut() {
@@ -1215,16 +1217,16 @@ impl Alley {
         } else if let Some(failure) = self.failure.as_mut() {
             failure.advance(&mut self.data, &mut self.screen, tick, &mut self.sound)?
         } else {
-            return Err("No completion presentation is active".into());
+            return Err("No scene presentation is active".into());
         };
         self.presented = self.screen.clone();
         Ok(work)
     }
 
     /// Commit phase-end sound and setup after the runtime has charged drawing.
-    pub(crate) fn finish_completion_step(
+    pub(crate) fn finish_presentation_step(
         &mut self,
-        work: &crate::completion::Work,
+        work: &crate::presentation::Work,
         tick: u16,
     ) -> Result<(), String> {
         if work.graphics.wipe.is_some_and(|wipe| !wipe.growing) {
@@ -1901,7 +1903,7 @@ impl Alley {
 
     /// Dispatch only after the original caller's remaining actor work finishes.
     pub(crate) fn finish_scene(&mut self, tick: u16) -> Result<bool, String> {
-        if self.completion_waiting() {
+        if self.presentation_active() {
             return Ok(false);
         }
         if self.scene() == 0 {
@@ -2316,17 +2318,23 @@ mod tests {
                 let mut alley = fence_fixture();
                 alley.machine = machine;
                 alley.player.vertical_direction = u8::from(airborne);
-                let update = alley.update_at_tick(Controls::default(), 1000).unwrap();
+                let update = alley
+                    .advance_player_update_at_tick(Controls::default(), 1000)
+                    .unwrap();
                 assert!(update.fence_entered);
                 assert_eq!(alley.player.band_state, 1);
                 assert_eq!(word(&alley.data, 0x556), 1000);
 
-                let update = alley.update_at_tick(Controls::default(), 1010).unwrap();
+                let update = alley
+                    .advance_player_update_at_tick(Controls::default(), 1010)
+                    .unwrap();
                 assert!(!update.fence_entered);
                 assert_eq!(word(&alley.data, 0x556), 1000);
 
                 // Drop from the fence, then land again later.
-                alley.update_at_tick(Controls { x: 0, y: 1 }, 1020).unwrap();
+                alley
+                    .advance_player_update_at_tick(Controls { x: 0, y: 1 }, 1020)
+                    .unwrap();
                 assert_eq!(alley.player.band_state, 0);
                 assert_eq!(word(&alley.data, 0x556), 1000);
                 alley.player.y = 96;
@@ -2334,7 +2342,9 @@ mod tests {
                 alley.player.write_data(&mut alley.data).unwrap();
                 alley.data[0x55b] = 0;
                 alley.player = Player::from_data(&alley.data).unwrap();
-                let update = alley.update_at_tick(Controls::default(), 1100).unwrap();
+                let update = alley
+                    .advance_player_update_at_tick(Controls::default(), 1100)
+                    .unwrap();
                 assert!(update.fence_entered);
                 assert_eq!(word(&alley.data, 0x556), 1100);
             }
@@ -2346,7 +2356,7 @@ mod tests {
         for (direction, band) in [(-1, 2), (1, 0)] {
             let mut alley = fence_fixture();
             let update = alley
-                .update_at_tick(Controls { x: 0, y: direction }, 1000)
+                .advance_player_update_at_tick(Controls { x: 0, y: direction }, 1000)
                 .unwrap();
             assert!(update.fence_entered);
             assert_eq!(alley.player.band_state, band);
@@ -2358,7 +2368,9 @@ mod tests {
     fn rejected_fence_support_does_not_restart_timer() {
         let mut alley = fence_fixture();
         alley.player.band_state = 2;
-        let update = alley.update_at_tick(Controls::default(), 1000).unwrap();
+        let update = alley
+            .advance_player_update_at_tick(Controls::default(), 1000)
+            .unwrap();
         assert!(!update.fence_entered);
         assert_eq!(word(&alley.data, 0x556), 40);
     }
@@ -2367,7 +2379,9 @@ mod tests {
     fn targeted_windows_wait_72_ticks_after_fence_entry_including_tick_wrap() {
         for entry in [1000u16, 65520] {
             let mut alley = fence_fixture();
-            alley.update_at_tick(Controls::default(), entry).unwrap();
+            alley
+                .advance_player_update_at_tick(Controls::default(), entry)
+                .unwrap();
             for column in 0..4 {
                 set_word(
                     &mut alley.data,
@@ -2473,7 +2487,7 @@ mod tests {
             }
             assert_eq!(&alley.rgba()[..4], &[0, 170, 0, 255]);
             for _ in 0..15 {
-                alley.advance_completion(0, false).unwrap();
+                alley.advance_presentation(0, false).unwrap();
             }
             // Inspect colour mapping independently of the now-black image.
             alley.presented.fill_visible(0x55);
@@ -2537,7 +2551,7 @@ mod tests {
                     )
                     .unwrap();
                 alley
-                    .update(Controls {
+                    .advance_player_update(Controls {
                         x: if walking { direction as i8 } else { 0 },
                         y: 0,
                     })
@@ -2734,7 +2748,9 @@ mod tests {
             }
             alley.data[0x2000..0x2042].fill(0xff);
             alley.player = Player::at_alley_floor(125);
-            let outcome = alley.update_at_tick(Controls { x: 1, y: 0 }, 10).unwrap();
+            let outcome = alley
+                .advance_player_update_at_tick(Controls { x: 1, y: 0 }, 10)
+                .unwrap();
             assert_eq!(outcome.floor_mark, expected);
             assert_eq!(word(&alley.data, 0x32b6), 17);
             assert_eq!(alley.data[0x329f], count + u8::from(expected));
@@ -3301,7 +3317,9 @@ mod tests {
         alley.data[0x1d5f] = 147;
         set_word(&mut alley.data, 0x1d64, 0x0d02);
         let next = crate::assets::random_successor(word(&alley.data, 0x2ae5));
-        let outcome = alley.update(Controls { x: 1, y: -1 }).unwrap();
+        let outcome = alley
+            .advance_player_update(Controls { x: 1, y: -1 })
+            .unwrap();
         assert!(outcome.bin_contact_checked);
         let forced = outcome.forced_controls.unwrap();
         assert_eq!(forced.y, 1);

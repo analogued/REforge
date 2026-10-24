@@ -1221,7 +1221,7 @@ the separate gate/active-test allowances; first-player restoration, actual actor
 restoration and the caller's redraw remain separate. The existing movement,
 image, sound-request and lethal-prefix coefficients are unchanged.
 
-Actual `Alley::update_swimming` state, backing/presented VRAM and PIT-program
+Actual `Alley::advance_player_update_swimming` state, backing/presented VRAM and PIT-program
 counts match all twelve native cases. Its returned work is priced by the actual
 runtime; all totals fit the existing 0.150 ms accepted-body bound, with a largest
 difference of 0.113 ms. Two cases have about 0.115–0.121 ms repeat spread, whose

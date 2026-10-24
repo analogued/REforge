@@ -611,7 +611,7 @@ fn run_development(
                     continue;
                 }
             } else {
-                alley.update(input.controls)?;
+                alley.advance_player_update(input.controls)?;
             }
             if let Some(trace) = trace.as_mut() {
                 trace_row(trace, index, alley)?;
@@ -1218,7 +1218,7 @@ fn interactive_diagnostic(
             }
         }
         if now >= deadline {
-            let outcome = alley.update(controls)?;
+            let outcome = alley.advance_player_update(controls)?;
             if let Some(trace) = trace.as_mut() {
                 trace_row(trace, index, alley)?;
             }

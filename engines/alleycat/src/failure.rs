@@ -5,7 +5,7 @@
 
 use crate::assets::{DATA_LENGTH, set_word, sprite_bytes, word};
 use crate::cga::{Dimensions, Framebuffer};
-use crate::completion::{Wipe, Work};
+use crate::presentation::{Wipe, Work};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Poll {

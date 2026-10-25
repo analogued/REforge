@@ -9,7 +9,7 @@ description = "Alley Cat reconstruction for modern desktop systems"
 [features]
 default = ["sdl"]
 sdl = ["dep:reforge_sdl", "dep:reforge_audio", "reforge_audio/blip"]
-dev-tools = ["dep:reforge_audio", "reforge_audio/blip"]
+dev-tools = ["dep:reforge_audio", "reforge_audio/blip", "reforge_sdl?/dev-tools"]
 
 [dependencies]
 sha2 = { version = "=0.11.0", default-features = false }

@@ -71,6 +71,11 @@ locations and command-line overrides. For available launch options, run:
 
 ## Development
 
+Build with `--features dev-tools` to enable diagnostics. During play,
+**F9** toggles a small FPS indicator in either game, including in Settings.
+It starts hidden and reports completed frame presentations averaged over
+half-second intervals, rather than simulation updates or monitor refresh rate.
+
 REforge is under active development. Please include the game, your system,
 REforge revision, relevant settings and steps to reproduce when reporting a bug.
 

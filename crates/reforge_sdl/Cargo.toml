@@ -6,6 +6,9 @@ rust-version = "1.85"
 publish = false
 description = "Shared SDL3 frame presentation for REforge"
 
+[features]
+dev-tools = []
+
 [dependencies]
 reforge_settings = { path = "../reforge_settings" }
 egui = { version = "=0.31.1", default-features = false, features = ["default_fonts"] }

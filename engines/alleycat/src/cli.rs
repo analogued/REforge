@@ -55,6 +55,7 @@ Your original executable is required; original data is never bundled.";
 #[cfg(feature = "dev-tools")]
 const DEV_HELP: &str = "
 Development options (compiled with dev-tools):
+F9 toggles the presentation FPS indicator in windowed play (hidden by default).
 Headless, explicit-scene and --step-hz runs default to seed 0xfa59 unless --seed is supplied.
   --scene NAME            Start in splash, alley, fishbowl, underwater, bookcase, cheese, birdcage, milk, hearts or completion
   --step-hz N             Diagnostic accepted updates/sec

@@ -630,6 +630,8 @@ pub fn help(game: Option<Game>) -> String {
     if game == Some(Game::AlleyCat) && cfg!(feature = "dev-tools") {
         text.push_str("\nDamage identifiers: alley-dog, room-dog, window-projectiles, milk-dogs, spider, eels, air.\nActor identifiers: alley-dog, room-dog, window-projectiles, milk-dogs, spider, eels, bin-cat, alley-mice, broom, hearts-arrows, hearts-rivals.\nDisable lists replace the previous selection; damage suppression leaves actors active.\n");
     }
+    #[cfg(all(feature = "sdl", feature = "dev-tools"))]
+    text.push_str("\nF9 toggles the presentation FPS indicator (hidden by default).\n");
     if game.is_none() {
         text.push_str("\nUse --original <path> --help for detected-game options.\n");
     }
@@ -639,6 +641,14 @@ pub fn help(game: Option<Game>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fps_shortcut_help_requires_graphical_development_build() {
+        assert_eq!(
+            help(None).contains("F9"),
+            cfg!(all(feature = "sdl", feature = "dev-tools"))
+        );
+    }
+
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
     }

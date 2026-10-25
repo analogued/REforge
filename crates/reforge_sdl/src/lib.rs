@@ -6,6 +6,8 @@
 
 pub use sdl3;
 pub mod audio;
+#[cfg(feature = "dev-tools")]
+mod fps;
 pub mod gamepad;
 mod geometry;
 mod hyllian;
@@ -138,6 +140,8 @@ impl<'a> FrameTexture<'a> {
 /// Owns one window and SDL event pump. Construct, use and drop on the main thread.
 /// The SDL wrapper manages native object ownership and subsystem lifetimes.
 pub struct Window {
+    #[cfg(feature = "dev-tools")]
+    fps: fps::FpsOverlay,
     // GPU resources must be released before their owning renderer/device.
     effect: Option<hyllian::Hyllian>,
     pacer: pacing::FramePacer,
@@ -409,6 +413,8 @@ impl Window {
             .sampling
             .set(effective_sampling(presentation, requested.sampling));
         Ok(Self {
+            #[cfg(feature = "dev-tools")]
+            fps: fps::FpsOverlay::default(),
             effect,
             pacer: pacing::FramePacer::default(),
             presentation,
@@ -452,11 +458,14 @@ impl Window {
     }
 
     pub fn poll_events(&mut self) -> impl Iterator<Item = Event> + '_ {
+        #[cfg(feature = "dev-tools")]
+        let fps = &mut self.fps;
         let window = self.canvas.window_mut();
         let minimum_pixels = self.minimum_pixels;
         let audio = self.creator.audio.clone();
         let id = window.id();
-        self.events
+        let events = self
+            .events
             .as_mut()
             .expect("live event pump")
             .poll_iter()
@@ -487,7 +496,10 @@ impl Window {
                         eprintln!("REforge: cannot update window minimum: {error}");
                     });
                 }
-            })
+            });
+        #[cfg(feature = "dev-tools")]
+        let events = events.filter_map(move |event| fps.filter_event(event, id));
+        events
     }
 
     pub fn keyboard_state(&self) -> KeyboardState<'_> {
@@ -723,6 +735,10 @@ impl Window {
                 .replace_owner(candidate.creator.owner.borrow().clone());
             candidate.creator = self.creator.clone();
             eprintln!("REforge: {}", candidate.renderer_status());
+            #[cfg(feature = "dev-tools")]
+            {
+                candidate.fps = std::mem::take(&mut self.fps);
+            }
             std::mem::swap(self, &mut candidate);
             return error.map_or(Ok(()), Err);
         }
@@ -927,9 +943,13 @@ impl Window {
             Presentation::Pixels => paint(&mut self.canvas, texture),
         })??;
         overlay(&mut self.canvas)?;
+        #[cfg(feature = "dev-tools")]
+        self.fps.paint(&mut self.canvas)?;
         if !self.canvas.present() {
             return Err(sdl3::get_error().to_string());
         }
+        #[cfg(feature = "dev-tools")]
+        self.fps.presented(std::time::Instant::now());
         Ok(())
     }
 

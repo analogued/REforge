@@ -326,8 +326,9 @@ impl<'a> SettingsMenu<'a> {
                 return self.open;
             }
             if !repeat {
+                // Opening/closing is not navigation intent. Retain the last
+                // deliberate mouse, keyboard or controller input mode.
                 self.toggle();
-                self.navigation.set_mode(&self.context, InputMode::Keyboard);
                 if self.open {
                     if let Event::KeyDown { window_id, .. } = event {
                         start_text_input(*window_id);
@@ -355,7 +356,6 @@ impl<'a> SettingsMenu<'a> {
         {
             if !self.escape_held {
                 self.back();
-                self.navigation.set_mode(&self.context, InputMode::Keyboard);
             }
             self.escape_held = true;
             return true;

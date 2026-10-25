@@ -1324,7 +1324,19 @@ mod tests {
                     pixels_per_point: density,
                 };
                 menu.handle_event(&key(Scancode::F10, Keycode::F10, true));
-                assert!(menu.navigation.mode == InputMode::Keyboard);
+                menu.handle_event(&key(Scancode::F10, Keycode::F10, false));
+                assert!(menu.is_open());
+                assert!(menu.navigation.mode == InputMode::Mouse);
+                // Closing with Escape must not silently choose carousels for
+                // the next F10 opening either.
+                menu.handle_event(&key(Scancode::Escape, Keycode::Escape, true));
+                menu.handle_event(&key(Scancode::Escape, Keycode::Escape, false));
+                assert!(!menu.is_open());
+                assert!(menu.navigation.mode == InputMode::Mouse);
+                menu.handle_event(&key(Scancode::F10, Keycode::F10, true));
+                menu.handle_event(&key(Scancode::F10, Keycode::F10, false));
+                assert!(menu.is_open());
+                assert!(menu.navigation.mode == InputMode::Mouse);
                 for _ in 0..4 {
                     menu.prepare(metrics, display.settings());
                 }
@@ -1334,6 +1346,7 @@ mod tests {
                 menu.handle_event(&key(Scancode::Right, Keycode::Right, true));
                 menu.handle_event(&key(Scancode::Right, Keycode::Right, false));
                 menu.prepare(metrics, display.settings());
+                assert!(menu.navigation.mode == InputMode::Keyboard);
                 assert_eq!(
                     menu.draft.as_ref().unwrap().global_values().scaling_policy,
                     reforge_settings::ScalingPolicy::Fit
@@ -1426,6 +1439,14 @@ mod tests {
                     win_event: sdl3::event::WindowEvent::FocusLost,
                 });
                 assert_eq!(menu.navigation.held, 0);
+                menu.toggle();
+                menu.navigation.set_mode(&menu.context, InputMode::Mouse);
+                menu.handle_gamepad(PadEvent {
+                    settings: true,
+                    ..Default::default()
+                });
+                assert!(menu.is_open());
+                assert!(menu.navigation.mode == InputMode::Controller);
             }
         }
     }

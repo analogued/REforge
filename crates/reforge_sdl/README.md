@@ -199,7 +199,9 @@ F10 opens the Compact Display, CRT & Colour, Audio and Controls pages in either 
 Controls offers a shared stick dead zone, with Alley Cat's additional input-response
 choice under its game overrides.
 Selectors switch live between dropdowns for mouse input and horizontal carousels
-for keyboard/controller navigation. They retain the same Compact dimensions,
+for keyboard/controller navigation. F10 and Escape retain the last established
+input mode; the initial mode uses dropdowns. Opening from a controller selects
+controller mode immediately. Selectors retain the same Compact dimensions,
 identity, focus and value. Left/Right cycles available choices; Enter/Space or
 controller A cycles forward. Up/Down and Tab/Shift+Tab (controller shoulders)
 navigate controls. Disabled or command-line-locked choices remain unavailable.

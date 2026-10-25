@@ -144,6 +144,8 @@ with the window that created it. The separate creator lifetime avoids
 self-referential ownership. Engine overlays are drawn after the frame, in logical
 display coordinates, without modifying its pixels; an overlay that changes SDL
 scale or draw state must restore it before returning.
+Settings painting also preserves whether the viewport is automatic or explicit;
+automatic bounds continue to follow live aspect and window-size changes.
 
 Run `cargo test --locked -p reforge_sdl` from the workspace root. Synthetic
 RGB/RGBA pixel tests cover nearest sampling, aspect correction and integer

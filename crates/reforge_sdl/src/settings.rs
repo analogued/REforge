@@ -562,7 +562,12 @@ impl<'a> SettingsMenu<'a> {
             return Ok(());
         }
         let logical = canvas.logical_size();
-        let viewport = canvas.viewport();
+        // Preserve automatic sizing, not just its current resolved rectangle.
+        // Restoring that rectangle explicitly would pin the old logical bounds
+        // across the next live aspect-ratio change or window resize.
+        // SAFETY: canvas owns a live renderer on the current SDL thread.
+        let viewport = unsafe { sdl3::sys::render::SDL_RenderViewportSet(canvas.raw()) }
+            .then(|| canvas.viewport());
         let clip = canvas.clip_rect();
         let scale = canvas.scale();
         let result = (|| {
@@ -1549,6 +1554,126 @@ mod tests {
         )
         .unwrap();
         assert_eq!(clip, Rect::new(0, 1, 151, 30));
+    }
+
+    #[test]
+    fn live_aspect_changes_after_menu_paint_keep_the_full_frame() {
+        const NAME: &str =
+            "settings::tests::live_aspect_changes_after_menu_paint_keep_the_full_frame";
+        if std::env::var("REFORGE_MENU_VIEWPORT_TEST").as_deref() != Ok(NAME) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env("REFORGE_MENU_VIEWPORT_TEST", NAME)
+                .env("SDL_VIDEODRIVER", "dummy")
+                .env("SDL_RENDER_DRIVER", "software")
+                .env("SDL_AUDIODRIVER", "dummy")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        use crate::{
+            AspectRatio, DisplayGeometry, FrameFormat, FrameTexture, Presentation, ScalingPolicy,
+            Window,
+        };
+        let mut display = Window::new_with_geometry(
+            "Live aspect regression",
+            DisplayGeometry::new((320, 200), (320, 240)),
+            Some(4),
+            Presentation::Pixels,
+        )
+        .unwrap();
+        eprintln!(
+            "live aspect check: {}, UI density {}",
+            display.renderer_status(),
+            display.ui_metrics().pixels_per_point
+        );
+        let creator = display.texture_creator();
+        let mut menu =
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_alleycat_options();
+        menu.toggle();
+        for treatment in [Presentation::Pixels, Presentation::Hyllian] {
+            for source_width in [320, 640] {
+                let mut frame =
+                    FrameTexture::new(&creator, source_width, 200, FrameFormat::Rgb).unwrap();
+                let mut pixels = vec![0; source_width as usize * 200 * 3];
+                for y in 0..200 {
+                    for x in 0..source_width as usize {
+                        let color = if y < 8 {
+                            [255, 0, 0]
+                        } else if y >= 192 {
+                            [0, 255, 0]
+                        } else if x < 8 {
+                            [0, 0, 255]
+                        } else if x >= source_width as usize - 8 {
+                            [255; 3]
+                        } else {
+                            [0; 3]
+                        };
+                        pixels[(y * source_width as usize + x) * 3
+                            ..(y * source_width as usize + x) * 3 + 3]
+                            .copy_from_slice(&color);
+                    }
+                }
+                frame.update(&pixels).unwrap();
+                display
+                    .set_display_geometry(DisplayGeometry::new((source_width, 200), (320, 240)))
+                    .unwrap();
+                for policy in [
+                    ScalingPolicy::Integer,
+                    ScalingPolicy::Fit,
+                    ScalingPolicy::Stretch,
+                ] {
+                    // Start with the original display and actually paint the menu,
+                    // then Apply Square and Original without reopening the window.
+                    for aspect in [
+                        AspectRatio::Original,
+                        AspectRatio::Square,
+                        AspectRatio::Original,
+                    ] {
+                        display.prepare_settings(&mut menu);
+                        let draft = menu.draft.as_mut().unwrap();
+                        draft.edit(false, "presentation", treatment.as_str().into());
+                        draft.edit(false, "scaling_policy", policy.as_str().into());
+                        draft.edit(false, "aspect_ratio", aspect.as_str().into());
+                        menu.pending = menu.draft.clone();
+                        display.prepare_settings(&mut menu);
+                        assert_eq!(display.settings().aspect_ratio, aspect);
+                        if display.canvas.renderer_name == "gpu" {
+                            assert_eq!(
+                                display.presentation(),
+                                treatment,
+                                "native regression must exercise the requested CRT/pixel path"
+                            );
+                        }
+                        display.present_with(&frame, |canvas| {
+                            let readback = canvas.read_pixels(None).unwrap().convert_format(PixelFormat::RGB24).unwrap();
+                            let (width, height, pitch) = (readback.width() as usize, readback.height() as usize, readback.pitch() as usize);
+                            readback.with_lock(|bytes| {
+                                let at = |x: usize, y: usize| &bytes[y * pitch + x * 3..y * pitch + x * 3 + 3];
+                                let top = at(width / 2, height * 4 / 200);
+                                let bottom = at(width / 2, height - height * 4 / 200);
+                                let left = at(width * 4 / source_width as usize, height / 2);
+                                let right = at(width - width * 4 / source_width as usize, height / 2);
+                                assert!(top[0] > 80 && top[1] == 0 && top[2] == 0, "top clipped {top:?}: {treatment:?} {policy:?} {aspect:?}");
+                                assert!(bottom[1] > 80 && bottom[0] == 0 && bottom[2] == 0, "bottom clipped {bottom:?}: {treatment:?} {policy:?} {aspect:?}");
+                                assert!(left[2] > 80 && left[0] == 0 && left[1] == 0, "left clipped {left:?}: {treatment:?} {policy:?} {aspect:?}");
+                                assert!(right.iter().all(|&v| v > 80), "right clipped {right:?}: {treatment:?} {policy:?} {aspect:?}");
+                            });
+                            menu.paint(canvas)?;
+                            // SAFETY: live renderer queried on its owning SDL thread.
+                            assert!(!unsafe { sdl3::sys::render::SDL_RenderViewportSet(canvas.raw()) }, "painting settings must preserve an automatic viewport");
+                            Ok(())
+                        }).unwrap();
+                    }
+                }
+            }
+        }
     }
 
     #[test]

@@ -62,17 +62,39 @@ impl Navigation {
         let mut input = std::mem::take(&mut self.deferred);
         input.append(events);
         let mut focused = context.memory(|memory| memory.focused());
+        // Value boxes remain mouse editors, not keyboard/controller stops.
+        // If navigation resumes after a mouse edit, return to the row's slider.
+        if input.iter().any(|event| {
+            matches!(
+                event,
+                Event::Key {
+                    key: Key::Tab
+                        | Key::ArrowUp
+                        | Key::ArrowDown
+                        | Key::ArrowLeft
+                        | Key::ArrowRight,
+                    pressed: true,
+                    ..
+                }
+            )
+        }) {
+            if let Some(owner) = targets
+                .iter()
+                .find(|target| Some(target.id) == focused && matches!(target.kind, Kind::Number))
+                .and_then(|target| target.owner)
+            {
+                focused = Some(owner);
+                context.memory_mut(|memory| memory.request_focus(owner));
+            }
+        }
+        targets.retain(|target| !matches!(target.kind, Kind::Number));
         let initial_focus = focused;
         if let Some(target) = targets.iter().find(|target| Some(target.id) == focused) {
             context.memory_mut(|memory| {
                 memory.set_focus_lock_filter(
                     target.id,
                     egui::EventFilter {
-                        horizontal_arrows: matches!(
-                            target.kind,
-                            Kind::Slider | Kind::Number | Kind::Selector
-                        ),
-                        vertical_arrows: matches!(target.kind, Kind::Number),
+                        horizontal_arrows: matches!(target.kind, Kind::Slider | Kind::Selector),
                         ..Default::default()
                     },
                 )
@@ -109,14 +131,13 @@ impl Navigation {
                 continue;
             }
             let current = targets.iter().position(|target| Some(target.id) == focused);
-            // Widget-owned arrows still adjust sliders, values and text carets.
+            // Widget-owned horizontal arrows still adjust sliders and selectors.
             if arrow
                 && current.is_some_and(|index| match targets[index].kind {
                     Kind::Slider | Kind::Selector => {
                         matches!(key, Key::ArrowLeft | Key::ArrowRight)
                     }
-                    Kind::Number => true,
-                    Kind::Control => false,
+                    Kind::Number | Kind::Control => false,
                 })
             {
                 // Do not apply a value edit to a control first reached by an
@@ -207,6 +228,7 @@ impl Navigation {
 pub(super) enum Kind {
     Control,
     Slider,
+    /// Mouse editor, tracked for its slider owner but omitted from navigation.
     Number,
     Selector,
 }
@@ -218,6 +240,15 @@ struct Target {
     visible: egui::Rect,
     layer: egui::LayerId,
     kind: Kind,
+    group: Group,
+    owner: Option<Id>,
+}
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum Group {
+    Scope,
+    Sidebar,
+    Content,
+    Footer,
 }
 #[derive(Clone, Default)]
 struct Targets(Vec<Target>);
@@ -231,10 +262,31 @@ pub(super) fn control(response: Response) -> Response {
     value_control(response, Kind::Control)
 }
 pub(super) fn value_control(response: Response, kind: Kind) -> Response {
+    register(response, kind, Group::Content)
+}
+pub(super) fn group_control(response: Response, group: Group) -> Response {
+    register(response, Kind::Control, group)
+}
+fn register(response: Response, kind: Kind, group: Group) -> Response {
     if response.enabled() && response.sense.is_focusable() {
         response.ctx.data_mut(|data| {
             let targets = data.get_temp_mut_or_default::<Targets>(targets_key());
             targets.0.retain(|target| target.id != response.id);
+            let owner = if matches!(kind, Kind::Number) {
+                // Each numeric editor is registered immediately after its slider.
+                // Keep that identity even if mouse text editing changes its rect.
+                targets
+                    .0
+                    .iter()
+                    .rfind(|target| {
+                        matches!(target.kind, Kind::Slider)
+                            && target.group == group
+                            && target.layer == response.layer_id
+                    })
+                    .map(|target| target.id)
+            } else {
+                None
+            };
             targets.0.push(Target {
                 id: response.id,
                 rect: response.rect,
@@ -242,6 +294,8 @@ pub(super) fn value_control(response: Response, kind: Kind) -> Response {
                 visible: response.interact_rect,
                 layer: response.layer_id,
                 kind,
+                group,
+                owner,
             });
         });
     }
@@ -285,6 +339,15 @@ fn directional_target(targets: &[Target], current: usize, key: Key) -> Option<us
                 return None;
             }
             let delta = candidate.rect.center() - source.rect.center();
+            // Horizontal movement within the content acts on the same row;
+            // diagonal fields below it are reached with Up/Down instead.
+            if !vertical
+                && source.group == Group::Content
+                && candidate.group == Group::Content
+                && !source.rect.y_range().intersects(candidate.rect.y_range())
+            {
+                return None;
+            }
             let (forward, cross) = if vertical {
                 let a = source.vertical_rect;
                 let b = candidate.vertical_rect;
@@ -296,10 +359,19 @@ fn directional_target(targets: &[Target], current: usize, key: Key) -> Option<us
             if forward <= 0.5 || cross > forward {
                 return None;
             }
-            Some((index, forward + cross * 2.0))
+            let preferred = if vertical && source.group == Group::Footer && sign < 0.0 {
+                Group::Content
+            } else {
+                source.group
+            };
+            Some((
+                index,
+                u8::from(candidate.group != preferred),
+                forward + cross * 2.0,
+            ))
         })
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(index, _)| index)
+        .min_by(|a, b| a.1.cmp(&b.1).then(a.2.total_cmp(&b.2)))
+        .map(|(index, _, _)| index)
 }
 
 #[derive(Clone, Default)]
@@ -625,6 +697,207 @@ mod tests {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn audio_navigation_follows_content_rows_and_skips_numeric_editors() {
+        const NAME: &str = "settings_navigation::tests::audio_navigation_follows_content_rows_and_skips_numeric_editors";
+        if std::env::var("REFORGE_AUDIO_NAV_TEST").as_deref() != Ok(NAME) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env("REFORGE_AUDIO_NAV_TEST", NAME)
+                .env("SDL_VIDEODRIVER", "dummy")
+                .env("SDL_RENDER_DRIVER", "software")
+                .env("SDL_AUDIO_DRIVER", "dummy")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        use crate::settings::{SettingsMenu, UiMetrics, VideoCapabilities};
+        use reforge_settings::{SoundCategory, SoundRenderer};
+        use sdl3::{
+            event::Event as SdlEvent,
+            keyboard::{Keycode, Mod, Scancode},
+        };
+        let display = crate::Window::new("Audio row navigation", 320, 240, Some(4)).unwrap();
+        let creator = display.texture_creator();
+        for mach3 in [false, true] {
+            for scope in [0, 1] {
+                for (size, density) in [
+                    ((640, 480), 1.0),
+                    ((960, 720), 1.5),
+                    ((1280, 960), 2.25),
+                    ((2560, 1920), 2.25),
+                ] {
+                    for controller in [false, true] {
+                        creator.session.borrow_mut().game =
+                            if mach3 { "mach-3" } else { "alley-cat" }.into();
+                        let metrics = UiMetrics {
+                            drawable: size,
+                            window: size,
+                            pixels_per_point: density,
+                        };
+                        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+                            .with_audio_renderers(&[SoundRenderer::Speaker])
+                            .with_audio_categories(if mach3 {
+                                &SoundCategory::ALL
+                            } else {
+                                &[SoundCategory::Music, SoundCategory::Effects]
+                            });
+                        menu = if mach3 {
+                            menu.with_mach3_options(None)
+                        } else {
+                            menu.with_alleycat_options()
+                        };
+                        menu.toggle();
+                        menu.scope = scope;
+                        menu.page = 2;
+                        menu.prepare(metrics, display.settings());
+                        menu.game_editing[2] = true;
+                        for _ in 0..4 {
+                            menu.prepare(metrics, display.settings());
+                        }
+                        let targets = menu
+                            .context
+                            .data(|data| data.get_temp::<Targets>(targets_key()).unwrap().0);
+                        let content: Vec<_> = targets
+                            .iter()
+                            .filter(|target| {
+                                target.group == Group::Content
+                                    && !matches!(target.kind, Kind::Number)
+                            })
+                            .collect();
+                        let master = content
+                            .iter()
+                            .position(|target| matches!(target.kind, Kind::Slider))
+                            .unwrap();
+                        assert!(master > 0);
+                        let volumes = if scope == 0 || mach3 { 4 } else { 3 };
+                        assert!(
+                            content[master..master + volumes]
+                                .iter()
+                                .all(|target| matches!(target.kind, Kind::Slider))
+                        );
+                        let send = |menu: &mut SettingsMenu<'_>, key: Key| {
+                            if controller {
+                                menu.handle_gamepad(PadEvent {
+                                    next: key == Key::Tab,
+                                    actions: Actions {
+                                        up: key == Key::ArrowUp,
+                                        down: key == Key::ArrowDown,
+                                        right: key == Key::ArrowRight,
+                                        ..Default::default()
+                                    },
+                                    ..Default::default()
+                                });
+                            } else {
+                                let (scan, code) = match key {
+                                    Key::ArrowUp => (Scancode::Up, Keycode::Up),
+                                    Key::ArrowDown => (Scancode::Down, Keycode::Down),
+                                    Key::ArrowRight => (Scancode::Right, Keycode::Right),
+                                    Key::Tab => (Scancode::Tab, Keycode::Tab),
+                                    _ => unreachable!(),
+                                };
+                                for pressed in [true, false] {
+                                    let event = if pressed {
+                                        SdlEvent::KeyDown {
+                                            timestamp: 0,
+                                            window_id: 0,
+                                            which: 0,
+                                            raw: 0,
+                                            scancode: Some(scan),
+                                            keycode: Some(code),
+                                            keymod: Mod::NOMOD,
+                                            repeat: false,
+                                        }
+                                    } else {
+                                        SdlEvent::KeyUp {
+                                            timestamp: 0,
+                                            window_id: 0,
+                                            which: 0,
+                                            raw: 0,
+                                            scancode: Some(scan),
+                                            keycode: Some(code),
+                                            keymod: Mod::NOMOD,
+                                            repeat: false,
+                                        }
+                                    };
+                                    menu.handle_event(&event);
+                                }
+                            }
+                            menu.prepare(metrics, display.settings());
+                            menu.handle_gamepad(PadEvent::default());
+                            menu.prepare(metrics, display.settings());
+                        };
+                        // Enable sound must not jump diagonally to a value box.
+                        let enable = content[master - 1].id;
+                        menu.context.memory_mut(|m| m.request_focus(enable));
+                        menu.prepare(metrics, display.settings());
+                        send(&mut menu, Key::ArrowRight);
+                        assert_eq!(menu.context.memory(|m| m.focused()), Some(enable));
+                        // Walk every enabled Audio row, including options below
+                        // the scroll viewport, before visiting the footer.
+                        for pair in content.windows(2) {
+                            for (source, key, expected) in [
+                                (pair[0].id, Key::ArrowDown, pair[1].id),
+                                (pair[1].id, Key::ArrowUp, pair[0].id),
+                            ] {
+                                menu.context.memory_mut(|m| m.request_focus(source));
+                                menu.prepare(metrics, display.settings());
+                                send(&mut menu, key);
+                                assert_eq!(
+                                    menu.context.memory(|m| m.focused()),
+                                    Some(expected),
+                                    "mach3={mach3} scope={scope} size={size:?} density={density} controller={controller} key={key:?}"
+                                );
+                                let visible = menu.context.data(|data| {
+                                    data.get_temp::<Targets>(targets_key())
+                                        .unwrap()
+                                        .0
+                                        .into_iter()
+                                        .find(|t| t.id == expected)
+                                        .unwrap()
+                                        .visible
+                                });
+                                assert!(
+                                    visible.is_positive(),
+                                    "focused Audio control must scroll into view"
+                                );
+                            }
+                        }
+                        let numbers: Vec<_> = targets
+                            .iter()
+                            .filter(|t| matches!(t.kind, Kind::Number))
+                            .map(|t| t.id)
+                            .collect();
+                        assert_eq!(numbers.len(), volumes);
+                        for _ in 0..targets.len() + 1 {
+                            send(&mut menu, Key::Tab);
+                            assert!(
+                                !numbers.contains(&menu.context.memory(|m| m.focused()).unwrap())
+                            );
+                        }
+                        // Mouse-entered numeric editing is retained until an
+                        // actual navigation key returns to the owning slider.
+                        menu.context.memory_mut(|m| m.request_focus(numbers[0]));
+                        menu.prepare(metrics, display.settings());
+                        assert_eq!(menu.context.memory(|m| m.focused()), Some(numbers[0]));
+                        send(&mut menu, Key::ArrowDown);
+                        assert_eq!(
+                            menu.context.memory(|m| m.focused()),
+                            Some(content[master + 1].id),
+                            "number exit: mach3={mach3} scope={scope} size={size:?} density={density} controller={controller}"
+                        );
                     }
                 }
             }

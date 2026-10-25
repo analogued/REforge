@@ -1,9 +1,9 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 //! Compact settings pages. Editing is separate from activation and persistence.
-//! Register interactive responses with control/value_control (or Selector/collapsing)
+//! Register interactive responses with control/group_control/value_control (or Selector/collapsing)
 //! so keyboard/controller navigation targets settings rather than scroll geometry.
 use crate::settings::{SettingsMenu, VideoCapabilities};
-use crate::settings_navigation::{Kind, collapsing, control, value_control};
+use crate::settings_navigation::{Group, Kind, collapsing, control, group_control, value_control};
 use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
@@ -59,19 +59,25 @@ pub(super) fn draw(
         .show(context, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Editing");
-                let first = control(ui.selectable_value(&mut menu.scope, 0, "Global defaults"));
-                let game_scope = control(ui.selectable_value(
-                    &mut menu.scope,
-                    1,
-                    format!(
-                        "{} overrides",
-                        match game.as_str() {
-                            "alley-cat" => "Alley Cat",
-                            "mach-3" => "Mach 3",
-                            _ => "Game",
-                        }
+                let first = group_control(
+                    ui.selectable_value(&mut menu.scope, 0, "Global defaults"),
+                    Group::Scope,
+                );
+                let game_scope = group_control(
+                    ui.selectable_value(
+                        &mut menu.scope,
+                        1,
+                        format!(
+                            "{} overrides",
+                            match game.as_str() {
+                                "alley-cat" => "Alley Cat",
+                                "mach-3" => "Mach 3",
+                                _ => "Game",
+                            }
+                        ),
                     ),
-                ));
+                    Group::Scope,
+                );
                 if menu.navigation.focus_first && first.enabled() && game_scope.enabled() {
                     if menu.scope == 0 {
                         first.request_focus();
@@ -88,10 +94,13 @@ pub(super) fn draw(
                     ui.set_width(132.0);
                     ui.add_space(6.0);
                     for (page, label) in PAGES.into_iter().enumerate() {
-                        if control(ui.add_sized(
-                            [132.0, 32.0],
-                            egui::Button::new(label).selected(menu.page == page),
-                        ))
+                        if group_control(
+                            ui.add_sized(
+                                [132.0, 32.0],
+                                egui::Button::new(label).selected(menu.page == page),
+                            ),
+                            Group::Sidebar,
+                        )
                         .clicked()
                         {
                             menu.page = page;
@@ -424,11 +433,12 @@ pub(super) fn draw(
                         .size()
                         .x
                         + ui.spacing().button_padding.x * 2.0;
-                    if control(
+                    if group_control(
                         ui.add(
                             egui::Button::new(reset_label)
                                 .min_size(Vec2::new(reset_width, ui.spacing().interact_size.y)),
                         ),
+                        Group::Footer,
                     )
                     .clicked()
                     {
@@ -440,10 +450,13 @@ pub(super) fn draw(
                             menu.game_touched[menu.page] = true;
                         }
                     }
-                    let apply = control(ui.add_enabled(
-                        *draft != saved || menu.error.is_some(),
-                        egui::Button::new("Apply"),
-                    ));
+                    let apply = group_control(
+                        ui.add_enabled(
+                            *draft != saved || menu.error.is_some(),
+                            egui::Button::new("Apply"),
+                        ),
+                        Group::Footer,
+                    );
                     #[cfg(test)]
                     {
                         menu.apply_rect = Some(apply.rect);
@@ -457,7 +470,7 @@ pub(super) fn draw(
                         });
                         menu.pending = Some(draft.clone());
                     }
-                    let cancel = control(ui.button("Cancel"));
+                    let cancel = group_control(ui.button("Cancel"), Group::Footer);
                     #[cfg(test)]
                     {
                         menu.cancel_rect = Some(cancel.rect);

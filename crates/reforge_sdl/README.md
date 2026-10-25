@@ -254,6 +254,14 @@ engines permit all initial settings. These restrictions belong at the engine
 boundary rather than in the SDL painter. Unsupported changes display an error
 and keep the panel usable. The menu does not expose development-only controls.
 
+Engines call `Window::prepare_settings(&mut menu)` before painting. This shared
+entry point applies pending edits, prepares the actual accepted geometry and
+temporarily enlarges undersized normal windows. Below 569 × 420 rounded logical
+UI units it requests at least 630 × 470, bounded by the display's usable client
+area. Closing restores the earlier geometry unless an applied scale/window-mode
+change superseded it. Renderer changes retain this restoration state. The raw
+`SettingsMenu::prepare` remains available for offscreen layout previews.
+
 Presentation pacing lives in `src/pacing.rs`. The shared ceiling uses current
 display refresh, 60 fps, 120 fps or Unlimited, independently of engine scheduling.
 VSync is counted within each interval and needs no extra timer wait when it

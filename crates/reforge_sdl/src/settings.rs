@@ -51,7 +51,7 @@ impl VideoCapabilities {
 }
 
 /// Measurements from the actual SDL window, independent of game scale.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiMetrics {
     pub drawable: (u32, u32),
     pub window: (u32, u32),
@@ -59,7 +59,7 @@ pub struct UiMetrics {
 }
 
 impl UiMetrics {
-    fn density(self) -> f32 {
+    pub(super) fn density(self) -> f32 {
         if self.pixels_per_point.is_finite() && self.pixels_per_point > 0.0 {
             self.pixels_per_point
         } else {

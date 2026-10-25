@@ -18,6 +18,14 @@ settings are skipped. Menu input does not reach gameplay.
 With Auto selected, the disabled scale slider shows the resolved windowed
 multiplier. Turning Auto off starts manual scaling at that value.
 
+Settings use the desktop's UI scale independently of the game scale. A normal
+window below 569 × 420 logical UI units temporarily grows towards 630 × 470,
+within the display's available client area. The threshold uses rounded logical
+dimensions, so 1280 × 960 pixels at 225% remains large enough. Windows already
+meeting the threshold are unchanged. Closing settings restores the previous
+size and, where the compositor permits, position. Applying a different scale
+or window mode supersedes that restoration; temporary sizing is never saved.
+
 Controls edit a draft. Apply activates and saves pending edits across both
 Global defaults and the current game's overrides, leaving the menu open.
 Cancel, Escape and F10 discard unapplied edits. Reset section clears only the

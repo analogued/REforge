@@ -21,6 +21,7 @@ use std::cell::RefCell;
 
 pub use reforge_settings::Presentation;
 mod pacing;
+mod settings_window;
 
 /// Format the shared application/game title, optionally followed by engine status.
 /// Raw window constructors also accept unbranded titles for diagnostic windows.
@@ -138,6 +139,7 @@ pub struct Window {
     scale: Option<u32>,
     windowed_resize_pending: bool,
     windowed_geometry: Option<(u32, u32)>,
+    settings_window: settings_window::State,
     gpu_presented_pixels: Option<(u32, u32)>,
     gpu: Option<std::rc::Rc<hyllian::GpuDevice>>,
     _video: sdl3::VideoSubsystem,
@@ -386,6 +388,7 @@ impl Window {
             scale,
             windowed_resize_pending: false,
             windowed_geometry: None,
+            settings_window: settings_window::State::default(),
             gpu_presented_pixels: None,
             gpu,
             _video: video,
@@ -537,19 +540,28 @@ impl Window {
         }
         let before = self.settings();
         self.creator.audio.apply(requested.audio.clone())?;
-        match self.apply_settings_inner(requested) {
+        // Renderer replacement swaps the Window. Keep the menu's temporary
+        // geometry outside that swap, including when a request is rolled back.
+        let mut settings_window = std::mem::take(&mut self.settings_window);
+        let result = match self.apply_settings_inner(requested) {
             Ok(()) => Ok(()),
             Err(error) => {
                 self.windowed_resize_pending = true;
                 if let Err(restore) = self.creator.audio.apply(before.audio.clone()) {
                     eprintln!("REforge: could not restore audio after failed Apply: {restore}");
                 }
-                if let Err(restore) = self.apply_settings_inner(before) {
+                if let Err(restore) = self.apply_settings_inner(before.clone()) {
                     eprintln!("REforge: could not restore display after failed Apply: {restore}");
                 }
                 Err(error)
             }
+        };
+        if result.is_ok() {
+            settings_window.applied(self, &before);
         }
+        settings_window.invalidate();
+        self.settings_window = settings_window;
+        result
     }
     fn apply_settings_inner(&mut self, requested: settings::RuntimeSettings) -> Result<(), String> {
         if (requested.renderer, requested.backend)

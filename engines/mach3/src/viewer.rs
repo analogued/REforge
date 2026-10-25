@@ -168,15 +168,7 @@ fn host_quit(event: &Event) -> bool {
 }
 
 fn prepare_settings(menu: &mut SettingsMenu<'_>, window: &mut Window) {
-    menu.set_status(window.renderer_status());
-    if let Some(settings) = menu.prepare(window.ui_metrics(), window.settings()) {
-        if let Err(error) = window.apply_settings(settings) {
-            eprintln!("warning: could not apply settings: {error}");
-            menu.set_error(error);
-        } else {
-            menu.applied();
-        }
-    }
+    window.prepare_settings(menu);
 }
 
 fn event_action(presentation: &mut Presentation, event: Event, host_paused: bool) -> Action {

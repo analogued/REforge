@@ -39,11 +39,11 @@ Cargo output directory. Launch a game using its original files:
 
 ```sh
 ./target/release/reforge --original /path/to/alley-cat
-./target/release/reforge --controls --original /path/to/mach3
+./target/release/reforge --original /path/to/mach3
 ```
 
 Use the directories containing the required files, as described in each engine's
-player guide. Mach 3 currently requires `--controls` for steering and shooting.
+player guide.
 REforge detects the game from its files; there is no separate game selector.
 
 ## Settings and shared controls

@@ -1,14 +1,18 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Received scan transitions on Mach 3's pause-adjusted scheduling timeline.
 
+#[cfg(feature = "dev-tools")]
 use crate::gameplay::SessionState;
 use reforge_sdl::{EventClockSample, HostPause, sdl3::event::Event};
-use std::{collections::VecDeque, time::Instant};
+#[cfg(feature = "dev-tools")]
+use std::collections::VecDeque;
+use std::time::Instant;
 
 #[derive(Clone, Copy)]
 pub(super) struct EventTime {
     pub host: Instant,
     pub timeline: Instant,
+    #[cfg(feature = "dev-tools")]
     pub now: Instant,
 }
 
@@ -33,32 +37,51 @@ impl EventTime {
         Self {
             host,
             timeline: pause.now(host),
+            #[cfg(feature = "dev-tools")]
             now: pause.now(received),
         }
     }
 }
 
+/// Reject SDL events queued before an authoritative host reset.
+#[derive(Default)]
+pub(super) struct InputEpoch {
+    epoch: Option<Instant>,
+}
+
+impl InputEpoch {
+    pub fn accepts(&self, host: Instant) -> bool {
+        self.epoch.is_none_or(|epoch| host >= epoch)
+    }
+
+    pub fn reset(&mut self, host: Instant) {
+        self.epoch = Some(self.epoch.map_or(host, |old| old.max(host)));
+    }
+}
+
+#[cfg(feature = "dev-tools")]
 #[derive(Default)]
 pub(super) struct InputHistory {
     pending: VecDeque<(Instant, Change)>,
     consumed: Option<Instant>,
     ordered: Option<Instant>,
-    epoch: Option<Instant>,
+    epoch: InputEpoch,
 }
 
+#[cfg(feature = "dev-tools")]
 enum Change {
     Scan(u8),
     Joystick(u8),
 }
 
+#[cfg(feature = "dev-tools")]
 impl InputHistory {
-    #[cfg(feature = "dev-tools")]
     pub fn queued_at(&self) -> Option<Instant> {
         self.ordered
     }
 
     pub fn accepts(&self, host: Instant) -> bool {
-        self.epoch.is_none_or(|epoch| host >= epoch)
+        self.epoch.accepts(host)
     }
 
     pub fn push(&mut self, at: Instant, scan: u8) {
@@ -99,12 +122,13 @@ impl InputHistory {
         self.pending.clear();
         self.ordered = None;
         self.consumed = Some(self.consumed.map_or(time.now, |old| old.max(time.now)));
-        self.epoch = Some(self.epoch.map_or(time.host, |old| old.max(time.host)));
+        self.epoch.reset(time.host);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "dev-tools")]
     #[test]
     fn scheduled_controller_changes_preserve_keyboard_and_late_delivery_policy() {
         let start = Instant::now();
@@ -129,6 +153,19 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn input_epoch_rejects_buffered_events_after_host_reset() {
+        let start = Instant::now();
+        let mut epoch = InputEpoch::default();
+        assert!(epoch.accepts(start));
+        let reset = start + Duration::from_secs(1);
+        epoch.reset(reset);
+        assert!(!epoch.accepts(start));
+        assert!(epoch.accepts(reset));
+        epoch.reset(start);
+        assert!(!epoch.accepts(start));
+    }
+
+    #[test]
     fn clock_correlation_clamps_unknown_and_future_timestamps_to_receipt() {
         let start = Instant::now();
         let clock = EventClockSample {
@@ -151,16 +188,17 @@ mod tests {
             start + Duration::from_millis(50) + Duration::from_micros(1)
         );
         assert_eq!(time.timeline, time.host);
+        #[cfg(feature = "dev-tools")]
         assert_eq!(time.now, received);
         for timestamp in [0, 100_000_001, u64::MAX] {
             let time = EventTime::sample(&Event::Quit { timestamp }, clock, &pause, received);
-            assert_eq!(
-                (time.host, time.timeline, time.now),
-                (received, received, received)
-            );
+            assert_eq!((time.host, time.timeline), (received, received));
+            #[cfg(feature = "dev-tools")]
+            assert_eq!(time.now, received);
         }
     }
 
+    #[cfg(feature = "dev-tools")]
     #[test]
     fn resumed_epoch_excludes_paused_events_and_preserves_existing_deadlines() {
         let start = Instant::now();
@@ -207,6 +245,7 @@ mod tests {
         assert_eq!(session.keyboard.held_keys(0).actions, 8);
     }
 
+    #[cfg(feature = "dev-tools")]
     #[test]
     fn receipt_order_and_engine_table_clears_preserve_dos_duplicate_filtering() {
         let start = Instant::now();

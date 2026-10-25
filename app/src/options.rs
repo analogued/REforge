@@ -271,32 +271,18 @@ const SPECS: &[Spec] = &[
         description: "F3 once per press (default press), or every active original control poll",
     },
     Spec {
-        name: "--controls",
-        game: Some(Game::Mach3),
-        value: Value::Flag,
-        dev: false,
-        description: "Enable steering and shooting; takes no value",
-    },
-    Spec {
         name: "--step",
         game: Some(Game::Mach3),
         value: Value::Flag,
-        dev: false,
+        dev: true,
         description: "Advance one body/title step per fresh Enter press",
     },
     Spec {
         name: "--static",
         game: Some(Game::Mach3),
         value: Value::Flag,
-        dev: false,
+        dev: true,
         description: "Show initial scene only",
-    },
-    Spec {
-        name: "--period-ms",
-        game: Some(Game::Mach3),
-        value: Value::Integer(1, 5000),
-        dev: false,
-        description: "Whole-body interval in milliseconds, 1..5000",
     },
     Spec {
         name: "--trace-input",
@@ -432,7 +418,7 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
     loop {
         let active = |name| last(entries, name);
         if game == Game::Mach3 {
-            let conflict = [("--static", "--controls"), ("--static", "--step")]
+            let conflict = [("--static", "--step")]
                 .into_iter()
                 .find_map(|(a, b)| Some((active(a)?, active(b)?, a, b)));
             if let Some((a, b, aname, bname)) = conflict {
@@ -859,13 +845,13 @@ mod tests {
                 "0",
                 "--scene",
                 "cheese",
-                "--period-ms",
+                "--audio-renderer",
                 "NaN",
                 "--machine",
                 "pcjr",
                 "--unknown",
                 "extra",
-                "--controls=true",
+                "--step=true",
             ]),
             Game::Mach3,
         );
@@ -874,19 +860,23 @@ mod tests {
         accepted(&result, Game::Mach3);
     }
     #[test]
-    fn flags_do_not_consume_following_options_and_inline_values_work() {
+    fn inline_values_and_following_options_are_preserved() {
         let result = prepare(
-            args(&["--scale", "--controls", "--period-ms=12", "--scale=0x4"]),
+            args(&["--scale", "--f3-mode=original", "--scale=0x4"]),
             Game::Mach3,
         );
         assert_eq!(
             result.args,
-            args(&["--controls", "--period-ms", "12", "--scale", "4"])
+            args(&["--f3-mode", "original", "--scale", "4"])
         );
         assert_eq!(result.warnings.len(), 1);
         accepted(&result, Game::Mach3);
         let result = prepare(
-            args(&["--controls", "--difficulty=2", "--machine=pcjr"]),
+            args(&[
+                "--audio-renderer=speaker",
+                "--difficulty=2",
+                "--machine=pcjr",
+            ]),
             Game::AlleyCat,
         );
         assert_eq!(
@@ -896,31 +886,79 @@ mod tests {
         assert_eq!(result.warnings.len(), 1);
         accepted(&result, Game::AlleyCat);
     }
+
+    #[cfg(feature = "dev-tools")]
     #[test]
-    fn incompatible_mach_modes_ignore_later_conflict_and_collapse_repeats() {
+    fn incompatible_preview_modes_ignore_later_conflict_and_collapse_repeats() {
         for (input, expected) in [
-            (
-                vec!["--controls", "--static", "--step", "--step"],
-                vec!["--controls", "--step"],
-            ),
-            (vec!["--static", "--controls", "--step"], vec!["--static"]),
+            (vec!["--step", "--static", "--step"], vec!["--step"]),
+            (vec!["--static", "--step", "--static"], vec!["--static"]),
         ] {
             let result = prepare(args(&input), Game::Mach3);
             assert_eq!(result.args, args(&expected));
-            assert!(!result.warnings.is_empty());
+            assert_eq!(result.warnings.len(), 2);
+            accepted(&result, Game::Mach3);
+        }
+        let result = prepare(args(&["--scale", "--step", "--scale=4"]), Game::Mach3);
+        assert_eq!(result.args, args(&["--step", "--scale", "4"]));
+        assert_eq!(result.warnings.len(), 1);
+        accepted(&result, Game::Mach3);
+    }
+
+    #[test]
+    fn removed_mach3_flags_have_no_aliases() {
+        for flag in [
+            "--controls",
+            "--no-controls",
+            "--no-input",
+            "--period-ms",
+            "--preview-period-ms",
+        ] {
+            assert_eq!(takes_value(flag), None);
+            assert!(!help(Some(Game::Mach3)).contains(flag));
+            let result = prepare(args(&[flag, "--scale=3"]), Game::Mach3);
+            assert_eq!(result.args, args(&["--scale", "3"]));
+            assert_eq!(result.warnings.len(), 1);
+            assert!(result.warnings[0].contains("unrecognized argument"));
             accepted(&result, Game::Mach3);
         }
     }
+
+    #[test]
+    fn preview_flags_are_development_only() {
+        for flag in ["--step", "--static"] {
+            assert_eq!(takes_value(flag), Some(false));
+            let result = prepare(args(&[flag]), Game::Mach3);
+            #[cfg(feature = "dev-tools")]
+            {
+                assert_eq!(result.args, args(&[flag]));
+                assert!(result.warnings.is_empty());
+                assert!(help(Some(Game::Mach3)).contains(&format!("{flag} [dev-tools]")));
+            }
+            #[cfg(not(feature = "dev-tools"))]
+            {
+                assert!(result.args.is_empty());
+                assert_eq!(result.warnings.len(), 1);
+                assert!(result.warnings[0].contains("requires a dev-tools build"));
+                assert!(!help(Some(Game::Mach3)).contains(flag));
+            }
+            accepted(&result, Game::Mach3);
+        }
+    }
+
+    fn preview_flags() -> Vec<Option<&'static str>> {
+        let mut flags = vec![None];
+        if cfg!(feature = "dev-tools") {
+            flags.extend([Some("--step"), Some("--static")]);
+        }
+        flags
+    }
+
     #[test]
     fn mach3_audio_renderer_choices_reach_engine_in_normal_and_preview_modes() {
         assert_eq!(takes_value("--audio-renderer"), Some(true));
         for renderer in ["speaker", "enhanced-pcm"] {
-            for preview in [
-                None,
-                Some("--step"),
-                Some("--static"),
-                Some("--period-ms=12"),
-            ] {
+            for preview in preview_flags() {
                 let mut input = vec![format!("--audio-renderer={renderer}")];
                 if let Some(preview) = preview {
                     input.push(preview.into());
@@ -941,13 +979,13 @@ mod tests {
                 "--audio-renderer=pcm",
                 "--audio-renderer=",
                 "--audio-renderer",
-                "--controls",
+                "--f3-mode=press",
             ]),
             Game::Mach3,
         );
         assert_eq!(
             result.args,
-            args(&["--audio-renderer", "enhanced-pcm", "--controls"])
+            args(&["--audio-renderer", "enhanced-pcm", "--f3-mode", "press"])
         );
         assert_eq!(result.warnings.len(), 3);
         assert!(
@@ -987,12 +1025,7 @@ mod tests {
     fn mach3_f3_mode_choices_reach_engine_in_normal_and_preview_modes() {
         assert_eq!(takes_value("--f3-mode"), Some(true));
         for mode in ["press", "original"] {
-            for preview in [
-                None,
-                Some("--step"),
-                Some("--static"),
-                Some("--period-ms=12"),
-            ] {
+            for preview in preview_flags() {
                 let mut input = vec![format!("--f3-mode={mode}")];
                 if let Some(preview) = preview {
                     input.push(preview.into());
@@ -1012,11 +1045,14 @@ mod tests {
                 "--f3-mode=repeat",
                 "--f3-mode=",
                 "--f3-mode",
-                "--controls",
+                "--scale=2",
             ]),
             Game::Mach3,
         );
-        assert_eq!(result.args, args(&["--f3-mode", "original", "--controls"]));
+        assert_eq!(
+            result.args,
+            args(&["--f3-mode", "original", "--scale", "2"])
+        );
         assert_eq!(result.warnings.len(), 3);
         assert!(
             result.warnings[..2]
@@ -1242,11 +1278,14 @@ mod tests {
                     &format!("{option}=trace.tsv"),
                     &format!("{option}="),
                     option,
-                    "--controls",
+                    "--f3-mode=press",
                 ]),
                 Game::Mach3,
             );
-            assert_eq!(result.args, args(&[option, "trace.tsv", "--controls"]));
+            assert_eq!(
+                result.args,
+                args(&[option, "trace.tsv", "--f3-mode", "press"])
+            );
             assert_eq!(result.warnings.len(), 2);
             assert!(result.warnings[0].contains("path must not be empty"));
             assert!(result.warnings[1].contains("requires a value"));

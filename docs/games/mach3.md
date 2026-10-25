@@ -18,11 +18,8 @@ other releases and platform versions are not automatically compatible.
 After [building REforge](../../README.md#getting-started), run from the repository root:
 
 ```sh
-./target/release/reforge --controls --original /path/to/mach3
+./target/release/reforge --original /path/to/mach3
 ```
-
-Keep `--controls`: it enables steering and shooting. Without it, gameplay still
-runs but player steering and firing are disabled.
 
 Space skips the splash and starts from the intro. Release it between presses.
 During intro audio, the start request waits for the current playback sequence

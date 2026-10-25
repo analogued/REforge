@@ -42,8 +42,9 @@ fetched them, use `--offline` for local checks and builds.
 
 The opt-in `dev-tools` feature enables all four diagnostic/export binaries and
 their CLI integration tests, optional offline speaker WAV rendering, and input
-and timing diagnostics in viewer builds; it does not enable SDL3 by itself.
-Normal builds exclude `--trace-input` and `--trace-timing`, including
+and timing diagnostics and silent step/static previews in viewer builds; it
+does not enable SDL3 by itself. Normal builds exclude `--step`, `--static`,
+`--trace-input` and `--trace-timing`, including
 release builds unless `dev-tools` is explicitly enabled. Test all
 four combinations above when changing tracing or viewer input. REforge's
 `dev-tools` feature forwards this feature to Mach 3.

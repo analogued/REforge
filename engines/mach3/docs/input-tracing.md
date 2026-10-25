@@ -7,7 +7,7 @@ REforge forwards its `dev-tools` feature to the engine:
 
 ```sh
 cargo run --locked --release -p reforge --features dev-tools -- \
-  --original /path/to/mach3-data --controls --trace-input /path/to/new-trace.tsv
+  --original /path/to/mach3-data --trace-input /path/to/new-trace.tsv
 ```
 
 Use a new output filename and an existing parent directory. The file is created
@@ -35,7 +35,7 @@ poll rows. `TransitionPublished` events identify each live reveal region at its
 simulation tick; the intervening intervals add no foreground control polls.
 Ending sample selection emits `PlaySample` actions, and native sound-disable
 bypass emits an ordinary `73b2` poll. The named `poll` labels
-and nominal deadlines below describe the silent step/static/custom-period path.
+and nominal deadlines below describe the silent step/static path.
 
 ## Records and clocks
 
@@ -96,9 +96,8 @@ Poll labels correspond to the production call sites:
 
 Poll details include the **pre-advance** body/pass state, whether player controls
 are enabled, native pause phase, F2 counter and sound/display toggle results.
-With `--controls` absent, polls still occur but steering is suppressed. Native
-pause polls have no ordinary-pass deadline; their polling cadence follows the
-frontend's pause loop. Step-mode polls likewise do not claim an animated deadline.
+Player controls are enabled by default. Native pause polls have no ordinary-pass
+deadline; their polling cadence follows the frontend's pause loop. Step-mode polls likewise do not claim an animated deadline.
 
 Boundary labels include startup, game entry, return to intro, host pause,
 native pause phases/ticks/waits/resume, transition entry and intermediate waits,

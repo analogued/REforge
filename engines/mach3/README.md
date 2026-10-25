@@ -66,13 +66,12 @@ The optional standalone viewer requires SDL3 development/runtime libraries and
 the `viewer` feature:
 
 ```sh
-cargo run --locked -p mach3 --features viewer --bin mach3-viewer -- --controls --original /path/to/assets
+cargo run --locked -p mach3 --features viewer --bin mach3-viewer -- --original /path/to/assets
 ```
 
-Normal animation needs `MACH3.EXE` and `DATA1` through `DATAH`. `--controls`
-enables steering and firing; without it, gameplay continues without player
-steering/fire input. Startup, ending and original F1/F2/F3 processing retain
-their separate input rules.
+Normal animation needs `MACH3.EXE` and `DATA1` through `DATAH`. Steering
+and firing are enabled by default. Startup, ending and original F1/F2/F3
+processing retain their separate input rules.
 
 The viewer uses a 640×200 texture for both colour and the original monochrome
 interpretation, presenting each at 4:3. Shared window sizing, fullscreen,
@@ -95,9 +94,10 @@ Mach 3-specific comparison options include:
   host mute and category levels leave those calls intact. See
   [sample-disable behavior](docs/dos-startup.md#original-sample-disable-argument).
 
-`--step` advances one body or title step per fresh Enter press; `--static`
-retains the initial scene. `--period-ms 1..5000` selects a nominal four-unit
-body interval. These previews are silent and need only `MACH3.EXE` and `DATA1`
+`--step` and `--static` require `viewer,dev-tools` for the standalone viewer,
+or `dev-tools` through REforge. `--step` advances one body or title step per
+fresh Enter press; `--static` retains the initial scene. These previews use
+a fixed nominal period, are silent and need only `MACH3.EXE` and `DATA1`
 through `DATA6`. Fresh Space presses advance startup; Space remains Fire during
 manual gameplay. They do not reproduce the live PIT scheduler's elapsed times.
 

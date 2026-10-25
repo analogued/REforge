@@ -1,15 +1,14 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "dev-tools")]
+use crate::viewer::Playback;
 use crate::{
-    gameplay::F3Mode,
-    sound::render::AudioRenderer,
-    startup::StartupFrames,
-    viewer::{Options, Playback},
+    gameplay::F3Mode, sound::render::AudioRenderer, startup::StartupFrames, viewer::Options,
 };
 use std::{ffi::OsString, path::PathBuf};
 
-const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--step|--static] [--controls] [--period-ms 1..5000] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original] [--digitized-samples on|off]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original] [--digitized-samples on|off]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
 F10: open settings; F10, Escape or Close returns. Scaling and fullscreen changes apply live.\n\
@@ -17,12 +16,10 @@ Default drawable scale: auto (fit the usable display); CGA pixels are displayed 
 --presentation pixels|hyllian: nearest pixels (default) or the shared Hyllian CRT shader; unavailable shaders warn and fall back to pixels.\n\
 Gameplay continues until game over, then displays Game Over and High Score.\n\
 Space returns to intro after the first post-game title pair.\n\
---step: fresh Enter presses advance one body or title step. --static: show initial scene only.\n\
---controls: flag with no value; arrows or S/X/B/N steer; Space or keypad5 fires. Gameplay has no loop cap.\n\
+Arrows or S/X/B/N steer; Space or keypad5 fires. Gameplay has no loop cap.\n\
 Normal animation runs gameplay, sound and waits on one PIT timeline.\n\
 --audio-renderer speaker|enhanced-pcm: select host audio rendering (default speaker); timing is unchanged.\n\
 --digitized-samples on|off: execute recorded speech/music (default on); off retains procedural effects and skips sample waits.\n\
---step, --static and custom --period-ms previews use silent nominal stepping and need DATA1 through DATA6.\n\
 P or Pause/Break freezes host simulation and playback. F1 retains original pause/end-game behavior; F2 toggles native sound, F3 switches color/monochrome.\n\
 --f3-mode press|original: toggle F3 once per press (default press), or at every active original control poll.\n\
 Unavailable audio warns and mutes host output; guest execution continues. Exact CPU-dependent pacing remains unmodeled.";
@@ -31,7 +28,7 @@ fn help() -> String {
     #[cfg(feature = "dev-tools")]
     {
         format!(
-            "{HELP}\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file."
+            "{HELP}\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping and need MACH3.EXE and DATA1 through DATA6.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file."
         )
     }
     #[cfg(not(feature = "dev-tools"))]
@@ -55,6 +52,7 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
         crate::executable::data_segment(&program).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
+    #[cfg(feature = "dev-tools")]
     if options.is_preview() {
         return crate::viewer::run_preview(&frames, options, rules);
     }
@@ -79,6 +77,7 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
         return Ok(None);
     }
     let mut options = Options::default();
+    #[cfg(feature = "dev-tools")]
     let mut playback_set = false;
     let mut directory = None;
     while let Some(arg) = args.next() {
@@ -127,9 +126,6 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     .ok_or("--presentation must be pixels or hyllian")?
                     .parse()?;
             }
-            Some("--controls") => {
-                options.controls = true;
-            }
             Some("--audio-renderer") => {
                 options.audio_renderer = match args.next().as_deref().and_then(|arg| arg.to_str()) {
                     Some("speaker") => AudioRenderer::Speaker,
@@ -148,6 +144,7 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     }
                 };
             }
+            #[cfg(feature = "dev-tools")]
             Some("--step" | "--static") => {
                 if playback_set {
                     return Err("--step and --static cannot be combined or repeated".into());
@@ -158,16 +155,6 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     Playback::Static
                 };
                 playback_set = true;
-            }
-            Some("--period-ms") => {
-                let period = args
-                    .next()
-                    .and_then(|arg| arg.to_str().and_then(|arg| arg.parse::<u64>().ok()))
-                    .filter(|period| (1..=5000).contains(period))
-                    .ok_or_else(|| {
-                        "--period-ms must be an integer between 1 and 5000".to_string()
-                    })?;
-                options.preview_period = Some(std::time::Duration::from_millis(period));
             }
             #[cfg(feature = "dev-tools")]
             Some("--trace-input") => {
@@ -194,9 +181,6 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
             }
         }
     }
-    if options.controls && options.playback == Playback::Static {
-        return Err("--controls cannot be combined with --static".into());
-    }
     let directory =
         directory.ok_or_else(|| "Missing required --original <assets-directory>".to_string())?;
     Ok(Some((directory, options)))
@@ -205,7 +189,9 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
 #[cfg(test)]
 mod tests {
     use super::{help, parse_args};
-    use crate::{gameplay::F3Mode, sound::render::AudioRenderer, viewer::Playback};
+    #[cfg(feature = "dev-tools")]
+    use crate::viewer::Playback;
+    use crate::{gameplay::F3Mode, sound::render::AudioRenderer};
     use std::{ffi::OsString, path::PathBuf};
 
     fn args(values: &[&str]) -> impl Iterator<Item = OsString> {
@@ -216,6 +202,49 @@ mod tests {
             .into_iter()
     }
 
+    fn playback_flags() -> Vec<Option<&'static str>> {
+        let mut flags = vec![None];
+        if cfg!(feature = "dev-tools") {
+            flags.extend([Some("--step"), Some("--static")]);
+        }
+        flags
+    }
+
+    #[test]
+    fn removed_flags_are_rejected_without_aliases() {
+        for flag in [
+            "--controls",
+            "--no-controls",
+            "--no-input",
+            "--period-ms",
+            "--preview-period-ms",
+        ] {
+            assert!(
+                parse_args(args(&["--original", "assets", flag])).is_err(),
+                "{flag}"
+            );
+            assert!(!help().contains(flag), "{flag}");
+        }
+    }
+
+    #[test]
+    fn preview_flags_require_dev_tools() {
+        for flag in ["--step", "--static"] {
+            let result = parse_args(args(&["--original", "assets", flag]));
+            assert_eq!(result.is_ok(), cfg!(feature = "dev-tools"), "{flag}");
+            assert_eq!(help().contains(flag), cfg!(feature = "dev-tools"), "{flag}");
+        }
+        #[cfg(feature = "dev-tools")]
+        for flags in [
+            ["--step", "--static"],
+            ["--static", "--step"],
+            ["--step", "--step"],
+            ["--static", "--static"],
+        ] {
+            assert!(parse_args(args(&["--original", "assets", flags[0], flags[1]])).is_err());
+        }
+    }
+
     #[test]
     fn presentation_defaults_to_pixels_and_reaches_all_playback_modes() {
         let (_, defaults) = parse_args(args(&["--original", "assets"]))
@@ -224,13 +253,10 @@ mod tests {
         assert_eq!(defaults.presentation, reforge_sdl::Presentation::Pixels);
         assert!(help().contains("--presentation pixels|hyllian"));
         for value in ["pixels", "hyllian"] {
-            for mode in [None, Some("--step"), Some("--static"), Some("--period-ms")] {
+            for mode in playback_flags() {
                 let mut input = vec!["--original", "assets", "--presentation", value];
                 if let Some(mode) = mode {
                     input.push(mode);
-                    if mode == "--period-ms" {
-                        input.push("12");
-                    }
                 }
                 let (_, options) = parse_args(args(&input)).unwrap().unwrap();
                 assert_eq!(options.presentation, value.parse().unwrap());
@@ -247,7 +273,7 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(options.presentation, reforge_sdl::Presentation::Pixels);
-        for value in ["", "crt", "Hyllian", "--controls"] {
+        for value in ["", "crt", "Hyllian", "--scale"] {
             assert!(parse_args(args(&["--original", "assets", "--presentation", value])).is_err());
         }
         assert!(parse_args(args(&["--original", "assets", "--presentation"])).is_err());
@@ -291,22 +317,10 @@ mod tests {
     }
 
     #[test]
-    fn original_path_and_controls_are_independent_in_either_order() {
+    fn controls_are_enabled_with_original_path_and_scale_in_either_order() {
         for values in [
-            &[
-                "--original",
-                "assets with spaces",
-                "--controls",
-                "--scale",
-                "2",
-            ][..],
-            &[
-                "--controls",
-                "--scale",
-                "2",
-                "--original",
-                "assets with spaces",
-            ][..],
+            &["--original", "assets with spaces", "--scale", "2"][..],
+            &["--scale", "2", "--original", "assets with spaces"][..],
         ] {
             let (directory, options) = parse_args(args(values)).unwrap().unwrap();
             assert_eq!(directory, PathBuf::from("assets with spaces"));
@@ -316,7 +330,7 @@ mod tests {
         let (_, options) = parse_args(args(&["--original", "assets"]))
             .unwrap()
             .unwrap();
-        assert!(!options.controls);
+        assert!(options.controls);
     }
 
     #[test]
@@ -369,8 +383,7 @@ mod tests {
             ] {
                 let (_, options) = parse_args(args(&values)).unwrap().unwrap();
                 assert_eq!(options.audio_renderer, renderer);
-                assert_eq!(options.playback, Playback::Animated);
-                assert_eq!(options.preview_period, None);
+                #[cfg(feature = "dev-tools")]
                 assert!(!options.is_preview());
             }
         }
@@ -396,7 +409,7 @@ mod tests {
             &["--original", "assets", "--audio-renderer", ""][..],
             &["--original", "assets", "--audio-renderer", "pcm"][..],
             &["--original", "assets", "--audio-renderer", "Speaker"][..],
-            &["--original", "assets", "--audio-renderer", "--controls"][..],
+            &["--original", "assets", "--audio-renderer", "--scale"][..],
         ] {
             assert!(
                 parse_args(args(values))
@@ -414,7 +427,7 @@ mod tests {
             .unwrap();
         assert_eq!(defaults.f3_mode, F3Mode::Press);
         for (value, mode) in [("press", F3Mode::Press), ("original", F3Mode::Original)] {
-            for preview in [None, Some("--step"), Some("--static")] {
+            for preview in playback_flags() {
                 let mut values = vec!["--f3-mode", value, "--original", "assets"];
                 if let Some(preview) = preview {
                     values.push(preview);
@@ -445,7 +458,7 @@ mod tests {
             &["--original", "assets", "--f3-mode", ""][..],
             &["--original", "assets", "--f3-mode", "repeat"][..],
             &["--original", "assets", "--f3-mode", "Press"][..],
-            &["--original", "assets", "--f3-mode", "--controls"][..],
+            &["--original", "assets", "--f3-mode", "--scale"][..],
         ] {
             assert!(
                 parse_args(args(values)).unwrap_err().contains("--f3-mode"),
@@ -454,6 +467,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "dev-tools")]
     #[test]
     fn audio_renderer_selection_preserves_silent_preview_modes() {
         for (flag, playback) in [("--step", Playback::Step), ("--static", Playback::Static)] {
@@ -469,33 +483,15 @@ mod tests {
             assert_eq!(options.audio_renderer, AudioRenderer::EnhancedPcm);
             assert_eq!(options.playback, playback);
         }
-        let (_, options) = parse_args(args(&[
-            "--original",
-            "assets",
-            "--audio-renderer",
-            "enhanced-pcm",
-            "--period-ms",
-            "12",
-        ]))
-        .unwrap()
-        .unwrap();
-        assert_eq!(options.audio_renderer, AudioRenderer::EnhancedPcm);
-        assert_eq!(
-            options.preview_period,
-            Some(std::time::Duration::from_millis(12))
-        );
-        assert!(options.is_preview());
     }
 
     #[test]
     fn requires_one_explicit_original_directory() {
         for values in [
             &[][..],
-            &["--controls"][..],
             &["assets"][..],
-            &["--controls", "assets"][..],
             &["--original"][..],
-            &["--original", "--controls"][..],
+            &["--original", "--scale"][..],
             &["--original", "assets", "extra"][..],
             &["--original", "assets", "--original", "other"][..],
         ] {
@@ -556,7 +552,7 @@ mod tests {
         for values in [
             &["--original", "assets", "--trace-timing"][..],
             &["--original", "assets", "--trace-timing", ""][..],
-            &["--original", "assets", "--trace-timing", "--controls"][..],
+            &["--original", "assets", "--trace-timing", "--scale"][..],
         ] {
             assert!(parse_args(args(values)).is_err());
         }
@@ -575,12 +571,12 @@ mod tests {
         ] {
             let (_, options) = parse_args(args(values)).unwrap().unwrap();
             assert_eq!(options.input_trace, Some(PathBuf::from("input trace.tsv")));
-            assert!(!options.controls);
+            assert!(options.controls);
         }
         for values in [
             &["--original", "assets", "--trace-input"][..],
             &["--original", "assets", "--trace-input", ""][..],
-            &["--original", "assets", "--trace-input", "--controls"][..],
+            &["--original", "assets", "--trace-input", "--scale"][..],
         ] {
             assert!(
                 parse_args(args(values))

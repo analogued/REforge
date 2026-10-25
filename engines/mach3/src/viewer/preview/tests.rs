@@ -356,15 +356,11 @@ fn synthetic_assets() -> GraphicsAssets {
     }
 }
 
-fn running_playback(
-    assets: &GraphicsAssets,
-    start: std::time::Instant,
-    options: &Options,
-) -> GamePlayback {
+fn running_playback(assets: &GraphicsAssets, start: std::time::Instant) -> GamePlayback {
     GamePlayback {
         visible_frame: Some(Gameplay::test_game(assets).unwrap().frame().clone()),
         gameplay: Some(Gameplay::test_game(assets).unwrap()),
-        next_frame: Some(start + options.nominal_body_period() / 4),
+        next_frame: Some(start + NOMINAL_PREVIEW_BODY_PERIOD / 4),
         ..GamePlayback::default()
     }
 }
@@ -404,7 +400,7 @@ fn f3_restores_palette_at_body_steering_and_native_pause_polls() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let unit = options.nominal_body_period() / 4;
+    let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
     let green_game = || {
         let mut data = vec![0; 65536];
         data[0x04ac..0x04af].copy_from_slice(&[1, 2, 3]);
@@ -514,8 +510,8 @@ fn publication_wait_retains_pixels_and_consumes_no_input_poll() {
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.nominal_body_period() / 4;
-    let mut game = running_playback(&assets, start, &options);
+    let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
+    let mut game = running_playback(&assets, start);
     let initial = game.visible_frame.clone();
     game.advance(&assets, &options, start + unit).unwrap();
     assert!(game.pending_publication);
@@ -579,7 +575,7 @@ fn changed_layer_publishes_immediately_then_restores_the_extra_wait() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let unit = options.nominal_body_period() / 4;
+    let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
     let mut data = vec![0; 65536];
     data[0x04ac..0x04af].copy_from_slice(&[1, 2, 3]);
     for index in 0..21 {
@@ -620,8 +616,8 @@ fn f3_repaints_previous_pixels_while_first_pass_publication_is_pending() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let unit = options.nominal_body_period() / 4;
-    let mut game = running_playback(&assets, start, &options);
+    let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
+    let mut game = running_playback(&assets, start);
     let old = game.visible_frame.clone();
     // Skip the body's function-key poll to exercise one F3 mode switch at
     // the steering poll before composition and its additional wait.
@@ -649,9 +645,9 @@ fn pending_publication_survives_focus_and_host_pause_and_is_reset_by_new_game() 
         ..Options::default()
     };
     let start = Instant::now();
-    let unit = options.nominal_body_period() / 4;
+    let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
     for focus in [false, true] {
-        let mut game = running_playback(&assets, start, &options);
+        let mut game = running_playback(&assets, start);
         game.advance(&assets, &options, start + unit).unwrap();
         let old = game.visible_frame.clone();
         let prepared = game.gameplay.as_ref().unwrap().pass_frame().clone();
@@ -713,8 +709,8 @@ fn ordinary_simulation_matches_at_15_30_60_and_120_presentations_per_second() {
     };
     let start = Instant::now();
     let end = start + Duration::from_secs(1);
-    let unit = options.nominal_body_period() / 4;
-    let mut reference = running_playback(&assets, start, &options);
+    let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
+    let mut reference = running_playback(&assets, start);
     for scan in [0x4d, 0x39, 0x3c] {
         reference.session.keyboard.apply_scan(scan);
     }
@@ -729,7 +725,7 @@ fn ordinary_simulation_matches_at_15_30_60_and_120_presentations_per_second() {
     assert_eq!(pass_count(&reference), passes);
     assert!(passes > 25);
     for fps in [15, 30, 60, 120] {
-        let mut game = running_playback(&assets, start, &options);
+        let mut game = running_playback(&assets, start);
         for scan in [0x4d, 0x39, 0x3c] {
             game.session.keyboard.apply_scan(scan);
         }
@@ -771,7 +767,7 @@ fn timing_spans_observe_catch_up_and_blocking_waits_without_changing_state() {
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
     let assets = synthetic_assets();
     let options = Options::default();
-    let unit = options.nominal_body_period() / 4;
+    let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
     let origin = Instant::now();
     let path = std::env::temp_dir().join(format!(
         "mach3-timing-viewer-{}-{}.tsv",
@@ -783,14 +779,14 @@ fn timing_spans_observe_catch_up_and_blocking_waits_without_changing_state() {
     ));
     let mut ticks = 0;
     let mut trace =
-        TimingTrace::create_with_clock(&path, options.nominal_body_period(), origin, move || {
+        TimingTrace::create_with_clock(&path, NOMINAL_PREVIEW_BODY_PERIOD, origin, move || {
             ticks += 1;
             origin + Duration::from_micros(ticks)
         })
         .unwrap();
     trace.begin_game();
-    let mut game = running_playback(&assets, origin, &options);
-    let mut plain = running_playback(&assets, origin, &options);
+    let mut game = running_playback(&assets, origin);
+    let mut plain = running_playback(&assets, origin);
     game.timing = Some(trace);
     let late = origin + unit * 100;
     game.advance(&assets, &options, late).unwrap();
@@ -895,8 +891,8 @@ fn bounded_catch_up_keeps_debt_without_changing_step_or_static_playback() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let late = start + options.nominal_body_period() / 4 * 100;
-    let mut game = running_playback(&assets, start, &options);
+    let late = start + NOMINAL_PREVIEW_BODY_PERIOD / 4 * 100;
+    let mut game = running_playback(&assets, start);
     game.advance(&assets, &options, late).unwrap();
     assert_eq!(pass_count(&game), 48);
     assert!(game.ordinary_due(&options, late));
@@ -910,7 +906,7 @@ fn bounded_catch_up_keeps_debt_without_changing_step_or_static_playback() {
             playback,
             ..options.clone()
         };
-        let mut game = running_playback(&assets, start, &options);
+        let mut game = running_playback(&assets, start);
         assert!(!game.advance(&assets, &options, late).unwrap());
         assert_eq!(pass_count(&game), 0);
         if playback == Playback::Step {
@@ -929,14 +925,14 @@ fn catch_up_stops_for_native_pause_and_preserves_transition_waits() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let unit = options.nominal_body_period() / 4;
+    let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
     let late = start + unit * 100;
-    let mut paused = running_playback(&assets, start, &options);
+    let mut paused = running_playback(&assets, start);
     paused.session.keyboard.apply_scan(0x3b);
     paused.advance(&assets, &options, late).unwrap();
     assert_eq!(paused.session.pause.state, PauseState::AwaitInitialRelease);
     assert_eq!(pass_count(&paused), 0);
-    let mut game = running_playback(&assets, start, &options);
+    let mut game = running_playback(&assets, start);
     let frame = game.gameplay.as_ref().unwrap().frame().clone();
     game.transitions.append(
         [2, 5]
@@ -978,8 +974,8 @@ fn ending_frames_keep_their_visible_waits_instead_of_catching_up() {
     let assets = synthetic_assets();
     let options = Options::default();
     let start = Instant::now();
-    let unit = options.nominal_body_period() / 4;
-    let mut game = running_playback(&assets, start, &options);
+    let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
+    let mut game = running_playback(&assets, start);
     #[cfg(feature = "dev-tools")]
     let path = std::env::temp_dir().join(format!(
         "mach3-ending-timing-{}-{}.tsv",
@@ -991,13 +987,11 @@ fn ending_frames_keep_their_visible_waits_instead_of_catching_up() {
     ));
     #[cfg(feature = "dev-tools")]
     {
-        let mut trace = TimingTrace::create_with_clock(
-            &path,
-            options.nominal_body_period(),
-            start,
-            move || start,
-        )
-        .unwrap();
+        let mut trace =
+            TimingTrace::create_with_clock(&path, NOMINAL_PREVIEW_BODY_PERIOD, start, move || {
+                start
+            })
+            .unwrap();
         trace.begin_game();
         game.timing = Some(trace);
     }
@@ -1028,7 +1022,7 @@ fn ending_frames_keep_their_visible_waits_instead_of_catching_up() {
     );
     assert_eq!(
         game.next_frame,
-        Some(late + options.nominal_body_period() * expected.wait_units() / 4)
+        Some(late + NOMINAL_PREVIEW_BODY_PERIOD * expected.wait_units() / 4)
     );
     #[cfg(feature = "dev-tools")]
     {
@@ -1219,7 +1213,7 @@ fn input_tracing_preserves_historical_poll_results() {
         controls: true,
         ..Options::default()
     };
-    let unit = options.nominal_body_period() / 4;
+    let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
     let read_rows = |game: &mut GamePlayback, path: &std::path::Path| {
         game.trace.as_mut().unwrap().flush().unwrap();
         std::fs::read_to_string(path)
@@ -1256,8 +1250,8 @@ fn input_tracing_preserves_historical_poll_results() {
     ] {
         let start = Instant::now();
         let path = folder.join(format!("{label}.tsv"));
-        let mut game = running_playback(&assets, start, &options);
-        let mut plain = running_playback(&assets, start, &options);
+        let mut game = running_playback(&assets, start);
+        let mut plain = running_playback(&assets, start);
         game.trace = Some(InputTrace::create_at(&path, start).unwrap());
         let mut input = ControlInput::default();
         let mut plain_input = ControlInput::default();
@@ -1324,8 +1318,8 @@ fn input_tracing_preserves_historical_poll_results() {
     // transition waits must produce the same state with tracing enabled.
     let start = Instant::now();
     let path = folder.join("boundaries.tsv");
-    let mut game = running_playback(&assets, start, &options);
-    let mut plain = running_playback(&assets, start, &options);
+    let mut game = running_playback(&assets, start);
+    let mut plain = running_playback(&assets, start);
     game.trace = Some(InputTrace::create_at(&path, start).unwrap());
     for scan in [0x4d, 0x39, 0x3c] {
         game.session.keyboard.apply_scan(scan);

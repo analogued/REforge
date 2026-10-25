@@ -1,6 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Live presentation of the reconstructed device/foreground timeline.
 
+use super::input_history::InputEpoch;
 use super::*;
 #[cfg(test)]
 mod tests;
@@ -1019,7 +1020,7 @@ pub(super) fn run(
     let mut audio = AudioOutput::new(signal, host);
     let mut pause = HostPause::default();
     let mut input = ControlInput::default();
-    let mut history = InputHistory::default();
+    let mut history = InputEpoch::default();
     let epoch = pause.now(Instant::now());
     let mut space_held = false;
     let mut navigation_space_release = false;
@@ -1047,7 +1048,7 @@ pub(super) fn run(
     let mut timing = options
         .timing_trace
         .as_ref()
-        .map(|p| TimingTrace::create(p, options.nominal_body_period()))
+        .map(|p| TimingTrace::create(p, crate::gameplay::NOMINAL_PREVIEW_BODY_PERIOD))
         .transpose()?;
     let mut repaint = true;
     loop {
@@ -1087,11 +1088,7 @@ pub(super) fn run(
                 space_held = false;
                 navigation_space_release = false;
                 simulation.clear_input()?;
-                history.reset(EventTime {
-                    host: received,
-                    timeline: pause.now(received),
-                    now: pause.now(received),
-                });
+                history.reset(received);
                 audio.pause(pause.is_paused());
                 repaint = true;
             }
@@ -1107,11 +1104,7 @@ pub(super) fn run(
                 space_held = false;
                 navigation_space_release = false;
                 simulation.clear_input()?;
-                history.reset(EventTime {
-                    host: received,
-                    timeline: pause.now(received),
-                    now: pause.now(received),
-                });
+                history.reset(received);
                 audio.pause(pause.is_paused());
                 repaint = true;
                 disposition = "host_shortcut";
@@ -1129,7 +1122,7 @@ pub(super) fn run(
                 space_held = false;
                 navigation_space_release = false;
                 simulation.clear_input()?;
-                history.reset(time);
+                history.reset(time.host);
                 disposition = "focus_reset";
             } else if !history.accepts(time.host) {
                 disposition = "ignored_before_reset";
@@ -1224,11 +1217,7 @@ pub(super) fn run(
             space_held = false;
             navigation_space_release = false;
             simulation.clear_input()?;
-            history.reset(EventTime {
-                host: received,
-                timeline: pause.now(received),
-                now: pause.now(received),
-            });
+            history.reset(received);
             audio.pause(pause.is_paused());
             repaint = true;
         }

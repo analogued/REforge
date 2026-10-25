@@ -271,7 +271,7 @@ windows and setup return-register effects are not reconstructed by this API.
 Neither stage prescribes instruction delays; IRQ handlers retain the clock's
 ordered, zero-gap execution convention. Normal animated viewing executes this
 procedural state through `GameplayRuntime` on the same PIT timeline as samples
-and gameplay waits. Step/static/custom-period previews retain silent stepping.
+and gameplay waits. Development-only step/static previews retain silent stepping.
 
 ### Gameplay invocation
 
@@ -349,7 +349,7 @@ deadlines while device interrupts continue; CPU busy-loop costs remain untimed.
 Terrain collision scans finish
 their terrain mutations before delivering ordered contacts to the sink.
 Normal animated viewing uses this continuation; recording replay and
-step/static/custom-period previews retain silent stepping and nominal timing.
+step/static previews retain silent stepping and nominal timing.
 The existing speed-update checkpoint is unchanged; the sound argument uses the
 old speed as above.
 
@@ -436,7 +436,7 @@ selection rules.
 Pause/Break freezes host scheduling and queued playback together. Native F1
 retains the original keyboard handshake and PIT-driven waits; the device continues
 to execute during native pause. F2 changes native sound preference while ordinary
-timer counters continue. Step/static/custom-period previews and recording replay
+timer counters continue. Development-only step/static previews and recording replay
 remain silent. Instruction gaps and CPU delay loops are not timed by this model.
 
 ### Enhanced PCM playback

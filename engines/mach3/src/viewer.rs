@@ -10,9 +10,12 @@ use std::collections::{BTreeSet, VecDeque};
 
 mod audio_output;
 mod input_history;
+#[cfg(feature = "dev-tools")]
 mod preview;
 mod realtime;
-use input_history::{EventTime, InputHistory};
+use input_history::EventTime;
+#[cfg(feature = "dev-tools")]
+use input_history::InputHistory;
 
 #[cfg(feature = "dev-tools")]
 use crate::input_trace::{InputTrace, PollSite};
@@ -25,13 +28,9 @@ use reforge_sdl::sdl3::{
 };
 
 use crate::{
-    assets::GraphicsAssets,
     frame::{Frame, HEIGHT, WIDTH},
-    gameplay::{
-        DisplayMode, Ending, Gameplay, NOMINAL_PREVIEW_BODY_PERIOD, PauseEvent, PauseState,
-        ScriptRules, SessionState, Steering, TransitionFrame,
-    },
-    startup::{Presentation, Screen, StartupFrames},
+    gameplay::{DisplayMode, Ending, Gameplay, PauseState, ScriptRules, SessionState},
+    startup::{Screen, StartupFrames},
 };
 
 // Modes 4 and 6 share a 4:3 display, but have different native pixel grids.
@@ -45,6 +44,7 @@ fn display_geometry(mode: DisplayMode) -> reforge_sdl::DisplayGeometry {
 }
 const GAME_NAME: &str = "Mach 3";
 
+#[cfg(feature = "dev-tools")]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Playback {
     #[default]
@@ -61,11 +61,10 @@ pub struct Options {
     /// None fits the usable display; Some requests a fixed drawable multiplier.
     pub scale: Option<u32>,
     pub presentation: reforge_sdl::Presentation,
+    #[cfg(feature = "dev-tools")]
     pub playback: Playback,
     pub controls: bool,
     pub audio_renderer: crate::sound::render::AudioRenderer,
-    /// Explicit silent-preview override; None leaves normal playback on the PIT clock.
-    pub preview_period: Option<std::time::Duration>,
     #[cfg(feature = "dev-tools")]
     pub input_trace: Option<std::path::PathBuf>,
     #[cfg(feature = "dev-tools")]
@@ -79,10 +78,10 @@ impl Default for Options {
             digitized_samples: None,
             scale: None,
             presentation: reforge_sdl::Presentation::Pixels,
+            #[cfg(feature = "dev-tools")]
             playback: Playback::Animated,
-            controls: false,
+            controls: true,
             audio_renderer: crate::sound::render::AudioRenderer::Speaker,
-            preview_period: None,
             #[cfg(feature = "dev-tools")]
             input_trace: None,
             #[cfg(feature = "dev-tools")]
@@ -91,30 +90,11 @@ impl Default for Options {
     }
 }
 
+#[cfg(feature = "dev-tools")]
 impl Options {
     /// Whether command-line options request silent nominal stepping.
     pub(crate) fn is_preview(&self) -> bool {
-        self.playback != Playback::Animated || self.preview_period.is_some()
-    }
-
-    fn nominal_body_period(&self) -> std::time::Duration {
-        self.preview_period.unwrap_or(NOMINAL_PREVIEW_BODY_PERIOD)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Action {
-    Continue,
-    Space,
-    Close,
-    ToggleHostPause,
-}
-
-fn screen_status(screen: Screen) -> &'static str {
-    match screen {
-        Screen::Splash => "Splash (Space to advance)",
-        Screen::Intro => "Intro (Space to advance)",
-        Screen::InitialScene => "Initial scene (Esc to close)",
+        self.playback != Playback::Animated
     }
 }
 
@@ -178,50 +158,8 @@ fn prepare_settings(menu: &mut SettingsMenu<'_>, window: &mut Window) {
     window.prepare_settings(menu);
 }
 
-fn event_action(presentation: &mut Presentation, event: Event, host_paused: bool) -> Action {
-    match host_shortcut(&event) {
-        Some(HostShortcut::Quit) => return Action::Close,
-        Some(HostShortcut::TogglePause) => return Action::ToggleHostPause,
-        None => {}
-    }
-    match event {
-        Event::Quit { .. }
-        | Event::Window {
-            win_event: WindowEvent::CloseRequested,
-            ..
-        }
-        | Event::KeyDown {
-            keycode: Some(Keycode::Escape),
-            ..
-        } => return Action::Close,
-        Event::KeyDown {
-            keycode: Some(Keycode::Space),
-            repeat,
-            ..
-        } => {
-            if !host_paused && presentation.space_down(repeat) {
-                return Action::Space;
-            }
-        }
-        Event::KeyUp {
-            keycode: Some(Keycode::Space),
-            ..
-        } => presentation.space_up(),
-        Event::Window {
-            win_event: WindowEvent::FocusLost,
-            ..
-        } => presentation.focus_lost(),
-        _ => {}
-    }
-    Action::Continue
-}
-
-#[cfg(test)]
-fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
-    event_action(presentation, event, false) != Action::Close
-}
-
 /// Run a silent nominal preview, including retained-session restarts.
+#[cfg(feature = "dev-tools")]
 pub fn run_preview(
     frames: &StartupFrames,
     options: Options,
@@ -239,8 +177,9 @@ pub fn run_live(
     intro: crate::sound::IntroProgram,
     procedural: crate::sound::ProceduralProgram,
 ) -> Result<(), String> {
+    #[cfg(feature = "dev-tools")]
     if options.is_preview() {
-        return Err("step/static and custom-period options require run_preview".into());
+        return Err("step/static options require run_preview".into());
     }
     if options
         .scale
@@ -279,47 +218,6 @@ fn scan_for_key(key: Keycode) -> Option<u8> {
     })
 }
 
-fn event_scan(event: &Event, gameplay: bool) -> Option<u8> {
-    match event {
-        Event::KeyDown {
-            keycode: Some(key), ..
-        }
-        | Event::KeyUp {
-            keycode: Some(key), ..
-        } => {
-            if *key == Keycode::Space && !gameplay && matches!(event, Event::KeyDown { .. }) {
-                return None;
-            }
-            if let Some(scan) = scan_for_key(*key) {
-                let raw = scan
-                    | if matches!(event, Event::KeyUp { .. }) {
-                        128
-                    } else {
-                        0
-                    };
-                return Some(raw);
-            }
-        }
-        _ => {}
-    }
-    None
-}
-
-#[cfg(test)]
-fn control_event(session: &mut SessionState, event: &Event, gameplay: bool) {
-    if let Some(scan) = event_scan(event, gameplay) {
-        session.keyboard.apply_scan(scan);
-    } else if matches!(
-        event,
-        Event::Window {
-            win_event: WindowEvent::FocusLost,
-            ..
-        }
-    ) {
-        session.clear_held_keys();
-    }
-}
-
 /// Host repeat eligibility is separate from the reconstructed DOS scan-byte filter.
 #[derive(Default)]
 struct ControlInput {
@@ -327,11 +225,6 @@ struct ControlInput {
 }
 
 impl ControlInput {
-    fn clear(&mut self, session: &mut SessionState) {
-        self.fresh.clear();
-        session.clear_held_keys();
-    }
-
     fn accept(&mut self, event: &Event) -> bool {
         match event {
             Event::KeyDown {
@@ -362,74 +255,6 @@ impl ControlInput {
             _ => {}
         }
         true
-    }
-
-    #[cfg(test)]
-    fn handle(&mut self, session: &mut SessionState, event: &Event, gameplay: bool) {
-        if self.accept(event) {
-            control_event(session, event, gameplay);
-        }
-    }
-
-    fn receive(
-        &mut self,
-        session: &mut SessionState,
-        history: &mut InputHistory,
-        event: &Event,
-        gameplay: bool,
-        time: EventTime,
-    ) -> &'static str {
-        if matches!(
-            event,
-            Event::Window {
-                win_event: WindowEvent::FocusLost,
-                ..
-            }
-        ) {
-            self.clear(session);
-            history.reset(time);
-            return "focus_reset";
-        }
-        // Check the original host epoch before accepting its mapped timeline.
-        // Old SDL events must not become fresh input in the resumed epoch.
-        if !history.accepts(time.host) {
-            return "ignored_before_reset";
-        }
-        if !self.accept(event) {
-            return "ignored_repeat";
-        }
-        if let Some(scan) = event_scan(event, gameplay) {
-            if gameplay {
-                history.push(time.timeline, scan);
-                return "queued";
-            }
-            history.apply_until(session, time.now);
-            session.keyboard.apply_scan(scan);
-        }
-        "handled"
-    }
-}
-
-fn toggle_host_pause(
-    pause: &mut HostPause,
-    session: &mut SessionState,
-    input: &mut ControlInput,
-    now: std::time::Instant,
-) {
-    pause.toggle(now);
-    input.clear(session);
-}
-
-fn steering_from_mask(mask: u8, enabled: bool) -> Steering {
-    if !enabled {
-        return Steering::default();
-    }
-    Steering {
-        up: mask & 1 != 0,
-        down: mask & 2 != 0,
-        left: mask & 4 != 0,
-        right: mask & 8 != 0,
-        fire: mask & 16 != 0,
     }
 }
 
@@ -465,15 +290,17 @@ mod options_tests {
     use super::*;
 
     #[test]
-    fn preview_selection_depends_on_intent_rather_than_period_value() {
+    fn controls_are_enabled_by_default() {
+        assert!(Options::default().controls);
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn only_explicit_step_or_static_modes_select_preview() {
         let mut options = Options::default();
         assert!(!options.is_preview());
-        options.preview_period = Some(NOMINAL_PREVIEW_BODY_PERIOD);
-        assert!(options.is_preview());
-        assert_eq!(options.nominal_body_period(), NOMINAL_PREVIEW_BODY_PERIOD);
         for playback in [Playback::Step, Playback::Static] {
             options.playback = playback;
-            options.preview_period = None;
             assert!(options.is_preview());
         }
     }

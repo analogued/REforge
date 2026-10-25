@@ -194,5 +194,5 @@ The optional `mach3-viewer` presents those frames and the initial scene through
 SDL3. Normal animated playback uses the timed splash and reconstructed
 audio-dependent intro control flow described above, then runs the
 [gameplay simulation](dos-gameplay.md#rust-gameplay-simulation) through game over
-and restart. Silent step/static/custom-period diagnostic previews retain manual
+and restart. Silent step/static diagnostic previews retain manual
 Space advancement of their startup screens, with held/repeated presses ignored.

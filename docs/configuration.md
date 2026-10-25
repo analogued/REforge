@@ -237,7 +237,7 @@ devices and focus defaults can be edited globally even from a silent game.
 | mute_unfocused | `true`, `false` | `true` |
 
 Mach 3's normal timed playback supports PC speaker and Enhanced PCM; Game default
-selects its original speaker renderer. Step/static/custom-period previews remain
+selects its original speaker renderer. Development-only step/static previews remain
 silent. Alley Cat supports PC Speaker playback in its normal timed runner and
 animated title, with Music and Effects categories; its uniform-step diagnostic
 runner remains silent. Engines declare supported Music, Speech and Sound effects groups;

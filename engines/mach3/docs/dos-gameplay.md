@@ -310,8 +310,8 @@ The nominal preview retains a prepared pass-one image until its publication
 deadline;
 palette and display-mode effects follow their input processing independently.
 A layer-change body omits the publication wait and therefore takes three nominal
-units. `--period-ms` sets the four-unit body duration; all individual wait units
-scale with it. Manual stepping completes the same algorithms without timed waits.
+units. Diagnostic previews require `dev-tools` and use the fixed nominal
+body duration. Manual stepping completes the same algorithms without timed waits.
 Publication models a completed framebuffer checkpoint; it does not reproduce
 the CGA display's scanout during individual region copies.
 
@@ -372,7 +372,7 @@ as they are presented rather than retained throughout the game.
 PC speaker synthesis observes the same device edges. Output failure or buffer
 recovery cannot change the guest continuation, PIT phase or random stream.
 Native F1 pause continues device execution; modern Pause/Break freezes both
-the guest timeline and queued host playback. Step/static/custom-period previews
+the guest timeline and queued host playback. Development-only step/static previews
 retain the nominal schedule above and remain silent.
 
 ## Expanding scene transitions

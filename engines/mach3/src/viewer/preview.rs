@@ -1,7 +1,186 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
-//! Silent nominal scheduling for step, static and custom-period previews.
+//! Silent nominal scheduling for step and static previews.
 
 use super::*;
+use crate::{
+    assets::GraphicsAssets,
+    gameplay::{NOMINAL_PREVIEW_BODY_PERIOD, PauseEvent, Steering, TransitionFrame},
+    startup::Presentation,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Action {
+    Continue,
+    Space,
+    Close,
+    ToggleHostPause,
+}
+
+fn screen_status(screen: Screen) -> &'static str {
+    match screen {
+        Screen::Splash => "Splash (Space to advance)",
+        Screen::Intro => "Intro (Space to advance)",
+        Screen::InitialScene => "Initial scene (Esc to close)",
+    }
+}
+
+fn event_scan(event: &Event, gameplay: bool) -> Option<u8> {
+    match event {
+        Event::KeyDown {
+            keycode: Some(key), ..
+        }
+        | Event::KeyUp {
+            keycode: Some(key), ..
+        } => {
+            if *key == Keycode::Space && !gameplay && matches!(event, Event::KeyDown { .. }) {
+                return None;
+            }
+            if let Some(scan) = scan_for_key(*key) {
+                let raw = scan
+                    | if matches!(event, Event::KeyUp { .. }) {
+                        128
+                    } else {
+                        0
+                    };
+                return Some(raw);
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+fn event_action(presentation: &mut Presentation, event: Event, host_paused: bool) -> Action {
+    match host_shortcut(&event) {
+        Some(HostShortcut::Quit) => return Action::Close,
+        Some(HostShortcut::TogglePause) => return Action::ToggleHostPause,
+        None => {}
+    }
+    match event {
+        Event::Quit { .. }
+        | Event::Window {
+            win_event: WindowEvent::CloseRequested,
+            ..
+        }
+        | Event::KeyDown {
+            keycode: Some(Keycode::Escape),
+            ..
+        } => return Action::Close,
+        Event::KeyDown {
+            keycode: Some(Keycode::Space),
+            repeat,
+            ..
+        } => {
+            if !host_paused && presentation.space_down(repeat) {
+                return Action::Space;
+            }
+        }
+        Event::KeyUp {
+            keycode: Some(Keycode::Space),
+            ..
+        } => presentation.space_up(),
+        Event::Window {
+            win_event: WindowEvent::FocusLost,
+            ..
+        } => presentation.focus_lost(),
+        _ => {}
+    }
+    Action::Continue
+}
+
+#[cfg(test)]
+fn handle_event(presentation: &mut Presentation, event: Event) -> bool {
+    event_action(presentation, event, false) != Action::Close
+}
+
+#[cfg(test)]
+fn control_event(session: &mut SessionState, event: &Event, gameplay: bool) {
+    if let Some(scan) = event_scan(event, gameplay) {
+        session.keyboard.apply_scan(scan);
+    } else if matches!(
+        event,
+        Event::Window {
+            win_event: WindowEvent::FocusLost,
+            ..
+        }
+    ) {
+        session.clear_held_keys();
+    }
+}
+
+impl ControlInput {
+    fn clear(&mut self, session: &mut SessionState) {
+        self.fresh.clear();
+        session.clear_held_keys();
+    }
+
+    fn receive(
+        &mut self,
+        session: &mut SessionState,
+        history: &mut InputHistory,
+        event: &Event,
+        gameplay: bool,
+        time: EventTime,
+    ) -> &'static str {
+        if matches!(
+            event,
+            Event::Window {
+                win_event: WindowEvent::FocusLost,
+                ..
+            }
+        ) {
+            self.clear(session);
+            history.reset(time);
+            return "focus_reset";
+        }
+        // Check the original host epoch before accepting its mapped timeline.
+        // Old SDL events must not become fresh input in the resumed epoch.
+        if !history.accepts(time.host) {
+            return "ignored_before_reset";
+        }
+        if !self.accept(event) {
+            return "ignored_repeat";
+        }
+        if let Some(scan) = event_scan(event, gameplay) {
+            if gameplay {
+                history.push(time.timeline, scan);
+                return "queued";
+            }
+            history.apply_until(session, time.now);
+            session.keyboard.apply_scan(scan);
+        }
+        "handled"
+    }
+    #[cfg(test)]
+    fn handle(&mut self, session: &mut SessionState, event: &Event, gameplay: bool) {
+        if self.accept(event) {
+            control_event(session, event, gameplay);
+        }
+    }
+}
+
+fn toggle_host_pause(
+    pause: &mut HostPause,
+    session: &mut SessionState,
+    input: &mut ControlInput,
+    now: std::time::Instant,
+) {
+    pause.toggle(now);
+    input.clear(session);
+}
+
+fn steering_from_mask(mask: u8, enabled: bool) -> Steering {
+    if !enabled {
+        return Steering::default();
+    }
+    Steering {
+        up: mask & 1 != 0,
+        down: mask & 2 != 0,
+        left: mask & 4 != 0,
+        right: mask & 8 != 0,
+        fire: mask & 16 != 0,
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 fn advance_game_pass_observed(
@@ -212,7 +391,7 @@ impl GamePlayback {
         self.body_polled = false;
         self.quit_after_body_entry = false;
         self.pending_step = false;
-        self.next_frame = Some(now + options.nominal_body_period() / 4);
+        self.next_frame = Some(now + NOMINAL_PREVIEW_BODY_PERIOD / 4);
         #[cfg(feature = "dev-tools")]
         if let Some(trace) = &mut self.timing {
             let end = trace.now();
@@ -281,7 +460,7 @@ impl GamePlayback {
         now: std::time::Instant,
     ) -> Result<bool, String> {
         let mut repaint = false;
-        let unit = options.nominal_body_period() / 4;
+        let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
         // These intervals have deliberate waits, not ordinary deadline debt.
         // Fold their scan history without manufacturing additional guest polls.
         if options.playback != Playback::Animated
@@ -673,7 +852,7 @@ impl GamePlayback {
             }
             self.color_family = gameplay.palette_family();
             let period = self.ending.as_ref().map_or(unit, |state| {
-                options.nominal_body_period() * state.wait_units() / 4
+                NOMINAL_PREVIEW_BODY_PERIOD * state.wait_units() / 4
             });
             #[cfg(feature = "dev-tools")]
             let previous_deadline = self.next_frame;
@@ -733,11 +912,6 @@ pub(super) fn run(
     if scale.is_some_and(|scale| !(1..=16).contains(&scale)) {
         return Err("window scale must be auto or an integer between 1 and 16".into());
     }
-    if options.nominal_body_period().is_zero()
-        || options.nominal_body_period() > std::time::Duration::from_secs(5)
-    {
-        return Err("opening period must be greater than zero and at most five seconds".into());
-    }
     let mut game = GamePlayback::default();
     game.session.keyboard.set_f3_mode(options.f3_mode);
     game.session.select_intro(); // First intro consumes exactly one random word.
@@ -761,7 +935,7 @@ pub(super) fn run(
             &game.session,
             &format!(
                 "period_ns={} controls={} playback={:?} f3_mode={}",
-                options.nominal_body_period().as_nanos(),
+                NOMINAL_PREVIEW_BODY_PERIOD.as_nanos(),
                 options.controls,
                 options.playback,
                 options.f3_mode.as_str()
@@ -770,7 +944,7 @@ pub(super) fn run(
     }
     #[cfg(feature = "dev-tools")]
     if let Some(path) = &options.timing_trace {
-        game.timing = Some(TimingTrace::create(path, options.nominal_body_period())?);
+        game.timing = Some(TimingTrace::create(path, NOMINAL_PREVIEW_BODY_PERIOD)?);
     }
     let creator = window.texture_creator();
     let mut gamepads = reforge_sdl::gamepad::Gamepads::new(window.settings().stick_dead_zone);

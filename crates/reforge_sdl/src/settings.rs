@@ -971,6 +971,28 @@ mod tests {
         menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
         menu.prepare(display.ui_metrics(), display.settings());
         assert!(label(&draw(&mut menu, vec![]), "Controls").is_some());
+        for scope in ["Global defaults", "Alley Cat overrides"] {
+            click(&mut menu, scope);
+            draw(&mut menu, vec![]);
+            let bounds = menu
+                .context
+                .memory(|memory| memory.area_rect(egui::Id::new("reforge_settings")).unwrap());
+            let cancel = menu.cancel_rect.unwrap();
+            for page in ["CRT & Colour", "Audio", "Controls", "Display"] {
+                click(&mut menu, page);
+                for _ in 0..3 {
+                    draw(&mut menu, vec![]);
+                    assert_eq!(
+                        menu.context.memory(|memory| {
+                            memory.area_rect(egui::Id::new("reforge_settings")).unwrap()
+                        }),
+                        bounds,
+                        "section changes must preserve the menu frame: {scope}, {page}"
+                    );
+                    assert_eq!(menu.cancel_rect.unwrap(), cancel, "footer moved: {page}");
+                }
+            }
+        }
         click(&mut menu, "Alley Cat overrides");
         click(&mut menu, "Controls");
         assert_eq!(menu.page, 3);

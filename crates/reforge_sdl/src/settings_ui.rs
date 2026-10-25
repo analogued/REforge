@@ -46,6 +46,7 @@ pub(super) fn draw(
     let windowed_scale = menu.creator.windowed_scale.get();
     let width = (screen.width() - 36.0).clamp(300.0, 860.0);
     let height = (screen.height() - 48.0).clamp(260.0, 650.0);
+    let body_height = (height - 200.0).max(160.0);
     let mut close = false;
     egui::Window::new("Settings")
         .id(egui::Id::new("reforge_settings"))
@@ -101,13 +102,13 @@ pub(super) fn draw(
                 let (_, divider) = ui.allocate_space(Vec2::new(6.0, 0.0));
                 ui.vertical(|ui| {
                     ui.set_width((width - 164.0).max(180.0));
+                    // Every page uses the same body. Headings and notices take
+                    // space from its scroll viewport, never from the footer.
+                    ui.set_height(body_height);
                     ui.heading(PAGES[menu.page]);
-                    let notice_height =
-                        if section_has_cli_locks(&cli, menu.page, menu.scope, menu.mach3_options) {
-                            cli_notice(ui).rect.height() + ui.spacing().item_spacing.y
-                        } else {
-                            0.0
-                        };
+                    if section_has_cli_locks(&cli, menu.page, menu.scope, menu.mach3_options) {
+                        cli_notice(ui);
+                    }
                     if menu.scope == 1 {
                         let mut inherit = !menu.game_editing[menu.page];
                         if control(ui.checkbox(
@@ -148,11 +149,13 @@ pub(super) fn draw(
                         saved.game_values()
                     };
                     let enabled = menu.scope == 0 || menu.game_editing[menu.page];
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::both()
                         .animated(false)
                         .id_salt(("settings_content", menu.page))
-                        .max_height((height - 215.0 - notice_height).max(80.0))
-                        .auto_shrink([false, true])
+                        .max_height(ui.available_height().max(0.0))
+                        .min_scrolled_width(0.0)
+                        .min_scrolled_height(0.0)
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
                             let first = crate::settings_navigation::scroll_start(ui.ctx());
                             ui.add_enabled_ui(enabled || menu.page == 2, |ui| {
@@ -396,13 +399,35 @@ pub(super) fn draw(
                 // settings, even when its buttons sit left of the value fields.
                 let bounds = ui.max_rect();
                 crate::settings_navigation::row_controls(ui, bounds, |ui| {
-                    if control(ui.button(if menu.scope == 0 {
+                    let reset_label = if menu.scope == 0 {
                         "Reset section"
                     } else if menu.page == 3 || (menu.page == 2 && menu.mach3_options) {
                         "Restore defaults"
                     } else {
                         "Restore global defaults"
-                    }))
+                    };
+                    // Shorter section-specific labels must not shift Apply/Cancel.
+                    let reset_width = ui
+                        .painter()
+                        .layout_no_wrap(
+                            if menu.scope == 0 {
+                                "Reset section"
+                            } else {
+                                "Restore global defaults"
+                            }
+                            .into(),
+                            egui::TextStyle::Button.resolve(ui.style()),
+                            ui.visuals().text_color(),
+                        )
+                        .size()
+                        .x
+                        + ui.spacing().button_padding.x * 2.0;
+                    if control(
+                        ui.add(
+                            egui::Button::new(reset_label)
+                                .min_size(Vec2::new(reset_width, ui.spacing().interact_size.y)),
+                        ),
+                    )
                     .clicked()
                     {
                         if menu.scope == 0 {

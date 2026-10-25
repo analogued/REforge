@@ -549,6 +549,90 @@ fn alley_reconstruction_discards_the_previous_bin_cat_image() {
     }
 }
 
+fn bin_animation_fixture(machine: Machine) -> Alley {
+    let mut alley = Alley::synthetic();
+    alley.machine = machine;
+    alley.player = Player::at_alley_floor(8);
+    alley.screen.fill_visible(0xaa);
+    alley.data[0x1cf0..0x1d24].fill(0x55);
+    alley.data[0x1d59] = 27;
+    set_word(&mut alley.data, 0x1d5a, u16::MAX);
+    set_word(&mut alley.data, 0x1d5c, 200);
+    alley.data[0x1d5e] = 147;
+    alley.data[0x1d5f] = 159;
+    set_word(&mut alley.data, 0x1d64, 2);
+    alley
+}
+
+#[test]
+fn active_bin_uses_each_new_tick_without_retrace_and_retains_all_frames() {
+    for machine in [Machine::Cga, Machine::Pcjr] {
+        let mut alley = bin_animation_fixture(machine);
+        let initial_random = word(&alley.data, 0x2ae5);
+        for tick in 0..27u16 {
+            let work = alley.advance_bin_cat(tick, false).unwrap().unwrap();
+            let count = 26 - tick;
+            let height = count.min(27 - count);
+            assert!(!work.started);
+            assert_eq!(work.draw_rows, height as u8);
+            assert_eq!(alley.data[0x1d59], count as u8);
+            assert_eq!(alley.data[0x1d5f], 159 - height as u8);
+            assert_eq!(alley.bin_image.is_some(), count != 0);
+            if let Some(image) = alley.bin_image {
+                assert_eq!(image.dimensions.rows(), usize::from(height));
+                assert_eq!(image.offset, pixel_offset(200, 159 - height as u8));
+            }
+            let before = alley.data.clone();
+            let frame = alley.framebuffer().clone();
+            for retrace in [false, true] {
+                assert!(alley.advance_bin_cat(tick, retrace).unwrap().is_none());
+                assert_eq!(alley.data, before);
+                assert_eq!(alley.framebuffer().bytes(), frame.bytes());
+            }
+        }
+        assert_eq!(word(&alley.data, 0x2ae5), initial_random);
+        assert_eq!(alley.framebuffer().bytes(), alley.screen.bytes());
+        // Once hidden, the next spawn still requires retrace.
+        let before = alley.data.clone();
+        assert!(alley.advance_bin_cat(27, false).unwrap().is_none());
+        assert_eq!(alley.data, before);
+    }
+}
+
+#[test]
+fn active_bin_does_not_skip_frames_across_tick_gaps_or_wraparound() {
+    for machine in [Machine::Cga, Machine::Pcjr] {
+        let mut alley = bin_animation_fixture(machine);
+        set_word(&mut alley.data, 0x1d5a, u16::MAX - 1);
+        for (tick, count) in [(u16::MAX, 26), (0, 25), (100, 24)] {
+            alley.advance_bin_cat(tick, false).unwrap().unwrap();
+            assert_eq!(alley.data[0x1d59], count);
+            assert_eq!(word(&alley.data, 0x1d5a), tick);
+        }
+    }
+}
+
+#[test]
+fn active_bin_contact_still_holds_the_image_and_alerts_the_dog() {
+    for machine in [Machine::Cga, Machine::Pcjr] {
+        let mut alley = bin_animation_fixture(machine);
+        alley.advance_bin_cat(0, false).unwrap().unwrap();
+        let image = alley.bin_image;
+        alley.player.x = 200;
+        alley.player.y = 158;
+        let random = word(&alley.data, 0x2ae5);
+        assert!(alley.advance_bin_cat(1, false).unwrap().is_none());
+        assert_eq!(alley.data[0x1d59], 26);
+        assert_eq!(alley.data[0x1d58], 1);
+        assert_eq!(word(&alley.data, 0x1d5a), 1);
+        assert_eq!(alley.bin_image, image);
+        assert_eq!(word(&alley.data, 0x2ae5), random);
+        alley.player = Player::at_alley_floor(8);
+        alley.advance_bin_cat(2, false).unwrap().unwrap();
+        assert_eq!(alley.data[0x1d59], 25);
+    }
+}
+
 #[test]
 fn drinking_recomposition_preserves_scenery_and_restores_the_normal_cat() {
     let mut alley = Alley::synthetic();

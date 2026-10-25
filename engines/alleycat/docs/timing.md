@@ -98,11 +98,14 @@ advances its packed occupancy by two support cells before its four successive
 four-pixel columns finish entering; player support checks compensate for this
 phase. Attached cats move with the selected line.
 
-The bin cat (`2216`) requires a changed BIOS tick and retrace set. A selected
-animation advances through 27 count decrements, including two full-height
-frames. A supported player touching it receives a randomized left/right down
-request before movement initializes the fall; that request remains latched until
-the next input poll. Its contact also alerts the ground dog.
+The original bin cat (`2216`) requires a changed BIOS tick and retrace set.
+The recreation retains both gates for spawning, then advances an active
+animation on changed BIOS ticks without waiting for retrace. This deliberate
+[cadence adjustment](deviations.md#bin-cat-animation-cadence) avoids excess holds
+from the approximate loop schedule. The 27 count decrements include two
+full-height frames. A supported player touching it receives a randomized
+left/right down request before movement initializes the fall; that request
+remains latched until the next input poll. Its contact also alerts the ground dog.
 
 Mice (`237b`) have a separate changed-tick gate and cycle one of three rows per
 accepted call. Direction changes and pursuit use the original shared generator

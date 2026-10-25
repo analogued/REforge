@@ -57,6 +57,23 @@ The [execution-cost reference](timing.md#reference-execution-costs) records the
 current allowances, eligibility guards and measurement limits. The older DOSBox
 profile retains its existing costs for comparisons.
 
+## Bin-cat animation cadence
+
+Once the bin cat starts emerging, its animation advances at most once per
+changed BIOS tick (about 55 ms), without the original retrace requirement.
+The approximate loop schedule could repeatedly miss that narrow window and
+hold an image for several hundred milliseconds. Spawning retains its original
+tick/retrace and random-selection rules. The original frame sequence, repeated
+full-height image, contact holds and dog-alert response are preserved.
+
+An uninterrupted 26-interval cycle is nominally about 1.43 seconds. This is a
+deliberate smoothing choice, slightly faster than the measured 1.69-second XT
+example; blocking game work and contact can still delay it. No frames are
+skipped to catch up after a delay. Earlier animation steps can change when
+contact occurs and subsequent gameplay history. Drawing costs remain charged
+once by the existing runtime. The native helper retains its original gates for
+direct reference comparisons; the gameplay caller applies this adjustment.
+
 ## Hearts pairing presentation
 
 The default XT profile omits simulated sprite-drawing latency during the three

@@ -2148,7 +2148,11 @@ impl Alley {
         }
         let started = self.data[0x1d59] == 0;
         let previous_rows = (word(&self.data, 0x1d66) >> 8) as u8;
-        let Some(update) = crate::bin_cat::advance(&mut self.data, &self.player, tick, retrace)?
+        // Keep the original spawn gate, but let an active animation use each
+        // new BIOS tick without missing narrow retrace windows between calls.
+        let phase_ready = !started || retrace;
+        let Some(update) =
+            crate::bin_cat::advance(&mut self.data, &self.player, tick, phase_ready)?
         else {
             return Ok(None);
         };

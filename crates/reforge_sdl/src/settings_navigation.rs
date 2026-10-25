@@ -325,6 +325,19 @@ pub(super) fn collapsing<R>(response: egui::CollapsingResponse<R>) -> egui::Coll
 }
 fn directional_target(targets: &[Target], current: usize, key: Key) -> Option<usize> {
     let source = &targets[current];
+    // The sidebar enters the displayed page, even when its first option lies
+    // below the diagonal search cone because of notices or stacked headings.
+    if source.group == Group::Sidebar && key == Key::ArrowRight {
+        return [Group::Content, Group::Footer]
+            .into_iter()
+            .find_map(|group| {
+                targets.iter().position(|target| {
+                    target.layer == source.layer
+                        && target.group == group
+                        && !matches!(target.kind, Kind::Number)
+                })
+            });
+    }
     let vertical = matches!(key, Key::ArrowUp | Key::ArrowDown);
     let sign = if matches!(key, Key::ArrowUp | Key::ArrowLeft) {
         -1.0
@@ -611,6 +624,35 @@ pub(super) fn paint_focus(context: &Context) {
 mod tests {
     use super::*;
     use crate::gamepad::Actions;
+
+    #[test]
+    fn sidebar_right_enters_content_below_notices_and_falls_back_to_actions() {
+        let target = |name: &str, group, x, y| {
+            let rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(100.0, 22.0));
+            Target {
+                id: Id::new(name),
+                rect,
+                vertical_rect: rect,
+                visible: rect,
+                layer: egui::LayerId::new(egui::Order::Middle, Id::new("menu")),
+                kind: Kind::Control,
+                group,
+                owner: None,
+            }
+        };
+        let mut targets = vec![
+            target("Global defaults", Group::Scope, 150.0, 0.0),
+            target("Game overrides", Group::Scope, 270.0, 0.0),
+            target("Display", Group::Sidebar, 0.0, 45.0),
+            target("Windowed", Group::Content, 180.0, 230.0),
+            target("Reset section", Group::Footer, 0.0, 400.0),
+        ];
+        assert_eq!(directional_target(&targets, 2, Key::ArrowRight), Some(3));
+        targets.remove(3); // Every page option may be locked or disabled.
+        assert_eq!(directional_target(&targets, 2, Key::ArrowRight), Some(3));
+        targets.remove(3);
+        assert_eq!(directional_target(&targets, 2, Key::ArrowRight), None);
+    }
 
     #[test]
     fn rapid_stick_navigation_keeps_focus_on_a_visible_enabled_control() {
@@ -1313,12 +1355,16 @@ mod tests {
             for (size, density, auto_scale) in [
                 ((1280, 960), 1.0, true),
                 ((1280, 960), 1.0, false),
+                ((1280, 960), 2.25, true),
+                ((1280, 960), 2.25, false),
                 ((2560, 1920), 2.25, true),
                 ((2560, 1920), 2.25, false),
                 ((1920, 1440), 2.25, true),
                 ((1920, 1440), 2.25, false),
             ] {
                 for controller in [false, true] {
+                    creator.session.borrow_mut().game =
+                        if mach3 { "mach-3" } else { "alley-cat" }.into();
                     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
                     menu = if mach3 {
                         menu.with_mach3_options(None)
@@ -1359,6 +1405,11 @@ mod tests {
                     let vsync = targets[renderer + 2].id;
                     let limit = targets[renderer + 3].id;
                     let cancel = targets.last().unwrap().id;
+                    let display_page = targets
+                        .iter()
+                        .find(|t| t.group == Group::Sidebar)
+                        .unwrap()
+                        .id;
                     let slider = targets[..renderer]
                         .iter()
                         .find(|t| matches!(t.kind, Kind::Slider))
@@ -1402,9 +1453,47 @@ mod tests {
                         (limit, Key::ArrowUp, vsync, "Frame limit -> VSync"),
                         (vsync, Key::ArrowUp, backend, "VSync -> Backend"),
                         (cancel, Key::ArrowUp, limit, "Cancel -> Frame limit"),
+                        (
+                            display_page,
+                            Key::ArrowRight,
+                            windowed,
+                            "Display -> page controls",
+                        ),
+                        (
+                            display_page,
+                            Key::ArrowRight,
+                            windowed,
+                            "Display notice -> page controls",
+                        ),
                     ] {
+                        let notice = label == "Display notice -> page controls";
+                        if notice {
+                            creator
+                                .session
+                                .borrow_mut()
+                                .cli
+                                .insert("scale".into(), "4".into());
+                        }
                         menu.context.memory_mut(|m| m.request_focus(source));
                         menu.prepare(metrics, display.settings());
+                        let expected = if notice {
+                            // CLI overrides are fixed before a real menu opens.
+                            // Re-measure after adding this fixture's notice.
+                            menu.prepare(metrics, display.settings());
+                            menu.context.data(|data| {
+                                data.get_temp::<Targets>(targets_key())
+                                    .unwrap()
+                                    .0
+                                    .into_iter()
+                                    .find(|t| {
+                                        t.group == Group::Content && matches!(t.kind, Kind::Control)
+                                    })
+                                    .unwrap()
+                                    .id
+                            })
+                        } else {
+                            expected
+                        };
                         if controller {
                             menu.handle_gamepad(PadEvent {
                                 actions: Actions {
@@ -1471,6 +1560,9 @@ mod tests {
                             target.visible.is_positive(),
                             "focused row must be revealed: {label}"
                         );
+                        if notice {
+                            creator.session.borrow_mut().cli.remove("scale");
+                        }
                     }
                     menu.context.memory_mut(|m| m.request_focus(vsync));
                     menu.prepare(metrics, display.settings());

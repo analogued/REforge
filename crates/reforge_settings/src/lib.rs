@@ -15,6 +15,8 @@ pub const DISPLAY_KEYS: &[&str] = &[
     "window_mode",
     "scale",
     "aspect_ratio",
+    "scaling_policy",
+    "sampling",
     "renderer",
     "backend",
     "vsync",
@@ -85,6 +87,61 @@ fn section(key: &str) -> &'static str {
         "display"
     }
 }
+/// Image fitting inside the available client area, independent of window size.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ScalingPolicy {
+    #[default]
+    Integer,
+    Fit,
+    Stretch,
+}
+impl ScalingPolicy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Integer => "integer",
+            Self::Fit => "fit",
+            Self::Stretch => "stretch",
+        }
+    }
+}
+impl std::str::FromStr for ScalingPolicy {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "integer" => Ok(Self::Integer),
+            "fit" => Ok(Self::Fit),
+            "stretch" => Ok(Self::Stretch),
+            _ => Err("scaling policy must be integer, fit or stretch".into()),
+        }
+    }
+}
+
+/// Texture reconstruction for ordinary pixels. CRT treatments use their own filter.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Sampling {
+    #[default]
+    Nearest,
+    Linear,
+}
+impl Sampling {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Nearest => "nearest",
+            Self::Linear => "linear",
+        }
+    }
+}
+impl std::str::FromStr for Sampling {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "nearest" => Ok(Self::Nearest),
+            "linear" => Ok(Self::Linear),
+            _ => Err("sampling must be nearest or linear".into()),
+        }
+    }
+}
+
 /// Semantic preference; engines supply the numeric display/pixel ratios.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum AspectRatio {
@@ -332,6 +389,8 @@ pub struct RuntimeSettings {
     pub fullscreen: bool,
     pub scale: Option<u32>,
     pub aspect_ratio: AspectRatio,
+    pub scaling_policy: ScalingPolicy,
+    pub sampling: Sampling,
     pub renderer: Renderer,
     pub backend: Backend,
     pub vsync: bool,
@@ -350,6 +409,8 @@ impl Default for RuntimeSettings {
             fullscreen: false,
             scale: None,
             aspect_ratio: AspectRatio::default(),
+            scaling_policy: ScalingPolicy::default(),
+            sampling: Sampling::default(),
             renderer: Renderer::Auto,
             backend: Backend::Auto,
             vsync: true,
@@ -456,6 +517,8 @@ impl RuntimeSettings {
             .into(),
             "scale" => self.scale.map_or("auto".into(), |x| x.to_string()),
             "aspect_ratio" => self.aspect_ratio.as_str().into(),
+            "scaling_policy" => self.scaling_policy.as_str().into(),
+            "sampling" => self.sampling.as_str().into(),
             "renderer" => self.renderer.as_str().into(),
             "backend" => self.backend.as_str().into(),
             "vsync" => self.vsync.to_string(),
@@ -514,6 +577,8 @@ impl RuntimeSettings {
             }
             "renderer" => self.renderer = value.parse()?,
             "aspect_ratio" => self.aspect_ratio = value.parse()?,
+            "scaling_policy" => self.scaling_policy = value.parse()?,
+            "sampling" => self.sampling = value.parse()?,
             "backend" => self.backend = value.parse()?,
             "vsync" => {
                 self.vsync = match value {
@@ -1270,6 +1335,45 @@ digitized_samples = false
         }
         assert!(value.set("output_device", "").is_err());
     }
+    #[test]
+    fn fitting_and_sampling_persist_inherit_and_reset_without_clearing_aspect() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let mut saved_session = session(path.clone(), "mach-3");
+        let mut draft = saved_session.saved.clone();
+        draft.edit(false, "scaling_policy", "fit".into());
+        draft.edit(false, "sampling", "linear".into());
+        draft.edit(true, "aspect_ratio", "square".into());
+        draft.edit(true, "scaling_policy", "stretch".into());
+        saved_session.commit(draft).unwrap();
+        let loaded = session(path.clone(), "mach-3");
+        let value = loaded.saved.game_values();
+        assert_eq!(value.scaling_policy, ScalingPolicy::Stretch);
+        assert_eq!(value.sampling, Sampling::Linear);
+        assert_eq!(value.aspect_ratio, AspectRatio::Square);
+        let mut draft = loaded.saved.clone();
+        draft.edit(true, "scaling_policy", "fit".into());
+        assert_eq!(draft.game_values().aspect_ratio, AspectRatio::Square);
+        assert!(!draft.game.contains_key("scaling_policy"));
+        draft.reset_section(true, 0);
+        assert_eq!(draft.game_values().scaling_policy, ScalingPolicy::Fit);
+        assert_eq!(draft.game_values().aspect_ratio, AspectRatio::Original);
+        draft.reset_section(false, 0);
+        assert_eq!(draft.game_values().scaling_policy, ScalingPolicy::Integer);
+        assert_eq!(draft.game_values().sampling, Sampling::Nearest);
+        let text = fs::read_to_string(path).unwrap();
+        for setting in [
+            "scaling_policy = \"fit\"",
+            "scaling_policy = \"stretch\"",
+            "sampling = \"linear\"",
+        ] {
+            assert!(text.contains(setting));
+        }
+        for (key, invalid) in [("scaling_policy", "crop"), ("sampling", "cubic")] {
+            assert!(RuntimeSettings::default().set(key, invalid).is_err());
+        }
+    }
+
     #[test]
     fn aspect_preference_round_trips_without_persisting_an_engine_ratio() {
         let dir = TestDir::new();

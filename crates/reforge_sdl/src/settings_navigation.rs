@@ -42,6 +42,9 @@ fn pulse(events: &mut Vec<Event>, key: Key, shift: bool, repeat: bool) {
 
 impl Navigation {
     pub fn navigate(&mut self, context: &Context, events: &mut Vec<Event>) {
+        context.data_mut(|data| {
+            data.remove::<Vec<(Id, Event)>>(selector_events_key());
+        });
         if context.memory(|memory| memory.any_popup_open()) {
             if events.iter().any(|event| {
                 matches!(
@@ -144,7 +147,19 @@ impl Navigation {
                 // earlier direction in this same input batch. Its egui focus
                 // filter will be established before the next batch instead.
                 if focused == initial_focus {
-                    events.push(event);
+                    if let Some(index) =
+                        current.filter(|index| matches!(targets[*index].kind, Kind::Selector))
+                    {
+                        // A just-restored popup owner cannot install egui's focus
+                        // filter until the following frame. Deliver its edit
+                        // directly, without also initiating spatial navigation.
+                        context.data_mut(|data| {
+                            data.get_temp_mut_or_default::<Vec<(Id, Event)>>(selector_events_key())
+                                .push((targets[index].id, event))
+                        });
+                    } else {
+                        events.push(event);
+                    }
                 }
                 continue;
             }
@@ -222,6 +237,26 @@ impl Navigation {
         }
         events.append(&mut self.events);
     }
+}
+
+fn selector_events_key() -> Id {
+    Id::new("reforge_selector_events")
+}
+
+pub(super) fn take_selector_events(context: &Context, id: Id) -> Vec<Event> {
+    context.data_mut(|data| {
+        let pending = data.get_temp_mut_or_default::<Vec<(Id, Event)>>(selector_events_key());
+        let mut events = Vec::new();
+        pending.retain(|(owner, event)| {
+            if *owner == id {
+                events.push(event.clone());
+                false
+            } else {
+                true
+            }
+        });
+        events
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -407,7 +442,6 @@ fn directional_target(targets: &[Target], current: usize, key: Key) -> Option<us
 #[derive(Clone, Default)]
 struct Popup {
     items: Vec<Id>,
-    anchor: Option<Id>,
 }
 
 fn anchor_key() -> Id {
@@ -469,10 +503,6 @@ pub(super) fn filter_popup_input(context: &Context, events: &mut Vec<Event>) {
     }
 }
 
-pub(super) fn popup_anchor(context: &Context, anchor: Id) {
-    context.data_mut(|data| data.insert_temp(anchor_key(), anchor));
-}
-
 pub(super) fn close_popup(context: &Context) {
     context.memory_mut(|memory| memory.close_popup());
     if let Some(anchor) = context.data(|data| data.get_temp::<Id>(anchor_key())) {
@@ -516,15 +546,15 @@ impl Choices<'_> {
     }
 }
 
-pub(super) fn popup<R>(ui: &mut Ui, contents: impl FnOnce(&mut Choices<'_>) -> R) -> R {
+pub(super) fn popup<R>(ui: &mut Ui, anchor: Id, contents: impl FnOnce(&mut Choices<'_>) -> R) -> R {
     let context = ui.ctx().clone();
     let key = ui.layer_id().id.with("reforge_navigation");
     let mut state = context.data_mut(|data| data.get_temp::<Popup>(key).unwrap_or_default());
     let focused = context.memory(|memory| memory.focused());
     let inside = focused.is_some_and(|id| state.items.contains(&id));
-    if !inside {
-        state.anchor = focused;
-    }
+    // The owning selector knows its identity. Inferring it from focus can
+    // capture another control during egui's layout/discard passes.
+    context.data_mut(|data| data.insert_temp(anchor_key(), anchor));
     let mut choices = Choices {
         ui,
         items: Vec::new(),
@@ -543,9 +573,6 @@ pub(super) fn popup<R>(ui: &mut Ui, contents: impl FnOnce(&mut Choices<'_>) -> R
         }
     }
     state.items = choices.items.iter().map(|(id, _)| *id).collect();
-    if let Some(anchor) = state.anchor {
-        context.data_mut(|data| data.insert_temp(anchor_key(), anchor));
-    }
     if choices.chosen {
         close_popup(&context);
     }
@@ -1279,8 +1306,7 @@ mod tests {
                     .unwrap()
                     .0
                     .into_iter()
-                    .filter(|t| matches!(t.kind, Kind::Selector))
-                    .nth(1) // Renderer follows the new Aspect ratio selector.
+                    .find(|t| matches!(t.kind, Kind::Selector))
                     .unwrap()
             })
         };
@@ -1309,8 +1335,8 @@ mod tests {
                 menu.handle_event(&key(Scancode::Right, Keycode::Right, false));
                 menu.prepare(metrics, display.settings());
                 assert_eq!(
-                    menu.draft.as_ref().unwrap().global_values().renderer,
-                    reforge_settings::Renderer::Gpu
+                    menu.draft.as_ref().unwrap().global_values().scaling_policy,
+                    reforge_settings::ScalingPolicy::Fit
                 );
                 assert!(!menu.context.memory(|m| m.any_popup_open()));
                 let target = selector(&menu);
@@ -1363,11 +1389,15 @@ mod tests {
                 menu.handle_event(&key(Scancode::Right, Keycode::Right, false));
                 menu.prepare(metrics, display.settings());
                 assert_eq!(
-                    menu.draft.as_ref().unwrap().global_values().renderer,
-                    reforge_settings::Renderer::Sdl
+                    menu.draft.as_ref().unwrap().global_values().scaling_policy,
+                    reforge_settings::ScalingPolicy::Stretch
                 );
                 assert!(!menu.context.memory(|m| m.any_popup_open()));
-                assert_eq!(menu.context.memory(|m| m.focused()), Some(target.id));
+                assert_eq!(
+                    menu.context.memory(|m| m.focused()),
+                    Some(target.id),
+                    "popup handoff mach3={mach3} density={density}"
+                );
                 let right = PadEvent {
                     actions: Actions {
                         right: true,
@@ -1465,12 +1495,14 @@ mod tests {
                     let targets = menu
                         .context
                         .data(|data| data.get_temp::<Targets>(targets_key()).unwrap().0);
-                    let aspect = targets
+                    let policy = targets
                         .iter()
                         .position(|t| matches!(t.kind, Kind::Selector))
                         .unwrap();
-                    let renderer = aspect + 1;
-                    let top_controls: Vec<_> = targets[..aspect]
+                    let sampling = policy + 1;
+                    let aspect = policy + 2;
+                    let renderer = policy + 3;
+                    let top_controls: Vec<_> = targets[..policy]
                         .iter()
                         .filter(|t| matches!(t.kind, Kind::Control))
                         .collect();
@@ -1491,8 +1523,9 @@ mod tests {
                         .iter()
                         .find(|t| matches!(t.kind, Kind::Slider))
                         .map(|t| t.id);
-                    let below_scale = slider.unwrap_or(targets[aspect].id);
-                    let above_aspect = slider.unwrap_or(auto);
+                    let below_scale = slider.unwrap_or(targets[policy].id);
+                    let above_policy = slider.unwrap_or(auto);
+                    let above_aspect = targets[sampling].id;
                     let above_renderer = targets[aspect].id;
                     for (source, key, expected, label) in [
                         (
@@ -1513,6 +1546,24 @@ mod tests {
                             Key::ArrowDown,
                             below_scale,
                             "Window scale -> next row",
+                        ),
+                        (
+                            targets[policy].id,
+                            Key::ArrowUp,
+                            above_policy,
+                            "Scaling policy -> previous row",
+                        ),
+                        (
+                            targets[policy].id,
+                            Key::ArrowDown,
+                            targets[sampling].id,
+                            "Scaling policy -> Sampling",
+                        ),
+                        (
+                            targets[sampling].id,
+                            Key::ArrowDown,
+                            targets[aspect].id,
+                            "Sampling -> Aspect ratio",
                         ),
                         (
                             targets[aspect].id,
@@ -1837,7 +1888,7 @@ mod tests {
                         let response = egui::ComboBox::from_id_salt("authored choices")
                             .selected_text(value.to_string())
                             .show_ui(ui, |ui| {
-                                popup(ui, |ui| {
+                                popup(ui, anchor, |ui| {
                                     for candidate in 0..3 {
                                         ui.selectable_value(
                                             value,

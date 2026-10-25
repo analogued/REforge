@@ -29,6 +29,7 @@ pub struct FrameCreator {
     // Resolved windowed multiplier, separate from the persisted Auto preference.
     pub(crate) windowed_scale: Rc<Cell<u32>>,
     pub(crate) geometry: Rc<Cell<crate::DisplayGeometry>>,
+    pub(crate) sampling: Rc<Cell<crate::Sampling>>,
     generation: Rc<Cell<usize>>,
     textures: Rc<RefCell<Vec<Weak<Slot>>>>,
 }
@@ -51,6 +52,7 @@ impl FrameCreator {
             session: Rc::new(RefCell::new(session)),
             windowed_scale: Rc::new(Cell::new(windowed_scale)),
             geometry: Rc::new(Cell::new(geometry)),
+            sampling: Rc::new(Cell::new(crate::Sampling::Nearest)),
             generation: Rc::new(Cell::new(0)),
             textures: Rc::new(RefCell::new(Vec::new())),
         }

@@ -152,10 +152,11 @@ panels and decorations. It briefly measures that area through maximization befor
 restoring the final window; unavailable maximization falls back to scale 4.
 With the default Original display ratio, `--scale N`, from 1 through 16, selects an initial drawable target of
 `320*N` × `240*N` pixels. Use `--scale 3` for 960×720 or `--scale 4` for 1280×960.
-SDL fits the image at integer multiples of the 320×240 display area inside the
-actual granted window, preserving the selected ratio with black bars as needed, including after
-resizing or maximizing. The
-[shared SDL3 backend](../../crates/reforge_sdl/README.md) requests high pixel density
+The default Integer fit uses whole multiples of the selected display area inside
+the granted window. Shared settings also offer fractional fitting or Stretch,
+and Nearest or Linear sampling for Sharp pixels. Stretch fills the window and
+ignores the retained aspect preference; both fitting policies preserve it.
+The [shared SDL3 backend](../../crates/reforge_sdl/README.md) requests high pixel density
 and converts explicit pixel targets to window coordinates using drawable density.
 The desktop can constrain window size or further transform the image. The shared
 backend prefers SDL's shader-capable GPU renderer for both presentation modes,

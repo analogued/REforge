@@ -10,8 +10,8 @@ use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     AspectRatio, Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, Presentation,
-    Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, SoundCategory,
-    SoundRenderer, section_index,
+    Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling,
+    ScalingPolicy, SoundCategory, SoundRenderer, section_index,
 };
 const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
 const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
@@ -248,6 +248,62 @@ pub(super) fn draw(
                                             if value.scale.is_some() {
                                                 value.scale = Some(n);
                                             }
+                                        },
+                                    );
+                                    row(
+                                        ui,
+                                        "Scaling policy",
+                                        "scaling_policy",
+                                        value.clone(),
+                                        base.clone(),
+                                        previous.clone(),
+                                        menu.scope,
+                                        &cli,
+                                        |ui| {
+                                            Selector::new(
+                                                "scaling_policy",
+                                                [
+                                                    Choice::new(
+                                                        ScalingPolicy::Integer,
+                                                        "Integer fit",
+                                                    ),
+                                                    Choice::new(
+                                                        ScalingPolicy::Fit,
+                                                        "Fit to window (fractional)",
+                                                    ),
+                                                    Choice::new(
+                                                        ScalingPolicy::Stretch,
+                                                        "Fill window (stretch)",
+                                                    ),
+                                                ],
+                                            )
+                                            .show(ui, &mut value.scaling_policy);
+                                        },
+                                    );
+                                    row(
+                                        ui,
+                                        "Sampling",
+                                        "sampling",
+                                        value.clone(),
+                                        base.clone(),
+                                        previous.clone(),
+                                        menu.scope,
+                                        &cli,
+                                        |ui| {
+                                            Selector::new(
+                                                "sampling",
+                                                [
+                                                    Choice::new(
+                                                        Sampling::Nearest,
+                                                        "Nearest · sharp pixels",
+                                                    ),
+                                                    Choice::new(
+                                                        Sampling::Linear,
+                                                        "Linear · smooth pixels",
+                                                    ),
+                                                ],
+                                            )
+                                            .show(ui, &mut value.sampling);
                                         },
                                     );
                                     row(
@@ -1006,6 +1062,18 @@ fn cli_tooltip(key: &str, active: &str) -> String {
     )
 }
 
+fn dependency_lock(key: &str, value: &RuntimeSettings) -> Option<&'static str> {
+    match key {
+        "aspect_ratio" if value.scaling_policy == ScalingPolicy::Stretch => Some(
+            "Aspect ratio is ignored by Fill window (stretch). Choose another scaling policy to edit it.",
+        ),
+        "sampling" if value.presentation == Presentation::Hyllian => Some(
+            "Hyllian CRT uses its own reconstruction filter. Select Sharp pixels in CRT & Colour to edit Sampling.",
+        ),
+        _ => None,
+    }
+}
+
 fn section(ui: &mut egui::Ui, label: &str) {
     ui.add_space(8.0);
     ui.strong(label);
@@ -1058,10 +1126,13 @@ fn row_with_width(
     control_width: f32,
     draw_control: impl FnOnce(&mut egui::Ui),
 ) {
-    let lock_tooltip = cli.get(key).map(|active| cli_tooltip(key, active));
+    let lock_tooltip = cli
+        .get(key)
+        .map(|active| cli_tooltip(key, active))
+        .or_else(|| dependency_lock(key, &value).map(str::to_owned));
     let locked = lock_tooltip.is_some();
     let different = scope == 1 && value.get(key) != global.get(key);
-    let dirty = !locked && value.get(key) != saved.get(key);
+    let dirty = !cli.contains_key(key) && value.get(key) != saved.get(key);
     let available = visible_width(ui);
     let spacing = ui.spacing().item_spacing.x;
     let markers = 20.0 + 12.0 + spacing * 2.0;
@@ -1430,6 +1501,74 @@ mod tests {
                 value >= 15,
                 "narrow slider must still reach its upper values"
             );
+        }
+    }
+
+    #[test]
+    fn dependency_locks_preserve_values_geometry_and_pink_when_inherited() {
+        for (key, policy, treatment) in [
+            ("aspect_ratio", ScalingPolicy::Stretch, Presentation::Pixels),
+            ("sampling", ScalingPolicy::Integer, Presentation::Hyllian),
+        ] {
+            let mut next_rows = Vec::new();
+            for inherited in [false, true] {
+                let context = egui::Context::default();
+                style(&context);
+                let mut value = RuntimeSettings {
+                    aspect_ratio: AspectRatio::Square,
+                    sampling: Sampling::Linear,
+                    scaling_policy: policy,
+                    presentation: treatment,
+                    ..Default::default()
+                };
+                let saved = value.clone();
+                let output = context.run(egui::RawInput::default(), |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.add_enabled_ui(!inherited, |ui| {
+                            row(
+                                ui,
+                                "Dependent setting",
+                                key,
+                                value.clone(),
+                                saved.clone(),
+                                saved.clone(),
+                                1,
+                                &Default::default(),
+                                |ui| {
+                                    let response = if key == "aspect_ratio" {
+                                        Selector::new(
+                                            "aspect-test",
+                                            [Choice::new(
+                                                AspectRatio::Square,
+                                                "Square pixels (8:5)",
+                                            )],
+                                        )
+                                        .show(ui, &mut value.aspect_ratio)
+                                    } else {
+                                        Selector::new(
+                                            "sampling-test",
+                                            [Choice::new(
+                                                Sampling::Linear,
+                                                "Linear · smooth pixels",
+                                            )],
+                                        )
+                                        .show(ui, &mut value.sampling)
+                                    };
+                                    assert!(!response.enabled());
+                                },
+                            );
+                            next_rows.push(ui.label("Next row").rect.top());
+                        });
+                    });
+                });
+                assert_eq!(value, saved);
+                assert!(
+                    output.shapes.iter().any(|shape| matches!(&shape.shape,
+                    egui::Shape::Rect(rect) if rect.fill == CLI_LOCK)),
+                    "lock colour must survive inherited UI opacity"
+                );
+            }
+            assert_eq!(next_rows[0], next_rows[1]);
         }
     }
 

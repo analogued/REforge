@@ -2,7 +2,8 @@
 
 F10 opens the Compact Settings menu in either game. The Display page offers
 window mode (windowed or borderless desktop fullscreen), window scale (Auto or
-×1–×16), aspect ratio, renderer, backend, VSync and a frame limiter. CRT & Colour offers sharp
+×1–×16), scaling policy, sampling, aspect ratio, renderer, backend, VSync and a
+frame limiter. CRT & Colour offers sharp
 pixels or Hyllian CRT with adjustable shader controls. Colour profiles and white
 points remain future work. Audio offers enable sound, master/category volumes, per-game
 sound renderer, output device and focus muting.
@@ -32,7 +33,28 @@ Future engines may supply other ratios without changing the shared menu.
 Applying an aspect change fits the new proportions inside the existing window;
 it does not resize the window or alter gameplay. A later window-scale request
 uses the selected aspect's base dimensions, including fullscreen's deferred
-window-size request. Presentation still uses integer fitting and nearest sampling.
+window-size request.
+
+Scaling policy controls the image inside that window or fullscreen area:
+
+| Policy | Behaviour | Stored value |
+| --- | --- | --- |
+| Integer fit (default) | Largest whole display multiple, preserving aspect ratio with black borders | `integer` |
+| Fit to window (fractional) | Largest aspect-preserving image, including fractional multiples | `fit` |
+| Fill window (stretch) | Fill the entire area, ignoring aspect ratio | `stretch` |
+
+Stretch grays out Aspect ratio and shows a pink lock with an explanatory tooltip.
+Its retained value becomes effective again with either fitting policy. Stretch
+uses the original display base for window-scale sizing, independently of that
+inactive aspect preference. Policy changes do not request a new window size;
+Auto still chooses the initial window's largest whole display multiple. Resizing,
+maximizing or fullscreen provides additional space for fractional fitting/stretch.
+
+Sampling selects Nearest (the default, source colours without blending) or Linear
+(interpolated colours, softer pixel boundaries) for Sharp pixels presentation.
+Hyllian CRT retains its own reconstruction filter, so Sampling is locked while
+that treatment is selected; the preference is retained for Sharp pixels and its
+runtime fallback. Neither fitting nor sampling changes engine frames or timing.
 
 Settings use the desktop's UI scale independently of the game scale. A normal
 window below 569 × 420 logical UI units temporarily grows towards 630 × 470,
@@ -74,6 +96,8 @@ schema_version = 1
 window_mode = "windowed"
 scale = "auto"
 aspect_ratio = "original"
+scaling_policy = "integer"
+sampling = "nearest"
 renderer = "auto"
 backend = "auto"
 vsync = true

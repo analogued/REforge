@@ -74,9 +74,11 @@ impl<T: Clone + PartialEq> Selector<T> {
         // ComboBox hashes its salt before making the persistent widget ID.
         let id = ui.make_persistent_id(Id::new(self.salt));
         let carousel = mode(ui) != InputMode::Mouse;
+        let mut owned_events = settings_navigation::take_selector_events(ui.ctx(), id);
         let mut changed = false;
         if carousel && ui.is_enabled() && ui.memory(|m| m.has_focus(id)) {
             ui.input_mut(|input| {
+                input.events.append(&mut owned_events);
                 input.events.retain(|event| {
                     let egui::Event::Key {
                         key,
@@ -143,7 +145,7 @@ impl<T: Clone + PartialEq> Selector<T> {
         };
         let mut response = combo
             .show_ui(ui, |ui| {
-                settings_navigation::popup(ui, |ui| {
+                settings_navigation::popup(ui, id, |ui| {
                     for choice in self.choices {
                         if let Some(reason) = choice.unavailable {
                             ui.add_enabled_ui(false, |ui| {
@@ -191,9 +193,6 @@ impl<T: Clone + PartialEq> Selector<T> {
                     egui::Stroke::new(1.0_f32, visuals.text_color()),
                 ));
             }
-        }
-        if response.clicked() && ui.memory(|m| m.any_popup_open()) {
-            settings_navigation::popup_anchor(ui.ctx(), response.id);
         }
         if changed {
             response.mark_changed();

@@ -2,7 +2,7 @@
 
 //! Main-thread SDL3 presentation, independent of engine clocks and controls.
 //! Source texture dimensions are independent of the aspect-corrected display
-//! dimensions. Resizing uses integer display multiples and nearest sampling.
+//! dimensions. Image fitting and sampling are shared host preferences.
 
 pub use sdl3;
 pub mod audio;
@@ -19,9 +19,9 @@ mod settings_ui;
 pub use input::{EventClockSample, HostPause, HostShortcut, event_clock_sample, host_shortcut};
 use reforge_settings::Session;
 pub use resources::FrameCreator;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
-pub use reforge_settings::{AspectRatio, Presentation};
+pub use reforge_settings::{AspectRatio, Presentation, Sampling, ScalingPolicy};
 mod pacing;
 mod settings_window;
 
@@ -62,6 +62,7 @@ pub struct FrameTexture<'a> {
     pitch: usize,
     byte_len: usize,
     size: (u32, u32),
+    sampling: Cell<Sampling>,
 }
 impl<'a> FrameTexture<'a> {
     pub fn new(
@@ -84,7 +85,8 @@ impl<'a> FrameTexture<'a> {
             .checked_mul(height as usize)
             .ok_or("texture buffer is too large")?;
         let mut texture = creator.create_texture_streaming(format, width, height)?;
-        texture.set_scale_mode(ScaleMode::Nearest);
+        let sampling = creator.sampling.get();
+        texture.set_scale_mode(scale_mode(sampling));
         Ok(Self {
             texture: RefCell::new(texture),
             creator,
@@ -93,19 +95,26 @@ impl<'a> FrameTexture<'a> {
             pitch,
             byte_len,
             size: (width, height),
+            sampling: Cell::new(sampling),
         })
     }
     fn ensure(&self) -> Result<(), String> {
+        let sampling = self.creator.sampling.get();
         if !self.texture.borrow().belongs_to(self.creator) {
             let mut texture =
                 self.creator
                     .create_texture_streaming(self.format, self.size.0, self.size.1)?;
-            texture.set_scale_mode(ScaleMode::Nearest);
+            texture.set_scale_mode(scale_mode(sampling));
             texture
                 .update(None, &self.pixels, self.pitch)
                 .map_err(|e| e.to_string())?;
             *self.texture.borrow_mut() = texture;
+        } else if sampling != self.sampling.get() {
+            self.texture
+                .borrow_mut()
+                .set_scale_mode(scale_mode(sampling));
         }
+        self.sampling.set(sampling);
         Ok(())
     }
     pub fn update(&mut self, pixels: &[u8]) -> Result<(), String> {
@@ -246,7 +255,7 @@ impl Window {
         session: Session,
         mut gpu: Option<std::rc::Rc<hyllian::GpuDevice>>,
     ) -> Result<Self, String> {
-        let (display_width, display_height) = geometry.display_size(requested.aspect_ratio);
+        let (display_width, display_height) = geometry.presentation_size(&requested);
         let scale = requested.scale;
         let mut windowed_scale = scale.unwrap_or(AUTO_FALLBACK_SCALE);
         if display_width == 0 || display_height == 0 || scale == Some(0) {
@@ -287,7 +296,12 @@ impl Window {
         )?;
         let (mut canvas, effect) =
             hyllian::create_canvas_with(window, presentation, requested.clone(), &mut gpu)?;
-        configure(&mut canvas, display_width, display_height)?;
+        configure(
+            &mut canvas,
+            display_width,
+            display_height,
+            requested.scaling_policy,
+        )?;
         // The wrapper does not expose this setter. Use its generated declarations,
         // rather than maintaining a second handwritten C interface.
         // SAFETY: canvas owns a live renderer, remains on the initializing main
@@ -390,6 +404,9 @@ impl Window {
         } else {
             presentation
         };
+        creator
+            .sampling
+            .set(effective_sampling(presentation, requested.sampling));
         Ok(Self {
             effect,
             pacer: pacing::FramePacer::default(),
@@ -418,9 +435,14 @@ impl Window {
     /// Update engine video-mode metadata without changing the saved preference
     /// or the player's window size. Menu labels and renderer share this value.
     pub fn set_display_geometry(&mut self, geometry: DisplayGeometry) -> Result<(), String> {
-        let size = geometry.display_size(self.requested.aspect_ratio);
+        let size = geometry.presentation_size(&self.requested);
         if size != self.minimum_pixels {
-            configure(&mut self.canvas, size.0, size.1)?;
+            configure(
+                &mut self.canvas,
+                size.0,
+                size.1,
+                self.requested.scaling_policy,
+            )?;
             update_minimum_size(self.canvas.window_mut(), size)?;
             self.minimum_pixels = size;
         }
@@ -695,6 +717,7 @@ impl Window {
             self.creator
                 .windowed_scale
                 .set(candidate.creator.windowed_scale.get());
+            self.creator.sampling.set(candidate.creator.sampling.get());
             self.creator
                 .replace_owner(candidate.creator.owner.borrow().clone());
             candidate.creator = self.creator.clone();
@@ -702,16 +725,12 @@ impl Window {
             std::mem::swap(self, &mut candidate);
             return error.map_or(Ok(()), Err);
         }
-        if requested.aspect_ratio != self.requested.aspect_ratio {
-            let size = self
-                .creator
-                .geometry
-                .get()
-                .display_size(requested.aspect_ratio);
-            configure(&mut self.canvas, size.0, size.1)?;
-            update_minimum_size(self.canvas.window_mut(), size)?;
-            self.minimum_pixels = size;
-        }
+        // Reapply on rollback too: a later window/audio failure may leave a
+        // changed viewport even though the requested preferences never committed.
+        let size = self.creator.geometry.get().presentation_size(&requested);
+        configure(&mut self.canvas, size.0, size.1, requested.scaling_policy)?;
+        update_minimum_size(self.canvas.window_mut(), size)?;
+        self.minimum_pixels = size;
         // SAFETY: canvas owns a live renderer on its main thread. SDL retains no Rust memory.
         if !unsafe {
             sdl3::sys::render::SDL_SetRenderVSync(self.canvas.raw(), i32::from(requested.vsync))
@@ -767,6 +786,9 @@ impl Window {
             self.pacer = pacing::FramePacer::default();
         }
         self.scale = requested.scale;
+        self.creator
+            .sampling
+            .set(effective_sampling(self.presentation, requested.sampling));
         self.requested = requested;
         Ok(())
     }
@@ -835,6 +857,9 @@ impl Window {
         self.presentation = presentation;
         self.presentation_requested = presentation;
         self.requested.presentation = presentation;
+        self.creator
+            .sampling
+            .set(effective_sampling(presentation, self.requested.sampling));
         Ok(())
     }
 
@@ -928,6 +953,7 @@ impl Window {
             &mut self.canvas,
             self.minimum_pixels.0,
             self.minimum_pixels.1,
+            self.requested.scaling_policy,
         )?;
         // Cache the size sampled before presentation. If the desktop changes it
         // asynchronously during Present, the next frame detects that change.
@@ -1028,14 +1054,34 @@ fn configure<T: RenderTarget>(
     canvas: &mut Canvas<T>,
     width: u32,
     height: u32,
+    policy: ScalingPolicy,
 ) -> Result<(), String> {
     canvas
         .set_logical_size(
             width,
             height,
-            sdl3::sys::render::SDL_LOGICAL_PRESENTATION_INTEGER_SCALE,
+            match policy {
+                ScalingPolicy::Integer => sdl3::sys::render::SDL_LOGICAL_PRESENTATION_INTEGER_SCALE,
+                ScalingPolicy::Fit => sdl3::sys::render::SDL_LOGICAL_PRESENTATION_LETTERBOX,
+                ScalingPolicy::Stretch => sdl3::sys::render::SDL_LOGICAL_PRESENTATION_STRETCH,
+            },
         )
         .map_err(|error| error.to_string())
+}
+
+fn scale_mode(sampling: Sampling) -> ScaleMode {
+    match sampling {
+        Sampling::Nearest => ScaleMode::Nearest,
+        Sampling::Linear => ScaleMode::Linear,
+    }
+}
+
+fn effective_sampling(presentation: Presentation, sampling: Sampling) -> Sampling {
+    if presentation == Presentation::Hyllian {
+        Sampling::Nearest
+    } else {
+        sampling
+    }
 }
 
 fn paint<T: RenderTarget>(canvas: &mut Canvas<T>, texture: &Texture<'_>) -> Result<(), String> {
@@ -1701,12 +1747,128 @@ mod tests {
         assert_eq!(display.minimum_pixels, (640, 200));
         assert_eq!(creator.geometry.get(), mono);
         display.present(&frame).unwrap();
+        for policy in [
+            ScalingPolicy::Fit,
+            ScalingPolicy::Stretch,
+            ScalingPolicy::Integer,
+        ] {
+            requested.scaling_policy = policy;
+            requested.sampling = Sampling::Linear;
+            display.apply_settings(requested.clone()).unwrap();
+            display.present(&frame).unwrap();
+            assert_eq!(
+                display.minimum_pixels,
+                if policy == ScalingPolicy::Stretch {
+                    (320, 240)
+                } else {
+                    (640, 200)
+                }
+            );
+            assert_eq!(display.settings().aspect_ratio, AspectRatio::Square);
+            assert_eq!(
+                frame
+                    .texture
+                    .borrow()
+                    .with(|texture| texture.scale_mode())
+                    .unwrap(),
+                ScaleMode::Linear
+            );
+        }
+        // Recreate the texture again, now with Linear selected.
+        requested.renderer = reforge_settings::Renderer::Auto;
+        display.apply_settings(requested.clone()).unwrap();
+        display.present(&frame).unwrap();
+        assert_eq!(
+            frame
+                .texture
+                .borrow()
+                .with(|texture| texture.scale_mode())
+                .unwrap(),
+            ScaleMode::Linear
+        );
+        requested.sampling = Sampling::Nearest;
         requested.aspect_ratio = AspectRatio::Original;
         display.apply_settings(requested).unwrap();
         assert_eq!(display.minimum_pixels, (320, 240));
         display.set_display_geometry(color).unwrap();
         assert_eq!(display.minimum_pixels, (320, 240));
         display.present(&frame).unwrap();
+    }
+
+    #[test]
+    fn fitting_policies_cover_the_expected_pixels_and_linear_sampling_interpolates() {
+        for (policy, expected) in [
+            (ScalingPolicy::Integer, (320, 60, 1280, 960)),
+            (ScalingPolicy::Fit, (240, 0, 1440, 1080)),
+            (ScalingPolicy::Stretch, (0, 0, 1920, 1080)),
+        ] {
+            let mut canvas = Surface::new(1920, 1080, PixelFormat::RGB24)
+                .unwrap()
+                .into_canvas()
+                .unwrap();
+            configure(&mut canvas, 320, 240, policy).unwrap();
+            let creator = canvas.texture_creator();
+            let mut frame = creator
+                .create_texture_streaming(PixelFormat::RGB24, 2, 1)
+                .unwrap();
+            frame.update(None, &[255; 6], 6).unwrap();
+            paint(&mut canvas, &frame).unwrap();
+            canvas
+                .set_logical_size(0, 0, sdl3::sys::render::SDL_LOGICAL_PRESENTATION_DISABLED)
+                .unwrap();
+            let readback = canvas
+                .read_pixels(None)
+                .unwrap()
+                .convert_format(PixelFormat::RGB24)
+                .unwrap();
+            let pitch = readback.pitch() as usize;
+            readback.with_lock(|pixels| {
+                let (left, top, width, height) = expected;
+                for y in 0..1080 {
+                    for x in 0..1920 {
+                        let inside =
+                            (left..left + width).contains(&x) && (top..top + height).contains(&y);
+                        assert_eq!(
+                            pixels[y * pitch + x * 3],
+                            if inside { 255 } else { 0 },
+                            "{policy:?} at {x},{y}"
+                        );
+                    }
+                }
+            });
+        }
+        for sampling in [Sampling::Nearest, Sampling::Linear] {
+            let mut canvas = Surface::new(8, 4, PixelFormat::RGB24)
+                .unwrap()
+                .into_canvas()
+                .unwrap();
+            configure(&mut canvas, 2, 1, ScalingPolicy::Stretch).unwrap();
+            let creator = canvas.texture_creator();
+            let mut frame = creator
+                .create_texture_streaming(PixelFormat::RGB24, 2, 1)
+                .unwrap();
+            frame.set_scale_mode(scale_mode(sampling));
+            frame.update(None, &[0, 0, 0, 255, 255, 255], 6).unwrap();
+            paint(&mut canvas, &frame).unwrap();
+            canvas
+                .set_logical_size(0, 0, sdl3::sys::render::SDL_LOGICAL_PRESENTATION_DISABLED)
+                .unwrap();
+            let readback = canvas
+                .read_pixels(None)
+                .unwrap()
+                .convert_format(PixelFormat::RGB24)
+                .unwrap();
+            let has_intermediates = readback.with_lock(|pixels| {
+                pixels[..24]
+                    .chunks_exact(3)
+                    .any(|rgb| (1..255).contains(&rgb[0]))
+            });
+            assert_eq!(has_intermediates, sampling == Sampling::Linear);
+        }
+        assert_eq!(
+            effective_sampling(Presentation::Hyllian, Sampling::Linear),
+            Sampling::Nearest
+        );
     }
 
     #[test]
@@ -1725,7 +1887,7 @@ mod tests {
                 let surface =
                     Surface::new(output_width, output_height, PixelFormat::RGB24).unwrap();
                 let mut canvas = surface.into_canvas().unwrap();
-                configure(&mut canvas, 320, 240).unwrap();
+                configure(&mut canvas, 320, 240, ScalingPolicy::Integer).unwrap();
                 let creator = canvas.texture_creator();
                 let pixel_format = match format {
                     FrameFormat::Rgb => PixelFormat::RGB24,

@@ -78,17 +78,27 @@ video-mode change; texture dimensions alone do not establish native geometry.
 
 Both current engines default to a 320×240 logical display area. Source images are
 stretched into that aspect-corrected area and sampled with nearest neighbours.
-Resizing chooses the largest integer display multiple that fits, centred with
+The default Integer fit chooses the largest integer display multiple that fits, centred with
 black margins. The requested minimum drawable size is one display multiple.
 This is integer scaling of the display area: the 320×200 source's vertical
 correction and Mach 3's 640×200 monochrome image do not give every source pixel
 an identical square block, especially at small or odd display multipliers. At 320 pixels of output
 width, monochrome columns must be discarded; odd display multipliers give them
 unequal widths. Nearest sampling selects source colours without blending;
-linear filtering would blend them.
+the optional Linear sampling blends them instead.
 Square pixels instead uses the native grid as the logical display area:
 320×200 for both colour paths, or 640×200 for Mach 3 monochrome. Aspect changes
-preserve the existing window size and continue using integer fitting.
+preserve the existing window size.
+
+`scaling_policy` selects `integer`, `fit` (fractional aspect-preserving letterbox)
+or `stretch` (fill). All renderers use SDL logical presentation; GPU resize
+settling restores the selected policy. Stretch ignores the retained aspect
+preference and uses the original display base for window sizing. `sampling`
+selects `nearest` or `linear` for game frame textures, including after renderer
+replacement. Menu textures retain their independent filters. Hyllian always
+receives nearest-sampled source texels for its own reconstruction filter, without
+overwriting the saved Sharp pixels sampling choice. The menu locks dependent
+controls with a pink padlock and a tooltip, preserving compact row dimensions.
 
 Windows request high pixel density. Auto measures the compositor's maximum
 client area by briefly requesting maximization from a modest bootstrap window,
@@ -199,7 +209,8 @@ controller B dismisses a dropdown before closing the menu on a fresh press.
 Held-stick repeat is suppressed after switching to mouse/keyboard input until
 fresh controller input takes over. These are host UI controls, independent of
 reconstructed gameplay input and clocks.
-Window mode, scale, aspect ratio, renderer, backend, VSync, frame ceiling, Hyllian shader
+Window mode, scale, fitting policy, sampling, aspect ratio, renderer, backend,
+VSync, frame ceiling, Hyllian shader
 controls and Audio use draft edits with Apply/Cancel. Global and game
 preferences are saved through `reforge_settings`; CLI overrides remain temporary
 and lock their controls. A dark-blue section notice and pink padlocks after

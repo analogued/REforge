@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 //! Engine-provided pixel geometry; texture oversampling is not native resolution.
 
-use reforge_settings::AspectRatio;
+use reforge_settings::{AspectRatio, RuntimeSettings, ScalingPolicy};
 
 /// Native pixel grid and aspect-corrected base display size, supplied by an engine.
 /// The latter also defines the units used by the window-scale preference.
@@ -22,6 +22,14 @@ impl DisplayGeometry {
             AspectRatio::Original => self.original,
             AspectRatio::Square => self.source,
         }
+    }
+
+    pub(crate) fn presentation_size(self, settings: &RuntimeSettings) -> (u32, u32) {
+        self.display_size(if settings.scaling_policy == ScalingPolicy::Stretch {
+            AspectRatio::Original
+        } else {
+            settings.aspect_ratio
+        })
     }
 
     pub fn ratio(self, preference: AspectRatio) -> (u32, u32) {
@@ -68,5 +76,22 @@ mod tests {
         let mono = DisplayGeometry::new((640, 200), (320, 240));
         assert_eq!(mono.ratio(AspectRatio::Square), (16, 5));
         assert_eq!(mono.display_size(AspectRatio::Original), (320, 240));
+    }
+
+    #[test]
+    fn stretch_ignores_but_retains_the_square_preference_across_video_modes() {
+        let mut settings = RuntimeSettings {
+            aspect_ratio: AspectRatio::Square,
+            scaling_policy: ScalingPolicy::Stretch,
+            ..Default::default()
+        };
+        for source in [(320, 200), (640, 200)] {
+            let geometry = DisplayGeometry::new(source, (320, 240));
+            assert_eq!(geometry.presentation_size(&settings), (320, 240));
+            settings.scaling_policy = ScalingPolicy::Fit;
+            assert_eq!(geometry.presentation_size(&settings), source);
+            settings.scaling_policy = ScalingPolicy::Stretch;
+        }
+        assert_eq!(settings.aspect_ratio, AspectRatio::Square);
     }
 }

@@ -66,6 +66,7 @@ pub struct FrameTexture<'a> {
     byte_len: usize,
     size: (u32, u32),
     sampling: Cell<Sampling>,
+    upload_pending: Cell<bool>,
 }
 impl<'a> FrameTexture<'a> {
     pub fn new(
@@ -99,6 +100,7 @@ impl<'a> FrameTexture<'a> {
             byte_len,
             size: (width, height),
             sampling: Cell::new(sampling),
+            upload_pending: Cell::new(true),
         })
     }
     fn ensure(&self) -> Result<(), String> {
@@ -112,14 +114,26 @@ impl<'a> FrameTexture<'a> {
                 .update(None, &self.pixels, self.pitch)
                 .map_err(|e| e.to_string())?;
             *self.texture.borrow_mut() = texture;
-        } else if sampling != self.sampling.get() {
-            self.texture
-                .borrow_mut()
-                .set_scale_mode(scale_mode(sampling));
+            self.upload_pending.set(false);
+        } else {
+            if sampling != self.sampling.get() {
+                self.texture
+                    .borrow_mut()
+                    .set_scale_mode(scale_mode(sampling));
+            }
+            if self.upload_pending.get() {
+                self.texture
+                    .borrow_mut()
+                    .update(None, &self.pixels, self.pitch)?;
+                self.upload_pending.set(false);
+            }
         }
         self.sampling.set(sampling);
         Ok(())
     }
+    /// Retain the latest complete image, uploading only when its bytes change
+    /// or the native texture needs initialization/recovery. Presentation and
+    /// overlays remain independent of whether this call uploads any pixels.
     pub fn update(&mut self, pixels: &[u8]) -> Result<(), String> {
         if pixels.len() != self.byte_len {
             return Err(format!(
@@ -128,12 +142,13 @@ impl<'a> FrameTexture<'a> {
                 pixels.len()
             ));
         }
-        self.pixels.copy_from_slice(pixels);
-        self.ensure()?;
-        self.texture
-            .borrow_mut()
-            .update(None, pixels, self.pitch)
-            .map_err(|e| e.to_string())
+        if self.pixels != pixels {
+            self.pixels.copy_from_slice(pixels);
+            self.upload_pending.set(true);
+        }
+        // An unchanged frame still needs initialization, renderer-generation
+        // recovery, sampling changes, or a retry after a failed upload.
+        self.ensure()
     }
 }
 
@@ -1117,6 +1132,139 @@ fn paint<T: RenderTarget>(canvas: &mut Canvas<T>, texture: &Texture<'_>) -> Resu
 mod tests {
     use super::*;
     use sdl3::surface::Surface;
+
+    #[test]
+    fn frame_upload_reuse_preserves_initialization_retry_and_renderer_recovery() {
+        const NAME: &str =
+            "tests::frame_upload_reuse_preserves_initialization_retry_and_renderer_recovery";
+        if std::env::var("REFORGE_FRAME_UPLOAD_TEST").as_deref() != Ok(NAME) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env("REFORGE_FRAME_UPLOAD_TEST", NAME)
+                .env("SDL_VIDEODRIVER", "dummy")
+                .env("SDL_AUDIODRIVER", "dummy")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        use reforge_settings::Renderer;
+        use sdl3::render::BlendMode;
+        fn assert_color(display: &mut Window, frame: &FrameTexture<'_>, expected: [u8; 3]) {
+            display
+                .present_with(frame, |canvas| {
+                    let image = canvas
+                        .read_pixels(None)
+                        .unwrap()
+                        .convert_format(PixelFormat::RGB24)
+                        .unwrap();
+                    image.with_lock(|bytes| {
+                        for row in bytes.chunks_exact(image.pitch() as usize) {
+                            assert!(
+                                row[..image.width() as usize * 3]
+                                    .chunks_exact(3)
+                                    .all(|rgb| rgb == expected)
+                            );
+                        }
+                    });
+                    Ok(())
+                })
+                .unwrap();
+        }
+        let initial_renderer = if std::env::var("REFORGE_FRAME_UPLOAD_GPU").as_deref() == Ok("1") {
+            Renderer::Gpu
+        } else {
+            Renderer::Software
+        };
+        let mut display = Window::build(
+            "Frame upload retention check",
+            DisplayGeometry::new((320, 200), (320, 200)),
+            settings::RuntimeSettings {
+                renderer: initial_renderer,
+                scale: Some(2),
+                vsync: false,
+                scaling_policy: ScalingPolicy::Stretch,
+                ..Default::default()
+            },
+            Presentation::Pixels,
+            true,
+            Session::for_window(Some(2)),
+            None,
+        )
+        .unwrap();
+        let creator = display.texture_creator();
+        for format in [FrameFormat::Rgb, FrameFormat::Rgba] {
+            let mut requested = display.settings();
+            requested.renderer = initial_renderer;
+            display.apply_settings(requested).unwrap();
+            let pixel = |rgb: [u8; 3]| {
+                match format {
+                    FrameFormat::Rgb => rgb.to_vec(),
+                    FrameFormat::Rgba => vec![rgb[0], rgb[1], rgb[2], 255],
+                }
+                .repeat(320 * 200)
+            };
+            let mut frame = FrameTexture::new(&creator, 320, 200, format).unwrap();
+            frame.texture.borrow_mut().set_blend_mode(BlendMode::None);
+            // A native canary makes actual unwanted SDL uploads observable.
+            // It deliberately bypasses FrameTexture only within this test.
+            let blue = pixel([0, 0, 255]);
+            frame
+                .texture
+                .borrow_mut()
+                .update(None, &blue, frame.pitch)
+                .unwrap();
+            let zero = vec![0; frame.byte_len];
+            frame.update(&zero).unwrap();
+            assert_color(&mut display, &frame, [0, 0, 0]);
+            frame
+                .texture
+                .borrow_mut()
+                .update(None, &blue, frame.pitch)
+                .unwrap();
+            frame.update(&zero).unwrap();
+            assert_color(&mut display, &frame, [0, 0, 255]);
+            let mut requested = display.settings();
+            requested.sampling = Sampling::Linear;
+            display.apply_settings(requested).unwrap();
+            frame.update(&zero).unwrap();
+            assert_color(&mut display, &frame, [0, 0, 255]);
+
+            let green = pixel([0, 255, 0]);
+            frame.update(&green).unwrap();
+            assert_color(&mut display, &frame, [0, 255, 0]);
+            // A real SDL parameter failure exercises pending-data retry; the
+            // public API never exposes pitch, and the test restores it below.
+            let pitch = frame.pitch;
+            frame.pitch = 0;
+            let red = pixel([255, 0, 0]);
+            assert!(frame.update(&red).is_err());
+            assert!(frame.update(&red[1..]).is_err());
+            frame.pitch = pitch;
+            frame.update(&red).unwrap();
+            assert_color(&mut display, &frame, [255, 0, 0]);
+
+            // Even identical data must repopulate an invalidated texture.
+            creator.release_textures();
+            frame.update(&red).unwrap();
+            assert_color(&mut display, &frame, [255, 0, 0]);
+            let mut requested = display.settings();
+            requested.renderer = Renderer::Auto;
+            display.apply_settings(requested).unwrap();
+            frame.update(&red).unwrap();
+            assert_color(&mut display, &frame, [255, 0, 0]);
+            let mut requested = display.settings();
+            requested.renderer = Renderer::Software;
+            display.apply_settings(requested).unwrap();
+            // Presentation alone must recover the retained pixels too.
+            assert_color(&mut display, &frame, [255, 0, 0]);
+        }
+    }
 
     #[test]
     #[ignore = "requires an SDL GPU-capable desktop; run serially"]

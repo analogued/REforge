@@ -50,6 +50,8 @@ count return an error; a completed count-register write need not yet be visible
 in the counting element.
 
 `next_deadline()` reports the earliest pending load or output transition.
+`next_rising_edge(channel)` is a read-only scheduling hint for one output,
+assuming no intervening writes or gate changes; it does not advance any device.
 `advance_to(target)` advances **at most to that deadline**, returning a `Step`
 or speaker `Events`. A load can return no edges. The caller handles any returned
 interrupt before continuing toward the target, allowing its handler to reprogram

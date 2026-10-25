@@ -386,6 +386,32 @@ impl Pit {
             .and_then(|delta| self.tick.checked_add(u64::from(delta)))
     }
 
+    /// Next rising edge of one output, assuming no intervening writes or gate
+    /// changes. This read-only scheduling hint neither clocks the device nor
+    /// delivers an interrupt. Other channels' transitions do not affect it.
+    pub fn next_rising_edge(&self, index: usize) -> Result<Option<u64>, Error> {
+        let mut channel = *self.channels.get(index).ok_or(Error::Channel(index))?;
+        let mut tick = self.tick;
+        // A pending load, falling edge, then rising edge cover every supported
+        // mode. One-shots and stopped/gated channels can instead run out of events.
+        for _ in 0..3 {
+            let Some(clocks) = channel.deadline() else {
+                return Ok(None);
+            };
+            let Some(next) = tick.checked_add(u64::from(clocks)) else {
+                return Ok(None);
+            };
+            tick = next;
+            let high = channel.output;
+            channel.elapse(u64::from(clocks));
+            channel.clock_deadline();
+            if !high && channel.output {
+                return Ok(Some(tick));
+            }
+        }
+        Ok(None)
+    }
+
     /// Advance at most to the first device deadline. A load may return no edges.
     /// Process returned edges/interrupts before calling again toward the target.
     /// Simultaneous channel edges are reported in channel-number order.

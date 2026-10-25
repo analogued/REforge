@@ -13,7 +13,10 @@ use reforge_sdl::audio::{
     Playback,
     queue::{Policy, Queue},
 };
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 
 #[test]
 fn shared_prefill_allows_startup_and_catchup_recovery() {
@@ -759,7 +762,7 @@ fn gameplay_run_switching(
     switch: bool,
 ) -> (Outcome, Vec<i16>) {
     gameplay_run_levels(
-        budget,
+        |_| budget,
         render_chunk,
         discard_output,
         mode,
@@ -768,7 +771,7 @@ fn gameplay_run_switching(
     )
 }
 fn gameplay_run_levels(
-    budget: u64,
+    budget: impl Fn(&Simulation) -> u64,
     render_chunk: u32,
     discard_output: bool,
     mode: AudioRenderer,
@@ -806,7 +809,7 @@ fn gameplay_run_levels(
     let mut events = Vec::new();
     let end = start + 500_000;
     while simulation.clock.tick() < end {
-        let target = (simulation.clock.tick() + budget).min(end);
+        let target = (simulation.clock.tick() + budget(&simulation)).min(end);
         advance(&mut simulation, target, &frames, &resources, &mut events);
         if switch {
             let mode = if (simulation.clock.tick() - start) / 50_000 % 2 == 0 {
@@ -871,7 +874,7 @@ fn category_muting_changes_only_host_audio_not_gameplay_or_device_execution() {
     for mode in [AudioRenderer::Speaker, AudioRenderer::EnhancedPcm] {
         let (normal, audible) = gameplay_run_mode(10_000, CHUNK as u32, false, mode);
         let (muted, silent) = gameplay_run_levels(
-            10_000,
+            |_| 10_000,
             CHUNK as u32,
             false,
             mode,
@@ -919,6 +922,49 @@ fn simulation_budget_render_chunks_and_absent_output_preserve_gameplay() {
     let (silent, discarded) = gameplay_run(10_000, CHUNK as u32, true);
     assert_eq!(baseline, silent);
     assert!(discarded.is_empty());
+}
+
+#[test]
+fn host_wake_deadlines_preserve_gameplay_devices_pixels_and_continuous_pcm() {
+    for mode in [AudioRenderer::Speaker, AudioRenderer::EnhancedPcm] {
+        let reference = gameplay_run_mode(2_386, CHUNK as u32, false, mode);
+        let deadlines = gameplay_run_levels(
+            |simulation| {
+                simulation
+                    .wake_tick()
+                    .unwrap_or(u64::MAX)
+                    .saturating_sub(simulation.clock.tick())
+                    .clamp(1, 2_386)
+            },
+            CHUNK as u32,
+            false,
+            mode,
+            false,
+            reforge_audio::category::CategoryVolumes::default(),
+        );
+        assert_eq!(reference, deadlines);
+    }
+}
+
+#[test]
+fn wake_hints_batch_sample_interrupts_and_leave_the_clock_untouched() {
+    let frames = frames();
+    let resources = resources();
+    let mut simulation = Simulation::new(&frames, signal(CHUNK as u32)).unwrap();
+    let device = simulation.clock.speaker().clone();
+    let first = simulation.wake_tick().unwrap();
+    assert_eq!(simulation.clock.speaker(), &device);
+    simulation.receive(first - 1, 0x39);
+    assert_eq!(simulation.wake_tick(), Some(first - 1));
+    simulation.scans.clear();
+    start(&mut simulation, &frames, &resources);
+    until(&mut simulation, &frames, &resources, &mut Vec::new(), |s| {
+        matches!(s.clock.handlers()[0].offset, 0x57a4 | 0x57b8)
+    });
+    assert_eq!(simulation.wake_tick(), None);
+    let at = simulation.clock.tick() + 1;
+    simulation.receive_joystick(at, 16);
+    assert_eq!(simulation.wake_tick(), Some(at));
 }
 
 #[test]

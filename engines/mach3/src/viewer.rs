@@ -13,6 +13,7 @@ mod input_history;
 #[cfg(feature = "dev-tools")]
 mod preview;
 mod realtime;
+mod wakeup;
 use input_history::EventTime;
 #[cfg(feature = "dev-tools")]
 use input_history::InputHistory;

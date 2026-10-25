@@ -138,6 +138,14 @@ struct TransitionPlayback {
 }
 
 impl GameplayTask {
+    /// Read-only host scheduling hint; the transition remains owned by execution.
+    #[cfg(feature = "viewer")]
+    pub(crate) fn next_transition_deadline(&self) -> Option<u64> {
+        self.transition
+            .as_ref()
+            .map(|transition| transition.deadline)
+    }
+
     pub fn begin<O: FnMut(Stamp, ClockEvent)>(
         game: Gameplay,
         state: GameplayState,

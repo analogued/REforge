@@ -22,6 +22,57 @@ fn configured(control: u8, count: u8) -> Pit {
 }
 
 #[test]
+fn rising_edge_hint_preserves_devices_and_matches_actual_execution() {
+    fn check(pit: &Pit) {
+        let before = pit.clone();
+        let predicted = pit.next_rising_edge(0).unwrap();
+        assert_eq!(*pit, before);
+        let mut executed = pit.clone();
+        let end = pit.tick() + 140_000;
+        let actual = loop {
+            let step = executed.advance_to(end).unwrap();
+            if step.edges.iter().any(|edge| edge.channel == 0 && edge.high) {
+                break Some(step.tick);
+            }
+            if executed.tick() == end {
+                break None;
+            }
+        };
+        assert_eq!(predicted, actual, "{before:?}");
+    }
+    let mut pit = Pit::new([true; 3], [false; 3]);
+    check(&pit);
+    assert_eq!(pit.next_rising_edge(3), Err(Error::Channel(3)));
+    for mode in 0..=3 {
+        for count in [0_u16, 1, 2, 3, 4, 64, 1850, u16::MAX] {
+            if mode == 2 && count == 1 {
+                continue;
+            }
+            pit = Pit::with_mode3_count_one([true; 3], [true; 3], CountOnePolicy::DosBoxWrap);
+            pit.write_port(0x43, 0x30 | (mode << 1)).unwrap();
+            pit.write_port(0x40, count as u8).unwrap();
+            check(&pit); // Incomplete byte pair.
+            pit.write_port(0x40, (count >> 8) as u8).unwrap();
+            if mode == 1 {
+                check(&pit); // Armed, not triggered.
+                pit.set_gate(0, false).unwrap();
+                pit.set_gate(0, true).unwrap();
+            }
+            for tick in [0, 1, 2, 3, 30, 2000, 70_000] {
+                advance(&mut pit, tick);
+                check(&pit);
+            }
+            // A newly written reload can differ from the still-running count.
+            pit.write_port(0x40, 64).unwrap();
+            pit.write_port(0x40, 0).unwrap();
+            check(&pit);
+            pit.set_gate(0, false).unwrap();
+            check(&pit);
+        }
+    }
+}
+
+#[test]
 fn mode_zero_load_clock_terminal_and_post_terminal_wrap() {
     let mut pit = configured(0x10, 3);
     assert_eq!(pit.read_port(0x40), Err(Error::UnknownCount(0)));

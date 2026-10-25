@@ -34,6 +34,11 @@ pub struct GameplayRuntime {
 }
 
 impl GameplayRuntime {
+    #[cfg(feature = "viewer")]
+    pub(crate) fn next_transition_deadline(&self) -> Option<u64> {
+        self.task.next_transition_deadline()
+    }
+
     pub fn begin<O: FnMut(Stamp, ClockEvent)>(
         game: Gameplay,
         state: GameplayState,

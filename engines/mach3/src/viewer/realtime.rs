@@ -20,11 +20,9 @@ use crate::{
 };
 use reforge_audio::{PIT_HZ, speaker::PcSpeaker};
 use reforge_sdl::settings::SoundRenderer;
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    time::{Duration, Instant},
-};
+#[cfg(feature = "dev-tools")]
+use std::time::Duration;
+use std::{cell::RefCell, rc::Rc, time::Instant};
 
 const CHUNK: u64 = 11_931;
 const CS: u16 = 0x1234;
@@ -101,6 +99,32 @@ struct Simulation {
     splash_wait: crate::startup::SplashWait,
 }
 impl Simulation {
+    /// A host wake-up hint, never permission to execute ahead of host time.
+    fn wake_tick(&self) -> Option<u64> {
+        // Sample IRQs occur around 20 kHz and suspend ordinary foreground work.
+        // Keep processing every IRQ in simulation, but batch their host servicing.
+        let sample = matches!(self.clock.handlers()[0].offset, 0x57a4 | 0x57b8);
+        let interrupt = (!sample)
+            .then(|| {
+                self.clock
+                    .speaker()
+                    .pit()
+                    .next_rising_edge(0)
+                    .expect("channel zero exists")
+            })
+            .flatten();
+        let transition = match &self.phase {
+            Phase::Playing(runtime) => runtime.next_transition_deadline(),
+            _ => None,
+        };
+        interrupt
+            .into_iter()
+            .chain(transition)
+            .chain(self.scans.front().map(|(tick, _)| *tick))
+            .chain(self.joysticks.front().map(|(tick, _)| *tick))
+            .min()
+    }
+
     fn new(frames: &StartupFrames, signal: Rc<RefCell<Synthesis>>) -> Result<Self, String> {
         let observe: Box<dyn FnMut(Stamp, ClockEvent)> = Box::new(move |stamp, event| {
             signal.borrow_mut().observe(stamp, event);
@@ -1308,6 +1332,14 @@ pub(super) fn run(
             window.present_with(&texture, |canvas| menu.paint(canvas))?;
             repaint = false;
         }
-        std::thread::sleep(Duration::from_millis(2));
+        let next_tick = if pause.is_paused() {
+            None
+        } else {
+            simulation.wake_tick()
+        };
+        let delay = super::wakeup::delay(epoch, pause.now(Instant::now()), next_tick);
+        if !delay.is_zero() {
+            std::thread::sleep(delay);
+        }
     }
 }

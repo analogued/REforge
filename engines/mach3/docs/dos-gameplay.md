@@ -315,6 +315,12 @@ body duration. Manual stepping completes the same algorithms without timed waits
 Publication models a completed framebuffer checkpoint; it does not reproduce
 the CGA display's scanout during individual region copies.
 
+Live host sleeping targets the next scheduled channel-zero rising edge or
+scene-reveal deadline, capped at two milliseconds for input and audio servicing.
+High-frequency sample IRQs remain batched within that polling bound. These are
+read-only wake-up hints; elapsed host time still bounds simulation execution,
+and operating-system wake-up delays remain possible.
+
 When presentation is slower, due updates and publication events advance in
 order before presenting the latest published image. Each pass still runs its
 input polls, state changes, composition and random draws; only intermediate

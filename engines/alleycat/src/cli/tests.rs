@@ -8,6 +8,68 @@ use super::*;
 
 #[cfg(feature = "sdl")]
 #[test]
+fn title_sound_toggles_remain_valid_after_committed_drawing_work() {
+    use alleycat::assets::{DATA_LENGTH, set_word};
+    use alleycat::sound::render::Renderer;
+    use reforge_audio::category::CategoryVolumes;
+
+    for machine in [Machine::Cga, Machine::Pcjr] {
+        for repeated in [false, true] {
+            let mut data = vec![0; DATA_LENGTH];
+            set_word(&mut data, 0x2ae5, 0xfa59);
+            set_word(&mut data, 0x28a0, 0x0802);
+            set_word(&mut data, 0x28a2, 0xffff);
+            set_word(&mut data, 0x56da, 846);
+            for address in (0x0f7a..0x0faa).step_by(2) {
+                set_word(&mut data, address, 0x1800);
+            }
+            data[0] = 0xff;
+            data[0x538c..0x540c].fill(2);
+            set_word(&mut data, 0x5326, 1000);
+            let mut splash = if repeated {
+                Splash::after_game_over(&data, machine, 0).unwrap()
+            } else {
+                Splash::new(&data, machine).unwrap()
+            };
+            splash.sound.record(true);
+            let mut clock = VirtualClock::new(RetraceProfile::for_machine(machine));
+            let mut renderer = Renderer::new(CategoryVolumes::default()).unwrap();
+
+            // Service the renderer before processing the next host key, as in
+            // the live loop. A toggle must also work without another guest pass
+            // (for example while the settings panel has paused the title).
+            for enabled in [true, false, true, false, true] {
+                if (splash.data()[0] != 0) != enabled {
+                    splash.toggle_sound();
+                }
+                renderer
+                    .render(splash.sound.drain(), clock.elapsed_pit_ticks() as u64)
+                    .unwrap();
+                let end = clock.elapsed_nanos() + 150_000_000;
+                let mut pcm = Vec::new();
+                while clock.elapsed_nanos() < end {
+                    advance_splash(&mut splash, &mut clock, false).unwrap();
+                    pcm.extend(
+                        renderer
+                            .render(splash.sound.drain(), clock.elapsed_pit_ticks() as u64)
+                            .unwrap(),
+                    );
+                }
+                let settled = &pcm[pcm.len() / 2..];
+                if enabled {
+                    assert!(settled.iter().any(|sample| sample.abs() > 100));
+                } else {
+                    // Allow the band-limited renderer's residual filter decay.
+                    let peak = settled.iter().map(|sample| sample.abs()).max().unwrap();
+                    assert!(peak < 100, "muted title peak: {peak}");
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "sdl")]
+#[test]
 fn catch_up_yields_for_slow_passes_and_retains_pending_work() {
     use std::cell::Cell;
     use std::time::Duration;

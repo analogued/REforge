@@ -412,6 +412,9 @@ fn advance_splash(
     splash.sound.at(clock.elapsed_pit_ticks() as u64);
     let step = splash.advance(sample.bios.tick_low, sample.retrace, key_pressed)?;
     clock.advance_nanos(costs.splash_nanos(step));
+    // Playback commits through the drawing work too. Host keys between title
+    // passes must not place a speaker write inside that already rendered span.
+    splash.sound.at(clock.elapsed_pit_ticks() as u64);
     Ok(())
 }
 

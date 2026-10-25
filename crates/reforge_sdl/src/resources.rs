@@ -28,6 +28,7 @@ pub struct FrameCreator {
     pub(crate) audio: crate::audio::Playback,
     // Resolved windowed multiplier, separate from the persisted Auto preference.
     pub(crate) windowed_scale: Rc<Cell<u32>>,
+    pub(crate) geometry: Rc<Cell<crate::DisplayGeometry>>,
     generation: Rc<Cell<usize>>,
     textures: Rc<RefCell<Vec<Weak<Slot>>>>,
 }
@@ -36,6 +37,7 @@ impl FrameCreator {
         canvas: &WindowCanvas,
         session: Session,
         windowed_scale: u32,
+        geometry: crate::DisplayGeometry,
         gpu: Option<Rc<crate::hyllian::GpuDevice>>,
     ) -> Self {
         let audio = crate::audio::Playback::new(session.effective(&session.saved).audio);
@@ -48,6 +50,7 @@ impl FrameCreator {
             }))),
             session: Rc::new(RefCell::new(session)),
             windowed_scale: Rc::new(Cell::new(windowed_scale)),
+            geometry: Rc::new(Cell::new(geometry)),
             generation: Rc::new(Cell::new(0)),
             textures: Rc::new(RefCell::new(Vec::new())),
         }

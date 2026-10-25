@@ -304,10 +304,9 @@ fn splash_preview(
     } else {
         #[cfg(feature = "sdl")]
         {
-            let display = alleycat::platform::Display::new_with_presentation(
+            let display = alleycat::platform::Display::new_with_geometry(
                 &reforge_sdl::game_title(GAME_NAME, Some("Splash")),
-                320,
-                240,
+                alleycat::platform::DISPLAY_GEOMETRY,
                 scale,
                 presentation,
             )?;
@@ -353,10 +352,9 @@ fn run_player_preview(
 ) -> Result<(), String> {
     use alleycat::platform::{PauseClock, PauseOverlay, Window};
     use std::time::{Duration, Instant};
-    let display = alleycat::platform::Display::new_with_presentation(
+    let display = alleycat::platform::Display::new_with_geometry(
         &reforge_sdl::game_title(GAME_NAME, None),
-        320,
-        240,
+        alleycat::platform::DISPLAY_GEOMETRY,
         scale,
         presentation,
     )?;

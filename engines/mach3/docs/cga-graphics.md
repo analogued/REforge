@@ -16,7 +16,11 @@ with four two-bit pixels per byte and 80 bytes per scanline. Even scanlines
 occupy the bank at offset zero; odd scanlines occupy the bank at `0x2000`.
 These framebuffer coordinates fill a 4:3 display, with a pixel width-to-height
 ratio of 5:6. The viewer applies that correction when presenting frames;
-framebuffer exports retain the original 320-by-200 grid.
+framebuffer exports retain the original 320-by-200 grid. The viewer supplies the
+native grid and a 320-by-240 display base to shared presentation metadata. The
+optional Square pixels preference uses the native grid without correction.
+F3 mode 6 changes that grid to 640 by 200 while retaining the same 4:3 original
+display; doubled colour upload textures do not change the mode-4 pixel grid.
 For pixel `(x, y)`:
 
 ```text

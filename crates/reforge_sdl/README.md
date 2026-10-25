@@ -36,7 +36,7 @@ the same initial CGA-style parameters for both engines. The CRT & Colour menu
 exposes its scanline, beam, filter, mask, brightness and gamma controls; separate
 colour profiles and monitor selection are not implemented. Small output areas can
 show interference patterns; display-dependent preset tuning is not implemented.
-For these 200-row games, a display multiplier N spreads 200 beam cycles over
+With Original display selected, a display multiplier N spreads 200 beam cycles over
 240*N drawable pixels: each cycle spans 1.2*N pixels on average. The aperture
 mask retains its two-drawable-pixel pitch. Changing scale therefore changes the
 beam spacing, while the current beam/mask parameters remain fixed.
@@ -70,7 +70,13 @@ Resizing and DPI changes update that rectangle each frame. Modern overlays are
 drawn after the effect with ordinary SDL rendering; original in-frame text and
 HUD graphics receive the effect along with the game image.
 
-Both current engines use a 320×240 logical display area. Source images are
+Each engine supplies `DisplayGeometry`: its native pixel grid and original
+aspect-corrected base display size. Settings persist `original` or `square`,
+never a particular game's numeric ratio. The menu derives contextual ratio
+labels from the same metadata used for rendering. Engines may update it at a
+video-mode change; texture dimensions alone do not establish native geometry.
+
+Both current engines default to a 320×240 logical display area. Source images are
 stretched into that aspect-corrected area and sampled with nearest neighbours.
 Resizing chooses the largest integer display multiple that fits, centred with
 black margins. The requested minimum drawable size is one display multiple.
@@ -80,6 +86,9 @@ an identical square block, especially at small or odd display multipliers. At 32
 width, monochrome columns must be discarded; odd display multipliers give them
 unequal widths. Nearest sampling selects source colours without blending;
 linear filtering would blend them.
+Square pixels instead uses the native grid as the logical display area:
+320×200 for both colour paths, or 640×200 for Mach 3 monochrome. Aspect changes
+preserve the existing window size and continue using integer fitting.
 
 Windows request high pixel density. Auto measures the compositor's maximum
 client area by briefly requesting maximization from a modest bootstrap window,
@@ -190,7 +199,7 @@ controller B dismisses a dropdown before closing the menu on a fresh press.
 Held-stick repeat is suppressed after switching to mouse/keyboard input until
 fresh controller input takes over. These are host UI controls, independent of
 reconstructed gameplay input and clocks.
-Window mode, scale, renderer, backend, VSync, frame ceiling, Hyllian shader
+Window mode, scale, aspect ratio, renderer, backend, VSync, frame ceiling, Hyllian shader
 controls and Audio use draft edits with Apply/Cancel. Global and game
 preferences are saved through `reforge_settings`; CLI overrides remain temporary
 and lock their controls. A dark-blue section notice and pink padlocks after

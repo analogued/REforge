@@ -138,7 +138,10 @@ of the same glyphs, including in headless builds.
 `--machine pcjr` selects the PCjr palette and player countdown; the default is
 `cga`. Both modes use the same packed 320×200, four-colour framebuffer. Pixels
 have a 5:6 width-to-height ratio and are displayed at 4:3, with nearest-neighbor
-sampling by default. `--presentation hyllian` enables the shared Hyllian CRT
+sampling by default. The engine declares both its native 320×200 grid and
+320×240 display base to the shared renderer/menu. Settings can instead select
+Square pixels (8:5); the preference changes presentation only.
+`--presentation hyllian` enables the shared Hyllian CRT
 shader; `--presentation pixels` selects the default discrete pixels. Shader
 unavailability warns and falls back to pixels. Presentation selection is ignored
 with a warning in headless runs or builds without SDL. It affects host display
@@ -147,10 +150,10 @@ The default `--scale auto` opens a compact normal window at the largest integer
 display multiple that fits the compositor's maximum client area, accounting for
 panels and decorations. It briefly measures that area through maximization before
 restoring the final window; unavailable maximization falls back to scale 4.
-`--scale N`, from 1 through 16, selects an initial drawable target of
+With the default Original display ratio, `--scale N`, from 1 through 16, selects an initial drawable target of
 `320*N` × `240*N` pixels. Use `--scale 3` for 960×720 or `--scale 4` for 1280×960.
 SDL fits the image at integer multiples of the 320×240 display area inside the
-actual granted window, preserving 4:3 with black bars as needed, including after
+actual granted window, preserving the selected ratio with black bars as needed, including after
 resizing or maximizing. The
 [shared SDL3 backend](../../crates/reforge_sdl/README.md) requests high pixel density
 and converts explicit pixel targets to window coordinates using drawable density.

@@ -20,6 +20,10 @@ use reforge_sdl::{FrameFormat, FrameTexture, HostShortcut, host_shortcut};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
+/// CGA/PCjr 320x200 pixels were intended for a 4:3 display.
+pub const DISPLAY_GEOMETRY: reforge_sdl::DisplayGeometry =
+    reforge_sdl::DisplayGeometry::new((320, 200), (320, 240));
+
 const CONTROL: u16 = Mod::LCTRLMOD.bits() | Mod::RCTRLMOD.bits();
 const SHORTCUT: u16 =
     CONTROL | Mod::LALTMOD.bits() | Mod::RALTMOD.bits() | Mod::LGUIMOD.bits() | Mod::RGUIMOD.bits();
@@ -327,9 +331,10 @@ impl<'a> Window<'a> {
         let settings = &mut self.settings;
         self.display.present_with(&self.frame, |canvas| {
             if let Some(pause) = pause {
-                // The overlay uses original 320x200 coordinates in a 320x240 display.
+                // Keep original 320x200 text placement under either aspect policy.
+                let (width, height, _) = canvas.logical_size();
                 canvas
-                    .set_scale(1.0, 1.2)
+                    .set_scale(width as f32 / 320.0, height as f32 / 200.0)
                     .map_err(|error| error.to_string())?;
                 let result = (|| {
                     canvas

@@ -7,7 +7,9 @@
 pub use sdl3;
 pub mod audio;
 pub mod gamepad;
+mod geometry;
 mod hyllian;
+pub use geometry::DisplayGeometry;
 mod input;
 mod resources;
 pub mod settings;
@@ -19,7 +21,7 @@ use reforge_settings::Session;
 pub use resources::FrameCreator;
 use std::cell::RefCell;
 
-pub use reforge_settings::Presentation;
+pub use reforge_settings::{AspectRatio, Presentation};
 mod pacing;
 mod settings_window;
 
@@ -174,6 +176,28 @@ impl Window {
         scale: Option<u32>,
         presentation: Presentation,
     ) -> Result<Self, String> {
+        if display_width == 0 || display_height == 0 {
+            return Err("display dimensions must be positive".into());
+        }
+        Self::new_with_geometry(
+            title,
+            DisplayGeometry::new(
+                (display_width, display_height),
+                (display_width, display_height),
+            ),
+            scale,
+            presentation,
+        )
+    }
+
+    /// Use the engine's native grid and intended display proportions. Preferences
+    /// select Original or Square without storing a game-specific numeric ratio.
+    pub fn new_with_geometry(
+        title: &str,
+        geometry: DisplayGeometry,
+        scale: Option<u32>,
+        presentation: Presentation,
+    ) -> Result<Self, String> {
         let mut session = Session::for_window(scale);
         // Standalone engine previews have no app launch layer. Preserve their
         // explicit CRT request; the application resolves persisted/CLI values.
@@ -189,8 +213,7 @@ impl Window {
         }
         match Self::build(
             title,
-            display_width,
-            display_height,
+            geometry,
             requested.clone(),
             presentation,
             true,
@@ -205,16 +228,8 @@ impl Window {
                 let mut fallback = requested.clone();
                 fallback.renderer = reforge_settings::Renderer::Auto;
                 fallback.backend = reforge_settings::Backend::Auto;
-                let mut window = Self::build(
-                    title,
-                    display_width,
-                    display_height,
-                    fallback,
-                    presentation,
-                    true,
-                    session,
-                    None,
-                )?;
+                let mut window =
+                    Self::build(title, geometry, fallback, presentation, true, session, None)?;
                 window.requested = requested;
                 Ok(window)
             }
@@ -224,14 +239,14 @@ impl Window {
     #[allow(clippy::too_many_arguments)]
     fn build(
         title: &str,
-        display_width: u32,
-        display_height: u32,
+        geometry: DisplayGeometry,
         requested: settings::RuntimeSettings,
         presentation: Presentation,
         events: bool,
         session: Session,
         mut gpu: Option<std::rc::Rc<hyllian::GpuDevice>>,
     ) -> Result<Self, String> {
+        let (display_width, display_height) = geometry.display_size(requested.aspect_ratio);
         let scale = requested.scale;
         let mut windowed_scale = scale.unwrap_or(AUTO_FALLBACK_SCALE);
         if display_width == 0 || display_height == 0 || scale == Some(0) {
@@ -368,7 +383,7 @@ impl Window {
                 .map_err(|e| e.to_string())?;
             sync_window(canvas.window());
         }
-        let creator = FrameCreator::new(&canvas, session, windowed_scale, gpu.clone());
+        let creator = FrameCreator::new(&canvas, session, windowed_scale, geometry, gpu.clone());
         let presentation_requested = presentation;
         let presentation = if presentation == Presentation::Hyllian && effect.is_none() {
             Presentation::Pixels
@@ -398,6 +413,19 @@ impl Window {
 
     pub fn texture_creator(&self) -> FrameCreator {
         self.creator.clone()
+    }
+
+    /// Update engine video-mode metadata without changing the saved preference
+    /// or the player's window size. Menu labels and renderer share this value.
+    pub fn set_display_geometry(&mut self, geometry: DisplayGeometry) -> Result<(), String> {
+        let size = geometry.display_size(self.requested.aspect_ratio);
+        if size != self.minimum_pixels {
+            configure(&mut self.canvas, size.0, size.1)?;
+            update_minimum_size(self.canvas.window_mut(), size)?;
+            self.minimum_pixels = size;
+        }
+        self.creator.geometry.set(geometry);
+        Ok(())
     }
 
     pub fn poll_events(&mut self) -> impl Iterator<Item = Event> + '_ {
@@ -603,8 +631,7 @@ impl Window {
             drop(old);
             let built = Self::build(
                 &title,
-                self.minimum_pixels.0,
-                self.minimum_pixels.1,
+                self.creator.geometry.get(),
                 requested.clone(),
                 requested.presentation,
                 false,
@@ -616,8 +643,7 @@ impl Window {
                 Err(error) => {
                     let restored = Self::build(
                         &title,
-                        self.minimum_pixels.0,
-                        self.minimum_pixels.1,
+                        self.creator.geometry.get(),
                         previous.clone(),
                         presentation,
                         false,
@@ -630,8 +656,7 @@ impl Window {
                         safe.backend = reforge_settings::Backend::Auto;
                         Self::build(
                             &title,
-                            self.minimum_pixels.0,
-                            self.minimum_pixels.1,
+                            self.creator.geometry.get(),
                             safe,
                             Presentation::Pixels,
                             false,
@@ -676,6 +701,16 @@ impl Window {
             eprintln!("REforge: {}", candidate.renderer_status());
             std::mem::swap(self, &mut candidate);
             return error.map_or(Ok(()), Err);
+        }
+        if requested.aspect_ratio != self.requested.aspect_ratio {
+            let size = self
+                .creator
+                .geometry
+                .get()
+                .display_size(requested.aspect_ratio);
+            configure(&mut self.canvas, size.0, size.1)?;
+            update_minimum_size(self.canvas.window_mut(), size)?;
+            self.minimum_pixels = size;
         }
         // SAFETY: canvas owns a live renderer on its main thread. SDL retains no Rust memory.
         if !unsafe {
@@ -1631,6 +1666,47 @@ mod tests {
                     .unwrap();
             assert_eq!(display.canvas.window().minimum_size(), minimum);
         }
+    }
+
+    #[test]
+    #[ignore = "requires SDL video; run serially with the dummy driver or a desktop"]
+    fn aspect_changes_and_video_modes_survive_renderer_replacement() {
+        let color = DisplayGeometry::new((320, 200), (320, 240));
+        let mono = DisplayGeometry::new((640, 200), (320, 240));
+        let mut display = Window::new_with_geometry(
+            "aspect metadata check",
+            color,
+            Some(3),
+            Presentation::Pixels,
+        )
+        .unwrap();
+        let creator = display.texture_creator();
+        let mut frame = FrameTexture::new(&creator, 640, 200, FrameFormat::Rgb).unwrap();
+        frame.update(&[255; 640 * 200 * 3]).unwrap();
+        let before = display.canvas.window().size();
+        assert_eq!(display.canvas.logical_size().0, 320);
+        assert_eq!(display.canvas.logical_size().1, 240);
+        let mut requested = display.settings();
+        requested.aspect_ratio = AspectRatio::Square;
+        display.apply_settings(requested.clone()).unwrap();
+        assert_eq!(display.minimum_pixels, (320, 200));
+        assert_eq!(display.canvas.window().size(), before);
+        display.present(&frame).unwrap();
+        display.set_display_geometry(mono).unwrap();
+        assert_eq!(display.minimum_pixels, (640, 200));
+        assert_eq!(creator.geometry.get().ratio(AspectRatio::Square), (16, 5));
+        // Rebuild, rather than merely changing a viewport, while Square is active.
+        requested.renderer = reforge_settings::Renderer::Software;
+        display.apply_settings(requested.clone()).unwrap();
+        assert_eq!(display.minimum_pixels, (640, 200));
+        assert_eq!(creator.geometry.get(), mono);
+        display.present(&frame).unwrap();
+        requested.aspect_ratio = AspectRatio::Original;
+        display.apply_settings(requested).unwrap();
+        assert_eq!(display.minimum_pixels, (320, 240));
+        display.set_display_geometry(color).unwrap();
+        assert_eq!(display.minimum_pixels, (320, 240));
+        display.present(&frame).unwrap();
     }
 
     #[test]

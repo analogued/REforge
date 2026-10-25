@@ -1279,7 +1279,8 @@ mod tests {
                     .unwrap()
                     .0
                     .into_iter()
-                    .find(|t| matches!(t.kind, Kind::Selector))
+                    .filter(|t| matches!(t.kind, Kind::Selector))
+                    .nth(1) // Renderer follows the new Aspect ratio selector.
                     .unwrap()
             })
         };
@@ -1464,11 +1465,12 @@ mod tests {
                     let targets = menu
                         .context
                         .data(|data| data.get_temp::<Targets>(targets_key()).unwrap().0);
-                    let renderer = targets
+                    let aspect = targets
                         .iter()
                         .position(|t| matches!(t.kind, Kind::Selector))
                         .unwrap();
-                    let top_controls: Vec<_> = targets[..renderer]
+                    let renderer = aspect + 1;
+                    let top_controls: Vec<_> = targets[..aspect]
                         .iter()
                         .filter(|t| matches!(t.kind, Kind::Control))
                         .collect();
@@ -1489,8 +1491,9 @@ mod tests {
                         .iter()
                         .find(|t| matches!(t.kind, Kind::Slider))
                         .map(|t| t.id);
-                    let below_scale = slider.unwrap_or(targets[renderer].id);
-                    let above_renderer = slider.unwrap_or(auto);
+                    let below_scale = slider.unwrap_or(targets[aspect].id);
+                    let above_aspect = slider.unwrap_or(auto);
+                    let above_renderer = targets[aspect].id;
                     for (source, key, expected, label) in [
                         (
                             windowed,
@@ -1510,6 +1513,18 @@ mod tests {
                             Key::ArrowDown,
                             below_scale,
                             "Window scale -> next row",
+                        ),
+                        (
+                            targets[aspect].id,
+                            Key::ArrowUp,
+                            above_aspect,
+                            "Aspect ratio -> previous row",
+                        ),
+                        (
+                            targets[aspect].id,
+                            Key::ArrowDown,
+                            targets[renderer].id,
+                            "Aspect ratio -> Renderer",
                         ),
                         (
                             targets[renderer].id,

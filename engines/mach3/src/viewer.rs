@@ -34,8 +34,15 @@ use crate::{
     startup::{Presentation, Screen, StartupFrames},
 };
 
-// CGA mode 4 stores 320x200 pixels but fills a 4:3 display (pixel aspect 5:6).
-const DISPLAY_HEIGHT: u32 = 240;
+// Modes 4 and 6 share a 4:3 display, but have different native pixel grids.
+// display_rgb's doubled colour texture is an implementation detail, not mode 6.
+fn display_geometry(mode: DisplayMode) -> reforge_sdl::DisplayGeometry {
+    let width = match mode {
+        DisplayMode::Color => WIDTH as u32,
+        DisplayMode::Monochrome => WIDTH as u32 * 2,
+    };
+    reforge_sdl::DisplayGeometry::new((width, HEIGHT as u32), (320, 240))
+}
 const GAME_NAME: &str = "Mach 3";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

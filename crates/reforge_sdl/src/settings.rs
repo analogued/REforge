@@ -1566,6 +1566,7 @@ mod tests {
             &canvas,
             reforge_settings::Session::for_window(None),
             4,
+            crate::DisplayGeometry::new((320, 200), (320, 240)),
             None,
         );
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());

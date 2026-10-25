@@ -978,10 +978,9 @@ pub(super) fn run(
         .keyboard
         .set_f3_mode(options.f3_mode);
     let mut status = simulation.status();
-    let mut window = Window::new_with_presentation(
+    let mut window = Window::new_with_geometry(
         &game_title(GAME_NAME, Some(status)),
-        WIDTH as u32,
-        DISPLAY_HEIGHT,
+        display_geometry(simulation.display_mode()),
         options.scale,
         options.presentation,
     )?;
@@ -1311,6 +1310,7 @@ pub(super) fn run(
             continue;
         }
         if repaint {
+            window.set_display_geometry(display_geometry(simulation.display_mode()))?;
             texture.update(&display_rgb(
                 &simulation.visible,
                 simulation.display_mode(),

@@ -745,10 +745,9 @@ pub(super) fn run(
     let mut step_key_held = false;
     let mut host_pause = HostPause::default();
     let mut input = ControlInput::default();
-    let mut window = Window::new_with_presentation(
+    let mut window = Window::new_with_geometry(
         &game_title(GAME_NAME, Some(screen_status(Screen::Splash))),
-        WIDTH as u32,
-        DISPLAY_HEIGHT,
+        display_geometry(game.session.controls.preferences.display_mode),
         scale,
         options.presentation,
     )?;
@@ -1046,6 +1045,9 @@ pub(super) fn run(
             } else {
                 frames.frame(shown)
             };
+            window.set_display_geometry(display_geometry(
+                game.session.controls.preferences.display_mode,
+            ))?;
             texture
                 .update(&display_rgb(
                     frame,

@@ -14,6 +14,7 @@ pub use audio::{AudioSettings, CategoryVolumes, SoundCategory, SoundRenderer};
 pub const DISPLAY_KEYS: &[&str] = &[
     "window_mode",
     "scale",
+    "aspect_ratio",
     "renderer",
     "backend",
     "vsync",
@@ -84,6 +85,32 @@ fn section(key: &str) -> &'static str {
         "display"
     }
 }
+/// Semantic preference; engines supply the numeric display/pixel ratios.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum AspectRatio {
+    #[default]
+    Original,
+    Square,
+}
+impl AspectRatio {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Original => "original",
+            Self::Square => "square",
+        }
+    }
+}
+impl std::str::FromStr for AspectRatio {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "original" => Ok(Self::Original),
+            "square" => Ok(Self::Square),
+            _ => Err("aspect ratio must be original or square".into()),
+        }
+    }
+}
+
 /// Shared host presentation, independent of game palettes and framebuffer storage.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Presentation {
@@ -304,6 +331,7 @@ impl Default for Mach3Settings {
 pub struct RuntimeSettings {
     pub fullscreen: bool,
     pub scale: Option<u32>,
+    pub aspect_ratio: AspectRatio,
     pub renderer: Renderer,
     pub backend: Backend,
     pub vsync: bool,
@@ -321,6 +349,7 @@ impl Default for RuntimeSettings {
         Self {
             fullscreen: false,
             scale: None,
+            aspect_ratio: AspectRatio::default(),
             renderer: Renderer::Auto,
             backend: Backend::Auto,
             vsync: true,
@@ -426,6 +455,7 @@ impl RuntimeSettings {
             }
             .into(),
             "scale" => self.scale.map_or("auto".into(), |x| x.to_string()),
+            "aspect_ratio" => self.aspect_ratio.as_str().into(),
             "renderer" => self.renderer.as_str().into(),
             "backend" => self.backend.as_str().into(),
             "vsync" => self.vsync.to_string(),
@@ -483,6 +513,7 @@ impl RuntimeSettings {
                 }
             }
             "renderer" => self.renderer = value.parse()?,
+            "aspect_ratio" => self.aspect_ratio = value.parse()?,
             "backend" => self.backend = value.parse()?,
             "vsync" => {
                 self.vsync = match value {
@@ -1239,6 +1270,45 @@ digitized_samples = false
         }
         assert!(value.set("output_device", "").is_err());
     }
+    #[test]
+    fn aspect_preference_round_trips_without_persisting_an_engine_ratio() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let mut s = session(path.clone(), "mach-3");
+        assert_eq!(s.saved.game_values().aspect_ratio, AspectRatio::Original);
+        let mut d = s.saved.clone();
+        d.edit(false, "aspect_ratio", "square".into());
+        d.edit(true, "aspect_ratio", "original".into());
+        s.commit(d).unwrap();
+        let loaded = session(path.clone(), "mach-3");
+        assert_eq!(
+            loaded.saved.global_values().aspect_ratio,
+            AspectRatio::Square
+        );
+        assert_eq!(
+            loaded.saved.game_values().aspect_ratio,
+            AspectRatio::Original
+        );
+        assert_eq!(
+            session(path.clone(), "alley-cat")
+                .saved
+                .game_values()
+                .aspect_ratio,
+            AspectRatio::Square
+        );
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("aspect_ratio = \"square\""));
+        assert!(text.contains("aspect_ratio = \"original\""));
+        assert!(!text.contains("4:3"));
+        let mut d = loaded.saved.clone();
+        d.reset_section(true, 0);
+        assert_eq!(d.game_values().aspect_ratio, AspectRatio::Square);
+        let mut settings = RuntimeSettings::default();
+        for invalid in ["4:3", "16:9", "square-pixels", ""] {
+            assert!(settings.set("aspect_ratio", invalid).is_err());
+        }
+    }
+
     #[test]
     fn sections_round_trip_sparse_parameters_and_reset_independently() {
         let dir = TestDir::new();

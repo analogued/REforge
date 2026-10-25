@@ -380,8 +380,7 @@ mod tests {
             let requested = session.effective(&session.saved);
             let mut display = Window::build(
                 "menu geometry test",
-                320,
-                240,
+                crate::DisplayGeometry::new((320, 200), (320, 240)),
                 requested,
                 crate::Presentation::Pixels,
                 true,
@@ -558,8 +557,7 @@ fn desktop_menu_geometry_smoke() {
         let requested = session.effective(&session.saved);
         let mut display = Window::build(
             "REforge settings sizing test",
-            320,
-            240,
+            crate::DisplayGeometry::new((320, 200), (320, 240)),
             requested,
             crate::Presentation::Pixels,
             true,

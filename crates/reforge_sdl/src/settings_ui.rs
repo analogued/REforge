@@ -9,8 +9,8 @@ use crate::settings_navigation::{
 use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
-    Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, Presentation, Renderer,
-    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, SoundCategory,
+    AspectRatio, Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, Presentation,
+    Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, SoundCategory,
     SoundRenderer, section_index,
 };
 const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
@@ -47,6 +47,7 @@ pub(super) fn draw(
     drop(session);
     let draft = menu.draft.as_mut().expect("open draft");
     let windowed_scale = menu.creator.windowed_scale.get();
+    let geometry = menu.creator.geometry.get();
     let width = (screen.width() - 36.0).clamp(300.0, 860.0);
     let height = (screen.height() - 48.0).clamp(260.0, 650.0);
     let body_height = (height - 120.0).clamp(160.0, 450.0);
@@ -247,6 +248,30 @@ pub(super) fn draw(
                                             if value.scale.is_some() {
                                                 value.scale = Some(n);
                                             }
+                                        },
+                                    );
+                                    row(
+                                        ui,
+                                        "Aspect ratio",
+                                        "aspect_ratio",
+                                        value.clone(),
+                                        base.clone(),
+                                        previous.clone(),
+                                        menu.scope,
+                                        &cli,
+                                        |ui| {
+                                            Selector::new(
+                                                "aspect_ratio",
+                                                [AspectRatio::Original, AspectRatio::Square].map(
+                                                    |aspect| {
+                                                        Choice::new(
+                                                            aspect,
+                                                            geometry.label(aspect, menu.scope == 1),
+                                                        )
+                                                    },
+                                                ),
+                                            )
+                                            .show(ui, &mut value.aspect_ratio);
                                         },
                                     );
                                     section(ui, "Rendering");

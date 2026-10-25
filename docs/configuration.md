@@ -2,7 +2,7 @@
 
 F10 opens the Compact Settings menu in either game. The Display page offers
 window mode (windowed or borderless desktop fullscreen), window scale (Auto or
-×1–×16), renderer, backend, VSync and a frame limiter. CRT & Colour offers sharp
+×1–×16), aspect ratio, renderer, backend, VSync and a frame limiter. CRT & Colour offers sharp
 pixels or Hyllian CRT with adjustable shader controls. Colour profiles and white
 points remain future work. Audio offers enable sound, master/category volumes, per-game
 sound renderer, output device and focus muting.
@@ -19,6 +19,20 @@ otherwise it goes to Reset. Tab retains the footer's visual order. Menu input
 does not reach gameplay.
 With Auto selected, the disabled scale slider shows the resolved windowed
 multiplier. Turning Auto off starts manual scaling at that value.
+
+Aspect ratio stores `original` (the default) or `square`. Each engine supplies
+its native pixel grid and aspect-corrected base display size; the shared menu and
+renderer use that same metadata. Global labels are Original display / Square
+pixels; game labels include the resolved ratios. Both current games use 320×200
+pixels on a 4:3 display, giving square pixels an 8:5 ratio. Mach 3's F3 monochrome
+mode uses 640×200 pixels, so Square pixels becomes 16:5 while Original stays 4:3.
+An expanded upload texture does not change the engine's native pixel geometry.
+Future engines may supply other ratios without changing the shared menu.
+
+Applying an aspect change fits the new proportions inside the existing window;
+it does not resize the window or alter gameplay. A later window-scale request
+uses the selected aspect's base dimensions, including fullscreen's deferred
+window-size request. Presentation still uses integer fitting and nearest sampling.
 
 Settings use the desktop's UI scale independently of the game scale. A normal
 window below 569 × 420 logical UI units temporarily grows towards 630 × 470,
@@ -59,6 +73,7 @@ schema_version = 1
 [global.display]
 window_mode = "windowed"
 scale = "auto"
+aspect_ratio = "original"
 renderer = "auto"
 backend = "auto"
 vsync = true

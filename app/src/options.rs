@@ -128,7 +128,7 @@ const SPECS: &[Spec] = &[
         game: None,
         value: Value::Flag,
         dev: false,
-        description: "List supported games and verified releases",
+        description: "List supported games",
     },
     Spec {
         name: "--machine",

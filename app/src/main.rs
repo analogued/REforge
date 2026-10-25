@@ -161,14 +161,11 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
     let input = extract(args);
     if input.list {
         warn(&input.warnings);
+        let mut listed = std::collections::HashSet::new();
         for release in detection::RELEASES {
-            println!(
-                "{}: {} — {} (engine {})",
-                release.game.id(),
-                release.game.title(),
-                release.id,
-                release.game.engine_id()
-            );
+            if listed.insert(release.game.id()) {
+                println!("{}: {}", release.game.id(), release.game.title());
+            }
         }
         return Ok(());
     }

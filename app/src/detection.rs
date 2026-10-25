@@ -31,13 +31,6 @@ impl Game {
             Self::Mach3 => "Mach 3",
         }
     }
-
-    pub const fn engine_id(self) -> &'static str {
-        match self {
-            Self::AlleyCat => "alleycat",
-            Self::Mach3 => "mach3",
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -736,13 +729,6 @@ mod tests {
     fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
         assert_eq!(RELEASES.len(), 2);
         for release in RELEASES {
-            assert_eq!(
-                release.game.engine_id(),
-                match release.game {
-                    Game::AlleyCat => "alleycat",
-                    Game::Mach3 => "mach3",
-                }
-            );
             assert!(release.id.contains("verified-reference"));
             assert!(!release.game.id().is_empty());
             for file in release.files {

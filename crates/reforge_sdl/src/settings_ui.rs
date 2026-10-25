@@ -81,7 +81,7 @@ pub(super) fn draw(
             });
             let controls_visible = menu.scope == 1 && menu.alleycat_options;
             ui.separator();
-            ui.horizontal_top(|ui| {
+            let body = ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(132.0);
                     ui.add_space(6.0);
@@ -96,7 +96,9 @@ pub(super) fn draw(
                         }
                     }
                 });
-                ui.separator();
+                // Reserve the divider's width without expanding this row to
+                // all available height. Paint it after measuring both columns.
+                let (_, divider) = ui.allocate_space(Vec2::new(6.0, 0.0));
                 ui.vertical(|ui| {
                     ui.set_width((width - 164.0).max(180.0));
                     ui.heading(PAGES[menu.page]);
@@ -150,7 +152,7 @@ pub(super) fn draw(
                         .animated(false)
                         .id_salt(("settings_content", menu.page))
                         .max_height((height - 215.0 - notice_height).max(80.0))
-                        .auto_shrink([false, false])
+                        .auto_shrink([false, true])
                         .show(ui, |ui| {
                             let first = crate::settings_navigation::scroll_start(ui.ctx());
                             ui.add_enabled_ui(enabled || menu.page == 2, |ui| {
@@ -381,55 +383,66 @@ pub(super) fn draw(
                         }
                     }
                 });
+                divider.center().x
             });
+            ui.painter().vline(
+                body.inner,
+                body.response.rect.y_range(),
+                ui.visuals().widgets.noninteractive.bg_stroke,
+            );
             ui.separator();
             ui.horizontal_wrapped(|ui| {
-                if control(ui.button(if menu.scope == 0 {
-                    "Reset section"
-                } else if menu.page == 3 || (menu.page == 2 && menu.mach3_options) {
-                    "Restore defaults"
-                } else {
-                    "Restore global defaults"
-                }))
-                .clicked()
-                {
-                    if menu.scope == 0 {
-                        draft.reset_section(false, menu.page);
+                // The footer shares a vertical navigation column with the
+                // settings, even when its buttons sit left of the value fields.
+                let bounds = ui.max_rect();
+                crate::settings_navigation::row_controls(ui, bounds, |ui| {
+                    if control(ui.button(if menu.scope == 0 {
+                        "Reset section"
+                    } else if menu.page == 3 || (menu.page == 2 && menu.mach3_options) {
+                        "Restore defaults"
                     } else {
-                        draft.reset_section(true, menu.page);
-                        menu.game_editing[menu.page] = false;
-                        menu.game_touched[menu.page] = true;
+                        "Restore global defaults"
+                    }))
+                    .clicked()
+                    {
+                        if menu.scope == 0 {
+                            draft.reset_section(false, menu.page);
+                        } else {
+                            draft.reset_section(true, menu.page);
+                            menu.game_editing[menu.page] = false;
+                            menu.game_touched[menu.page] = true;
+                        }
                     }
-                }
-                let apply = control(ui.add_enabled(
-                    *draft != saved || menu.error.is_some(),
-                    egui::Button::new("Apply"),
-                ));
-                #[cfg(test)]
-                {
-                    menu.apply_rect = Some(apply.rect);
-                }
-                if apply.clicked() {
-                    draft.normalize_treatments(&saved);
-                    let baseline = draft.global_values();
-                    draft.game.retain(|key, v| {
-                        let page = section_index(key);
-                        !menu.game_touched[page] || *v != baseline.get(key)
+                    let apply = control(ui.add_enabled(
+                        *draft != saved || menu.error.is_some(),
+                        egui::Button::new("Apply"),
+                    ));
+                    #[cfg(test)]
+                    {
+                        menu.apply_rect = Some(apply.rect);
+                    }
+                    if apply.clicked() {
+                        draft.normalize_treatments(&saved);
+                        let baseline = draft.global_values();
+                        draft.game.retain(|key, v| {
+                            let page = section_index(key);
+                            !menu.game_touched[page] || *v != baseline.get(key)
+                        });
+                        menu.pending = Some(draft.clone());
+                    }
+                    let cancel = control(ui.button("Cancel"));
+                    #[cfg(test)]
+                    {
+                        menu.cancel_rect = Some(cancel.rect);
+                    }
+                    if cancel.clicked() {
+                        close = true;
+                    }
+                    ui.weak(if *draft != saved {
+                        "Unapplied changes"
+                    } else {
+                        "No pending changes"
                     });
-                    menu.pending = Some(draft.clone());
-                }
-                let cancel = control(ui.button("Cancel"));
-                #[cfg(test)]
-                {
-                    menu.cancel_rect = Some(cancel.rect);
-                }
-                if cancel.clicked() {
-                    close = true;
-                }
-                ui.weak(if *draft != saved {
-                    "Unapplied changes"
-                } else {
-                    "No pending changes"
                 });
             });
             if let Some(error) = menu.error.as_ref().or(warning.as_ref()) {

@@ -21,6 +21,12 @@ does not reach gameplay.
 With Auto selected, the disabled scale slider shows the resolved windowed
 multiplier. Turning Auto off starts manual scaling at that value.
 
+The frame limiter controls presentation, independently of game simulation.
+It keeps a steady deadline schedule so ordinary polling delays do not accumulate
+as a lower average FPS. A missed full interval resets that schedule instead of
+building up a burst of overdue frames. Rendering capacity, engine frame updates
+and VSync can still limit the achieved rate; Unlimited removes the software cap.
+
 Aspect ratio stores `original` (the default) or `square`. Each engine supplies
 its native pixel grid and aspect-corrected base display size; the shared menu and
 renderer use that same metadata. Global labels are Original display / Square

@@ -105,9 +105,22 @@ replaying the splash. An explicit `--difficulty` skips the skill question and
 shows controls with a separate key-to-start wait. Menu waits ignore desktop
 shortcuts, modifier keys alone and held-key repeats.
 
+## Startup seed and original bad-state guard
+
+Normal play uses the original `2e10` counter-byte swap and zero-to-`0xfa59`
+fallback. A modeled channel-zero count with a host-time phase supplies the sample;
+physical DOS PIT access and its initial phase are not reproduced. Explicit
+`--seed` values bypass sampling. The shared game generator is unchanged.
+
+The original can produce seed 1, whose next state is zero and prevents scenery
+initialization from completing. Automatic startup resamples this one invalid
+result; explicit seeds 0 and 1 are rejected. Headless, explicit-scene and uniform
+step diagnostics keep their historical default seed for comparisons. An explicit
+seed takes precedence in every mode.
+
 ## Manual restart state
 
-Ctrl+R and selecting a new run through Ctrl+M reset the initial development seed
+Ctrl+R and selecting a new run through Ctrl+M reset the chosen startup seed
 and ordinary-room selection history for reproducible testing. The original
 seeds and clears this history only at first startup. Automatic last-life returns
 to the title retain the shared random state and room history, as in the original.

@@ -154,9 +154,9 @@ const SPECS: &[Spec] = &[
     Spec {
         name: "--seed",
         game: Some(Game::AlleyCat),
-        value: Value::Integer(0, 65535),
-        dev: true,
-        description: "Random seed, decimal or 0xHEX (default 0xfa59)",
+        value: Value::Integer(2, 65535),
+        dev: false,
+        description: "Explicit startup seed, 2..65535 or 0xHEX (default timer-derived)",
     },
     Spec {
         name: "--step-hz",
@@ -1129,6 +1129,23 @@ mod tests {
         }
     }
     #[test]
+    fn alleycat_seed_is_a_player_option_and_is_rejected_for_other_games() {
+        let result = prepare(args(&["--seed", "0xfa59"]), Game::AlleyCat);
+        assert!(result.warnings.is_empty());
+        assert_eq!(result.args, args(&["--seed", "64089"]));
+        assert!(help(Some(Game::AlleyCat)).contains("--seed"));
+        accepted(&result, Game::AlleyCat);
+        let other = prepare(args(&["--seed", "0xfa59"]), Game::Mach3);
+        assert!(other.args.is_empty());
+        assert_eq!(other.warnings.len(), 1);
+        for value in ["0", "1", "65536"] {
+            let invalid = prepare(args(&["--seed", value]), Game::AlleyCat);
+            assert!(invalid.args.is_empty());
+            assert_eq!(invalid.warnings.len(), 1);
+        }
+    }
+
+    #[test]
     fn unavailable_development_options_are_recognized_and_excluded() {
         let result = prepare(
             args(&["--scene", "cheese", "--seed", "12", "--infinite-lives"]),
@@ -1136,8 +1153,8 @@ mod tests {
         );
         #[cfg(not(feature = "dev-tools"))]
         {
-            assert!(result.args.is_empty());
-            assert_eq!(result.warnings.len(), 3);
+            assert_eq!(result.args, args(&["--seed", "12"]));
+            assert_eq!(result.warnings.len(), 2);
             assert!(result.warnings.iter().all(|w| w.contains("dev-tools")));
             assert!(!help(Some(Game::AlleyCat)).contains("--scene"));
         }

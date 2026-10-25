@@ -51,6 +51,16 @@ pub fn set_word(data: &mut [u8], offset: usize, value: u16) {
     data[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
 }
 
+/// Original CS:2e10 seed construction from an already-latched PIT channel-0
+/// count: low byte goes to AH, high byte to AL; zero uses the native fallback.
+/// The caller supplies the counter and handles unusable scenery seeds separately.
+pub fn startup_seed_from_pit(counter: u16) -> u16 {
+    match counter.swap_bytes() {
+        0 => 0xfa59,
+        seed => seed,
+    }
+}
+
 /// Advances the shared game random state once, including its original feedback.
 pub fn next_random(data: &mut [u8]) -> u16 {
     let next = random_successor(word(data, 0x2ae5));

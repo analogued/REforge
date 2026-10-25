@@ -381,6 +381,49 @@ fn timing_trace_keeps_selection_state_without_an_accepted_player_update() {
 }
 
 #[test]
+fn explicit_seed_is_available_in_every_build_and_last_value_wins() {
+    let defaults = parse(&["--original", "example.exe"]).unwrap().unwrap();
+    assert_eq!(
+        defaults.seed, None,
+        "ordinary play must not assume a fixed seed"
+    );
+    let options = parse(&[
+        "--original",
+        "example.exe",
+        "--seed",
+        "4660",
+        "--seed",
+        "0xfa59",
+    ])
+    .unwrap()
+    .unwrap();
+    assert_eq!(options.seed, Some(0xfa59));
+    assert!(HELP.contains("--seed"));
+    for value in ["65536", "-1", "nonsense"] {
+        assert!(parse(&["--original", "example.exe", "--seed", value]).is_err());
+    }
+}
+
+#[cfg(feature = "dev-tools")]
+#[test]
+fn deterministic_diagnostics_keep_their_default_without_overriding_explicit_seed() {
+    for extra in [
+        vec!["--headless"],
+        vec!["--scene", "splash"],
+        vec!["--scene", "alley"],
+        vec!["--step-hz", "36"],
+    ] {
+        let mut args = vec!["--original", "example.exe"];
+        args.extend(extra);
+        let options = parse(&args).unwrap().unwrap();
+        assert_eq!(seed::resolve(&options).unwrap(), 0xfa59);
+        args.extend(["--seed", "0x1234"]);
+        let options = parse(&args).unwrap().unwrap();
+        assert_eq!(seed::resolve(&options).unwrap(), 0x1234);
+    }
+}
+
+#[test]
 fn invalid_player_options_are_rejected() {
     for args in [
         vec!["--original", "example.exe", "--scale", "0"],
@@ -398,7 +441,6 @@ fn invalid_player_options_are_rejected() {
 #[test]
 fn normal_parser_rejects_every_development_flag() {
     for flag in [
-        "--seed",
         "--scene",
         "--step-hz",
         "--headless",
@@ -455,8 +497,8 @@ fn development_parser_retains_diagnostics_and_switches() {
     ])
     .unwrap()
     .unwrap();
+    assert_eq!(options.seed, Some(0x1234));
     let dev = options.dev;
-    assert_eq!(dev.seed, 0x1234);
     assert!(dev.scene == StartScene::Underwater);
     assert!(dev.headless && dev.timed && dev.switches.infinite_lives);
     assert!(dev.switches.original_window_timing);

@@ -190,9 +190,21 @@ gameplay immediately. `--scene splash` previews only the title screen. In that p
 and `--step-hz` are not available for splash previews. Headless gameplay runs
 continue to bypass the splash by default.
 
-`--seed` selects a 16-bit random seed from 2 through 65535, in decimal or
-`0xHEX` notation. Seeds 0 and 1 cannot initialize scenery and are rejected.
-The internal default remains `0xfa59` in both builds.
+Ordinary play samples a varying startup seed once before the title. Original
+routine `2e10` latches PIT channel zero, puts its low byte in AH and high byte in
+AL, and substitutes `0xfa59` for zero. REforge applies that same transformation
+to its modeled mode-3 PIT count, using host wall time for the initial phase.
+It does not read physical PIT ports or change the gameplay clock. Automatic
+sampling retries the known unusable seed 1; the shared random generator and
+subsequent call order are unchanged.
+
+The player option `--seed` selects an explicit 16-bit seed from 2 through 65535
+in decimal or `0xHEX` notation, in normal and development builds. Seeds 0 and 1
+cannot initialize scenery and are rejected. The chosen seed is printed at
+startup. Headless, explicit-scene and uniform `--step-hz` diagnostics retain
+`0xfa59` when no seed is supplied; reference runs should pass their seed
+explicitly. Matching a seed still requires matching title duration, inputs and
+execution history for a deterministic comparison.
 
 `--original-window-timing` restores the original one-tick window hold at
 difficulty 6. Both builds default to the corrected 18-tick hold. See
@@ -379,7 +391,7 @@ The initial splash carries its shared data into the skill menu and first game.
 Its scenery and animation advance the same random state used to generate the
 first alley, so time spent watching the title can affect the starting layout.
 The menu preserves that state, including native sound-toggle changes. Explicit
-manual restarts retain the configured development seed and reset room history;
+manual restarts retain the chosen startup seed and reset room history;
 direct development scene starts bypass the title. The later game-over title
 carries the previous run's random state into its animation and next run.
 Windowed execution uses a virtual BIOS/PIT

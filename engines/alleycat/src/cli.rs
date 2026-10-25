@@ -17,7 +17,7 @@ use alleycat::splash::Splash;
 use alleycat::timing::{RetraceProfile, VirtualClock};
 use std::path::PathBuf;
 
-const DEFAULT_SEED: u16 = 0xfa59;
+mod seed;
 #[cfg(feature = "sdl")]
 const GAME_NAME: &str = "Alley Cat";
 
@@ -36,6 +36,7 @@ Usage: reforge --original /path/to/CAT.EXE [options]
   --scale auto|1..16       Initial drawable pixel multiplier (default: auto)
   --presentation pixels|hyllian  Window presentation (default: pixels; unavailable shader falls back)
   --difficulty N          Initial difficulty 0..7; skips the skill question
+  --seed N                Explicit startup seed 2..65535, decimal or 0xHEX (default: timer-derived play)
   --help                  Show this help
 
 Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
@@ -54,8 +55,8 @@ Your original executable is required; original data is never bundled.";
 #[cfg(feature = "dev-tools")]
 const DEV_HELP: &str = "
 Development options (compiled with dev-tools):
+Headless, explicit-scene and --step-hz runs default to seed 0xfa59 unless --seed is supplied.
   --scene NAME            Start in splash, alley, fishbowl, underwater, bookcase, cheese, birdcage, milk, hearts or completion
-  --seed N                Random seed, decimal or 0xHEX (default: 0xfa59)
   --step-hz N             Diagnostic accepted updates/sec
   --headless              Run without a window
   --timed                 Use the reference clock in headless runs
@@ -98,6 +99,7 @@ struct Options {
     presentation: reforge_sdl::Presentation,
     difficulty: u16,
     difficulty_selected: bool,
+    seed: Option<u16>,
     #[cfg(feature = "dev-tools")]
     dev: DiagnosticOptions,
 }
@@ -106,7 +108,6 @@ struct Options {
 struct DiagnosticOptions {
     scene: StartScene,
     scene_selected: bool,
-    seed: u16,
     step_hz: Option<f64>,
     headless: bool,
     timed: bool,
@@ -125,7 +126,6 @@ impl Default for DiagnosticOptions {
         Self {
             scene: StartScene::Alley,
             scene_selected: false,
-            seed: DEFAULT_SEED,
             step_hz: None,
             headless: false,
             timed: false,
@@ -161,6 +161,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
         presentation: reforge_sdl::Presentation::Pixels,
         difficulty: 0,
         difficulty_selected: false,
+        seed: None,
         #[cfg(feature = "dev-tools")]
         dev: DiagnosticOptions::default(),
     };
@@ -224,8 +225,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
                 result.difficulty = integer(&value()?)?;
                 result.difficulty_selected = true;
             }
-            #[cfg(feature = "dev-tools")]
-            "--seed" => result.dev.seed = integer(&value()?)?,
+            "--seed" => result.seed = Some(integer(&value()?)?),
             #[cfg(feature = "dev-tools")]
             "--scene" => {
                 result.dev.scene_selected = true;
@@ -335,11 +335,8 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
     let Some(options) = parse_options(args)? else {
         return Ok(());
     };
-    #[cfg(feature = "dev-tools")]
-    let seed = options.dev.seed;
-    #[cfg(not(feature = "dev-tools"))]
-    let seed = DEFAULT_SEED;
-    crate::assets::validate_startup_seed(seed)?;
+    let seed = seed::resolve(&options)?;
+    eprintln!("Alley Cat: startup seed 0x{seed:04x}");
     let assets = crate::assets::Assets::load(&options.original)?;
     #[cfg(any(feature = "sdl", feature = "dev-tools"))]
     let startup = {

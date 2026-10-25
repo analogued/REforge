@@ -61,6 +61,11 @@ the PCjr palette. Both modes currently use PC Speaker sound.
 Kitten through Alley Cat. The command line also accepts the later progression
 levels `4` through `7`.
 
+**Startup seed:** normal launches choose a timer-derived seed, printed in the
+terminal. Add `--seed 0xfa59` (or another value from 2 through 65535) to repeat a
+starting seed. The original random generator is retained; matching gameplay
+also requires matching title duration and inputs.
+
 For fullscreen, scaling, CRT presentation and volume, use the shared
 [Settings menu](../configuration.md). Music and Effects have separate levels;
 Speech is disabled because this game has no speech. The Ctrl+S game switch is

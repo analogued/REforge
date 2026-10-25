@@ -12,7 +12,7 @@ use sdl3::{
     mouse::{MouseButton, MouseWheelDirection},
     pixels::{FColor, PixelFormat},
     rect::Rect,
-    render::{BlendMode, FPoint, ScaleMode, Vertex, WindowCanvas},
+    render::{BlendMode, FPoint, FRect, ScaleMode, Vertex, WindowCanvas},
 };
 
 use crate::FrameCreator;
@@ -105,6 +105,7 @@ pub struct SettingsMenu<'a> {
     pub(super) status: Option<String>,
     pub(super) jobs: Vec<egui::ClippedPrimitive>,
     pub(super) pending_textures: egui::TexturesDelta,
+    software_spans: Vec<FRect>,
     pub(super) density: f32,
     pub(super) started: Instant,
     pub(super) focused: bool,
@@ -205,6 +206,7 @@ impl<'a> SettingsMenu<'a> {
             status: None,
             jobs: Vec::new(),
             pending_textures: egui::TexturesDelta::default(),
+            software_spans: Vec::new(),
             density: 1.0,
             started: Instant::now(),
             focused: true,
@@ -570,6 +572,8 @@ impl<'a> SettingsMenu<'a> {
             .then(|| canvas.viewport());
         let clip = canvas.clip_rect();
         let scale = canvas.scale();
+        let draw_color = canvas.draw_color();
+        let blend = canvas.blend_mode();
         let result = (|| {
             canvas
                 .set_logical_size(0, 0, sdl3::sys::render::SDL_LOGICAL_PRESENTATION_DISABLED)
@@ -591,6 +595,8 @@ impl<'a> SettingsMenu<'a> {
             });
         canvas.set_viewport(viewport);
         canvas.set_clip_rect(clip);
+        canvas.set_draw_color(draw_color);
+        canvas.set_blend_mode(blend);
         result.and(restore)
     }
 
@@ -694,9 +700,21 @@ impl<'a> SettingsMenu<'a> {
                 })
                 .collect();
             texture.with(|texture| {
-                canvas
-                    .render_geometry(&vertices, Some(texture), &mesh.indices)
-                    .map_err(|error| error.to_string())
+                if straight_alpha {
+                    crate::settings_software::paint(
+                        canvas,
+                        texture,
+                        &vertices,
+                        &mesh.indices,
+                        mesh.texture_id == TextureId::Managed(0),
+                        clip,
+                        &mut self.software_spans,
+                    )
+                } else {
+                    canvas
+                        .render_geometry(&vertices, Some(texture), &mesh.indices)
+                        .map_err(|error| error.to_string())
+                }
             })??;
         }
         for id in self.pending_textures.free.drain(..) {
@@ -1557,6 +1575,158 @@ mod tests {
     }
 
     #[test]
+    fn software_fast_fills_match_reference_on_every_settings_page() {
+        const NAME: &str =
+            "settings::tests::software_fast_fills_match_reference_on_every_settings_page";
+        if std::env::var("REFORGE_SOFTWARE_IMAGE_TEST").as_deref() != Ok(NAME) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env("REFORGE_SOFTWARE_IMAGE_TEST", NAME)
+                .env("SDL_VIDEODRIVER", "dummy")
+                .env("SDL_RENDER_DRIVER", "software")
+                .env("SDL_AUDIODRIVER", "dummy")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let mut display =
+            crate::Window::new("Software menu pixel comparison", 320, 240, Some(4)).unwrap();
+        let creator = display.texture_creator();
+        let mut frame =
+            crate::FrameTexture::new(&creator, 320, 200, crate::FrameFormat::Rgba).unwrap();
+        frame.update(&[31, 67, 109, 255].repeat(320 * 200)).unwrap();
+        for game in ["alley-cat", "mach-3"] {
+            creator.session.borrow_mut().game = game.into();
+            creator.session.borrow_mut().cli =
+                reforge_settings::Patch::from([("vsync".into(), "false".into())]);
+            let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+            menu = if game == "alley-cat" {
+                menu.with_alleycat_options()
+            } else {
+                menu.with_mach3_options(None)
+            };
+            menu.toggle();
+            for density in [1.0, 1.5, 2.25, 3.0, 4.0] {
+                let metrics = UiMetrics {
+                    drawable: (1280, 960),
+                    window: (1280, 960),
+                    pixels_per_point: density,
+                };
+                for page in 0..4 {
+                    for scope in 0..2 {
+                        menu.page = page;
+                        menu.scope = scope;
+                        menu.game_editing = [true; 4];
+                        for _ in 0..3 {
+                            menu.prepare(metrics, display.settings());
+                        }
+                        let mut actual = Vec::new();
+                        display
+                            .present_with(&frame, |canvas| {
+                                menu.paint(canvas)?;
+                                actual = canvas
+                                    .read_pixels(None)
+                                    .unwrap()
+                                    .convert_format(PixelFormat::RGBA32)
+                                    .unwrap()
+                                    .with_lock(|p| p.to_vec());
+                                Ok(())
+                            })
+                            .unwrap();
+                        let mut expected = Vec::new();
+                        display
+                            .present_with(&frame, |canvas| {
+                                let logical = canvas.logical_size();
+                                let scale = canvas.scale();
+                                canvas
+                                    .set_logical_size(
+                                        0,
+                                        0,
+                                        sdl3::sys::render::SDL_LOGICAL_PRESENTATION_DISABLED,
+                                    )
+                                    .unwrap();
+                                canvas.set_scale(1.0, 1.0).unwrap();
+                                canvas.set_viewport(None);
+                                // Independent reference: replay every original mesh
+                                // through SDL's unchanged textured triangle path.
+                                for job in &menu.jobs {
+                                    let Some(clip) =
+                                        physical_clip(job.clip_rect, menu.density, (1280, 960))
+                                    else {
+                                        continue;
+                                    };
+                                    canvas.set_clip_rect(clip);
+                                    let Primitive::Mesh(mesh) = &job.primitive else {
+                                        panic!("unexpected callback");
+                                    };
+                                    let vertices: Vec<_> = mesh
+                                        .vertices
+                                        .iter()
+                                        .map(|v| {
+                                            let [r, g, b, a] = rgba(v.color, true);
+                                            Vertex {
+                                                position: FPoint::new(
+                                                    v.pos.x * menu.density,
+                                                    v.pos.y * menu.density,
+                                                ),
+                                                color: FColor::RGBA(
+                                                    f32::from(r) / 255.0,
+                                                    f32::from(g) / 255.0,
+                                                    f32::from(b) / 255.0,
+                                                    f32::from(a) / 255.0,
+                                                ),
+                                                tex_coord: FPoint::new(v.uv.x, v.uv.y),
+                                            }
+                                        })
+                                        .collect();
+                                    menu.textures[&mesh.texture_id]
+                                        .with(|texture| {
+                                            canvas
+                                                .render_geometry(
+                                                    &vertices,
+                                                    Some(texture),
+                                                    &mesh.indices,
+                                                )
+                                                .unwrap()
+                                        })
+                                        .unwrap();
+                                }
+                                canvas.set_clip_rect(None);
+                                canvas
+                                    .set_logical_size(logical.0, logical.1, logical.2)
+                                    .unwrap();
+                                canvas.set_scale(scale.0, scale.1).unwrap();
+                                canvas.set_viewport(None);
+                                expected = canvas
+                                    .read_pixels(None)
+                                    .unwrap()
+                                    .convert_format(PixelFormat::RGBA32)
+                                    .unwrap()
+                                    .with_lock(|p| p.to_vec());
+                                Ok(())
+                            })
+                            .unwrap();
+                        assert_eq!(actual.len(), expected.len());
+                        let differences =
+                            actual.iter().zip(&expected).filter(|(a, b)| a != b).count();
+                        let first = actual.iter().zip(&expected).position(|(a, b)| a != b);
+                        assert_eq!(
+                            differences, 0,
+                            "{game} page={page} scope={scope} density={density}; first byte={first:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn live_aspect_changes_after_menu_paint_keep_the_full_frame() {
         const NAME: &str =
             "settings::tests::live_aspect_changes_after_menu_paint_keep_the_full_frame";
@@ -1739,11 +1909,15 @@ mod tests {
         let clip = Rect::new(3, 4, 290, 210);
         canvas.set_viewport(viewport);
         canvas.set_clip_rect(clip);
+        canvas.set_draw_color(sdl3::pixels::Color::RGBA(14, 27, 51, 93));
+        canvas.set_blend_mode(BlendMode::Add);
         let original = (
             canvas.logical_size(),
             canvas.scale(),
             canvas.viewport(),
             canvas.clip_rect(),
+            canvas.draw_color(),
+            canvas.blend_mode(),
         );
         menu.paint(&mut canvas).unwrap();
         assert_eq!(
@@ -1751,7 +1925,9 @@ mod tests {
                 canvas.logical_size(),
                 canvas.scale(),
                 canvas.viewport(),
-                canvas.clip_rect()
+                canvas.clip_rect(),
+                canvas.draw_color(),
+                canvas.blend_mode()
             ),
             original
         );
@@ -1780,7 +1956,9 @@ mod tests {
                 canvas.logical_size(),
                 canvas.scale(),
                 canvas.viewport(),
-                canvas.clip_rect()
+                canvas.clip_rect(),
+                canvas.draw_color(),
+                canvas.blend_mode()
             ),
             original
         );

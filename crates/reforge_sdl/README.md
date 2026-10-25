@@ -260,14 +260,21 @@ incompatible saved combination resets its treatment to Sharp pixels; restoring
 a compatible renderer requires selecting Hyllian again. CLI restrictions and
 automatic GPU initialization failures remain temporary runtime fallbacks.
 
-The `settings` module uses egui core and its bundled fonts, without eframe, winit,
-wgpu or a separate CPU rasterizer. One SDL geometry adapter handles GPU, ordinary
-hardware and software rendering. UI coordinates follow SDL display content
+The `settings` module uses egui core and its bundled fonts with an SDL adapter.
+UI coordinates follow SDL display content
 scale independently of game scaling, and the panel is drawn after CRT processing.
 Textures, clipping, font filtering and renderer coordinate-state restoration
 are handled by the adapter. Hardware uses premultiplied alpha; the tested SDL
 software triangle path requires conversion to standard alpha for correct
 transparency. Software glyph/edge rasterization can differ from GPU output.
+For software rendering, large flat-colour triangles sampling the font atlas's
+white pixel use clipped horizontal spans through SDL's rectangle blitter.
+Small shapes, gradients, textures and complete rectangle pairs retain native
+geometry drawing, including SDL's rectangle endpoint rules. The adapter preserves
+paint order, pixel-centre/top-left coverage, draw colour and blend state, and
+reuses span storage. Hardware rendering keeps its existing geometry path.
+Synthetic tests compare complete menu images against textured-triangle replay
+on every page, both game menus and five UI densities; no game inputs are required.
 See the [dependency and font notices](../../THIRD_PARTY.md#bundled-fonts).
 
 `RuntimeSettings::default` supplies shared Auto/windowed defaults. Engines pass

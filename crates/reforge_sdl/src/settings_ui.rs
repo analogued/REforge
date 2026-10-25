@@ -23,6 +23,7 @@ pub(super) fn style(context: &egui::Context) {
         s.spacing.item_spacing = Vec2::new(8.0, 6.0);
         s.spacing.button_padding = Vec2::new(8.0, 3.0);
         s.spacing.interact_size.y = 22.0;
+        s.spacing.combo_width = 220.0;
         for text in [egui::TextStyle::Body, egui::TextStyle::Button] {
             s.text_styles.insert(text, egui::FontId::proportional(14.0));
         }
@@ -46,7 +47,7 @@ pub(super) fn draw(
     let windowed_scale = menu.creator.windowed_scale.get();
     let width = (screen.width() - 36.0).clamp(300.0, 860.0);
     let height = (screen.height() - 48.0).clamp(260.0, 650.0);
-    let body_height = (height - 200.0).max(160.0);
+    let body_height = (height - 120.0).clamp(160.0, 450.0);
     let mut close = false;
     egui::Window::new("Settings")
         .id(egui::Id::new("reforge_settings"))
@@ -149,14 +150,15 @@ pub(super) fn draw(
                         saved.game_values()
                     };
                     let enabled = menu.scope == 0 || menu.game_editing[menu.page];
-                    egui::ScrollArea::both()
+                    egui::ScrollArea::vertical()
                         .animated(false)
                         .id_salt(("settings_content", menu.page))
                         .max_height(ui.available_height().max(0.0))
                         .min_scrolled_width(0.0)
                         .min_scrolled_height(0.0)
                         .auto_shrink([false, false])
-                        .show(ui, |ui| {
+                        .show_viewport(ui, |ui, viewport| {
+                            ui.set_width(viewport.width());
                             let first = crate::settings_navigation::scroll_start(ui.ctx());
                             ui.add_enabled_ui(enabled || menu.page == 2, |ui| {
                                 if menu.page == 0 {
@@ -643,7 +645,7 @@ fn hyllian_controls(
             scope,
             cli,
             |ui| {
-                ui.spacing_mut().slider_width = 150.0;
+                ui.spacing_mut().slider_width = 150.0_f32.min(slider_track_width(ui, 56.0));
                 let mut n = f32::from(value.hyllian.values[i]) / 100.0;
                 let mut low = param.min;
                 let mut high = param.max;
@@ -720,7 +722,7 @@ fn audio_controls(
             cli,
             volume_width,
             |ui| {
-                ui.spacing_mut().slider_width = 220.0;
+                ui.spacing_mut().slider_width = slider_track_width(ui, 56.0);
                 value_control(
                     ui.add(egui::Slider::new(&mut value.audio.volume, 0..=100).show_value(false)),
                     Kind::Slider,
@@ -753,7 +755,7 @@ fn audio_controls(
                 volume_width,
                 |ui| {
                     ui.add_enabled_ui(scope == 0 || categories.contains(&category), |ui| {
-                        ui.spacing_mut().slider_width = 220.0;
+                        ui.spacing_mut().slider_width = slider_track_width(ui, 56.0);
                         value_control(
                             ui.add(
                                 egui::Slider::new(
@@ -1023,72 +1025,120 @@ fn row_with_width(
     let locked = lock_tooltip.is_some();
     let different = scope == 1 && value.get(key) != global.get(key);
     let dirty = !locked && value.get(key) != saved.get(key);
-    ui.horizontal(|ui| {
-        let colour = if locked {
-            Color32::from_gray(100)
-        } else if different {
-            ACCENT
+    let available = visible_width(ui);
+    let spacing = ui.spacing().item_spacing.x;
+    let markers = 20.0 + 12.0 + spacing * 2.0;
+    let stacked = !label.is_empty() && available < 145.0 + spacing + control_width + markers;
+    let control_width = if stacked {
+        (available - markers).max(1.0)
+    } else {
+        control_width.min((available - markers).max(1.0))
+    };
+    let colour = if locked {
+        Color32::from_gray(100)
+    } else if different {
+        ACCENT
+    } else {
+        ui.visuals().text_color()
+    };
+    let mut tooltip = format!(
+        "{}: {}\nSaved: {}",
+        if key == DIGITIZED_SAMPLES {
+            "Default"
         } else {
-            ui.visuals().text_color()
+            "Global"
+        },
+        global.get(key),
+        saved.get(key)
+    );
+    if let Some(reason) = &lock_tooltip {
+        tooltip = format!("{reason}\n\n{tooltip}");
+    }
+    let draw_label = |ui: &mut egui::Ui| {
+        let label = egui::Label::new(egui::RichText::new(label).color(colour));
+        let response = if stacked {
+            ui.add(label.wrap())
+        } else {
+            ui.add_sized([145.0, 22.0], label)
         };
-        let mut tooltip = format!(
-            "{}: {}\nSaved: {}",
-            if key == DIGITIZED_SAMPLES {
-                "Default"
-            } else {
-                "Global"
-            },
-            global.get(key),
-            saved.get(key)
-        );
-        if let Some(reason) = &lock_tooltip {
-            tooltip = format!("{reason}\n\n{tooltip}");
-        }
-        if !label.is_empty() {
-            control(ui.add_sized(
-                [145.0, 22.0],
-                egui::Label::new(egui::RichText::new(label).color(colour)),
-            ))
+        control(response)
             .on_hover_text(&tooltip)
             .on_disabled_hover_text(&tooltip);
-        }
-        let (rect, _) =
-            ui.allocate_exact_size(Vec2::new(control_width, 22.0), egui::Sense::hover());
-        let mut child = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(rect)
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
-        if different && !locked {
-            child.visuals_mut().override_text_color = Some(ACCENT);
-        }
-        crate::settings_navigation::row_controls(&mut child, rect, |child| {
-            child
-                .add_enabled_ui(!locked, draw_control)
-                .response
-                .on_hover_text(&tooltip)
-                .on_disabled_hover_text(&tooltip);
-        });
-        // Keep widget widths/positions fixed; locks never cover widget content.
-        let (rect, response) = ui.allocate_exact_size(Vec2::new(20.0, 22.0), egui::Sense::hover());
-        if let Some(reason) = &lock_tooltip {
-            if ui.is_visible() {
-                // CLI restrictions remain visible even inside an inherited or
-                // otherwise disabled section. Leave widget fading untouched.
-                let mut painter = ui.painter().clone();
-                painter.set_fade_to_color(None);
-                paint_lock(&painter, rect.center(), CLI_LOCK);
+    };
+    // Explicit row/value identities survive a switch between side-by-side and
+    // stacked labels, preserving focus and an open selector during a resize.
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .id_salt(key)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+        |ui| {
+            if stacked {
+                draw_label(ui);
             }
-            response
-                .on_hover_text(reason)
-                .on_disabled_hover_text(reason);
-        }
-        let (rect, response) = ui.allocate_exact_size(Vec2::new(12.0, 22.0), egui::Sense::hover());
-        if dirty {
-            ui.painter().circle_filled(rect.center(), 3.0, PENDING);
-            response.on_hover_text(format!("Unapplied change. Saved: {}", saved.get(key)));
-        }
-    });
+            ui.allocate_new_ui(
+                egui::UiBuilder::new()
+                    .id_salt("values")
+                    .max_rect(egui::Rect::from_min_size(
+                        ui.cursor().min,
+                        Vec2::new(available, 22.0),
+                    ))
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                |ui| {
+                    if !stacked && !label.is_empty() {
+                        draw_label(ui);
+                    }
+                    let rect =
+                        egui::Rect::from_min_size(ui.cursor().min, Vec2::new(control_width, 22.0));
+                    ui.allocate_new_ui(
+                        egui::UiBuilder::new()
+                            .id_salt("control")
+                            .max_rect(rect)
+                            .layout(
+                                egui::Layout::left_to_right(egui::Align::Center)
+                                    .with_main_wrap(true),
+                            ),
+                        |child| {
+                            child.set_min_size(Vec2::new(control_width, 22.0));
+                            child.spacing_mut().combo_width = control_width;
+                            child.spacing_mut().slider_width = child
+                                .spacing()
+                                .slider_width
+                                .min(slider_track_width(child, 56.0));
+                            if different && !locked {
+                                child.visuals_mut().override_text_color = Some(ACCENT);
+                            }
+                            crate::settings_navigation::row_controls(child, rect, |child| {
+                                child
+                                    .add_enabled_ui(!locked, draw_control)
+                                    .response
+                                    .on_hover_text(&tooltip)
+                                    .on_disabled_hover_text(&tooltip);
+                            });
+                        },
+                    );
+                    let (rect, response) =
+                        ui.allocate_exact_size(Vec2::new(20.0, 22.0), egui::Sense::hover());
+                    if let Some(reason) = &lock_tooltip {
+                        if ui.is_visible() {
+                            let mut painter = ui.painter().clone();
+                            painter.set_fade_to_color(None);
+                            paint_lock(&painter, rect.center(), CLI_LOCK);
+                        }
+                        response
+                            .on_hover_text(reason)
+                            .on_disabled_hover_text(reason);
+                    }
+                    let (rect, response) =
+                        ui.allocate_exact_size(Vec2::new(12.0, 22.0), egui::Sense::hover());
+                    if dirty {
+                        ui.painter().circle_filled(rect.center(), 3.0, PENDING);
+                        response
+                            .on_hover_text(format!("Unapplied change. Saved: {}", saved.get(key)));
+                    }
+                },
+            );
+        },
+    );
 }
 fn backend_label(backend: Backend) -> &'static str {
     match backend {
@@ -1153,10 +1203,26 @@ fn backends(renderer: Renderer) -> Vec<Backend> {
     values
 }
 
-fn scale_slider(ui: &mut egui::Ui, value: &mut u32, cap: VideoCapabilities) {
-    ui.spacing_mut().slider_width = (ui.available_width() - 75.0).max(100.0);
-    let r = ui
+/// Scroll content may be wider than its viewport after a resize. Size controls
+/// from the visible width, independently of the last frame's content extent.
+fn visible_width(ui: &egui::Ui) -> f32 {
+    ui.available_width().min(ui.clip_rect().width()).max(1.0)
+}
+fn slider_track_width(ui: &egui::Ui, number_width: f32) -> f32 {
+    (visible_width(ui) - number_width - ui.spacing().item_spacing.x).max(1.0)
+}
+
+fn scale_slider(
+    ui: &mut egui::Ui,
+    value: &mut u32,
+    cap: VideoCapabilities,
+) -> (egui::Response, egui::Response) {
+    let width = visible_width(ui);
+    let (r, number) = ui
         .horizontal(|ui| {
+            ui.set_width(width);
+            ui.spacing_mut().slider_width = slider_track_width(ui, 48.0);
+            ui.spacing_mut().interact_size.x = 48.0;
             let r = value_control(
                 ui.add(
                     egui::Slider::new(value, cap.min_scale.max(1)..=cap.max_scale)
@@ -1167,7 +1233,7 @@ fn scale_slider(ui: &mut egui::Ui, value: &mut u32, cap: VideoCapabilities) {
                 ),
                 Kind::Slider,
             );
-            value_control(
+            let number = value_control(
                 ui.add(
                     egui::DragValue::new(value)
                         .range(cap.min_scale.max(1)..=cap.max_scale)
@@ -1175,7 +1241,7 @@ fn scale_slider(ui: &mut egui::Ui, value: &mut u32, cap: VideoCapabilities) {
                 ),
                 Kind::Number,
             );
-            r
+            (r, number)
         })
         .inner;
     let inset = r.rect.height() / 2.5;
@@ -1200,11 +1266,135 @@ fn scale_slider(ui: &mut egui::Ui, value: &mut u32, cap: VideoCapabilities) {
             ui.visuals().text_color(),
         );
     }
+    (r, number)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn narrow_rows_stack_labels_and_keep_selectors_and_markers_inside_the_viewport() {
+        for width in [180.0, 260.0, 370.0, 620.0] {
+            for locked in [false, true] {
+                let context = egui::Context::default();
+                style(&context);
+                let cli = if locked {
+                    reforge_settings::Patch::from([("renderer".into(), "auto".into())])
+                } else {
+                    Default::default()
+                };
+                for _ in 0..3 {
+                    let mut control_rect = egui::Rect::NOTHING;
+                    let output = context.run(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                Pos2::ZERO,
+                                Vec2::new(width + 16.0, 500.0),
+                            )),
+                            ..Default::default()
+                        },
+                        |ctx| {
+                            egui::CentralPanel::default().show(ctx, |ui| {
+                                let left = ui.cursor().left();
+                                let value = RuntimeSettings::default();
+                                let mut selected = Renderer::Auto;
+                                row(
+                                    ui,
+                                    "Renderer",
+                                    "renderer",
+                                    value.clone(),
+                                    value.clone(),
+                                    value,
+                                    0,
+                                    &cli,
+                                    |ui| {
+                                        let response = Selector::new(
+                                            "responsive renderer",
+                                            [Choice::new(
+                                                Renderer::Auto,
+                                                "Automatic · GPU preferred",
+                                            )],
+                                        )
+                                        .show(ui, &mut selected);
+                                        control_rect = response.rect;
+                                        assert!(response.rect.left() >= left);
+                                        assert!(response.rect.right() <= left + width + 0.5);
+                                    },
+                                );
+                                assert!(ui.min_rect().right() <= left + width + 0.5);
+                            });
+                        },
+                    );
+                    let text = |label: &str| {
+                        output.shapes.iter().find_map(|shape| match &shape.shape {
+                            egui::Shape::Text(text) if text.galley.text() == label => {
+                                Some(text.pos)
+                            }
+                            _ => None,
+                        })
+                    };
+                    let label = text("Renderer").unwrap();
+                    if width == 620.0 {
+                        let value = text("Automatic · GPU preferred").unwrap();
+                        assert!((label.y - value.y).abs() < 4.0);
+                    } else {
+                        assert!(label.y + 14.0 <= control_rect.top());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scale_slider_keeps_a_fixed_value_box_and_remains_clickable_in_a_narrow_viewport() {
+        for width in [180.0, 280.0, 370.0, 620.0] {
+            let context = egui::Context::default();
+            style(&context);
+            let mut value = 1;
+            let mut position = Pos2::ZERO;
+            for step in 0..5 {
+                let events = if matches!(step, 2 | 3) {
+                    vec![
+                        egui::Event::PointerMoved(position),
+                        egui::Event::PointerButton {
+                            pos: position,
+                            button: egui::PointerButton::Primary,
+                            pressed: step == 2,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ]
+                } else {
+                    Vec::new()
+                };
+                let _ = context.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            Pos2::ZERO,
+                            Vec2::new(width + 16.0, 300.0),
+                        )),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            let right = ui.cursor().left() + width;
+                            let (track, number) =
+                                scale_slider(ui, &mut value, VideoCapabilities::default());
+                            assert!(number.rect.right() <= right + 0.5);
+                            assert_eq!(number.rect.width(), 48.0);
+                            assert!(track.rect.right() < number.rect.left());
+                            position = Pos2::new(track.rect.right() - 3.0, track.rect.center().y);
+                        });
+                    },
+                );
+            }
+            assert!(
+                value >= 15,
+                "narrow slider must still reach its upper values"
+            );
+        }
+    }
 
     #[test]
     fn cli_locks_disable_radio_and_checkbox_without_inserting_rows() {

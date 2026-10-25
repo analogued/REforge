@@ -126,8 +126,9 @@ impl<T: Clone + PartialEq> Selector<T> {
                     .map(|c| c.label.clone())
             })
             .unwrap_or_default();
-        let mut combo = egui::ComboBox::from_id_salt(self.salt).width(220.0);
-        if self.truncate {
+        let width = ui.spacing().combo_width.min(ui.available_width()).max(1.0);
+        let mut combo = egui::ComboBox::from_id_salt(self.salt).width(width);
+        if self.truncate || width < 220.0 {
             combo = combo.truncate();
         }
         // Use the same egui widget in both modes: sizing, ID, hit testing,

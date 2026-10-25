@@ -49,8 +49,8 @@ pub(super) fn draw(
     let windowed_scale = menu.creator.windowed_scale.get();
     let geometry = menu.creator.geometry.get();
     let width = (screen.width() - 36.0).clamp(300.0, 860.0);
-    let height = (screen.height() - 48.0).clamp(260.0, 650.0);
-    let body_height = (height - 120.0).clamp(160.0, 450.0);
+    let height = (screen.height() - 48.0).max(260.0);
+    let body_height = (height - 120.0).max(160.0);
     let mut close = false;
     egui::Window::new("Settings")
         .id(egui::Id::new("reforge_settings"))

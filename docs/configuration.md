@@ -14,7 +14,9 @@ opens settings, D-pad/left stick navigates, A (bottom face button) confirms,
 B (right face button) goes back, and the shoulders move to the previous/next
 control. Held directions repeat. Escape/B closes a dropdown first, then cancels
 the menu on a fresh press. Focus is outlined and scrolls into view; disabled
-settings are skipped. Menu input does not reach gameplay.
+settings are skipped. Down from the last option goes to Apply when it is enabled;
+otherwise it goes to Reset. Tab retains the footer's visual order. Menu input
+does not reach gameplay.
 With Auto selected, the disabled scale slider shows the resolved windowed
 multiplier. Turning Auto off starts manual scaling at that value.
 

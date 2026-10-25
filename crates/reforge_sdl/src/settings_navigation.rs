@@ -242,6 +242,7 @@ struct Target {
     kind: Kind,
     group: Group,
     owner: Option<Id>,
+    primary_footer: bool,
 }
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum Group {
@@ -262,12 +263,15 @@ pub(super) fn control(response: Response) -> Response {
     value_control(response, Kind::Control)
 }
 pub(super) fn value_control(response: Response, kind: Kind) -> Response {
-    register(response, kind, Group::Content)
+    register(response, kind, Group::Content, false)
 }
 pub(super) fn group_control(response: Response, group: Group) -> Response {
-    register(response, Kind::Control, group)
+    register(response, Kind::Control, group, false)
 }
-fn register(response: Response, kind: Kind, group: Group) -> Response {
+pub(super) fn primary_footer_control(response: Response) -> Response {
+    register(response, Kind::Control, Group::Footer, true)
+}
+fn register(response: Response, kind: Kind, group: Group, primary_footer: bool) -> Response {
     if response.enabled() && response.sense.is_focusable() {
         response.ctx.data_mut(|data| {
             let targets = data.get_temp_mut_or_default::<Targets>(targets_key());
@@ -296,6 +300,7 @@ fn register(response: Response, kind: Kind, group: Group) -> Response {
                 kind,
                 group,
                 owner,
+                primary_footer,
             });
         });
     }
@@ -344,7 +349,7 @@ fn directional_target(targets: &[Target], current: usize, key: Key) -> Option<us
     } else {
         1.0
     };
-    targets
+    let next = targets
         .iter()
         .enumerate()
         .filter_map(|(index, candidate)| {
@@ -384,7 +389,19 @@ fn directional_target(targets: &[Target], current: usize, key: Key) -> Option<us
             ))
         })
         .min_by(|a, b| a.1.cmp(&b.1).then(a.2.total_cmp(&b.2)))
-        .map(|(index, _, _)| index)
+        .map(|(index, _, _)| index);
+    if key == Key::ArrowDown
+        && source.group == Group::Content
+        && next.is_some_and(|index| targets[index].group == Group::Footer)
+    {
+        // Leaving the page should lead to its enabled primary action. Keep
+        // ordinary row navigation, footer arrows and Tab order unchanged.
+        return targets
+            .iter()
+            .position(|target| target.layer == source.layer && target.primary_footer)
+            .or(next);
+    }
+    next
 }
 
 #[derive(Clone, Default)]
@@ -638,6 +655,7 @@ mod tests {
                 kind: Kind::Control,
                 group,
                 owner: None,
+                primary_footer: false,
             }
         };
         let mut targets = vec![
@@ -940,6 +958,63 @@ mod tests {
                             Some(content[master + 1].id),
                             "number exit: mach3={mach3} scope={scope} size={size:?} density={density} controller={controller}"
                         );
+                        // Down leaves each page through Apply when a draft is
+                        // pending. Clean drafts retain the usual Reset target;
+                        // Tab continues to follow the footer's visual order.
+                        let clean = menu.draft.clone();
+                        for changed in [false, true] {
+                            menu.draft = clean.clone();
+                            if changed {
+                                menu.draft.as_mut().unwrap().edit(
+                                    scope == 1,
+                                    "master_volume",
+                                    "79".into(),
+                                );
+                            }
+                            for page in 0..4 {
+                                menu.page = page;
+                                menu.game_editing[page] = true;
+                                for _ in 0..3 {
+                                    menu.prepare(metrics, display.settings());
+                                }
+                                let targets = menu.context.data(|data| {
+                                    data.get_temp::<Targets>(targets_key()).unwrap().0
+                                });
+                                let last = targets
+                                    .iter()
+                                    .rfind(|t| {
+                                        t.group == Group::Content && !matches!(t.kind, Kind::Number)
+                                    })
+                                    .unwrap()
+                                    .id;
+                                let reset = targets
+                                    .iter()
+                                    .find(|t| t.group == Group::Footer)
+                                    .unwrap()
+                                    .id;
+                                let expected = if changed {
+                                    targets
+                                        .iter()
+                                        .find(|t| t.rect == menu.apply_rect.unwrap())
+                                        .unwrap()
+                                        .id
+                                } else {
+                                    reset
+                                };
+                                menu.context.memory_mut(|m| m.request_focus(last));
+                                menu.prepare(metrics, display.settings());
+                                send(&mut menu, Key::ArrowDown);
+                                assert_eq!(
+                                    menu.context.memory(|m| m.focused()),
+                                    Some(expected),
+                                    "page exit: mach3={mach3} scope={scope} size={size:?} density={density} controller={controller} page={page} changed={changed}"
+                                );
+                                send(&mut menu, Key::ArrowUp);
+                                assert_eq!(menu.context.memory(|m| m.focused()), Some(last));
+                                send(&mut menu, Key::Tab);
+                                assert_eq!(menu.context.memory(|m| m.focused()), Some(reset));
+                            }
+                        }
                     }
                 }
             }

@@ -3,7 +3,9 @@
 //! Register interactive responses with control/group_control/value_control (or Selector/collapsing)
 //! so keyboard/controller navigation targets settings rather than scroll geometry.
 use crate::settings::{SettingsMenu, VideoCapabilities};
-use crate::settings_navigation::{Group, Kind, collapsing, control, group_control, value_control};
+use crate::settings_navigation::{
+    Group, Kind, collapsing, control, group_control, primary_footer_control, value_control,
+};
 use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
@@ -450,13 +452,10 @@ pub(super) fn draw(
                             menu.game_touched[menu.page] = true;
                         }
                     }
-                    let apply = group_control(
-                        ui.add_enabled(
-                            *draft != saved || menu.error.is_some(),
-                            egui::Button::new("Apply"),
-                        ),
-                        Group::Footer,
-                    );
+                    let apply = primary_footer_control(ui.add_enabled(
+                        *draft != saved || menu.error.is_some(),
+                        egui::Button::new("Apply"),
+                    ));
                     #[cfg(test)]
                     {
                         menu.apply_rect = Some(apply.rect);

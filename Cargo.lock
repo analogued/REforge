@@ -304,6 +304,7 @@ version = "0.1.0"
 dependencies = [
  "alleycat",
  "mach3",
+ "reforge_sdl",
  "reforge_settings",
  "sha2",
 ]

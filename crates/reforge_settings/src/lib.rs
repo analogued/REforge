@@ -1,5 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 //! Persistent preferences and temporary launch overrides, independent of SDL.
+pub mod library;
+
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -794,6 +796,9 @@ impl Session {
     }
 }
 fn read(path: &Path) -> Result<DocumentMut, String> {
+    read_document(path, "settings")
+}
+fn read_document(path: &Path, kind: &str) -> Result<DocumentMut, String> {
     match fs::read_to_string(path) {
         Ok(s) => {
             let doc = s
@@ -803,7 +808,7 @@ fn read(path: &Path) -> Result<DocumentMut, String> {
                 .get("schema_version")
                 .is_some_and(|v| v.as_integer() != Some(1))
             {
-                return Err("unsupported settings schema_version; file preserved".into());
+                return Err(format!("unsupported {kind} schema_version; file preserved"));
             }
             Ok(doc)
         }
@@ -871,6 +876,70 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
     draft
 }
 fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(), String> {
+    edit_document(path, "settings", |doc| {
+        if !doc.contains_key("schema_version") {
+            doc["schema_version"] = toml_edit::value(1);
+        }
+        for (before, after, route) in [
+            (&old.global, &new.global, vec!["global"]),
+            (&old.game, &new.game, vec!["games", game]),
+        ] {
+            let scope_game = if route.len() == 2 { game } else { "" };
+            for key in keys().chain(game_keys(scope_game)) {
+                if before.get(key) == after.get(key) {
+                    continue;
+                }
+                let mut item = doc.as_item_mut();
+                for part in route.iter().copied().chain(std::iter::once(section(key))) {
+                    if item.is_none() {
+                        *item = Item::Table(toml_edit::Table::new());
+                    }
+                    if !item.is_table_like() {
+                        return Err("configuration section is not a table; file preserved".into());
+                    }
+                    item = &mut item[part];
+                }
+                if item.is_none() {
+                    *item = Item::Table(toml_edit::Table::new());
+                }
+                if !item.is_table_like() {
+                    return Err("configuration section is not a table; file preserved".into());
+                }
+                if let Some(text) = after.get(key) {
+                    let replacement = match key {
+                        "vsync" | "sound_enabled" | "mute_unfocused" | DIGITIZED_SAMPLES => {
+                            toml_edit::Value::from(text == "true" || text == "on")
+                        }
+                        "scale" | STICK_DEAD_ZONE | "master_volume" | "music_volume"
+                        | "speech_volume" | "effects_volume"
+                            if text != "auto" =>
+                        {
+                            toml_edit::Value::from(text.parse::<i64>().map_err(|e| e.to_string())?)
+                        }
+                        _ if SHADER_PARAMETERS.iter().any(|p| p.key == key) => {
+                            toml_edit::Value::from(text.parse::<f64>().map_err(|e| e.to_string())?)
+                        }
+                        _ => toml_edit::Value::from(text.as_str()),
+                    };
+                    let mut replacement = replacement;
+                    if let Some(old) = item.get(key).and_then(Item::as_value) {
+                        *replacement.decor_mut() = old.decor().clone();
+                    }
+                    item[key] = Item::Value(replacement);
+                } else if let Some(table) = item.as_table_like_mut() {
+                    table.remove(key);
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
+pub(crate) fn edit_document<T>(
+    path: &Path,
+    kind: &str,
+    edit: impl FnOnce(&mut DocumentMut) -> Result<T, String>,
+) -> Result<T, String> {
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -891,64 +960,11 @@ fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(),
         .open(path.with_extension("lock"))
         .map_err(|e| e.to_string())?;
     fs2::FileExt::try_lock_exclusive(&lock)
-        .map_err(|e| format!("configuration is busy; retry Apply: {e}"))?;
-    let mut doc = read(path)?;
-    if !doc.contains_key("schema_version") {
-        doc["schema_version"] = toml_edit::value(1);
-    }
-    for (before, after, route) in [
-        (&old.global, &new.global, vec!["global"]),
-        (&old.game, &new.game, vec!["games", game]),
-    ] {
-        let scope_game = if route.len() == 2 { game } else { "" };
-        for key in keys().chain(game_keys(scope_game)) {
-            if before.get(key) == after.get(key) {
-                continue;
-            }
-            let mut item = doc.as_item_mut();
-            for part in route.iter().copied().chain(std::iter::once(section(key))) {
-                if item.is_none() {
-                    *item = Item::Table(toml_edit::Table::new());
-                }
-                if !item.is_table_like() {
-                    return Err("configuration section is not a table; file preserved".into());
-                }
-                item = &mut item[part];
-            }
-            if item.is_none() {
-                *item = Item::Table(toml_edit::Table::new());
-            }
-            if !item.is_table_like() {
-                return Err("configuration section is not a table; file preserved".into());
-            }
-            if let Some(text) = after.get(key) {
-                let replacement = match key {
-                    "vsync" | "sound_enabled" | "mute_unfocused" | DIGITIZED_SAMPLES => {
-                        toml_edit::Value::from(text == "true" || text == "on")
-                    }
-                    "scale" | STICK_DEAD_ZONE | "master_volume" | "music_volume"
-                    | "speech_volume" | "effects_volume"
-                        if text != "auto" =>
-                    {
-                        toml_edit::Value::from(text.parse::<i64>().map_err(|e| e.to_string())?)
-                    }
-                    _ if SHADER_PARAMETERS.iter().any(|p| p.key == key) => {
-                        toml_edit::Value::from(text.parse::<f64>().map_err(|e| e.to_string())?)
-                    }
-                    _ => toml_edit::Value::from(text.as_str()),
-                };
-                let mut replacement = replacement;
-                if let Some(old) = item.get(key).and_then(Item::as_value) {
-                    *replacement.decor_mut() = old.decor().clone();
-                }
-                item[key] = Item::Value(replacement);
-            } else if let Some(table) = item.as_table_like_mut() {
-                table.remove(key);
-            }
-        }
-    }
+        .map_err(|e| format!("{kind} file is busy; retry: {e}"))?;
+    let mut doc = read_document(path, kind)?;
+    let value = edit(&mut doc)?;
     let temporary = parent.join(format!(
-        ".reforge-config-{}-{}.tmp",
+        ".reforge-{kind}-{}-{}.tmp",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -968,7 +984,7 @@ fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(),
             .and_then(|_| f.sync_all())
             .map_err(|e| e.to_string())?;
         fs::rename(&temporary, path).map_err(|e| e.to_string())?;
-        Ok(())
+        Ok(value)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);

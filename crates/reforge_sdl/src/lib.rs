@@ -4,6 +4,7 @@
 //! Source texture dimensions are independent of the aspect-corrected display
 //! dimensions. Image fitting and sampling are shared host preferences.
 
+pub use egui;
 pub use sdl3;
 pub mod audio;
 #[cfg(feature = "dev-tools")]

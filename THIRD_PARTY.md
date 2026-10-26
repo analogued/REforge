@@ -21,7 +21,7 @@ MIT is selected where an alternative is offered.
 | --- | --- | --- | --- |
 | [sha2](https://crates.io/crates/sha2/0.11.0) | 0.11.0 | Application and Alley Cat: original-file verification | [MIT](LICENSES/MIT.txt) |
 | [sdl3](https://crates.io/crates/sdl3/0.20.0) | 0.20.0 | Shared SDL: window, input, rendering and audio APIs | [MIT](LICENSES/MIT.txt) |
-| [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | Shared SDL: settings interface, with default fonts | [MIT](LICENSES/MIT.txt); font terms below |
+| [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | Shared SDL: settings and launcher interfaces, with default fonts | [MIT](LICENSES/MIT.txt); font terms below |
 | [blip_buf](https://crates.io/crates/blip_buf/0.2.1) | 0.2.1 | Shared audio: optional band-limited speaker renderer | [MIT](LICENSES/MIT.txt) |
 | [toml_edit](https://crates.io/crates/toml_edit/0.22.27) | 0.22.27 | Shared settings: TOML parsing and editing | [MIT](LICENSES/MIT.txt) |
 | [fs2](https://crates.io/crates/fs2/0.4.3) | 0.4.3 | Shared settings: file locking | [MIT](LICENSES/MIT.txt) |

@@ -3,6 +3,9 @@
 //! Host settings UI, painted through SDL geometry on every renderer.
 //! Game input and clocks remain the responsibility of each engine adapter.
 
+mod gui;
+pub use gui::Gui;
+
 use std::{collections::HashMap, time::Instant};
 
 use egui::{Color32, Key, Pos2, TextureId, Vec2, epaint::Primitive};

@@ -88,6 +88,28 @@ entries; redundant game entries are removed when game settings are edited/applie
 
 ## File and precedence
 
+The launcher opens only when REforge receives no arguments. **Add** selects a
+folder and identifies a supported game/release. Entries are saved immediately in
+`library.toml`, beside the default `config.toml` described below. The library
+records stable entry IDs, game/release identities, names and absolute original-data
+locations; it does not copy game data or store gameplay progress. Re-adding the
+same location selects its existing entry. Removing an entry never deletes files.
+If files move or fail detection, the entry remains and **Locate files** lets you
+select the matching game/release again. A different release should be added as a
+separate entry. Missing files are checked when playing, not silently discarded.
+
+The launcher uses the same Compact UI and supports mouse, keyboard and controller
+navigation. Games run through the ordinary `--original` path in a child REforge
+process while the launcher is hidden; exiting the game restores the launcher.
+Existing global/game preferences apply. Launching with command-line arguments
+retains the CLI behaviour and does not add library entries. `--config` and
+`--no-config` continue to affect that command-line game launch; they do not
+redirect the no-argument launcher's library.
+
+Library saves use their own lock and atomic replacement, merging edits from
+other launcher instances. Malformed files and unsupported schema versions are
+preserved with an error, rather than overwritten by an empty library.
+
 Linux uses `$XDG_CONFIG_HOME/reforge/config.toml`, falling back to
 `~/.config/reforge/config.toml`. Relative XDG_CONFIG_HOME is ignored.
 Windows uses `%APPDATA%/REforge/config.toml`; macOS uses

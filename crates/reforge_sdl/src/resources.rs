@@ -34,6 +34,16 @@ pub struct FrameCreator {
     textures: Rc<RefCell<Vec<Weak<Slot>>>>,
 }
 impl FrameCreator {
+    /// Texture ownership for a standalone host UI, without game preferences.
+    pub fn for_ui(canvas: &WindowCanvas) -> Self {
+        Self::new(
+            canvas,
+            Session::for_window(None),
+            1,
+            crate::DisplayGeometry::new((1, 1), (1, 1)),
+            None,
+        )
+    }
     pub(crate) fn new(
         canvas: &WindowCanvas,
         session: Session,

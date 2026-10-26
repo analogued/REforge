@@ -1,6 +1,8 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 
 mod detection;
+#[cfg(feature = "sdl")]
+mod launcher;
 mod options;
 
 use detection::{Detected, Game};
@@ -157,7 +159,21 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
     (prefs, args)
 }
 
+fn opens_launcher(args: &[OsString]) -> bool {
+    args.is_empty()
+}
+
 fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
+    let args: Vec<_> = args.into_iter().collect();
+    if opens_launcher(&args) {
+        #[cfg(feature = "sdl")]
+        return launcher::run();
+        #[cfg(not(feature = "sdl"))]
+        return Err(
+            "The graphical launcher requires the sdl feature; use --help for command-line usage"
+                .into(),
+        );
+    }
     let input = extract(args);
     if input.list {
         warn(&input.warnings);
@@ -348,8 +364,22 @@ mod tests {
 
     #[test]
     fn help_and_catalog_do_not_require_originals() {
-        for values in [&[][..], &["--help"][..], &["--list"][..]] {
+        for values in [&["--help"][..], &["--list"][..]] {
             assert!(run(args(values)).is_ok());
+        }
+    }
+    #[test]
+    fn launcher_requires_exactly_zero_arguments() {
+        assert!(opens_launcher(&[]));
+        for values in [
+            &["--help"][..],
+            &["--list"][..],
+            &["--original", "cat"][..],
+            &["--unknown"][..],
+            &["--original"][..],
+            &[""][..],
+        ] {
+            assert!(!opens_launcher(&args(values)));
         }
     }
     #[test]

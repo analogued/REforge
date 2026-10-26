@@ -42,6 +42,11 @@ Cargo output directory. Launch a game using its original files:
 ./target/release/reforge --original /path/to/mach3
 ```
 
+Run `reforge` without arguments to open the launcher. Use **Add** to select a game
+folder, then select **Play**. Your library is remembered between launches; exiting
+a game returns to the launcher. **Remove** forgets an entry without deleting files.
+The launcher remembers game locations, not gameplay progress.
+
 Use the directories containing the required files, as described in each engine's
 player guide.
 REforge detects the game from its files; there is no separate game selector.

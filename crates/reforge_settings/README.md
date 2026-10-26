@@ -1,6 +1,8 @@
 # Shared preferences
 
 Pure Rust preference model, TOML editing and coordinated atomic persistence.
+The `library` module stores launcher game locations in a separate `library.toml`,
+using the same locked atomic writer. It keeps no game saves or asset copies.
 No SDL types, engine execution state or original game data are used.
 See [configuration](../../docs/configuration.md) for the player-facing contract.
 

@@ -81,8 +81,11 @@ Both operations remain drafts until Apply.
 Game fields differing from the global draft use cyan text. An amber dot marks
 a change compared with saved preferences, including removal of an old override.
 Hover labels/dots for global or saved values. No override badges or individual
-reset buttons are displayed. Unchecking Use global defaults enables game editing
-without copying the global section. Only edited differences become overrides.
+reset buttons are displayed. Checking **Override global defaults for this section**
+enables game editing without copying the global section. The checkbox explains
+that only different values are saved. Unchecking it clears that section's game
+overrides in the draft; Apply saves the reset and Cancel discards it.
+Only edited differences become overrides.
 Values equal to global inherit. Applying global edits does not rewrite game
 entries; redundant game entries are removed when game settings are edited/applied.
 
@@ -316,8 +319,8 @@ saves the preference; Cancel discards pending edits.
 
 This option exists only for Alley Cat, without a Global defaults or Mach 3
 counterpart. It is stored as `[games.alley-cat.controls] control_mode = "original"`;
-selecting Responsive removes that override. Uncheck **Use defaults for this
-section** to edit it. Restoring section defaults removes only the Alley Cat
+selecting Responsive removes that override. Check **Override global defaults for
+this section** to edit it. Restoring section defaults removes only the Alley Cat
 Controls override on Apply; global resets leave it intact. Reference/headless
 diagnostics retain original input polling.
 
@@ -326,11 +329,11 @@ diagnostics retain original input polling.
 Mach 3 overrides on the Audio page include **Digitized samples** immediately
 below Sound renderer. It defaults to On and is stored only as
 `[games.mach-3.gameplay] digitized_samples = true|false`. There is no global or
-Alley Cat counterpart. On this page, **Use defaults for this section** makes
-shared audio inherit global defaults and restores Digitized samples to its
-built-in On value. All section controls are grayed out until that checkbox is
-unchecked. A saved samples Off value counts as an Audio override, so the section
-reopens enabled. **Restore defaults** has the same reset behavior; Apply saves
+Alley Cat counterpart. On this page, unchecking **Override global defaults for
+this section** makes shared audio inherit global defaults and restores Digitized
+samples to its built-in On value. Section preference controls are grayed out
+until that checkbox is checked. A saved samples Off value counts as an Audio
+override, so the section reopens enabled. **Restore defaults** has the same reset behavior; Apply saves
 the reset and Cancel discards it. Resetting global audio leaves game overrides
 intact. Host mute remains separate from the native sample policy.
 

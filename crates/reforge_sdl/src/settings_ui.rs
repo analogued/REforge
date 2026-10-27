@@ -126,19 +126,15 @@ pub(super) fn draw(
                         cli_notice(ui);
                     }
                     if menu.scope == 1 {
-                        let mut inherit = !menu.game_editing[menu.page];
+                        let mut override_defaults = menu.game_editing[menu.page];
                         if control(ui.checkbox(
-                            &mut inherit,
-                            if menu.page == 3 || (menu.page == 2 && menu.mach3_options) {
-                                "Use defaults for this section"
-                            } else {
-                                "Use global defaults for this section"
-                            },
+                            &mut override_defaults,
+                            "Override global defaults for this section · only different values are saved",
                         ))
                         .changed()
                         {
-                            menu.game_editing[menu.page] = !inherit;
-                            if inherit {
+                            menu.game_editing[menu.page] = override_defaults;
+                            if !override_defaults {
                                 draft.reset_section(true, menu.page);
                                 menu.game_touched[menu.page] = true;
                             }

@@ -1022,8 +1022,12 @@ mod tests {
         click(&mut menu, "Alley Cat overrides");
         click(&mut menu, "Controls");
         assert_eq!(menu.page, 3);
-        assert!(label(&draw(&mut menu, vec![]), "Use defaults for this section").is_some());
-        click(&mut menu, "Use defaults for this section");
+        let override_label =
+            "Override global defaults for this section · only different values are saved";
+        assert!(label(&draw(&mut menu, vec![]), override_label).is_some());
+        assert!(!menu.game_editing[3]);
+        click(&mut menu, override_label);
+        assert!(menu.game_editing[3]);
         click(&mut menu, "Responsive");
         click(&mut menu, "Original");
         assert_eq!(
@@ -1035,6 +1039,13 @@ mod tests {
                 .control_mode,
             ControlMode::Original
         );
+        click(&mut menu, override_label);
+        assert!(!menu.game_editing[3]);
+        assert!(!menu.draft.as_ref().unwrap().has_game_overrides(3));
+        click(&mut menu, override_label);
+        assert!(menu.game_editing[3]);
+        click(&mut menu, "Responsive");
+        click(&mut menu, "Original");
         assert_eq!(
             display.settings().alleycat.control_mode,
             ControlMode::Responsive

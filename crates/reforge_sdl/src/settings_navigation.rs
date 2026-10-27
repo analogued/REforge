@@ -1132,7 +1132,7 @@ mod tests {
                 controller(&mut menu, confirm);
                 assert_eq!(menu.page, page);
             }
-            controller(&mut menu, next); // Use defaults checkbox
+            controller(&mut menu, next); // Override defaults checkbox
             assert!(!menu.game_editing[3]);
             controller(&mut menu, confirm);
             assert!(menu.game_editing[3]);

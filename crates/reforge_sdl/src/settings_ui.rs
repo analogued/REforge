@@ -129,7 +129,7 @@ pub(super) fn draw(
                         let mut override_defaults = menu.game_editing[menu.page];
                         if control(ui.checkbox(
                             &mut override_defaults,
-                            "Override global defaults for this section · only different values are saved",
+                            "Override global defaults · only differences are saved",
                         ))
                         .changed()
                         {

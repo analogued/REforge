@@ -1022,8 +1022,7 @@ mod tests {
         click(&mut menu, "Alley Cat overrides");
         click(&mut menu, "Controls");
         assert_eq!(menu.page, 3);
-        let override_label =
-            "Override global defaults for this section · only different values are saved";
+        let override_label = "Override global defaults · only differences are saved";
         assert!(label(&draw(&mut menu, vec![]), override_label).is_some());
         assert!(!menu.game_editing[3]);
         click(&mut menu, override_label);

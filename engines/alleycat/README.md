@@ -14,7 +14,7 @@ Responsive controls reduce the wait before the game reads direction and action
 requests. They are enabled by default and preserve movement speed, physics and
 blocking effects. Original input polling remains available under
 F10 → Alley Cat overrides → Controls → Input response.
-Check **Override global defaults for this section** to edit; Apply activates and
+Check **Override global defaults** to edit; Apply activates and
 saves the selection, and Cancel discards it. The preference persists across restarts.
 
 Directions and Alt preserve timestamped transitions during catch-up. Brief taps

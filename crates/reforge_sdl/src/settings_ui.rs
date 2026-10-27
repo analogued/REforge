@@ -100,7 +100,10 @@ pub(super) fn draw(
                         if group_control(
                             ui.add_sized(
                                 [132.0, 32.0],
-                                egui::Button::new(label).selected(menu.page == page),
+                                // egui otherwise makes selected buttons square.
+                                egui::Button::new(label)
+                                    .selected(menu.page == page)
+                                    .corner_radius(3.0),
                             ),
                             Group::Sidebar,
                         )

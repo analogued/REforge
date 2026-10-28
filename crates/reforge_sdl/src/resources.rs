@@ -36,13 +36,12 @@ pub struct FrameCreator {
 impl FrameCreator {
     /// Texture ownership for a standalone host UI, without game preferences.
     pub fn for_ui(canvas: &WindowCanvas) -> Self {
-        Self::new(
-            canvas,
-            Session::for_window(None),
-            1,
-            crate::DisplayGeometry::new((1, 1), (1, 1)),
-            None,
-        )
+        Self::for_ui_with_geometry(canvas, crate::DisplayGeometry::new((1, 1), (1, 1)))
+    }
+    /// Standalone UI with game display metadata for contextual Settings labels.
+    /// Preferences still come from the explicitly installed launch session.
+    pub fn for_ui_with_geometry(canvas: &WindowCanvas, geometry: crate::DisplayGeometry) -> Self {
+        Self::new(canvas, Session::for_window(None), 1, geometry, None)
     }
     pub(crate) fn new(
         canvas: &WindowCanvas,

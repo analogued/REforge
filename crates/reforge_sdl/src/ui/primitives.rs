@@ -274,7 +274,11 @@ pub fn section(
     ui.add_space(theme.components.section.gap);
     surface(ui, theme, theme.components.section, |ui| {
         if !title.is_empty() {
-            ui.strong(title);
+            ui.label(
+                egui::RichText::new(title)
+                    .strong()
+                    .color(theme.palette.strong_text),
+            );
         }
         separator(ui, theme);
         content(ui);

@@ -115,9 +115,17 @@ pub(super) fn draw(
                             ui.add_sized(
                                 [132.0, 32.0],
                                 // egui otherwise makes selected buttons square.
-                                egui::Button::new(label)
-                                    .selected(menu.page == page)
-                                    .corner_radius(3.0),
+                                egui::Button::new({
+                                    let palette = crate::ui::current_palette(ui.ctx());
+                                    let text = egui::RichText::new(label);
+                                    if !palette.dark && menu.page == page {
+                                        text.color(palette.selection.foreground)
+                                    } else {
+                                        text
+                                    }
+                                })
+                                .selected(menu.page == page)
+                                .corner_radius(3.0),
                             ),
                             Group::Sidebar,
                         )
@@ -1135,7 +1143,11 @@ fn dependency_lock(key: &str, value: &RuntimeSettings) -> Option<&'static str> {
 
 fn section(ui: &mut egui::Ui, label: &str) {
     ui.add_space(8.0);
-    ui.strong(label);
+    ui.label(
+        egui::RichText::new(label)
+            .strong()
+            .color(crate::ui::current_palette(ui.ctx()).strong_text),
+    );
     ui.separator();
 }
 fn renderer_label(r: Renderer) -> &'static str {

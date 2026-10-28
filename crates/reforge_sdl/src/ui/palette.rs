@@ -47,6 +47,8 @@ pub struct Palette {
     pub faint_background: Color32,
     pub code_background: Color32,
     pub text_override: Option<Color32>,
+    /// Heading colour, independent of egui's active-control text colour.
+    pub strong_text: Color32,
     pub hyperlink: Color32,
     pub warning: Color32,
     pub error: Color32,
@@ -94,6 +96,7 @@ impl Palette {
             faint_background: v.faint_bg_color,
             code_background: v.code_bg_color,
             text_override: v.override_text_color,
+            strong_text: v.strong_text_color(),
             hyperlink: v.hyperlink_color,
             warning: v.warn_fg_color,
             error: Color32::LIGHT_RED,

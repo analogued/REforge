@@ -2,7 +2,9 @@
 //! Local game library. Game execution remains the ordinary command-line path.
 
 use crate::detection::{self, Detected};
-use reforge_sdl::{FrameCreator, egui, gamepad::Gamepads, sdl3, settings::Gui};
+use reforge_sdl::{
+    FrameCreator, egui, gamepad::Gamepads, sdl3, settings::Gui, ui::ButtonActivation,
+};
 use reforge_settings::library::{Entry, Library};
 use sdl3::{
     event::{Event, WindowEvent},
@@ -130,7 +132,7 @@ impl State {
                         if self.focus_first && self.library.entries.is_empty() {
                             add.request_focus();
                         }
-                        if add.clicked() {
+                        if add.activated() {
                             action = Some(Action::Add);
                         }
                     });
@@ -151,7 +153,7 @@ impl State {
                             !busy,
                             reforge_sdl::ui::primitives::Button::new(&theme, "Locate files…"),
                         ))
-                        .clicked()
+                        .activated()
                         {
                             action = Some(Action::Locate(id));
                         }
@@ -182,7 +184,7 @@ impl State {
                             if self.focus_first && self.selected == Some(entry.id) {
                                 response.request_focus();
                             }
-                            if response.clicked() || response.has_focus() {
+                            if response.activated() || response.has_focus() {
                                 self.selected = Some(entry.id);
                             }
                             if response.double_clicked() {
@@ -218,7 +220,7 @@ impl State {
                         );
                         #[cfg(test)]
                         self.controls.push(("Play".into(), play.rect));
-                        if play.clicked() {
+                        if play.activated() {
                             action = Some(Action::Play(entry.id));
                         }
                         if Gui::control(
@@ -229,7 +231,7 @@ impl State {
                             ),
                         )
                         .on_hover_text("Remove from the library; keep all game files")
-                        .clicked()
+                        .activated()
                         {
                             action = Some(Action::Remove(entry.id));
                         }
@@ -568,6 +570,41 @@ mod tests {
                 }
             };
             click(&mut gui, state.controls[0].1);
+            assert_eq!(frame(&mut state, &mut gui, &mut canvas), Some(Action::Add));
+            // Moving within a held button keeps capture and activates on
+            // release through the actual SDL event adapter at each density.
+            let start = state.controls[0].1.center() * density;
+            gui.handle_event(&Event::MouseButtonDown {
+                timestamp: 0,
+                window_id: 0,
+                which: 0,
+                mouse_btn: MouseButton::Left,
+                clicks: 1,
+                x: start.x,
+                y: start.y,
+            });
+            assert_eq!(frame(&mut state, &mut gui, &mut canvas), None);
+            let moved = start + egui::vec2(8.0, 1.0) * density;
+            gui.handle_event(&Event::MouseMotion {
+                timestamp: 0,
+                window_id: 0,
+                which: 0,
+                mousestate: sdl3::mouse::MouseState::from_sdl_state(1),
+                x: moved.x,
+                y: moved.y,
+                xrel: moved.x - start.x,
+                yrel: moved.y - start.y,
+            });
+            assert_eq!(frame(&mut state, &mut gui, &mut canvas), None);
+            gui.handle_event(&Event::MouseButtonUp {
+                timestamp: 0,
+                window_id: 0,
+                which: 0,
+                mouse_btn: MouseButton::Left,
+                clicks: 1,
+                x: moved.x,
+                y: moved.y,
+            });
             assert_eq!(frame(&mut state, &mut gui, &mut canvas), Some(Action::Add));
             // Input queued before returning from a hidden game/dialog is discarded.
             click(&mut gui, state.controls[0].1);

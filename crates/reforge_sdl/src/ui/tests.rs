@@ -111,10 +111,13 @@ fn every_choice_primitive_returns_clicks_including_active_values() {
         ChoiceShape::Pill,
     ] {
         for state in [SelectionState::Inherited, SelectionState::Explicit] {
-            for (label, expected, enabled) in [
-                ("CGA", Some(0), true),
-                ("PCjr", Some(1), true),
-                ("CGA", None, false),
+            for (label, expected, enabled, moved) in [
+                ("CGA", Some(0), true, false),
+                ("PCjr", Some(1), true, false),
+                ("CGA", None, false, false),
+                ("CGA", Some(0), true, true),
+                ("PCjr", Some(1), true, true),
+                ("CGA", None, false, true),
             ] {
                 let context = Context::default();
                 let theme =
@@ -156,6 +159,15 @@ fn every_choice_primitive_returns_clicks_including_active_values() {
                     vec![Event::PointerMoved(pos), event(true)],
                     enabled,
                 );
+                if moved {
+                    frame(
+                        &context,
+                        &theme,
+                        state,
+                        vec![Event::PointerMoved(pos + Vec2::new(8.0, 1.0))],
+                        enabled,
+                    );
+                }
                 let (_, chosen) = frame(&context, &theme, state, vec![event(false)], enabled);
                 assert_eq!(
                     chosen, expected,

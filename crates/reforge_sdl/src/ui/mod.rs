@@ -12,6 +12,7 @@ mod theme;
 mod tests;
 
 pub use palette::{ChoiceColours, Palette, WidgetColours};
+pub use primitives::ButtonActivation;
 pub use theme::{
     ButtonAppearance, ButtonShape, ChoiceAppearance, ChoiceShape, Components, SectionAppearance,
     SelectionAppearance, SelectionIndicator, SelectionState, Separator, Surface, Theme,

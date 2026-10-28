@@ -9,6 +9,20 @@ use egui::{
     emath::GuiRounding,
 };
 
+/// Release-inside activation for buttons using `Sense::click_and_drag()`.
+/// Keeps normal keyboard/accessibility clicks and pointer capture when a held
+/// pointer moves beyond egui's click-distance or click-duration threshold.
+pub trait ButtonActivation {
+    fn activated(&self) -> bool;
+}
+impl ButtonActivation for Response {
+    fn activated(&self) -> bool {
+        self.enabled()
+            && (self.clicked()
+                || (self.drag_stopped_by(egui::PointerButton::Primary) && self.contains_pointer()))
+    }
+}
+
 /// Shared button widget; its appearance comes from the theme's composition.
 #[must_use]
 pub struct Button<'a> {
@@ -50,6 +64,7 @@ impl egui::Widget for Button<'_> {
 
 /// Ordinary themed button. The caller registers its navigation group, as with
 /// egui::Button; choice_strip registers its own individual choice controls.
+/// Use [`ButtonActivation::activated`] to accept moving presses released inside.
 pub fn button(
     ui: &mut Ui,
     theme: &Theme,
@@ -81,6 +96,7 @@ fn draw_button(
     {
         return ui.add(
             egui::Button::new(label)
+                .sense(egui::Sense::click_and_drag())
                 .selected(state == SelectionState::Explicit)
                 .min_size(min_size),
         );
@@ -90,6 +106,7 @@ fn draw_button(
     let previous = ui.style().clone();
     ui.spacing_mut().button_padding = appearance.padding;
     let mut widget = egui::Button::new(label)
+        .sense(egui::Sense::click_and_drag())
         .selected(state == SelectionState::Explicit)
         .min_size(min_size);
     let corner = match appearance.shape {
@@ -161,7 +178,7 @@ pub fn choice_strip<T: Clone + PartialEq>(
                 outline: style.shape == ChoiceShape::Buttons,
             };
             let response = draw_button(ui, theme, appearance, (*label).into(), state, Vec2::ZERO);
-            if crate::settings_navigation::control(response).clicked() {
+            if crate::settings_navigation::control(response).activated() {
                 clicked = Some(value.clone());
             }
         }
@@ -238,7 +255,7 @@ fn joined_choice_strip<T: Clone + PartialEq>(
         let response = crate::settings_navigation::control(ui.interact(
             tile,
             group.id.with(i),
-            egui::Sense::click(),
+            egui::Sense::click_and_drag(),
         ));
         response.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), *label)
@@ -254,7 +271,7 @@ fn joined_choice_strip<T: Clone + PartialEq>(
             SelectionState::Inherited => (p.inherited.background, p.inherited.foreground),
             SelectionState::Unselected => (Color32::TRANSPARENT, p.inactive.foreground),
         };
-        let fill = if response.is_pointer_button_down_on() {
+        let fill = if response.is_pointer_button_down_on() && response.contains_pointer() {
             if state == SelectionState::Unselected {
                 p.active.weak_background
             } else {
@@ -287,7 +304,7 @@ fn joined_choice_strip<T: Clone + PartialEq>(
             .rect(tile, radius, fill, stroke, StrokeKind::Inside);
         ui.painter()
             .galley(tile.center() - galley.size() * 0.5, galley, text);
-        if response.clicked() {
+        if response.activated() {
             clicked = Some(value.clone());
         }
         x += (widths[i] + gap) / scale;

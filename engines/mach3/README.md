@@ -83,6 +83,8 @@ Settings restores the preceding host-pause state.
 
 Mach 3-specific comparison options include:
 
+- `--video cga|mono`: select the initial native colour or monochrome display.
+  F3 can still switch modes during play.
 - `--f3-mode original`: retain the original toggle on every active poll instead
   of the interactive default's one toggle per press. Recorded original inputs
   always use original polling. See [session controls](docs/dos-gameplay.md#session-and-gameplay-controls).

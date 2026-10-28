@@ -56,8 +56,9 @@ retaining procedural effects. This changes the game's playback sequences and
 applies on the next application launch. To silence a category without skipping
 its sequence, use the Music or Speech volume instead.
 
-**Colour / monochrome:** F3 switches once per press; release it before switching
-again. Both display modes work with optional CRT presentation.
+**Colour / monochrome:** choose the initial display in the launcher's Video
+options, or use `--video cga|mono`. F3 switches once per press during play;
+release it before switching again. Both modes work with optional CRT presentation.
 
 For fullscreen, scaling, CRT presentation, audio levels and controller settings,
 see the shared [Settings menu](../configuration.md). F2 is the original game

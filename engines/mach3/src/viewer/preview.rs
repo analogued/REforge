@@ -914,6 +914,7 @@ pub(super) fn run(
     }
     let mut game = GamePlayback::default();
     game.session.keyboard.set_f3_mode(options.f3_mode);
+    options.apply_startup_display(&mut game.session.controls.preferences);
     game.session.select_intro(); // First intro consumes exactly one random word.
     let mut returned_intro = None;
     let mut step_key_held = false;

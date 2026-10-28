@@ -131,6 +131,13 @@ const SPECS: &[Spec] = &[
         description: "List supported games",
     },
     Spec {
+        name: "--video",
+        game: Some(Game::Mach3),
+        value: Value::Choice(&["cga", "mono"]),
+        dev: false,
+        description: "Initial video mode (default cga); F3 switches during play",
+    },
+    Spec {
         name: "--machine",
         game: Some(Game::AlleyCat),
         value: Value::Choice(&["cga", "pcjr"]),
@@ -1123,11 +1130,10 @@ mod tests {
                 if !line.contains("=>") || !line.contains("\"--") {
                     continue;
                 }
-                for quoted in line
-                    .split('"')
-                    .skip(1)
-                    .step_by(2)
-                    .filter(|word| word.starts_with("--"))
+                for quoted in
+                    line.split('"').skip(1).step_by(2).filter(|word| {
+                        word.starts_with("--") && !word.chars().any(char::is_whitespace)
+                    })
                 {
                     if quoted == "--" {
                         continue;

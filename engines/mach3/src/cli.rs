@@ -4,11 +4,14 @@
 #[cfg(feature = "dev-tools")]
 use crate::viewer::Playback;
 use crate::{
-    gameplay::F3Mode, sound::render::AudioRenderer, startup::StartupFrames, viewer::Options,
+    gameplay::{DisplayMode, F3Mode},
+    sound::render::AudioRenderer,
+    startup::StartupFrames,
+    viewer::Options,
 };
 use std::{ffi::OsString, path::PathBuf};
 
-const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original] [--digitized-samples on|off]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--video cga|mono] [--f3-mode press|original] [--digitized-samples on|off]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
 F10: open settings; F10, Escape or Close returns. Scaling and fullscreen changes apply live.\n\
@@ -21,6 +24,7 @@ Normal animation runs gameplay, sound and waits on one PIT timeline.\n\
 --audio-renderer speaker|enhanced-pcm: select host audio rendering (default speaker); timing is unchanged.\n\
 --digitized-samples on|off: execute recorded speech/music (default on); off retains procedural effects and skips sample waits.\n\
 P or Pause/Break freezes host simulation and playback. F1 retains original pause/end-game behavior; F2 toggles native sound, F3 switches color/monochrome.\n\
+--video cga|mono: initial native colour or monochrome display (default cga); F3 still toggles during play.\n\
 --f3-mode press|original: toggle F3 once per press (default press), or at every active original control poll.\n\
 Unavailable audio warns and mutes host output; guest execution continues. Exact CPU-dependent pacing remains unmodeled.";
 
@@ -135,6 +139,13 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     }
                 };
             }
+            Some("--video") => {
+                options.video = match args.next().as_deref().and_then(|arg| arg.to_str()) {
+                    Some("cga") => DisplayMode::Color,
+                    Some("mono") => DisplayMode::Monochrome,
+                    _ => return Err("--video must be cga or mono".into()),
+                };
+            }
             Some("--f3-mode") => {
                 options.f3_mode = match args.next().as_deref().and_then(|arg| arg.to_str()) {
                     Some("press") => F3Mode::Press,
@@ -208,6 +219,51 @@ mod tests {
             flags.extend([Some("--step"), Some("--static")]);
         }
         flags
+    }
+
+    #[test]
+    fn video_argument_selects_native_startup_mode_in_every_playback() {
+        use crate::gameplay::DisplayMode;
+        let (_, defaults) = parse_args(args(&["--original", "assets"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(defaults.video, DisplayMode::Color);
+        for playback in playback_flags() {
+            for (value, expected) in [
+                ("cga", DisplayMode::Color),
+                ("mono", DisplayMode::Monochrome),
+            ] {
+                let mut input = vec!["--original", "assets", "--video", value];
+                if let Some(flag) = playback {
+                    input.push(flag);
+                }
+                let (_, options) = parse_args(args(&input)).unwrap().unwrap();
+                assert_eq!(options.video, expected);
+            }
+        }
+        let (_, options) = parse_args(args(&[
+            "--original",
+            "assets",
+            "--video",
+            "mono",
+            "--video",
+            "cga",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(options.video, DisplayMode::Color);
+        for value in ["", "colour", "MONO", "--scale"] {
+            assert!(
+                parse_args(args(&["--original", "assets", "--video", value]))
+                    .unwrap_err()
+                    .contains("--video")
+            );
+        }
+        assert!(
+            parse_args(args(&["--original", "assets", "--video"]))
+                .unwrap_err()
+                .contains("--video")
+        );
     }
 
     #[test]

@@ -1002,6 +1002,8 @@ pub(super) fn run(
         .unwrap()
         .keyboard
         .set_f3_mode(options.f3_mode);
+    options.apply_startup_display(&mut simulation.initial.as_mut().unwrap().controls.preferences);
+    options.apply_startup_display(&mut simulation.session.controls.preferences);
     let mut status = simulation.status();
     let mut window = Window::new_with_geometry(
         &game_title(GAME_NAME, Some(status)),

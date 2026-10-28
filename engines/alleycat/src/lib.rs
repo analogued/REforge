@@ -26,6 +26,8 @@ mod font;
 pub mod framebuffer;
 mod hearts;
 mod hearts_completion;
+#[cfg(feature = "sdl")]
+pub mod launcher;
 pub mod menu;
 mod mice;
 mod milk;

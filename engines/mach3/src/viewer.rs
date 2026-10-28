@@ -56,6 +56,7 @@ pub enum Playback {
 
 #[derive(Clone, Debug)]
 pub struct Options {
+    pub video: DisplayMode,
     pub f3_mode: crate::gameplay::F3Mode,
     /// Native sample execution; None uses the saved Mach 3 startup preference.
     pub digitized_samples: Option<bool>,
@@ -75,6 +76,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
+            video: DisplayMode::Color,
             f3_mode: crate::gameplay::F3Mode::Press,
             digitized_samples: None,
             scale: None,
@@ -88,6 +90,14 @@ impl Default for Options {
             #[cfg(feature = "dev-tools")]
             timing_trace: None,
         }
+    }
+}
+
+impl Options {
+    /// Set the initial native display preference. Subsequent F3 handling and
+    /// session retention remain the original controls' responsibility.
+    fn apply_startup_display(&self, preferences: &mut crate::gameplay::Preferences) {
+        preferences.display_mode = self.video;
     }
 }
 
@@ -293,6 +303,27 @@ mod options_tests {
     #[test]
     fn controls_are_enabled_by_default() {
         assert!(Options::default().controls);
+    }
+
+    #[test]
+    fn startup_video_preserves_f3_switching() {
+        for initial in [DisplayMode::Color, DisplayMode::Monochrome] {
+            let options = Options {
+                video: initial,
+                ..Options::default()
+            };
+            let mut controls = crate::gameplay::Controls::default();
+            options.apply_startup_display(&mut controls.preferences);
+            assert_eq!(controls.preferences.display_mode, initial);
+            let mut keyboard = crate::gameplay::KeyboardState::default();
+            keyboard.apply_scan(0x3d);
+            assert!(keyboard.poll_controls(&mut controls, 0).display_toggled);
+            assert_ne!(controls.preferences.display_mode, initial);
+            keyboard.apply_scan(0xbd);
+            keyboard.apply_scan(0x3d);
+            assert!(keyboard.poll_controls(&mut controls, 0).display_toggled);
+            assert_eq!(controls.preferences.display_mode, initial);
+        }
     }
 
     #[cfg(feature = "dev-tools")]

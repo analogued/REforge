@@ -12,6 +12,7 @@ mod fps;
 pub mod gamepad;
 mod geometry;
 mod hyllian;
+pub mod launcher;
 pub use geometry::DisplayGeometry;
 mod input;
 mod resources;

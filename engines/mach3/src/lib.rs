@@ -10,6 +10,8 @@ pub mod frame;
 pub mod gameplay;
 #[cfg(all(feature = "viewer", feature = "dev-tools"))]
 mod input_trace;
+#[cfg(feature = "viewer")]
+pub mod launcher;
 pub mod live;
 pub mod scene;
 pub mod session_replay;

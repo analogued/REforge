@@ -66,6 +66,9 @@ pub(super) fn draw(
     let height = (screen.height() - 48.0).max(260.0);
     let body_height = (height - 120.0).max(160.0);
     let mut close = false;
+    if !menu.game_overrides {
+        menu.scope = 0;
+    }
     egui::Window::new("Settings")
         .id(egui::Id::new("reforge_settings"))
         .collapsible(false)
@@ -80,25 +83,27 @@ pub(super) fn draw(
                     ui.selectable_value(&mut menu.scope, 0, "Global defaults"),
                     Group::Scope,
                 );
-                let game_scope = group_control(
-                    ui.selectable_value(
-                        &mut menu.scope,
-                        1,
-                        format!(
-                            "{} overrides",
-                            match game.as_str() {
-                                "alley-cat" => "Alley Cat",
-                                "mach-3" => "Mach 3",
-                                _ => "Game",
-                            }
+                let game_scope = menu.game_overrides.then(|| {
+                    group_control(
+                        ui.selectable_value(
+                            &mut menu.scope,
+                            1,
+                            format!(
+                                "{} overrides",
+                                match game.as_str() {
+                                    "alley-cat" => "Alley Cat",
+                                    "mach-3" => "Mach 3",
+                                    _ => "Game",
+                                }
+                            ),
                         ),
-                    ),
-                    Group::Scope,
-                );
-                if menu.navigation.focus_first && first.enabled() && game_scope.enabled() {
+                        Group::Scope,
+                    )
+                });
+                if menu.navigation.focus_first && first.enabled() {
                     if menu.scope == 0 {
                         first.request_focus();
-                    } else {
+                    } else if let Some(game_scope) = game_scope {
                         game_scope.request_focus();
                     }
                     menu.navigation.focus_first = false;
@@ -591,6 +596,9 @@ pub(super) fn draw(
                     }
                     if apply.clicked() {
                         draft.normalize_treatments(&saved);
+                        if !menu.game_overrides {
+                            draft.game.clone_from(&saved.game);
+                        }
                         menu.pending = Some(draft.clone());
                     }
                     let cancel = group_control(ui.button("Cancel"), Group::Footer);

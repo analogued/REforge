@@ -93,6 +93,7 @@ pub struct SettingsMenu<'a> {
     pub(super) draft: Option<Draft>,
     pub(super) pending: Option<Draft>,
     pub(super) scope: usize,
+    pub(super) game_overrides: bool,
     #[cfg(test)]
     pub(super) cancel_rect: Option<egui::Rect>,
     #[cfg(test)]
@@ -125,6 +126,13 @@ enum MenuEvent {
 }
 
 impl<'a> SettingsMenu<'a> {
+    /// Show shared preferences without a game-override scope, for example before
+    /// a launcher has any games. Applying preserves all existing game settings.
+    pub fn with_global_defaults_only(mut self) -> Self {
+        self.game_overrides = false;
+        self.scope = 0;
+        self
+    }
     /// Expose Alley Cat's game-only input policy beside shared controller settings.
     pub fn with_alleycat_options(mut self) -> Self {
         let mut session = self.creator.session.borrow_mut();
@@ -197,6 +205,7 @@ impl<'a> SettingsMenu<'a> {
             draft: None,
             pending: None,
             scope: 0,
+            game_overrides: true,
             #[cfg(test)]
             cancel_rect: None,
             #[cfg(test)]
@@ -1212,6 +1221,53 @@ mod tests {
         mach_menu.page = 3;
         assert!(label(&draw(&mut mach_menu, vec![]), "Stick dead zone").is_some());
         assert!(label(&draw(&mut mach_menu, vec![]), "Input response").is_none());
+
+        // A launcher without a game exposes shared settings only. Even when
+        // used with a session containing overrides, Apply must leave them alone.
+        {
+            let mut session = creator.session.borrow_mut();
+            let mut draft = session.saved.clone();
+            draft.game.insert("window_mode".into(), "windowed".into());
+            session.commit(draft).unwrap();
+        }
+        let before = creator.session.borrow().saved.game.clone();
+        let mut global_menu =
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_global_defaults_only();
+        global_menu.toggle();
+        global_menu.prepare(display.ui_metrics(), display.settings());
+        for page in 0..4 {
+            global_menu.page = page;
+            let output = draw(&mut global_menu, vec![]);
+            assert!(label(&output, "Global defaults").is_some());
+            for hidden in [
+                "Game overrides",
+                "Alley Cat overrides",
+                "Mach 3 overrides",
+                "Input response",
+                "Digitized samples",
+            ] {
+                assert!(label(&output, hidden).is_none(), "unexpected {hidden}");
+            }
+        }
+        assert!(label(&draw(&mut global_menu, vec![]), "Stick dead zone").is_some());
+        global_menu.page = 0;
+        click(&mut global_menu, "Fullscreen");
+        click(&mut global_menu, "Apply");
+        assert_eq!(global_menu.pending.as_ref().unwrap().game, before);
+        global_menu.applied();
+        let saved = creator.session.borrow().saved.clone();
+        assert!(saved.global_values().fullscreen);
+        assert_eq!(saved.game, before);
+        assert_eq!(
+            Session::load(Launch {
+                game: "mach-3".into(),
+                path: Some(path.clone()),
+                cli: Patch::new(),
+            })
+            .saved
+            .game,
+            before
+        );
         std::fs::remove_file(path).unwrap();
     }
 

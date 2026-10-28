@@ -180,7 +180,7 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
         let mut listed = std::collections::HashSet::new();
         for release in detection::RELEASES {
             if listed.insert(release.game.id()) {
-                println!("{}: {}", release.game.id(), release.game.title());
+                println!("{}: {}", release.game.id(), release.metadata.title);
             }
         }
         return Ok(());

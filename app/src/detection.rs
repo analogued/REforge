@@ -27,8 +27,8 @@ impl Game {
 
     pub const fn title(self) -> &'static str {
         match self {
-            Self::AlleyCat => "Alley Cat",
-            Self::Mach3 => "Mach 3",
+            Self::AlleyCat => ALLEY_CAT.title,
+            Self::Mach3 => MACH3.title,
         }
     }
 }
@@ -40,11 +40,58 @@ pub struct FileRecord {
     pub sha256: &'static str,
 }
 
+/// Player-facing facts about a detected release, independent of engine UI.
+// Detailed release fields are consumed by the graphical launcher.
+#[cfg_attr(not(feature = "sdl"), allow(dead_code))]
+#[derive(Debug)]
+pub struct Metadata {
+    pub title: &'static str,
+    pub year: &'static str,
+    pub developer: &'static str,
+    pub publisher: &'static str,
+    pub genres: &'static str,
+    pub video: &'static str,
+    pub audio: &'static str,
+    pub description: &'static str,
+}
+pub static ALLEY_CAT: Metadata = Metadata {
+    title: "Alley Cat",
+    year: "1984",
+    developer: "Synapse Software",
+    publisher: "IBM",
+    genres: "Arcade action",
+    video: "320×200 · CGA / PCjr",
+    audio: "PC speaker",
+    description: "Back to the alley",
+};
+pub static MACH3: Metadata = Metadata {
+    title: "Mach 3",
+    year: "1987",
+    developer: "Loriciels",
+    publisher: "Loriciels",
+    genres: "3D rail shooter",
+    video: "CGA colour / 640×200 monochrome",
+    audio: "PC speaker · Enhanced PCM",
+    description: "Back into the cockpit",
+};
+#[cfg(feature = "sdl")]
+pub static UNKNOWN: Metadata = Metadata {
+    title: "Unknown game",
+    year: "",
+    developer: "",
+    publisher: "",
+    genres: "",
+    video: "",
+    audio: "",
+    description: "Original files unavailable",
+};
+
 #[derive(Debug)]
 pub struct Release {
     /// A reference identifier, not a claim about the commercial version.
     pub id: &'static str,
     pub game: Game,
+    pub metadata: &'static Metadata,
     pub files: &'static [FileRecord],
 }
 
@@ -55,6 +102,7 @@ pub static RELEASES: &[Release] = &[
     Release {
         id: "alley-cat-verified-reference",
         game: Game::AlleyCat,
+        metadata: &ALLEY_CAT,
         files: &[FileRecord {
             name: "CAT.EXE",
             size: 55_067,
@@ -64,6 +112,7 @@ pub static RELEASES: &[Release] = &[
     Release {
         id: "mach-3-verified-reference",
         game: Game::Mach3,
+        metadata: &MACH3,
         files: &[
             FileRecord {
                 name: "MACH3.EXE",
@@ -358,6 +407,7 @@ mod tests {
         Release {
             id: "synthetic-cat-a",
             game: Game::AlleyCat,
+            metadata: &ALLEY_CAT,
             files: &[FileRecord {
                 name: "CAT.EXE",
                 size: 3,
@@ -367,6 +417,7 @@ mod tests {
         Release {
             id: "synthetic-cat-b",
             game: Game::AlleyCat,
+            metadata: &ALLEY_CAT,
             files: &[FileRecord {
                 name: "CAT.EXE",
                 size: 3,
@@ -376,6 +427,7 @@ mod tests {
         Release {
             id: "synthetic-mach",
             game: Game::Mach3,
+            metadata: &MACH3,
             files: &[
                 FileRecord {
                     name: "MACH3.EXE",
@@ -574,6 +626,7 @@ mod tests {
                 Release {
                     id: "mach-first",
                     game: Game::Mach3,
+                    metadata: &MACH3,
                     files: &[FileRecord {
                         name: "MACH3.EXE",
                         size: 3,
@@ -583,6 +636,7 @@ mod tests {
                 Release {
                     id: "cat-last",
                     game: Game::AlleyCat,
+                    metadata: &ALLEY_CAT,
                     files: &[FileRecord {
                         name: "CAT.EXE",
                         size: 3,
@@ -664,6 +718,7 @@ mod tests {
             Release {
                 id: "first",
                 game: Game::AlleyCat,
+                metadata: &ALLEY_CAT,
                 files: &[FileRecord {
                     name: "CAT.EXE",
                     size: 3,
@@ -673,6 +728,7 @@ mod tests {
             Release {
                 id: "second",
                 game: Game::AlleyCat,
+                metadata: &ALLEY_CAT,
                 files: &[FileRecord {
                     name: "CAT.EXE",
                     size: 3,

@@ -78,8 +78,8 @@ clears only the current game's overrides for the selected section when editing
 that game. Display, CRT & Colour, Audio and Controls reset independently.
 Both operations remain drafts until Apply.
 
-Game fields with an override in the draft use cyan text, including explicit
-values matching global defaults. An amber dot marks a change compared with
+Game fields with an override in the draft use the theme accent text, including
+explicit values matching global defaults. An amber dot marks a change compared with
 saved preferences, including removal of an old override.
 Hover labels/dots for global or saved values. No override badges or individual
 reset buttons are displayed. Checking **Override global defaults**
@@ -435,3 +435,53 @@ existing fatal-error behavior.
 and UI. Engine adapters preserve pause/input boundaries and acknowledge runtime
 success before saving. Standalone diagnostic engine binaries retain in-memory
 preferences; the REforge app supplies persistent settings and the common CLI.
+
+## Launcher appearance and quick options
+
+The no-argument launcher supports Classic Dark, Soft Tonal, Warm Amber and Crisp
+Light. Its palette button (Ctrl+T) previews colours; Keep, clicking elsewhere,
+Escape or Ctrl+T saves and closes. Revert restores the saved theme. Settings uses
+the chosen colours while retaining its own control geometry.
+
+F2 selects Split, F3 Gallery and F4 Compact. Appearance choices are independent:
+
+```toml
+[launcher]
+theme = "classic-dark"
+layout = "split"
+```
+
+The first launch uses Classic Dark and Split. Unknown stored appearance values
+fall back for display without rewriting them until the player changes that choice.
+
+Quick options are declared by each engine. Choosing a value saves it immediately,
+even when it currently equals its default. Its full highlight means an override
+exists; dim highlighting means the option follows its default. Clicking an
+explicit selection removes that override. Global edits and unrelated Settings
+Apply operations preserve explicit selections, including matching defaults.
+
+Shared options use the ordinary per-game Settings keys. Native startup choices
+use the per-game launcher table, for example:
+
+```toml
+[games.alley-cat.launcher]
+machine = "pcjr"
+
+[games.mach-3.launcher]
+video = "mono"
+```
+
+Native choices are passed through the ordinary engine argument parser on launcher
+starts; command-line launches retain their explicit startup arguments. Engine
+metadata supplies available choices, badge labels and optional palette colours.
+
+The launcher draws Symbolic placeholders without original assets. Initials use
+the first letters/numbers of the first two Unicode words, or the first two
+characters of a single word, uppercased; empty/non-text names use `?`.
+Engine-generated scene previews and their disk cache are not implemented yet.
+
+Add verifies the supported release before saving its location. Relocate validates
+the replacement against the same game/release. Missing entries retain their
+identity and offer Locate Files. Remove asks for confirmation and removes only
+the library entry. Success notices expire; errors can be dismissed. The original
+files are never changed by these library operations.

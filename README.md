@@ -45,7 +45,12 @@ Cargo output directory. Launch a game using its original files:
 Run `reforge` without arguments to open the launcher. Use **Add** to select a game
 folder, then select **Play**. Your library is remembered between launches; exiting
 a game returns to the launcher. **Remove** forgets an entry without deleting files.
-The launcher remembers game locations, not gameplay progress.
+The launcher remembers game locations, not gameplay progress. Choose a colour theme
+with the palette button or **Ctrl+T**. **F2**, **F3** and **F4** select Split,
+Gallery and Compact layouts; theme and layout choices are remembered separately.
+Game options save immediately. Dim selections follow defaults; a full highlight
+marks a saved override. Select a saved choice again to return to defaults.
+Artwork currently uses generated initials and engine-supplied palette colours.
 
 Use the directories containing the required files, as described in each engine's
 player guide.

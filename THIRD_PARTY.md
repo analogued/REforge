@@ -19,6 +19,7 @@ MIT is selected where an alternative is offered.
 
 | Component | Version | Used by / purpose | Selected license |
 | --- | --- | --- | --- |
+| [unicode-segmentation](https://crates.io/crates/unicode-segmentation/1.12.0) | 1.12.0 | Application: Unicode-aware Symbolic initials | [MIT](LICENSES/MIT.txt) |
 | [sha2](https://crates.io/crates/sha2/0.11.0) | 0.11.0 | Application and Alley Cat: original-file verification | [MIT](LICENSES/MIT.txt) |
 | [sdl3](https://crates.io/crates/sdl3/0.20.0) | 0.20.0 | Shared SDL: window, input, rendering and audio APIs | [MIT](LICENSES/MIT.txt) |
 | [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | Shared SDL: settings and launcher interfaces, with default fonts | [MIT](LICENSES/MIT.txt); font terms below |
@@ -28,6 +29,7 @@ MIT is selected where an alternative is offered.
 
 Copyright notices, transcribed from the corresponding upstream license files:
 
+- **unicode-segmentation:** Copyright (c) 2015 The Rust Project Developers.
 - **sha2:** Copyright (c) 2016-2026 The RustCrypto Project Developers;
   Copyright (c) 2016 Artyom Pavlov; Copyright (c) 2009-2013 Mozilla Foundation;
   Copyright (c) 2006-2009 Graydon Hoare.

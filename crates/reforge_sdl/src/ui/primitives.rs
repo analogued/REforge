@@ -6,6 +6,7 @@ use super::{
 };
 use egui::{
     Color32, CornerRadius, InnerResponse, Rect, Response, Stroke, StrokeKind, Ui, Vec2, WidgetText,
+    emath::GuiRounding,
 };
 
 /// Shared button widget; its appearance comes from the theme's composition.
@@ -42,7 +43,6 @@ impl egui::Widget for Button<'_> {
             self.theme.components.button,
             self.label,
             self.state,
-            false,
             self.min_size,
         )
     }
@@ -62,7 +62,6 @@ pub fn button(
         theme.components.button,
         label.into(),
         state,
-        false,
         Vec2::ZERO,
     )
 }
@@ -72,7 +71,6 @@ fn draw_button(
     appearance: ButtonAppearance,
     label: WidgetText,
     state: SelectionState,
-    transparent: bool,
     min_size: Vec2,
 ) -> Response {
     // Keep the existing native widget path and identity for the current UI.
@@ -115,11 +113,7 @@ fn draw_button(
             widget = widget.fill(theme.palette.selection.background);
             ui.visuals_mut().override_text_color = Some(theme.palette.selection.foreground);
         } else {
-            widget = widget.fill(if transparent {
-                Color32::TRANSPARENT
-            } else {
-                theme.palette.inactive.weak_background
-            });
+            widget = widget.fill(theme.palette.inactive.weak_background);
         }
     }
     if !appearance.outline {
@@ -144,80 +138,169 @@ pub fn choice_strip<T: Clone + PartialEq>(
         style.shape,
         ChoiceShape::Sharp | ChoiceShape::Segmented | ChoiceShape::Pill
     );
-    let radius = if style.shape == ChoiceShape::Pill {
+    if joined {
+        return joined_choice_strip(ui, theme, choices, current, origin);
+    }
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = style.gap;
+        let mut clicked = None;
+        for (value, label) in choices {
+            let state = if value == current {
+                origin
+            } else {
+                SelectionState::Unselected
+            };
+            let appearance = ButtonAppearance {
+                shape: if style.shape == ChoiceShape::Buttons {
+                    ButtonShape::Native
+                } else {
+                    ButtonShape::Flat
+                },
+                radius: style.radius,
+                padding: style.padding,
+                outline: style.shape == ChoiceShape::Buttons,
+            };
+            let response = draw_button(ui, theme, appearance, (*label).into(), state, Vec2::ZERO);
+            if crate::settings_navigation::control(response).clicked() {
+                clicked = Some(value.clone());
+            }
+        }
+        clicked
+    })
+    .inner
+}
+
+fn joined_choice_strip<T: Clone + PartialEq>(
+    ui: &mut Ui,
+    theme: &Theme,
+    choices: &[(T, &str)],
+    current: &T,
+    origin: SelectionState,
+) -> Option<T> {
+    if choices.is_empty() {
+        return None;
+    }
+    let style = theme.components.choices;
+    let sharp = style.shape == ChoiceShape::Sharp;
+    let scale = ui.pixels_per_point();
+    // Construct the whole group in physical pixels. One shared height and
+    // inset keep every segment aligned, even at fractional display scaling.
+    let pixel = |points: f32| (points * scale).round();
+    let border = pixel(1.0).max(1.0);
+    let inset = border + if sharp { 0.0 } else { pixel(2.0) };
+    let gap = if sharp {
+        border
+    } else {
+        pixel(style.gap).max(0.0)
+    };
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let galleys: Vec<_> = choices
+        .iter()
+        .map(|(_, label)| {
+            ui.painter()
+                .layout_no_wrap((*label).into(), font.clone(), Color32::PLACEHOLDER)
+        })
+        .collect();
+    let widths: Vec<_> = galleys
+        .iter()
+        .map(|g| ((g.size().x + 2.0 * style.padding.x) * scale).ceil())
+        .collect();
+    let height = galleys
+        .iter()
+        .map(|g| g.size().y + 2.0 * style.padding.y)
+        .fold(ui.spacing().interact_size.y, f32::max);
+    let height = (height * scale).ceil();
+    let size = Vec2::new(
+        widths.iter().sum::<f32>() + gap * (choices.len() - 1) as f32 + 2.0 * inset,
+        height + 2.0 * inset,
+    ) / scale;
+    let (allocated, group) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let rect = Rect::from_min_size(allocated.min.round_to_pixels(scale), size);
+    let radius = if sharp {
+        0
+    } else if style.shape == ChoiceShape::Pill {
         u8::MAX
     } else {
         style.radius
     };
-    let frame = if joined {
-        egui::Frame::NONE
-            .fill(theme.palette.extreme_background)
-            .corner_radius(radius)
-            .stroke(Stroke::new(1.0_f32, theme.palette.noninteractive.border))
-            .inner_margin(if style.shape == ChoiceShape::Sharp {
-                0
+    ui.painter().rect(
+        rect,
+        radius,
+        theme.palette.extreme_background,
+        Stroke::new(border / scale, theme.palette.noninteractive.border),
+        StrokeKind::Inside,
+    );
+    let top = rect.top() + inset / scale;
+    let mut x = rect.left() + inset / scale;
+    let mut clicked = None;
+    for (i, ((value, label), galley)) in choices.iter().zip(galleys).enumerate() {
+        let tile = Rect::from_min_size(egui::pos2(x, top), Vec2::new(widths[i], height) / scale);
+        let response = crate::settings_navigation::control(ui.interact(
+            tile,
+            group.id.with(i),
+            egui::Sense::click(),
+        ));
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), *label)
+        });
+        let state = if value == current {
+            origin
+        } else {
+            SelectionState::Unselected
+        };
+        let p = theme.palette;
+        let (base, text) = match state {
+            SelectionState::Explicit => (p.selection.background, p.selection.foreground),
+            SelectionState::Inherited => (p.inherited.background, p.inherited.foreground),
+            SelectionState::Unselected => (Color32::TRANSPARENT, p.inactive.foreground),
+        };
+        let fill = if response.is_pointer_button_down_on() {
+            if state == SelectionState::Unselected {
+                p.active.weak_background
             } else {
-                2
-            })
-    } else {
-        egui::Frame::NONE
-    };
-    frame
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = if style.shape == ChoiceShape::Sharp {
-                    0.0
-                } else {
-                    style.gap
-                };
-                let mut clicked = None;
-                for (i, (value, label)) in choices.iter().enumerate() {
-                    let state = if value == current {
-                        origin
+                base.lerp_to_gamma(Color32::BLACK, 0.12)
+            }
+        } else if response.hovered() {
+            if state == SelectionState::Unselected {
+                p.hovered.weak_background
+            } else {
+                base.lerp_to_gamma(
+                    if p.dark {
+                        Color32::WHITE
                     } else {
-                        SelectionState::Unselected
-                    };
-                    let shape = match style.shape {
-                        ChoiceShape::Buttons => ButtonShape::Native,
-                        ChoiceShape::Flat | ChoiceShape::Segmented => ButtonShape::Flat,
-                        ChoiceShape::Sharp => ButtonShape::Sharp,
-                        ChoiceShape::Pill => ButtonShape::Pill,
-                    };
-                    let appearance = ButtonAppearance {
-                        shape,
-                        radius,
-                        padding: style.padding,
-                        outline: style.shape == ChoiceShape::Buttons,
-                    };
-                    let response = draw_button(
-                        ui,
-                        theme,
-                        appearance,
-                        (*label).into(),
-                        state,
-                        joined,
-                        Vec2::ZERO,
-                    );
-                    if crate::settings_navigation::control(response).clicked() {
-                        clicked = Some(value.clone());
-                    }
-                    if style.shape == ChoiceShape::Sharp && i + 1 < choices.len() {
-                        let (rect, _) = ui.allocate_exact_size(
-                            Vec2::new(1.0, ui.spacing().interact_size.y),
-                            egui::Sense::hover(),
-                        );
-                        ui.painter().vline(
-                            rect.center().x,
-                            rect.y_range(),
-                            Stroke::new(1.0_f32, theme.palette.noninteractive.border),
-                        );
-                    }
-                }
-                clicked
-            })
-            .inner
-        })
-        .inner
+                        Color32::BLACK
+                    },
+                    0.08,
+                )
+            }
+        } else {
+            base
+        };
+        let stroke = if response.has_focus() {
+            Stroke::new(border / scale, p.focus)
+        } else {
+            Stroke::NONE
+        };
+        // Hover and selection change colour only: no expansion into adjacent
+        // options, the group border, or its rounded outer corners.
+        ui.painter()
+            .rect(tile, radius, fill, stroke, StrokeKind::Inside);
+        ui.painter()
+            .galley(tile.center() - galley.size() * 0.5, galley, text);
+        if response.clicked() {
+            clicked = Some(value.clone());
+        }
+        x += (widths[i] + gap) / scale;
+        if sharp && i + 1 < choices.len() {
+            let divider = Rect::from_min_size(
+                egui::pos2(tile.right(), top),
+                Vec2::new(gap, height) / scale,
+            );
+            ui.painter()
+                .rect_filled(divider, 0, p.noninteractive.border);
+        }
+    }
+    clicked
 }
 
 pub fn surface(

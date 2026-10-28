@@ -285,3 +285,123 @@ fn button_identity_and_focus_survive_pin_and_appearance_changes() {
         }
     }
 }
+
+#[test]
+fn joined_choices_keep_pixel_aligned_geometry_across_interaction_states() {
+    for shape in [
+        ChoiceShape::Sharp,
+        ChoiceShape::Segmented,
+        ChoiceShape::Pill,
+    ] {
+        for density in [1.0, 1.25, 1.5, 2.0, 2.25, 2.5, 3.0] {
+            for offset in [0.0, 0.25, 0.5, 0.75] {
+                let context = Context::default();
+                let theme = Theme::default().with_overrides(|t| {
+                    t.components.choices.shape = shape;
+                    t.components.choices.gap = if shape == ChoiceShape::Sharp {
+                        0.0
+                    } else {
+                        2.0
+                    };
+                    t.palette.extreme_background = Color32::from_rgb(1, 2, 3);
+                    t.palette.selection.background = Color32::from_rgb(20, 60, 100);
+                    t.palette.inherited.background = Color32::from_rgb(10, 30, 50);
+                });
+                let render = |events, state| {
+                    let mut input = RawInput {
+                        events,
+                        ..Default::default()
+                    };
+                    input
+                        .viewports
+                        .entry(egui::ViewportId::ROOT)
+                        .or_default()
+                        .native_pixels_per_point = Some(density);
+                    context.run(input, |context| {
+                        theme.apply_palette(context);
+                        egui::CentralPanel::default().show(context, |ui| {
+                            ui.scope_builder(
+                                egui::UiBuilder::new().max_rect(Rect::from_min_size(
+                                    egui::pos2(20.0 + offset, 20.0 + offset),
+                                    Vec2::new(300.0, 60.0),
+                                )),
+                                |ui| {
+                                    primitives::choice_strip(
+                                        ui,
+                                        &theme,
+                                        &[(0, "CGA"), (1, "PCjr")],
+                                        &0,
+                                        state,
+                                    );
+                                },
+                            );
+                        });
+                    })
+                };
+                let idle = render(vec![], SelectionState::Explicit);
+                let text_pos = |out: &egui::FullOutput, label| {
+                    out.shapes
+                        .iter()
+                        .find_map(|s| match &s.shape {
+                            egui::Shape::Text(t) if t.galley.text() == label => {
+                                Some(t.visual_bounding_rect().center())
+                            }
+                            _ => None,
+                        })
+                        .unwrap()
+                };
+                let bounds = |out: &egui::FullOutput| {
+                    out.shapes
+                        .iter()
+                        .filter_map(|s| match &s.shape {
+                            egui::Shape::Rect(r) if r.rect.min.x >= 19.0 && r.rect.max.y < 80.0 => {
+                                Some(r.rect)
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                };
+                let baseline = bounds(&idle);
+                for selected in [SelectionState::Explicit, SelectionState::Inherited] {
+                    for label in ["CGA", "PCjr"] {
+                        let pos = text_pos(&idle, label);
+                        let hover = render(vec![Event::PointerMoved(pos)], selected);
+                        assert_eq!(
+                            bounds(&hover),
+                            baseline,
+                            "{shape:?} {density}: hover changed geometry"
+                        );
+                        let click = |pressed| Event::PointerButton {
+                            pos,
+                            button: PointerButton::Primary,
+                            pressed,
+                            modifiers: Modifiers::NONE,
+                        };
+                        let held = render(vec![click(true)], selected);
+                        assert_eq!(
+                            bounds(&held),
+                            baseline,
+                            "{shape:?} {density}: press changed geometry"
+                        );
+                        render(vec![click(false)], selected);
+                    }
+                }
+                let outer = baseline[0];
+                for rect in baseline {
+                    assert!(
+                        (rect.center().y - outer.center().y).abs() < 0.001,
+                        "{shape:?} {density}: asymmetric vertical insets"
+                    );
+                    assert!(outer.expand(0.001).contains_rect(rect));
+                    for value in [rect.left(), rect.right(), rect.top(), rect.bottom()] {
+                        let physical = value * density;
+                        assert!(
+                            (physical - physical.round()).abs() < 0.001,
+                            "{shape:?} {density}: fractional painted edge {physical}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

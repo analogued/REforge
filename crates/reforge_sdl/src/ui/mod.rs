@@ -7,6 +7,7 @@
 mod palette;
 pub mod primitives;
 mod theme;
+pub mod themes;
 
 #[cfg(test)]
 mod tests;

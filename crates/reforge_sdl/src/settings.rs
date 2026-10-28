@@ -192,10 +192,22 @@ impl<'a> SettingsMenu<'a> {
     pub fn new(creator: &'a FrameCreator, capabilities: VideoCapabilities) -> Self {
         let context = egui::Context::default();
         crate::settings_ui::style(&context);
+        let theme_id = creator
+            .session
+            .borrow()
+            .path
+            .as_deref()
+            .and_then(|path| reforge_settings::launcher::load(path).ok())
+            .and_then(|preferences| crate::ui::themes::ThemeId::from_slug(&preferences.theme))
+            .unwrap_or_default();
+        let theme = crate::ui::themes::ResolvedAppearance::resolve(theme_id).theme;
+        // Settings keeps its existing geometry; only the saved theme's colours
+        // are applied. Invalid or unknown preferences are preserved on disk.
+        theme.apply_palette(&context);
         Self {
             creator,
             context,
-            theme: crate::ui::Theme::default(),
+            theme,
             capabilities,
             open: false,
             events: Vec::new(),

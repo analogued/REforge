@@ -61,6 +61,13 @@ impl Navigation {
             .0;
         if let Some(root) = context
             .memory(|memory| memory.top_modal_layer())
+            .or_else(|| {
+                let focused = context.memory(|memory| memory.focused());
+                targets
+                    .iter()
+                    .find(|target| Some(target.id) == focused)
+                    .map(|target| target.layer)
+            })
             .or_else(|| targets.first().map(|target| target.layer))
         {
             targets.retain(|target| target.layer == root);
@@ -711,6 +718,33 @@ mod tests {
         }];
         navigation.navigate(&context, &mut events);
         assert_eq!(context.memory(|memory| memory.focused()), Some(confirm));
+    }
+
+    #[test]
+    fn focused_nonmodal_popover_keeps_its_navigation_layer() {
+        let context = Context::default();
+        let mut first = Id::NULL;
+        let mut second = Id::NULL;
+        for _ in 0..3 {
+            let _ = context.run(egui::RawInput::default(), |ctx| {
+                begin_frame(ctx);
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    control(ui.button("Background"));
+                });
+                egui::Area::new(Id::new("theme_popover"))
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        first = control(ui.button("Classic Dark")).id;
+                        second = control(ui.button("Soft Tonal")).id;
+                    });
+            });
+        }
+        context.memory_mut(|memory| memory.request_focus(first));
+        let mut navigation = Navigation::default();
+        let mut events = Vec::new();
+        pulse(&mut events, Key::ArrowDown, false, false);
+        navigation.navigate(&context, &mut events);
+        assert_eq!(context.memory(|memory| memory.focused()), Some(second));
     }
 
     #[test]

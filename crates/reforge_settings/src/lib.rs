@@ -1,5 +1,6 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 //! Persistent preferences and temporary launch overrides, independent of SDL.
+pub mod launcher;
 pub mod library;
 
 use std::{

@@ -59,7 +59,10 @@ impl Navigation {
         let mut targets = context
             .data(|data| data.get_temp::<Targets>(targets_key()).unwrap_or_default())
             .0;
-        if let Some(root) = targets.first().map(|target| target.layer) {
+        if let Some(root) = context
+            .memory(|memory| memory.top_modal_layer())
+            .or_else(|| targets.first().map(|target| target.layer))
+        {
             targets.retain(|target| target.layer == root);
         }
         let mut input = std::mem::take(&mut self.deferred);
@@ -668,6 +671,47 @@ pub(super) fn paint_focus(context: &Context) {
 mod tests {
     use super::*;
     use crate::gamepad::Actions;
+
+    #[test]
+    fn modal_navigation_stays_with_its_buttons() {
+        let context = Context::default();
+        let mut cancel = Id::NULL;
+        let mut confirm = Id::NULL;
+        for _ in 0..3 {
+            let _ = context.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800.0, 600.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    begin_frame(ctx);
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        control(ui.button("Background"));
+                    });
+                    egui::Modal::new(Id::new("confirm")).show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            cancel = control(ui.button("Cancel")).id;
+                            confirm = control(ui.button("Remove")).id;
+                        });
+                    });
+                },
+            );
+        }
+        context.memory_mut(|memory| memory.request_focus(cancel));
+        let mut navigation = Navigation::default();
+        let mut events = vec![Event::Key {
+            key: Key::ArrowRight,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }];
+        navigation.navigate(&context, &mut events);
+        assert_eq!(context.memory(|memory| memory.focused()), Some(confirm));
+    }
 
     #[test]
     fn sidebar_right_enters_content_below_notices_and_falls_back_to_actions() {

@@ -702,6 +702,16 @@ impl Draft {
             patch.insert(key.into(), value);
         }
     }
+    /// Settings edits save differences, while returning to an original explicit
+    /// override restores its presence even when it matches the current global.
+    /// Pass None after an explicit section reset so cleared overrides stay clear.
+    pub fn edit_game(&mut self, key: &str, value: String, original: Option<&Self>) {
+        if original.and_then(|draft| draft.game.get(key)) == Some(&value) {
+            self.game.insert(key.into(), value);
+        } else {
+            self.edit(true, key, value);
+        }
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Launch {
@@ -1014,6 +1024,73 @@ pub fn default_path() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn explicit_matching_overrides_survive_unrelated_and_global_saves() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(&path, "[global.display]\nwindow_mode = \"windowed\"\n[games.alley-cat.display]\nwindow_mode = \"windowed\"\n[games.mach-3.display]\nwindow_mode = \"fullscreen\"\n").unwrap();
+        let mut current = session(path.clone(), "alley-cat");
+        let original = current.saved.clone();
+        let mut draft = original.clone();
+        draft.edit_game("vsync", "false".into(), Some(&original));
+        current.commit(draft).unwrap();
+        let mut loaded = session(path.clone(), "alley-cat");
+        assert_eq!(loaded.saved.game["window_mode"], "windowed");
+        assert_eq!(loaded.saved.game["vsync"], "false");
+        for mode in ["fullscreen", "windowed", "fullscreen"] {
+            let mut draft = loaded.saved.clone();
+            draft.edit(false, "window_mode", mode.into());
+            loaded.commit(draft).unwrap();
+            loaded = session(path.clone(), "alley-cat");
+            assert_eq!(loaded.saved.game["window_mode"], "windowed");
+            assert!(!loaded.saved.game_values().fullscreen);
+        }
+        assert_eq!(
+            session(path, "mach-3").saved.game["window_mode"],
+            "fullscreen"
+        );
+    }
+
+    #[test]
+    fn game_edits_restore_original_presence_but_resets_do_not() {
+        for (key, initial, other) in [
+            ("window_mode", "windowed", "fullscreen"),
+            ("master_volume", "80", "60"),
+            (DIGITIZED_SAMPLES, "true", "false"),
+            (CONTROL_MODE, "responsive", "original"),
+        ] {
+            let original = Draft {
+                game: Patch::from([(key.into(), initial.into())]),
+                ..Default::default()
+            };
+            let mut draft = original.clone();
+            draft.edit_game(key, other.into(), Some(&original));
+            draft.edit_game(key, initial.into(), Some(&original));
+            assert_eq!(draft, original, "round trip must preserve explicit {key}");
+            let inherited = Draft::default();
+            let mut draft = inherited.clone();
+            draft.edit_game(key, other.into(), Some(&inherited));
+            draft.edit_game(key, initial.into(), Some(&inherited));
+            assert!(
+                draft.game.is_empty(),
+                "round trip must preserve inheritance for {key}"
+            );
+            let mut draft = original.clone();
+            draft.reset_section(true, section_index(key));
+            draft.edit_game(key, other.into(), None);
+            draft.edit_game(key, initial.into(), None);
+            assert!(draft.game.is_empty(), "reset {key} must not return");
+        }
+        let original = Draft::default();
+        let mut draft = original.clone();
+        draft.edit(false, "window_mode", "fullscreen".into());
+        draft.edit_game("window_mode", "windowed".into(), Some(&original));
+        assert_eq!(
+            draft.game["window_mode"], "windowed",
+            "game edits compare against the pending global, not the original resolved value"
+        );
+    }
+
     #[test]
     fn controller_dead_zone_inherits_overrides_resets_and_validates() {
         use super::*;

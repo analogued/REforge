@@ -11,7 +11,7 @@ use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     AspectRatio, Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, Presentation,
     Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling,
-    ScalingPolicy, SoundCategory, SoundRenderer, section_index,
+    ScalingPolicy, SoundCategory, SoundRenderer,
 };
 const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
 const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
@@ -19,6 +19,25 @@ const CLI_LOCK: Color32 = Color32::from_rgb(182, 169, 214);
 const CLI_BANNER: Color32 = Color32::from_rgb(35, 58, 72);
 const CLI_NOTICE: Color32 = Color32::from_rgb(190, 214, 228);
 const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
+// Presence is distinct from equality: explicit overrides may match global.
+#[derive(Clone, Copy, Default)]
+struct Overrides<'a> {
+    current: Option<&'a reforge_settings::Patch>,
+    saved: Option<&'a reforge_settings::Patch>,
+}
+impl<'a> Overrides<'a> {
+    fn current(self, key: &str) -> Option<&'a str> {
+        self.current
+            .and_then(|patch| patch.get(key))
+            .map(String::as_str)
+    }
+    fn saved(self, key: &str) -> Option<&'a str> {
+        self.saved
+            .and_then(|patch| patch.get(key))
+            .map(String::as_str)
+    }
+}
+
 pub(super) fn style(context: &egui::Context) {
     context.style_mut(|s| {
         s.animation_time = 0.0;
@@ -136,13 +155,17 @@ pub(super) fn draw(
                             menu.game_editing[menu.page] = override_defaults;
                             if !override_defaults {
                                 draft.reset_section(true, menu.page);
-                                menu.game_touched[menu.page] = true;
+                                menu.game_reset[menu.page] = true;
                             }
                         }
                     } else {
                         ui.weak("Shared defaults · individual games can override these values");
                     }
                     ui.add_space(8.0);
+                    let overrides = Overrides {
+                        current: Some(&draft.game),
+                        saved: Some(&saved.game),
+                    };
                     let base = draft.global_values();
                     let original = if menu.scope == 0 {
                         base.clone()
@@ -182,6 +205,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                         |ui| {
                                             control(ui.radio_value(
@@ -209,6 +233,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                         |ui| {
                                             let mut auto = value.scale.is_none();
@@ -257,6 +282,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                         |ui| {
                                             Selector::new(
@@ -287,6 +313,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                         |ui| {
                                             Selector::new(
@@ -313,6 +340,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                         |ui| {
                                             Selector::new(
@@ -338,6 +366,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                         |ui| {
                                             Selector::new(
@@ -368,6 +397,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                         |ui| {
                                             ui.add_enabled_ui(
@@ -386,6 +416,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                         |ui| {
                                             control(ui.checkbox(
@@ -402,6 +433,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                         |ui| {
                                             Selector::new(
@@ -422,6 +454,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                     );
                                 } else if menu.page == 2 {
@@ -431,6 +464,7 @@ pub(super) fn draw(
                                         base.clone(),
                                         previous.clone(),
                                         menu.scope,
+                                        overrides,
                                         &cli,
                                         &menu.audio_devices,
                                         &menu.audio_renderers,
@@ -446,6 +480,7 @@ pub(super) fn draw(
                                         previous.clone(),
                                         &cli,
                                         menu.scope,
+                                        overrides,
                                         controls_visible,
                                     );
                                 }
@@ -458,23 +493,34 @@ pub(super) fn draw(
                         && original.mach3 != value.mach3
                         && !cli.contains_key(DIGITIZED_SAMPLES)
                     {
-                        draft.edit(true, DIGITIZED_SAMPLES, value.get(DIGITIZED_SAMPLES));
-                        menu.game_touched[menu.page] = true;
+                        draft.edit_game(
+                            DIGITIZED_SAMPLES,
+                            value.get(DIGITIZED_SAMPLES),
+                            (!menu.game_reset[menu.page]).then_some(&saved),
+                        );
                     }
                     if menu.page == 3
                         && controls_visible
                         && original.alleycat != value.alleycat
                         && !cli.contains_key(CONTROL_MODE)
                     {
-                        draft.edit(true, CONTROL_MODE, value.get(CONTROL_MODE));
-                        menu.game_touched[menu.page] = true;
+                        draft.edit_game(
+                            CONTROL_MODE,
+                            value.get(CONTROL_MODE),
+                            (!menu.game_reset[menu.page]).then_some(&saved),
+                        );
                     }
                     let keys = SECTION_KEYS[menu.page];
                     for &key in keys {
                         if original.get(key) != value.get(key) && !cli.contains_key(key) {
-                            draft.edit(menu.scope == 1, key, value.get(key));
                             if menu.scope == 1 {
-                                menu.game_touched[menu.page] = true;
+                                draft.edit_game(
+                                    key,
+                                    value.get(key),
+                                    (!menu.game_reset[menu.page]).then_some(&saved),
+                                );
+                            } else {
+                                draft.edit(false, key, value.get(key));
                             }
                         }
                     }
@@ -529,7 +575,7 @@ pub(super) fn draw(
                         } else {
                             draft.reset_section(true, menu.page);
                             menu.game_editing[menu.page] = false;
-                            menu.game_touched[menu.page] = true;
+                            menu.game_reset[menu.page] = true;
                         }
                     }
                     let apply = primary_footer_control(ui.add_enabled(
@@ -542,11 +588,6 @@ pub(super) fn draw(
                     }
                     if apply.clicked() {
                         draft.normalize_treatments(&saved);
-                        let baseline = draft.global_values();
-                        draft.game.retain(|key, v| {
-                            let page = section_index(key);
-                            !menu.game_touched[page] || *v != baseline.get(key)
-                        });
                         menu.pending = Some(draft.clone());
                     }
                     let cancel = group_control(ui.button("Cancel"), Group::Footer);
@@ -573,6 +614,7 @@ pub(super) fn draw(
         });
     close
 }
+#[allow(clippy::too_many_arguments)]
 fn controls_controls(
     ui: &mut egui::Ui,
     value: &mut RuntimeSettings,
@@ -580,6 +622,7 @@ fn controls_controls(
     previous: RuntimeSettings,
     cli: &reforge_settings::Patch,
     scope: usize,
+    overrides: Overrides<'_>,
     alleycat: bool,
 ) {
     section(ui, "Controller");
@@ -591,6 +634,7 @@ fn controls_controls(
         base.clone(),
         previous.clone(),
         scope,
+        overrides,
         cli,
         |ui| {
             value_control(
@@ -611,6 +655,7 @@ fn controls_controls(
         base,
         previous,
         1,
+        overrides,
         cli,
         |ui| {
             Selector::new(CONTROL_MODE, ControlMode::ALL.map(|mode| Choice::new(mode, mode.label()))).show(ui, &mut value.alleycat.control_mode).on_hover_text("Responsive reacts sooner to direction and action changes. Original preserves the game's original input response.");
@@ -624,9 +669,10 @@ fn crt_controls(
     base: RuntimeSettings,
     previous: RuntimeSettings,
     scope: usize,
+    overrides: Overrides<'_>,
     cli: &reforge_settings::Patch,
 ) {
-    // Use this scope's pending Display choices, with temporary CLI overrides,
+    // Use this scope's pending Display choices, with temporary CLI
     // rather than the renderer that remains active until Apply.
     let mut display = value.clone();
     display.renderer = cli
@@ -647,6 +693,7 @@ fn crt_controls(
         base.clone(),
         previous.clone(),
         scope,
+        overrides,
         cli,
         |ui| {
             Selector::new(
@@ -683,9 +730,15 @@ fn crt_controls(
                     .id_salt("treatment_fine_adjustments")
                     .default_open(false)
                     .show(ui, |ui| match treatment {
-                        Presentation::Hyllian => {
-                            hyllian_controls(ui, value, base.clone(), previous.clone(), scope, cli)
-                        }
+                        Presentation::Hyllian => hyllian_controls(
+                            ui,
+                            value,
+                            base.clone(),
+                            previous.clone(),
+                            scope,
+                            overrides,
+                            cli,
+                        ),
                         Presentation::Pixels => {}
                     }),
             );
@@ -704,6 +757,7 @@ fn hyllian_controls(
     base: RuntimeSettings,
     previous: RuntimeSettings,
     scope: usize,
+    overrides: Overrides<'_>,
     cli: &reforge_settings::Patch,
 ) {
     row(
@@ -714,6 +768,7 @@ fn hyllian_controls(
         base.clone(),
         previous.clone(),
         scope,
+        overrides,
         cli,
         |ui| {
             Selector::new(
@@ -735,6 +790,7 @@ fn hyllian_controls(
             base.clone(),
             previous.clone(),
             scope,
+            overrides,
             cli,
             |ui| {
                 ui.spacing_mut().slider_width = 150.0_f32.min(slider_track_width(ui, 56.0));
@@ -772,6 +828,7 @@ fn audio_controls(
     base: RuntimeSettings,
     previous: RuntimeSettings,
     scope: usize,
+    overrides: Overrides<'_>,
     cli: &reforge_settings::Patch,
     devices: &[String],
     renderers: &[SoundRenderer],
@@ -793,6 +850,7 @@ fn audio_controls(
             base.clone(),
             previous.clone(),
             scope,
+            overrides,
             cli,
             |ui| {
                 control(ui.checkbox(&mut value.audio.enabled, "Enable sound"));
@@ -811,6 +869,7 @@ fn audio_controls(
             base.clone(),
             previous.clone(),
             scope,
+            overrides,
             cli,
             volume_width,
             |ui| {
@@ -843,6 +902,7 @@ fn audio_controls(
                 base.clone(),
                 previous.clone(),
                 scope,
+                overrides,
                 cli,
                 volume_width,
                 |ui| {
@@ -884,6 +944,7 @@ fn audio_controls(
             base.clone(),
             previous.clone(),
             scope,
+            overrides,
             cli,
             |ui| {
                 ui.add_enabled_ui(scope == 1 && available, |ui| {
@@ -915,6 +976,7 @@ fn audio_controls(
                 base.clone(),
                 previous.clone(),
                 scope,
+                overrides,
                 cli,
                 |ui| {
                     Selector::new(
@@ -936,6 +998,7 @@ fn audio_controls(
             base.clone(),
             previous.clone(),
             scope,
+            overrides,
             cli,
             |ui| {
                 Selector::new(
@@ -971,6 +1034,7 @@ fn audio_controls(
             base.clone(),
             previous.clone(),
             scope,
+            overrides,
             cli,
             |ui| {
                 control(ui.checkbox(&mut value.audio.mute_unfocused, "Mute when unfocused"));
@@ -1095,6 +1159,7 @@ fn row(
     global: RuntimeSettings,
     saved: RuntimeSettings,
     scope: usize,
+    overrides: Overrides<'_>,
     cli: &reforge_settings::Patch,
     draw_control: impl FnOnce(&mut egui::Ui),
 ) {
@@ -1106,6 +1171,7 @@ fn row(
         global,
         saved,
         scope,
+        overrides,
         cli,
         220.0,
         draw_control,
@@ -1121,6 +1187,7 @@ fn row_with_width(
     global: RuntimeSettings,
     saved: RuntimeSettings,
     scope: usize,
+    overrides: Overrides<'_>,
     cli: &reforge_settings::Patch,
     control_width: f32,
     draw_control: impl FnOnce(&mut egui::Ui),
@@ -1130,8 +1197,13 @@ fn row_with_width(
         .map(|active| cli_tooltip(key, active))
         .or_else(|| dependency_lock(key, &value).map(str::to_owned));
     let locked = lock_tooltip.is_some();
-    let different = scope == 1 && value.get(key) != global.get(key);
-    let dirty = !cli.contains_key(key) && value.get(key) != saved.get(key);
+    let overridden = scope == 1 && overrides.current(key).is_some();
+    let dirty = !cli.contains_key(key)
+        && if scope == 1 {
+            overrides.current(key) != overrides.saved(key)
+        } else {
+            value.get(key) != saved.get(key)
+        };
     let available = visible_width(ui);
     let spacing = ui.spacing().item_spacing.x;
     let markers = 20.0 + 12.0 + spacing * 2.0;
@@ -1143,14 +1215,14 @@ fn row_with_width(
     };
     let colour = if locked {
         Color32::from_gray(100)
-    } else if different {
+    } else if overridden {
         ACCENT
     } else {
         ui.visuals().text_color()
     };
     let mut tooltip = format!(
         "{}: {}\nSaved: {}",
-        if key == DIGITIZED_SAMPLES {
+        if matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE) {
             "Default"
         } else {
             "Global"
@@ -1158,6 +1230,17 @@ fn row_with_width(
         global.get(key),
         saved.get(key)
     );
+    if scope == 1 {
+        tooltip.push_str(if overrides.saved(key).is_some() {
+            " (game override)"
+        } else {
+            " (inherited)"
+        });
+        tooltip.push_str(&match overrides.current(key) {
+            Some(value) => format!("\nGame override: {value}"),
+            None => "\nFollows defaults; no game override.".into(),
+        });
+    }
     if let Some(reason) = &lock_tooltip {
         tooltip = format!("{reason}\n\n{tooltip}");
     }
@@ -1211,7 +1294,7 @@ fn row_with_width(
                                 .spacing()
                                 .slider_width
                                 .min(slider_track_width(child, 56.0));
-                            if different && !locked {
+                            if overridden && !locked {
                                 child.visuals_mut().override_text_color = Some(ACCENT);
                             }
                             crate::settings_navigation::row_controls(child, rect, |child| {
@@ -1378,6 +1461,67 @@ fn scale_slider(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn override_colours_and_pending_dots_follow_presence_even_when_values_match() {
+        for scope in [0, 1] {
+            for current in [false, true] {
+                for saved in [false, true] {
+                    let context = egui::Context::default();
+                    style(&context);
+                    let mut current_patch = reforge_settings::Patch::new();
+                    let mut saved_patch = reforge_settings::Patch::new();
+                    if current {
+                        current_patch.insert("window_mode".into(), "windowed".into());
+                    }
+                    if saved {
+                        saved_patch.insert("window_mode".into(), "windowed".into());
+                    }
+                    let output = context.run(Default::default(), |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            row(
+                                ui,
+                                "Window mode",
+                                "window_mode",
+                                RuntimeSettings::default(),
+                                RuntimeSettings::default(),
+                                RuntimeSettings::default(),
+                                scope,
+                                Overrides {
+                                    current: Some(&current_patch),
+                                    saved: Some(&saved_patch),
+                                },
+                                &Default::default(),
+                                |ui| {
+                                    ui.label("Windowed");
+                                },
+                            );
+                        });
+                    });
+                    let text = output
+                        .shapes
+                        .iter()
+                        .find_map(|s| match &s.shape {
+                            egui::Shape::Text(t) if t.galley.text() == "Window mode" => Some(t),
+                            _ => None,
+                        })
+                        .unwrap();
+                    let accent = text
+                        .galley
+                        .job
+                        .sections
+                        .iter()
+                        .any(|s| s.format.color == ACCENT);
+                    let dot = output
+                        .shapes
+                        .iter()
+                        .any(|s| matches!(&s.shape, egui::Shape::Circle(c) if c.fill==PENDING));
+                    assert_eq!(accent, scope == 1 && current);
+                    assert_eq!(dot, scope == 1 && current != saved);
+                }
+            }
+        }
+    }
+
     use super::*;
 
     #[test]
@@ -1414,6 +1558,7 @@ mod tests {
                                     value.clone(),
                                     value,
                                     0,
+                                    Overrides::default(),
                                     &cli,
                                     |ui| {
                                         let response = Selector::new(
@@ -1532,6 +1677,7 @@ mod tests {
                                 saved.clone(),
                                 saved.clone(),
                                 1,
+                                Overrides::default(),
                                 &Default::default(),
                                 |ui| {
                                     let response = if key == "aspect_ratio" {
@@ -1628,6 +1774,7 @@ mod tests {
                                     value.clone(),
                                     value,
                                     1,
+                                    Overrides::default(),
                                     &cli,
                                     |ui| {
                                         let response = if key == "window_mode" {
@@ -1736,6 +1883,7 @@ mod tests {
                                 RuntimeSettings::default(),
                                 RuntimeSettings::default(),
                                 scope,
+                                Overrides::default(),
                                 &cli,
                                 &[],
                                 &[SoundRenderer::Speaker],
@@ -1824,6 +1972,7 @@ mod tests {
                             value.clone(),
                             value.clone(),
                             0,
+                            Overrides::default(),
                             &Default::default(),
                             |ui| {
                                 button = backend_selector(ui, &mut value).rect;

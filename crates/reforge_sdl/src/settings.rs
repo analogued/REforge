@@ -104,7 +104,8 @@ pub struct SettingsMenu<'a> {
     pub(super) alleycat_options: bool,
     pub(super) game_editing: [bool; 4],
     pub(super) page: usize,
-    pub(super) game_touched: [bool; 4],
+    // A section reset prevents edit round trips from restoring cleared keys.
+    pub(super) game_reset: [bool; 4],
     pub(super) status: Option<String>,
     pub(super) jobs: Vec<egui::ClippedPrimitive>,
     pub(super) pending_textures: egui::TexturesDelta,
@@ -205,7 +206,7 @@ impl<'a> SettingsMenu<'a> {
             alleycat_options: false,
             game_editing: [false; 4],
             page: 0,
-            game_touched: [false; 4],
+            game_reset: [false; 4],
             status: None,
             jobs: Vec::new(),
             pending_textures: egui::TexturesDelta::default(),
@@ -242,7 +243,7 @@ impl<'a> SettingsMenu<'a> {
         }
         self.draft = None;
         self.pending = None;
-        self.game_touched = [false; 4];
+        self.game_reset = [false; 4];
         self.events.clear();
         let mode = self.navigation.mode;
         self.navigation = Default::default();
@@ -551,7 +552,7 @@ impl<'a> SettingsMenu<'a> {
                 Ok(()) => {
                     self.draft = Some(draft);
                     self.error = None;
-                    self.game_touched = [false; 4];
+                    self.game_reset = [false; 4];
                 }
                 Err(error) => {
                     self.error = Some(format!("Settings applied, but could not save: {error}"))
@@ -1107,7 +1108,94 @@ mod tests {
             display.settings().alleycat.control_mode,
             ControlMode::Responsive
         );
-        assert!(!Session::load(launch).saved.has_game_overrides(3));
+        assert!(!Session::load(launch.clone()).saved.has_game_overrides(3));
+
+        // An explicit launcher preference may equal global. Exercise the real
+        // menu and Apply path, rather than just editing the model directly.
+        let mut explicit = creator.session.borrow().saved.clone();
+        explicit
+            .game
+            .insert("window_mode".into(), "windowed".into());
+        creator
+            .session
+            .borrow_mut()
+            .commit(explicit.clone())
+            .unwrap();
+        menu.draft = Some(explicit);
+        menu.scope = 1;
+        menu.page = 0;
+        menu.game_editing[0] = true;
+        menu.game_reset[0] = false;
+        click(&mut menu, "Fullscreen");
+        click(&mut menu, "Windowed");
+        assert_eq!(
+            menu.draft.as_ref().unwrap().game["window_mode"],
+            "windowed",
+            "returning to the starting value restores the explicit override"
+        );
+        click(&mut menu, "Integer fit");
+        click(&mut menu, "Fit to window (fractional)");
+        click(&mut menu, "Apply");
+        assert_eq!(
+            menu.pending.as_ref().unwrap().game["window_mode"],
+            "windowed",
+            "Apply must not prune another override in the same section"
+        );
+        let request = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().unwrap());
+        display.apply_settings(request).unwrap();
+        menu.applied();
+        assert_eq!(
+            Session::load(launch.clone()).saved.game["window_mode"],
+            "windowed"
+        );
+
+        click(&mut menu, "Global defaults");
+        click(&mut menu, "Fullscreen");
+        click(&mut menu, "Apply");
+        assert_eq!(
+            menu.pending.as_ref().unwrap().game["window_mode"],
+            "windowed",
+            "global edits must leave explicit game overrides intact"
+        );
+        // Discard this pending global edit without requiring desktop fullscreen.
+        menu.toggle();
+        menu.toggle();
+        menu.prepare(display.ui_metrics(), display.settings());
+        menu.scope = 1;
+        menu.page = 0;
+        click(&mut menu, override_label);
+        assert!(
+            !menu
+                .draft
+                .as_ref()
+                .unwrap()
+                .game
+                .contains_key("window_mode")
+        );
+        click(&mut menu, override_label);
+        click(&mut menu, "Fullscreen");
+        click(&mut menu, "Windowed");
+        assert!(
+            !menu
+                .draft
+                .as_ref()
+                .unwrap()
+                .game
+                .contains_key("window_mode"),
+            "an explicit section reset must not resurrect its old override"
+        );
+        click(&mut menu, "Apply");
+        let request = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().unwrap());
+        display.apply_settings(request).unwrap();
+        menu.applied();
+        assert!(!Session::load(launch).saved.has_game_overrides(0));
+        click(&mut menu, "Controls");
         click(&mut menu, "Global defaults");
         assert_eq!(menu.page, 3, "Controls is now shared across scopes");
         assert!(label(&draw(&mut menu, vec![]), "Stick dead zone").is_some());

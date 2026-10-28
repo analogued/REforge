@@ -11,7 +11,11 @@ detection. A shared SDL window reads that context into a session. Standalone
 engine/SDL diagnostic callers get an in-memory session without filesystem access.
 Drafts contain sparse global/game patches; effective runtime settings overlay
 temporary CLI values. The menu requests activation first and commits only after
-the SDL runtime accepts the request.
+the SDL runtime accepts the request. A present game key is an explicit override,
+even if it matches global. `Draft::edit_game` preserves the original key on an
+edit round trip while saving new differences sparsely; pass no original draft
+after an explicit section reset. Equality with global does not trigger cleanup
+of untouched overrides.
 
 Mach 3 also has a per-game native startup preference for digitized samples,
 kept outside shared/global host audio keys. The engine reads it once at startup;

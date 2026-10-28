@@ -78,16 +78,23 @@ clears only the current game's overrides for the selected section when editing
 that game. Display, CRT & Colour, Audio and Controls reset independently.
 Both operations remain drafts until Apply.
 
-Game fields differing from the global draft use cyan text. An amber dot marks
-a change compared with saved preferences, including removal of an old override.
+Game fields with an override in the draft use cyan text, including explicit
+values matching global defaults. An amber dot marks a change compared with
+saved preferences, including removal of an old override.
 Hover labels/dots for global or saved values. No override badges or individual
 reset buttons are displayed. Checking **Override global defaults**
 enables game editing without copying the global section. The checkbox explains
 that only different values are saved. Unchecking it clears that section's game
 overrides in the draft; Apply saves the reset and Cancel discards it.
-Only edited differences become overrides.
-Values equal to global inherit. Applying global edits does not rewrite game
-entries; redundant game entries are removed when game settings are edited/applied.
+
+New game edits save only differences from the current global draft (or built-in
+value for game-only options). Existing overrides are preserved when editing
+other fields or global defaults, even when their values match global. Changing
+a field away and back to its starting value preserves its original override
+state. Explicit section resets clear that state; subsequent edits do not restore
+cleared overrides. Apply never prunes unrelated overrides from the same section.
+Renderer/treatment compatibility adjustments still apply. Hover details
+distinguish saved overrides from inherited values.
 
 ## File and precedence
 

@@ -458,6 +458,80 @@ fn removal_requires_confirmation_and_cancel_or_escape_preserves_library() {
 }
 
 #[test]
+fn truncated_status_has_one_tooltip_with_full_path_and_missing_details() {
+    let context = Context::default();
+    context.style_mut(|style| style.interaction.tooltip_delay = 0.0);
+    let fixture = Fixture::new(1);
+    let mut game = fixture
+        .state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true)
+        .games
+        .remove(0);
+    game.original_path =
+        "/synthetic/a/very/long/game/location/that/does/not/fit/the/status/row/CAT.EXE".into();
+    let appearance = ResolvedAppearance::resolve(ThemeId::ClassicDark);
+    for (index, status) in [
+        EntryStatus::Verified,
+        EntryStatus::Missing("Required original file unavailable".into()),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        game.status = status;
+        let mut point = Pos2::ZERO;
+        let mut output = None;
+        for frame in 0..40 {
+            let rendered = context.run(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 400.0))),
+                    time: Some((index * 40 + frame) as f64 * 0.1),
+                    events: if frame > 2 {
+                        vec![egui::Event::PointerMoved(point)]
+                    } else {
+                        vec![]
+                    },
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.set_max_width(200.0);
+                        widgets::draw_provenance_inline(ui, &appearance, &game);
+                    });
+                },
+            );
+            if frame == 2 {
+                let prefix = if game.status.is_missing() {
+                    "Missing"
+                } else {
+                    "Verified"
+                };
+                point = text_rect(&rendered, &format!("{prefix} · {}", game.original_path))
+                    .unwrap()
+                    .center();
+            }
+            output = Some(rendered);
+        }
+        let output = output.unwrap();
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
+            egui::Shape::Text(text) if text.galley.elided && text.galley.text().contains(&game.original_path)
+        )), "fixture must truncate the status label");
+        // One elided inline label and one full-path tooltip; egui retains the
+        // original string in the inline galley as well as the tooltip galley.
+        let paths: Vec<_> = texts(&output)
+            .into_iter()
+            .filter(|text| text.contains(&game.original_path))
+            .collect();
+        assert_eq!(paths.len(), 2, "{paths:?}");
+        if game.status.is_missing() {
+            assert!(
+                texts(&output)
+                    .iter()
+                    .any(|text| text.contains("Required original file unavailable"))
+            );
+        }
+    }
+}
+
+#[test]
 fn invalid_configuration_stays_intact_and_draws_without_panicking() {
     for invalid in ["[global.display\n", "schema_version = 999\n"] {
         let fixture = Fixture::new(2);

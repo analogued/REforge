@@ -534,31 +534,38 @@ pub fn draw_provenance_inline(ui: &mut egui::Ui, ap: &ResolvedAppearance, game: 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(7.0), Sense::hover());
-        match &game.status {
-            EntryStatus::Verified => {
-                ui.painter()
-                    .circle_filled(dot_rect.center(), 3.0, ap.tokens.ok_fg);
-                let text = format!("Verified · {}", game.original_path);
-                ui.add(
-                    egui::Label::new(RichText::new(text).size(11.5).color(ap.tokens.text_muted))
-                        .truncate(),
-                )
-                .on_hover_text(&game.original_path);
-            }
-            EntryStatus::Missing(reason) => {
-                ui.painter()
-                    .circle_filled(dot_rect.center(), 3.2, ap.missing.foreground);
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(format!("Missing · {}", game.original_path))
-                            .size(11.5)
-                            .color(ap.missing.foreground),
-                    )
-                    .truncate(),
-                )
-                .on_hover_text(format!("{}\n{reason}", game.original_path));
-            }
-        }
+        let (status, colour, tooltip) = match &game.status {
+            EntryStatus::Verified => ("Verified", ap.tokens.text_muted, game.original_path.clone()),
+            EntryStatus::Missing(reason) => (
+                "Missing",
+                ap.missing.foreground,
+                format!("{}\n{reason}", game.original_path),
+            ),
+        };
+        let dot_colour = if game.status.is_missing() {
+            ap.missing.foreground
+        } else {
+            ap.tokens.ok_fg
+        };
+        ui.painter().circle_filled(
+            dot_rect.center(),
+            if game.status.is_missing() { 3.2 } else { 3.0 },
+            dot_colour,
+        );
+        // Label::ui automatically adds an elision tooltip. Lay out and paint the
+        // same label directly so the complete path/details have one tooltip owner.
+        let (position, galley, response) = egui::Label::new(
+            RichText::new(format!("{status} · {}", game.original_path))
+                .size(11.5)
+                .color(colour),
+        )
+        .truncate()
+        .layout_in_ui(ui);
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), galley.text())
+        });
+        ui.painter().galley(position, galley, colour);
+        response.on_hover_text(tooltip);
     });
 }
 
@@ -655,17 +662,19 @@ fn paint_symbolic(
         ap.tokens.preview_radius.saturating_sub(1),
         Color32::from_rgb(16, 19, 24),
     );
-    // Keep decorative strips inside the rounded preview, including at small sizes.
-    let strip = rect.shrink(6.0);
+    // Align the strip with the preview's inner top edge. Clip each segment
+    // from the full rounded shape so its corners follow the frame exactly.
+    let strip = Rect::from_min_size(rect.min, Vec2::new(rect.width(), 3.5));
     if !colours.is_empty() {
         let width = strip.width() / colours.len() as f32;
         for (i, [r, g, b]) in colours.iter().enumerate() {
-            painter.rect_filled(
-                Rect::from_min_size(
-                    Pos2::new(strip.left() + i as f32 * width, strip.top()),
-                    Vec2::new(width, 3.5),
-                ),
-                0.0,
+            let segment = Rect::from_min_size(
+                Pos2::new(strip.left() + i as f32 * width, strip.top()),
+                Vec2::new(width, strip.height()),
+            );
+            painter.with_clip_rect(segment).rect_filled(
+                rect,
+                ap.tokens.preview_radius.saturating_sub(1),
                 Color32::from_rgb(*r, *g, *b),
             );
         }

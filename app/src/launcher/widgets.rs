@@ -275,18 +275,11 @@ pub fn paint_preview_in_rect(
     show_badge: bool,
 ) {
     let cr = CornerRadius::same(ap.tokens.preview_radius);
-    painter.rect_filled(rect, cr, Color32::from_rgb(10, 12, 15));
-
     let inner = rect.shrink(1.0);
-    let inner_radius = ap.tokens.preview_radius.saturating_sub(1);
-    paint_symbolic(painter, ap, inner, game, show_badge);
+    paint_symbolic(painter, ap, rect, game, show_badge);
 
     if game.status.is_missing() {
-        painter.rect_filled(
-            inner,
-            CornerRadius::same(inner_radius),
-            Color32::from_black_alpha(125),
-        );
+        painter.rect_filled(rect, cr, Color32::from_black_alpha(125));
         if inner.width() >= 88.0 && inner.height() >= 42.0 {
             let pill = Rect::from_center_size(
                 Pos2::new(inner.center().x, inner.bottom() - 16.0),
@@ -659,12 +652,13 @@ fn paint_symbolic(
     let colours = game.palette_swatches();
     painter.rect_filled(
         rect,
-        ap.tokens.preview_radius.saturating_sub(1),
+        ap.tokens.preview_radius,
         Color32::from_rgb(16, 19, 24),
     );
-    // Align the strip with the preview's inner top edge. Clip each segment
-    // from the full rounded shape so its corners follow the frame exactly.
-    let strip = Rect::from_min_size(rect.min, Vec2::new(rect.width(), 3.5));
+    // Continue the strip beneath the border, using its same outer contour.
+    // The border is painted last, so its translucent inner edge blends with
+    // the palette instead of an inset dark gap. Retain 3.5 points inside it.
+    let strip = Rect::from_min_size(rect.min, Vec2::new(rect.width(), 4.5));
     if !colours.is_empty() {
         let width = strip.width() / colours.len() as f32;
         for (i, [r, g, b]) in colours.iter().enumerate() {
@@ -674,11 +668,12 @@ fn paint_symbolic(
             );
             painter.with_clip_rect(segment).rect_filled(
                 rect,
-                ap.tokens.preview_radius.saturating_sub(1),
+                ap.tokens.preview_radius,
                 Color32::from_rgb(*r, *g, *b),
             );
         }
     }
+    let rect = rect.shrink(1.0);
     let accent = colours
         .iter()
         .skip(1)

@@ -20,6 +20,7 @@ mod settings_navigation;
 mod settings_selector;
 mod settings_software;
 mod settings_ui;
+pub mod ui;
 pub use input::{EventClockSample, HostPause, HostShortcut, event_clock_sample, host_shortcut};
 use reforge_settings::Session;
 pub use resources::FrameCreator;

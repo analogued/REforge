@@ -108,19 +108,23 @@ impl State {
     }
     fn draw(&mut self, context: &egui::Context, busy: bool) -> Option<Action> {
         let mut action = None;
+        let theme = reforge_sdl::ui::current_theme(context);
         #[cfg(test)]
         self.controls.clear();
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(27, 27, 27))
+                    .fill(theme.palette.canvas)
                     .inner_margin(20.0),
             )
             .show(context, |ui| {
                 ui.horizontal(|ui| {
                     ui.heading("REforge");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let add = Gui::control(ui.add_enabled(!busy, egui::Button::new("Add")));
+                        let add = Gui::control(ui.add_enabled(
+                            !busy,
+                            reforge_sdl::ui::primitives::Button::new(&theme, "Add"),
+                        ));
                         #[cfg(test)]
                         self.controls.push(("Add".into(), add.rect));
                         if self.focus_first && self.library.entries.is_empty() {
@@ -134,17 +138,20 @@ impl State {
                 if self.library.entries.is_empty() {
                     if let Some(error) = &self.error {
                         ui.add_space(12.0);
-                        ui.colored_label(egui::Color32::LIGHT_RED, error);
+                        ui.colored_label(theme.palette.error, error);
                     }
                     self.focus_first = false;
                     return;
                 }
                 ui.add_space(12.0);
                 if let Some(error) = &self.error {
-                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    ui.colored_label(theme.palette.error, error);
                     if let Some(id) = self.locate {
-                        if Gui::control(ui.add_enabled(!busy, egui::Button::new("Locate files…")))
-                            .clicked()
+                        if Gui::control(ui.add_enabled(
+                            !busy,
+                            reforge_sdl::ui::primitives::Button::new(&theme, "Locate files…"),
+                        ))
+                        .clicked()
                         {
                             action = Some(Action::Locate(id));
                         }
@@ -160,8 +167,12 @@ impl State {
                             let response = Gui::control(
                                 ui.add_enabled(
                                     !busy,
-                                    egui::Button::new(&entry.title)
-                                        .selected(self.selected == Some(entry.id))
+                                    reforge_sdl::ui::primitives::Button::new(&theme, &entry.title)
+                                        .selection(if self.selected == Some(entry.id) {
+                                            reforge_sdl::ui::SelectionState::Explicit
+                                        } else {
+                                            reforge_sdl::ui::SelectionState::Unselected
+                                        })
                                         .min_size(egui::vec2(ui.available_width(), 38.0)),
                                 ),
                             );
@@ -198,19 +209,25 @@ impl State {
                     .on_hover_text(entry.original.display().to_string());
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        let play = Gui::control(ui.add_enabled(
-                            !busy,
-                            egui::Button::new("Play").min_size(egui::vec2(90.0, 28.0)),
-                        ));
+                        let play = Gui::control(
+                            ui.add_enabled(
+                                !busy,
+                                reforge_sdl::ui::primitives::Button::new(&theme, "Play")
+                                    .min_size(egui::vec2(90.0, 28.0)),
+                            ),
+                        );
                         #[cfg(test)]
                         self.controls.push(("Play".into(), play.rect));
                         if play.clicked() {
                             action = Some(Action::Play(entry.id));
                         }
-                        if Gui::control(ui.add_enabled(
-                            !busy,
-                            egui::Button::new("Remove").min_size(egui::vec2(90.0, 28.0)),
-                        ))
+                        if Gui::control(
+                            ui.add_enabled(
+                                !busy,
+                                reforge_sdl::ui::primitives::Button::new(&theme, "Remove")
+                                    .min_size(egui::vec2(90.0, 28.0)),
+                            ),
+                        )
                         .on_hover_text("Remove from the library; keep all game files")
                         .clicked()
                         {
@@ -401,7 +418,12 @@ pub fn run() -> Result<(), String> {
         gui.prepare(Gui::metrics(&canvas)?, |context| {
             action = state.draw(context, picker.is_some());
         });
-        canvas.set_draw_color(sdl3::pixels::Color::RGB(27, 27, 27));
+        let background = gui.theme().palette.canvas;
+        canvas.set_draw_color(sdl3::pixels::Color::RGB(
+            background.r(),
+            background.g(),
+            background.b(),
+        ));
         canvas.clear();
         gui.paint(&mut canvas)?;
         canvas.present();

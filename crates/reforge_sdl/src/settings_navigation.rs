@@ -657,7 +657,7 @@ pub(super) fn paint_focus(context: &Context) {
             context.layer_painter(target.layer).rect_stroke(
                 target.visible.expand(2.0),
                 3.0,
-                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(100, 200, 226)),
+                egui::Stroke::new(1.5_f32, crate::ui::current_palette(context).focus),
                 egui::StrokeKind::Outside,
             );
         }

@@ -14,6 +14,14 @@ impl<'a> Gui<'a> {
         surface.open = true;
         Self { surface }
     }
+    /// Select an appearance programmatically; palette changes preserve input
+    /// state, while shared primitives read this theme's component composition.
+    pub fn set_theme(&mut self, theme: crate::ui::Theme) {
+        self.surface.set_theme(theme);
+    }
+    pub fn theme(&self) -> &crate::ui::Theme {
+        self.surface.theme()
+    }
     pub fn metrics(canvas: &WindowCanvas) -> Result<UiMetrics, String> {
         Ok(UiMetrics {
             drawable: canvas.output_size().map_err(|e| e.to_string())?,

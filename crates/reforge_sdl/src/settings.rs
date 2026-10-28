@@ -83,6 +83,7 @@ impl UiMetrics {
 pub struct SettingsMenu<'a> {
     pub(super) creator: &'a FrameCreator,
     pub(super) context: egui::Context,
+    theme: crate::ui::Theme,
     pub(super) capabilities: VideoCapabilities,
     pub(super) open: bool,
     events: Vec<MenuEvent>,
@@ -172,19 +173,21 @@ impl<'a> SettingsMenu<'a> {
         let session = self.creator.session.borrow();
         session.effective(&session.saved).mach3
     }
+    /// Apply UI colours without changing Settings geometry, draft or navigation.
+    pub fn set_theme(&mut self, theme: crate::ui::Theme) {
+        self.theme = theme;
+        theme.apply_palette(&self.context);
+    }
+    pub fn theme(&self) -> &crate::ui::Theme {
+        &self.theme
+    }
     pub fn new(creator: &'a FrameCreator, capabilities: VideoCapabilities) -> Self {
         let context = egui::Context::default();
-        context.set_visuals(egui::Visuals::dark());
-        context.style_mut(|style| {
-            style.animation_time = 0.0;
-            style.spacing.item_spacing = Vec2::new(12.0, 12.0);
-            style.spacing.button_padding = Vec2::new(14.0, 7.0);
-            style.visuals.selection.bg_fill = Color32::from_rgb(43, 103, 131);
-        });
         crate::settings_ui::style(&context);
         Self {
             creator,
             context,
+            theme: crate::ui::Theme::default(),
             capabilities,
             open: false,
             events: Vec::new(),
@@ -462,8 +465,8 @@ impl<'a> SettingsMenu<'a> {
             let memory = self.context.memory(Clone::clone);
             self.context = egui::Context::default();
             self.context.memory_mut(|new| *new = memory);
-            self.context.set_visuals(egui::Visuals::dark());
             crate::settings_ui::style(&self.context);
+            self.theme.apply_palette(&self.context);
             self.generation = self.creator.generation();
         }
         if self.draft.is_none() {
@@ -513,7 +516,7 @@ impl<'a> SettingsMenu<'a> {
             ctx.layer_painter(egui::LayerId::background()).rect_filled(
                 screen,
                 0.0,
-                Color32::from_black_alpha(165),
+                self.theme.palette.scrim,
             );
             if crate::settings_ui::draw(self, ctx, screen) {
                 self.open = false;
@@ -1380,6 +1383,12 @@ mod tests {
         frame.update(&pixels).unwrap();
         assert!(frame.update(&pixels[..pixels.len() - 1]).is_err());
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+        let theme = crate::ui::Theme::default().with_overrides(|theme| {
+            theme.palette.focus = egui::Color32::GOLD;
+            theme.palette.override_text = egui::Color32::GOLD;
+            theme.components.button.shape = crate::ui::ButtonShape::Pill;
+        });
+        menu.set_theme(theme);
         menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
         menu.prepare(display.ui_metrics(), display.settings());
         let unchanged = display.settings();
@@ -1498,6 +1507,16 @@ mod tests {
                     .unwrap();
             }
             menu.prepare(display.ui_metrics(), display.settings());
+            assert_eq!(*menu.theme(), theme);
+            assert_eq!(crate::ui::current_theme(&menu.context), theme);
+            assert_eq!(
+                menu.context.style().spacing.button_padding,
+                egui::vec2(8.0, 3.0)
+            );
+            assert_eq!(
+                menu.context.style().visuals.widgets.inactive.corner_radius,
+                egui::CornerRadius::same(2)
+            );
             display
                 .present_with(&frame, |canvas| {
                     menu.paint(canvas)?;

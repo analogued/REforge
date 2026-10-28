@@ -13,11 +13,6 @@ use reforge_settings::{
     Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling,
     ScalingPolicy, SoundCategory, SoundRenderer,
 };
-const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
-const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
-const CLI_LOCK: Color32 = Color32::from_rgb(182, 169, 214);
-const CLI_BANNER: Color32 = Color32::from_rgb(35, 58, 72);
-const CLI_NOTICE: Color32 = Color32::from_rgb(190, 214, 228);
 const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
 // Presence is distinct from equality: explicit overrides may match global.
 #[derive(Clone, Copy, Default)]
@@ -48,9 +43,9 @@ pub(super) fn style(context: &egui::Context) {
         for text in [egui::TextStyle::Body, egui::TextStyle::Button] {
             s.text_styles.insert(text, egui::FontId::proportional(14.0));
         }
-        s.visuals.selection.bg_fill = Color32::from_rgb(43, 103, 131);
         s.visuals.slider_trailing_fill = true;
     });
+    crate::ui::current_theme(context).apply_palette(context);
 }
 pub(super) fn draw(
     menu: &mut SettingsMenu<'_>,
@@ -606,7 +601,7 @@ pub(super) fn draw(
                 });
             });
             if let Some(error) = menu.error.as_ref().or(warning.as_ref()) {
-                ui.colored_label(Color32::from_rgb(255, 169, 144), error);
+                ui.colored_label(crate::ui::current_palette(ui.ctx()).notice_error, error);
             }
             if let Some(status) = &menu.status {
                 ui.weak(status);
@@ -1078,7 +1073,7 @@ fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {
         2.0,
         colour,
     );
-    let keyhole = Color32::from_gray(40);
+    let keyhole = crate::ui::current_palette(painter.ctx()).lock_keyhole;
     painter.circle_filled(center + Vec2::new(0.0, 2.0), 1.2, keyhole);
     painter.line_segment(
         [center + Vec2::new(0.0, 2.0), center + Vec2::new(0.0, 5.0)],
@@ -1087,15 +1082,16 @@ fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {
 }
 
 fn cli_notice(ui: &mut egui::Ui) -> egui::Response {
+    let palette = crate::ui::current_palette(ui.ctx());
     egui::Frame::NONE
-        .fill(CLI_BANNER)
+        .fill(palette.cli_background)
         .corner_radius(3.0)
         .inner_margin(8.0)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal_top(|ui| {
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(16.0, 18.0), egui::Sense::hover());
-                paint_lock(ui.painter(), rect.center(), CLI_NOTICE);
+                paint_lock(ui.painter(), rect.center(), palette.cli_text);
                 control(
                     ui.add(
                         egui::Label::new(
@@ -1103,7 +1099,7 @@ fn cli_notice(ui: &mut egui::Ui) -> egui::Response {
                                 "Some settings are locked by command-line arguments.",
                             )
                             .size(13.0)
-                            .color(CLI_NOTICE),
+                            .color(palette.cli_text),
                         )
                         .wrap(),
                     ),
@@ -1197,6 +1193,7 @@ fn row_with_width(
         .map(|active| cli_tooltip(key, active))
         .or_else(|| dependency_lock(key, &value).map(str::to_owned));
     let locked = lock_tooltip.is_some();
+    let palette = crate::ui::current_palette(ui.ctx());
     let overridden = scope == 1 && overrides.current(key).is_some();
     let dirty = !cli.contains_key(key)
         && if scope == 1 {
@@ -1214,9 +1211,9 @@ fn row_with_width(
         control_width.min((available - markers).max(1.0))
     };
     let colour = if locked {
-        Color32::from_gray(100)
+        palette.locked_text
     } else if overridden {
-        ACCENT
+        palette.override_text
     } else {
         ui.visuals().text_color()
     };
@@ -1295,7 +1292,8 @@ fn row_with_width(
                                 .slider_width
                                 .min(slider_track_width(child, 56.0));
                             if overridden && !locked {
-                                child.visuals_mut().override_text_color = Some(ACCENT);
+                                child.visuals_mut().override_text_color =
+                                    Some(palette.override_text);
                             }
                             crate::settings_navigation::row_controls(child, rect, |child| {
                                 child
@@ -1312,7 +1310,7 @@ fn row_with_width(
                         if ui.is_visible() {
                             let mut painter = ui.painter().clone();
                             painter.set_fade_to_color(None);
-                            paint_lock(&painter, rect.center(), CLI_LOCK);
+                            paint_lock(&painter, rect.center(), palette.cli_lock);
                         }
                         response
                             .on_hover_text(reason)
@@ -1321,7 +1319,8 @@ fn row_with_width(
                     let (rect, response) =
                         ui.allocate_exact_size(Vec2::new(12.0, 22.0), egui::Sense::hover());
                     if dirty {
-                        ui.painter().circle_filled(rect.center(), 3.0, PENDING);
+                        ui.painter()
+                            .circle_filled(rect.center(), 3.0, palette.pending);
                         response
                             .on_hover_text(format!("Unapplied change. Saved: {}", saved.get(key)));
                     }
@@ -1461,6 +1460,9 @@ fn scale_slider(
 
 #[cfg(test)]
 mod tests {
+    const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
+    const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
+    const CLI_LOCK: Color32 = Color32::from_rgb(182, 169, 214);
     #[test]
     fn override_colours_and_pending_dots_follow_presence_even_when_values_match() {
         for scope in [0, 1] {

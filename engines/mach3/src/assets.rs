@@ -71,11 +71,16 @@ impl GraphicsAssets {
 
     /// Read DOS resource names case-insensitively, rejecting ambiguous matches.
     pub fn load(directory: impl AsRef<Path>) -> Result<Self, Error> {
-        let directory = directory.as_ref();
-        let data2 = read_resource(directory, "DATA2")?;
-        let data3 = read_resource(directory, "DATA3")?;
-        let data4 = read_resource(directory, "DATA4")?;
-        let data5 = read_resource(directory, "DATA5")?;
+        Self::load_with(|name| read_resource(directory.as_ref(), name))
+    }
+
+    pub(crate) fn load_with(
+        mut read: impl FnMut(&str) -> Result<Vec<u8>, Error>,
+    ) -> Result<Self, Error> {
+        let data2 = read("DATA2")?;
+        let data3 = read("DATA3")?;
+        let data4 = read("DATA4")?;
+        let data5 = read("DATA5")?;
         Self::decode(&data2, &data3, &data4, &data5)
     }
 }

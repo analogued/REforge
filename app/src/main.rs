@@ -236,7 +236,7 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
         Game::Mach3 => {
             #[cfg(feature = "sdl")]
             {
-                mach3::cli::run(args.into_iter())
+                mach3::cli::run_with_files(args.into_iter(), &plan.detected.files)
             }
             #[cfg(not(feature = "sdl"))]
             {
@@ -269,6 +269,7 @@ mod tests {
             Game::Mach3
         };
         Ok(Detected {
+            files: Default::default(),
             game,
             release: detection::RELEASES.iter().find(|r| r.game == game).unwrap(),
             original: path.into(),

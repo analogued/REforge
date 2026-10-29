@@ -9,7 +9,11 @@ use crate::{
     startup::StartupFrames,
     viewer::Options,
 };
-use std::{ffi::OsString, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--video cga|mono] [--f3-mode press|original] [--digitized-samples on|off]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
@@ -46,12 +50,23 @@ fn help() -> String {
 /// The `viewer` feature provides this entry point for REforge and the standalone
 /// `mach3-viewer` binary.
 pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    run_with_files(args, &BTreeMap::new())
+}
+
+/// Run using the physical files selected by REforge's release detector.
+/// Unlisted resources retain the standalone loader's ordinary resolution.
+pub fn run_with_files(
+    args: impl Iterator<Item = OsString>,
+    files: &BTreeMap<&str, PathBuf>,
+) -> Result<(), String> {
     let Some((directory, options)) = parse_args(args)? else {
         println!("{}", help());
         return Ok(());
     };
-    let frames = StartupFrames::load(&directory).map_err(|error| error.to_string())?;
-    let program = crate::executable::load_program(&directory).map_err(|error| error.to_string())?;
+    let mut read = |name: &str| read_selected(&directory, files, name);
+    let frames = StartupFrames::load_with(&mut read).map_err(|error| error.to_string())?;
+    let program = crate::executable::expand_program(&read("MACH3.EXE").map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
     let rules = crate::gameplay::ScriptRules::from_data_segment(
         crate::executable::data_segment(&program).map_err(|error| error.to_string())?,
     )
@@ -60,11 +75,26 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
     if options.is_preview() {
         return crate::viewer::run_preview(&frames, options, rules);
     }
-    let samples = crate::sound::SoundAssets::load(&directory).map_err(|e| e.to_string())?;
+    let samples = crate::sound::SoundAssets::load_with(&mut read).map_err(|e| e.to_string())?;
     let intro = crate::sound::IntroProgram::from_expanded(&program).map_err(|e| e.to_string())?;
     let procedural =
         crate::sound::ProceduralProgram::from_expanded(&program).map_err(|e| e.to_string())?;
     crate::viewer::run_live(&frames, options, rules, samples, intro, procedural)
+}
+
+fn read_selected(
+    directory: &Path,
+    files: &BTreeMap<&str, PathBuf>,
+    name: &str,
+) -> Result<Vec<u8>, crate::Error> {
+    if let Some((_, path)) = files
+        .iter()
+        .find(|(catalog_name, _)| catalog_name.eq_ignore_ascii_case(name))
+    {
+        std::fs::read(path).map_err(crate::Error::Io)
+    } else {
+        crate::assets::read_resource(directory, name)
+    }
 }
 
 /// Validate the viewer argument contract without loading original data or SDL.
@@ -204,6 +234,52 @@ mod tests {
     use crate::viewer::Playback;
     use crate::{gameplay::F3Mode, sound::render::AudioRenderer};
     use std::{ffi::OsString, path::PathBuf};
+
+    #[test]
+    fn verified_file_choices_override_case_collisions_without_silent_fallback() {
+        use std::{
+            collections::BTreeMap,
+            fs,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+        let directory = std::env::temp_dir().join(format!(
+            "mach3-selected-files-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).unwrap();
+        for (name, content) in [
+            ("MACH3.EXE", b"wrong".as_slice()),
+            ("mach3.exe", b"chosen program"),
+            ("DATA1", b"wrong"),
+            ("data1", b"chosen image"),
+            ("DATA7", b"unlisted sample"),
+        ] {
+            fs::write(directory.join(name), content).unwrap();
+        }
+        let files = BTreeMap::from([
+            ("mach3.exe", directory.join("mach3.exe")),
+            ("DATA1", directory.join("data1")),
+        ]);
+        assert_eq!(
+            super::read_selected(&directory, &files, "MACH3.EXE").unwrap(),
+            b"chosen program"
+        );
+        assert_eq!(
+            super::read_selected(&directory, &files, "DATA1").unwrap(),
+            b"chosen image"
+        );
+        assert_eq!(
+            super::read_selected(&directory, &files, "DATA7").unwrap(),
+            b"unlisted sample"
+        );
+        fs::remove_file(directory.join("data1")).unwrap();
+        assert!(super::read_selected(&directory, &files, "DATA1").is_err());
+        fs::remove_dir_all(&directory).unwrap();
+    }
 
     fn args(values: &[&str]) -> impl Iterator<Item = OsString> {
         values

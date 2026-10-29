@@ -143,6 +143,7 @@ mod tests {
         ] {
             launch.entry_id = None;
             let detected = Detected {
+                files: Default::default(),
                 game: Game::AlleyCat,
                 release: &RELEASES[0],
                 original: temp.0.join(directory),
@@ -159,6 +160,7 @@ mod tests {
         bind(
             &mut launch,
             &Detected {
+                files: Default::default(),
                 game: Game::AlleyCat,
                 release: &RELEASES[0],
                 original: temp.0.join("one"),
@@ -181,6 +183,7 @@ mod tests {
         )
         .unwrap();
         let detected = Detected {
+            files: Default::default(),
             game: Game::AlleyCat,
             release: &RELEASES[0],
             original: temp.0.join("game"),

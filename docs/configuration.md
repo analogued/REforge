@@ -107,6 +107,14 @@ has separate entries, preferences and future save locations. Directory aliases,
 including symlinks, select the same entry. Re-adding a directory selects its
 existing entry.
 
+Detection checks required filenames, then sizes, then complete SHA-256 hashes.
+Names match without regard to ASCII case. When several spellings exist, it tries
+the catalog's exact spelling first, then the other spellings alphabetically;
+wrong-size files are skipped before hashing. The first matching file for each
+required record is passed to the engine. Multiple matching releases still require
+disambiguation. Selecting a file restricts candidates by its name, while its
+siblings supply the other required files. Only the selected directory is searched.
+
 Entry IDs combine the game ID and six random lowercase letters/digits, such as
 `alley-cat-m7k4p9`. They use operating-system randomness with collision checks
 against the library, retained entry preferences and save-folder names. There is

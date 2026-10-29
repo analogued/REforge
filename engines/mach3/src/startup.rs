@@ -45,10 +45,15 @@ impl StartupFrames {
 
     /// Load DATA1 and DATA6 as CGA screens and DATA2 through DATA5 as graphics.
     pub fn load(directory: impl AsRef<Path>) -> Result<Self, Error> {
-        let directory = directory.as_ref();
-        let splash = Frame::from_cga(&read_resource(directory, "DATA1")?)?;
-        let intro = Frame::from_cga(&read_resource(directory, "DATA6")?)?;
-        let graphics = GraphicsAssets::load(directory)?;
+        Self::load_with(|name| read_resource(directory.as_ref(), name))
+    }
+
+    pub(crate) fn load_with(
+        mut read: impl FnMut(&str) -> Result<Vec<u8>, Error>,
+    ) -> Result<Self, Error> {
+        let splash = Frame::from_cga(&read("DATA1")?)?;
+        let intro = Frame::from_cga(&read("DATA6")?)?;
+        let graphics = GraphicsAssets::load_with(&mut read)?;
         let initial_scene = scene::initial_frame(&graphics)?;
         Ok(Self {
             frames: [splash, intro, initial_scene],
@@ -240,6 +245,44 @@ mod tests {
         for _ in 0..100 {
             assert_eq!(presentation.screen(), Screen::Intro);
         }
+    }
+
+    #[test]
+    fn explicit_resource_reader_loads_selected_images_and_graphics_despite_bad_case_variants() {
+        let directory = TestDirectory::new();
+        directory.write_resources();
+        let reference = StartupFrames::load(&directory.0).unwrap();
+        fs::rename(directory.0.join("DATA2"), directory.0.join("data2")).unwrap();
+        fs::write(directory.0.join("DATA1"), b"wrong image").unwrap();
+        fs::write(directory.0.join("DATA2"), b"wrong graphics").unwrap();
+        let variants = fs::read_dir(&directory.0)
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_str()
+                    .unwrap()
+                    .eq_ignore_ascii_case("DATA1")
+            })
+            .count();
+        if variants != 2 {
+            return;
+        }
+        assert!(StartupFrames::load(&directory.0).is_err());
+        let selected = StartupFrames::load_with(|name| match name {
+            "DATA1" => fs::read(directory.0.join("data1")).map_err(Error::Io),
+            "DATA2" => fs::read(directory.0.join("data2")).map_err(Error::Io),
+            other => read_resource(&directory.0, other),
+        })
+        .unwrap();
+        for screen in [Screen::Splash, Screen::Intro, Screen::InitialScene] {
+            assert_eq!(
+                selected.frame(screen).packed(),
+                reference.frame(screen).packed()
+            );
+        }
+        assert_eq!(selected.graphics.primary, reference.graphics.primary);
     }
 
     #[test]

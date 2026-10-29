@@ -1,11 +1,12 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
-//! Engine-owned launcher choices. Native palette colours match Machine::colors;
+//! Engine-owned launcher choices. Default alley colours come from Machine;
 //! the launcher supplies presentation, shapes and Symbolic artwork.
 
+use crate::alley::Machine;
 use reforge_sdl::launcher::{Choice, DISPLAY, OptionDefinition, Storage, WINDOW};
 
-const CGA: [[u8; 3]; 4] = [[0, 0, 0], [0, 170, 170], [170, 0, 170], [170, 170, 170]];
-const PCJR: [[u8; 3]; 4] = [[0, 0, 0], [85, 255, 85], [85, 85, 255], [255, 255, 255]];
+const CGA: [[u8; 3]; 4] = Machine::Cga.rgb_colors();
+const PCJR: [[u8; 3]; 4] = Machine::Pcjr.rgb_colors();
 
 pub const OPTIONS: &[OptionDefinition] = &[
     OptionDefinition {
@@ -46,7 +47,6 @@ pub fn geometry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alley::Machine;
 
     #[test]
     fn machine_modes_share_native_and_display_geometry() {

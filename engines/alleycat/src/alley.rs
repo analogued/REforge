@@ -21,22 +21,17 @@ pub enum Machine {
 }
 
 impl Machine {
+    /// Default alley colours; rooms and effects can remap these four indices.
     /// Conventional digital RGB values; composite/monitor conversion is separate.
-    pub(crate) fn colors(self) -> [[u8; 4]; 4] {
+    pub(crate) const fn rgb_colors(self) -> [[u8; 3]; 4] {
         match self {
-            Self::Cga => [
-                [0, 0, 0, 255],
-                [0, 170, 170, 255],
-                [170, 0, 170, 255],
-                [170, 170, 170, 255],
-            ],
-            Self::Pcjr => [
-                [0, 0, 0, 255],
-                [85, 255, 85, 255],
-                [85, 85, 255, 255],
-                [255, 255, 255, 255],
-            ],
+            Self::Cga => [[0, 0, 0], [0, 170, 170], [170, 0, 170], [170, 170, 170]],
+            Self::Pcjr => [[0, 0, 0], [85, 255, 85], [85, 85, 255], [255, 255, 255]],
         }
+    }
+
+    pub(crate) fn colors(self) -> [[u8; 4]; 4] {
+        self.rgb_colors().map(|[r, g, b]| [r, g, b, 255])
     }
 }
 

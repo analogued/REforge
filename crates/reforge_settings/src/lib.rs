@@ -716,7 +716,8 @@ impl Draft {
 }
 #[derive(Clone, Debug)]
 pub struct Launch {
-    pub game: String,
+    pub game_id: String,
+    pub entry_id: Option<String>,
     pub path: Option<PathBuf>,
     pub cli: Patch,
 }
@@ -735,7 +736,8 @@ impl Drop for LaunchGuard {
 
 #[derive(Clone)]
 pub struct Session {
-    pub game: String,
+    pub game_id: String,
+    pub entry_id: Option<String>,
     pub path: Option<PathBuf>,
     pub cli: Patch,
     pub saved: Draft,
@@ -748,7 +750,8 @@ impl Session {
         match launch {
             Some(x) => Self::load(x),
             None => Self {
-                game: "standalone".into(),
+                game_id: "standalone".into(),
+                entry_id: None,
                 path: None,
                 cli: Patch::new(),
                 saved: Draft {
@@ -764,7 +767,8 @@ impl Session {
     }
     pub fn load(launch: Launch) -> Self {
         let mut s = Self {
-            game: launch.game,
+            game_id: launch.game_id,
+            entry_id: launch.entry_id,
             path: launch.path,
             cli: launch.cli,
             saved: Draft::default(),
@@ -774,7 +778,7 @@ impl Session {
         if let Some(path) = &s.path {
             match read(path) {
                 Ok(doc) => {
-                    s.saved = read_draft(&doc, &s.game, &mut s.warning);
+                    s.saved = read_draft(&doc, &s.game_id, s.entry_id.as_deref(), &mut s.warning);
                 }
                 Err(e) => {
                     s.warning = Some(e);
@@ -786,10 +790,10 @@ impl Session {
     }
     pub fn effective(&self, draft: &Draft) -> RuntimeSettings {
         let mut values = overlay(draft.game_values(), &self.cli);
-        if self.game != "mach-3" {
+        if self.game_id != "mach-3" {
             values.mach3 = Mach3Settings::default();
         }
-        if self.game != "alley-cat" {
+        if self.game_id != "alley-cat" {
             values.alleycat = AlleyCatSettings::default();
         }
         values
@@ -799,7 +803,13 @@ impl Session {
             return Err("preferences were applied, but the invalid/unreadable configuration was preserved; repair it before saving".into());
         }
         if let Some(path) = &self.path {
-            save_changes(path, &self.game, &self.saved, &draft)?;
+            save_changes(
+                path,
+                &self.game_id,
+                self.entry_id.as_deref(),
+                &self.saved,
+                &draft,
+            )?;
         }
         self.saved = draft;
         self.warning = None;
@@ -817,7 +827,7 @@ fn read_document(path: &Path, kind: &str) -> Result<DocumentMut, String> {
                 .map_err(|e| format!("Cannot parse {}: {e}", path.display()))?;
             if doc
                 .get("schema_version")
-                .is_some_and(|v| v.as_integer() != Some(1))
+                .is_some_and(|v| !matches!(v.as_integer(), Some(1 | 2)))
             {
                 return Err(format!("unsupported {kind} schema_version; file preserved"));
             }
@@ -827,7 +837,12 @@ fn read_document(path: &Path, kind: &str) -> Result<DocumentMut, String> {
         Err(e) => Err(format!("Cannot read {}: {e}", path.display())),
     }
 }
-fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Draft {
+fn read_draft(
+    doc: &DocumentMut,
+    game: &str,
+    entry: Option<&str>,
+    warning: &mut Option<String>,
+) -> Draft {
     fn patch(item: Option<&Item>, game: &str, warning: &mut Option<String>) -> Patch {
         let mut p = Patch::new();
         if let Some(item) = item {
@@ -870,7 +885,11 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
     }
     let mut draft = Draft {
         global: patch(doc.get("global"), "", warning),
-        game: patch(doc.get("games").and_then(|x| x.get(game)), game, warning),
+        game: patch(
+            entry.and_then(|id| doc.get("entries").and_then(|x| x.get(id))),
+            game,
+            warning,
+        ),
     };
     // Cross-field validation follows inheritance, so a sparse beam override is
     // checked against its inherited partner, not an unrelated built-in default.
@@ -886,15 +905,22 @@ fn read_draft(doc: &DocumentMut, game: &str, warning: &mut Option<String>) -> Dr
     }
     draft
 }
-fn save_changes(path: &Path, game: &str, old: &Draft, new: &Draft) -> Result<(), String> {
+fn save_changes(
+    path: &Path,
+    game: &str,
+    entry: Option<&str>,
+    old: &Draft,
+    new: &Draft,
+) -> Result<(), String> {
     edit_document(path, "settings", |doc| {
-        if !doc.contains_key("schema_version") {
-            doc["schema_version"] = toml_edit::value(1);
-        }
+        doc["schema_version"] = toml_edit::value(2);
         for (before, after, route) in [
             (&old.global, &new.global, vec!["global"]),
-            (&old.game, &new.game, vec!["games", game]),
+            (&old.game, &new.game, vec!["entries", entry.unwrap_or("")]),
         ] {
+            if route.len() == 2 && entry.is_none() {
+                continue;
+            }
             let scope_game = if route.len() == 2 { game } else { "" };
             for key in keys().chain(game_keys(scope_game)) {
                 if before.get(key) == after.get(key) {
@@ -1029,7 +1055,7 @@ mod tests {
     fn explicit_matching_overrides_survive_unrelated_and_global_saves() {
         let dir = TestDir::new();
         let path = dir.file();
-        fs::write(&path, "[global.display]\nwindow_mode = \"windowed\"\n[games.alley-cat.display]\nwindow_mode = \"windowed\"\n[games.mach-3.display]\nwindow_mode = \"fullscreen\"\n").unwrap();
+        fs::write(&path, "[global.display]\nwindow_mode = \"windowed\"\n[entries.alley-cat.display]\nwindow_mode = \"windowed\"\n[entries.mach-3.display]\nwindow_mode = \"fullscreen\"\n").unwrap();
         let mut current = session(path.clone(), "alley-cat");
         let original = current.saved.clone();
         let mut draft = original.clone();
@@ -1095,9 +1121,9 @@ mod tests {
     #[test]
     fn controller_dead_zone_inherits_overrides_resets_and_validates() {
         use super::*;
-        let doc: DocumentMut = "[global.controls]\nstick_dead_zone = 40\n[games.mach-3.controls]\nstick_dead_zone = 20\n[games.alley-cat.controls]\nstick_dead_zone = 55\n".parse().unwrap();
+        let doc: DocumentMut = "[global.controls]\nstick_dead_zone = 40\n[entries.mach-3.controls]\nstick_dead_zone = 20\n[entries.alley-cat.controls]\nstick_dead_zone = 55\n".parse().unwrap();
         let mut warning = None;
-        let mut mach = read_draft(&doc, "mach-3", &mut warning);
+        let mut mach = read_draft(&doc, "mach-3", Some("mach-3"), &mut warning);
         assert!(warning.is_none());
         assert_eq!(mach.global_values().stick_dead_zone, 40);
         assert_eq!(mach.game_values().stick_dead_zone, 20);
@@ -1105,10 +1131,10 @@ mod tests {
         mach.reset_section(true, 3);
         assert_eq!(mach.game_values().stick_dead_zone, 40);
         assert!(!mach.has_game_overrides(3));
-        let alley = read_draft(&doc, "alley-cat", &mut warning);
+        let alley = read_draft(&doc, "alley-cat", Some("alley-cat"), &mut warning);
         assert_eq!(alley.game_values().stick_dead_zone, 55);
         assert_eq!(
-            read_draft(&doc, "another-game", &mut warning)
+            read_draft(&doc, "another-game", Some("another-game"), &mut warning)
                 .game_values()
                 .stick_dead_zone,
             40
@@ -1146,7 +1172,8 @@ mod tests {
     }
     fn session(path: PathBuf, game: &str) -> Session {
         Session::load(Launch {
-            game: game.into(),
+            game_id: game.into(),
+            entry_id: Some(game.into()),
             path: Some(path),
             cli: Patch::new(),
         })
@@ -1161,7 +1188,7 @@ mod tests {
 schema_version = 1
 [global.controls]
 control_mode = "original"
-[games.mach-3.controls]
+[entries.mach-3.controls]
 control_mode = "original"
 "#,
         )
@@ -1217,12 +1244,12 @@ control_mode = "original"
         loaded.commit(reset).unwrap();
         let doc = read(&path).unwrap();
         assert!(
-            doc["games"]["alley-cat"]["controls"]
+            doc["entries"]["alley-cat"]["controls"]
                 .get(CONTROL_MODE)
                 .is_none()
         );
         assert_eq!(
-            doc["games"]["mach-3"]["gameplay"][DIGITIZED_SAMPLES].as_bool(),
+            doc["entries"]["mach-3"]["gameplay"][DIGITIZED_SAMPLES].as_bool(),
             Some(false)
         );
         assert_eq!(
@@ -1231,7 +1258,11 @@ control_mode = "original"
             "unrecognized global data is preserved"
         );
         // Invalid values warn and fall back without rewriting the user's file.
-        fs::write(&path, "[games.alley-cat.controls]\ncontrol_mode = 'fast'\n").unwrap();
+        fs::write(
+            &path,
+            "[entries.alley-cat.controls]\ncontrol_mode = 'fast'\n",
+        )
+        .unwrap();
         let invalid = session(path.clone(), "alley-cat");
         assert!(invalid.warning.is_some());
         assert_eq!(
@@ -1250,7 +1281,7 @@ control_mode = "original"
 schema_version = 1
 [global.gameplay]
 digitized_samples = false
-[games.alley-cat.gameplay]
+[entries.alley-cat.gameplay]
 digitized_samples = false
 "#,
         )
@@ -1284,10 +1315,10 @@ digitized_samples = false
         assert!(draft.has_game_overrides(2));
         let doc = read(&path).unwrap();
         assert_eq!(
-            doc["games"]["mach-3"]["gameplay"][DIGITIZED_SAMPLES].as_bool(),
+            doc["entries"]["mach-3"]["gameplay"][DIGITIZED_SAMPLES].as_bool(),
             Some(false)
         );
-        assert!(doc["games"]["mach-3"].get("audio").is_none());
+        assert!(doc["entries"]["mach-3"].get("audio").is_none());
         draft.reset_section(true, 2);
         assert!(draft.game_values().mach3.digitized_samples);
         assert!(!draft.has_game_overrides(2));
@@ -1337,7 +1368,7 @@ digitized_samples = false
         );
         mach.commit(draft).unwrap();
         assert!(
-            !read(&path).unwrap()["games"]["mach-3"]["gameplay"]
+            !read(&path).unwrap()["entries"]["mach-3"]["gameplay"]
                 .as_table_like()
                 .unwrap()
                 .contains_key(DIGITIZED_SAMPLES)
@@ -1524,7 +1555,7 @@ digitized_samples = false
         assert_eq!(loaded.saved.game_values().get("input_gamma"), "2.60");
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.contains("[global.crt]"));
-        assert!(text.contains("[games.mach-3.crt]"));
+        assert!(text.contains("[entries.mach-3.crt]"));
         d.reset_section(false, 0);
         assert_eq!(d.global_values().presentation, Presentation::Hyllian);
         assert_eq!(d.game_values().frame_limit, FrameLimit::Unlimited);
@@ -1540,7 +1571,7 @@ digitized_samples = false
     fn invalid_shader_fields_and_inherited_beam_pair_fall_back() {
         let dir = TestDir::new();
         let path = dir.file();
-        fs::write(&path, "[global.crt]\nbeam_min=0.8\nbeam_max=1.1\nmask_intensity=999.0\noutput_gamma=2.6\n[games.mach-3.crt]\nbeam_min=1.5\n").unwrap();
+        fs::write(&path, "[global.crt]\nbeam_min=0.8\nbeam_max=1.1\nmask_intensity=999.0\noutput_gamma=2.6\n[entries.mach-3.crt]\nbeam_min=1.5\n").unwrap();
         let s = session(path, "mach-3");
         assert!(s.warning.is_some());
         let h = s.saved.game_values().hyllian;
@@ -1570,7 +1601,7 @@ digitized_samples = false
         let path = dir.file();
         fs::write(
             &path,
-            "schema_version=1\n[global.display]\nscale=4\n[games.mach-3.display]\nvsync=false\n",
+            "schema_version=1\n[global.display]\nscale=4\n[entries.mach-3.display]\nvsync=false\n",
         )
         .unwrap();
         let mut s = session(path.clone(), "mach-3");
@@ -1619,7 +1650,7 @@ digitized_samples = false
     fn global_treatment_reset_preserves_compatible_game_overrides() {
         let dir = TestDir::new();
         let path = dir.file();
-        fs::write(&path, "[global.crt]\npresentation='hyllian'\n[games.mach-3.display]\nrenderer='gpu'\n[games.mach-3.crt]\npresentation='hyllian'\n[games.alley-cat.crt]\npresentation='hyllian'\n").unwrap();
+        fs::write(&path, "[global.crt]\npresentation='hyllian'\n[entries.mach-3.display]\nrenderer='gpu'\n[entries.mach-3.crt]\npresentation='hyllian'\n[entries.alley-cat.crt]\npresentation='hyllian'\n").unwrap();
         let mut s = session(path.clone(), "mach-3");
         let mut draft = s.saved.clone();
         draft.edit(false, "renderer", "sdl".into());
@@ -1657,7 +1688,7 @@ digitized_samples = false
     fn merging_two_sessions_preserves_comments_other_games_and_unknown_keys() {
         let dir = TestDir::new();
         let path = dir.file();
-        fs::write(&path,"# user note\nschema_version=1\n[global.display]\nvsync=true # keep this\nfuture='keep'\n[games.alley-cat.display]\nscale=3\n").unwrap();
+        fs::write(&path,"# user note\nschema_version=1\n[global.display]\nvsync=true # keep this\nfuture='keep'\n[entries.alley-cat.display]\nscale=3\n").unwrap();
         let mut a = session(path.clone(), "alley-cat");
         let mut b = session(path.clone(), "mach-3");
         let mut ad = a.saved.clone();

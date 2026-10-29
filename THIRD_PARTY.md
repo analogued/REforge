@@ -25,6 +25,7 @@ MIT is selected where an alternative is offered.
 | [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | Shared SDL: settings and launcher interfaces, with default fonts | [MIT](LICENSES/MIT.txt); font terms below |
 | [blip_buf](https://crates.io/crates/blip_buf/0.2.1) | 0.2.1 | Shared audio: optional band-limited speaker renderer | [MIT](LICENSES/MIT.txt) |
 | [toml_edit](https://crates.io/crates/toml_edit/0.22.27) | 0.22.27 | Shared settings: TOML parsing and editing | [MIT](LICENSES/MIT.txt) |
+| [getrandom](https://crates.io/crates/getrandom/0.3.4) | 0.3.4 | Shared settings: operating-system randomness for library IDs | [MIT](LICENSES/MIT.txt) |
 | [fs2](https://crates.io/crates/fs2/0.4.3) | 0.4.3 | Shared settings: file locking | [MIT](LICENSES/MIT.txt) |
 
 Copyright notices, transcribed from the corresponding upstream license files:
@@ -41,6 +42,8 @@ Copyright notices, transcribed from the corresponding upstream license files:
 - **blip_buf:** Copyright (c) 2015 Mathijs van de Nes. Published upstream revision
   [06c66ea66151a9d7a3d338342165a1b0a0bf7303](https://github.com/mvdnes/blip_buf-rs/tree/06c66ea66151a9d7a3d338342165a1b0a0bf7303).
 - **toml_edit:** Copyright (c) Individual contributors.
+- **getrandom:** Copyright (c) 2018-2025 The rust-random Project Developers;
+  Copyright (c) 2014 The Rust Project Developers.
 - **fs2:** Copyright (c) 2015 The Rust Project Developers.
 
 Except for egui's upstream root license, these notices come from `LICENSE` or

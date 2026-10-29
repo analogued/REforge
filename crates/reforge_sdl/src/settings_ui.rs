@@ -56,7 +56,7 @@ pub(super) fn draw(
     let session = menu.creator.session.borrow();
     let saved = session.saved.clone();
     let cli = session.cli.clone();
-    let game = session.game.clone();
+    let game = session.game_id.clone();
     let warning = session.warning.clone();
     drop(session);
     let draft = menu.draft.as_mut().expect("open draft");

@@ -233,7 +233,7 @@ impl Window {
         let mut session = Session::for_window(scale);
         // Standalone engine previews have no app launch layer. Preserve their
         // explicit CRT request; the application resolves persisted/CLI values.
-        if session.game == "standalone" {
+        if session.game_id == "standalone" {
             session
                 .saved
                 .edit(false, "presentation", presentation.as_str().into());

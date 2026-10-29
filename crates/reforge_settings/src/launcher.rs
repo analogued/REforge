@@ -39,25 +39,25 @@ pub fn save_layout(path: &Path, layout: &str) -> Result<(), String> {
 
 /// Return explicit native selections, including values equal to engine defaults.
 /// Engine descriptors, rather than this storage layer, validate their meaning.
-pub fn native_options(path: &Path, game: &str) -> Result<BTreeMap<String, String>, String> {
-    nonempty(game, "game identifier")?;
-    native(&super::read_document(path, "settings")?, game)
+pub fn native_options(path: &Path, entry_id: &str) -> Result<BTreeMap<String, String>, String> {
+    nonempty(entry_id, "entry identifier")?;
+    native(&super::read_document(path, "settings")?, entry_id)
 }
 
 /// Set a pin, or remove it to inherit the engine's default. Each edit merges the
 /// latest document under the same lock used by Settings saves.
 pub fn save_native_option(
     path: &Path,
-    game: &str,
+    entry_id: &str,
     key: &str,
     selection: Option<&str>,
 ) -> Result<(), String> {
-    nonempty(game, "game identifier")?;
+    nonempty(entry_id, "entry identifier")?;
     nonempty(key, "option identifier")?;
     super::edit_document(path, "settings", |doc| {
-        native(doc, game)?;
+        native(doc, entry_id)?;
         schema(doc);
-        let route = ["games", game, "launcher"];
+        let route = ["entries", entry_id, "launcher"];
         if let Some(selection) = selection {
             set_string(table_mut(doc, &route)?, key, selection);
         } else if find_table(doc, &route)?.is_some() {
@@ -65,6 +65,20 @@ pub fn save_native_option(
                 .as_table_like_mut()
                 .expect("validated table")
                 .remove(key);
+        }
+        Ok(())
+    })
+}
+
+/// Remove only this profile's preferences; saves and original files are retained.
+pub fn remove_entry(path: &Path, entry_id: &str) -> Result<(), String> {
+    let doc = super::read_document(path, "settings")?;
+    if find_table(&doc, &["entries", entry_id])?.is_none() {
+        return Ok(());
+    }
+    super::edit_document(path, "settings", |doc| {
+        if let Some(entries) = doc.get_mut("entries").and_then(Item::as_table_like_mut) {
+            entries.remove(entry_id);
         }
         Ok(())
     })
@@ -97,15 +111,17 @@ fn preferences(doc: &DocumentMut) -> Result<Preferences, String> {
     Ok(preferences)
 }
 
-fn native(doc: &DocumentMut, game: &str) -> Result<BTreeMap<String, String>, String> {
+fn native(doc: &DocumentMut, entry_id: &str) -> Result<BTreeMap<String, String>, String> {
     let mut selections = BTreeMap::new();
-    if let Some(table) = find_table(doc, &["games", game, "launcher"])? {
+    if let Some(table) = find_table(doc, &["entries", entry_id, "launcher"])? {
         for (key, item) in table.iter() {
             selections.insert(
                 key.into(),
                 item.as_str()
                     .ok_or_else(|| {
-                        format!("Invalid launcher option {key} for {game}; settings file preserved")
+                        format!(
+                            "Invalid launcher option {key} for {entry_id}; settings file preserved"
+                        )
                     })?
                     .into(),
             );
@@ -123,9 +139,7 @@ fn nonempty(text: &str, kind: &str) -> Result<(), String> {
 }
 
 fn schema(doc: &mut DocumentMut) {
-    if !doc.contains_key("schema_version") {
-        doc["schema_version"] = value(1);
-    }
+    doc["schema_version"] = value(2);
 }
 
 fn find_table<'a>(
@@ -145,7 +159,10 @@ fn find_table<'a>(
         .ok_or_else(|| invalid_section(route))
 }
 
-fn table_mut<'a>(doc: &'a mut DocumentMut, route: &[&str]) -> Result<&'a mut Item, String> {
+pub(crate) fn table_mut<'a>(
+    doc: &'a mut DocumentMut,
+    route: &[&str],
+) -> Result<&'a mut Item, String> {
     let mut item = doc.as_item_mut();
     for part in route {
         if !item.is_table_like() {
@@ -238,7 +255,8 @@ mod tests {
         save_native_option(&path, "mach-3", "video", Some("mono")).unwrap();
         save_theme(&path, "warm-amber").unwrap();
         let mut session = Session::load(Launch {
-            game: "alley-cat".into(),
+            game_id: "alley-cat".into(),
+            entry_id: Some("alley-cat".into()),
             path: Some(path.clone()),
             cli: Patch::new(),
         });
@@ -260,7 +278,8 @@ mod tests {
         assert!(native_options(&path, "alley-cat").unwrap().is_empty());
         assert_eq!(native_options(&path, "mach-3").unwrap()["video"], "mono");
         let session = Session::load(Launch {
-            game: "alley-cat".into(),
+            game_id: "alley-cat".into(),
+            entry_id: Some("alley-cat".into()),
             path: Some(path),
             cli: Patch::new(),
         });
@@ -288,10 +307,10 @@ mod tests {
     }
 
     #[test]
-    fn inline_tables_and_literal_game_keys_remain_valid_after_edits() {
+    fn inline_tables_and_literal_entry_keys_remain_valid_after_edits() {
         let temp = Temp::new();
         let path = temp.path();
-        fs::write(&path, "launcher = { theme = 'future', custom = 'keep' }\ngames = { 'custom.game' = { launcher = { mode = 'one' } } }\n").unwrap();
+        fs::write(&path, "launcher = { theme = 'future', custom = 'keep' }\nentries = { 'custom.game' = { launcher = { mode = 'one' } } }\n").unwrap();
         save_layout(&path, "gallery").unwrap();
         save_native_option(&path, "custom.game", "mode", Some("two")).unwrap();
         save_native_option(&path, "custom.game", "other", Some("default")).unwrap();
@@ -320,11 +339,11 @@ mod tests {
         let temp = Temp::new();
         let path = temp.path();
         for malformed in [
-            "games = 'broken'",
-            "[games]\nalley-cat = false",
-            "[games.alley-cat]\nlauncher = 1",
-            "[games.alley-cat.launcher]\nmachine = true",
-            "[games.alley-cat.launcher]\nmachine = 'cga'\nunknown = 7",
+            "entries = 'broken'",
+            "[entries]\nalley-cat = false",
+            "[entries.alley-cat]\nlauncher = 1",
+            "[entries.alley-cat.launcher]\nmachine = true",
+            "[entries.alley-cat.launcher]\nmachine = 'cga'\nunknown = 7",
         ] {
             fs::write(&path, malformed).unwrap();
             assert!(native_options(&path, "alley-cat").is_err());

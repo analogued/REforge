@@ -152,7 +152,8 @@ mod tests {
     #[ignore = "owns SDL video; run serially with dummy/software"]
     fn widget_focus_can_replace_overlay_without_losing_navigation() {
         let _guard = reforge_settings::Launch {
-            game: "standalone".into(),
+            game_id: "standalone".into(),
+            entry_id: None,
             path: None,
             cli: reforge_settings::Patch::from([
                 ("renderer".into(), "software".into()),

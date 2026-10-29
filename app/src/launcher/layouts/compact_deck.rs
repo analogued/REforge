@@ -81,25 +81,25 @@ pub fn draw(
                         if primary_button(ui, ap, "Locate Files…", Vec2::new(122.0, 29.0), true)
                             .activated()
                         {
-                            action = Some(UiAction::Locate(snapshot.id));
+                            action = Some(UiAction::Locate(snapshot.entry_id.clone()));
                         }
                     } else if primary_button(ui, ap, "Play", Vec2::new(104.0, 29.0), false)
                         .activated()
                     {
-                        action = Some(UiAction::Play(snapshot.id));
+                        action = Some(UiAction::Play(snapshot.entry_id.clone()));
                     }
                     if quiet_text_button(ui, ap, "Remove")
                         .on_hover_text("Remove from library; keep original game files")
                         .activated()
                     {
-                        action = Some(UiAction::Remove(snapshot.id));
+                        action = Some(UiAction::Remove(snapshot.entry_id.clone()));
                     }
                     if !snapshot.status.is_missing()
                         && quiet_text_button(ui, ap, "Relocate…")
                             .on_hover_text("Choose the new location of this game’s original files")
                             .activated()
                     {
-                        action = Some(UiAction::Locate(snapshot.id));
+                        action = Some(UiAction::Locate(snapshot.entry_id.clone()));
                     }
                     let chev = if state.options_open {
                         ChevronDir::Down
@@ -135,8 +135,8 @@ pub fn draw(
         )
         .show(ctx, |ui| {
             state.content_bottom = ui.max_rect().bottom();
-            let selected_id = state.selected;
-            let mut next_selected = selected_id;
+            let selected_id = state.selected.clone();
+            let mut next_selected = selected_id.clone();
 
             egui::ScrollArea::vertical()
                 .id_salt("compact_list")
@@ -144,10 +144,10 @@ pub fn draw(
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 5.0;
                     for game in &state.games {
-                        let is_sel = selected_id == Some(game.id);
+                        let is_sel = selected_id.as_deref() == Some(game.entry_id.as_str());
                         let resp = draw_deck_row(ui, ap, game, is_sel);
                         if resp.activated() || resp.has_focus() {
-                            next_selected = Some(game.id);
+                            next_selected = Some(game.entry_id.clone());
                         }
                     }
                 });

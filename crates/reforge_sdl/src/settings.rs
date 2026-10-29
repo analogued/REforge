@@ -136,10 +136,10 @@ impl<'a> SettingsMenu<'a> {
     /// Expose Alley Cat's game-only input policy beside shared controller settings.
     pub fn with_alleycat_options(mut self) -> Self {
         let mut session = self.creator.session.borrow_mut();
-        if session.game == "standalone" {
-            session.game = "alley-cat".into();
+        if session.game_id == "standalone" {
+            session.game_id = "alley-cat".into();
         }
-        self.alleycat_options = session.game == "alley-cat";
+        self.alleycat_options = session.game_id == "alley-cat";
         drop(session);
         self
     }
@@ -160,10 +160,10 @@ impl<'a> SettingsMenu<'a> {
     pub fn with_mach3_options(mut self, samples: Option<bool>) -> Self {
         {
             let mut session = self.creator.session.borrow_mut();
-            if session.game == "standalone" {
-                session.game = "mach-3".into();
+            if session.game_id == "standalone" {
+                session.game_id = "mach-3".into();
             }
-            self.mach3_options = session.game == "mach-3";
+            self.mach3_options = session.game_id == "mach-3";
             if self.mach3_options {
                 if let Some(value) = samples {
                     session.cli.insert(
@@ -1007,7 +1007,8 @@ mod tests {
             std::env::temp_dir().join(format!("reforge-controls-ui-{}.toml", std::process::id()));
         assert!(!path.exists());
         let launch = Launch {
-            game: "alley-cat".into(),
+            game_id: "alley-cat".into(),
+            entry_id: Some("alley-cat".into()),
             path: Some(path.clone()),
             cli: Patch::from([
                 ("renderer".into(), "software".into()),
@@ -1224,7 +1225,7 @@ mod tests {
         assert_eq!(menu.page, 3, "Controls is now shared across scopes");
         assert!(label(&draw(&mut menu, vec![]), "Stick dead zone").is_some());
         assert!(label(&draw(&mut menu, vec![]), "Input response").is_none());
-        creator.session.borrow_mut().game = "mach-3".into();
+        creator.session.borrow_mut().game_id = "mach-3".into();
         let mut mach_menu =
             SettingsMenu::new(&creator, VideoCapabilities::default()).with_mach3_options(None);
         mach_menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
@@ -1272,7 +1273,8 @@ mod tests {
         assert_eq!(saved.game, before);
         assert_eq!(
             Session::load(Launch {
-                game: "mach-3".into(),
+                game_id: "mach-3".into(),
+                entry_id: Some("alley-cat".into()),
                 path: Some(path.clone()),
                 cli: Patch::new(),
             })
@@ -1653,7 +1655,8 @@ mod tests {
             return;
         }
         let _launch = reforge_settings::Launch {
-            game: "mach-3".into(),
+            game_id: "mach-3".into(),
+            entry_id: None,
             path: None,
             cli: reforge_settings::Patch::from([
                 ("renderer".into(), "sdl".into()),
@@ -1790,7 +1793,7 @@ mod tests {
             crate::FrameTexture::new(&creator, 320, 200, crate::FrameFormat::Rgba).unwrap();
         frame.update(&[31, 67, 109, 255].repeat(320 * 200)).unwrap();
         for game in ["alley-cat", "mach-3"] {
-            creator.session.borrow_mut().game = game.into();
+            creator.session.borrow_mut().game_id = game.into();
             creator.session.borrow_mut().cli =
                 reforge_settings::Patch::from([("vsync".into(), "false".into())]);
             let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());

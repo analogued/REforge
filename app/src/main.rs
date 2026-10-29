@@ -4,6 +4,7 @@ mod detection;
 #[cfg(feature = "sdl")]
 mod launcher;
 mod options;
+mod profile;
 
 use detection::{Detected, Game};
 use std::{
@@ -102,7 +103,8 @@ fn warn(warnings: &[String]) {
 fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Launch, Vec<OsString>) {
     let mut args = Vec::new();
     let mut prefs = reforge_settings::Launch {
-        game: game.id().into(),
+        game_id: game.id().into(),
+        entry_id: None,
         path: reforge_settings::default_path(),
         cli: Default::default(),
     };
@@ -214,7 +216,10 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
             .map_err(|error| format!("Cannot resolve original path: {error}"))?
             .into_os_string(),
     ];
-    let (prefs, remaining) = launch_settings(plan.args, plan.detected.game);
+    let (mut prefs, mut remaining) = launch_settings(plan.args, plan.detected.game);
+    if let Err(error) = profile::bind(&mut prefs, &plan.detected, &mut remaining) {
+        eprintln!("REforge: {error}; using global defaults where possible");
+    }
     args.extend(remaining);
     let _preferences = prefs.install();
     match plan.detected.game {
@@ -351,7 +356,7 @@ mod tests {
         );
         assert!(prepared.warnings.is_empty());
         let (launch, forward) = launch_settings(prepared.args, Game::AlleyCat);
-        assert_eq!(launch.game, "alley-cat");
+        assert_eq!(launch.game_id, "alley-cat");
         assert!(launch.path.is_none());
         assert_eq!(launch.cli.get("scale").map(String::as_str), Some("4"));
         assert_eq!(launch.cli.get("vsync").map(String::as_str), Some("false"));

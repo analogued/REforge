@@ -32,11 +32,11 @@ impl State {
         layouts::draw(context, self);
         self.pending_action.take()
     }
-    fn entry(&self, id: i64) -> Result<Entry, String> {
+    fn entry(&self, id: &str) -> Result<Entry, String> {
         self.library
             .entries
             .iter()
-            .find(|e| e.id == id)
+            .find(|e| e.entry_id == id)
             .cloned()
             .ok_or_else(|| "Game is no longer in the library".into())
     }
@@ -54,19 +54,19 @@ impl State {
         self.notify(format!("{} added", detected.release.metadata.title), false);
         Ok(())
     }
-    fn relocate(&mut self, id: i64, path: &Path) -> Result<(), String> {
-        let entry = self.entry(id)?;
+    fn relocate(&mut self, id: String, path: &Path) -> Result<(), String> {
+        let entry = self.entry(&id)?;
         let detected = detect_entry(&entry, path)?;
         let original = std::fs::canonicalize(&detected.original).map_err(|e| e.to_string())?;
-        self.library.relocate(id, &original)?;
+        self.library.relocate(&id, detected.release.id, &original)?;
         self.selected = Some(id);
         self.refresh();
         self.notify("Game location updated".into(), false);
         Ok(())
     }
-    fn play_path(&mut self, id: i64) -> Result<PathBuf, String> {
-        let entry = self.entry(id)?;
-        if let Err(e) = detect_entry(&entry, &entry.original) {
+    fn play_path(&mut self, id: String) -> Result<PathBuf, String> {
+        let entry = self.entry(&id)?;
+        if let Err(e) = verify_entry(&entry) {
             self.refresh();
             return Err(e);
         }
@@ -107,11 +107,21 @@ impl State {
 }
 fn detect_entry(entry: &Entry, path: &Path) -> Result<Detected, String> {
     let detected = detection::detect(path)?;
-    if detected.game.id() != entry.game_id || detected.release.id != entry.release_id {
+    let previous = detection::RELEASES
+        .iter()
+        .find(|r| r.id == entry.release_id && r.game.id() == entry.game_id);
+    if !previous.is_some_and(|r| r.compatible_with(detected.release)) {
         return Err(
-            "These files belong to a different game or release. Use Add for a separate entry."
+            "These files belong to an incompatible game or release. Use Add for a separate entry."
                 .into(),
         );
+    }
+    Ok(detected)
+}
+fn verify_entry(entry: &Entry) -> Result<Detected, String> {
+    let detected = detect_entry(entry, &entry.original)?;
+    if detected.release.id != entry.release_id {
+        return Err("Game files changed release; use Relocate to verify the replacement".into());
     }
     Ok(detected)
 }
@@ -212,7 +222,8 @@ pub fn run() -> Result<(), String> {
     let video = sdl.video().map_err(|e| e.to_string())?;
     let mut canvas = canvas(&video)?;
     let guard = reforge_settings::Launch {
-        game: "standalone".into(),
+        game_id: "standalone".into(),
+        entry_id: None,
         path: Some(config),
         cli: Default::default(),
     }
@@ -287,7 +298,7 @@ pub fn run() -> Result<(), String> {
         if let Some((request, receiver)) = &picker {
             match receiver.try_recv() {
                 Ok(result) => {
-                    let request = *request;
+                    let request = request.clone();
                     picker = None;
                     let result = result.and_then(|p| match p {
                         None => Ok(()),
@@ -338,11 +349,11 @@ pub fn run() -> Result<(), String> {
             }
             let result = match action {
                 UiAction::Add | UiAction::Locate(_) => {
-                    let initial = if let UiAction::Locate(id) = action {
+                    let initial = if let UiAction::Locate(ref id) = action {
                         state
                             .games
                             .iter()
-                            .find(|g| g.id == id)
+                            .find(|g| &g.entry_id == id)
                             .map(|g| g.original.as_path())
                     } else {
                         None
@@ -359,11 +370,11 @@ pub fn run() -> Result<(), String> {
                     Ok(())
                 }
                 UiAction::Play(id) => (|| {
-                    let original = state.play_path(id)?;
+                    let original = state.play_path(id.clone())?;
                     let args = state
                         .games
                         .iter()
-                        .find(|g| g.id == id)
+                        .find(|g| g.entry_id == id)
                         .map(|g| g.native_arguments())
                         .unwrap_or_default();
                     let exe = std::env::current_exe().map_err(|e| e.to_string())?;

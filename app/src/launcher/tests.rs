@@ -62,7 +62,16 @@ impl Fixture {
     }
     fn session(&self, game: &str) -> Session {
         Session::load(Launch {
-            game: game.into(),
+            game_id: game.into(),
+            entry_id: {
+                let mut library = Library::new(self.library.clone());
+                library.reload().unwrap();
+                library
+                    .entries
+                    .iter()
+                    .find(|e| e.game_id == game)
+                    .map(|e| e.entry_id.clone())
+            },
             path: Some(self.config.clone()),
             cli: Default::default(),
         })
@@ -274,7 +283,7 @@ fn both_engines_quick_options_fit_the_minimum_logical_window() {
             for index in 0..2 {
                 let mut h = Harness::new(&fixture, theme, layout, true);
                 h.size = Vec2::new(630.0, 470.0);
-                h.state.selected = Some(h.state.games[index].id);
+                h.state.selected = Some(h.state.games[index].entry_id.clone());
                 h.state.options_open = true;
                 let output = h.settle();
                 let screen = Rect::from_min_size(Pos2::ZERO, h.size);
@@ -419,13 +428,16 @@ fn game_selection_and_double_clicks_never_launch_until_play_is_activated() {
             let point = text_rect(&output, "Mach 3").unwrap().center();
             h.moving_click_at(point);
             h.click_at(point);
-            assert_eq!(h.state.selected, Some(2));
+            assert_eq!(h.state.selected, Some(h.state.games[1].entry_id.clone()));
             assert!(
                 h.actions.is_empty(),
                 "game selection launched: {theme:?} {layout:?}"
             );
             h.click("Play");
-            assert_eq!(h.actions, [UiAction::Play(2)]);
+            assert_eq!(
+                h.actions,
+                [UiAction::Play(h.state.games[1].entry_id.clone())]
+            );
         }
     }
 }
@@ -437,7 +449,10 @@ fn removal_requires_confirmation_and_cancel_or_escape_preserves_library() {
             let fixture = Fixture::new(2);
             let mut h = Harness::new(&fixture, theme, layout, true);
             h.click("Remove");
-            assert_eq!(h.state.pending_remove, Some(1));
+            assert_eq!(
+                h.state.pending_remove,
+                Some(h.state.games[0].entry_id.clone())
+            );
             assert_eq!(h.state.library.entries.len(), 2);
             h.click("Cancel");
             assert!(h.state.pending_remove.is_none());
@@ -452,7 +467,7 @@ fn removal_requires_confirmation_and_cancel_or_escape_preserves_library() {
             let mut library = Library::new(fixture.library.clone());
             library.reload().unwrap();
             assert_eq!(library.entries.len(), 1);
-            assert_eq!(library.entries[0].id, 2);
+            assert_eq!(library.entries[0].game_id, "mach-3");
         }
     }
 }
@@ -579,7 +594,8 @@ fn native_painter_capture_matrix_and_modal_navigation() {
     use reforge_sdl::settings::UiMetrics;
     let configuration = Fixture::new(0);
     let _guard = Launch {
-        game: "standalone".into(),
+        game_id: "standalone".into(),
+        entry_id: None,
         path: Some(configuration.config.clone()),
         cli: reforge_settings::Patch::from([
             ("renderer".into(), "software".into()),
@@ -666,7 +682,7 @@ fn native_painter_capture_matrix_and_modal_navigation() {
                     native_frame(&mut gui, &mut canvas, &mut state, metrics);
                     assert_ne!(state.preview_draft, theme);
                     state.revert_preview();
-                    state.request_remove(state.games[0].id);
+                    state.request_remove(state.games[0].entry_id.clone());
                     let mut focused = None;
                     for _ in 0..4 {
                         focused = native_frame(&mut gui, &mut canvas, &mut state, metrics);
@@ -723,4 +739,24 @@ fn native_key(key: Keycode) -> Event {
         which: 0,
         raw: 0,
     }
+}
+
+#[test]
+fn duplicate_game_copies_keep_independent_quick_options_and_display_titles() {
+    let fixture = Fixture::new(3);
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+    assert_eq!(state.games[0].game_id, state.games[2].game_id);
+    state.games[0].save_option("Machine", "IBM PCjr");
+    state.games[0].save_option("Window", "Fullscreen");
+    state.refresh();
+    assert_eq!(state.games[0].option_values()["Machine"], "IBM PCjr");
+    assert_eq!(state.games[2].option_values()["Machine"], "IBM CGA");
+    assert_eq!(state.games[0].option_values()["Window"], "Fullscreen");
+    assert_eq!(state.games[2].option_values()["Window"], "Windowed");
+    let mut renamed = state.library.entries[0].clone();
+    renamed.title = "Alley Cat — PCjr copy".into();
+    let entry = model::GameEntry::from_entry(&renamed, fixture.config.clone(), false);
+    assert_eq!(entry.title, "Alley Cat — PCjr copy");
+    assert_eq!(entry.entry_id, state.games[0].entry_id);
+    assert_eq!(entry.option_values()["Machine"], "IBM PCjr");
 }

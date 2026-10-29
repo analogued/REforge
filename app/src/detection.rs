@@ -90,9 +90,19 @@ pub static UNKNOWN: Metadata = Metadata {
 pub struct Release {
     /// A reference identifier, not a claim about the commercial version.
     pub id: &'static str,
+    /// Verified compatibility of saves and persistent option semantics.
+    pub compatibility_id: &'static str,
     pub game: Game,
     pub metadata: &'static Metadata,
     pub files: &'static [FileRecord],
+}
+
+impl Release {
+    pub fn compatible_with(&self, other: &Self) -> bool {
+        self.game == other.game
+            && !self.compatibility_id.is_empty()
+            && self.compatibility_id == other.compatibility_id
+    }
 }
 
 // These fingerprints identify the verified inputs used by the engines. Their
@@ -101,6 +111,7 @@ pub struct Release {
 pub static RELEASES: &[Release] = &[
     Release {
         id: "alley-cat-verified-reference",
+        compatibility_id: "alley-cat-dos-original",
         game: Game::AlleyCat,
         metadata: &ALLEY_CAT,
         files: &[FileRecord {
@@ -111,6 +122,7 @@ pub static RELEASES: &[Release] = &[
     },
     Release {
         id: "mach-3-verified-reference",
+        compatibility_id: "mach-3-dos-original",
         game: Game::Mach3,
         metadata: &MACH3,
         files: &[
@@ -401,11 +413,33 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    #[test]
+    fn compatibility_is_explicit_and_never_crosses_game_identity() {
+        let release = &RELEASES[0];
+        let mut other = Release {
+            id: "synthetic-different-packaging",
+            compatibility_id: release.compatibility_id,
+            game: release.game,
+            metadata: release.metadata,
+            files: &[],
+        };
+        assert!(release.compatible_with(&other));
+        other.compatibility_id = "synthetic-incompatible-saves";
+        assert!(!release.compatible_with(&other));
+        other.compatibility_id = release.compatibility_id;
+        other.game = Game::Mach3;
+        assert!(!release.compatible_with(&other));
+        other.game = release.game;
+        other.compatibility_id = "";
+        assert!(!other.compatible_with(&other));
+    }
+
     const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
     const XYZ: &str = "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282";
     static SYNTHETIC: &[Release] = &[
         Release {
             id: "synthetic-cat-a",
+            compatibility_id: "alley-cat-dos-original",
             game: Game::AlleyCat,
             metadata: &ALLEY_CAT,
             files: &[FileRecord {
@@ -416,6 +450,7 @@ mod tests {
         },
         Release {
             id: "synthetic-cat-b",
+            compatibility_id: "alley-cat-dos-original",
             game: Game::AlleyCat,
             metadata: &ALLEY_CAT,
             files: &[FileRecord {
@@ -426,6 +461,7 @@ mod tests {
         },
         Release {
             id: "synthetic-mach",
+            compatibility_id: "mach-3-dos-original",
             game: Game::Mach3,
             metadata: &MACH3,
             files: &[
@@ -625,6 +661,7 @@ mod tests {
             static MACH_FIRST: &[Release] = &[
                 Release {
                     id: "mach-first",
+                    compatibility_id: "mach-3-dos-original",
                     game: Game::Mach3,
                     metadata: &MACH3,
                     files: &[FileRecord {
@@ -635,6 +672,7 @@ mod tests {
                 },
                 Release {
                     id: "cat-last",
+                    compatibility_id: "alley-cat-dos-original",
                     game: Game::AlleyCat,
                     metadata: &ALLEY_CAT,
                     files: &[FileRecord {
@@ -717,6 +755,7 @@ mod tests {
         static OVERLAPPING: &[Release] = &[
             Release {
                 id: "first",
+                compatibility_id: "alley-cat-dos-original",
                 game: Game::AlleyCat,
                 metadata: &ALLEY_CAT,
                 files: &[FileRecord {
@@ -727,6 +766,7 @@ mod tests {
             },
             Release {
                 id: "second",
+                compatibility_id: "alley-cat-dos-original",
                 game: Game::AlleyCat,
                 metadata: &ALLEY_CAT,
                 files: &[FileRecord {

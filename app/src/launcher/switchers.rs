@@ -290,10 +290,10 @@ fn draw_theme_popover(
 }
 
 pub fn draw_remove_confirmation(ctx: &egui::Context, state: &mut State, ap: &ResolvedAppearance) {
-    let Some(id) = state.pending_remove else {
+    let Some(id) = state.pending_remove.clone() else {
         return;
     };
-    let Some(game) = state.games.iter().find(|game| game.id == id) else {
+    let Some(game) = state.games.iter().find(|game| game.entry_id == id) else {
         state.pending_remove = None;
         return;
     };

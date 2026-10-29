@@ -11,7 +11,8 @@ pub fn run(
     state: &mut State,
 ) -> Result<bool, String> {
     let game = state.selected_game().map(|g| g.game_id.clone());
-    let native_result = game
+    let entry_id = state.selected_game().map(|g| g.entry_id.clone());
+    let native_result = entry_id
         .as_ref()
         .map(|g| reforge_settings::launcher::native_options(&state.config, g))
         .transpose();
@@ -25,7 +26,8 @@ pub fn run(
         _ => reforge_sdl::DisplayGeometry::new((320, 200), (320, 240)),
     };
     let guard = reforge_settings::Launch {
-        game: game.clone().unwrap_or_else(|| "standalone".into()),
+        game_id: game.clone().unwrap_or_else(|| "standalone".into()),
+        entry_id,
         path: Some(state.config.clone()),
         cli: Default::default(),
     }

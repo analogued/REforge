@@ -101,18 +101,69 @@ distinguish saved overrides from inherited values.
 The launcher opens only when REforge receives no arguments. **Add** selects a
 folder and identifies a supported game/release. Entries are saved immediately in
 `library.toml`, beside the default `config.toml` described below. The library
-records stable entry IDs, game/release identities, names and absolute original-data
-locations; it does not copy game data or store gameplay progress. Re-adding the
-same location selects its existing entry. Removing an entry never deletes files.
-If files move or fail detection, the entry remains and **Locate files** lets you
-select the matching game/release again. A different release should be added as a
-separate entry. Missing files are checked when playing, not silently discarded.
+records an entry ID, game/release IDs, title, canonical directory and original-data
+location. One directory has one entry. The same release in different directories
+has separate entries, preferences and future save locations. Directory aliases,
+including symlinks, select the same entry. Re-adding a directory selects its
+existing entry.
+
+Entry IDs combine the game ID and six random lowercase letters/digits, such as
+`alley-cat-m7k4p9`. They use operating-system randomness with collision checks
+against the library, retained entry preferences and save-folder names. There is
+no separate UUID or sequence counter. IDs remain unchanged when relocating or
+switching to a compatible release. Keep IDs intact when manually editing files;
+changing one creates a different profile. The stored title starts with the catalog
+name and can be edited without changing identity or save storage.
+
+```toml
+schema_version = 2
+
+[[entries]]
+entry_id = "alley-cat-m7k4p9"
+game_id = "alley-cat"
+release_id = "alley-cat-verified-reference"
+title = "Alley Cat"
+directory = "/Games/AlleyCat"
+original = "/Games/AlleyCat/CAT.EXE"
+```
+
+Relocate verifies the replacement using the detection catalog. It accepts the
+same release or another release with the same game ID and explicit
+`compatibility_id`, meaning compatible saves and persistent option semantics.
+Matching hashes, titles or platforms alone never establish compatibility. The
+stored release ID and paths change; entry identity, overrides and save location
+remain intact. A directory already registered to another entry is rejected.
+Files changed to another release in place require explicit Relocate as well.
+Unknown/unsupported releases remain rejected.
+
+Remove asks for confirmation and removes the library record and that entry's
+preferences. Original files and saves stay on disk. Manually removing a library
+record can leave unreferenced preferences/saves; adding the game again allocates
+a fresh ID rather than reclaiming them.
+
+Save functionality is deferred. Its reserved layout is `saves/<entry-id>/` under
+`$XDG_DATA_HOME/reforge` (default `~/.local/share/reforge`) on Linux,
+`%APPDATA%/REforge` on Windows and
+`~/Library/Application Support/REforge` on macOS. No save folders are created by
+adding a game. Future save headers must record format version and compatibility
+group rather than require an exact release hash.
+
+Schema-1 numeric library IDs migrate automatically to stable string IDs. Old
+`[games.<game-id>]` preferences, including native launcher choices and explicit
+pins equal to globals, are copied to every existing entry for that game. Those
+legacy sections are then removed; unmapped game sections are preserved until
+an entry for that game exists. The migration is restartable if interrupted
+between the library and preferences writes. Unknown entry fields and comments
+are retained. Repair malformed preferences before completing a pending migration.
 
 The launcher uses the same Compact UI and supports mouse, keyboard and controller
 navigation. Games run through the ordinary `--original` path in a child REforge
 process while the launcher is hidden; exiting the game restores the launcher.
-Existing global/game preferences apply. Launching with command-line arguments
-retains the CLI behaviour and does not add library entries. `--config` and
+Existing global/entry preferences apply. Launching with command-line arguments
+does not add library entries. A detected directory matching an existing entry
+uses that entry's preferences and launcher choices; otherwise it uses global
+and built-in defaults. Explicit CLI values take precedence. Native launcher
+choices are applied by windowed (SDL-enabled) builds. `--config` and
 `--no-config` continue to affect that command-line game launch; they do not
 redirect the no-argument launcher's library.
 
@@ -128,7 +179,7 @@ behavior has not yet been validated. `--config <path>` selects an alternative.
 `--no-config` disables reads/writes, retaining in-memory menu use.
 
 ```toml
-schema_version = 1
+schema_version = 2
 
 [global.display]
 window_mode = "windowed"
@@ -148,31 +199,32 @@ mask_intensity = 0.35
 [global.controls]
 stick_dead_zone = 35
 
-[games.alley-cat.display]
+[entries.alley-cat-m7k4p9.display]
 scale = 4
 
-[games.alley-cat.controls]
+[entries.alley-cat-m7k4p9.controls]
 control_mode = "original"
 
-[games.mach-3.display]
+[entries.mach-3-q8n2v5.display]
 vsync = false
 
 [global.audio]
 master_volume = 80
 mute_unfocused = true
 
-[games.mach-3.audio]
+[entries.mach-3-q8n2v5.audio]
 audio_renderer = "enhanced-pcm"
 
-[games.mach-3.gameplay]
+[entries.mach-3-q8n2v5.gameplay]
 digitized_samples = true
 ```
 
 Defaults are windowed, Auto scale, automatic GPU-preferred rendering, automatic
 backend, VSync enabled when supported, a display-refresh frame ceiling, and sharp
 pixels. Missing keys inherit: shared defaults,
-then global preferences, then game preferences. Game identities are the catalog
-IDs `alley-cat` and `mach-3`, independent of engines or original data paths.
+then global preferences, then entry preferences. Catalog game IDs (`alley-cat`,
+`mach-3`) identify games; entry IDs identify individual configured copies.
+The example suffixes above are illustrative; use the IDs from your library.
 Explicit CLI values form the final temporary layer.
 
 | Key | Values |
@@ -219,7 +271,7 @@ the observed frame rate lower than the chosen ceiling.
 
 ## CRT & Colour
 
-CRT preferences use `[global.crt]` and `[games.<game-id>.crt]`, with the same
+CRT preferences use `[global.crt]` and `[entries.<entry-id>.crt]`, with the same
 sparse inheritance and Apply/Cancel rules as Display. `presentation` accepts
 `"pixels"` (default) or `"hyllian"`. Fine adjustments is a shared collapsible
 section for the selected treatment's controls, closed by default. Hyllian exposes
@@ -258,7 +310,7 @@ pairs discard the pair's overrides at that scope and warn.
 
 ## Audio
 
-Audio preferences use `[global.audio]` and `[games.<game-id>.audio]` with the
+Audio preferences use `[global.audio]` and `[entries.<entry-id>.audio]` with the
 same draft, sparse overrides and section reset rules. Sound renderer selection
 is enabled in game overrides for engines/runs that provide audio. Shared levels,
 devices and focus defaults can be edited globally even from a silent game.
@@ -325,7 +377,7 @@ retains the original game's input polling. Apply changes the running game and
 saves the preference; Cancel discards pending edits.
 
 This option exists only for Alley Cat, without a Global defaults or Mach 3
-counterpart. It is stored as `[games.alley-cat.controls] control_mode = "original"`;
+counterpart. It is stored as `[entries.alley-cat-m7k4p9.controls] control_mode = "original"`;
 selecting Responsive removes that override. Check **Override global defaults**
 to edit it. Restoring section defaults removes only the Alley Cat
 Controls override on Apply; global resets leave it intact. Reference/headless
@@ -335,7 +387,7 @@ diagnostics retain original input polling.
 
 Mach 3 overrides on the Audio page include **Digitized samples** immediately
 below Sound renderer. It defaults to On and is stored only as
-`[games.mach-3.gameplay] digitized_samples = true|false`. There is no global or
+`[entries.mach-3-q8n2v5.gameplay] digitized_samples = true|false`. There is no global or
 Alley Cat counterpart. On this page, unchecking **Override global defaults**
 makes shared audio inherit global defaults and restores Digitized
 samples to its built-in On value. Section preference controls are grayed out
@@ -381,7 +433,7 @@ remaining buttons are unassigned.
 **Stick dead zone** is an integer percentage from 5 to 90, default 35. Set it in
 Global defaults → Controls, or uncheck the defaults checkbox in a game's Controls
 page to override it. TOML uses `[global.controls] stick_dead_zone = 35` and
-`[games.<game-id>.controls] stick_dead_zone = 35`. Apply activates and saves the
+`[entries.<entry-id>.controls] stick_dead_zone = 35`. Apply activates and saves the
 value; Cancel discards edits. There is no corresponding command-line option.
 
 Each left-stick axis activates a digital direction at that displacement and
@@ -460,14 +512,14 @@ exists; dim highlighting means the option follows its default. Clicking an
 explicit selection removes that override. Global edits and unrelated Settings
 Apply operations preserve explicit selections, including matching defaults.
 
-Shared options use the ordinary per-game Settings keys. Native startup choices
-use the per-game launcher table, for example:
+Shared options use the ordinary per-entry Settings keys. Native startup choices
+use the entry's launcher table, for example:
 
 ```toml
-[games.alley-cat.launcher]
+[entries.alley-cat-m7k4p9.launcher]
 machine = "pcjr"
 
-[games.mach-3.launcher]
+[entries.mach-3-q8n2v5.launcher]
 video = "mono"
 ```
 
@@ -485,7 +537,7 @@ changes. Their joined antialiased boundary uses the hardware frame appearance on
 all renderers, including the software fallback. Initials and labels remain text.
 
 Add verifies the supported release before saving its location. Relocate validates
-the replacement against the same game/release. Missing entries retain their
+the replacement against the game and compatibility group. Missing entries retain their
 identity and offer Locate Files. Remove asks for confirmation and removes only
-the library entry. Success notices expire; errors can be dismissed. The original
+the library entry and its preferences. Success notices expire; errors can be dismissed. The original
 files are never changed by these library operations.

@@ -16,12 +16,12 @@ use super::{
     model::{EntryStatus, GameEntry},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UiAction {
-    Play(i64),
+    Play(String),
     Add,
-    Locate(i64),
-    Remove(i64),
+    Locate(String),
+    Remove(String),
     OpenSettings,
 }
 

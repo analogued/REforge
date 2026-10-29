@@ -81,10 +81,10 @@ pub fn draw(
                         if !query.is_empty() && !game.title.to_ascii_lowercase().contains(&query) {
                             continue;
                         }
-                        let is_selected = state.selected == Some(game.id);
+                        let is_selected = state.selected.as_deref() == Some(game.entry_id.as_str());
                         let resp = draw_sidebar_row(ui, ap, game, is_selected, compact);
                         if resp.activated() || resp.has_focus() {
-                            state.selected = Some(game.id);
+                            state.selected = Some(game.entry_id.clone());
                         }
                     }
                 });
@@ -126,14 +126,14 @@ pub fn draw(
                         .on_hover_text("Remove entry from library; original files are kept")
                         .activated()
                     {
-                        action = Some(UiAction::Remove(game.id));
+                        action = Some(UiAction::Remove(game.entry_id.clone()));
                     }
                     if !game.status.is_missing()
                         && quiet_text_button(ui, ap, "Relocate…")
                             .on_hover_text("Choose the new location of this game’s original files")
                             .activated()
                     {
-                        action = Some(UiAction::Locate(game.id));
+                        action = Some(UiAction::Locate(game.entry_id.clone()));
                     }
                     ui.add_space(4.0);
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
@@ -362,10 +362,10 @@ fn draw_hero_details(
     };
     if game.status.is_missing() {
         if primary_button(ui, ap, "Locate Files…", btn_size, true).activated() {
-            action = Some(UiAction::Locate(game.id));
+            action = Some(UiAction::Locate(game.entry_id.clone()));
         }
     } else if primary_button(ui, ap, "Play", btn_size, false).activated() {
-        action = Some(UiAction::Play(game.id));
+        action = Some(UiAction::Play(game.entry_id.clone()));
     }
 
     action

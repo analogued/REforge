@@ -905,7 +905,7 @@ mod tests {
                     ((2560, 1920), 2.25),
                 ] {
                     for controller in [false, true] {
-                        creator.session.borrow_mut().game =
+                        creator.session.borrow_mut().game_id =
                             if mach3 { "mach-3" } else { "alley-cat" }.into();
                         let metrics = UiMetrics {
                             drawable: size,
@@ -1568,7 +1568,7 @@ mod tests {
                 ((1920, 1440), 2.25, false),
             ] {
                 for controller in [false, true] {
-                    creator.session.borrow_mut().game =
+                    creator.session.borrow_mut().game_id =
                         if mach3 { "mach-3" } else { "alley-cat" }.into();
                     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
                     menu = if mach3 {

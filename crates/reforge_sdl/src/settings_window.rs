@@ -375,7 +375,7 @@ mod tests {
         }
         for game in ["alley-cat", "mach-3"] {
             let mut session = Session::for_window(Some(1));
-            session.game = game.into();
+            session.game_id = game.into();
             session.saved.edit(false, "renderer", "software".into());
             let requested = session.effective(&session.saved);
             let mut display = Window::build(
@@ -552,7 +552,7 @@ fn desktop_menu_geometry_smoke() {
     use reforge_settings::Session;
     for scale in 1..=4 {
         let mut session = Session::for_window(Some(scale));
-        session.game = "alley-cat".into();
+        session.game_id = "alley-cat".into();
         session.saved.edit(false, "renderer", "software".into());
         let requested = session.effective(&session.saved);
         let mut display = Window::build(

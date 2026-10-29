@@ -82,7 +82,7 @@ impl Preferences {
 }
 #[derive(Clone, Debug)]
 pub struct GameEntry {
-    pub id: i64,
+    pub entry_id: String,
     pub title: String,
     pub year: &'static str,
     pub developer: &'static str,
@@ -113,7 +113,7 @@ impl GameEntry {
             None => &[],
         };
         let status = if verify {
-            match super::detect_entry(entry, &entry.original) {
+            match super::verify_entry(entry) {
                 Ok(_) => EntryStatus::Verified,
                 Err(error) => EntryStatus::Missing(bounded_diagnostic(&error)),
             }
@@ -121,12 +121,8 @@ impl GameEntry {
             EntryStatus::Verified
         };
         let mut result = Self {
-            id: entry.id,
-            title: if release.is_some() {
-                metadata.title.into()
-            } else {
-                entry.title.clone()
-            },
+            entry_id: entry.entry_id.clone(),
+            title: entry.title.clone(),
             year: metadata.year,
             developer: metadata.developer,
             publisher: metadata.publisher,
@@ -218,14 +214,15 @@ impl GameEntry {
     }
     pub fn refresh_preferences(&mut self) -> Result<(), String> {
         let session = Session::load(Launch {
-            game: self.game_id.clone(),
+            game_id: self.game_id.clone(),
+            entry_id: Some(self.entry_id.clone()),
             path: Some(self.config.clone()),
             cli: Default::default(),
         });
         if let Some(warning) = session.warning {
             return Err(warning);
         }
-        let native = reforge_settings::launcher::native_options(&self.config, &self.game_id)?;
+        let native = reforge_settings::launcher::native_options(&self.config, &self.entry_id)?;
         let global = session.saved.global_values();
         let mut p = Preferences::default();
         for o in self.options {
@@ -273,13 +270,14 @@ impl GameEntry {
         let result = match option.storage {
             Storage::Native { key, .. } => reforge_settings::launcher::save_native_option(
                 &self.config,
-                &self.game_id,
+                &self.entry_id,
                 key,
                 value,
             ),
             Storage::Shared(key) => {
                 let mut s = Session::load(Launch {
-                    game: self.game_id.clone(),
+                    game_id: self.game_id.clone(),
+                    entry_id: Some(self.entry_id.clone()),
                     path: Some(self.config.clone()),
                     cli: Default::default(),
                 });
@@ -316,9 +314,9 @@ pub struct State {
     pub preview_focus_pending: bool,
     pub filter_query: String,
     pub options_open: bool,
-    pub selected: Option<i64>,
+    pub selected: Option<String>,
     pub games: Vec<GameEntry>,
-    pub pending_remove: Option<i64>,
+    pub pending_remove: Option<String>,
     pub remove_focus_pending: bool,
     pub settings_open: bool,
     pub pending_action: Option<UiAction>,
@@ -343,7 +341,10 @@ impl State {
             ),
         };
         let mut s = Self {
-            library: Library::new(path),
+            library: Library::new(path).with_storage(
+                config.clone(),
+                reforge_settings::library::default_saves_path(),
+            ),
             config,
             layout,
             saved_theme: theme,
@@ -375,8 +376,15 @@ impl State {
                     .iter()
                     .map(|e| GameEntry::from_entry(e, self.config.clone(), true))
                     .collect();
-                if !self.games.iter().any(|g| Some(g.id) == self.selected) {
-                    self.selected = self.games.first().map(|g| g.id);
+                if let Some(warning) = self.library.warning.clone() {
+                    self.notify(warning, true);
+                }
+                if !self
+                    .games
+                    .iter()
+                    .any(|g| self.selected.as_deref() == Some(g.entry_id.as_str()))
+                {
+                    self.selected = self.games.first().map(|g| g.entry_id.clone());
                 }
             }
             Err(e) => self.notify(e, true),
@@ -390,7 +398,9 @@ impl State {
         }
     }
     pub fn selected_index(&self) -> Option<usize> {
-        self.games.iter().position(|g| Some(g.id) == self.selected)
+        self.games
+            .iter()
+            .position(|g| self.selected.as_deref() == Some(g.entry_id.as_str()))
     }
     pub fn selected_game(&self) -> Option<&GameEntry> {
         self.selected_index().map(|i| &self.games[i])
@@ -432,17 +442,17 @@ impl State {
         }
         self.settings_open = true;
     }
-    pub fn trigger_play(&mut self, id: i64) {
+    pub fn trigger_play(&mut self, id: String) {
         self.pending_action = Some(UiAction::Play(id));
     }
     pub fn trigger_add(&mut self) {
         self.pending_action = Some(UiAction::Add);
     }
-    pub fn trigger_locate(&mut self, id: i64) {
+    pub fn trigger_locate(&mut self, id: String) {
         self.pending_action = Some(UiAction::Locate(id));
     }
-    pub fn request_remove(&mut self, id: i64) {
-        if self.games.iter().any(|g| g.id == id) {
+    pub fn request_remove(&mut self, id: String) {
+        if self.games.iter().any(|g| g.entry_id == id) {
             if self.preview_open {
                 self.commit_preview();
             }
@@ -452,7 +462,7 @@ impl State {
     }
     pub fn confirm_remove(&mut self) {
         if let Some(id) = self.pending_remove.take() {
-            match self.library.remove(id) {
+            match self.library.remove(&id) {
                 Ok(()) => {
                     self.refresh();
                     self.notify(

@@ -479,6 +479,10 @@ The launcher draws Symbolic placeholders without original assets. Initials use
 the first letters/numbers of the first two Unicode words, or the first two
 characters of a single word, uppercased; empty/non-text names use `?`.
 Engine-generated scene previews and their disk cache are not implemented yet.
+Placeholder palettes and frames use bounded in-memory texture and frame-mask
+caches, regenerated for physical size, desktop density, palette and appearance
+changes. Their joined antialiased boundary uses the hardware frame appearance on
+all renderers, including the software fallback. Initials and labels remain text.
 
 Add verifies the supported release before saving its location. Relocate validates
 the replacement against the same game/release. Missing entries retain their

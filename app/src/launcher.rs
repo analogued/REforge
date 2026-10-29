@@ -2,6 +2,7 @@
 //! Persistent player launcher, independent of reconstructed gameplay loops.
 mod layouts;
 mod model;
+mod preview;
 mod settings;
 mod switchers;
 mod symbolic;
@@ -227,6 +228,12 @@ pub fn run() -> Result<(), String> {
     let mut visible = false;
     loop {
         for event in events.poll_iter() {
+            if matches!(event, Event::RenderDeviceReset { .. }) {
+                // Cached previews and the painter's font atlas belong to this
+                // renderer. A new context recreates both on the next frame.
+                gui = Gui::new(&creator);
+                gui.set_focus_overlay(false);
+            }
             if matches!(
                 event,
                 Event::Quit { .. }

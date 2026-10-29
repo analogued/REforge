@@ -274,43 +274,35 @@ pub fn paint_preview_in_rect(
     game: &GameEntry,
     show_badge: bool,
 ) {
-    let cr = CornerRadius::same(ap.tokens.preview_radius);
-    let inner = rect.shrink(1.0);
-    paint_symbolic(painter, ap, rect, game, show_badge);
-
-    if game.status.is_missing() {
-        painter.rect_filled(rect, cr, Color32::from_black_alpha(125));
-        if inner.width() >= 88.0 && inner.height() >= 42.0 {
-            let pill = Rect::from_center_size(
-                Pos2::new(inner.center().x, inner.bottom() - 16.0),
-                Vec2::new((inner.width() - 16.0).min(110.0), 21.0),
-            );
-            painter.rect_filled(
-                pill,
-                CornerRadius::same(ap.theme.components.button.radius.min(4)),
-                ap.missing.preview_background,
-            );
-            painter.text(
-                pill.center(),
-                egui::Align2::CENTER_CENTER,
-                "Missing files",
-                FontId::proportional(11.0),
-                ap.missing.preview_foreground,
-            );
-        }
-    }
-
-    let frame_col = if ap.theme.palette.dark {
-        Color32::from_white_alpha(22)
-    } else {
-        Color32::from_black_alpha(38)
-    };
-    painter.rect_stroke(
+    let rect = super::preview::paint(
+        painter,
         rect,
-        cr,
-        Stroke::new(1.0_f32, frame_col),
-        StrokeKind::Inside,
+        ap.tokens.preview_radius,
+        !ap.theme.palette.dark,
+        game.palette_swatches(),
+        game.status.is_missing(),
     );
+    let inner = rect.shrink(1.0);
+    paint_symbolic(painter, rect, game, show_badge);
+
+    if game.status.is_missing() && inner.width() >= 88.0 && inner.height() >= 42.0 {
+        let pill = Rect::from_center_size(
+            Pos2::new(inner.center().x, inner.bottom() - 16.0),
+            Vec2::new((inner.width() - 16.0).min(110.0), 21.0),
+        );
+        painter.rect_filled(
+            pill,
+            CornerRadius::same(ap.theme.components.button.radius.min(4)),
+            ap.missing.preview_background,
+        );
+        painter.text(
+            pill.center(),
+            egui::Align2::CENTER_CENTER,
+            "Missing files",
+            FontId::proportional(11.0),
+            ap.missing.preview_foreground,
+        );
+    }
 }
 
 fn option_label(ui: &mut egui::Ui, ap: &ResolvedAppearance, game: &GameEntry, field: &str) {
@@ -641,38 +633,9 @@ pub fn draw_empty_onboarding(ui: &mut egui::Ui, ap: &ResolvedAppearance) -> Opti
     action
 }
 
-fn paint_symbolic(
-    painter: &egui::Painter,
-    ap: &ResolvedAppearance,
-    rect: Rect,
-    game: &GameEntry,
-    show_badge: bool,
-) {
+fn paint_symbolic(painter: &egui::Painter, rect: Rect, game: &GameEntry, show_badge: bool) {
     let painter = &painter.with_clip_rect(rect);
     let colours = game.palette_swatches();
-    painter.rect_filled(
-        rect,
-        ap.tokens.preview_radius,
-        Color32::from_rgb(16, 19, 24),
-    );
-    // Continue the strip beneath the border, using its same outer contour.
-    // The border is painted last, so its translucent inner edge blends with
-    // the palette instead of an inset dark gap. Retain 3.5 points inside it.
-    let strip = Rect::from_min_size(rect.min, Vec2::new(rect.width(), 4.5));
-    if !colours.is_empty() {
-        let width = strip.width() / colours.len() as f32;
-        for (i, [r, g, b]) in colours.iter().enumerate() {
-            let segment = Rect::from_min_size(
-                Pos2::new(strip.left() + i as f32 * width, strip.top()),
-                Vec2::new(width, strip.height()),
-            );
-            painter.with_clip_rect(segment).rect_filled(
-                rect,
-                ap.tokens.preview_radius,
-                Color32::from_rgb(*r, *g, *b),
-            );
-        }
-    }
     let rect = rect.shrink(1.0);
     let accent = colours
         .iter()
@@ -695,7 +658,7 @@ fn paint_symbolic(
         egui::Align2::CENTER_CENTER,
         text,
         FontId::proportional((rect.height() * 0.28).clamp(13.0, 28.0)),
-        accent,
+        super::preview::dim(accent, game.status.is_missing()),
     );
     if show_badge && rect.height() > 64.0 && !game.status.is_missing() {
         painter.text(

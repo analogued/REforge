@@ -43,45 +43,70 @@ pub fn draw(ctx: &egui::Context, state: &mut State) {
         state.notify(error, true);
     }
     state.expire_notice();
-    if let Some((message, error)) = &state.notice {
-        let bottom = (state.content_bottom - 12.0).max(120.0);
-        egui::Area::new(egui::Id::new("launcher_notice"))
-            .order(egui::Order::Foreground)
-            .pivot(egui::Align2::CENTER_BOTTOM)
-            .fixed_pos(egui::pos2(ctx.screen_rect().center().x, bottom.max(120.0)))
-            .show(ctx, |ui| {
-                egui::Frame::NONE
-                    .fill(if *error {
-                        ap.tokens.err_banner_bg
-                    } else {
-                        ap.theme.palette.window
-                    })
-                    .corner_radius(ap.tokens.card_radius)
-                    .inner_margin(12.0)
-                    .show(ui, |ui| {
-                        ui.set_max_width((ctx.screen_rect().width() - 80.0).clamp(200.0, 600.0));
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(message).color(if *error {
-                                ap.theme.palette.notice_error
-                            } else {
-                                ap.tokens.text_primary
-                            }));
-                            if widgets::quiet_text_button(ui, &ap, "Dismiss").activated() {
-                                ui.ctx().data_mut(|d| {
-                                    d.insert_temp(egui::Id::new("dismiss_notice"), true)
-                                });
-                            }
-                        });
+    draw_notice(ctx, state, &ap);
+}
+
+fn draw_notice(ctx: &egui::Context, state: &mut State, ap: &ResolvedAppearance) {
+    let Some((message, error)) = &state.notice else {
+        return;
+    };
+    let screen = ctx.screen_rect().shrink(16.0);
+    let width = screen.width().min(600.0);
+    let bottom = (state.content_bottom - 12.0).clamp(screen.top(), screen.bottom());
+    let text_height = ((bottom - screen.top()).min(screen.height() * 0.4) - 24.0).max(24.0);
+    let mut dismiss = false;
+    egui::Area::new(egui::Id::new("launcher_notice"))
+        .order(egui::Order::Foreground)
+        .pivot(egui::Align2::CENTER_BOTTOM)
+        .fixed_pos(egui::pos2(screen.center().x, bottom))
+        .default_width(width)
+        .constrain_to(screen)
+        .show(ctx, |ui| {
+            ui.set_width(width);
+            egui::Frame::NONE
+                .fill(if *error {
+                    ap.tokens.err_banner_bg
+                } else {
+                    ap.theme.palette.window
+                })
+                .corner_radius(ap.tokens.card_radius)
+                .inner_margin(12.0)
+                .show(ui, |ui| {
+                    // Allocate the action first so the wrapping message cannot
+                    // consume its width or push it beyond the window edge.
+                    ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                        dismiss = widgets::quiet_text_button(ui, ap, "Dismiss").activated();
+                        let message_width = ui.available_width();
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(message_width, text_height),
+                            Layout::top_down(Align::Min),
+                            |ui| {
+                                egui::ScrollArea::vertical()
+                                    .id_salt(("launcher_notice_text", state.notice_started))
+                                    .max_height(text_height)
+                                    .auto_shrink([false, true])
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            egui::Label::new(RichText::new(message).color(
+                                                if *error {
+                                                    ap.theme.palette.notice_error
+                                                } else {
+                                                    ap.tokens.text_primary
+                                                },
+                                            ))
+                                            .wrap(),
+                                        );
+                                    });
+                            },
+                        );
                     });
-            });
-        if ctx
-            .data_mut(|d| d.remove_temp::<bool>(egui::Id::new("dismiss_notice")))
-            .unwrap_or(false)
-        {
-            state.notice = None;
-        }
+                });
+        });
+    if dismiss {
+        state.notice = None;
     }
 }
+
 fn empty(
     ctx: &egui::Context,
     state: &mut State,

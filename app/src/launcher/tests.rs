@@ -760,3 +760,141 @@ fn duplicate_game_copies_keep_independent_quick_options_and_display_titles() {
     assert_eq!(entry.entry_id, state.games[0].entry_id);
     assert_eq!(entry.option_values()["Machine"], "IBM PCjr");
 }
+
+#[test]
+fn notifications_wrap_long_paths_keep_dismiss_visible_and_do_not_shift_the_launcher() {
+    let fixture = Fixture::new(2);
+    let messages = [
+        ("Game added".to_owned(), false),
+        (
+            format!(
+                "Unknown or mismatched original data at /home/player/Games/Mach3/{}: no supported original file names",
+                "recordings-with-long-directory-names/".repeat(6)
+            ),
+            true,
+        ),
+        (
+            format!(
+                "Cannot verify /Games/{}\n{}",
+                "verylongunbrokenfilename".repeat(20),
+                "Diagnostic detail\n".repeat(80)
+            ),
+            true,
+        ),
+    ];
+    for theme in ThemeId::ALL {
+        for layout in LayoutVariant::ALL {
+            for size in [Vec2::new(630.0, 470.0), Vec2::new(1000.0, 720.0)] {
+                for density in [1.0, 2.25] {
+                    let mut h = Harness::new(&fixture, theme, layout, true);
+                    h.size = size;
+                    h.density = density;
+                    let original_play = text_rect(&h.settle(), "Play").unwrap();
+                    let screen = Rect::from_min_size(Pos2::ZERO, size);
+                    for (message, error) in &messages {
+                        h.state.notify(message.clone(), *error);
+                        let output = h.settle();
+                        let card = h
+                            .context
+                            .memory(|m| m.area_rect(egui::Id::new("launcher_notice")))
+                            .unwrap();
+                        assert!(
+                            screen.shrink(15.0).contains_rect(card),
+                            "notice outside screen: {card:?} {theme:?} {layout:?} {size:?} {density}"
+                        );
+                        let dismiss = text_rect(&output, "Dismiss").unwrap();
+                        assert!(
+                            card.contains_rect(dismiss),
+                            "dismiss clipped: {dismiss:?} {card:?}"
+                        );
+                        let text = text_rect(&output, message)
+                            .expect("complete diagnostic remains available");
+                        assert!(
+                            text.left() >= card.left() && text.right() <= dismiss.left(),
+                            "message overflows its column: {text:?} {card:?} {dismiss:?}"
+                        );
+                        assert_eq!(text_rect(&output, "Play").unwrap(), original_play);
+                        if message.contains("Diagnostic detail") {
+                            let point = Pos2::new(text.center().x, card.center().y);
+                            h.frame(vec![egui::Event::PointerMoved(point)]);
+                            h.frame(vec![egui::Event::MouseWheel {
+                                unit: egui::MouseWheelUnit::Point,
+                                delta: Vec2::new(0.0, -120.0),
+                                modifiers: egui::Modifiers::NONE,
+                            }]);
+                            let scrolled = h.settle();
+                            assert!(
+                                text_rect(&scrolled, message).unwrap().top() < text.top(),
+                                "long diagnostics must scroll"
+                            );
+                            assert_eq!(text_rect(&scrolled, "Dismiss").unwrap(), dismiss);
+                            h.frame(vec![egui::Event::PointerMoved(Pos2::ZERO)]);
+                            h.state.notify(message.clone(), *error);
+                            let restarted = h.settle();
+                            assert_eq!(
+                                text_rect(&restarted, message).unwrap().top(),
+                                text.top(),
+                                "each new notice starts at the top"
+                            );
+                        }
+                        h.click("Dismiss");
+                        assert!(h.state.notice.is_none());
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "owns SDL video; run with dummy/software --test-threads=1"]
+fn native_notification_previews() {
+    use reforge_sdl::settings::UiMetrics;
+    let fixture = Fixture::new(2);
+    let _guard = Launch {
+        game_id: "standalone".into(),
+        entry_id: None,
+        path: Some(fixture.config.clone()),
+        cli: reforge_settings::Patch::from([("renderer".into(), "software".into())]),
+    }
+    .install();
+    let sdl = sdl3::init().unwrap();
+    let video = sdl.video().unwrap();
+    let capture = std::env::var_os("REFORGE_LAUNCHER_CAPTURE").map(PathBuf::from);
+    if let Some(path) = &capture {
+        std::fs::create_dir_all(path).unwrap();
+    }
+    let density = 2.25;
+    let pixels = (1920, 1260);
+    let window = video
+        .window("Notifications", pixels.0, pixels.1)
+        .hidden()
+        .build()
+        .unwrap();
+    let mut canvas = window.into_canvas();
+    let creator = FrameCreator::for_ui(&canvas);
+    let mut gui = Gui::new(&creator);
+    gui.set_focus_overlay(false);
+    let metrics = UiMetrics {
+        drawable: pixels,
+        window: pixels,
+        pixels_per_point: density,
+    };
+    for theme in ThemeId::ALL {
+        gui.set_theme(ResolvedAppearance::resolve(theme).theme);
+        for layout in LayoutVariant::ALL {
+            let mut state = fixture.state(theme, layout, true);
+            state.notify("Unknown or mismatched original data at /home/player/Games/Mach3/private/play/recordings: no supported original file names".into(), true);
+            for _ in 0..4 {
+                native_frame(&mut gui, &mut canvas, &mut state, metrics);
+            }
+            if let Some(path) = &capture {
+                canvas
+                    .read_pixels(None)
+                    .unwrap()
+                    .save_bmp(path.join(format!("{}-{}.bmp", theme.slug(), layout.slug())))
+                    .unwrap();
+            }
+        }
+    }
+}

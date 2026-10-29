@@ -547,5 +547,7 @@ all renderers, including the software fallback. Initials and labels remain text.
 Add verifies the supported release before saving its location. Relocate validates
 the replacement against the game and compatibility group. Missing entries retain their
 identity and offer Locate Files. Remove asks for confirmation and removes only
-the library entry and its preferences. Success notices expire; errors can be dismissed. The original
-files are never changed by these library operations.
+the library entry and its preferences. Success notices expire; errors can be
+dismissed. Floating notifications wrap long messages within the window and scroll
+lengthy diagnostics without moving the launcher layout or hiding Dismiss.
+The original files are never changed by these library operations.

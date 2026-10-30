@@ -46,12 +46,12 @@ pub fn geometry(
 
 pub const PREVIEW_OPTION: &str = "machine";
 /// Change when the representative scene recipe or native rendering changes.
-pub const PREVIEW_REVISION: u32 = 2;
+pub const PREVIEW_REVISION: u32 = 3;
 /// All visual variants are warmed by the launcher after verification.
 pub const PREVIEW_VARIANTS: &[&str] = &["cga", "pcjr"];
 
-/// Run a private, deterministic intro until the cat naturally sits near the
-/// middle of the fence. No host time, player session or manual sprite edits.
+/// Run a private, deterministic intro until the cat naturally sits on the
+/// fence with the SynSoft footer. No host time, player session or sprite edits.
 pub fn preview(
     original: &std::path::Path,
     variant: &str,
@@ -63,7 +63,7 @@ pub fn preview(
     };
     let assets = crate::assets::Assets::load(original)?;
     let mut data = assets.runtime_data();
-    crate::assets::set_word(&mut data, 0x2ae5, 0xfa59);
+    crate::assets::set_word(&mut data, 0x2ae5, 0xcafe);
     let mut splash = crate::splash::Splash::new(&data, machine)?;
     let mut clock =
         crate::timing::VirtualClock::new(crate::timing::RetraceProfile::for_machine(machine));
@@ -76,6 +76,7 @@ pub fn preview(
             && player.entry_state == 0
             && player.y == 96
             && (96..=224).contains(&player.x)
+            && splash.synsoft_credit_visible()
         {
             return reforge_sdl::preview::Frame::new(
                 crate::platform::DISPLAY_GEOMETRY,
@@ -86,7 +87,7 @@ pub fn preview(
             break;
         }
     }
-    Err("Intro preview did not reach the requested sitting pose".into())
+    Err("Intro preview did not reach a sitting pose with the SynSoft credit".into())
 }
 
 #[cfg(test)]

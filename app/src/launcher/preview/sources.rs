@@ -6,8 +6,9 @@ use reforge_sdl::{AspectRatio, DisplayGeometry, preview::Frame};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashSet},
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::{BufReader, BufWriter},
+    panic::{AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -39,12 +40,25 @@ pub(in crate::launcher) struct Manager {
 }
 impl Manager {
     pub fn new(cache: Option<PathBuf>) -> Self {
+        Self::with_generator(cache, generate)
+    }
+    fn with_generator(
+        cache: Option<PathBuf>,
+        mut generate: impl FnMut(&Request, Option<&Path>) -> BTreeMap<String, Source> + Send + 'static,
+    ) -> Self {
         let (send, jobs) = mpsc::channel::<Request>();
         let (done, receive) = mpsc::channel();
         // One worker bounds CPU and disk pressure when a library first opens.
         std::thread::spawn(move || {
             while let Ok(request) = jobs.recv() {
-                let frames = generate(&request, cache.as_deref());
+                // A preview is optional. A failed job must not kill the worker
+                // or leave every later entry permanently pending.
+                let frames =
+                    catch_unwind(AssertUnwindSafe(|| generate(&request, cache.as_deref())))
+                        .unwrap_or_else(|_| {
+                            eprintln!("REforge: preview job failed for {}", request.entry);
+                            BTreeMap::new()
+                        });
                 if done.send(Reply { request, frames }).is_err() {
                     break;
                 }
@@ -66,6 +80,7 @@ impl Manager {
                     && g.status == EntryStatus::Verified
             }) {
                 game.previews = reply.frames;
+                game.preview_attempted = true;
             }
         }
         for game in games {
@@ -110,6 +125,17 @@ fn cache_id(release: &Release, variant: &str) -> String {
         .collect()
 }
 fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source> {
+    // This lock is used only by preview workers, never by the launched game.
+    // A crashed process releases it automatically. Only its next owner may
+    // clean abandoned staging files, so another launcher's writer is safe.
+    let cache_guard = cache.and_then(|root| match CacheSession::open(root) {
+        Ok(session) => Some(session),
+        Err(error) => {
+            eprintln!("REforge: preview cache unavailable: {error}");
+            None
+        }
+    });
+    let cache = cache_guard.as_ref().map(|session| session.root.as_path());
     let mut output = BTreeMap::new();
     let Some(release) = detection::RELEASES.iter().find(|r| r.id == request.release) else {
         return output;
@@ -129,30 +155,18 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
     for variant in ordered {
         let id = cache_id(release, variant);
         let path = cache.map(|root| root.join(format!("{id}.png")));
-        let cached = path.as_ref().and_then(|path| load(path).ok());
-        let frame = if let Some(frame) = cached {
-            frame
-        } else {
-            let generated = match release.game {
-                Game::AlleyCat => alleycat::launcher::preview(&detected.original, variant),
-                Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
-            };
-            let frame = match generated {
-                Ok(frame) => frame,
-                Err(error) => {
-                    eprintln!(
-                        "REforge: preview unavailable for {} ({variant}): {error}",
-                        release.metadata.title
-                    );
-                    continue;
-                }
-            };
-            if let Some(path) = &path {
-                if let Err(error) = store(path, &frame) {
-                    eprintln!("REforge: cannot cache preview: {error}");
-                }
+        let frame = match cached_frame(path.as_deref(), || match release.game {
+            Game::AlleyCat => alleycat::launcher::preview(&detected.original, variant),
+            Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
+        }) {
+            Ok(frame) => frame,
+            Err(error) => {
+                eprintln!(
+                    "REforge: preview unavailable for {} ({variant}): {error}",
+                    release.metadata.title
+                );
+                continue;
             }
-            frame
         };
         output.insert(
             variant.into(),
@@ -163,6 +177,85 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
         );
     }
     output
+}
+
+/// The PNGs themselves are checkpoints: do not regenerate completed variants.
+/// Restart only the missing/corrupt image, not an entire game's preview batch.
+fn cached_frame(
+    path: Option<&Path>,
+    generate: impl FnOnce() -> Result<Frame, String>,
+) -> Result<Frame, String> {
+    if let Some(frame) = path.and_then(|path| load(path).ok()) {
+        return Ok(frame);
+    }
+    let frame = catch_unwind(AssertUnwindSafe(generate))
+        .map_err(|_| "Preview generator panicked".to_owned())??;
+    if let Some(path) = path {
+        if let Err(error) = store(path, &frame) {
+            eprintln!("REforge: cannot cache preview: {error}");
+        }
+    }
+    Ok(frame)
+}
+
+struct CacheSession {
+    root: PathBuf,
+    _lock: File,
+}
+impl CacheSession {
+    fn open(root: &Path) -> Result<Self, String> {
+        fs::create_dir_all(root).map_err(|e| e.to_string())?;
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(root.join(".preview-cache.lock"))
+            .map_err(|e| e.to_string())?;
+        fs2::FileExt::lock_exclusive(&lock).map_err(|e| e.to_string())?;
+        let session = Self {
+            root: root.into(),
+            _lock: lock,
+        };
+        for entry in fs::read_dir(root).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if owned_temporary(&entry.file_name().to_string_lossy())
+                && entry.file_type().map_err(|e| e.to_string())?.is_file()
+            {
+                fs::remove_file(entry.path()).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(session)
+    }
+}
+fn owned_temporary(name: &str) -> bool {
+    let Some(body) = name
+        .strip_prefix(".reforge-preview-")
+        .and_then(|s| s.strip_suffix(".tmp"))
+    else {
+        return false;
+    };
+    let mut fields = body.rsplitn(3, '-');
+    let Some(sequence) = fields.next() else {
+        return false;
+    };
+    let Some(pid) = fields.next() else {
+        return false;
+    };
+    let Some(key) = fields.next() else {
+        return false;
+    };
+    !key.is_empty()
+        && !sequence.is_empty()
+        && sequence.bytes().all(|c| c.is_ascii_digit())
+        && !pid.is_empty()
+        && pid.bytes().all(|c| c.is_ascii_digit())
+}
+struct PendingWrite(PathBuf);
+impl Drop for PendingWrite {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 pub(in crate::launcher) fn default_cache_path() -> Option<PathBuf> {
@@ -223,6 +316,7 @@ fn load(path: &Path) -> Result<Frame, String> {
     let mut rgba = vec![0; reader.output_buffer_size()];
     let result = reader.next_frame(&mut rgba).map_err(|e| e.to_string())?;
     rgba.truncate(result.buffer_size());
+    reader.finish().map_err(|e| e.to_string())?;
     if dimensions[2] == 1 {
         Frame::new_monochrome(geometry, rgba)
     } else {
@@ -233,81 +327,44 @@ fn store(path: &Path, frame: &Frame) -> Result<(), String> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     fs::create_dir_all(path.parent().ok_or("Missing preview directory")?)
         .map_err(|e| e.to_string())?;
-    let temporary = path.with_extension(format!(
-        "{}-{}.tmp",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    let result = (|| {
-        let (w, h) = frame.geometry().display_size(AspectRatio::Square);
-        let file = File::create(&temporary).map_err(|e| e.to_string())?;
-        let mut encoder = png::Encoder::new(BufWriter::new(file), w, h);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        let (aw, ah) = frame.geometry().display_size(AspectRatio::Original);
-        encoder
-            .add_text_chunk(
-                "reforge.display.v2".into(),
-                format!("{aw} {ah} {}", u8::from(frame.is_monochrome())),
-            )
-            .map_err(|e| e.to_string())?;
-        let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
-        writer
-            .write_image_data(frame.rgba())
-            .map_err(|e| e.to_string())?;
-        writer.finish().map_err(|e| e.to_string())?;
-        // Unix rename replaces atomically. Windows may require removal of an old
-        // cache item; source images are disposable and concurrent readers retry.
-        if let Err(error) = fs::rename(&temporary, path) {
-            if !path.exists() {
-                return Err(error.to_string());
-            }
-            fs::remove_file(path).map_err(|e| e.to_string())?;
-            fs::rename(&temporary, path).map_err(|e| e.to_string())?;
+    let parent = path.parent().ok_or("Missing preview directory")?;
+    let key = path
+        .file_stem()
+        .ok_or("Missing preview key")?
+        .to_string_lossy();
+    let (temporary, file) = loop {
+        let path = parent.join(format!(
+            ".reforge-preview-{key}-{}-{}.tmp",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => break (PendingWrite(path), file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
         }
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(temporary);
-    }
-    result
+    };
+    let (w, h) = frame.geometry().display_size(AspectRatio::Square);
+    let mut encoder = png::Encoder::new(BufWriter::new(&file), w, h);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let (aw, ah) = frame.geometry().display_size(AspectRatio::Original);
+    encoder
+        .add_text_chunk(
+            "reforge.display.v2".into(),
+            format!("{aw} {ah} {}", u8::from(frame.is_monochrome())),
+        )
+        .map_err(|e| e.to_string())?;
+    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+    writer
+        .write_image_data(frame.rgba())
+        .map_err(|e| e.to_string())?;
+    writer.finish().map_err(|e| e.to_string())?;
+    // finish flushes the complete PNG. Close the file before publishing it,
+    // including on Windows. Never delete a previous checkpoint on failure.
+    drop(file);
+    fs::rename(&temporary.0, path).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn cache_roundtrips_geometry_rejects_corruption_and_replaces_stale_data() {
-        let dir =
-            std::env::temp_dir().join(format!("reforge-preview-cache-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("roundtrip.png");
-        let colour = Frame::new(DisplayGeometry::new((2, 1), (16, 9)), vec![255; 8]).unwrap();
-        store(&path, &colour).unwrap();
-        assert!(!load(&path).unwrap().is_monochrome());
-        let frame =
-            Frame::new_monochrome(DisplayGeometry::new((2, 1), (16, 9)), vec![255; 8]).unwrap();
-        store(&path, &frame).unwrap();
-        let read = load(&path).unwrap();
-        assert_eq!(read.geometry(), frame.geometry());
-        assert_eq!(read.rgba(), frame.rgba());
-        assert!(read.is_monochrome());
-        fs::write(&path, b"broken cache").unwrap();
-        assert!(load(&path).is_err());
-        store(&path, &frame).unwrap();
-        assert_eq!(load(&path).unwrap().rgba(), frame.rgba());
-        fs::remove_file(path).unwrap();
-        fs::remove_dir(dir).unwrap();
-    }
-    #[test]
-    fn cache_identity_is_release_content_and_visual_variant_based() {
-        let release = &detection::RELEASES[0];
-        assert_ne!(cache_id(release, "cga"), cache_id(release, "pcjr"));
-        let different = Release {
-            files: &[],
-            ..*release
-        };
-        assert_ne!(cache_id(release, "cga"), cache_id(&different, "cga"));
-        assert_eq!(cache_id(release, "cga").len(), 64);
-    }
-}
+mod tests;

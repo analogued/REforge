@@ -27,7 +27,7 @@ MIT is selected where an alternative is offered.
 | [blip_buf](https://crates.io/crates/blip_buf/0.2.1) | 0.2.1 | Shared audio: optional band-limited speaker renderer | [MIT](LICENSES/MIT.txt) |
 | [toml_edit](https://crates.io/crates/toml_edit/0.22.27) | 0.22.27 | Shared settings: TOML parsing and editing | [MIT](LICENSES/MIT.txt) |
 | [getrandom](https://crates.io/crates/getrandom/0.3.4) | 0.3.4 | Shared settings: operating-system randomness for library IDs | [MIT](LICENSES/MIT.txt) |
-| [fs2](https://crates.io/crates/fs2/0.4.3) | 0.4.3 | Shared settings: file locking | [MIT](LICENSES/MIT.txt) |
+| [fs2](https://crates.io/crates/fs2/0.4.3) | 0.4.3 | Shared settings and launcher preview cache: file locking | [MIT](LICENSES/MIT.txt) |
 
 Copyright notices, transcribed from the corresponding upstream license files:
 

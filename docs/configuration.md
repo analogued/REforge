@@ -549,7 +549,14 @@ display geometry and colour model are cached together in PNG files under:
 
 The cache identifies the release's complete detection fingerprints, visual variant
 and engine preview recipe revision. Separate library entries can share those
-source images. Deleting the cache is safe; verified entries regenerate it. Missing
+source images. Each completed PNG is a checkpoint, published only after its
+write finishes. Preview work continues independently while a launched game runs.
+After a launcher crash or an interrupted close, restart reuses valid completed
+variants and regenerates missing or corrupt ones; an unfinished image starts over.
+Workers serialize cache access across launcher instances and remove abandoned
+staging files under that lock. Preview errors and Rust panics leave the launcher
+usable and do not stop later queued games. No queue/progress manifest is needed.
+Deleting the cache is safe; verified entries regenerate it. Missing
 originals, unsupported providers and preview errors retain Symbolic placeholders.
 Their initials use the first letters/numbers of the first two Unicode words, or
 the first two characters of one word, uppercased; empty/non-text names use `?`.

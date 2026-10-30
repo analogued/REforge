@@ -384,6 +384,7 @@ name = "reforge"
 version = "0.1.0"
 dependencies = [
  "alleycat",
+ "fs2",
  "mach3",
  "png",
  "reforge_sdl",

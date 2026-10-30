@@ -953,6 +953,23 @@ fn native_engine_previews() {
             manager.poll(&mut state.games);
             std::thread::sleep(Duration::from_millis(10));
         }
+        // A recipe is stable across independent generation, including random
+        // intro motion and both machine-specific timing paths.
+        for game in &state.games {
+            let detected = detection::detect(&game.original).unwrap();
+            for (variant, source) in &game.previews {
+                let again = match detected.game {
+                    detection::Game::AlleyCat => {
+                        alleycat::launcher::preview(&detected.original, variant)
+                    }
+                    detection::Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
+                }
+                .unwrap();
+                assert_eq!(source.frame.rgba(), again.rgba());
+                assert_eq!(source.frame.geometry(), again.geometry());
+                assert_eq!(source.frame.is_monochrome(), again.is_monochrome());
+            }
+        }
         let mono = &state
             .games
             .iter()

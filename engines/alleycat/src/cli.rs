@@ -397,11 +397,11 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
 }
 
 #[cfg(any(feature = "sdl", feature = "dev-tools"))]
-fn advance_splash(
+pub(crate) fn advance_splash(
     splash: &mut Splash,
     clock: &mut VirtualClock,
     key_pressed: bool,
-) -> Result<(), String> {
+) -> Result<crate::splash::SplashStep, String> {
     // The outer-loop prelude remains approximate; measured title helpers are
     // charged only when executed, independently of host presentation.
     let costs = alleycat::runtime::ReferenceCosts::ibm_xt(splash.machine());
@@ -413,7 +413,7 @@ fn advance_splash(
     // Playback commits through the drawing work too. Host keys between title
     // passes must not place a speaker write inside that already rendered span.
     splash.sound.at(clock.elapsed_pit_ticks() as u64);
-    Ok(())
+    Ok(step)
 }
 
 #[cfg(feature = "dev-tools")]

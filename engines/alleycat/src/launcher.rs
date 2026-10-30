@@ -46,11 +46,12 @@ pub fn geometry(
 
 pub const PREVIEW_OPTION: &str = "machine";
 /// Change when the representative scene recipe or native rendering changes.
-pub const PREVIEW_REVISION: u32 = 1;
+pub const PREVIEW_REVISION: u32 = 2;
 /// All visual variants are warmed by the launcher after verification.
 pub const PREVIEW_VARIANTS: &[&str] = &["cga", "pcjr"];
 
-/// A deterministic static alley, independent of the player's session and seed.
+/// Run a private, deterministic intro until the cat naturally sits near the
+/// middle of the fence. No host time, player session or manual sprite edits.
 pub fn preview(
     original: &std::path::Path,
     variant: &str,
@@ -60,8 +61,32 @@ pub fn preview(
         "pcjr" => Machine::Pcjr,
         _ => return Err("Unknown preview machine".into()),
     };
-    let alley = crate::alley::Alley::load(original, 0xfa59, 0, machine)?;
-    reforge_sdl::preview::Frame::new(crate::platform::DISPLAY_GEOMETRY, alley.rgba())
+    let assets = crate::assets::Assets::load(original)?;
+    let mut data = assets.runtime_data();
+    crate::assets::set_word(&mut data, 0x2ae5, 0xfa59);
+    let mut splash = crate::splash::Splash::new(&data, machine)?;
+    let mut clock =
+        crate::timing::VirtualClock::new(crate::timing::RetraceProfile::for_machine(machine));
+    // Use the ordinary startup loop, including its sound sequencing, random
+    // draws, retrace and XT cost profile. Virtual seconds take no wall-time wait.
+    for _ in 0..200_000 {
+        let step = crate::cli::advance_splash(&mut splash, &mut clock, false)?;
+        let player = splash.player();
+        if matches!(step.work.draw, Some(crate::player::Draw::Idle))
+            && player.entry_state == 0
+            && player.y == 96
+            && (96..=224).contains(&player.x)
+        {
+            return reforge_sdl::preview::Frame::new(
+                crate::platform::DISPLAY_GEOMETRY,
+                splash.rgba(),
+            );
+        }
+        if step.finished || clock.elapsed_nanos() > 15_000_000_000 {
+            break;
+        }
+    }
+    Err("Intro preview did not reach the requested sitting pose".into())
 }
 
 #[cfg(test)]

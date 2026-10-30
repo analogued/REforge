@@ -91,7 +91,7 @@ pub fn geometry(
 
 pub const PREVIEW_OPTION: &str = "video";
 /// Change when the representative scene recipe or native rendering changes.
-pub const PREVIEW_REVISION: u32 = 1;
+pub const PREVIEW_REVISION: u32 = 2;
 pub const PREVIEW_VARIANTS: &[&str] = &["cga", "mono"];
 
 /// Read exactly the detector-selected files, including case-colliding names.
@@ -107,7 +107,7 @@ pub fn preview(
         std::fs::read(path).map_err(crate::Error::Io)
     })
     .map_err(|e| e.to_string())?;
-    let frame = frames.frame(crate::startup::Screen::InitialScene);
+    let frame = frames.frame(crate::startup::Screen::Splash);
     let (width, rgb) = match variant {
         "cga" => (320, frame.rgb()),
         "mono" => (

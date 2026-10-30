@@ -274,16 +274,45 @@ pub fn paint_preview_in_rect(
     game: &GameEntry,
     show_badge: bool,
 ) {
-    let rect = super::preview::paint(
-        painter,
-        rect,
-        ap.tokens.preview_radius,
-        !ap.theme.palette.dark,
-        game.palette_swatches(),
-        game.status.is_missing(),
-    );
+    let source = if game.status.is_missing() {
+        None
+    } else {
+        game.previews.get(game.preview_variant())
+    };
+    let rect = if let Some(source) = source {
+        super::preview::paint_image(
+            painter,
+            rect,
+            ap.tokens.preview_radius,
+            !ap.theme.palette.dark,
+            source,
+            game.crt_preview(),
+        )
+    } else {
+        let rect = super::preview::paint(
+            painter,
+            rect,
+            ap.tokens.preview_radius,
+            !ap.theme.palette.dark,
+            game.palette_swatches(),
+            game.status.is_missing(),
+        );
+        paint_symbolic(painter, rect, game, show_badge);
+        rect
+    };
     let inner = rect.shrink(1.0);
-    paint_symbolic(painter, rect, game, show_badge);
+    if source.is_some() && show_badge && !game.full_mode_label().is_empty() {
+        let label = game.full_mode_label();
+        let galley = painter.layout_no_wrap(label, FontId::proportional(10.5), Color32::WHITE);
+        let badge = Rect::from_min_size(
+            rect.min + Vec2::splat(5.0),
+            galley.size() + Vec2::new(8.0, 4.0),
+        );
+        if badge.right() < rect.right() - 4.0 && badge.bottom() < rect.bottom() - 4.0 {
+            painter.rect_filled(badge, 2, Color32::from_black_alpha(190));
+            painter.galley(badge.min + Vec2::new(4.0, 2.0), galley, Color32::WHITE);
+        }
+    }
 
     if game.status.is_missing() && inner.width() >= 88.0 && inner.height() >= 42.0 {
         let pill = Rect::from_center_size(

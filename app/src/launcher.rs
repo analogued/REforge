@@ -237,6 +237,7 @@ pub fn run() -> Result<(), String> {
     let mut picker: Option<(UiAction, mpsc::Receiver<FolderResult>)> = None;
     let mut child: Option<Child> = None;
     let mut visible = false;
+    let mut previews = preview::sources::Manager::new(preview::sources::default_cache_path());
     loop {
         for event in events.poll_iter() {
             if matches!(event, Event::RenderDeviceReset { .. }) {
@@ -321,6 +322,7 @@ pub fn run() -> Result<(), String> {
                 Err(mpsc::TryRecvError::Empty) => {}
             }
         }
+        previews.poll(&mut state.games);
         gui.set_theme(catalog::ResolvedAppearance::resolve(state.effective_theme()).theme);
         let mut action = None;
         gui.prepare(Gui::metrics(&canvas)?, |ctx| {

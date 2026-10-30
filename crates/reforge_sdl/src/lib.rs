@@ -13,6 +13,7 @@ pub mod gamepad;
 mod geometry;
 mod hyllian;
 pub mod launcher;
+pub mod preview;
 pub use geometry::DisplayGeometry;
 mod input;
 mod resources;

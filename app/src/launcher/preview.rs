@@ -1,6 +1,7 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
 //! Preview-local compositing: one cached physical-resolution texture per frame/content.
 mod coverage;
+pub(super) mod sources;
 #[cfg(test)]
 mod tests;
 use coverage::FrameMask;
@@ -52,6 +53,7 @@ impl FrameKey {
 struct TextureKey {
     frame: FrameKey,
     colours: Vec<[u8; 3]>,
+    image: Option<(String, bool)>,
 }
 struct CachedTexture {
     key: TextureKey,
@@ -80,6 +82,14 @@ impl Cache {
         mask
     }
     fn texture(&mut self, ctx: &egui::Context, key: TextureKey) -> TextureHandle {
+        self.texture_with_source(ctx, key, None)
+    }
+    fn texture_with_source(
+        &mut self,
+        ctx: &egui::Context,
+        key: TextureKey,
+        source: Option<&reforge_sdl::preview::Frame>,
+    ) -> TextureHandle {
         if let Some(index) = self.textures.iter().position(|t| t.key == key) {
             let item = self.textures.remove(index).unwrap();
             let handle = item.handle.clone();
@@ -87,20 +97,41 @@ impl Cache {
             return handle;
         }
         let mask = self.mask(key.frame);
-        let image = mask.compose(
-            (MARGIN as f32 + 4.5 * key.frame.density()).ceil() as usize,
-            |uv| {
-                if uv.y * key.frame.height as f32 >= 4.5 * key.frame.density()
-                    || key.colours.is_empty()
-                {
-                    return key.frame.base();
-                }
-                let index =
-                    ((uv.x * key.colours.len() as f32).floor() as usize).min(key.colours.len() - 1);
-                let [r, g, b] = key.colours[index];
-                dim(Color32::from_rgb(r, g, b), key.frame.dimmed)
-            },
-        );
+        let image = if let Some(source) = source {
+            let content = reforge_sdl::preview::render(
+                source,
+                [key.frame.width as usize, key.frame.height as usize],
+                key.frame.density(),
+                key.image.as_ref().is_some_and(|(_, crt)| *crt),
+            );
+            mask.compose(key.frame.size()[1], |uv| {
+                let x = (uv.x * key.frame.width as f32)
+                    .floor()
+                    .clamp(0.0, key.frame.width as f32 - 1.0) as usize;
+                let y = (uv.y * key.frame.height as f32)
+                    .floor()
+                    .clamp(0.0, key.frame.height as f32 - 1.0) as usize;
+                dim(
+                    content.pixels[y * key.frame.width as usize + x],
+                    key.frame.dimmed,
+                )
+            })
+        } else {
+            mask.compose(
+                (MARGIN as f32 + 4.5 * key.frame.density()).ceil() as usize,
+                |uv| {
+                    if uv.y * key.frame.height as f32 >= 4.5 * key.frame.density()
+                        || key.colours.is_empty()
+                    {
+                        return key.frame.base();
+                    }
+                    let index = ((uv.x * key.colours.len() as f32).floor() as usize)
+                        .min(key.colours.len() - 1);
+                    let [r, g, b] = key.colours[index];
+                    dim(Color32::from_rgb(r, g, b), key.frame.dimmed)
+                },
+            )
+        };
         let handle = ctx.load_texture("launcher-preview", image, TextureOptions::NEAREST);
         self.texture_bytes += handle.byte_size();
         self.textures.push_back(CachedTexture {
@@ -162,6 +193,7 @@ pub(super) fn paint(
             dimmed,
         },
         colours: colours.to_vec(),
+        image: None,
     };
     let cache = painter.ctx().data_mut(|data| {
         data.get_temp_mut_or_default::<Arc<Mutex<Cache>>>(egui::Id::new("launcher-preview-cache"))
@@ -171,6 +203,53 @@ pub(super) fn paint(
     paint_texture(painter, &texture, min - Vec2::splat(MARGIN as f32));
     Rect::from_min_max(min / d, max / d)
 }
+/// Real images share the same neutral frame/coverage as Symbolic artwork.
+/// The entire native-size result is composed once, preventing translucent frame
+/// tinting and software-renderer gaps along independently drawn image pieces.
+pub(super) fn paint_image(
+    painter: &egui::Painter,
+    rect: Rect,
+    radius: u8,
+    light: bool,
+    source: &sources::Source,
+    crt: bool,
+) -> Rect {
+    let d = painter.pixels_per_point();
+    if !rect.is_finite() || !rect.is_positive() || !painter.clip_rect().intersects(rect.expand(1.0))
+    {
+        return rect;
+    }
+    let min = (rect.min * d).round();
+    let max = (rect.max * d).round();
+    let size = max - min;
+    if size.x < 1.0 || size.y < 1.0 || size.x * size.y > 16.0 * 1024.0 * 1024.0 {
+        return rect;
+    }
+    let key = TextureKey {
+        frame: FrameKey {
+            width: size.x as u32,
+            height: size.y as u32,
+            density: d.to_bits(),
+            radius,
+            light,
+            dimmed: false,
+        },
+        colours: vec![],
+        image: Some((source.id.clone(), crt)),
+    };
+    let cache = painter.ctx().data_mut(|data| {
+        data.get_temp_mut_or_default::<Arc<Mutex<Cache>>>(egui::Id::new("launcher-preview-cache"))
+            .clone()
+    });
+    let texture =
+        cache
+            .lock()
+            .unwrap()
+            .texture_with_source(painter.ctx(), key, Some(&source.frame));
+    paint_texture(painter, &texture, min - Vec2::splat(MARGIN as f32));
+    Rect::from_min_max(min / d, max / d)
+}
+
 fn paint_texture(painter: &egui::Painter, texture: &TextureHandle, min: Pos2) {
     let bounds = texture_bounds(min, texture.size_vec2(), painter.pixels_per_point());
     painter.add(Shape::image(

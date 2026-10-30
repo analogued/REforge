@@ -1,5 +1,5 @@
 // Copyright (c) 2026 analogued. Project license has not yet been selected.
-//! Engine-owned launcher choices; no original files or generated previews needed.
+//! Engine-owned launcher choices and clean, static native scene previews.
 
 use reforge_sdl::launcher::{Choice, DISPLAY, OptionDefinition, Storage, WINDOW};
 
@@ -87,6 +87,41 @@ pub fn geometry(
         crate::frame::WIDTH as u32
     };
     reforge_sdl::DisplayGeometry::new((width, crate::frame::HEIGHT as u32), (320, 240))
+}
+
+pub const PREVIEW_OPTION: &str = "video";
+/// Change when the representative scene recipe or native rendering changes.
+pub const PREVIEW_REVISION: u32 = 1;
+pub const PREVIEW_VARIANTS: &[&str] = &["cga", "mono"];
+
+/// Read exactly the detector-selected files, including case-colliding names.
+/// This static scene neither starts gameplay nor opens audio or a window.
+pub fn preview(
+    files: &std::collections::BTreeMap<&str, std::path::PathBuf>,
+    variant: &str,
+) -> Result<reforge_sdl::preview::Frame, String> {
+    let frames = crate::startup::StartupFrames::load_with(|name| {
+        let path = files.get(name).ok_or_else(|| {
+            crate::Error::InvalidData(format!("Missing verified preview resource {name}"))
+        })?;
+        std::fs::read(path).map_err(crate::Error::Io)
+    })
+    .map_err(|e| e.to_string())?;
+    let frame = frames.frame(crate::startup::Screen::InitialScene);
+    let (width, rgb) = match variant {
+        "cga" => (320, frame.rgb()),
+        "mono" => (
+            640,
+            crate::viewer::display_rgb(frame, crate::gameplay::DisplayMode::Monochrome, 1),
+        ),
+        _ => return Err("Unknown preview video mode".into()),
+    };
+    reforge_sdl::preview::Frame::new(
+        reforge_sdl::DisplayGeometry::new((width, 200), (320, 240)),
+        rgb.chunks_exact(3)
+            .flat_map(|c| [c[0], c[1], c[2], 255])
+            .collect(),
+    )
 }
 
 #[cfg(test)]

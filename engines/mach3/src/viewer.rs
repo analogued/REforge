@@ -270,7 +270,7 @@ impl ControlInput {
 }
 
 /// A fixed 640-pixel texture preserves both raw mode-6 bits and mode-4 pixels.
-fn display_rgb(frame: &Frame, mode: DisplayMode, family: u8) -> Vec<u8> {
+pub(crate) fn display_rgb(frame: &Frame, mode: DisplayMode, family: u8) -> Vec<u8> {
     let mut output = Vec::with_capacity(WIDTH * 2 * HEIGHT * 3);
     if mode == DisplayMode::Color {
         let palette = if family == 0 {

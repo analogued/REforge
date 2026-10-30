@@ -95,6 +95,10 @@ pub struct GameEntry {
     pub original_path: String,
     pub original: PathBuf,
     pub game_id: String,
+    pub release_id: String,
+    pub previews: BTreeMap<String, super::preview::sources::Source>,
+    pub preview_attempted: bool,
+    preview_option: &'static str,
     pub status: EntryStatus,
     pub preferences: Preferences,
     pub options: &'static [OptionDefinition],
@@ -134,6 +138,14 @@ impl GameEntry {
             original_path: entry.original.display().to_string(),
             original: entry.original.clone(),
             game_id: entry.game_id.clone(),
+            release_id: entry.release_id.clone(),
+            previews: BTreeMap::new(),
+            preview_attempted: false,
+            preview_option: match release.map(|r| r.game) {
+                Some(Game::AlleyCat) => alleycat::launcher::PREVIEW_OPTION,
+                Some(Game::Mach3) => mach3::launcher::PREVIEW_OPTION,
+                None => "",
+            },
             status,
             preferences: Preferences::from_options(options),
             options,
@@ -144,6 +156,31 @@ impl GameEntry {
             result.error = Some(e);
         }
         result
+    }
+    pub fn preview_variant(&self) -> &'static str {
+        let values = self.option_values();
+        self.options
+            .iter()
+            .find(|o| o.key() == self.preview_option)
+            .and_then(|o| {
+                o.choices
+                    .iter()
+                    .find(|c| Some(&c.label) == values.get(o.label))
+                    .map(|c| c.value)
+            })
+            .unwrap_or("")
+    }
+    pub fn crt_preview(&self) -> bool {
+        let values = self.option_values();
+        self.options
+            .iter()
+            .find(|o| o.key() == "presentation")
+            .and_then(|o| {
+                o.choices
+                    .iter()
+                    .find(|c| Some(&c.label) == values.get(o.label))
+            })
+            .is_some_and(|c| c.value == "hyllian")
     }
     pub fn attribution(&self) -> String {
         if self.developer == self.publisher {
@@ -374,7 +411,22 @@ impl State {
                     .library
                     .entries
                     .iter()
-                    .map(|e| GameEntry::from_entry(e, self.config.clone(), true))
+                    .map(|e| {
+                        let mut game = GameEntry::from_entry(e, self.config.clone(), true);
+                        if !game.status.is_missing() {
+                            if let Some(previous) = self.games.iter().find(|old| {
+                                old.entry_id == game.entry_id
+                                    && old.release_id == game.release_id
+                                    && old.original == game.original
+                                    && !old.status.is_missing()
+                            }) {
+                                game.previews = previous.previews.clone();
+                                game.preview_attempted =
+                                    previous.preview_attempted && !previous.previews.is_empty();
+                            }
+                        }
+                        game
+                    })
                     .collect();
                 if let Some(warning) = self.library.warning.clone() {
                     self.notify(warning, true);

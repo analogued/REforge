@@ -898,3 +898,156 @@ fn native_notification_previews() {
         }
     }
 }
+
+#[test]
+#[ignore = "owns SDL video; optional REFORGE_PREVIEW_ORIGINALS supplies two originals; run serially"]
+fn native_engine_previews() {
+    use reforge_sdl::{DisplayGeometry, preview::Frame, settings::UiMetrics};
+    use std::sync::Arc;
+    let fixture = Fixture::new(4);
+    let originals = std::env::var_os("REFORGE_PREVIEW_ORIGINALS")
+        .map(|v| std::env::split_paths(&v).collect::<Vec<_>>());
+    if let Some(paths) = &originals {
+        assert_eq!(
+            paths.len(),
+            2,
+            "Alley Cat executable and Mach 3 directory required"
+        );
+        let mut library = Library::new(fixture.library.clone());
+        // Real inputs remain outside the repository and untouched. Multiple
+        // entries exercise variant selection, not separate game execution.
+        for path in paths {
+            let d = detection::detect(path).unwrap();
+            library
+                .add(
+                    d.game.id(),
+                    d.release.id,
+                    d.release.metadata.title,
+                    &d.original,
+                )
+                .unwrap();
+        }
+    }
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::GalleryShelf, true);
+    if originals.is_some() {
+        state.games.retain(|g| {
+            super::verify_entry(
+                &state
+                    .library
+                    .entries
+                    .iter()
+                    .find(|e| e.entry_id == g.entry_id)
+                    .unwrap()
+                    .clone(),
+            )
+            .is_ok()
+        });
+        assert_eq!(state.games.len(), 2);
+        let mut manager = preview::sources::Manager::new(Some(fixture.directory.join("previews")));
+        let start = std::time::Instant::now();
+        while state.games.iter().any(|g| g.previews.len() != 2) {
+            assert!(
+                start.elapsed() < Duration::from_secs(15),
+                "engine preview generation timed out"
+            );
+            manager.poll(&mut state.games);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let mut additional = state.games.clone();
+        for game in &mut additional {
+            game.entry_id.push_str("-variant");
+            let option = if game.game_id == "alley-cat" {
+                "Machine"
+            } else {
+                "Video"
+            };
+            let value = if option == "Machine" {
+                "IBM PCjr"
+            } else {
+                "Monochrome"
+            };
+            game.preferences.saved.insert(option, value);
+        }
+        state.games.extend(additional);
+    } else {
+        for (i, game) in state.games.iter_mut().enumerate() {
+            let pixels = (0..320 * 200)
+                .flat_map(|n| {
+                    if ((n % 320) / 8 + (n / 320) / 8) % 2 == 0 {
+                        [75, 150, 220, 255]
+                    } else {
+                        [220, 180, 90, 255]
+                    }
+                })
+                .collect();
+            let frame = Frame::new(DisplayGeometry::new((320, 200), (320, 240)), pixels).unwrap();
+            game.previews.insert(
+                game.preview_variant().into(),
+                preview::sources::Source {
+                    id: format!("synthetic-{i}"),
+                    frame: Arc::new(frame),
+                },
+            );
+        }
+    }
+    state.selected = state.games.first().map(|game| game.entry_id.clone());
+    let capture = std::env::var_os("REFORGE_LAUNCHER_CAPTURE").map(PathBuf::from);
+    if let Some(path) = &capture {
+        std::fs::create_dir_all(path).unwrap();
+    }
+    let _guard = Launch {
+        game_id: "standalone".into(),
+        entry_id: None,
+        path: Some(fixture.config.clone()),
+        cli: Default::default(),
+    }
+    .install();
+    let sdl = sdl3::init().unwrap();
+    let video = sdl.video().unwrap();
+    let window = video
+        .window("Engine previews", 1920, 1260)
+        .hidden()
+        .build()
+        .unwrap();
+    let mut canvas = sdl3::render::create_renderer(window, None).unwrap();
+    let creator = FrameCreator::for_ui(&canvas);
+    let mut gui = Gui::new(&creator);
+    gui.set_focus_overlay(false);
+    for density in [1.0, 2.25] {
+        let metrics = UiMetrics {
+            drawable: (1920, 1260),
+            window: (1920, 1260),
+            pixels_per_point: density,
+        };
+        for theme in ThemeId::ALL {
+            gui.set_theme(ResolvedAppearance::resolve(theme).theme);
+            state.saved_theme = theme;
+            for layout in LayoutVariant::ALL {
+                state.layout = layout;
+                for crt in [false, true] {
+                    for game in &mut state.games {
+                        game.preferences
+                            .saved
+                            .insert("Display", if crt { "Hyllian CRT" } else { "Sharp pixels" });
+                    }
+                    for _ in 0..4 {
+                        native_frame(&mut gui, &mut canvas, &mut state, metrics);
+                    }
+                    if let Some(path) = &capture {
+                        canvas
+                            .read_pixels(None)
+                            .unwrap()
+                            .save_bmp(path.join(format!(
+                                "{}-{}-{}-{}.bmp",
+                                theme.slug(),
+                                layout.slug(),
+                                if crt { "crt" } else { "sharp" },
+                                (density * 100.0) as u32
+                            )))
+                            .unwrap();
+                    }
+                }
+            }
+        }
+    }
+}

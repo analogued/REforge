@@ -535,14 +535,34 @@ Native choices are passed through the ordinary engine argument parser on launche
 starts; command-line launches retain their explicit startup arguments. Engine
 metadata supplies available choices, badge labels and optional palette colours.
 
-The launcher draws Symbolic placeholders without original assets. Initials use
-the first letters/numbers of the first two Unicode words, or the first two
-characters of a single word, uppercased; empty/non-text names use `?`.
-Engine-generated scene previews and their disk cache are not implemented yet.
-Placeholder palettes and frames use bounded in-memory texture and frame-mask
-caches, regenerated for physical size, desktop density, palette and appearance
-changes. Their joined antialiased boundary uses the hardware frame appearance on
-all renderers, including the software fallback. Initials and labels remain text.
+After verification, the launcher loads or generates static engine scene previews
+in a background worker. It warms the available visual variants (CGA/PCjr for
+Alley Cat, colour/monochrome for Mach 3). Native RGBA pixels and engine-supplied
+display geometry are cached together in PNG files under:
+
+- Linux: `$XDG_CACHE_HOME/reforge/previews`, or `~/.cache/reforge/previews`.
+- macOS: `~/Library/Caches/REforge/previews`.
+- Windows: `%LOCALAPPDATA%/REforge/Cache/previews`.
+
+The cache identifies the release's complete detection fingerprints, visual variant
+and engine preview recipe revision. Separate library entries can share those
+source images. Deleting the cache is safe; verified entries regenerate it. Missing
+originals, unsupported providers and preview errors retain Symbolic placeholders.
+Their initials use the first letters/numbers of the first two Unicode words, or
+the first two characters of one word, uppercased; empty/non-text names use `?`.
+
+Native images are fitted to the preview cell using their intended display aspect.
+Sharp pixels uses nearest sampling. Selecting Hyllian CRT adds an illustrative
+launcher treatment: scanline strength **0.30**, spacing **3 logical UI units** and
+RGB mask strength **20%**, with slight horizontal softening. This cue is generated
+at the final physical preview size and is independent of gameplay's actual Hyllian
+shader and its fine adjustments. There are no launcher filter tuning controls.
+
+Previews and frames use bounded in-memory texture and frame-mask caches,
+regenerated when their actual source, physical size, desktop density, treatment or
+appearance changes. Their joined antialiased boundary preserves the neutral frame
+appearance on all renderers, including software. Presentation changes reuse clean
+source images; they never regenerate engine scenes or advance gameplay.
 
 Add verifies the supported release before saving its location. Relocate validates
 the replacement against the game and compatibility group. Missing entries retain their

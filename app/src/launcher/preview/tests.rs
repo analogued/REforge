@@ -39,6 +39,7 @@ fn masks_and_textures_are_reused_until_their_actual_inputs_change() {
     let mut cache = Cache::default();
     let key = TextureKey {
         frame: frame(2.25, 2, false, Vec2::new(253.0, 190.0), false),
+        image: None,
         colours: vec![[0, 0, 0], [0, 170, 170], [170, 0, 170], [170, 170, 170]],
     };
     let first = cache.texture(&ctx, key.clone());
@@ -97,6 +98,7 @@ fn resized_entries_evict_old_masks_and_textures_with_bounded_memory() {
             &ctx,
             TextureKey {
                 frame: frame(2.25, 2, false, Vec2::new(width as f32, 85.0), false),
+                image: None,
                 colours: vec![[170, 0, 170]],
             },
         );
@@ -493,4 +495,43 @@ fn generation_costs_at_compact_large_and_high_density_sizes() {
             key.width, key.height, builds[1], compositions[1], palettes[1]
         );
     }
+}
+
+#[test]
+fn real_images_reuse_frames_and_invalidate_textures_for_source_and_treatment() {
+    let ctx = egui::Context::default();
+    let frame = reforge_sdl::preview::Frame::new(
+        reforge_sdl::DisplayGeometry::new((2, 2), (4, 3)),
+        [128, 128, 128, 255].repeat(4),
+    )
+    .unwrap();
+    let mut cache = Cache::default();
+    let key = TextureKey {
+        frame: frame_key_for_image(),
+        colours: vec![],
+        image: Some(("source-one".into(), false)),
+    };
+    let plain = cache.texture_with_source(&ctx, key.clone(), Some(&frame));
+    assert_eq!(
+        plain.id(),
+        cache
+            .texture_with_source(&ctx, key.clone(), Some(&frame))
+            .id()
+    );
+    let mut crt = key.clone();
+    crt.image.as_mut().unwrap().1 = true;
+    assert_ne!(
+        plain.id(),
+        cache.texture_with_source(&ctx, crt, Some(&frame)).id()
+    );
+    let mut other = key;
+    other.image.as_mut().unwrap().0 = "source-two".into();
+    assert_ne!(
+        plain.id(),
+        cache.texture_with_source(&ctx, other, Some(&frame)).id()
+    );
+    assert_eq!(cache.masks.len(), 1);
+}
+fn frame_key_for_image() -> FrameKey {
+    frame(2.25, 6, false, Vec2::new(350.0, 263.0), false)
 }

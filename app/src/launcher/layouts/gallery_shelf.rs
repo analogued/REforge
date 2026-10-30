@@ -125,6 +125,14 @@ pub fn draw(
             });
         });
 
+    // The options drawer changes the visible viewport, not the gallery's layout
+    // reference. Keep card sizes, column count and centring stable as it toggles.
+    let gallery_frame = egui::Frame::NONE
+        .fill(ap.theme.palette.canvas)
+        .inner_margin(egui::Margin::symmetric(18, 12));
+    let gallery_height =
+        (ctx.available_rect().height() - gallery_frame.inner_margin.sum().y).max(0.0);
+
     if state.options_open
         && let Some(idx) = state.selected_index()
     {
@@ -132,22 +140,18 @@ pub fn draw(
     }
 
     egui::CentralPanel::default()
-        .frame(
-            egui::Frame::NONE
-                .fill(ap.theme.palette.canvas)
-                .inner_margin(egui::Margin::symmetric(18, 12)),
-        )
+        .frame(gallery_frame)
         .show(ctx, |ui| {
             state.content_bottom = ui.max_rect().bottom();
-            let avail_h = ui.available_height();
             egui::ScrollArea::vertical()
                 .id_salt("gallery_scroll")
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     let avail_w = ui.available_width();
-                    let grid = GalleryGrid::fit(state.games.len(), Vec2::new(avail_w, avail_h));
+                    let grid =
+                        GalleryGrid::fit(state.games.len(), Vec2::new(avail_w, gallery_height));
                     let left_pad = ((avail_w - grid.size().x) * 0.5).max(0.0);
-                    let top_pad = ((avail_h - grid.size().y) * 0.5).max(0.0);
+                    let top_pad = ((gallery_height - grid.size().y) * 0.5).max(0.0);
                     ui.add_space(top_pad);
                     ui.spacing_mut().item_spacing.y = GALLERY_GAP;
 

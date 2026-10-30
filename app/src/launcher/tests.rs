@@ -1067,3 +1067,47 @@ fn native_engine_previews() {
         }
     }
 }
+
+#[test]
+fn gallery_options_toggle_preserves_preview_positions_and_sizes() {
+    let preview_rects = |output: &egui::FullOutput| {
+        output.shapes.iter().filter_map(|shape|match &shape.shape {
+            egui::Shape::Mesh(mesh) if matches!(mesh.texture_id,egui::TextureId::Managed(id) if id>0)=>Some(mesh.calc_bounds()),
+            _=>None,
+        }).collect::<Vec<_>>()
+    };
+    for count in [2, 6, 12] {
+        let fixture = Fixture::new(count);
+        for theme in ThemeId::ALL {
+            for size in [
+                Vec2::new(630.0, 470.0),
+                Vec2::new(1000.0, 720.0),
+                Vec2::new(1600.0, 1000.0),
+            ] {
+                for density in [1.0, 2.25] {
+                    let mut h = Harness::new(&fixture, theme, LayoutVariant::GalleryShelf, true);
+                    h.size = size;
+                    h.density = density;
+                    let closed = preview_rects(&h.settle());
+                    assert!(!closed.is_empty());
+                    for open in [true, false, true, false] {
+                        h.state.options_open = open;
+                        // Check the transition frame as well as the settled result.
+                        for _ in 0..4 {
+                            let output = h.frame(vec![]);
+                            let current = preview_rects(&output);
+                            assert!(!current.is_empty());
+                            for (before, after) in closed.iter().zip(&current) {
+                                assert!(
+                                    (before.min - after.min).length() < 0.01
+                                        && (before.size() - after.size()).length() < 0.01,
+                                    "Gallery moved: {count} {theme:?} {size:?} density {density}, open {open}: {before:?} -> {after:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

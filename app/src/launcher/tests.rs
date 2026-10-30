@@ -953,6 +953,22 @@ fn native_engine_previews() {
             manager.poll(&mut state.games);
             std::thread::sleep(Duration::from_millis(10));
         }
+        let mono = &state
+            .games
+            .iter()
+            .find(|g| g.game_id == "mach-3")
+            .unwrap()
+            .previews["mono"]
+            .frame;
+        assert!(mono.is_monochrome());
+        for size in [[56, 42], [126, 95], [480, 360], [800, 600]] {
+            assert!(
+                reforge_sdl::preview::render(mono, size, 2.25, true)
+                    .pixels
+                    .iter()
+                    .all(|p| p.r() == p.g() && p.g() == p.b())
+            );
+        }
         let mut additional = state.games.clone();
         for game in &mut additional {
             game.entry_id.push_str("-variant");

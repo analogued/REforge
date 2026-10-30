@@ -93,9 +93,9 @@ fn revision(game: Game) -> u32 {
 }
 fn cache_id(release: &Release, variant: &str) -> String {
     let mut hash = Sha256::new();
-    // Version includes the PNG geometry contract; engines version their scene recipes.
+    // Version includes the PNG geometry/colour contract; engines version their scene recipes.
     hash.update(format!(
-        "reforge-preview-v1\0{}\0{}\0{}\0{}\0",
+        "reforge-preview-v2\0{}\0{}\0{}\0{}\0",
         release.game.id(),
         release.id,
         revision(release.game),
@@ -208,7 +208,7 @@ fn load(path: &Path) -> Result<Frame, String> {
     let geometry = info
         .uncompressed_latin1_text
         .iter()
-        .find(|t| t.keyword == "reforge.display.v1")
+        .find(|t| t.keyword == "reforge.display.v2")
         .ok_or("Missing preview geometry")?;
     let dimensions = geometry
         .text
@@ -216,14 +216,18 @@ fn load(path: &Path) -> Result<Frame, String> {
         .map(str::parse::<u32>)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
-    if dimensions.len() != 2 || dimensions.contains(&0) {
+    if dimensions.len() != 3 || dimensions[..2].contains(&0) || dimensions[2] > 1 {
         return Err("Invalid preview geometry".into());
     }
     let geometry = DisplayGeometry::new((info.width, info.height), (dimensions[0], dimensions[1]));
     let mut rgba = vec![0; reader.output_buffer_size()];
     let result = reader.next_frame(&mut rgba).map_err(|e| e.to_string())?;
     rgba.truncate(result.buffer_size());
-    Frame::new(geometry, rgba)
+    if dimensions[2] == 1 {
+        Frame::new_monochrome(geometry, rgba)
+    } else {
+        Frame::new(geometry, rgba)
+    }
 }
 fn store(path: &Path, frame: &Frame) -> Result<(), String> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -242,7 +246,10 @@ fn store(path: &Path, frame: &Frame) -> Result<(), String> {
         encoder.set_depth(png::BitDepth::Eight);
         let (aw, ah) = frame.geometry().display_size(AspectRatio::Original);
         encoder
-            .add_text_chunk("reforge.display.v1".into(), format!("{aw} {ah}"))
+            .add_text_chunk(
+                "reforge.display.v2".into(),
+                format!("{aw} {ah} {}", u8::from(frame.is_monochrome())),
+            )
             .map_err(|e| e.to_string())?;
         let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
         writer
@@ -275,11 +282,16 @@ mod tests {
             std::env::temp_dir().join(format!("reforge-preview-cache-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("roundtrip.png");
-        let frame = Frame::new(DisplayGeometry::new((2, 1), (16, 9)), vec![255; 8]).unwrap();
+        let colour = Frame::new(DisplayGeometry::new((2, 1), (16, 9)), vec![255; 8]).unwrap();
+        store(&path, &colour).unwrap();
+        assert!(!load(&path).unwrap().is_monochrome());
+        let frame =
+            Frame::new_monochrome(DisplayGeometry::new((2, 1), (16, 9)), vec![255; 8]).unwrap();
         store(&path, &frame).unwrap();
         let read = load(&path).unwrap();
         assert_eq!(read.geometry(), frame.geometry());
         assert_eq!(read.rgba(), frame.rgba());
+        assert!(read.is_monochrome());
         fs::write(&path, b"broken cache").unwrap();
         assert!(load(&path).is_err());
         store(&path, &frame).unwrap();

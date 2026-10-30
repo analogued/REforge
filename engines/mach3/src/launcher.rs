@@ -116,12 +116,16 @@ pub fn preview(
         ),
         _ => return Err("Unknown preview video mode".into()),
     };
-    reforge_sdl::preview::Frame::new(
-        reforge_sdl::DisplayGeometry::new((width, 200), (320, 240)),
-        rgb.chunks_exact(3)
-            .flat_map(|c| [c[0], c[1], c[2], 255])
-            .collect(),
-    )
+    let geometry = reforge_sdl::DisplayGeometry::new((width, 200), (320, 240));
+    let rgba = rgb
+        .chunks_exact(3)
+        .flat_map(|c| [c[0], c[1], c[2], 255])
+        .collect();
+    if variant == "mono" {
+        reforge_sdl::preview::Frame::new_monochrome(geometry, rgba)
+    } else {
+        reforge_sdl::preview::Frame::new(geometry, rgba)
+    }
 }
 
 #[cfg(test)]

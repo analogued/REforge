@@ -537,8 +537,8 @@ metadata supplies available choices, badge labels and optional palette colours.
 
 After verification, the launcher loads or generates static engine scene previews
 in a background worker. It warms the available visual variants (CGA/PCjr for
-Alley Cat, colour/monochrome for Mach 3). Native RGBA pixels and engine-supplied
-display geometry are cached together in PNG files under:
+Alley Cat, colour/monochrome for Mach 3). Native RGBA pixels, engine-supplied
+display geometry and colour model are cached together in PNG files under:
 
 - Linux: `$XDG_CACHE_HOME/reforge/previews`, or `~/.cache/reforge/previews`.
 - macOS: `~/Library/Caches/REforge/previews`.
@@ -554,8 +554,11 @@ the first two characters of one word, uppercased; empty/non-text names use `?`.
 Native images are fitted to the preview cell using their intended display aspect.
 Sharp pixels uses nearest sampling. Selecting Hyllian CRT adds an illustrative
 launcher treatment: scanline strength **0.30**, spacing **3 logical UI units** and
-RGB mask strength **20%**, with slight horizontal softening. This cue is generated
-at the final physical preview size and is independent of gameplay's actual Hyllian
+RGB mask strength **20%**, with slight horizontal softening. Monochrome engine
+previews retain grayscale and omit the RGB grille. CRT previews average native
+pixel footprints when reduced, before adding the destination-size cue, to suppress
+aliasing of fine patterns. This cue is generated at the final physical preview
+size and is independent of gameplay's actual Hyllian
 shader and its fine adjustments. There are no launcher filter tuning controls.
 
 Previews and frames use bounded in-memory texture and frame-mask caches,

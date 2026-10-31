@@ -569,7 +569,7 @@ impl TitleCosts {
         }
     }
 
-    fn nanos(self, work: crate::splash::TitleWork, fallback: ReferenceCosts) -> u64 {
+    fn nanos(self, work: crate::splash::TitleWork, fallback: &ReferenceCosts) -> u64 {
         use crate::splash::Steering;
         let steering = match work.steering {
             Some(Steering::LeftEdge) => self.left_edge,
@@ -1499,7 +1499,7 @@ impl ReferenceCosts {
     }
 
     /// Work after one title BIOS sample; the caller charges its prelude first.
-    pub fn splash_nanos(self, step: crate::splash::SplashStep) -> u64 {
+    pub fn splash_nanos(&self, step: crate::splash::SplashStep) -> u64 {
         if let Some(costs) = self.title {
             costs.nanos(step.work, self)
         } else {

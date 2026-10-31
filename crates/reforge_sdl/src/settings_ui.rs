@@ -33,6 +33,70 @@ impl<'a> Overrides<'a> {
     }
 }
 
+// Borrow page snapshots; each widget receives only its own marker/tooltip data.
+#[derive(Clone, Copy)]
+struct RowContext<'a> {
+    base: &'a RuntimeSettings,
+    previous: &'a RuntimeSettings,
+    scope: usize,
+    overrides: Overrides<'a>,
+    cli: &'a reforge_settings::Patch,
+}
+struct RowState {
+    lock_tooltip: Option<String>,
+    overridden: bool,
+    dirty: bool,
+    tooltip: String,
+    saved: String,
+}
+impl RowContext<'_> {
+    fn state(self, key: &str, value: &RuntimeSettings) -> RowState {
+        let lock_tooltip = self
+            .cli
+            .get(key)
+            .map(|active| cli_tooltip(key, active))
+            .or_else(|| dependency_lock(key, value).map(str::to_owned));
+        let saved = self.previous.get(key);
+        let dirty = !self.cli.contains_key(key)
+            && if self.scope == 1 {
+                self.overrides.current(key) != self.overrides.saved(key)
+            } else {
+                value.get(key) != saved
+            };
+        let mut tooltip = format!(
+            "{}: {}\nSaved: {}",
+            if matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE) {
+                "Default"
+            } else {
+                "Global"
+            },
+            self.base.get(key),
+            saved
+        );
+        if self.scope == 1 {
+            tooltip.push_str(if self.overrides.saved(key).is_some() {
+                " (game override)"
+            } else {
+                " (inherited)"
+            });
+            tooltip.push_str(&match self.overrides.current(key) {
+                Some(value) => format!("\nGame override: {value}"),
+                None => "\nFollows defaults; no game override.".into(),
+            });
+        }
+        if let Some(reason) = &lock_tooltip {
+            tooltip = format!("{reason}\n\n{tooltip}");
+        }
+        RowState {
+            lock_tooltip,
+            dirty,
+            tooltip,
+            saved,
+            overridden: self.scope == 1 && self.overrides.current(key).is_some(),
+        }
+    }
+}
+
 pub(super) fn style(context: &egui::Context) {
     context.style_mut(|s| {
         s.animation_time = 0.0;
@@ -191,6 +255,13 @@ pub(super) fn draw(
                     } else {
                         saved.game_values()
                     };
+                    let rows = RowContext {
+                        base: &base,
+                        previous: &previous,
+                        scope: menu.scope,
+                        overrides,
+                        cli: &cli,
+                    };
                     let enabled = menu.scope == 0 || menu.game_editing[menu.page];
                     egui::ScrollArea::vertical()
                         .animated(false)
@@ -204,276 +275,22 @@ pub(super) fn draw(
                             let first = crate::settings_navigation::scroll_start(ui.ctx());
                             ui.add_enabled_ui(enabled || menu.page == 2, |ui| {
                                 if menu.page == 0 {
-                                    section(ui, "Window & scaling");
-                                    row(
-                                        ui,
-                                        "Window mode",
-                                        "window_mode",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
-                                        |ui| {
-                                            control(ui.radio_value(
-                                                &mut value.fullscreen,
-                                                false,
-                                                "Windowed",
-                                            ));
-                                            ui.add_enabled_ui(
-                                                menu.capabilities.allow_fullscreen,
-                                                |ui| {
-                                                    control(ui.radio_value(
-                                                        &mut value.fullscreen,
-                                                        true,
-                                                        "Fullscreen",
-                                                    ));
-                                                },
-                                            );
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "Window scale",
-                                        "scale",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
-                                        |ui| {
-                                            let mut auto = value.scale.is_none();
-                                            if control(ui.add_enabled(
-                                                menu.capabilities.allow_auto || auto,
-                                                egui::Checkbox::new(&mut auto, "Auto"),
-                                            ))
-                                            .changed()
-                                            {
-                                                value.scale = if auto {
-                                                    None
-                                                } else {
-                                                    Some(windowed_scale.clamp(
-                                                        menu.capabilities.min_scale.max(1),
-                                                        menu.capabilities.max_scale,
-                                                    ))
-                                                };
-                                            }
-                                            if value.scale.is_none() {
-                                                ui.label("Largest fit");
-                                            }
-                                        },
-                                    );
-                                    ui.add_enabled_ui(
-                                        value.scale.is_some()
-                                            && !value.fullscreen
-                                            && !cli.contains_key("scale"),
-                                        |ui| {
-                                            let mut n = value.scale.unwrap_or(windowed_scale);
-                                            let mut cap = menu.capabilities;
-                                            if value.scale.is_none() {
-                                                cap.min_scale = cap.min_scale.min(n);
-                                                cap.max_scale = cap.max_scale.max(n);
-                                            }
-                                            scale_slider(ui, &mut n, cap);
-                                            if value.scale.is_some() {
-                                                value.scale = Some(n);
-                                            }
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "Scaling policy",
-                                        "scaling_policy",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
-                                        |ui| {
-                                            Selector::new(
-                                                "scaling_policy",
-                                                [
-                                                    Choice::new(
-                                                        ScalingPolicy::Integer,
-                                                        "Integer fit",
-                                                    ),
-                                                    Choice::new(
-                                                        ScalingPolicy::Fit,
-                                                        "Fit to window (fractional)",
-                                                    ),
-                                                    Choice::new(
-                                                        ScalingPolicy::Stretch,
-                                                        "Fill window (stretch)",
-                                                    ),
-                                                ],
-                                            )
-                                            .show(ui, &mut value.scaling_policy);
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "Sampling",
-                                        "sampling",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
-                                        |ui| {
-                                            Selector::new(
-                                                "sampling",
-                                                [
-                                                    Choice::new(
-                                                        Sampling::Nearest,
-                                                        "Nearest · sharp pixels",
-                                                    ),
-                                                    Choice::new(
-                                                        Sampling::Linear,
-                                                        "Linear · smooth pixels",
-                                                    ),
-                                                ],
-                                            )
-                                            .show(ui, &mut value.sampling);
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "Aspect ratio",
-                                        "aspect_ratio",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
-                                        |ui| {
-                                            Selector::new(
-                                                "aspect_ratio",
-                                                [AspectRatio::Original, AspectRatio::Square].map(
-                                                    |aspect| {
-                                                        Choice::new(
-                                                            aspect,
-                                                            geometry.label(aspect, menu.scope == 1),
-                                                        )
-                                                    },
-                                                ),
-                                            )
-                                            .show(ui, &mut value.aspect_ratio);
-                                        },
-                                    );
-                                    section(ui, "Rendering");
-                                    row(
-                                        ui,
-                                        "Renderer",
-                                        "renderer",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
-                                        |ui| {
-                                            Selector::new(
-                                                "renderer",
-                                                [
-                                                    Renderer::Auto,
-                                                    Renderer::Gpu,
-                                                    Renderer::Sdl,
-                                                    Renderer::Software,
-                                                ]
-                                                .map(|r| Choice::new(r, renderer_label(r))),
-                                            )
-                                            .show(ui, &mut value.renderer);
-                                        },
-                                    );
-                                    if value.renderer != original.renderer
-                                        && !cli.contains_key("renderer")
-                                        && !cli.contains_key("backend")
-                                        && !backends(value.renderer).contains(&value.backend)
-                                    {
-                                        value.backend = Backend::Auto;
-                                    }
-                                    row(
-                                        ui,
-                                        "Backend",
-                                        "backend",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
-                                        |ui| {
-                                            ui.add_enabled_ui(
-                                                value.renderer != Renderer::Software,
-                                                |ui| {
-                                                    backend_selector(ui, &mut value);
-                                                },
-                                            );
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "VSync",
-                                        "vsync",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
-                                        |ui| {
-                                            control(ui.checkbox(
-                                                &mut value.vsync,
-                                                "Synchronise with the display",
-                                            ));
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "Frame limit",
-                                        "frame_limit",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
-                                        |ui| {
-                                            Selector::new(
-                                                "frame_limit",
-                                                FrameLimit::ALL
-                                                    .map(|limit| Choice::new(limit, limit.label())),
-                                            )
-                                            .show(ui, &mut value.frame_limit);
-                                        },
-                                    );
-                                    ui.weak(
-                                        "Presentation ceiling · simulation timing is unchanged",
-                                    );
-                                } else if menu.page == 1 {
-                                    crt_controls(
+                                    display_controls(
                                         ui,
                                         &mut value,
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
+                                        rows,
+                                        menu.capabilities,
+                                        geometry,
+                                        windowed_scale,
+                                        original.renderer,
                                     );
+                                } else if menu.page == 1 {
+                                    crt_controls(ui, &mut value, rows);
                                 } else if menu.page == 2 {
                                     audio_controls(
                                         ui,
                                         &mut value,
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        overrides,
-                                        &cli,
+                                        rows,
                                         &menu.audio_devices,
                                         &menu.audio_renderers,
                                         &menu.audio_categories,
@@ -481,16 +298,7 @@ pub(super) fn draw(
                                         menu.mach3_options,
                                     );
                                 } else if menu.page == 3 {
-                                    controls_controls(
-                                        ui,
-                                        &mut value,
-                                        base.clone(),
-                                        previous.clone(),
-                                        &cli,
-                                        menu.scope,
-                                        overrides,
-                                        controls_visible,
-                                    );
+                                    controls_controls(ui, &mut value, rows, controls_visible);
                                 }
                             });
                             crate::settings_navigation::scroll_focus(ui, first);
@@ -625,15 +433,178 @@ pub(super) fn draw(
         });
     close
 }
-#[allow(clippy::too_many_arguments)]
+fn display_controls(
+    ui: &mut egui::Ui,
+    value: &mut RuntimeSettings,
+    rows: RowContext<'_>,
+    capabilities: VideoCapabilities,
+    geometry: crate::DisplayGeometry,
+    windowed_scale: u32,
+    original_renderer: Renderer,
+) {
+    let RowContext { scope, cli, .. } = rows;
+    section(ui, "Window & scaling");
+    row(
+        ui,
+        "Window mode",
+        "window_mode",
+        rows.state("window_mode", value),
+        |ui| {
+            control(ui.radio_value(&mut value.fullscreen, false, "Windowed"));
+            ui.add_enabled_ui(capabilities.allow_fullscreen, |ui| {
+                control(ui.radio_value(&mut value.fullscreen, true, "Fullscreen"));
+            });
+        },
+    );
+    row(
+        ui,
+        "Window scale",
+        "scale",
+        rows.state("scale", value),
+        |ui| {
+            let mut auto = value.scale.is_none();
+            if control(ui.add_enabled(
+                capabilities.allow_auto || auto,
+                egui::Checkbox::new(&mut auto, "Auto"),
+            ))
+            .changed()
+            {
+                value.scale = if auto {
+                    None
+                } else {
+                    Some(
+                        windowed_scale.clamp(capabilities.min_scale.max(1), capabilities.max_scale),
+                    )
+                };
+            }
+            if value.scale.is_none() {
+                ui.label("Largest fit");
+            }
+        },
+    );
+    ui.add_enabled_ui(
+        value.scale.is_some() && !value.fullscreen && !cli.contains_key("scale"),
+        |ui| {
+            let mut n = value.scale.unwrap_or(windowed_scale);
+            let mut cap = capabilities;
+            if value.scale.is_none() {
+                cap.min_scale = cap.min_scale.min(n);
+                cap.max_scale = cap.max_scale.max(n);
+            }
+            scale_slider(ui, &mut n, cap);
+            if value.scale.is_some() {
+                value.scale = Some(n);
+            }
+        },
+    );
+    row(
+        ui,
+        "Scaling policy",
+        "scaling_policy",
+        rows.state("scaling_policy", value),
+        |ui| {
+            Selector::new(
+                "scaling_policy",
+                [
+                    Choice::new(ScalingPolicy::Integer, "Integer fit"),
+                    Choice::new(ScalingPolicy::Fit, "Fit to window (fractional)"),
+                    Choice::new(ScalingPolicy::Stretch, "Fill window (stretch)"),
+                ],
+            )
+            .show(ui, &mut value.scaling_policy);
+        },
+    );
+    row(
+        ui,
+        "Sampling",
+        "sampling",
+        rows.state("sampling", value),
+        |ui| {
+            Selector::new(
+                "sampling",
+                [
+                    Choice::new(Sampling::Nearest, "Nearest · sharp pixels"),
+                    Choice::new(Sampling::Linear, "Linear · smooth pixels"),
+                ],
+            )
+            .show(ui, &mut value.sampling);
+        },
+    );
+    row(
+        ui,
+        "Aspect ratio",
+        "aspect_ratio",
+        rows.state("aspect_ratio", value),
+        |ui| {
+            Selector::new(
+                "aspect_ratio",
+                [AspectRatio::Original, AspectRatio::Square]
+                    .map(|aspect| Choice::new(aspect, geometry.label(aspect, scope == 1))),
+            )
+            .show(ui, &mut value.aspect_ratio);
+        },
+    );
+    section(ui, "Rendering");
+    row(
+        ui,
+        "Renderer",
+        "renderer",
+        rows.state("renderer", value),
+        |ui| {
+            Selector::new(
+                "renderer",
+                [
+                    Renderer::Auto,
+                    Renderer::Gpu,
+                    Renderer::Sdl,
+                    Renderer::Software,
+                ]
+                .map(|r| Choice::new(r, renderer_label(r))),
+            )
+            .show(ui, &mut value.renderer);
+        },
+    );
+    if value.renderer != original_renderer
+        && !cli.contains_key("renderer")
+        && !cli.contains_key("backend")
+        && !backends(value.renderer).contains(&value.backend)
+    {
+        value.backend = Backend::Auto;
+    }
+    row(
+        ui,
+        "Backend",
+        "backend",
+        rows.state("backend", value),
+        |ui| {
+            ui.add_enabled_ui(value.renderer != Renderer::Software, |ui| {
+                backend_selector(ui, value);
+            });
+        },
+    );
+    row(ui, "VSync", "vsync", rows.state("vsync", value), |ui| {
+        control(ui.checkbox(&mut value.vsync, "Synchronise with the display"));
+    });
+    row(
+        ui,
+        "Frame limit",
+        "frame_limit",
+        rows.state("frame_limit", value),
+        |ui| {
+            Selector::new(
+                "frame_limit",
+                FrameLimit::ALL.map(|limit| Choice::new(limit, limit.label())),
+            )
+            .show(ui, &mut value.frame_limit);
+        },
+    );
+    ui.weak("Presentation ceiling · simulation timing is unchanged");
+}
+
 fn controls_controls(
     ui: &mut egui::Ui,
     value: &mut RuntimeSettings,
-    base: RuntimeSettings,
-    previous: RuntimeSettings,
-    cli: &reforge_settings::Patch,
-    scope: usize,
-    overrides: Overrides<'_>,
+    rows: RowContext<'_>,
     alleycat: bool,
 ) {
     section(ui, "Controller");
@@ -641,12 +612,7 @@ fn controls_controls(
         ui,
         "Stick dead zone",
         STICK_DEAD_ZONE,
-        value.clone(),
-        base.clone(),
-        previous.clone(),
-        scope,
-        overrides,
-        cli,
+        rows.state(STICK_DEAD_ZONE, value),
         |ui| {
             value_control(
                 ui.add(egui::Slider::new(&mut value.stick_dead_zone, 5..=90).suffix("%")),
@@ -662,27 +628,15 @@ fn controls_controls(
         ui,
         "Input response",
         CONTROL_MODE,
-        value.clone(),
-        base,
-        previous,
-        1,
-        overrides,
-        cli,
+        rows.state(CONTROL_MODE, value),
         |ui| {
             Selector::new(CONTROL_MODE, ControlMode::ALL.map(|mode| Choice::new(mode, mode.label()))).show(ui, &mut value.alleycat.control_mode).on_hover_text("Responsive reacts sooner to direction and action changes. Original preserves the game's original input response.");
         },
     );
 }
 
-fn crt_controls(
-    ui: &mut egui::Ui,
-    value: &mut RuntimeSettings,
-    base: RuntimeSettings,
-    previous: RuntimeSettings,
-    scope: usize,
-    overrides: Overrides<'_>,
-    cli: &reforge_settings::Patch,
-) {
+fn crt_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
+    let cli = rows.cli;
     // Use this scope's pending Display choices, with temporary CLI
     // rather than the renderer that remains active until Apply.
     let mut display = value.clone();
@@ -700,12 +654,7 @@ fn crt_controls(
         ui,
         "Treatment",
         "presentation",
-        value.clone(),
-        base.clone(),
-        previous.clone(),
-        scope,
-        overrides,
-        cli,
+        rows.state("presentation", value),
         |ui| {
             Selector::new(
                 "presentation",
@@ -741,15 +690,7 @@ fn crt_controls(
                     .id_salt("treatment_fine_adjustments")
                     .default_open(false)
                     .show(ui, |ui| match treatment {
-                        Presentation::Hyllian => hyllian_controls(
-                            ui,
-                            value,
-                            base.clone(),
-                            previous.clone(),
-                            scope,
-                            overrides,
-                            cli,
-                        ),
+                        Presentation::Hyllian => hyllian_controls(ui, value, rows),
                         Presentation::Pixels => {}
                     }),
             );
@@ -762,25 +703,12 @@ fn crt_controls(
     });
 }
 
-fn hyllian_controls(
-    ui: &mut egui::Ui,
-    value: &mut RuntimeSettings,
-    base: RuntimeSettings,
-    previous: RuntimeSettings,
-    scope: usize,
-    overrides: Overrides<'_>,
-    cli: &reforge_settings::Patch,
-) {
+fn hyllian_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
     row(
         ui,
         "Horizontal filter",
         "horizontal_filter",
-        value.clone(),
-        base.clone(),
-        previous.clone(),
-        scope,
-        overrides,
-        cli,
+        rows.state("horizontal_filter", value),
         |ui| {
             Selector::new(
                 "horizontal_filter",
@@ -797,12 +725,7 @@ fn hyllian_controls(
             ui,
             param.label,
             param.key,
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            overrides,
-            cli,
+            rows.state(param.key, value),
             |ui| {
                 ui.spacing_mut().slider_width = 150.0_f32.min(slider_track_width(ui, 56.0));
                 let mut n = f32::from(value.hyllian.values[i]) / 100.0;
@@ -836,17 +759,14 @@ fn hyllian_controls(
 fn audio_controls(
     ui: &mut egui::Ui,
     value: &mut RuntimeSettings,
-    base: RuntimeSettings,
-    previous: RuntimeSettings,
-    scope: usize,
-    overrides: Overrides<'_>,
-    cli: &reforge_settings::Patch,
+    rows: RowContext<'_>,
     devices: &[String],
     renderers: &[SoundRenderer],
     categories: &[SoundCategory],
     section_editable: bool,
     mach3_options: bool,
 ) {
+    let scope = rows.scope;
     let available = !renderers.is_empty();
     if !available {
         ui.weak("Audio playback is unavailable in this run. Shared defaults can still be saved.");
@@ -857,12 +777,7 @@ fn audio_controls(
             ui,
             "",
             "sound_enabled",
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            overrides,
-            cli,
+            rows.state("sound_enabled", value),
             |ui| {
                 control(ui.checkbox(&mut value.audio.enabled, "Enable sound"));
             },
@@ -876,12 +791,7 @@ fn audio_controls(
             ui,
             "Master volume",
             "master_volume",
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            overrides,
-            cli,
+            rows.state("master_volume", value),
             volume_width,
             |ui| {
                 ui.spacing_mut().slider_width = slider_track_width(ui, 56.0);
@@ -909,12 +819,7 @@ fn audio_controls(
                 ui,
                 category.label(),
                 category.key(),
-                value.clone(),
-                base.clone(),
-                previous.clone(),
-                scope,
-                overrides,
-                cli,
+                rows.state(category.key(), value),
                 volume_width,
                 |ui| {
                     ui.add_enabled_ui(scope == 0 || categories.contains(&category), |ui| {
@@ -951,12 +856,7 @@ fn audio_controls(
             ui,
             "Sound renderer",
             "audio_renderer",
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            overrides,
-            cli,
+            rows.state("audio_renderer", value),
             |ui| {
                 ui.add_enabled_ui(scope == 1 && available, |ui| {
                     Selector::new(
@@ -983,12 +883,7 @@ fn audio_controls(
                 ui,
                 "Digitized samples",
                 DIGITIZED_SAMPLES,
-                value.clone(),
-                base.clone(),
-                previous.clone(),
-                scope,
-                overrides,
-                cli,
+                rows.state(DIGITIZED_SAMPLES, value),
                 |ui| {
                     Selector::new(
                         DIGITIZED_SAMPLES,
@@ -1005,12 +900,7 @@ fn audio_controls(
             ui,
             "Output device",
             "output_device",
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            overrides,
-            cli,
+            rows.state("output_device", value),
             |ui| {
                 Selector::new(
                     ("output_device", devices),
@@ -1041,12 +931,7 @@ fn audio_controls(
             ui,
             "",
             "mute_unfocused",
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            overrides,
-            cli,
+            rows.state("mute_unfocused", value),
             |ui| {
                 control(ui.checkbox(&mut value.audio.mute_unfocused, "Mute when unfocused"));
             },
@@ -1166,61 +1051,33 @@ fn renderer_label(r: Renderer) -> &'static str {
         Renderer::Software => "Software",
     }
 }
-#[allow(clippy::too_many_arguments)]
 fn row(
     ui: &mut egui::Ui,
     label: &str,
     key: &str,
-    value: RuntimeSettings,
-    global: RuntimeSettings,
-    saved: RuntimeSettings,
-    scope: usize,
-    overrides: Overrides<'_>,
-    cli: &reforge_settings::Patch,
+    state: RowState,
     draw_control: impl FnOnce(&mut egui::Ui),
 ) {
-    row_with_width(
-        ui,
-        label,
-        key,
-        value,
-        global,
-        saved,
-        scope,
-        overrides,
-        cli,
-        220.0,
-        draw_control,
-    );
+    row_with_width(ui, label, key, state, 220.0, draw_control);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn row_with_width(
     ui: &mut egui::Ui,
     label: &str,
     key: &str,
-    value: RuntimeSettings,
-    global: RuntimeSettings,
-    saved: RuntimeSettings,
-    scope: usize,
-    overrides: Overrides<'_>,
-    cli: &reforge_settings::Patch,
+    state: RowState,
     control_width: f32,
     draw_control: impl FnOnce(&mut egui::Ui),
 ) {
-    let lock_tooltip = cli
-        .get(key)
-        .map(|active| cli_tooltip(key, active))
-        .or_else(|| dependency_lock(key, &value).map(str::to_owned));
+    let RowState {
+        lock_tooltip,
+        overridden,
+        dirty,
+        tooltip,
+        saved,
+    } = state;
     let locked = lock_tooltip.is_some();
     let palette = crate::ui::current_palette(ui.ctx());
-    let overridden = scope == 1 && overrides.current(key).is_some();
-    let dirty = !cli.contains_key(key)
-        && if scope == 1 {
-            overrides.current(key) != overrides.saved(key)
-        } else {
-            value.get(key) != saved.get(key)
-        };
     let available = visible_width(ui);
     let spacing = ui.spacing().item_spacing.x;
     let markers = 20.0 + 12.0 + spacing * 2.0;
@@ -1237,30 +1094,6 @@ fn row_with_width(
     } else {
         ui.visuals().text_color()
     };
-    let mut tooltip = format!(
-        "{}: {}\nSaved: {}",
-        if matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE) {
-            "Default"
-        } else {
-            "Global"
-        },
-        global.get(key),
-        saved.get(key)
-    );
-    if scope == 1 {
-        tooltip.push_str(if overrides.saved(key).is_some() {
-            " (game override)"
-        } else {
-            " (inherited)"
-        });
-        tooltip.push_str(&match overrides.current(key) {
-            Some(value) => format!("\nGame override: {value}"),
-            None => "\nFollows defaults; no game override.".into(),
-        });
-    }
-    if let Some(reason) = &lock_tooltip {
-        tooltip = format!("{reason}\n\n{tooltip}");
-    }
     let draw_label = |ui: &mut egui::Ui| {
         let label = egui::Label::new(egui::RichText::new(label).color(colour));
         let response = if stacked {
@@ -1341,8 +1174,7 @@ fn row_with_width(
                     if dirty {
                         ui.painter()
                             .circle_filled(rect.center(), 3.0, palette.pending);
-                        response
-                            .on_hover_text(format!("Unapplied change. Saved: {}", saved.get(key)));
+                        response.on_hover_text(format!("Unapplied change. Saved: {}", saved));
                     }
                 },
             );
@@ -1504,15 +1336,17 @@ mod tests {
                                 ui,
                                 "Window mode",
                                 "window_mode",
-                                RuntimeSettings::default(),
-                                RuntimeSettings::default(),
-                                RuntimeSettings::default(),
-                                scope,
-                                Overrides {
-                                    current: Some(&current_patch),
-                                    saved: Some(&saved_patch),
-                                },
-                                &Default::default(),
+                                RowContext {
+                                    base: &RuntimeSettings::default(),
+                                    previous: &RuntimeSettings::default(),
+                                    scope,
+                                    overrides: Overrides {
+                                        current: Some(&current_patch),
+                                        saved: Some(&saved_patch),
+                                    },
+                                    cli: &Default::default(),
+                                }
+                                .state("window_mode", &RuntimeSettings::default()),
                                 |ui| {
                                     ui.label("Windowed");
                                 },
@@ -1576,12 +1410,14 @@ mod tests {
                                     ui,
                                     "Renderer",
                                     "renderer",
-                                    value.clone(),
-                                    value.clone(),
-                                    value,
-                                    0,
-                                    Overrides::default(),
-                                    &cli,
+                                    RowContext {
+                                        base: &value,
+                                        previous: &value,
+                                        scope: 0,
+                                        overrides: Overrides::default(),
+                                        cli: &cli,
+                                    }
+                                    .state("renderer", &value),
                                     |ui| {
                                         let response = Selector::new(
                                             "responsive renderer",
@@ -1695,12 +1531,14 @@ mod tests {
                                 ui,
                                 "Dependent setting",
                                 key,
-                                value.clone(),
-                                saved.clone(),
-                                saved.clone(),
-                                1,
-                                Overrides::default(),
-                                &Default::default(),
+                                RowContext {
+                                    base: &saved,
+                                    previous: &saved,
+                                    scope: 1,
+                                    overrides: Overrides::default(),
+                                    cli: &Default::default(),
+                                }
+                                .state(key, &value),
                                 |ui| {
                                     let response = if key == "aspect_ratio" {
                                         Selector::new(
@@ -1792,12 +1630,14 @@ mod tests {
                                     ui,
                                     "Setting",
                                     key,
-                                    value.clone(),
-                                    value.clone(),
-                                    value,
-                                    1,
-                                    Overrides::default(),
-                                    &cli,
+                                    RowContext {
+                                        base: &value,
+                                        previous: &value,
+                                        scope: 1,
+                                        overrides: Overrides::default(),
+                                        cli: &cli,
+                                    }
+                                    .state(key, &value),
                                     |ui| {
                                         let response = if key == "window_mode" {
                                             ui.radio_value(&mut selected, true, "Fullscreen")
@@ -1902,11 +1742,13 @@ mod tests {
                             audio_controls(
                                 ui,
                                 &mut value,
-                                RuntimeSettings::default(),
-                                RuntimeSettings::default(),
-                                scope,
-                                Overrides::default(),
-                                &cli,
+                                RowContext {
+                                    base: &RuntimeSettings::default(),
+                                    previous: &RuntimeSettings::default(),
+                                    scope,
+                                    overrides: Overrides::default(),
+                                    cli: &cli,
+                                },
                                 &[],
                                 &[SoundRenderer::Speaker],
                                 &SoundCategory::ALL,
@@ -1990,12 +1832,14 @@ mod tests {
                             ui,
                             "Backend",
                             "backend",
-                            value.clone(),
-                            value.clone(),
-                            value.clone(),
-                            0,
-                            Overrides::default(),
-                            &Default::default(),
+                            RowContext {
+                                base: &value,
+                                previous: &value,
+                                scope: 0,
+                                overrides: Overrides::default(),
+                                cli: &Default::default(),
+                            }
+                            .state("backend", &value),
                             |ui| {
                                 button = backend_selector(ui, &mut value).rect;
                             },

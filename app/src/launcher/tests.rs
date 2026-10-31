@@ -1128,3 +1128,69 @@ fn gallery_options_toggle_preserves_preview_positions_and_sizes() {
         }
     }
 }
+
+#[test]
+fn split_preview_resizes_smoothly_and_keeps_fitting_badges_visible() {
+    use reforge_sdl::{DisplayGeometry, preview::Frame};
+    use std::sync::Arc;
+
+    let fixture = Fixture::new(2);
+    for theme in ThemeId::ALL {
+        for density in [1.0, 1.5, 2.25] {
+            for selected in 0..2 {
+                let mut h = Harness::new(&fixture, theme, LayoutVariant::SplitInspector, true);
+                h.density = density;
+                let game = &mut h.state.games[selected];
+                game.preferences.saved.insert("Display", "Sharp pixels");
+                let label = game.full_mode_label();
+                assert!(!label.is_empty());
+                game.previews.insert(
+                    game.preview_variant().into(),
+                    preview::sources::Source {
+                        id: format!("synthetic-{selected}"),
+                        frame: Arc::new(
+                            Frame::new(
+                                DisplayGeometry::new((8, 6), (4, 3)),
+                                [75, 150, 220, 255].repeat(8 * 6),
+                            )
+                            .unwrap(),
+                        ),
+                    },
+                );
+                h.state.selected = Some(game.entry_id.clone());
+                h.size = Vec2::new(650.0, 470.0);
+                h.settle();
+                let mut previous: Option<Rect> = None;
+                // Sweep one logical pixel at a time across both former breakpoints.
+                for width in 650..=675 {
+                    h.size = Vec2::new(width as f32, 470.0);
+                    let output = h.frame(vec![]);
+                    let rect = output
+                        .shapes
+                        .iter()
+                        .find_map(|shape| match &shape.shape {
+                            egui::Shape::Mesh(mesh)
+                                if matches!(mesh.texture_id, egui::TextureId::Managed(id) if id > 0) =>
+                            {
+                                Some(mesh.calc_bounds())
+                            }
+                            _ => None,
+                        })
+                        .expect("Split preview remains visible");
+                    assert!(
+                        text_rect(&output, &label).is_some(),
+                        "fitting badge disappeared: {theme:?} density {density}, width {width}, {label}"
+                    );
+                    if let Some(before) = previous {
+                        assert!(
+                            (rect.width() - before.width()).abs() <= 1.01
+                                && (rect.height() - before.height()).abs() <= 1.01,
+                            "Split preview jumped: {theme:?} density {density}, width {width}: {before:?} -> {rect:?}"
+                        );
+                    }
+                    previous = Some(rect);
+                }
+            }
+        }
+    }
+}

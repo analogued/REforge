@@ -171,18 +171,14 @@ pub fn draw(
 
                     if stage_w >= 260.0 {
                         ui.horizontal_top(|ui| {
-                            let prev_w = if stage_w >= 410.0 {
-                                (stage_w * 0.37).clamp(156.0, 184.0)
-                            } else {
-                                112.0
-                            };
-                            let prev_h = (prev_w * 0.75).round();
+                            let prev_w = (stage_w * 0.37).clamp(112.0, 184.0);
+                            let prev_h = prev_w * 0.75;
                             draw_preview_screen(
                                 ui,
                                 ap,
                                 Vec2::new(prev_w, prev_h),
                                 &snapshot,
-                                stage_w >= 400.0,
+                                true,
                             );
                             ui.add_space(10.0);
                             ui.vertical(|ui| {

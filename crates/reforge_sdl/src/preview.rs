@@ -57,10 +57,13 @@ impl Frame {
 /// shrinking a prefiltered CRT mask is precisely what this treatment avoids.
 /// The agreed launcher cue is fixed: scanlines 0.30, spacing 3 UI units, mask 20%.
 /// Content is contained in the supplied cell, preserving the engine's aspect.
+/// Each axis uses Catmull–Rom bicubic reduction or pixel-coverage enlargement.
+/// Intermediate values retain their precision and signed filter contributions;
+/// conversion to display bytes happens only after both axes and the CRT cue.
 pub fn render(frame: &Frame, size: [usize; 2], density: f32, crt: bool) -> ColorImage {
     let [width, height] = size;
-    let (sw, sh) = frame.geometry.display_size(AspectRatio::Square);
-    let (aw, ah) = frame.geometry.display_size(AspectRatio::Original);
+    let (sw, sh) = frame.geometry().display_size(AspectRatio::Square);
+    let (aw, ah) = frame.geometry().display_size(AspectRatio::Original);
     let scale = (width as f64 / f64::from(aw)).min(height as f64 / f64::from(ah));
     let iw = (f64::from(aw) * scale).round().max(1.0) as usize;
     let ih = (f64::from(ah) * scale).round().max(1.0) as usize;
@@ -68,37 +71,24 @@ pub fn render(frame: &Frame, size: [usize; 2], density: f32, crt: bool) -> Color
     let top = height.saturating_sub(ih) / 2;
     let mut image = ColorImage::new(size, Color32::BLACK);
     let pitch = (3.0 * density).round().max(3.0) as usize;
-    // Filter source footprints before adding any destination-grid CRT pattern.
-    // Each axis averages when shrinking and retains nearest sampling when growing.
-    let xs = crt.then(|| axis_samples(sw as usize, iw));
-    let ys = crt.then(|| axis_samples(sh as usize, ih));
-    let mut row = if crt {
-        vec![[0.0_f32; 3]; sw as usize]
-    } else {
-        vec![]
-    };
+    // Resize the clean source first; never shrink an existing CRT pattern.
+    let xs = axis_samples(sw as usize, iw);
+    let ys = axis_samples(sh as usize, ih);
+    let mut row = vec![[0.0_f32; 3]; sw as usize];
     let mut cached_row = None;
-    for y in 0..ih.min(height) {
-        let sy = ((y * 2 + 1) * sh as usize / (ih * 2)).min(sh as usize - 1);
-        if let Some(ys) = &ys {
-            let weights = &ys[y];
-            let single = if weights.len() == 1 {
-                Some(weights[0].0)
-            } else {
-                None
-            };
-            if single.is_none() || single != cached_row {
-                row.fill([0.0; 3]);
-                for &(source_y, weight) in weights {
-                    for (x, pixel) in row.iter_mut().enumerate() {
-                        let offset = (source_y * sw as usize + x) * 4;
-                        for (c, out) in pixel.iter_mut().enumerate() {
-                            *out += f32::from(frame.rgba[offset + c]) * weight;
-                        }
+    for (y, weights) in ys.iter().take(height).enumerate() {
+        let single = (weights.len() == 1 && weights[0].1 == 1.0).then(|| weights[0].0);
+        if single.is_none() || single != cached_row {
+            row.fill([0.0; 3]);
+            for &(source_y, weight) in weights {
+                for (x, pixel) in row.iter_mut().enumerate() {
+                    let offset = (source_y * sw as usize + x) * 4;
+                    for (channel, out) in pixel.iter_mut().enumerate() {
+                        *out += f32::from(frame.rgba()[offset + channel]) * weight;
                     }
                 }
-                cached_row = single;
             }
+            cached_row = single;
         }
         let phase = (y % pitch) as f32 / pitch as f32;
         let beam = if crt {
@@ -106,25 +96,23 @@ pub fn render(frame: &Frame, size: [usize; 2], density: f32, crt: bool) -> Color
         } else {
             1.0
         };
-        for x in 0..iw.min(width) {
-            let sx = ((x * 2 + 1) * sw as usize / (iw * 2)).min(sw as usize - 1);
-            let offset = (sy * sw as usize + sx) * 4;
+        for (x, weights) in xs.iter().take(width).enumerate() {
             let mut rgb = [0; 3];
             for (channel, out) in rgb.iter_mut().enumerate() {
-                let value = if let Some(xs) = &xs {
-                    xs[x]
-                        .iter()
-                        .map(|&(sx, weight)| {
-                            (row[sx][channel] * 0.90
+                let value: f32 = weights
+                    .iter()
+                    .map(|&(sx, weight)| {
+                        let value = if crt {
+                            row[sx][channel] * 0.90
                                 + row[sx.saturating_sub(1)][channel] * 0.05
-                                + row[(sx + 1).min(sw as usize - 1)][channel] * 0.05)
-                                * weight
-                        })
-                        .sum()
-                } else {
-                    f32::from(frame.rgba[offset + channel])
-                };
-                let mask = if crt && !frame.monochrome {
+                                + row[(sx + 1).min(sw as usize - 1)][channel] * 0.05
+                        } else {
+                            row[sx][channel]
+                        };
+                        value * weight
+                    })
+                    .sum();
+                let mask = if crt && !frame.is_monochrome() {
                     if x % 3 == channel {
                         1.0 + 0.20 * (2.0 / 3.0)
                     } else {
@@ -141,29 +129,48 @@ pub fn render(frame: &Frame, size: [usize; 2], density: f32, crt: bool) -> Color
     image
 }
 
-/// Exact box footprints suppress beat patterns when dense native detail shrinks.
-/// Use f64 for boundary arithmetic; normalize weights per destination pixel.
+// Coverage preserves whole pixels at integer enlargement and blends only
+// fractional boundaries. Bicubic support widens when reducing to suppress aliasing.
 fn axis_samples(source: usize, destination: usize) -> Vec<Vec<(usize, f32)>> {
-    if destination >= source {
-        return (0..destination)
-            .map(|x| {
-                vec![(
-                    ((x * 2 + 1) * source / (destination * 2)).min(source - 1),
-                    1.0,
-                )]
-            })
-            .collect();
-    }
     let scale = source as f64 / destination as f64;
     (0..destination)
         .map(|x| {
-            let start = x as f64 * scale;
-            let end = (x + 1) as f64 * scale;
-            (start.floor() as usize..(end.ceil() as usize).min(source))
-                .filter_map(|sx| {
-                    let coverage = (end.min((sx + 1) as f64) - start.max(sx as f64)).max(0.0);
-                    (coverage > 0.0).then_some((sx, (coverage / scale) as f32))
-                })
+            if destination >= source {
+                let start = x as f64 * scale;
+                let end = (x + 1) as f64 * scale;
+                return (start.floor() as usize..(end.ceil() as usize).min(source))
+                    .filter_map(|sx| {
+                        let coverage = (end.min((sx + 1) as f64) - start.max(sx as f64)).max(0.0);
+                        (coverage > 0.0).then_some((sx, (coverage / scale) as f32))
+                    })
+                    .collect();
+            }
+            let centre = (x as f64 + 0.5) * scale - 0.5;
+            let first = (centre - 2.0 * scale).ceil() as isize;
+            let last = (centre + 2.0 * scale).floor() as isize;
+            let mut taps: Vec<(usize, f64)> = Vec::new();
+            for s in first..=last {
+                let t = ((s as f64 - centre) / scale).abs();
+                let weight = if t < 1.0 {
+                    1.5 * t * t * t - 2.5 * t * t + 1.0
+                } else if t < 2.0 {
+                    -0.5 * t * t * t + 2.5 * t * t - 4.0 * t + 2.0
+                } else {
+                    0.0
+                };
+                if weight == 0.0 {
+                    continue;
+                }
+                let index = s.clamp(0, source as isize - 1) as usize;
+                if let Some(previous) = taps.last_mut().filter(|(i, _)| *i == index) {
+                    previous.1 += weight;
+                } else {
+                    taps.push((index, weight));
+                }
+            }
+            let total: f64 = taps.iter().map(|(_, w)| w).sum();
+            taps.into_iter()
+                .map(|(s, w)| (s, (w / total) as f32))
                 .collect()
         })
         .collect()
@@ -223,7 +230,7 @@ mod tests {
         );
     }
     #[test]
-    fn reduced_native_stripes_average_instead_of_turning_into_broad_bands() {
+    fn reduced_native_stripes_remain_filtered_without_broad_bands() {
         let rgba = (0..640 * 200)
             .flat_map(|i| {
                 let v = if i % 2 == 0 { 0 } else { 255 };
@@ -244,10 +251,105 @@ mod tests {
                 assert!(max - min <= 2, "{width}: {min}..{max}");
             }
         }
-        for (source, destination) in [(640, 56), (640, 319), (200, 42), (320, 800)] {
+        for (source, destination) in [
+            (640, 56),
+            (640, 319),
+            (200, 42),
+            (320, 800),
+            (1, 5),
+            (17, 1),
+            (200, 311),
+        ] {
             for taps in axis_samples(source, destination) {
                 assert!((taps.iter().map(|(_, w)| w).sum::<f32>() - 1.0).abs() < 1e-5);
             }
+        }
+    }
+    #[test]
+    fn fractional_coverage_and_integer_enlargement_preserve_pixel_structure() {
+        let frame = Frame::new_monochrome(
+            DisplayGeometry::new((2, 1), (3, 1)),
+            vec![0, 0, 0, 255, 255, 255, 255, 255],
+        )
+        .unwrap();
+        let image = render(&frame, [3, 1], 1.0, false);
+        assert_eq!(
+            image.pixels,
+            vec![Color32::BLACK, Color32::from_gray(128), Color32::WHITE]
+        );
+
+        let source: Vec<_> = (0..3 * 2)
+            .flat_map(|i| [i * 37, i * 19, i * 11, 255])
+            .collect();
+        let frame = Frame::new(DisplayGeometry::new((3, 2), (3, 2)), source.clone()).unwrap();
+        for factor in [1, 2, 3, 5] {
+            let image = render(&frame, [3 * factor, 2 * factor], 2.25, false);
+            for y in 0..2 * factor {
+                for x in 0..3 * factor {
+                    let offset = ((y / factor) * 3 + x / factor) * 4;
+                    assert_eq!(
+                        image.pixels[y * 3 * factor + x],
+                        Color32::from_rgb(source[offset], source[offset + 1], source[offset + 2])
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn mixed_axes_keep_signed_intermediate_values_until_final_conversion() {
+        // Reducing [255, 0, 0, 0] vertically produces [127.5, -11.953125].
+        // Coverage then blends the two columns. Clipping between passes would
+        // turn the middle output from 58 into 64.
+        for (native, display, input, expected) in [
+            (
+                (2, 4),
+                (3, 2),
+                vec![255, 0, 0, 0, 0, 0, 0, 255],
+                vec![128, 58, 0, 0, 58, 128],
+            ),
+            (
+                (4, 2),
+                (2, 3),
+                vec![255, 0, 0, 0, 0, 0, 0, 255],
+                vec![128, 0, 58, 58, 0, 128],
+            ),
+        ] {
+            let frame = Frame::new_monochrome(
+                DisplayGeometry::new(native, display),
+                input.into_iter().flat_map(|v| [v, v, v, 255]).collect(),
+            )
+            .unwrap();
+            let image = render(&frame, [display.0 as usize, display.1 as usize], 1.0, false);
+            assert_eq!(
+                image.pixels,
+                expected
+                    .into_iter()
+                    .map(Color32::from_gray)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+    #[test]
+    fn bicubic_reduction_preserves_flat_colours_and_its_edge_kernel() {
+        let expected = [0.5, 0.43359375, 0.11328125, -0.046875];
+        let taps = axis_samples(4, 2);
+        for (index, &(source, weight)) in taps[0].iter().enumerate() {
+            assert_eq!(source, index);
+            assert_eq!(weight, expected[index]);
+        }
+        assert_eq!(taps[0].len(), expected.len());
+        let frame = Frame::new(
+            DisplayGeometry::new((17, 13), (17, 13)),
+            [37, 129, 211, 255].repeat(17 * 13),
+        )
+        .unwrap();
+        for size in [[7, 5], [3, 2], [1, 1]] {
+            assert!(
+                render(&frame, size, 1.0, false)
+                    .pixels
+                    .iter()
+                    .all(|p| *p == Color32::from_rgb(37, 129, 211))
+            );
         }
     }
     #[test]

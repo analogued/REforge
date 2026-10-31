@@ -562,14 +562,17 @@ Their initials use the first letters/numbers of the first two Unicode words, or
 the first two characters of one word, uppercased; empty/non-text names use `?`.
 
 Native images are fitted to the preview cell using their intended display aspect.
-Sharp pixels uses nearest sampling. Selecting Hyllian CRT adds an illustrative
-launcher treatment: scanline strength **0.30**, spacing **3 logical UI units** and
-RGB mask strength **20%**, with slight horizontal softening. Monochrome engine
-previews retain grayscale and omit the RGB grille. CRT previews average native
-pixel footprints when reduced, before adding the destination-size cue, to suppress
-aliasing of fine patterns. This cue is generated at the final physical preview
-size and is independent of gameplay's actual Hyllian
-shader and its fine adjustments. There are no launcher filter tuning controls.
+Each axis uses Catmull–Rom bicubic filtering when shrinking and pixel coverage
+when enlarging; exact integer enlargement preserves whole source pixels. Both
+passes retain fractional values until final colour conversion. This applies to
+both Sharp pixels and CRT previews.
+
+Selecting Hyllian CRT adds an illustrative launcher treatment: scanline strength
+**0.30**, spacing **3 logical UI units** and RGB mask strength **20%**, with slight
+horizontal softening. Monochrome engine previews retain grayscale and omit the
+RGB grille. The cue is generated at the final physical preview size, after
+resampling, and is independent of gameplay's actual Hyllian shader and its fine
+adjustments. There are no launcher filter tuning controls.
 
 Previews and frames use bounded in-memory texture and frame-mask caches,
 regenerated when their actual source, physical size, desktop density, treatment or

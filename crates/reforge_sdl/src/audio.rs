@@ -83,7 +83,7 @@ impl AudioOutput {
                     "Output device {name:?} is unavailable or its name is ambiguous; choose System default"
                 ));
             }
-            AudioDevice::new(found[0], audio.clone())
+            AudioDevice::new(found[0], audio)
         } else {
             audio.default_playback_device()
         };

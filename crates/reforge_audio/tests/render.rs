@@ -155,22 +155,11 @@ fn odd_tones_gate_changes_and_pwm_reload_render_independently_of_chunking() {
 #[test]
 fn invalid_inputs_are_recoverable_but_output_failure_stops_synthesis() {
     let mut renderer = renderer(48000, 11931);
-    let mut pcm = Vec::new();
-    renderer
-        .level_at(100, 8192, &mut |samples| {
-            pcm.extend_from_slice(samples);
-            Ok(())
-        })
-        .unwrap();
+    renderer.level_at(100, 8192, &mut |_| Ok(())).unwrap();
     assert!(renderer.level_at(99, 0, &mut |_| Ok(())).is_err());
     assert!(renderer.level_at(200, 8193, &mut |_| Ok(())).is_err());
     assert_eq!(renderer.tick(), 100);
-    renderer
-        .finish_until(200, &mut |samples| {
-            pcm.extend_from_slice(samples);
-            Ok(())
-        })
-        .unwrap();
+    renderer.finish_until(200, &mut |_| Ok(())).unwrap();
     let error = renderer
         .finish_until(30000, &mut |_| {
             Err(Error::Io(std::io::Error::other("synthetic output failure")))

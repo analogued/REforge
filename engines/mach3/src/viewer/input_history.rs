@@ -29,8 +29,12 @@ impl EventTime {
         let host = if timestamp == 0 || timestamp > clock.sdl_ns {
             received
         } else {
-            (clock.host + clock.span / 2)
-                .checked_sub(std::time::Duration::from_nanos(clock.sdl_ns - timestamp))
+            clock
+                .host
+                .checked_add(clock.span / 2)
+                .and_then(|host| {
+                    host.checked_sub(std::time::Duration::from_nanos(clock.sdl_ns - timestamp))
+                })
                 .unwrap_or(received)
                 .min(received)
         };
@@ -196,6 +200,53 @@ mod tests {
             #[cfg(feature = "dev-tools")]
             assert_eq!(time.now, received);
         }
+    }
+
+    #[test]
+    fn old_live_events_keep_their_host_epoch_after_a_day_paused() {
+        let start = Instant::now();
+        let frozen = start + Duration::from_millis(20);
+        let resumed = start + Duration::from_secs(86_400);
+        let mut pause = HostPause::default();
+        pause.toggle(frozen);
+        pause.toggle(resumed);
+        let mut epoch = InputEpoch::default();
+        epoch.reset(resumed);
+        let clock = EventClockSample {
+            host: resumed + Duration::from_millis(10),
+            sdl_ns: 86_400_010_000_000,
+            span: Duration::ZERO,
+        };
+        let old = EventTime::sample(&Event::Quit { timestamp: 1 }, clock, &pause, clock.host);
+        assert_eq!(old.host, start + Duration::from_nanos(1));
+        assert!(!epoch.accepts(old.host));
+        let fresh = EventTime::sample(
+            &Event::Quit {
+                timestamp: 86_400_005_000_000,
+            },
+            clock,
+            &pause,
+            clock.host,
+        );
+        assert!(epoch.accepts(fresh.host));
+        assert_eq!(fresh.timeline, frozen + Duration::from_millis(5));
+    }
+
+    #[test]
+    fn unrepresentable_clock_bracket_falls_back_to_receipt() {
+        let received = Instant::now();
+        let clock = EventClockSample {
+            host: received,
+            sdl_ns: 1,
+            span: Duration::MAX,
+        };
+        let time = EventTime::sample(
+            &Event::Quit { timestamp: 1 },
+            clock,
+            &HostPause::default(),
+            received,
+        );
+        assert_eq!((time.host, time.timeline), (received, received));
     }
 
     #[cfg(feature = "dev-tools")]

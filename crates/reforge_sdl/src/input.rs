@@ -70,10 +70,12 @@ pub fn event_clock_sample() -> EventClockSample {
 pub struct HostPause {
     started: Option<Instant>,
     elapsed: Duration,
+    first_pause: Option<Instant>,
 }
 
 impl HostPause {
     pub fn toggle(&mut self, now: Instant) {
+        self.first_pause.get_or_insert(now);
         if let Some(started) = self.started.take() {
             self.elapsed += now.duration_since(started);
         } else {
@@ -85,8 +87,14 @@ impl HostPause {
         self.started.is_some()
     }
 
+    /// Translate current or queued host time without exceeding the platform's
+    /// Instant range. An unrepresentable old event clamps to the first pause
+    /// boundary; input epochs must still reject it using its original host time.
     pub fn now(&self, now: Instant) -> Instant {
-        self.started.unwrap_or(now) - self.elapsed
+        self.started
+            .unwrap_or(now)
+            .checked_sub(self.elapsed)
+            .unwrap_or(self.first_pause.unwrap_or(now))
     }
 }
 
@@ -198,6 +206,34 @@ mod tests {
         assert_eq!(
             pause.now(start + Duration::from_millis(90_030)),
             start + Duration::from_millis(50)
+        );
+    }
+
+    #[test]
+    fn unrepresentable_old_events_clamp_without_moving_current_deadlines() {
+        let start = Instant::now();
+        // Find an Instant less than one second above this platform's lower
+        // representable bound without assuming a particular clock epoch.
+        let (mut low, mut high) = (0_u64, u64::MAX);
+        while low < high {
+            let middle = low + (high - low) / 2 + 1;
+            if start.checked_sub(Duration::from_secs(middle)).is_some() {
+                low = middle;
+            } else {
+                high = middle - 1;
+            }
+        }
+        let oldest = start.checked_sub(Duration::from_secs(low)).unwrap();
+        assert!(oldest.checked_sub(Duration::from_secs(2)).is_none());
+        let mut pause = HostPause::default();
+        pause.toggle(start);
+        let resumed = start + Duration::from_secs(3);
+        pause.toggle(resumed);
+        assert_eq!(pause.now(oldest), start);
+        assert_eq!(pause.now(resumed), start);
+        assert_eq!(
+            pause.now(resumed + Duration::from_secs(1)),
+            start + Duration::from_secs(1)
         );
     }
 }

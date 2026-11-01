@@ -40,6 +40,9 @@ to reach its next input check, so it may not take effect immediately.
 On a gamepad, use the left stick or D-pad to steer and the bottom face button
 to fire or advance title screens. Start/Menu pauses; Back/View opens Settings.
 
+F2 toggles the original game's sound switch. Host mute and volume controls in
+Settings operate independently of that switch.
+
 F1 also retains the original pause/end-game control: release it, then press and
 release another gameplay key to resume. Holding F1 can end the current game;
 P or Pause/Break provides a simpler pause toggle.
@@ -48,21 +51,24 @@ P or Pause/Break provides a simpler pause toggle.
 
 **Sound renderer:** under **F10 → Mach 3 overrides → Audio**, choose PC Speaker
 for the original speaker treatment, or **Enhanced PCM** for full sample values
-while keeping the synthesized procedural effects. Uncheck the section's defaults
-checkbox to edit, then Apply. The default is PC Speaker.
+while keeping the synthesized procedural effects. Check **Override global
+defaults** to edit, then Apply. The default is PC Speaker.
 
-**Digitized samples:** the same page can disable recorded speech/music while
-retaining procedural effects. This changes the game's playback sequences and
-applies on the next application launch. To silence a category without skipping
-its sequence, use the Music or Speech volume instead.
+**Digitized samples:** setting this to Off on the same page reproduces the
+original DOS game's `S`/`s` command-line behavior. It skips recorded speech/music
+in the intro, pre-game, completion and Game Over/High Score sequences while
+retaining procedural effects. The native playback calls and their timing/input
+effects are skipped, and the preference applies on the next application launch.
+REforge also accepts bare `S`/`s` as aliases for `--digitized-samples off`, a
+temporary override for that run. To silence a category without skipping its
+sequence, use the Music or Speech volume instead.
 
 **Colour / monochrome:** choose the initial display in the launcher's Video
 options, or use `--video cga|mono`. F3 switches once per press during play;
 release it before switching again. Both modes work with optional CRT presentation.
 
 For fullscreen, scaling, CRT presentation, audio levels and controller settings,
-see the shared [Settings menu](../configuration.md). F2 is the original game
-switch, independent of the host mute and volume controls.
+see the shared [Settings menu](../configuration.md).
 
 ## Current limits
 

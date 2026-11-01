@@ -373,8 +373,7 @@ Unavailable audio does not prevent unrelated Display/CRT changes.
 
 `--audio-renderer speaker|enhanced-pcm` remains a temporary Mach 3 override and
 locks its menu control for that run. It is never saved into preferences.
-Latency remains the existing buffering policy, and output remains mono; the
-mockup's Latency and Keep original mono controls are intentionally absent.
+Audio buffering uses the existing latency policy, and output remains mono.
 
 ## Alley Cat controls
 

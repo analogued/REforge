@@ -116,11 +116,12 @@ for controller and keyboard Up/Down navigation. A controller-advanced title show
 it immediately; otherwise the first direction or confirmation only reveals
 Kitten. Subsequent controller A or keyboard Enter/Space confirms the visible
 choice. K/H/T/A remain direct shortcuts and restore the original question pixels.
-The menu retains the original skill choices, accumulating text layout and Ctrl+S sound-toggle instruction. Its
-pause instruction describes the host toggle keys; Ctrl+Q additionally quits. Ctrl+R restarts and Ctrl+M opens the skill menu directly, without
-replaying the splash. An explicit `--difficulty` skips the skill question and
-shows controls with a separate key-to-start wait. Menu waits ignore desktop
-shortcuts, modifier keys alone and held-key repeats.
+The menu retains the original skill choices, accumulating text layout and Ctrl+S
+sound-toggle instruction. Its pause instruction describes the host toggle keys;
+Ctrl+Q additionally quits. Ctrl+R restarts and Ctrl+M opens the skill menu
+directly, without replaying the splash. An explicit `--difficulty` skips the skill
+question and shows controls with a separate key-to-start wait. Menu waits ignore
+desktop shortcuts, modifier keys alone and held-key repeats.
 
 ## Startup seed and original bad-state guard
 

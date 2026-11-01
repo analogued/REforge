@@ -3,10 +3,10 @@
 F10 opens the Compact Settings menu in either game. The Display page offers
 window mode (windowed or borderless desktop fullscreen), window scale (Auto or
 ×1–×16), scaling policy, sampling, aspect ratio, renderer, backend, VSync and a
-frame limiter. CRT & Colour offers sharp
-pixels or Hyllian CRT with adjustable shader controls. Colour profiles and white
-points remain future work. Audio offers enable sound, master/category volumes, per-game
-sound renderer, output device and focus muting.
+frame limiter. CRT & Colour offers sharp pixels or Hyllian CRT with
+adjustable shader controls. Colour profiles and white points remain future
+work. Audio offers enable sound, master/category volumes, per-game sound
+renderer, output device and focus muting.
 Controls offers a shared controller stick dead zone and Alley Cat's game-specific
 input response.
 Navigate with Tab/Shift+Tab or the arrow keys; Enter/Space activates a control.
@@ -227,10 +227,10 @@ audio_renderer = "enhanced-pcm"
 digitized_samples = true
 ```
 
-Defaults are windowed, Auto scale, automatic GPU-preferred rendering, automatic
-backend, VSync enabled when supported, a display-refresh frame ceiling, and sharp
-pixels. Missing keys inherit: shared defaults,
-then global preferences, then entry preferences. Catalog game IDs (`alley-cat`,
+Defaults are windowed, Auto scale, automatic GPU-preferred rendering,
+automatic backend, VSync enabled when supported, a display-refresh frame
+ceiling, and sharp pixels. Missing keys inherit: shared defaults, then
+global preferences, then entry preferences. Catalog game IDs (`alley-cat`,
 `mach-3`) identify games; entry IDs identify individual configured copies.
 The example suffixes above are illustrative; use the IDs from your library.
 Explicit CLI values form the final temporary layer.
@@ -577,8 +577,8 @@ is not yet defined. Edition IDs name catalog groupings; the precise commercial
 edition/version designations remain unverified. Edition, specs and compatibility
 IDs have separate namespaces. Both current detected releases use their game's
 `*-dos` compatibility ID, matching the edition/profile spelling. Sharing edition
-or specs records does not establish save/configuration
-compatibility: each detected release retains its explicit compatibility group.
+or specs records does not establish save/configuration compatibility: each
+detected release retains its explicit compatibility group.
 
 Detected-release IDs use `<game-id>-<platform>-<10 hex digits>`. The suffix is
 derived from the complete catalogued required-file manifest. DOS filenames use

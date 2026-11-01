@@ -80,7 +80,7 @@ pub static ALLEY_CAT: ReleaseMetadata = ReleaseMetadata {
     edition: None,
     video_features: &["320×200", "CGA / PCjr"],
     audio_features: &["PC speaker"],
-    tagline: "Back to the alley",
+    tagline: "A small cat. A very busy neighbourhood.",
 };
 pub static MACH3: ReleaseMetadata = ReleaseMetadata {
     title: "Mach 3",
@@ -91,7 +91,7 @@ pub static MACH3: ReleaseMetadata = ReleaseMetadata {
     edition: None,
     video_features: &["CGA colour / 640×200 monochrome"],
     audio_features: &["PC speaker", "Enhanced PCM"],
-    tagline: "Back into the cockpit",
+    tagline: "Back into the cockpit.",
 };
 #[cfg(feature = "sdl")]
 pub static UNKNOWN: ReleaseMetadata = ReleaseMetadata {

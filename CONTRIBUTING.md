@@ -42,10 +42,10 @@ docs: Clarify commit scope prefixes
 Update workspace dependencies
 ```
 
-Aim for around 50 characters in the subject, including a prefix, without
-sacrificing clarity. For substantive changes, leave a blank line and explain
-the reason, relevant behavior changes, and validation in the body. Wrap body
-text around 72 characters where practical.
+Keep the subject concise, preferably 50 characters or fewer, including any scope
+prefix. Prioritize clarity over exact length. For substantive changes, leave a
+blank line and explain the reason, relevant behavior changes, and validation in
+the body. Wrap body text around 72 characters where practical.
 
 The default branch is `main`. Keep each commit focused on a coherent change,
 avoiding unrelated changes across areas. Broader structural commits are acceptable

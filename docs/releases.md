@@ -19,28 +19,14 @@ The `-dev` suffix marks unreleased development builds; it is independent of
 the `dev-tools` feature and Cargo's `--release` optimization flag.
 
 [CHANGELOG.md](../CHANGELOG.md) contains curated user-facing notes grouped by
-New games, General, individual engines and platforms where relevant. Include
-only sections with entries. Keep new changes under `Unreleased` until they
-are part of a public release; a local build or package does not count as one.
+New games, General, individual engines and platforms where relevant. `Unreleased`
+contains changes intended for the next public release; a local build or package
+does not count as one.
 Git history records the detailed development work separately.
 
-Calendar versions do not encode compatibility guarantees. Keep existing library
-entries and preferences usable across releases, providing migration when stored
-formats change. Record changes requiring user action, including new system/build
-requirements or incompatible CLI changes, in a Compatibility section.
-
-When cutting a public release:
-
-1. Set the shared version to the release number without `-dev` and refresh
-   Cargo.lock with `cargo check --workspace --all-targets`.
-2. Rename `Unreleased` to the version and actual publication date, such as
-   `## 2026.1.0 (YYYY-MM-DD)`, and add a new `Unreleased` section above it.
-3. Complete validation, commit the version, lockfile and notes together, and tag
-   that commit as `vYEAR.RELEASE.PATCH`.
-4. Build packages from that clean commit and publish the matching source archive
-   alongside them. Use the curated changelog entry for the GitHub release notes.
-
-Choose the next intended version with a `-dev` suffix for ongoing development.
+Calendar versions do not encode compatibility guarantees. Check release notes
+for changes requiring user action, including new system/build requirements or
+incompatible command-line options.
 
 ## Build a package
 

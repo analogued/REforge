@@ -61,8 +61,8 @@ only sections that have entries. Summarize the effect for users rather than
 copying commit subjects. Under New games, use one "Added support for" entry per
 game, including the platform where relevant.
 
-[Release packaging](docs/releases.md) documents calendar versioning, release tags
-and the publication workflow.
+[Release packaging](docs/releases.md) documents calendar versioning and building
+distributable packages.
 
 ## Third-party code
 

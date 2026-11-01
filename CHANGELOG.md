@@ -5,6 +5,8 @@ Unreleased contains changes intended for the next public release.
 
 ## Unreleased
 
+## 2026.1.0 (2026-11-01)
+
 ### New games
 
 - Added support for Alley Cat (DOS).

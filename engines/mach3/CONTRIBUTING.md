@@ -41,17 +41,16 @@ the standalone `mach-3` executable. Build both the library and standalone
 executable with `cargo build --locked -p mach3`.
 
 Add `--features dev-tools` to build the frame renderer, opening exporter, replay
-tool and sound exporter. Combine it with `--no-default-features` when only
-headless tools are needed.
+tool and sound exporter, and enable their CLI integration tests and offline
+speaker WAV rendering. In windowed builds, it also enables input/timing
+diagnostics and silent step/static previews. Combine it with
+`--no-default-features` when only headless tools are needed; `dev-tools` does not
+enable SDL3 by itself.
 
-The opt-in `dev-tools` feature enables all four diagnostic/export binaries and
-their CLI integration tests, optional offline speaker WAV rendering, and input
-and timing diagnostics and silent step/static previews in windowed builds; it
-does not enable SDL3 by itself. Normal builds exclude `--step`, `--static`,
-`--trace-input` and `--trace-timing`, including release builds unless `dev-tools`
-is explicitly enabled. Check all four combinations above when changing tracing
-or windowed input. REforge's `dev-tools` feature forwards this feature to the
-engine.
+Normal builds exclude `--step`, `--static`, `--trace-input` and `--trace-timing`,
+including release builds unless `dev-tools` is explicitly enabled. Check all
+four combinations above when changing tracing or windowed input. REforge's
+`dev-tools` feature forwards this feature to the engine.
 
 ## Original-data validation
 

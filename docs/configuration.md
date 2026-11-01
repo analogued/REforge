@@ -539,21 +539,43 @@ The player-facing data has two owners:
 
 | Owner | Data |
 | --- | --- |
-| [Detection catalog](../app/src/detection/catalog.rs) | Release title, release year, developers, publishers, genres, optional edition label, video/audio feature summaries and editorial tagline. Detection fingerprints and compatibility groups also belong to the catalog. |
+| [Detection catalog](../app/src/detection/catalog.rs) | Shared game/editorial data, edition facts, reusable specs profiles, detection fingerprints and compatibility groups. |
 | Engine `launcher` module | Available launch options, their defaults and storage keys, labels and preview badges, mode palettes, display geometry, preview variants, recipe revision and native image generation. |
 
-Catalog metadata is attached to each release. A port or reissue can have a
-different title, year or credits without changing the identity of the game.
-Multiple release records may share metadata when those facts are identical;
-matching metadata does not establish save/configuration compatibility.
+The catalog has four linked record types:
 
-`ReleaseMetadata` uses an optional numeric `year` and separate lists for
-`developers`, `publishers`, `genres`, `video_features` and `audio_features`.
-Unknown facts use `None` or empty lists rather than placeholder strings. Credit
-names are display names; they are never identifiers. `edition` is an optional
-display label, independent of the release and compatibility IDs. `tagline` is
-the short editorial line such as “Back to the alley”; it is not a game synopsis.
-There is currently no separate description field.
+| Record | Data |
+| --- | --- |
+| `GameMetadata` | Typed game identity, canonical title, genres and tagline. |
+| `Edition` | Internal edition ID, game reference, platform, optional title replacement, year, developers, publishers, optional display label and specs profile reference. |
+| `SpecsProfile` | Internal profile ID and video/audio feature lists. |
+| `Release` | Existing detected-release ID, edition reference, compatibility group and filename/size/SHA-256 fingerprints. |
+
+Multiple detected distributions can reference one edition, for example when
+only an executable changes. Separate editions can reference the same game and
+specs profile while keeping their dates and credits explicit. Relationships use
+direct Rust references; edition and profile IDs identify the named catalog
+records without requiring string lookups. Game IDs and existing detected-release
+IDs remain unchanged in libraries, configuration, saves and preview identities.
+
+The current chains are:
+
+| Detected release ID | Edition ID | Game ID | Specs profile ID |
+| --- | --- | --- | --- |
+| `alley-cat-verified-reference` | `alley-cat-dos-reference` | `alley-cat` | `alley-cat-dos` |
+| `mach-3-verified-reference` | `mach-3-dos-reference` | `mach-3` | `mach-3-dos` |
+
+Both editions have platform `Platform::Dos`. Platform placement in the launcher
+is not yet defined. The internal “DOS reference” edition IDs do not establish
+an official commercial edition or version designation. Sharing edition or specs
+records does not establish save/configuration compatibility: each detected
+release retains its explicit compatibility group.
+
+Years are optional numbers. Credits, genres and feature summaries are separate
+lists; unknown facts use `None` or empty lists. An edition uses its game's title
+unless it explicitly supplies a replacement. Its optional `label` is display text,
+independent of its ID. `tagline` is the short shared editorial line, such as
+“A small cat, a very busy neighbourhood.” There is no separate description field.
 Split details keep the original single-line tagline spacing, including when the
 tagline is absent. A second line uses the existing gaps above and below without
 moving the credits, specs or Play button. Taglines have no ellipsis or tooltip.
@@ -570,8 +592,9 @@ release as supported by REforge, including explicitly named enhancements; active
 option values and palette swatches come from the engine instead.
 
 A library entry has its own display title, initially copied from the detected
-release and editable independently in the library file. Other release metadata
-is read directly from the catalog and is not duplicated in user configuration.
+edition's resolved title and editable independently in the library file. Other
+metadata is read through the catalog links and is not duplicated in user
+configuration. Metadata edits leave native preview cache identities unchanged.
 The local development `project.toml` inventories are not runtime catalog inputs.
 
 After verification, the launcher loads or generates static engine scene previews

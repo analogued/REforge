@@ -84,7 +84,7 @@ impl Preferences {
 pub struct GameEntry {
     pub entry_id: String,
     pub title: String,
-    pub metadata: &'static detection::ReleaseMetadata,
+    pub edition: Option<&'static detection::Edition>,
     pub original_path: String,
     pub original: PathBuf,
     pub game_id: String,
@@ -102,9 +102,9 @@ impl GameEntry {
     pub fn from_entry(entry: &Entry, config: PathBuf, verify: bool) -> Self {
         let release = detection::RELEASES
             .iter()
-            .find(|r| r.id == entry.release_id && r.game.id() == entry.game_id);
-        let metadata = release.map_or(&detection::UNKNOWN, |r| r.metadata);
-        let options = match release.map(|r| r.game) {
+            .find(|r| r.id == entry.release_id && r.game().id() == entry.game_id);
+        let edition = release.map(|r| r.edition);
+        let options = match release.map(|r| r.game()) {
             Some(Game::AlleyCat) => alleycat::launcher::OPTIONS,
             Some(Game::Mach3) => mach3::launcher::OPTIONS,
             None => &[],
@@ -120,14 +120,14 @@ impl GameEntry {
         let mut result = Self {
             entry_id: entry.entry_id.clone(),
             title: entry.title.clone(),
-            metadata,
+            edition,
             original_path: entry.original.display().to_string(),
             original: entry.original.clone(),
             game_id: entry.game_id.clone(),
             release_id: entry.release_id.clone(),
             previews: BTreeMap::new(),
             preview_attempted: false,
-            preview_option: match release.map(|r| r.game) {
+            preview_option: match release.map(|r| r.game()) {
                 Some(Game::AlleyCat) => alleycat::launcher::PREVIEW_OPTION,
                 Some(Game::Mach3) => mach3::launcher::PREVIEW_OPTION,
                 None => "",
@@ -142,6 +142,25 @@ impl GameEntry {
             result.error = Some(e);
         }
         result
+    }
+    pub fn tagline(&self) -> &'static str {
+        self.edition
+            .map_or("Original files unavailable", |edition| edition.game.tagline)
+    }
+    pub fn edition_label(&self) -> Option<&'static str> {
+        self.edition.and_then(|edition| edition.label)
+    }
+    pub fn library_line(&self) -> String {
+        self.edition
+            .map_or_else(String::new, detection::Edition::library_line)
+    }
+    pub fn detail_line(&self) -> String {
+        self.edition
+            .map_or_else(String::new, detection::Edition::detail_line)
+    }
+    pub fn features_line(&self) -> String {
+        self.edition
+            .map_or_else(String::new, detection::Edition::features_line)
     }
     pub fn preview_variant(&self) -> &'static str {
         let values = self.option_values();

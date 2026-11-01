@@ -39,9 +39,9 @@ impl Fixture {
             // Deliberately nonexistent originals exercise real Missing recovery.
             library
                 .add(
-                    release.game.id(),
+                    release.game().id(),
                     release.id,
-                    release.metadata.title,
+                    release.edition.title(),
                     &fixture.directory.join(format!("missing-original-{index}")),
                 )
                 .unwrap();
@@ -194,23 +194,41 @@ fn texts(output: &egui::FullOutput) -> Vec<&str> {
 
 #[test]
 fn split_taglines_keep_original_spacing_and_fit_a_second_line() {
-    use detection::ReleaseMetadata;
-    static VARIANTS: [ReleaseMetadata; 4] = [
-        ReleaseMetadata {
+    use detection::{Edition, GameMetadata};
+    static GAMES: [GameMetadata; 4] = [
+        GameMetadata {
             tagline: "",
-            ..*detection::RELEASES[0].metadata
+            ..*detection::RELEASES[0].edition.game
         },
-        ReleaseMetadata {
+        GameMetadata {
             tagline: "A small cat.",
-            ..*detection::RELEASES[0].metadata
+            ..*detection::RELEASES[0].edition.game
         },
-        ReleaseMetadata {
+        GameMetadata {
             tagline: "A small cat.\nA very busy neighbourhood.",
-            ..*detection::RELEASES[0].metadata
+            ..*detection::RELEASES[0].edition.game
         },
-        ReleaseMetadata {
+        GameMetadata {
             tagline: "A small cat. A very busy neighbourhood.",
-            ..*detection::RELEASES[0].metadata
+            ..*detection::RELEASES[0].edition.game
+        },
+    ];
+    static VARIANTS: [Edition; 4] = [
+        Edition {
+            game: &GAMES[0],
+            ..*detection::RELEASES[0].edition
+        },
+        Edition {
+            game: &GAMES[1],
+            ..*detection::RELEASES[0].edition
+        },
+        Edition {
+            game: &GAMES[2],
+            ..*detection::RELEASES[0].edition
+        },
+        Edition {
+            game: &GAMES[3],
+            ..*detection::RELEASES[0].edition
         },
     ];
     let fixture = Fixture::new(1);
@@ -222,7 +240,7 @@ fn split_taglines_keep_original_spacing_and_fit_a_second_line() {
                 h.density = density;
                 let mut baseline = None;
                 for metadata in &VARIANTS {
-                    h.state.games[0].metadata = metadata;
+                    h.state.games[0].edition = Some(metadata);
                     let output = h.settle();
                     let specs = text_rect(&output, &metadata.features_line()).unwrap();
                     let play = text_rect(&output, "Play").unwrap();
@@ -252,12 +270,14 @@ fn split_taglines_keep_original_spacing_and_fit_a_second_line() {
                     } else {
                         baseline = Some((specs, play));
                     }
-                    if !metadata.tagline.is_empty() {
+                    if !metadata.game.tagline.is_empty() {
                         let text = output
                             .shapes
                             .iter()
                             .find_map(|shape| match &shape.shape {
-                                egui::Shape::Text(t) if t.galley.text() == metadata.tagline => {
+                                egui::Shape::Text(t)
+                                    if t.galley.text() == metadata.game.tagline =>
+                                {
                                     Some(t)
                                 }
                                 _ => None,
@@ -283,8 +303,8 @@ fn catalog_taglines_fit_the_minimum_split_window() {
             h.size = Vec2::new(MIN_LOGICAL_SIZE.0 as f32, MIN_LOGICAL_SIZE.1 as f32);
             h.density = density;
             for (index, release) in detection::RELEASES.iter().enumerate() {
-                let metadata = release.metadata;
-                if metadata.tagline.is_empty() {
+                let metadata = release.edition;
+                if metadata.game.tagline.is_empty() {
                     continue;
                 }
                 h.state.selected = Some(h.state.games[index].entry_id.clone());
@@ -293,7 +313,7 @@ fn catalog_taglines_fit_the_minimum_split_window() {
                     .shapes
                     .iter()
                     .find_map(|shape| match &shape.shape {
-                        egui::Shape::Text(t) if t.galley.text() == metadata.tagline => Some(t),
+                        egui::Shape::Text(t) if t.galley.text() == metadata.game.tagline => Some(t),
                         _ => None,
                     })
                     .expect("catalog tagline must be visible");
@@ -310,6 +330,24 @@ fn catalog_taglines_fit_the_minimum_split_window() {
             }
         }
     }
+}
+
+#[test]
+fn unavailable_catalog_release_keeps_the_entry_title_without_fake_edition_data() {
+    let fixture = Fixture::new(1);
+    let state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+    let mut entry = state.library.entries[0].clone();
+    entry.title = "My installed copy".into();
+    entry.release_id = "synthetic-unavailable-release".into();
+    let game = model::GameEntry::from_entry(&entry, fixture.config.clone(), true);
+    assert!(game.edition.is_none());
+    assert_eq!(game.title, "My installed copy");
+    assert!(game.status.is_missing());
+    assert_eq!(game.tagline(), "Original files unavailable");
+    assert!(game.library_line().is_empty());
+    assert!(game.detail_line().is_empty());
+    assert!(game.features_line().is_empty());
+    assert!(game.options.is_empty());
 }
 
 #[test]
@@ -374,7 +412,7 @@ fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
                 assert!(texts(&output).contains(&"M3"));
             }
             let game = &mut h.state.games[0];
-            assert_eq!(game.title, detection::RELEASES[0].metadata.title);
+            assert_eq!(game.title, detection::RELEASES[0].edition.title());
             assert_eq!(
                 game.palette_swatches(),
                 alleycat::launcher::OPTIONS[0].choices[0].palette.unwrap()
@@ -1042,7 +1080,7 @@ fn native_engine_previews() {
                 .add(
                     d.game.id(),
                     d.release.id,
-                    d.release.metadata.title,
+                    d.release.edition.title(),
                     &d.original,
                 )
                 .unwrap();

@@ -181,8 +181,9 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
         warn(&input.warnings);
         let mut listed = std::collections::HashSet::new();
         for release in detection::RELEASES {
-            if listed.insert(release.game.id()) {
-                println!("{}: {}", release.game.id(), release.metadata.title);
+            let game = release.game();
+            if listed.insert(game.id()) {
+                println!("{}: {}", game.id(), game.title());
             }
         }
         return Ok(());
@@ -271,7 +272,10 @@ mod tests {
         Ok(Detected {
             files: Default::default(),
             game,
-            release: detection::RELEASES.iter().find(|r| r.game == game).unwrap(),
+            release: detection::RELEASES
+                .iter()
+                .find(|r| r.game() == game)
+                .unwrap(),
             original: path.into(),
         })
     }

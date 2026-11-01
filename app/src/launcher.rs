@@ -46,12 +46,12 @@ impl State {
         let id = self.library.add(
             detected.game.id(),
             detected.release.id,
-            detected.release.metadata.title,
+            detected.release.edition.title(),
             &original,
         )?;
         self.selected = Some(id);
         self.refresh();
-        self.notify(format!("{} added", detected.release.metadata.title), false);
+        self.notify(format!("{} added", detected.release.edition.title()), false);
         Ok(())
     }
     fn relocate(&mut self, id: String, path: &Path) -> Result<(), String> {
@@ -109,7 +109,7 @@ fn detect_entry(entry: &Entry, path: &Path) -> Result<Detected, String> {
     let detected = detection::detect(path)?;
     let previous = detection::RELEASES
         .iter()
-        .find(|r| r.id == entry.release_id && r.game.id() == entry.game_id);
+        .find(|r| r.id == entry.release_id && r.game().id() == entry.game_id);
     if !previous.is_some_and(|r| r.compatible_with(detected.release)) {
         return Err(
             "These files belong to an incompatible game or release. Use Add for a separate entry."

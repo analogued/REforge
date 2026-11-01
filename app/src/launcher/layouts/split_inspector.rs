@@ -275,7 +275,7 @@ fn draw_sidebar_row(
     let sub = if game.status.is_missing() {
         "Missing files".to_string()
     } else {
-        game.metadata.library_line()
+        game.library_line()
     };
     ui.painter().text(
         Pos2::new(text_x, rect.bottom() - 16.0),
@@ -310,7 +310,7 @@ fn draw_hero_details(
                 .strong()
                 .color(ap.tokens.text_primary),
         );
-        if let Some(note) = game.metadata.edition {
+        if let Some(note) = game.edition_label() {
             ui.label(
                 RichText::new(format!("· {note}"))
                     .size(12.5)
@@ -320,7 +320,7 @@ fn draw_hero_details(
     });
 
     let credits = ui.label(
-        RichText::new(game.metadata.detail_line())
+        RichText::new(game.detail_line())
             .size(12.0)
             .color(ap.tokens.text_secondary),
     );
@@ -336,7 +336,7 @@ fn draw_hero_details(
         .layout_no_wrap(" ".into(), font.clone(), colour)
         .size()
         .y;
-    let job = egui::text::LayoutJob::simple(game.metadata.tagline.into(), font, colour, width);
+    let job = egui::text::LayoutJob::simple(game.tagline().into(), font, colour, width);
     let galley = ui.painter().layout_job(job);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     ui.add_space(4.0);
@@ -344,7 +344,7 @@ fn draw_hero_details(
         ui.spacing_mut().item_spacing.x = 8.0;
         draw_palette_dots(ui, ap, game.palette_swatches(), 6.5);
         ui.label(
-            RichText::new(game.metadata.features_line())
+            RichText::new(game.features_line())
                 .size(11.5)
                 .color(ap.tokens.text_muted),
         );

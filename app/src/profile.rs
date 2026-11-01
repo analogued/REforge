@@ -22,7 +22,7 @@ pub fn bind(
     };
     let registered = crate::detection::RELEASES
         .iter()
-        .find(|r| r.id == entry.release_id && r.game.id() == entry.game_id);
+        .find(|r| r.id == entry.release_id && r.game().id() == entry.game_id);
     if !registered
         .is_some_and(|r| r.id == detected.release.id && r.compatible_with(detected.release))
     {

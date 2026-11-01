@@ -30,13 +30,19 @@ fn cache_identity_is_release_content_and_visual_variant_based() {
         ..*release
     };
     assert_ne!(cache_id(release, "cga"), cache_id(&different, "cga"));
-    static REVISED_TEXT: detection::ReleaseMetadata = detection::ReleaseMetadata {
-        title: "Revised display title",
+    static REVISED_GAME: detection::GameMetadata = detection::GameMetadata {
+        title: "Revised canonical title",
         tagline: "Revised editorial line",
-        ..*detection::RELEASES[0].metadata
+        ..*detection::RELEASES[0].edition.game
+    };
+    static REVISED_EDITION: detection::Edition = detection::Edition {
+        id: "synthetic-revised-edition-name",
+        title: Some("Revised display title"),
+        game: &REVISED_GAME,
+        ..*detection::RELEASES[0].edition
     };
     let revised = Release {
-        metadata: &REVISED_TEXT,
+        edition: &REVISED_EDITION,
         ..*release
     };
     assert_eq!(cache_id(release, "cga"), cache_id(&revised, "cga"));
@@ -268,9 +274,9 @@ fn completed_work_is_not_queued_again_after_gameplay_refreshes_the_model() {
     let release = &detection::RELEASES[0];
     let entry = reforge_settings::library::Entry {
         entry_id: "parallel".into(),
-        game_id: release.game.id().into(),
+        game_id: release.game().id().into(),
         release_id: release.id.into(),
-        title: release.metadata.title.into(),
+        title: release.edition.title().into(),
         original: directory.0.join("original"),
         directory: directory.0.clone(),
     };

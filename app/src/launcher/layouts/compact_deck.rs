@@ -202,8 +202,8 @@ fn draw_deck_row(
         title_col,
     );
 
-    let mut meta = game.metadata.detail_line();
-    if let Some(note) = game.metadata.edition {
+    let mut meta = game.detail_line();
+    if let Some(note) = game.edition_label() {
         if !meta.is_empty() {
             meta.push_str(" · ");
         }

@@ -12,11 +12,9 @@ use std::{
 use sha2::{Digest, Sha256};
 
 mod catalog;
-#[cfg(feature = "sdl")]
-pub use catalog::UNKNOWN;
 #[cfg(test)]
-use catalog::{ALLEY_CAT, MACH3};
-pub use catalog::{RELEASES, ReleaseMetadata};
+use catalog::{ALLEY_CAT_DOS, MACH3_DOS};
+pub use catalog::{Edition, GameMetadata, RELEASES};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Game {
@@ -32,11 +30,15 @@ impl Game {
         }
     }
 
-    pub const fn title(self) -> &'static str {
+    pub const fn metadata(self) -> &'static GameMetadata {
         match self {
-            Self::AlleyCat => catalog::ALLEY_CAT.title,
-            Self::Mach3 => catalog::MACH3.title,
+            Self::AlleyCat => &catalog::ALLEY_CAT,
+            Self::Mach3 => &catalog::MACH3,
         }
+    }
+
+    pub const fn title(self) -> &'static str {
+        self.metadata().title
     }
 }
 
@@ -53,14 +55,17 @@ pub struct Release {
     pub id: &'static str,
     /// Verified compatibility of saves and persistent option semantics.
     pub compatibility_id: &'static str,
-    pub game: Game,
-    pub metadata: &'static ReleaseMetadata,
+    pub edition: &'static Edition,
     pub files: &'static [FileRecord],
 }
 
 impl Release {
+    pub const fn game(&self) -> Game {
+        self.edition.game.identity
+    }
+
     pub fn compatible_with(&self, other: &Self) -> bool {
-        self.game == other.game
+        self.game() == other.game()
             && !self.compatibility_id.is_empty()
             && self.compatibility_id == other.compatibility_id
     }
@@ -173,7 +178,7 @@ fn detect_with(
         } else if !paths.is_empty() {
             incomplete.push(format!(
                 "{}: missing {}",
-                release.game.title(),
+                release.game().title(),
                 missing.join(", ")
             ));
         }
@@ -262,12 +267,12 @@ fn detect_with(
     }
     match verified.as_slice() {
         [candidate] => {
-            let original = match candidate.release.game {
+            let original = match candidate.release.game() {
                 Game::AlleyCat => candidate.paths[0].clone(),
                 Game::Mach3 => directory.to_path_buf(),
             };
             Ok(Detected {
-                game: candidate.release.game,
+                game: candidate.release.game(),
                 release: candidate.release,
                 original,
                 files: candidate
@@ -287,7 +292,7 @@ fn detect_with(
                 .iter()
                 .map(|candidate| format!(
                     "{} ({})",
-                    candidate.release.game.title(),
+                    candidate.release.game().title(),
                     candidate.release.id
                 ))
                 .collect::<Vec<_>>()
@@ -344,17 +349,16 @@ mod tests {
         let mut other = Release {
             id: "synthetic-different-packaging",
             compatibility_id: release.compatibility_id,
-            game: release.game,
-            metadata: release.metadata,
+            edition: release.edition,
             files: &[],
         };
         assert!(release.compatible_with(&other));
         other.compatibility_id = "synthetic-incompatible-saves";
         assert!(!release.compatible_with(&other));
         other.compatibility_id = release.compatibility_id;
-        other.game = Game::Mach3;
+        other.edition = &MACH3_DOS;
         assert!(!release.compatible_with(&other));
-        other.game = release.game;
+        other.edition = release.edition;
         other.compatibility_id = "";
         assert!(!other.compatible_with(&other));
     }
@@ -365,8 +369,7 @@ mod tests {
         Release {
             id: "synthetic-cat-a",
             compatibility_id: "alley-cat-dos-original",
-            game: Game::AlleyCat,
-            metadata: &ALLEY_CAT,
+            edition: &ALLEY_CAT_DOS,
             files: &[FileRecord {
                 name: "CAT.EXE",
                 size: 3,
@@ -376,8 +379,7 @@ mod tests {
         Release {
             id: "synthetic-cat-b",
             compatibility_id: "alley-cat-dos-original",
-            game: Game::AlleyCat,
-            metadata: &ALLEY_CAT,
+            edition: &ALLEY_CAT_DOS,
             files: &[FileRecord {
                 name: "CAT.EXE",
                 size: 3,
@@ -387,8 +389,7 @@ mod tests {
         Release {
             id: "synthetic-mach",
             compatibility_id: "mach-3-dos-original",
-            game: Game::Mach3,
-            metadata: &MACH3,
+            edition: &MACH3_DOS,
             files: &[
                 FileRecord {
                     name: "MACH3.EXE",
@@ -741,8 +742,7 @@ mod tests {
             Release {
                 id: "first",
                 compatibility_id: "alley-cat-dos-original",
-                game: Game::AlleyCat,
-                metadata: &ALLEY_CAT,
+                edition: &ALLEY_CAT_DOS,
                 files: &[FileRecord {
                     name: "CAT.EXE",
                     size: 3,
@@ -752,8 +752,7 @@ mod tests {
             Release {
                 id: "second",
                 compatibility_id: "alley-cat-dos-original",
-                game: Game::AlleyCat,
-                metadata: &ALLEY_CAT,
+                edition: &ALLEY_CAT_DOS,
                 files: &[FileRecord {
                     name: "CAT.EXE",
                     size: 3,
@@ -811,7 +810,7 @@ mod tests {
         assert_eq!(RELEASES.len(), 2);
         for release in RELEASES {
             assert!(release.id.contains("verified-reference"));
-            assert!(!release.game.id().is_empty());
+            assert!(!release.game().id().is_empty());
             for file in release.files {
                 assert!(file.size > 0);
                 assert_eq!(file.sha256.len(), 64);
@@ -828,7 +827,7 @@ mod tests {
         }
         let mach = RELEASES
             .iter()
-            .find(|release| release.game == Game::Mach3)
+            .find(|release| release.game() == Game::Mach3)
             .unwrap();
         assert_eq!(mach.files.len(), 7);
     }

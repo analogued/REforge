@@ -111,9 +111,9 @@ fn cache_id(release: &Release, variant: &str) -> String {
     // Version includes the PNG geometry/colour contract; engines version their scene recipes.
     hash.update(format!(
         "reforge-preview-v2\0{}\0{}\0{}\0{}\0",
-        release.game.id(),
+        release.game().id(),
         release.id,
-        revision(release.game),
+        revision(release.game()),
         variant
     ));
     for file in release.files {
@@ -140,7 +140,7 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
     let Some(release) = detection::RELEASES.iter().find(|r| r.id == request.release) else {
         return output;
     };
-    let variants = match release.game {
+    let variants = match release.game() {
         Game::AlleyCat => alleycat::launcher::PREVIEW_VARIANTS,
         Game::Mach3 => mach3::launcher::PREVIEW_VARIANTS,
     };
@@ -155,7 +155,7 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
     for variant in ordered {
         let id = cache_id(release, variant);
         let path = cache.map(|root| root.join(format!("{id}.png")));
-        let frame = match cached_frame(path.as_deref(), || match release.game {
+        let frame = match cached_frame(path.as_deref(), || match release.game() {
             Game::AlleyCat => alleycat::launcher::preview(&detected.original, variant),
             Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
         }) {
@@ -163,7 +163,7 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
             Err(error) => {
                 eprintln!(
                     "REforge: preview unavailable for {} ({variant}): {error}",
-                    release.metadata.title
+                    release.edition.title()
                 );
                 continue;
             }

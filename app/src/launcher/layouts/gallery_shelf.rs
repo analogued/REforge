@@ -315,7 +315,7 @@ fn draw_game_card(
     let sub = if game.status.is_missing() {
         "Missing files".to_string()
     } else {
-        game.metadata.library_line()
+        game.library_line()
     };
     let sub_rect = ui.painter().text(
         Pos2::new(rect.left() + pad, text_top + 19.0),

@@ -58,8 +58,11 @@ not required.
 Add notable user-facing changes to `Unreleased` in [CHANGELOG.md](CHANGELOG.md).
 Group entries by New games, General, individual engines or platforms; include
 only sections that have entries. Summarize the effect for users rather than
-copying commit subjects. [Release packaging](docs/releases.md) documents calendar
-versioning, release tags and the publication workflow.
+copying commit subjects. Under New games, use one "Added support for" entry per
+game, including the platform where relevant.
+
+[Release packaging](docs/releases.md) documents calendar versioning, release tags
+and the publication workflow.
 
 ## Third-party code
 

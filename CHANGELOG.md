@@ -7,8 +7,8 @@ Unreleased contains changes intended for the next public release.
 
 ### New games
 
-- Initial support for the verified DOS releases of Alley Cat and Mach 3, using
-  externally supplied original game files.
+- Added support for Alley Cat (DOS).
+- Added support for Mach 3 (DOS).
 
 ### General
 

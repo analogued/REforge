@@ -554,6 +554,8 @@ names are display names; they are never identifiers. `edition` is an optional
 display label, independent of the release and compatibility IDs. `tagline` is
 the short editorial line such as “Back to the alley”; it is not a game synopsis.
 There is currently no separate description field.
+Split details reserve two lines for the tagline, including when it is absent.
+Longer text is elided with the full tagline available in a tooltip.
 
 Split sidebar entries and Gallery cards show year and developer only. Split
 details and Compact entries can include publisher and genres; identical

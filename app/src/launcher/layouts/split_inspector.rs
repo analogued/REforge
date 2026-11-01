@@ -325,12 +325,20 @@ fn draw_hero_details(
             .color(ap.tokens.text_secondary),
     );
 
-    if !game.metadata.tagline.is_empty() {
-        ui.label(
-            RichText::new(game.metadata.tagline)
-                .size(11.5)
-                .color(ap.tokens.text_muted),
-        );
+    // Reserve two font rows even for an absent or single-line tagline, so
+    // the specs and primary action do not move when switching games.
+    let font = FontId::proportional(11.5);
+    let height = 2.0 * ui.fonts(|fonts| fonts.row_height(&font));
+    let width = ui.available_width();
+    let colour = ap.tokens.text_muted;
+    let mut job = egui::text::LayoutJob::simple(game.metadata.tagline.into(), font, colour, width);
+    job.wrap.max_rows = 2;
+    let galley = ui.painter().layout_job(job);
+    let elided = galley.elided;
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+    ui.painter().galley(rect.min, galley, colour);
+    if elided {
+        response.on_hover_text(game.metadata.tagline);
     }
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {

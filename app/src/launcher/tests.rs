@@ -193,6 +193,68 @@ fn texts(output: &egui::FullOutput) -> Vec<&str> {
 }
 
 #[test]
+fn split_taglines_reserve_two_lines_without_shifting_specs_or_play() {
+    use detection::ReleaseMetadata;
+    static VARIANTS: [ReleaseMetadata; 4] = [
+        ReleaseMetadata {
+            tagline: "",
+            ..*detection::RELEASES[0].metadata
+        },
+        ReleaseMetadata {
+            tagline: "A small cat.",
+            ..*detection::RELEASES[0].metadata
+        },
+        ReleaseMetadata {
+            tagline: "A small cat.\nA very busy neighbourhood.",
+            ..*detection::RELEASES[0].metadata
+        },
+        ReleaseMetadata {
+            tagline: "A small cat.\nA very busy neighbourhood.\nMore than two lines.",
+            ..*detection::RELEASES[0].metadata
+        },
+    ];
+    let fixture = Fixture::new(1);
+    for theme in ThemeId::ALL {
+        for density in [1.0, 1.5, 2.25] {
+            for size in [Vec2::new(630.0, 470.0), Vec2::new(1000.0, 720.0)] {
+                let mut h = Harness::new(&fixture, theme, LayoutVariant::SplitInspector, true);
+                h.size = size;
+                h.density = density;
+                let mut baseline = None;
+                for (index, metadata) in VARIANTS.iter().enumerate() {
+                    h.state.games[0].metadata = metadata;
+                    let output = h.settle();
+                    let specs = text_rect(&output, &metadata.features_line()).unwrap();
+                    let play = text_rect(&output, "Play").unwrap();
+                    if let Some(expected) = baseline {
+                        assert_eq!((specs, play), expected, "{theme:?} {density} {size:?}");
+                    } else {
+                        baseline = Some((specs, play));
+                    }
+                    if !metadata.tagline.is_empty() {
+                        let text = output
+                            .shapes
+                            .iter()
+                            .find_map(|shape| match &shape.shape {
+                                egui::Shape::Text(t) if t.galley.text() == metadata.tagline => {
+                                    Some(t)
+                                }
+                                _ => None,
+                            })
+                            .unwrap();
+                        assert!(text.galley.rows.len() <= 2);
+                        assert!(text.pos.y + text.galley.size().y <= specs.top());
+                        if index == 3 {
+                            assert!(text.galley.elided);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn all_themes_layouts_and_library_states_keep_actions_usable_at_supported_sizes() {
     let fixtures = [
         (Fixture::new(0), true),

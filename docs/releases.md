@@ -39,8 +39,12 @@ python3 tools/package_release.py
 ```
 
 The command builds the `reforge` application in release mode using Cargo.lock
-and writes `out/releases/reforge-<version>-<target>.tar.gz` (ZIP for Windows
-targets). The version is read from Cargo's resolved application metadata.
+and writes `out/releases/reforge-<version>-<platform>-<architecture>.tar.gz`
+(ZIP for Windows targets), for example `reforge-2026.1.0-linux-x86_64.tar.gz`.
+Common targets use Linux, macOS or Windows names, with a `-musl` suffix for Linux
+musl builds. Other targets retain their full Rust target name. The full Rust
+target is always recorded in the notices. The version is read from Cargo's
+resolved application metadata.
 The archive contains the executable, the root GPLv3 `LICENSE` and one
 self-contained `THIRD_PARTY.html`. Packaging fails if `LICENSE` is missing.
 This command creates a local artifact; it does not publish a release. It does

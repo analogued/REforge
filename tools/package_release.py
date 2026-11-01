@@ -106,6 +106,21 @@ def feature_flags(args):
     return flags
 
 
+def package_target(target):
+    architecture, _, platform = target.partition("-")
+    platforms = {
+        "unknown-linux-gnu": ("linux", ""),
+        "unknown-linux-musl": ("linux", "-musl"),
+        "apple-darwin": ("macos", ""),
+        "pc-windows-msvc": ("windows", ""),
+    }
+    if platform in platforms:
+        name, suffix = platforms[platform]
+        return f"{name}-{architecture}{suffix}"
+    # Retain unfamiliar targets rather than hiding a potentially distinct ABI.
+    return target
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", help="Rust target triple (default: rustc host)")
@@ -129,7 +144,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     lock_before = (ROOT / "Cargo.lock").read_bytes()
     with tempfile.TemporaryDirectory(prefix="reforge-package-") as temporary:
-        stage = Path(temporary) / f"reforge-{version}-{target}"
+        stage = Path(temporary) / f"reforge-{version}-{package_target(target)}"
         stage.mkdir()
         notice = stage / "THIRD_PARTY.html"
         notice.write_text(notices(args, target, version), encoding="utf-8")

@@ -319,29 +319,28 @@ fn draw_hero_details(
         }
     });
 
-    ui.label(
+    let credits = ui.label(
         RichText::new(game.metadata.detail_line())
             .size(12.0)
             .color(ap.tokens.text_secondary),
     );
 
-    // Reserve two font rows even for an absent or single-line tagline, so
-    // the specs and primary action do not move when switching games.
+    // Keep the original single-line layout height, even without a tagline.
+    // A second line uses the existing gaps without moving the other elements.
     let font = FontId::proportional(11.5);
-    let height = 2.0 * ui.fonts(|fonts| fonts.row_height(&font));
     let width = ui.available_width();
     let colour = ap.tokens.text_muted;
-    let mut job = egui::text::LayoutJob::simple(game.metadata.tagline.into(), font, colour, width);
-    job.wrap.max_rows = 2;
+    // Use the laid-out height, including the original Label's rounding.
+    let height = ui
+        .painter()
+        .layout_no_wrap(" ".into(), font.clone(), colour)
+        .size()
+        .y;
+    let job = egui::text::LayoutJob::simple(game.metadata.tagline.into(), font, colour, width);
     let galley = ui.painter().layout_job(job);
-    let elided = galley.elided;
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
-    ui.painter().galley(rect.min, galley, colour);
-    if elided {
-        response.on_hover_text(game.metadata.tagline);
-    }
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     ui.add_space(4.0);
-    ui.horizontal_wrapped(|ui| {
+    let specs = ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
         draw_palette_dots(ui, ap, game.palette_swatches(), 6.5);
         ui.label(
@@ -350,6 +349,12 @@ fn draw_hero_details(
                 .color(ap.tokens.text_muted),
         );
     });
+    let tagline_top = rect
+        .top()
+        .min(specs.response.rect.top() - galley.size().y - 1.0)
+        .max(credits.rect.bottom() + 1.0);
+    ui.painter()
+        .galley(Pos2::new(rect.left(), tagline_top), galley, colour);
 
     ui.add_space(if compact { 8.0 } else { 12.0 });
     let btn_size = if compact {

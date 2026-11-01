@@ -193,7 +193,7 @@ fn texts(output: &egui::FullOutput) -> Vec<&str> {
 }
 
 #[test]
-fn split_taglines_reserve_two_lines_without_shifting_specs_or_play() {
+fn split_taglines_keep_original_spacing_and_fit_a_second_line() {
     use detection::ReleaseMetadata;
     static VARIANTS: [ReleaseMetadata; 4] = [
         ReleaseMetadata {
@@ -209,7 +209,7 @@ fn split_taglines_reserve_two_lines_without_shifting_specs_or_play() {
             ..*detection::RELEASES[0].metadata
         },
         ReleaseMetadata {
-            tagline: "A small cat.\nA very busy neighbourhood.\nMore than two lines.",
+            tagline: "A small cat. A very busy neighbourhood.",
             ..*detection::RELEASES[0].metadata
         },
     ];
@@ -221,11 +221,32 @@ fn split_taglines_reserve_two_lines_without_shifting_specs_or_play() {
                 h.size = size;
                 h.density = density;
                 let mut baseline = None;
-                for (index, metadata) in VARIANTS.iter().enumerate() {
+                for metadata in &VARIANTS {
                     h.state.games[0].metadata = metadata;
                     let output = h.settle();
                     let specs = text_rect(&output, &metadata.features_line()).unwrap();
                     let play = text_rect(&output, "Play").unwrap();
+                    let credits = text_rect(&output, &metadata.detail_line()).unwrap();
+                    // Match the original one-line Label plus the two normal
+                    // inter-widget gaps and the existing explicit four points.
+                    let original_label_height = h.context.fonts(|fonts| {
+                        fonts
+                            .layout_no_wrap(
+                                "A small cat.".into(),
+                                egui::FontId::proportional(11.5),
+                                egui::Color32::WHITE,
+                            )
+                            .size()
+                            .y
+                    });
+                    let original_gap = original_label_height
+                        + 2.0 * h.context.style().spacing.item_spacing.y
+                        + 4.0;
+                    assert!(
+                        (specs.top() - credits.bottom() - original_gap).abs() < 0.02,
+                        "original spacing changed: {theme:?} {density} {size:?}: actual {} expected {original_gap}, label {original_label_height}",
+                        specs.top() - credits.bottom()
+                    );
                     if let Some(expected) = baseline {
                         assert_eq!((specs, play), expected, "{theme:?} {density} {size:?}");
                     } else {
@@ -244,9 +265,8 @@ fn split_taglines_reserve_two_lines_without_shifting_specs_or_play() {
                             .unwrap();
                         assert!(text.galley.rows.len() <= 2);
                         assert!(text.pos.y + text.galley.size().y <= specs.top());
-                        if index == 3 {
-                            assert!(text.galley.elided);
-                        }
+                        assert!(!text.galley.elided);
+                        assert!(text.pos.y >= credits.bottom());
                     }
                 }
             }

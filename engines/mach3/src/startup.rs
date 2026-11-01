@@ -1,9 +1,9 @@
 // Copyright (c) 2026 analogued. Project license has not been selected.
 //! Startup screen assets, timer wait, and manual diagnostic presentation.
 
-#[cfg(any(feature = "viewer", test))]
+#[cfg(any(feature = "sdl", test))]
 mod splash;
-#[cfg(feature = "viewer")]
+#[cfg(feature = "sdl")]
 pub(crate) use splash::{SPLASH_DIVISOR, SplashWait};
 
 use std::path::Path;
@@ -30,7 +30,7 @@ pub struct StartupFrames {
 }
 
 impl StartupFrames {
-    #[cfg(all(test, feature = "viewer"))]
+    #[cfg(all(test, feature = "sdl"))]
     pub(crate) fn from_test_graphics(graphics: GraphicsAssets) -> Self {
         let initial = scene::initial_frame(&graphics).unwrap();
         Self {

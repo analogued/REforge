@@ -31,7 +31,7 @@ Call `capture_pass_snapshots(true)` before stepping when an observer needs
 enable this capture; ordinary live playback does not. Frame publication is unchanged.
 
 Replay preserves the original per-poll F3 behavior, including repeated mode
-switches while F3 is held. The interactive viewer's default `--f3-mode press`
+switches while F3 is held. The interactive frontend's default `--f3-mode press`
 policy is not applied to recorded original inputs. Select `--f3-mode original`
 when comparing live physical input against original execution; press mode is an
 intentional convenience that can change mode/palette state and control results.

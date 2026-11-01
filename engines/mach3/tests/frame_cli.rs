@@ -189,9 +189,9 @@ fn short_expanded_program_reports_an_error_instead_of_panicking() {
     assert_eq!(result.status.code(), Some(1), "{result:?}");
     assert!(String::from_utf8_lossy(&result.stderr).contains("truncated program data segment"));
     assert!(!directory.0.join("output").exists());
-    #[cfg(feature = "viewer")]
+    #[cfg(feature = "sdl")]
     {
-        let result = Command::new(env!("CARGO_BIN_EXE_mach3-viewer"))
+        let result = Command::new(env!("CARGO_BIN_EXE_mach-3"))
             .args(["--static", "--original"])
             .arg(&directory.0)
             .output()

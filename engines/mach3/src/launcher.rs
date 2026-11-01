@@ -91,7 +91,7 @@ pub fn preview(
         "cga" => (320, frame.rgb()),
         "mono" => (
             640,
-            crate::viewer::display_rgb(frame, crate::gameplay::DisplayMode::Monochrome, 1),
+            crate::platform::display_rgb(frame, crate::gameplay::DisplayMode::Monochrome, 1),
         ),
         _ => return Err("Unknown preview video mode".into()),
     };

@@ -34,7 +34,7 @@ pub struct GameplayRuntime {
 }
 
 impl GameplayRuntime {
-    #[cfg(feature = "viewer")]
+    #[cfg(feature = "sdl")]
     pub(crate) fn next_transition_deadline(&self) -> Option<u64> {
         self.task.next_transition_deadline()
     }

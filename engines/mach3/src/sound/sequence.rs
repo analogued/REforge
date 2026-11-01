@@ -28,7 +28,7 @@ pub struct IntroProgram {
 }
 
 impl IntroProgram {
-    #[cfg(all(test, feature = "viewer"))]
+    #[cfg(all(test, feature = "sdl"))]
     pub(crate) fn synthetic() -> Self {
         Self::from_expanded(&tests::fixture()).unwrap()
     }

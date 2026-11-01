@@ -1,10 +1,11 @@
 # Native timing diagnostics
 
-Build with `viewer,dev-tools` and supply `--trace-timing /path/to/new-timing.tsv`
-to the viewer or a REforge build with `dev-tools`. The normal standalone viewer
-rejects this option; normal REforge builds warn and ignore it. It can run alongside
-`--trace-input` using a separate destination. Files
-are created exclusively, never truncated; write and flush errors stop the run.
+Build with `dev-tools` and the default `sdl` feature, then supply
+`--trace-timing /path/to/new-timing.tsv` to the standalone `mach-3` executable
+or REforge. The normal standalone executable rejects this option; normal
+REforge builds warn and ignore it. It can run alongside `--trace-input` using
+a separate destination. Files are created exclusively, never truncated; write
+and flush errors stop the run.
 
 The trace observes the existing scheduler and renderer. It does not change the
 body period, catch-up limit, input polling, scene algorithms or deliberate waits.

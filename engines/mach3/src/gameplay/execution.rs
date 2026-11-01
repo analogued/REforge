@@ -139,7 +139,7 @@ struct TransitionPlayback {
 
 impl GameplayTask {
     /// Read-only host scheduling hint; the transition remains owned by execution.
-    #[cfg(feature = "viewer")]
+    #[cfg(feature = "sdl")]
     pub(crate) fn next_transition_deadline(&self) -> Option<u64> {
         self.transition
             .as_ref()

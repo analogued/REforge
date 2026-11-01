@@ -170,17 +170,17 @@ impl Ending {
         }
     }
 
-    #[cfg(feature = "viewer")]
+    #[cfg(feature = "sdl")]
     pub(crate) fn prepare_initial_title(&mut self) {
         self.prepare_title(EndingTitle::GameOver);
     }
 
-    #[cfg(feature = "viewer")]
+    #[cfg(feature = "sdl")]
     pub(crate) fn prepare_following_title(&mut self) {
         self.prepare_title(self.other_title());
     }
 
-    #[cfg(feature = "viewer")]
+    #[cfg(feature = "sdl")]
     pub(crate) fn finish_mandatory_title(&mut self) {
         debug_assert!(self.next_step_starts_title());
         self.state.world[5].depth += 28;
@@ -190,7 +190,7 @@ impl Ending {
     }
 
     /// Title entry has an unconditional input-release gate before its mutation.
-    #[cfg(feature = "viewer")]
+    #[cfg(feature = "sdl")]
     pub(crate) fn next_step_starts_title(&self) -> bool {
         match self.state.stage {
             EndingStage::Departure => {
@@ -215,7 +215,7 @@ impl Ending {
 
     /// The original comparison marks only a strict improvement, before copying
     /// score digits. Equal scores do not select the mandatory high-score sample.
-    #[cfg(feature = "viewer")]
+    #[cfg(feature = "sdl")]
     pub(crate) fn new_best(&self) -> bool {
         self.new_best
     }

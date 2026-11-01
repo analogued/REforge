@@ -4,7 +4,7 @@
 use reforge_audio::PIT_HZ;
 
 /// Channel zero is reprogrammed directly, without the game's counter helper.
-#[cfg(feature = "viewer")]
+#[cfg(feature = "sdl")]
 pub(crate) const SPLASH_DIVISOR: u16 = 0x2a30;
 const BIOS_DAY_TICKS: u32 = 0x1800b0;
 

@@ -8,7 +8,7 @@ description = "REforge game reconstructions for modern desktop systems"
 
 [features]
 default = ["sdl"]
-sdl = ["alleycat/sdl", "mach3/viewer", "dep:reforge_sdl", "dep:unicode-segmentation", "dep:png", "dep:fs2"]
+sdl = ["alleycat/sdl", "mach3/sdl", "dep:reforge_sdl", "dep:unicode-segmentation", "dep:png", "dep:fs2"]
 dev-tools = ["alleycat/dev-tools", "mach3/dev-tools"]
 
 [dependencies]

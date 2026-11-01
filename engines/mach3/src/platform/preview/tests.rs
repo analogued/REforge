@@ -730,7 +730,7 @@ fn ordinary_simulation_matches_at_15_30_60_and_120_presentations_per_second() {
             game.session.keyboard.apply_scan(scan);
         }
         // Simulate blocking presentation by advancing the host clock between
-        // calls to the exact same scheduling path used by the SDL viewer.
+        // calls to the exact same scheduling path used by the SDL frontend.
         for frame in 1..=fps {
             let now = start + Duration::from_nanos(1_000_000_000 * frame / fps);
             game.advance(&assets, &options, now).unwrap();
@@ -770,7 +770,7 @@ fn timing_spans_observe_catch_up_and_blocking_waits_without_changing_state() {
     let unit = NOMINAL_PREVIEW_BODY_PERIOD / 4;
     let origin = Instant::now();
     let path = std::env::temp_dir().join(format!(
-        "mach3-timing-viewer-{}-{}.tsv",
+        "mach3-timing-platform-{}-{}.tsv",
         std::process::id(),
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

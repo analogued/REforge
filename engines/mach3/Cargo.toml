@@ -7,7 +7,8 @@ publish = false
 description = "Reconstructed DOS Mach 3 engine"
 
 [features]
-viewer = ["dep:reforge_sdl", "reforge_audio/blip"]
+default = ["sdl"]
+sdl = ["dep:reforge_sdl", "reforge_audio/blip"]
 dev-tools = ["reforge_audio/blip", "reforge_sdl?/dev-tools"]
 
 [dependencies]
@@ -20,9 +21,9 @@ path = "src/main.rs"
 required-features = ["dev-tools"]
 
 [[bin]]
-name = "mach3-viewer"
-path = "src/bin/viewer.rs"
-required-features = ["viewer"]
+name = "mach-3"
+path = "src/bin/mach-3.rs"
+required-features = ["sdl"]
 
 [[bin]]
 name = "mach3-opening"

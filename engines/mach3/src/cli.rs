@@ -2,12 +2,12 @@
 #![forbid(unsafe_code)]
 
 #[cfg(feature = "dev-tools")]
-use crate::viewer::Playback;
+use crate::platform::Playback;
 use crate::{
     gameplay::{DisplayMode, F3Mode},
+    platform::Options,
     sound::render::AudioRenderer,
     startup::StartupFrames,
-    viewer::Options,
 };
 use std::{
     collections::BTreeMap,
@@ -45,10 +45,10 @@ fn help() -> String {
     }
 }
 
-/// Run the Mach 3 viewer with arguments excluding the executable name.
+/// Run the Mach 3 windowed frontend with arguments excluding the executable name.
 ///
-/// The `viewer` feature provides this entry point for REforge and the standalone
-/// `mach3-viewer` binary.
+/// The `sdl` feature provides this entry point for REforge and the standalone
+/// `mach-3` binary.
 pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
     run_with_files(args, &BTreeMap::new())
 }
@@ -73,13 +73,13 @@ pub fn run_with_files(
     .map_err(|error| error.to_string())?;
     #[cfg(feature = "dev-tools")]
     if options.is_preview() {
-        return crate::viewer::run_preview(&frames, options, rules);
+        return crate::platform::run_preview(&frames, options, rules);
     }
     let samples = crate::sound::SoundAssets::load_with(&mut read).map_err(|e| e.to_string())?;
     let intro = crate::sound::IntroProgram::from_expanded(&program).map_err(|e| e.to_string())?;
     let procedural =
         crate::sound::ProceduralProgram::from_expanded(&program).map_err(|e| e.to_string())?;
-    crate::viewer::run_live(&frames, options, rules, samples, intro, procedural)
+    crate::platform::run_live(&frames, options, rules, samples, intro, procedural)
 }
 
 fn read_selected(
@@ -97,7 +97,7 @@ fn read_selected(
     }
 }
 
-/// Validate the viewer argument contract without loading original data or SDL.
+/// Validate the windowed argument contract without loading original data or SDL.
 pub fn validate_arguments(args: impl Iterator<Item = OsString>) -> Result<(), String> {
     parse_args(args).map(|_| ())
 }
@@ -231,7 +231,7 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
 mod tests {
     use super::{help, parse_args};
     #[cfg(feature = "dev-tools")]
-    use crate::viewer::Playback;
+    use crate::platform::Playback;
     use crate::{gameplay::F3Mode, sound::render::AudioRenderer};
     use std::{ffi::OsString, path::PathBuf};
 
@@ -553,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn f3_mode_defaults_to_press_and_is_available_in_all_viewer_modes() {
+    fn f3_mode_defaults_to_press_and_is_available_in_all_playback_modes() {
         let (_, defaults) = parse_args(args(&["--original", "assets"]))
             .unwrap()
             .unwrap();

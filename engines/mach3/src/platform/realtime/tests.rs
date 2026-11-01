@@ -21,7 +21,7 @@ use std::{
 #[test]
 fn shared_prefill_allows_startup_and_catchup_recovery() {
     const TEST: &str =
-        "viewer::realtime::tests::shared_prefill_allows_startup_and_catchup_recovery";
+        "platform::realtime::tests::shared_prefill_allows_startup_and_catchup_recovery";
     const MARKER: &str = "REFORGE_MACH3_PREFILL_TEST";
     if std::env::var(MARKER).as_deref() != Ok(TEST) {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
@@ -67,7 +67,7 @@ fn shared_prefill_allows_startup_and_catchup_recovery() {
 #[test]
 fn stalled_startup_and_device_reset_wait_for_current_prefill() {
     const TEST: &str =
-        "viewer::realtime::tests::stalled_startup_and_device_reset_wait_for_current_prefill";
+        "platform::realtime::tests::stalled_startup_and_device_reset_wait_for_current_prefill";
     const MARKER: &str = "REFORGE_MACH3_PREFILL_TEST";
     if std::env::var(MARKER).as_deref() != Ok(TEST) {
         let output = std::process::Command::new(std::env::current_exe().unwrap())

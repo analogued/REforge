@@ -81,7 +81,7 @@ pub static ALLEY_CAT: ReleaseMetadata = ReleaseMetadata {
     edition: None,
     video_features: &["320×200", "CGA / PCjr"],
     audio_features: &["PC speaker"],
-    tagline: "A small cat. A very busy neighbourhood.",
+    tagline: "A small cat, a very busy neighbourhood.",
 };
 pub static MACH3: ReleaseMetadata = ReleaseMetadata {
     title: "Mach 3",

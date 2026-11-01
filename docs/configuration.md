@@ -434,13 +434,13 @@ if it disconnects. Device-open failures warn and leave keyboard play available.
 
 The bottom face button advances title/start screens. Alley Cat's skill question
 accepts Up/Down to choose among its four initial skills and the bottom button to
-confirm; another fresh press starts play after the instructions. Settings editing
-currently uses keyboard/mouse. Bindings are fixed; the right stick, triggers and
-remaining buttons are unassigned.
+confirm; another fresh press starts play after the instructions. Settings supports
+keyboard, mouse and controller navigation. Bindings are fixed; the right stick,
+triggers and remaining buttons are unassigned.
 
 **Stick dead zone** is an integer percentage from 5 to 90, default 35. Set it in
-Global defaults → Controls, or uncheck the defaults checkbox in a game's Controls
-page to override it. TOML uses `[global.controls] stick_dead_zone = 35` and
+Global defaults → Controls, or check **Override global defaults** in a game's
+Controls page to override it. TOML uses `[global.controls] stick_dead_zone = 35` and
 `[entries.<entry-id>.controls] stick_dead_zone = 35`. Apply activates and saves the
 value; Cancel discards edits. There is no corresponding command-line option.
 

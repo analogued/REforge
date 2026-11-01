@@ -51,8 +51,8 @@ skill selection. Start/Menu pauses; Back/View opens Settings.
 **Responsive controls** are enabled by default. They reduce the wait before
 direction and action requests are read, while preserving movement speed and
 jump physics. To use the original polling behavior, open
-**F10 → Alley Cat overrides → Controls → Input response**. Uncheck the section's
-defaults checkbox to edit, then Apply.
+**F10 → Alley Cat overrides → Controls → Input response**. Check
+**Override global defaults** to edit, then Apply.
 
 **CGA or PCjr graphics:** CGA is the default. Add `--machine pcjr` to select
 the PCjr palette. Both modes currently use PC Speaker sound.

@@ -55,13 +55,13 @@ while keeping the synthesized procedural effects. Check **Override global
 defaults** to edit, then Apply. The default is PC Speaker.
 
 **Digitized samples:** setting this to Off on the same page reproduces the
-original DOS game's `S`/`s` command-line behavior. It skips recorded speech/music
-in the intro, pre-game, completion and Game Over/High Score sequences while
-retaining procedural effects. The native playback calls and their timing/input
-effects are skipped, and the preference applies on the next application launch.
-REforge also accepts bare `S`/`s` as aliases for `--digitized-samples off`, a
-temporary override for that run. To silence a category without skipping its
-sequence, use the Music or Speech volume instead.
+original DOS game's behaviour when launched with the `S` command-line argument.
+It skips recorded speech/music in the intro, pre-game, completion and Game
+Over/High Score sequences while retaining procedural effects. The native playback
+calls and their timing/input effects are skipped, and the preference applies on
+the next application launch. REforge also accepts `S` as an alias for
+`--digitized-samples off`, a temporary override for that run. To silence a category
+without skipping its sequence, use the Music or Speech volume instead.
 
 **Colour / monochrome:** choose the initial display in the launcher's Video
 options, or use `--video cga|mono`. F3 switches once per press during play;

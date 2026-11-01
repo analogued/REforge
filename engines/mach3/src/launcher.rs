@@ -31,6 +31,8 @@ pub const OPTIONS: &[OptionDefinition] = &[
             argument: "--video",
         },
     },
+    DISPLAY,
+    WINDOW,
     OptionDefinition {
         label: "Audio",
         choices: &[
@@ -38,7 +40,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
                 value: "speaker",
                 label: "PC speaker",
                 short_label: "Speaker",
-                badge: Some("Speaker"),
+                badge: None,
                 palette: None,
             },
             Choice {
@@ -52,29 +54,6 @@ pub const OPTIONS: &[OptionDefinition] = &[
         default: "speaker",
         storage: Storage::Shared("audio_renderer"),
     },
-    OptionDefinition {
-        label: "Samples",
-        choices: &[
-            Choice {
-                value: "true",
-                label: "On",
-                short_label: "On",
-                badge: None,
-                palette: None,
-            },
-            Choice {
-                value: "false",
-                label: "Off",
-                short_label: "Off",
-                badge: None,
-                palette: None,
-            },
-        ],
-        default: "true",
-        storage: Storage::Shared("digitized_samples"),
-    },
-    DISPLAY,
-    WINDOW,
 ];
 
 /// Native dimensions for Settings' aspect labels; both modes target a 4:3 CRT.

@@ -535,6 +535,13 @@ Native choices are passed through the ordinary engine argument parser on launche
 starts; command-line launches retain their explicit startup arguments. Engine
 metadata supplies available choices, badge labels and optional palette colours.
 
+Mach 3 quick options are ordered Video, Display, Window, then Audio. Digitized
+samples are configured through the full Audio settings or the command line;
+editing quick options preserves the per-entry sample preference.
+Preview badges follow the same option order, omitting choices without badge text.
+PC speaker contributes no badge; Enhanced PCM contributes `PCM`, following `CRT`
+when CRT treatment is enabled.
+
 The player-facing data has two owners:
 
 | Owner | Data |

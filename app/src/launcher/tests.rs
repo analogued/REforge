@@ -467,6 +467,44 @@ fn both_engines_quick_options_fit_the_minimum_logical_window() {
 }
 
 #[test]
+fn mach3_quick_presentation_options_preserve_hidden_sample_preferences() {
+    let fixture = Fixture::new(2);
+    let mut session = fixture.session("mach-3");
+    let mut draft = session.saved.clone();
+    draft
+        .game
+        .insert("digitized_samples".into(), "false".into());
+    session.commit(draft).unwrap();
+    let mut h = Harness::new(
+        &fixture,
+        ThemeId::ClassicDark,
+        LayoutVariant::SplitInspector,
+        true,
+    );
+    h.state.selected = Some(h.state.games[1].entry_id.clone());
+    let game = &mut h.state.games[1];
+    game.save_option("Video", "Monochrome");
+    game.save_option("Display", "Hyllian CRT");
+    game.save_option("Window", "Fullscreen");
+    assert_eq!(game.full_mode_label(), "Mono · CRT");
+    game.save_option("Audio", "Enhanced PCM");
+    assert!(game.error.is_none());
+    assert_eq!(game.full_mode_label(), "Mono · CRT · PCM");
+    assert_eq!(
+        fixture.session("mach-3").saved.game["digitized_samples"],
+        "false"
+    );
+    let output = h.settle();
+    assert!(!texts(&output).contains(&"Samples"));
+    let mut previous = f32::NEG_INFINITY;
+    for label in ["Video", "Display", "Window", "Audio"] {
+        let rect = text_rect(&output, label).unwrap();
+        assert!(rect.top() > previous, "quick options are out of order");
+        previous = rect.top();
+    }
+}
+
+#[test]
 fn immediate_pins_survive_reloads_and_global_changes_even_when_values_match() {
     for theme in ThemeId::ALL {
         for layout in LayoutVariant::ALL {

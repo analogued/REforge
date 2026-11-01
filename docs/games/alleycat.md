@@ -5,6 +5,11 @@ challenges, and reach the female cat in the Hearts stage. REforge includes all
 five ordinary rooms, the underwater section and the Hearts bonus scene, with
 PC Speaker music and effects.
 
+> [!IMPORTANT]
+> REforge does not include original Alley Cat assets or data. You must provide
+> the original files from a supported release. See [What you need](#what-you-need)
+> below for details.
+
 [Back to REforge](../../README.md)
 
 ## What you need

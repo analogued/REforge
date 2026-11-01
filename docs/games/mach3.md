@@ -4,6 +4,11 @@ Steer and shoot through the DOS version of Mach 3, with its animated opening,
 recorded speech and music, and procedural sound effects. REforge offers the
 original PC Speaker presentation and an alternative Enhanced PCM audio renderer.
 
+> [!IMPORTANT]
+> REforge does not include original Mach 3 assets or data. You must provide
+> the original files from a supported release. See [What you need](#what-you-need)
+> below for details.
+
 [Back to REforge](../../README.md)
 
 ## What you need

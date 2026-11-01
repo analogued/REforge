@@ -557,6 +557,10 @@ There is currently no separate description field.
 Split details keep the original single-line tagline spacing, including when the
 tagline is absent. A second line uses the existing gaps above and below without
 moving the credits, specs or Play button. Taglines have no ellipsis or tooltip.
+Keep catalog taglines short enough to fit within two lines at the launcher's
+630 × 470 logical UI unit minimum. A rendering regression check enforces this
+across themes and representative display densities; tagline length does not
+raise the runtime window minimum.
 
 Split sidebar entries and Gallery cards show year and developer only. Split
 details and Compact entries can include publisher and genres; identical

@@ -275,6 +275,44 @@ fn split_taglines_keep_original_spacing_and_fit_a_second_line() {
 }
 
 #[test]
+fn catalog_taglines_fit_the_minimum_split_window() {
+    let fixture = Fixture::new(detection::RELEASES.len());
+    for theme in ThemeId::ALL {
+        for density in [1.0, 1.5, 2.0, 2.25] {
+            let mut h = Harness::new(&fixture, theme, LayoutVariant::SplitInspector, true);
+            h.size = Vec2::new(MIN_LOGICAL_SIZE.0 as f32, MIN_LOGICAL_SIZE.1 as f32);
+            h.density = density;
+            for (index, release) in detection::RELEASES.iter().enumerate() {
+                let metadata = release.metadata;
+                if metadata.tagline.is_empty() {
+                    continue;
+                }
+                h.state.selected = Some(h.state.games[index].entry_id.clone());
+                let output = h.settle();
+                let tagline = output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(t) if t.galley.text() == metadata.tagline => Some(t),
+                        _ => None,
+                    })
+                    .expect("catalog tagline must be visible");
+                let credits = text_rect(&output, &metadata.detail_line()).unwrap();
+                let specs = text_rect(&output, &metadata.features_line()).unwrap();
+                assert!(
+                    tagline.galley.rows.len() <= 2
+                        && !tagline.galley.elided
+                        && tagline.pos.y >= credits.bottom()
+                        && tagline.pos.y + tagline.galley.size().y <= specs.top(),
+                    "Shorten the tagline for {}: it must fit between credits and specs in at most two lines at the minimum launcher size ({theme:?}, density {density})",
+                    release.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn all_themes_layouts_and_library_states_keep_actions_usable_at_supported_sizes() {
     let fixtures = [
         (Fixture::new(0), true),

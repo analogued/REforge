@@ -174,6 +174,8 @@ fn show_folder(canvas: &WindowCanvas, initial: Option<&Path>) -> mpsc::Receiver<
     }
     receiver
 }
+const MIN_LOGICAL_SIZE: (u32, u32) = (630, 470);
+
 fn canvas(video: &sdl3::VideoSubsystem) -> Result<WindowCanvas, String> {
     let mut window = video
         .window("REforge", 880, 560)
@@ -201,8 +203,8 @@ fn canvas(video: &sdl3::VideoSubsystem) -> Result<WindowCanvas, String> {
     window.set_size(size.0, size.1).map_err(|e| e.to_string())?;
     window
         .set_minimum_size(
-            ((630.0 * ratio) as u32).min(size.0),
-            ((470.0 * ratio) as u32).min(size.1),
+            ((MIN_LOGICAL_SIZE.0 as f32 * ratio) as u32).min(size.0),
+            ((MIN_LOGICAL_SIZE.1 as f32 * ratio) as u32).min(size.1),
         )
         .map_err(|e| e.to_string())?;
     window.set_position(

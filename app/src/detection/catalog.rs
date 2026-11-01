@@ -20,6 +20,7 @@ pub struct ReleaseMetadata {
     pub video_features: &'static [&'static str],
     pub audio_features: &'static [&'static str],
     /// Short editorial launcher line, distinct from a possible future synopsis.
+    /// Must fit within two lines at the supported minimum launcher width.
     pub tagline: &'static str,
 }
 

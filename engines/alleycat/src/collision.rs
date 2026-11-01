@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Shared CS:2e29 rectangle test. Keep native byte/word widths, inclusive
 //! endpoints, wrapping upper sums and borrow-clamped lower endpoints.
 

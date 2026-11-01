@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. License has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! External assets from the supported executable, never bundled with the program.
 

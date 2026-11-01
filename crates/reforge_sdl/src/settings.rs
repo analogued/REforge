@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Host settings UI, painted through SDL geometry on every renderer.
 //! Game input and clocks remain the responsibility of each engine adapter.

@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Temporary menu space without changing the player's display preferences.
 
 use crate::settings::{RuntimeSettings, SettingsMenu, UiMetrics};

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Zlib AND GPL-3.0-or-later
 /*
   Simple DirectMedia Layer
   Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
@@ -25,7 +26,7 @@
 // (public domain VGA fonts); the font definition is marked Public Domain.
 // The SDL source-file notice above is retained; see the root THIRD_PARTY.md.
 // Authored CGA packing helper: Copyright (c) 2026 analogued.
-// Project license has not yet been selected.
+// The authored packing helper is licensed under GPL-3.0-or-later.
 
 //! BIOS-style scoring text, shared by windowed and headless presentation.
 //! Rows follow SDL's orientation: bit zero is the leftmost pixel.

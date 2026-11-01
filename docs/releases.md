@@ -17,8 +17,8 @@ python3 tools/package_release.py
 
 The command builds the `reforge` application in release mode using Cargo.lock
 and writes `out/releases/reforge-<target>.tar.gz` (ZIP for Windows targets).
-The archive contains the executable and one self-contained `THIRD_PARTY.html`.
-Once the project license is selected, the root `LICENSE` is included as well.
+The archive contains the executable, the root GPLv3 `LICENSE` and one
+self-contained `THIRD_PARTY.html`. Packaging fails if `LICENSE` is missing.
 This command creates a local artifact; it does not publish a release. It does
 not bundle original game data, SDL or other system libraries. Players need the
 SDL3 runtime for the normal build; bundling native libraries requires reviewing
@@ -68,3 +68,16 @@ build output, outside Git.
 
 Warnings about clarifications for crates absent from the selected graph are
 expected when changing targets or disabling SDL features.
+
+## Source for binary releases
+
+REforge's authored code and documentation use `GPL-3.0-or-later`. For binary
+releases, publish the complete corresponding source for the exact released
+revision alongside the binary downloads, following [GPLv3 section 6](https://www.gnu.org/licenses/gpl-3.0.html#section6).
+The source must include the build scripts, Cargo.lock and shader sources needed
+to rebuild that version. Original game data remains an external player input
+and must not be included.
+
+Create the source archive from the same clean release commit used for the
+binary build. The packaging command creates the binary archive and notices;
+publishing the matching source is a separate release step.

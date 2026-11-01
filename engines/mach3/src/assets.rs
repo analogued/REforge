@@ -1,5 +1,5 @@
-// Copyright (c) 2026 analogued
-// The project license has not yet been chosen.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Decode the original packed graphics into row-major CGA bytes.
 

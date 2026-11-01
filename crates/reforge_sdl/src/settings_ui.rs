@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Compact settings pages. Editing is separate from activation and persistence.
 //! Register interactive responses with control/group_control/value_control (or Selector/collapsing)
 //! so keyboard/controller navigation targets settings rather than scroll geometry.

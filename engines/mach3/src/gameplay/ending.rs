@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Post-game title zooms over the retained world and the best-score presentation.
 
 use super::{EnemyState, Random, Snapshot, presentation::Presentation, special::Special};

@@ -46,6 +46,7 @@
   engine crate. The RE method and external data requirements are game-specific.
 - All games require external original data. Do not bundle extracted assets or
   substitute recreated data to make the application standalone.
-- The license is a project-specific decision and has not been chosen. Once chosen,
-  keep its full text in `LICENSE`, state it in the README, and add short copyright
-  and SPDX license headers to authored code files. Preserve third-party notices.
+- Authored code and documentation use `GPL-3.0-or-later`. Keep the full license
+  text in `LICENSE`, state it in the README, and include short copyright and
+  SPDX license headers in authored code files. Preserve third-party licenses
+  and notices; do not replace them with the project license.

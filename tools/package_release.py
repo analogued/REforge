@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 analogued.
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Build REforge and package it with one complete third-party notices document."""
 
 import argparse
@@ -106,6 +108,9 @@ def main():
     # Also protects the archive name from separators supplied in --target.
     if not target or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789_-." for c in target):
         parser.error("Expected a Rust target triple")
+    project_license = ROOT / "LICENSE"
+    if not project_license.is_file():
+        raise ValueError("Missing project LICENSE")
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
     lock_before = (ROOT / "Cargo.lock").read_bytes()
@@ -135,8 +140,7 @@ def main():
                           if item.get("reason") == "compiler-artifact"
                           and item["target"]["name"] == "reforge" and item.get("executable"))
         shutil.copy2(executable, stage / executable.name)
-        if (ROOT / "LICENSE").is_file():
-            shutil.copy2(ROOT / "LICENSE", stage / "LICENSE")
+        shutil.copy2(project_license, stage / "LICENSE")
         if (ROOT / "Cargo.lock").read_bytes() != lock_before:
             raise ValueError("Cargo.lock changed during the build; retry")
         if "windows" in target:

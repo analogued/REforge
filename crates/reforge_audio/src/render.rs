@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Replaceable timed-level rendering. Renderers observe committed simulation;
 //! they never advance devices, execute handlers, or choose game sound actions.
 mod mixer;

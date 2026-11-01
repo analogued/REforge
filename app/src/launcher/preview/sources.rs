@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Background engine preview generation; drawing never opens original/cache files.
 use super::super::model::{EntryStatus, GameEntry};
 use crate::detection::{self, Game, Release};

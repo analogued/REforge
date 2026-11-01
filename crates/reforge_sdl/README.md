@@ -189,7 +189,8 @@ Run it on an otherwise idle desktop or with `SDL_VIDEODRIVER=dummy`. The native
 check expects space for a 1280×960 rendering area. Dummy/software checks do not
 establish the compositor's final monitor-pixel mapping.
 
-Authored project code has no selected license yet. Preserve the
+Authored code and documentation use REforge's
+[`GPL-3.0-or-later` license](../../LICENSE). Preserve the
 [dependency notices and license texts](../../THIRD_PARTY.md) when distributing
 the corresponding dependencies. This crate bundles no game data.
 

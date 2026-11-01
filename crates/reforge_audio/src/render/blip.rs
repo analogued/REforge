@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded adapter for the pinned Rust blip_buf dependency.
 
 use super::{Config, Error, MAX_LEVEL, Output, SignalRenderer};

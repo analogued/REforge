@@ -452,7 +452,7 @@ evidence. Output files must not already exist. See `--help` for all options.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for validation, formatting, and commit
 conventions. Development does not require a particular parent workspace.
 
-REforge's repository-wide license has not been selected; no project license is granted yet.
-Dependency attribution and license notices are in
-[THIRD_PARTY.md](../../THIRD_PARTY.md). Those notices do not grant rights to the
-original game data.
+Authored code and documentation use REforge's
+[`GPL-3.0-or-later` license](../../LICENSE). Third-party attribution and retained
+terms are in [THIRD_PARTY.md](../../THIRD_PARTY.md). Original game data is not
+included or licensed by this repository.

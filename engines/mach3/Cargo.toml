@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.87"
 publish = false
+license.workspace = true
 description = "Reconstructed DOS Mach 3 engine"
 
 [features]

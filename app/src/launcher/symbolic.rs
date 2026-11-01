@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Deterministic initials independent of game IDs, fonts and original assets.
 use unicode_segmentation::UnicodeSegmentation;
 

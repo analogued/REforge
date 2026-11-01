@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Curated games, editions, reusable specs and detected file distributions.
 //! Engines own runtime choices, palettes, geometry and preview generation.
 

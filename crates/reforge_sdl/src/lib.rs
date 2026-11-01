@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Main-thread SDL3 presentation, independent of engine clocks and controls.
 //! Source texture dimensions are independent of the aspect-corrected display

@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Volume groups for one observed signal, preserving its original interruptions.
 //! Filtering occurs per group so a previous group's decay retains its own gain.
 

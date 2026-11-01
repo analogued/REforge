@@ -76,9 +76,9 @@ imported source. Do not maintain per-version license directories or manually
 duplicate indirect Cargo notices; [release packaging](docs/releases.md) generates
 one combined notices document for the selected target and features.
 
-The project license remains undecided. Assess proposed reuse against the candidate
-licenses and record any constraints before adoption; do not silently narrow the
-choice.
+Contributions to authored code and documentation use
+[`GPL-3.0-or-later`](LICENSE). Review proposed imports for compatibility with
+that license before adoption, retaining their original terms and attribution.
 
 ## Validation
 

@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Engine-owned launcher choices and clean, static native scene previews.
 
 use reforge_sdl::launcher::{Choice, DISPLAY, OptionDefinition, Storage, WINDOW};

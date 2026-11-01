@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! HUD fuel, weapon heat, score, and delayed source resolution.
 
 use crate::{Error, assets::GraphicsAssets, frame::Rect, scene::Draw};

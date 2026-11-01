@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Procedural sound setup and IRQ0 routines; tone data stays in the executable.
 
 use super::{FarPointer, SampleBus, SoundAction, read, write};

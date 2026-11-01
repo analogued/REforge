@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! CPU evaluation of egui's preview contour, kept out of the shared painter.
 use super::{FrameKey, MARGIN};
 use reforge_sdl::egui::{

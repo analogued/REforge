@@ -3,8 +3,9 @@
 This inventory covers direct dependencies, imported code and bundled assets.
 License texts are shared by license type under [LICENSES/](LICENSES/); the
 component-specific copyright notices below accompany those texts. Existing
-notices in imported source files remain intact. These terms do not select a
-license for REforge's authored code, whose license remains undecided.
+notices in imported source files remain intact. Third-party material retains
+these terms; REforge's authored code and documentation use
+[`GPL-3.0-or-later`](LICENSE).
 
 Cargo dependencies are used unmodified through their ordinary APIs. Exact
 resolved versions and crate checksums are in [Cargo.lock](Cargo.lock).

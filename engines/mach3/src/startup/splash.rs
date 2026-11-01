@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The startup DOS-clock wait at 5df0, before installing game timer handlers.
 
 use reforge_audio::PIT_HZ;

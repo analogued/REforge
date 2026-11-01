@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Received scan transitions on Mach 3's pause-adjusted scheduling timeline.
 
 #[cfg(feature = "dev-tools")]

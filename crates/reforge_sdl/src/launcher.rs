@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Engine declarations for the launcher's small set of immediate-save options.
 //!
 //! Storage keys and command-line values remain separate from player-facing

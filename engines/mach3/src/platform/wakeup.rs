@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Host polling only: device deadlines retain their existing simulation times.
 
 use reforge_audio::PIT_HZ;

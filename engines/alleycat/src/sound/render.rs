@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Shared PIT/speaker execution and band-limited PCM; no game sequencing here.
 use super::{Category, Write};
 use reforge_audio::{

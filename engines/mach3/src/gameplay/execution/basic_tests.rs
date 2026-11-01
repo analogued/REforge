@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 use super::*;
 use crate::sound::{ByteOrigin, Effect, MemoryByte, Resource, SoundAction};

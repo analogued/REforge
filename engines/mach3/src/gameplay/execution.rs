@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Budgeted headless gameplay on the sound device's single simulation timeline.
 //!
 //! Foreground segments and handlers are atomic and have zero instruction cost.

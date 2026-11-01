@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Clothesline mouse selection, movement, contact and respawn from CS:2330/237b.
 //! Images describe completed actor changes; the alley owns their composition.

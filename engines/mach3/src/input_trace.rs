@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Development-only observation of host events and actual engine input polls.
 
 use crate::gameplay::{InputPoll, SessionState};

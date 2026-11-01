@@ -136,6 +136,7 @@ PCM WAVs, use `mach3-sound` as described in
 
 ## License
 
-Authored code follows [REforge's repository license decision](../../README.md#license),
-which remains undecided. Third-party attribution and terms are maintained in the
-root [THIRD_PARTY.md](../../THIRD_PARTY.md).
+Authored code and documentation use REforge's
+[`GPL-3.0-or-later` license](../../LICENSE). Third-party attribution and retained
+terms are in [THIRD_PARTY.md](../../THIRD_PARTY.md). Original game data is not
+included or licensed by this repository.

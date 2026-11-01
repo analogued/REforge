@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Bind command-line launches to an existing installed copy without registering it.
 use crate::detection::Detected;
 use reforge_settings::{Launch, library::Library};

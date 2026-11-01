@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Shared Settings edits persist normally and configure subsequent game launches.
 use super::*;
 use reforge_sdl::settings::{SettingsMenu, VideoCapabilities};

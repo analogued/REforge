@@ -562,14 +562,15 @@ The current chains are:
 
 | Detected release ID | Edition ID | Game ID | Specs profile ID |
 | --- | --- | --- | --- |
-| `alley-cat-verified-reference` | `alley-cat-dos-reference` | `alley-cat` | `alley-cat-dos` |
-| `mach-3-verified-reference` | `mach-3-dos-reference` | `mach-3` | `mach-3-dos` |
+| `alley-cat-verified-reference` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
+| `mach-3-verified-reference` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
 
 Both editions have platform `Platform::Dos`. Platform placement in the launcher
-is not yet defined. The internal “DOS reference” edition IDs do not establish
-an official commercial edition or version designation. Sharing edition or specs
-records does not establish save/configuration compatibility: each detected
-release retains its explicit compatibility group.
+is not yet defined. Edition IDs name catalog groupings; the precise commercial
+edition/version designations remain unverified. Edition and specs IDs have
+separate namespaces, so an edition and profile may both be named `alley-cat-dos`.
+Sharing edition or specs records does not establish save/configuration
+compatibility: each detected release retains its explicit compatibility group.
 
 Years are optional numbers. Credits, genres and feature summaries are separate
 lists; unknown facts use `None` or empty lists. An edition uses its game's title

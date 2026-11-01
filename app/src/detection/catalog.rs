@@ -129,7 +129,7 @@ pub static MACH3_DOS_SPECS: SpecsProfile = SpecsProfile {
 };
 
 pub static ALLEY_CAT_DOS: Edition = Edition {
-    id: "alley-cat-dos-reference",
+    id: "alley-cat-dos",
     game: &ALLEY_CAT,
     platform: Platform::Dos,
     title: None,
@@ -140,7 +140,7 @@ pub static ALLEY_CAT_DOS: Edition = Edition {
     specs: &ALLEY_CAT_DOS_SPECS,
 };
 pub static MACH3_DOS: Edition = Edition {
-    id: "mach-3-dos-reference",
+    id: "mach-3-dos",
     game: &MACH3,
     platform: Platform::Dos,
     title: None,

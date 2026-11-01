@@ -4,6 +4,10 @@ Play classic DOS games on a modern desktop, using your original game files.
 REforge recreates their behavior natively, with modern display, audio and
 controller options. Linux is the current development platform.
 
+> [!IMPORTANT]
+> REforge does not include any original game assets or data. You must provide
+> the required original files from a supported release of each game.
+
 ## Supported engines
 
 | Engine | Games | Player guide |
@@ -12,7 +16,7 @@ controller options. Linux is the current development platform.
 | Mach 3 | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
 
 Each engine currently supports one verified DOS release. See its guide for the
-required files and current limitations. Original game data is not included.
+required files and current limitations.
 
 ## Features
 
@@ -50,7 +54,8 @@ with the palette button or **Ctrl+T**. **F2**, **F3** and **F4** select Split,
 Gallery and Compact layouts; theme and layout choices are remembered separately.
 Game options save immediately. Dim selections follow defaults; a full highlight
 marks a saved override. Select a saved choice again to return to defaults.
-Artwork currently uses generated initials and engine-supplied palette colours.
+Artwork uses cached, engine-generated previews, with symbolic initials as a
+fallback.
 
 Use the directories containing the required files, as described in each engine's
 player guide.
@@ -88,6 +93,7 @@ half-second intervals, rather than simulation updates or monitor refresh rate.
 
 REforge is under active development. Please include the game, your system,
 REforge revision, relevant settings and steps to reproduce when reporting a bug.
+Notable user-facing changes are recorded in the [changelog](CHANGELOG.md).
 
 For source layout, validation and contribution guidance, see
 [CONTRIBUTING.md](CONTRIBUTING.md) and the technical engine documentation for

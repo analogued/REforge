@@ -77,7 +77,7 @@ files and any generated captures outside this repository.
 See the [application README](../../README.md) for the combined build and
 [contributing guide](CONTRIBUTING.md) for this game's validation commands.
 
-Install Rust 1.85 or newer with Cargo, and an SDL3 development package providing
+Install Rust 1.88 or newer with Cargo, and an SDL3 development package providing
 the native `SDL3` library. The [shared window backend](../../crates/reforge_sdl/README.md)
 uses the `sdl3` Rust wrapper; SDL image/font/mixer extensions are not required.
 Cargo fetches `sha2` and its locked dependencies for executable verification.

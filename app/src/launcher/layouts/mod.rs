@@ -26,15 +26,16 @@ pub fn draw(ctx: &egui::Context, state: &mut State) {
             LayoutVariant::CompactDeck => compact_deck::draw(ctx, state, &ap),
         }
     };
-    if !state.busy && state.pending_remove.is_none() {
-        if let Some(action) = action {
-            match action {
-                UiAction::Play(id) => state.trigger_play(id),
-                UiAction::Add => state.trigger_add(),
-                UiAction::Locate(id) => state.trigger_locate(id),
-                UiAction::Remove(id) => state.request_remove(id),
-                UiAction::OpenSettings => state.open_settings(),
-            }
+    if !state.busy
+        && state.pending_remove.is_none()
+        && let Some(action) = action
+    {
+        match action {
+            UiAction::Play(id) => state.trigger_play(id),
+            UiAction::Add => state.trigger_add(),
+            UiAction::Locate(id) => state.trigger_locate(id),
+            UiAction::Remove(id) => state.request_remove(id),
+            UiAction::OpenSettings => state.open_settings(),
         }
     }
     switchers::draw_overlays(ctx, state, &ap, anchor);

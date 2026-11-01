@@ -94,6 +94,13 @@ For application CLI changes, test and lint `-p reforge` with default features,
 Release optimization (`--release`) is independent of the opt-in `dev-tools`
 feature; normal builds exclude engine testing and diagnostic switches.
 
+When changing dependencies or using new language/library features, also check
+the minimum supported Rust version, currently 1.88. With that toolchain installed:
+
+```sh
+cargo +1.88.0 check --locked --workspace --all-targets --all-features
+```
+
 Tests must use authored synthetic fixtures, with original-data comparisons
 stored externally. Document concrete commands and limitations as crates are added.
 

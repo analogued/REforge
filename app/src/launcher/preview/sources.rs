@@ -190,10 +190,10 @@ fn cached_frame(
     }
     let frame = catch_unwind(AssertUnwindSafe(generate))
         .map_err(|_| "Preview generator panicked".to_owned())??;
-    if let Some(path) = path {
-        if let Err(error) = store(path, &frame) {
-            eprintln!("REforge: cannot cache preview: {error}");
-        }
+    if let Some(path) = path
+        && let Err(error) = store(path, &frame)
+    {
+        eprintln!("REforge: cannot cache preview: {error}");
     }
     Ok(frame)
 }

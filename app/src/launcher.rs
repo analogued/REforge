@@ -269,10 +269,9 @@ pub fn run() -> Result<(), String> {
                     repeat,
                     ..
                 } = event
+                    && state.shortcut(keycode, keymod, repeat)
                 {
-                    if state.shortcut(keycode, keymod, repeat) {
-                        continue;
-                    }
+                    continue;
                 }
                 if let Some(pad) = pad {
                     gui.handle_gamepad(pad);

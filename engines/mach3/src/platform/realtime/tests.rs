@@ -812,7 +812,7 @@ fn gameplay_run_levels(
         let target = (simulation.clock.tick() + budget(&simulation)).min(end);
         advance(&mut simulation, target, &frames, &resources, &mut events);
         if switch {
-            let mode = if (simulation.clock.tick() - start) / 50_000 % 2 == 0 {
+            let mode = if ((simulation.clock.tick() - start) / 50_000).is_multiple_of(2) {
                 AudioRenderer::Speaker
             } else {
                 AudioRenderer::EnhancedPcm

@@ -2121,10 +2121,10 @@ mod tests {
                         let numerator_y = (2 * (y - top) + 1) * 200;
                         let source_x = numerator_x / (2 * width);
                         let source_y = numerator_y / (2 * height);
-                        let first_x =
-                            source_x.saturating_sub(usize::from(numerator_x % (2 * width) == 0));
-                        let first_y =
-                            source_y.saturating_sub(usize::from(numerator_y % (2 * height) == 0));
+                        let first_x = source_x
+                            .saturating_sub(usize::from(numerator_x.is_multiple_of(2 * width)));
+                        let first_y = source_y
+                            .saturating_sub(usize::from(numerator_y.is_multiple_of(2 * height)));
                         let matches = (first_y..=source_y).any(|sy| {
                             (first_x..=source_x).any(|sx| {
                                 let source = (sy * source_width as usize + sx) * bytes;

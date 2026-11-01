@@ -46,15 +46,13 @@ fn add_native_options(
         crate::detection::Game::Mach3 => mach3::launcher::OPTIONS,
     };
     for option in options {
-        if let Storage::Native { key, argument } = option.storage {
-            if !args.iter().any(|arg| arg == argument) {
-                if let Some(value) = saved
-                    .get(key)
-                    .filter(|value| option.choices.iter().any(|c| c.value == value.as_str()))
-                {
-                    args.extend([argument.into(), value.into()]);
-                }
-            }
+        if let Storage::Native { key, argument } = option.storage
+            && !args.iter().any(|arg| arg == argument)
+            && let Some(value) = saved
+                .get(key)
+                .filter(|value| option.choices.iter().any(|c| c.value == value.as_str()))
+        {
+            args.extend([argument.into(), value.into()]);
         }
     }
     Ok(())

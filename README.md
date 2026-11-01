@@ -27,7 +27,7 @@ Enhanced PCM audio, are described in the player guides.
 
 ## Getting started
 
-Build from the repository root with Rust 1.85 or newer, Cargo and SDL3 3.4 or
+Build from the repository root with Rust 1.88 or newer, Cargo and SDL3 3.4 or
 newer development/runtime libraries installed:
 
 ```sh

@@ -149,7 +149,9 @@ fn native_composed_previews_preserve_content_frame_and_physical_sampling() {
                 pixels.extend(
                     bytes[y * surface.pitch() as usize
                         ..y * surface.pitch() as usize + surface.width() as usize * 4]
-                        .chunks_exact(4)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .map(|c| Color32::from_rgb(c[0], c[1], c[2])),
                 );
             }
@@ -350,14 +352,14 @@ fn sample(uv: Pos2, fixture: usize, screenshot: Option<&egui::ColorImage>) -> Co
                 Color32::from_rgb(90, 235, 255)
             } else if y < 3 {
                 Color32::WHITE
-            } else if (x / 8 + y / 8) % 2 == 0 {
+            } else if (x / 8 + y / 8).is_multiple_of(2) {
                 Color32::from_rgb(38, 50, 70)
             } else {
                 Color32::from_rgb(100, 130, 170)
             }
         }
         1 => {
-            if (x / 4 + y / 4) % 2 == 0 {
+            if (x / 4 + y / 4).is_multiple_of(2) {
                 Color32::WHITE
             } else {
                 Color32::from_gray(22)

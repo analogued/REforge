@@ -234,15 +234,14 @@ impl GameEntry {
         let values = self.option_values();
         let mut args = Vec::new();
         for o in self.options {
-            if let Storage::Native { argument, .. } = o.storage {
-                if let Some(choice) = o
+            if let Storage::Native { argument, .. } = o.storage
+                && let Some(choice) = o
                     .choices
                     .iter()
                     .find(|c| Some(&c.label) == values.get(o.label))
-                {
-                    args.push(argument.into());
-                    args.push(choice.value.into());
-                }
+            {
+                args.push(argument.into());
+                args.push(choice.value.into());
             }
         }
         args
@@ -411,17 +410,17 @@ impl State {
                     .iter()
                     .map(|e| {
                         let mut game = GameEntry::from_entry(e, self.config.clone(), true);
-                        if !game.status.is_missing() {
-                            if let Some(previous) = self.games.iter().find(|old| {
+                        if !game.status.is_missing()
+                            && let Some(previous) = self.games.iter().find(|old| {
                                 old.entry_id == game.entry_id
                                     && old.release_id == game.release_id
                                     && old.original == game.original
                                     && !old.status.is_missing()
-                            }) {
-                                game.previews = previous.previews.clone();
-                                game.preview_attempted =
-                                    previous.preview_attempted && !previous.previews.is_empty();
-                            }
+                            })
+                        {
+                            game.previews = previous.previews.clone();
+                            game.preview_attempted =
+                                previous.preview_attempted && !previous.previews.is_empty();
                         }
                         game
                     })

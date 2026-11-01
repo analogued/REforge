@@ -2,7 +2,7 @@
 name = "reforge_sdl"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 publish = false
 description = "Shared SDL3 frame presentation for REforge"
 

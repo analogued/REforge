@@ -439,30 +439,29 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
             }
             break;
         }
-        if active("--headless").is_some() {
-            if let Some(index) = active("--presentation").or_else(|| active("--frame-limit")) {
-                remove(entries, index, "does not apply to --headless", warnings);
-                continue;
-            }
+        if active("--headless").is_some()
+            && let Some(index) = active("--presentation").or_else(|| active("--frame-limit"))
+        {
+            remove(entries, index, "does not apply to --headless", warnings);
+            continue;
         }
-        if active("--headless").is_none() {
-            if let Some(index) = active("--script").or_else(|| active("--timed")) {
-                remove(entries, index, "requires --headless", warnings);
-                continue;
-            }
+        if active("--headless").is_none()
+            && let Some(index) = active("--script").or_else(|| active("--timed"))
+        {
+            remove(entries, index, "requires --headless", warnings);
+            continue;
         }
         let scene = active("--scene")
             .and_then(|i| entries[i].value.as_ref())
             .and_then(|v| v.to_str())
             .unwrap_or("alley");
-        if scene == "splash" {
-            if let Some(index) = ["--script", "--trace", "--trace-timing", "--step-hz"]
+        if scene == "splash"
+            && let Some(index) = ["--script", "--trace", "--trace-timing", "--step-hz"]
                 .into_iter()
                 .find_map(active)
-            {
-                remove(entries, index, "does not apply to --scene splash", warnings);
-                continue;
-            }
+        {
+            remove(entries, index, "does not apply to --scene splash", warnings);
+            continue;
         }
         if !["alley", "birdcage", "splash"].contains(&scene) {
             if let Some(index) = active("--step-hz") {
@@ -485,28 +484,29 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
                 continue;
             }
         }
-        if let Some(step) = active("--step-hz") {
-            if let Some(other) = active("--timed").or_else(|| active("--trace-timing")) {
-                let index = step.max(other);
-                remove(
-                    entries,
-                    index,
-                    "conflicts with the selected timing mode",
-                    warnings,
-                );
-                continue;
-            }
+        if let Some(step) = active("--step-hz")
+            && let Some(other) = active("--timed").or_else(|| active("--trace-timing"))
+        {
+            let index = step.max(other);
+            remove(
+                entries,
+                index,
+                "conflicts with the selected timing mode",
+                warnings,
+            );
+            continue;
         }
-        if active("--headless").is_some() && active("--timed").is_none() {
-            if let Some(index) = active("--trace-timing") {
-                remove(
-                    entries,
-                    index,
-                    "requires --timed for headless execution",
-                    warnings,
-                );
-                continue;
-            }
+        if active("--headless").is_some()
+            && active("--timed").is_none()
+            && let Some(index) = active("--trace-timing")
+        {
+            remove(
+                entries,
+                index,
+                "requires --timed for headless execution",
+                warnings,
+            );
+            continue;
         }
         break;
     }

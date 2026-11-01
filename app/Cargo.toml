@@ -2,7 +2,7 @@
 name = "reforge"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 publish = false
 description = "REforge game reconstructions for modern desktop systems"
 

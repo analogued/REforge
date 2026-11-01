@@ -184,7 +184,7 @@ fn visit(
         (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0)
     };
     for mesh in meshes {
-        for triangle in mesh.indices.chunks_exact(3) {
+        for triangle in mesh.indices.as_chunks::<3>().0 {
             let mut v: [_; 3] = std::array::from_fn(|i| mesh.vertices[triangle[i] as usize]);
             let mut points = v.map(|v| {
                 (

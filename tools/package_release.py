@@ -24,7 +24,19 @@ def run(command):
     return subprocess.run(command, cwd=ROOT, check=True, text=True, capture_output=True)
 
 
-def notices(args, target):
+def application_version(args):
+    command = [
+        "cargo", "metadata", "--locked", "--no-deps", "--format-version", "1",
+        "--manifest-path", "app/Cargo.toml",
+    ]
+    if args.offline:
+        command.append("--offline")
+    metadata = json.loads(run(command).stdout)
+    return next(package["version"] for package in metadata["packages"]
+                if package["name"] == "reforge")
+
+
+def notices(args, target, project_version):
     version = run(["cargo", "about", "--version"]).stdout.strip()
     if version != f"cargo-about {ABOUT_VERSION}":
         raise ValueError(f"Expected cargo-about {ABOUT_VERSION}, got {version!r}")
@@ -58,6 +70,7 @@ def notices(args, target):
         'pre{white-space:pre-wrap;overflow-wrap:anywhere}section{margin:2em 0}'
         'h2{border-bottom:1px solid #aaa;padding-bottom:.3em}</style>',
         '<h1>REforge — Third-party notices</h1>',
+        f'<p>REforge version: {escape(project_version)}.</p>',
         f'<p>Target: {escape(target)}. Default features: '
         f'{"disabled" if args.no_default_features else "enabled"}. '
         f'Additional features: {escape(args.features or "none")}.</p>',
@@ -111,18 +124,19 @@ def main():
     project_license = ROOT / "LICENSE"
     if not project_license.is_file():
         raise ValueError("Missing project LICENSE")
+    version = application_version(args)
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
     lock_before = (ROOT / "Cargo.lock").read_bytes()
     with tempfile.TemporaryDirectory(prefix="reforge-package-") as temporary:
-        stage = Path(temporary) / f"reforge-{target}"
+        stage = Path(temporary) / f"reforge-{version}-{target}"
         stage.mkdir()
         notice = stage / "THIRD_PARTY.html"
-        notice.write_text(notices(args, target), encoding="utf-8")
+        notice.write_text(notices(args, target, version), encoding="utf-8")
         if (ROOT / "Cargo.lock").read_bytes() != lock_before:
             raise ValueError("Cargo.lock changed during notice generation; retry")
         if args.notices_only:
-            destination = output / f"THIRD_PARTY-{target}.html"
+            destination = output / f"THIRD_PARTY-{version}-{target}.html"
             shutil.copyfile(notice, destination)
             print(destination)
             return

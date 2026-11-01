@@ -53,6 +53,14 @@ during initial setup; use tighter scopes as the project matures. Coordinated
 refactors may legitimately span several areas. Conventional Commits syntax is
 not required.
 
+## Release notes
+
+Add notable user-facing changes to `Unreleased` in [CHANGELOG.md](CHANGELOG.md).
+Group entries by New games, General, individual engines or platforms; include
+only sections that have entries. Summarize the effect for users rather than
+copying commit subjects. [Release packaging](docs/releases.md) documents calendar
+versioning, release tags and the publication workflow.
+
 ## Third-party code
 
 Code from other projects may be reused when its license is compatible with this

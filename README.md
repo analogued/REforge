@@ -39,7 +39,8 @@ cargo build --locked --release -p reforge
 ```
 
 The application is written to `target/release/reforge` unless you select another
-Cargo output directory. Launch a game using its original files:
+Cargo output directory. Check its version with `./target/release/reforge --version`
+or `-V`. Launch a game using its original files:
 
 ```sh
 ./target/release/reforge --original /path/to/alley-cat
@@ -92,7 +93,8 @@ It starts hidden and reports completed frame presentations averaged over
 half-second intervals, rather than simulation updates or monitor refresh rate.
 
 REforge is under active development. Please include the game, your system,
-REforge revision, relevant settings and steps to reproduce when reporting a bug.
+REforge version (`reforge --version`), relevant settings and steps to reproduce
+when reporting a bug. For source builds, include the Git revision as well.
 Notable user-facing changes are recorded in the [changelog](CHANGELOG.md).
 
 For source layout, validation and contribution guidance, see

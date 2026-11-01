@@ -8,6 +8,11 @@ the [timing reference](docs/timing.md) describes the model and its limits,
 including the deferred physical PCjr timing comparison.
 Alley Cat is the `alleycat` engine crate in **REforge**.
 
+> [!IMPORTANT]
+> This engine does not include original Alley Cat assets or data. You must
+> provide the original files from a supported release. See
+> [Original game required](#original-game-required) for details.
+
 ## Responsive controls
 
 Responsive controls reduce the wait before the game reads direction and action

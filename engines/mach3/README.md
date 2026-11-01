@@ -5,6 +5,11 @@ The `mach3` crate reconstructs the DOS version of Mach 3 (1987, Loriciels) for
 the [player guide](../../docs/games/mach3.md). This README covers development
 interfaces and diagnostic tools.
 
+> [!IMPORTANT]
+> This engine does not include original Mach 3 assets or data. You must provide
+> the original files from a supported release. See the
+> [player guide](../../docs/games/mach3.md) for details.
+
 Live play includes steering, shooting, encounter progression, collision responses,
 endings and retained-session restarts, with no gameplay loop cap. Samples,
 procedural sound and foreground waits share one reconstructed PIT timeline.

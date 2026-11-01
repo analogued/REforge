@@ -132,6 +132,13 @@ const SPECS: &[Spec] = &[
         description: "List supported games",
     },
     Spec {
+        name: "--version",
+        game: None,
+        value: Value::Flag,
+        dev: false,
+        description: "Show the REforge version (-V)",
+    },
+    Spec {
         name: "--video",
         game: Some(Game::Mach3),
         value: Value::Choice(&["cga", "mono"]),
@@ -309,7 +316,7 @@ const SPECS: &[Spec] = &[
 ];
 
 pub fn takes_value(name: &str) -> Option<bool> {
-    if name == "-h" {
+    if matches!(name, "-h" | "-V") {
         return Some(false);
     }
     SPECS
@@ -556,7 +563,7 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
             warnings.push(format!("{} requires an SDL build; ignored", spec.name));
             continue;
         }
-        if matches!(spec.name, "--original" | "--help" | "--list") {
+        if matches!(spec.name, "--original" | "--help" | "--list" | "--version") {
             continue;
         }
         if matches!(spec.value, Value::Flag) {
@@ -605,7 +612,7 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
 
 pub fn help(game: Option<Game>) -> String {
     let mut text = String::from(
-        "REforge\n\nUsage: reforge\n       reforge --original <file-or-directory> [options]\n       reforge --help\n       reforge --list\n\nWithout arguments, open the launcher and saved game library.\nDetection checks filenames, then sizes, then SHA-256 hashes.\nInvalid, unavailable and other-game options are warned about and ignored.\nOriginal data is required and is never included.\n\nCommon options:\n",
+        "REforge\n\nUsage: reforge\n       reforge --original <file-or-directory> [options]\n       reforge --help\n       reforge --list\n       reforge --version\n\nWithout arguments, open the launcher and saved game library.\nDetection checks filenames, then sizes, then SHA-256 hashes.\nInvalid, unavailable and other-game options are warned about and ignored.\nOriginal data is required and is never included.\n\nCommon options:\n",
     );
     for owner in [None, game]
         .into_iter()

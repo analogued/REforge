@@ -21,6 +21,7 @@ struct Input {
     warnings: Vec<String>,
     help: bool,
     list: bool,
+    version: bool,
 }
 
 fn extract(args: impl IntoIterator<Item = OsString>) -> Input {
@@ -45,13 +46,15 @@ fn extract(args: impl IntoIterator<Item = OsString>) -> Input {
                         .push("--original requires a file or directory; ignored".into()),
                 }
             }
-            "--help" | "-h" | "--list" => {
+            "--help" | "-h" | "--list" | "--version" | "-V" => {
                 if inline.is_some() {
                     input
                         .warnings
                         .push(format!("{name} is a flag and takes no value; ignored"));
                 } else if name == "--list" {
                     input.list = true;
+                } else if matches!(name.as_str(), "--version" | "-V") {
+                    input.version = true;
                 } else {
                     input.help = true;
                 }
@@ -178,6 +181,11 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
         );
     }
     let input = extract(args);
+    if input.version {
+        warn(&input.warnings);
+        println!("REforge {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     if input.list {
         warn(&input.warnings);
         let mut listed = std::collections::HashSet::new();
@@ -374,9 +382,24 @@ mod tests {
     }
 
     #[test]
-    fn help_and_catalog_do_not_require_originals() {
-        for values in [&["--help"][..], &["--list"][..]] {
+    fn informational_flags_do_not_require_originals() {
+        for values in [
+            &["--help"][..],
+            &["--list"][..],
+            &["--version"][..],
+            &["-V"][..],
+        ] {
             assert!(run(args(values)).is_ok());
+        }
+    }
+    #[test]
+    fn version_exits_before_original_detection_and_rejects_inline_values() {
+        for flag in ["--version", "-V"] {
+            assert_eq!(options::takes_value(flag), Some(false));
+            assert!(run(args(&["--original", "missing", flag])).is_ok());
+            let input = extract(args(&[&format!("{flag}=unexpected")]));
+            assert!(!input.version);
+            assert_eq!(input.warnings.len(), 1);
         }
     }
     #[test]
@@ -385,6 +408,7 @@ mod tests {
         for values in [
             &["--help"][..],
             &["--list"][..],
+            &["--version"][..],
             &["--original", "cat"][..],
             &["--unknown"][..],
             &["--original"][..],
@@ -448,5 +472,9 @@ mod tests {
         let input = extract(args(&["--trace=--help", "--original", "cat"]));
         assert!(!input.help);
         assert_eq!(input.remaining, args(&["--trace=--help"]));
+        let input = extract(args(&["--trace=--version", "--original=--version"]));
+        assert!(!input.version);
+        assert_eq!(input.original, Some(PathBuf::from("--version")));
+        assert_eq!(input.remaining, args(&["--trace=--version"]));
     }
 }

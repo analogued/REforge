@@ -1,13 +1,17 @@
 # Changelog
 
-Notable user-facing changes are recorded here, with the newest releases first.
+Notable user-facing changes are grouped by area, with the newest releases first.
+Unreleased contains changes intended for the next public release.
 
 ## Unreleased
 
-### Added
+### New games
 
 - Initial support for the verified DOS releases of Alley Cat and Mach 3, using
-  externally supplied original game files. Linux is the initial release platform.
+  externally supplied original game files.
+
+### General
+
 - A persistent launcher library with game-file verification, per-entry launch
   options and relocation of game files.
 - Split, Gallery and Compact launcher layouts, with Classic Dark, Soft Tonal,
@@ -16,5 +20,17 @@ Notable user-facing changes are recorded here, with the newest releases first.
 - Shared settings with global defaults and per-entry overrides, including display
   scaling, windowed/fullscreen modes, Hyllian CRT presentation and audio levels.
 - Keyboard and gamepad controls, including navigation of the settings menu.
-- CGA/PCjr graphics and responsive input for Alley Cat, plus colour/monochrome
-  graphics and optional Enhanced PCM audio for Mach 3.
+
+### Alley Cat
+
+- CGA and PCjr graphics paths.
+- Responsive input, with original input polling available in Settings.
+
+### Mach 3
+
+- Colour and monochrome graphics modes.
+- PC speaker output and optional Enhanced PCM audio.
+
+### Linux
+
+- Initial desktop platform support.

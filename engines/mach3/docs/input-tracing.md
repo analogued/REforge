@@ -97,7 +97,8 @@ Poll labels correspond to the production call sites:
 Poll details include the **pre-advance** body/pass state, whether player controls
 are enabled, native pause phase, F2 counter and sound/display toggle results.
 Player controls are enabled by default. Native pause polls have no ordinary-pass
-deadline; their polling cadence follows the frontend's pause loop. Step-mode polls likewise do not claim an animated deadline.
+deadline; their polling cadence follows the frontend's pause loop. Step-mode
+polls likewise do not claim an animated deadline.
 
 Boundary labels include startup, game entry, return to intro, host pause,
 native pause phases/ticks/waits/resume, transition entry and intermediate waits,

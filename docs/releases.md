@@ -42,26 +42,6 @@ When cutting a public release:
 
 Choose the next intended version with a `-dev` suffix for ongoing development.
 
-### GitHub release notes
-
-Use the release's curated changelog sections, following ScummVM's release-note
-style. Add Merged Pull Requests and New Contributors sections when there are
-entries to include; omit them for the first release.
-
-End the notes with a **Full Changelog** link. For the first release, link to the
-commit history at the release tag because there is no previous release:
-
-```md
-**Full Changelog**: [v2026.1.0](https://github.com/analogued/REforge/commits/v2026.1.0)
-```
-
-For later releases, link to the comparison between the previous and current
-release tags, for example:
-
-```md
-**Full Changelog**: [v2026.1.0...v2026.1.1](https://github.com/analogued/REforge/compare/v2026.1.0...v2026.1.1)
-```
-
 ## Build a package
 
 Install Python 3.11 or newer and the release-only

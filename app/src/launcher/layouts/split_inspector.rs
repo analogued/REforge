@@ -274,10 +274,8 @@ fn draw_sidebar_row(
 
     let sub = if game.status.is_missing() {
         "Missing files".to_string()
-    } else if let Some(note) = game.edition_note {
-        format!("{} · {note}", game.year)
     } else {
-        format!("{} · {}", game.year, game.developer)
+        game.metadata.library_line()
     };
     ui.painter().text(
         Pos2::new(text_x, rect.bottom() - 16.0),
@@ -312,7 +310,7 @@ fn draw_hero_details(
                 .strong()
                 .color(ap.tokens.text_primary),
         );
-        if let Some(note) = game.edition_note {
+        if let Some(note) = game.metadata.edition {
             ui.label(
                 RichText::new(format!("· {note}"))
                     .size(12.5)
@@ -322,19 +320,14 @@ fn draw_hero_details(
     });
 
     ui.label(
-        RichText::new(format!(
-            "{} · {} · {}",
-            game.year,
-            game.attribution(),
-            game.genre
-        ))
-        .size(12.0)
-        .color(ap.tokens.text_secondary),
+        RichText::new(game.metadata.detail_line())
+            .size(12.0)
+            .color(ap.tokens.text_secondary),
     );
 
-    if !game.description.is_empty() {
+    if !game.metadata.tagline.is_empty() {
         ui.label(
-            RichText::new(game.description)
+            RichText::new(game.metadata.tagline)
                 .size(11.5)
                 .color(ap.tokens.text_muted),
         );
@@ -344,7 +337,7 @@ fn draw_hero_details(
         ui.spacing_mut().item_spacing.x = 8.0;
         draw_palette_dots(ui, ap, game.palette_swatches(), 6.5);
         ui.label(
-            RichText::new(format!("{} · {}", game.video_spec, game.audio_spec))
+            RichText::new(game.metadata.features_line())
                 .size(11.5)
                 .color(ap.tokens.text_muted),
         );

@@ -30,6 +30,16 @@ fn cache_identity_is_release_content_and_visual_variant_based() {
         ..*release
     };
     assert_ne!(cache_id(release, "cga"), cache_id(&different, "cga"));
+    static REVISED_TEXT: detection::ReleaseMetadata = detection::ReleaseMetadata {
+        title: "Revised display title",
+        tagline: "Revised editorial line",
+        ..*detection::RELEASES[0].metadata
+    };
+    let revised = Release {
+        metadata: &REVISED_TEXT,
+        ..*release
+    };
+    assert_eq!(cache_id(release, "cga"), cache_id(&revised, "cga"));
     assert_eq!(cache_id(release, "cga").len(), 64);
 }
 

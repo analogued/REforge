@@ -84,14 +84,7 @@ impl Preferences {
 pub struct GameEntry {
     pub entry_id: String,
     pub title: String,
-    pub year: &'static str,
-    pub developer: &'static str,
-    pub publisher: &'static str,
-    pub genre: &'static str,
-    pub edition_note: Option<&'static str>,
-    pub video_spec: &'static str,
-    pub audio_spec: &'static str,
-    pub description: &'static str,
+    pub metadata: &'static detection::ReleaseMetadata,
     pub original_path: String,
     pub original: PathBuf,
     pub game_id: String,
@@ -127,14 +120,7 @@ impl GameEntry {
         let mut result = Self {
             entry_id: entry.entry_id.clone(),
             title: entry.title.clone(),
-            year: metadata.year,
-            developer: metadata.developer,
-            publisher: metadata.publisher,
-            genre: metadata.genres,
-            edition_note: None,
-            video_spec: metadata.video,
-            audio_spec: metadata.audio,
-            description: metadata.description,
+            metadata,
             original_path: entry.original.display().to_string(),
             original: entry.original.clone(),
             game_id: entry.game_id.clone(),
@@ -181,13 +167,6 @@ impl GameEntry {
                     .find(|c| Some(&c.label) == values.get(o.label))
             })
             .is_some_and(|c| c.value == "hyllian")
-    }
-    pub fn attribution(&self) -> String {
-        if self.developer == self.publisher {
-            self.developer.into()
-        } else {
-            format!("{} / {}", self.developer, self.publisher)
-        }
     }
     pub fn option_choices(&self) -> Vec<(&'static str, Vec<&'static str>)> {
         self.options

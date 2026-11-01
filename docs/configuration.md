@@ -535,6 +535,38 @@ Native choices are passed through the ordinary engine argument parser on launche
 starts; command-line launches retain their explicit startup arguments. Engine
 metadata supplies available choices, badge labels and optional palette colours.
 
+The player-facing data has two owners:
+
+| Owner | Data |
+| --- | --- |
+| [Detection catalog](../app/src/detection/catalog.rs) | Release title, release year, developers, publishers, genres, optional edition label, video/audio feature summaries and editorial tagline. Detection fingerprints and compatibility groups also belong to the catalog. |
+| Engine `launcher` module | Available launch options, their defaults and storage keys, labels and preview badges, mode palettes, display geometry, preview variants, recipe revision and native image generation. |
+
+Catalog metadata is attached to each release. A port or reissue can have a
+different title, year or credits without changing the identity of the game.
+Multiple release records may share metadata when those facts are identical;
+matching metadata does not establish save/configuration compatibility.
+
+`ReleaseMetadata` uses an optional numeric `year` and separate lists for
+`developers`, `publishers`, `genres`, `video_features` and `audio_features`.
+Unknown facts use `None` or empty lists rather than placeholder strings. Credit
+names are display names; they are never identifiers. `edition` is an optional
+display label, independent of the release and compatibility IDs. `tagline` is
+the short editorial line such as “Back to the alley”; it is not a game synopsis.
+There is currently no separate description field.
+
+Split sidebar entries and Gallery cards show year and developer only. Split
+details and Compact entries can include publisher and genres; identical
+developer/publisher lists appear once. The launcher formats lists and separators,
+omitting absent facts. Video/audio feature summaries describe the catalogued
+release as supported by REforge, including explicitly named enhancements; active
+option values and palette swatches come from the engine instead.
+
+A library entry has its own display title, initially copied from the detected
+release and editable independently in the library file. Other release metadata
+is read directly from the catalog and is not duplicated in user configuration.
+The local development `project.toml` inventories are not runtime catalog inputs.
+
 After verification, the launcher loads or generates static engine scene previews
 in a background worker. It warms the available visual variants (CGA/PCjr for
 Alley Cat, colour/monochrome for Mach 3). Mach 3 uses its first splash screen.

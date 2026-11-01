@@ -11,6 +11,13 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
+mod catalog;
+#[cfg(feature = "sdl")]
+pub use catalog::UNKNOWN;
+#[cfg(test)]
+use catalog::{ALLEY_CAT, MACH3};
+pub use catalog::{RELEASES, ReleaseMetadata};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Game {
     AlleyCat,
@@ -27,8 +34,8 @@ impl Game {
 
     pub const fn title(self) -> &'static str {
         match self {
-            Self::AlleyCat => ALLEY_CAT.title,
-            Self::Mach3 => MACH3.title,
+            Self::AlleyCat => catalog::ALLEY_CAT.title,
+            Self::Mach3 => catalog::MACH3.title,
         }
     }
 }
@@ -40,52 +47,6 @@ pub struct FileRecord {
     pub sha256: &'static str,
 }
 
-/// Player-facing facts about a detected release, independent of engine UI.
-// Detailed release fields are consumed by the graphical launcher.
-#[cfg_attr(not(feature = "sdl"), allow(dead_code))]
-#[derive(Debug)]
-pub struct Metadata {
-    pub title: &'static str,
-    pub year: &'static str,
-    pub developer: &'static str,
-    pub publisher: &'static str,
-    pub genres: &'static str,
-    pub video: &'static str,
-    pub audio: &'static str,
-    pub description: &'static str,
-}
-pub static ALLEY_CAT: Metadata = Metadata {
-    title: "Alley Cat",
-    year: "1984",
-    developer: "Synapse Software",
-    publisher: "IBM",
-    genres: "Arcade action",
-    video: "320×200 · CGA / PCjr",
-    audio: "PC speaker",
-    description: "Back to the alley",
-};
-pub static MACH3: Metadata = Metadata {
-    title: "Mach 3",
-    year: "1987",
-    developer: "Loriciels",
-    publisher: "Loriciels",
-    genres: "3D rail shooter",
-    video: "CGA colour / 640×200 monochrome",
-    audio: "PC speaker · Enhanced PCM",
-    description: "Back into the cockpit",
-};
-#[cfg(feature = "sdl")]
-pub static UNKNOWN: Metadata = Metadata {
-    title: "Unknown game",
-    year: "",
-    developer: "",
-    publisher: "",
-    genres: "",
-    video: "",
-    audio: "",
-    description: "Original files unavailable",
-};
-
 #[derive(Debug)]
 pub struct Release {
     /// A reference identifier, not a claim about the commercial version.
@@ -93,7 +54,7 @@ pub struct Release {
     /// Verified compatibility of saves and persistent option semantics.
     pub compatibility_id: &'static str,
     pub game: Game,
-    pub metadata: &'static Metadata,
+    pub metadata: &'static ReleaseMetadata,
     pub files: &'static [FileRecord],
 }
 
@@ -104,66 +65,6 @@ impl Release {
             && self.compatibility_id == other.compatibility_id
     }
 }
-
-// These fingerprints identify the verified inputs used by the engines. Their
-// historical commercial release/version identities remain unknown. Only files
-// needed by the current implementations are required; unrelated extras are fine.
-pub static RELEASES: &[Release] = &[
-    Release {
-        id: "alley-cat-verified-reference",
-        compatibility_id: "alley-cat-dos-original",
-        game: Game::AlleyCat,
-        metadata: &ALLEY_CAT,
-        files: &[FileRecord {
-            name: "CAT.EXE",
-            size: 55_067,
-            sha256: "4979c8867826e08881d1d4bec95c95d6bc1ac70fd21050ccdb4f733a50d7bfdd",
-        }],
-    },
-    Release {
-        id: "mach-3-verified-reference",
-        compatibility_id: "mach-3-dos-original",
-        game: Game::Mach3,
-        metadata: &MACH3,
-        files: &[
-            FileRecord {
-                name: "MACH3.EXE",
-                size: 43_008,
-                sha256: "0cc5c73476ec31ebc52f5c3a66be58e08244c85b2e8178abac65178a37474fe1",
-            },
-            FileRecord {
-                name: "DATA1",
-                size: 16_384,
-                sha256: "e791d95500402c5c38574c349c65b402ba75302795eaf7b44c069ed8c3588ff0",
-            },
-            FileRecord {
-                name: "DATA2",
-                size: 28_960,
-                sha256: "eac1b4e82b6b2a88bee2d8b523e16bf949382572d973cd551ceab1b962c01e50",
-            },
-            FileRecord {
-                name: "DATA3",
-                size: 16_000,
-                sha256: "8733be0ec3afd731bca5fa17fae661675c186d1e84a0941b80b77e0a3d2c9bc8",
-            },
-            FileRecord {
-                name: "DATA4",
-                size: 25_704,
-                sha256: "a7cc941fa54ea1c3cddfcbc11a568d021f33d46a179c0d673db64a4222fd6580",
-            },
-            FileRecord {
-                name: "DATA5",
-                size: 25_704,
-                sha256: "3e1ab7a0e8cd3c4fd44486c6a402506257f13defe2949a49cbdd4565087678cb",
-            },
-            FileRecord {
-                name: "DATA6",
-                size: 16_384,
-                sha256: "4b44015ccb5eb001d03670ad5fa46879912625f54a236d44e38556de8efbb2ce",
-            },
-        ],
-    },
-];
 
 #[derive(Debug)]
 pub struct Detected {

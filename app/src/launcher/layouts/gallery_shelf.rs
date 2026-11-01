@@ -314,10 +314,8 @@ fn draw_game_card(
 
     let sub = if game.status.is_missing() {
         "Missing files".to_string()
-    } else if let Some(note) = game.edition_note {
-        format!("{} · {note}", game.year)
     } else {
-        format!("{} · {}", game.year, game.developer)
+        game.metadata.library_line()
     };
     let sub_rect = ui.painter().text(
         Pos2::new(rect.left() + pad, text_top + 19.0),

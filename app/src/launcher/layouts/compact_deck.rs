@@ -202,16 +202,13 @@ fn draw_deck_row(
         title_col,
     );
 
-    let meta = if let Some(note) = game.edition_note {
-        format!(
-            "{} · {} · {} · {note}",
-            game.year,
-            game.attribution(),
-            game.genre
-        )
-    } else {
-        format!("{} · {} · {}", game.year, game.attribution(), game.genre)
-    };
+    let mut meta = game.metadata.detail_line();
+    if let Some(note) = game.metadata.edition {
+        if !meta.is_empty() {
+            meta.push_str(" · ");
+        }
+        meta.push_str(note);
+    }
     let max_meta_x = if rect.width() >= 420.0 {
         rect.right() - 165.0
     } else {

@@ -156,7 +156,7 @@ pub static MACH3_DOS: Edition = Edition {
 // needed by the current implementations are required; unrelated extras are fine.
 pub static RELEASES: &[Release] = &[
     Release {
-        id: "alley-cat-verified-reference",
+        id: "alley-cat-dos-06ff7fe280",
         compatibility_id: "alley-cat-dos",
         edition: &ALLEY_CAT_DOS,
         files: &[FileRecord {
@@ -166,7 +166,7 @@ pub static RELEASES: &[Release] = &[
         }],
     },
     Release {
-        id: "mach-3-verified-reference",
+        id: "mach-3-dos-5f6ec0fc8b",
         compatibility_id: "mach-3-dos",
         edition: &MACH3_DOS,
         files: &[

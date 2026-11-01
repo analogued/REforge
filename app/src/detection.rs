@@ -13,6 +13,8 @@ use sha2::{Digest, Sha256};
 
 mod catalog;
 #[cfg(test)]
+mod identity;
+#[cfg(test)]
 use catalog::{ALLEY_CAT_DOS, MACH3_DOS};
 pub use catalog::{Edition, GameMetadata, RELEASES};
 
@@ -51,7 +53,7 @@ pub struct FileRecord {
 
 #[derive(Debug)]
 pub struct Release {
-    /// A reference identifier, not a claim about the commercial version.
+    /// Stable detected-distribution ID; not an official game version number.
     pub id: &'static str,
     /// Verified compatibility of saves and persistent option semantics.
     pub compatibility_id: &'static str,
@@ -808,13 +810,16 @@ mod tests {
     #[test]
     fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
         assert_eq!(RELEASES.len(), 2);
+        let mut ids = std::collections::HashSet::new();
         for release in RELEASES {
-            assert!(release.id.contains("verified-reference"));
+            assert!(ids.insert(release.id), "duplicate detected-release ID");
+            assert_eq!(release.id, identity::release_id(release).unwrap());
             assert!(!release.game().id().is_empty());
             for file in release.files {
                 assert!(file.size > 0);
                 assert_eq!(file.sha256.len(), 64);
                 assert!(file.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()));
+                assert_eq!(file.sha256, file.sha256.to_ascii_lowercase());
                 assert_eq!(
                     release
                         .files

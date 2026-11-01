@@ -129,7 +129,7 @@ schema_version = 2
 [[entries]]
 entry_id = "alley-cat-m7k4p9"
 game_id = "alley-cat"
-release_id = "alley-cat-verified-reference"
+release_id = "alley-cat-dos-06ff7fe280"
 title = "Alley Cat"
 directory = "/Games/AlleyCat"
 original = "/Games/AlleyCat/CAT.EXE"
@@ -562,8 +562,8 @@ The current chains are:
 
 | Detected release ID | Edition ID | Game ID | Specs profile ID |
 | --- | --- | --- | --- |
-| `alley-cat-verified-reference` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
-| `mach-3-verified-reference` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
+| `alley-cat-dos-06ff7fe280` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
+| `mach-3-dos-5f6ec0fc8b` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
 
 Both editions have platform `Platform::Dos`. Platform placement in the launcher
 is not yet defined. Edition IDs name catalog groupings; the precise commercial
@@ -572,6 +572,28 @@ IDs have separate namespaces. Both current detected releases use their game's
 `*-dos` compatibility ID, matching the edition/profile spelling. Sharing edition
 or specs records does not establish save/configuration
 compatibility: each detected release retains its explicit compatibility group.
+
+Detected-release IDs use `<game-id>-<platform>-<10 hex digits>`. The suffix is
+derived from the complete catalogued required-file manifest. DOS filenames use
+ASCII case-insensitive normalization, matching detection; non-ASCII characters
+remain exact. File-list order and hexadecimal SHA-256 letter casing do not affect
+the identity. Other platforms must select their own filename case semantics.
+Original file contents remain byte-exact and are verified with the full SHA-256.
+Absolute installation paths and editorial/edition/specs metadata are excluded.
+
+The version-one fingerprint encoding is fixed: the ASCII marker
+`reforge-detected-release-v1` followed by a NUL byte, the file count as an unsigned
+64-bit little-endian integer, then records sorted by normalized UTF-8 filename.
+Each record contains its filename byte length as the same integer type, filename
+bytes, file size as the same integer type, and 64 lowercase ASCII SHA-256 hex
+characters. Hash this encoding with SHA-256 and take the first ten hex digits.
+The game ID and platform form the readable prefix outside the digest.
+
+IDs are assigned in the catalog. [Authoring checks](../app/src/detection/identity.rs)
+validate normalization and reject duplicate IDs, including shortened-fingerprint
+collisions. Runtime detection uses the assigned IDs and full file hashes. No
+legacy-ID aliases or automatic migration are provided for these pre-release
+renames; local library `release_id` references are edited directly.
 
 Years are optional numbers. Credits, genres and feature summaries are separate
 lists; unknown facts use `None` or empty lists. An edition uses its game's title

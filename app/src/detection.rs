@@ -368,7 +368,7 @@ mod tests {
     static SYNTHETIC: &[Release] = &[
         Release {
             id: "synthetic-cat-a",
-            compatibility_id: "alley-cat-dos-original",
+            compatibility_id: "alley-cat-dos",
             edition: &ALLEY_CAT_DOS,
             files: &[FileRecord {
                 name: "CAT.EXE",
@@ -378,7 +378,7 @@ mod tests {
         },
         Release {
             id: "synthetic-cat-b",
-            compatibility_id: "alley-cat-dos-original",
+            compatibility_id: "alley-cat-dos",
             edition: &ALLEY_CAT_DOS,
             files: &[FileRecord {
                 name: "CAT.EXE",
@@ -388,7 +388,7 @@ mod tests {
         },
         Release {
             id: "synthetic-mach",
-            compatibility_id: "mach-3-dos-original",
+            compatibility_id: "mach-3-dos",
             edition: &MACH3_DOS,
             files: &[
                 FileRecord {
@@ -741,7 +741,7 @@ mod tests {
         static OVERLAPPING: &[Release] = &[
             Release {
                 id: "first",
-                compatibility_id: "alley-cat-dos-original",
+                compatibility_id: "alley-cat-dos",
                 edition: &ALLEY_CAT_DOS,
                 files: &[FileRecord {
                     name: "CAT.EXE",
@@ -751,7 +751,7 @@ mod tests {
             },
             Release {
                 id: "second",
-                compatibility_id: "alley-cat-dos-original",
+                compatibility_id: "alley-cat-dos",
                 edition: &ALLEY_CAT_DOS,
                 files: &[FileRecord {
                     name: "CAT.EXE",

@@ -567,9 +567,10 @@ The current chains are:
 
 Both editions have platform `Platform::Dos`. Platform placement in the launcher
 is not yet defined. Edition IDs name catalog groupings; the precise commercial
-edition/version designations remain unverified. Edition and specs IDs have
-separate namespaces, so an edition and profile may both be named `alley-cat-dos`.
-Sharing edition or specs records does not establish save/configuration
+edition/version designations remain unverified. Edition, specs and compatibility
+IDs have separate namespaces. Both current detected releases use their game's
+`*-dos` compatibility ID, matching the edition/profile spelling. Sharing edition
+or specs records does not establish save/configuration
 compatibility: each detected release retains its explicit compatibility group.
 
 Years are optional numbers. Credits, genres and feature summaries are separate

@@ -157,7 +157,7 @@ pub static MACH3_DOS: Edition = Edition {
 pub static RELEASES: &[Release] = &[
     Release {
         id: "alley-cat-verified-reference",
-        compatibility_id: "alley-cat-dos-original",
+        compatibility_id: "alley-cat-dos",
         edition: &ALLEY_CAT_DOS,
         files: &[FileRecord {
             name: "CAT.EXE",
@@ -167,7 +167,7 @@ pub static RELEASES: &[Release] = &[
     },
     Release {
         id: "mach-3-verified-reference",
-        compatibility_id: "mach-3-dos-original",
+        compatibility_id: "mach-3-dos",
         edition: &MACH3_DOS,
         files: &[
             FileRecord {

@@ -451,6 +451,7 @@ pub struct TextOutput {
     screen: TextScreen,
     pending: VecDeque<Action>,
     waiting: bool,
+    pauses: bool,
     concatenate: bool,
     capitalize: bool,
     uppercase: bool,
@@ -478,6 +479,7 @@ impl Default for TextOutput {
             screen: TextScreen::default(),
             pending: VecDeque::new(),
             waiting: false,
+            pauses: true,
             concatenate: false,
             capitalize: true,
             uppercase: false,
@@ -573,6 +575,9 @@ impl TextOutput {
     }
     pub fn apply_input(&mut self, action: &InputAction, pause_prompt: &[u8]) -> Result<(), Error> {
         self.screen.apply_input(action, pause_prompt)
+    }
+    pub fn set_pauses(&mut self, enabled: bool) {
+        self.pauses = enabled;
     }
     pub fn waiting_for_key(&self) -> bool {
         self.waiting
@@ -718,6 +723,9 @@ impl TextOutput {
                 }
                 Action::Byte(byte) => self.character(byte),
                 Action::Pause => {
+                    if !self.pauses {
+                        continue;
+                    }
                     self.waiting = true;
                     self.screen.status(pause_prompt);
                     break;

@@ -24,7 +24,7 @@ are selected at the operation that needs them:
 | --- | --- | --- |
 | Opcodes `0x0d` / `0x0e` / `0x0f` | No operation | Print byte / load variable byte / store variable byte |
 | Property keys | Checked against the object limit | May exceed the object limit; the object remains checked |
-| Service 7 / 10 | Echo unknown word / echo input | Echo input / echo unknown word |
+| Service 7 / 10 | Echo unknown word / echo input | Same |
 | Services 15 / 16 / 18 | Unavailable | Get cursor / set cursor / redraw frame |
 | Text execution | Direct formatting | Formatting can call wordcode and resume |
 | Numeric input | No numeric object slots | Optional range of numeric object slots |
@@ -74,15 +74,32 @@ additional host-only continuation stack or new save format is introduced. The
 bookmark codec remains shared; definitions change only where demonstrated native
 behavior requires it.
 
+## Extended output controls
+
+Essex exposes the story cursor through variables `0x118` (column) and `0x11a`
+(row), and its story rectangle through `0x11c`, `0x11e`, `0x120` and `0x122`
+(left, top, right, bottom). The physical display remains 80×25 cells. Reflected
+extent values at `0x124` and `0x126` do not relocate the physical pause line.
+
+Variable `0x134` enables display and keyboard pauses; zero suppresses those
+pauses while ordinary keyboard input continues. With pauses disabled, Ctrl-S
+and Escape retain their distinct byte values in input. Variable `0x136` controls
+transcript buffering and flushing without closing an already-open transcript.
+
+Successful bookmark restore rebuilds the frame, refreshes the exposed cursor,
+and resets the story rectangle and reflected extents. Other saved variable
+state remains intact. The bookmark byte format itself is unchanged.
+
 ## Validation boundary
 
-Mindwheel remains the catalogued player release. Essex behavior is available to
-the diagnostic frontend while gameplay integration is being validated. Synthetic
-tests cover the selected differences, numeric-range boundaries, nested callbacks,
-continuation frames, resource relocation and both submitted-read conversions.
-Selected original-executable comparisons cover title rendering, numeric parsing,
-callbacks and cursor services. These checks do not establish a winning playthrough,
-complete Essex compatibility, or support for other BTZ releases. Essex's extended
-pause/transcript control variables still need integration and native comparison;
-full native bookmark restore paths also await comparison before player support
-is advertised.
+Mindwheel and Essex each have one catalogued DOS release. Synthetic tests cover
+numeric-range boundaries, nested callbacks, continuation frames, resource
+relocation, output controls and both submitted-read conversions. Selected
+original-executable comparisons cover title rendering, numeric parsing, callbacks,
+byte operations, property keys, cursor services, echoing, pauses and transcripts.
+The seven supplied Essex bookmarks also match native load/re-save variable state,
+screen output and serialized save bytes through the shared codec.
+
+These checks and longer gameplay runs do not establish a winning playthrough,
+complete behavioral equivalence or support for other BTZ releases. The remaining
+pause/input and timing-policy limits in the engine overview still apply.

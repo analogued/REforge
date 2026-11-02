@@ -108,6 +108,9 @@ impl Session {
     ) -> Result<Self, Error> {
         let vm = Vm::with_interpreter(image.clone(), interpreter)?;
         let mut text = TextOutput::new();
+        if let Some(controls) = interpreter.output_controls {
+            text.set_pauses(vm.variable(controls.pauses)? != 0);
+        }
         text.enable_keyboard_polling();
         if interpreter.text == crate::interpreter::TextExecution::WordcodeCallbacks {
             text.enable_callbacks();
@@ -350,7 +353,8 @@ impl Session {
                 return Ok(());
             }
         }
-        for action in self.input.process_key(key) {
+        let pauses = self.pauses_enabled()?;
+        for action in self.input.process_key_with_pauses(key, pauses) {
             if action == InputAction::ClearSubmitFlag {
                 self.vm.write_variable(VarAddr(0xda), 0)?;
             }
@@ -389,6 +393,7 @@ impl Session {
         if self.text.waiting_for_key() || self.input.paused() {
             return Ok(SessionStep::WaitKey);
         }
+        self.text.set_pauses(self.pauses_enabled()?);
         self.drain_text(keyboard.as_mut().map(|source| &mut **source as _))?;
         if self.text.waiting_for_key() || self.input.paused() {
             return Ok(SessionStep::WaitKey);
@@ -731,6 +736,35 @@ impl Session {
         }
     }
 
+    fn pauses_enabled(&self) -> Result<bool, Error> {
+        self.vm
+            .interpreter()
+            .output_controls
+            .map_or(Ok(true), |controls| {
+                self.vm.variable(controls.pauses).map(|value| value != 0)
+            })
+    }
+
+    fn reset_display_variables(&mut self) -> Result<(), Error> {
+        if self.vm.interpreter().screen == crate::interpreter::ScreenModel::VariableBacked {
+            let (row, column) = self.text.screen().upper_cursor();
+            for (address, value) in [
+                (0x118, column as u16),
+                (0x11a, row as u16),
+                (0x11c, 1),
+                (0x11e, 1),
+                (0x120, 77),
+                (0x122, 17),
+                (0x124, 79),
+                (0x126, 24),
+            ] {
+                self.vm.write_variable(VarAddr(address), value)?;
+            }
+            self.sync_screen_region()?;
+        }
+        Ok(())
+    }
+
     fn sync_screen_region(&mut self) -> Result<(), Error> {
         if self.vm.interpreter().screen == crate::interpreter::ScreenModel::VariableBacked {
             self.text.set_region(
@@ -738,7 +772,7 @@ impl Session {
                 self.vm.variable(VarAddr(0x11e))?,
                 self.vm.variable(VarAddr(0x120))?,
                 self.vm.variable(VarAddr(0x122))?,
-                self.vm.variable(VarAddr(0x126))?,
+                24,
             )?;
         }
         Ok(())
@@ -796,6 +830,11 @@ impl Session {
     }
 
     fn record_transcript(&mut self, event: TranscriptEvent) -> Result<(), Error> {
+        if let Some(controls) = self.vm.interpreter().output_controls
+            && self.vm.variable(controls.transcript)? == 0
+        {
+            return Ok(());
+        }
         if let Some(bytes) = self.transcript.record(event)? {
             self.host_requests
                 .push_back(HostRequest::WriteTranscript { bytes });
@@ -888,6 +927,14 @@ impl Session {
                     })
                 ) {
                     self.rebuild_frame();
+                }
+                if matches!(
+                    self.pending,
+                    Some(Request::NativeService {
+                        service: NativeService::Restore | NativeService::ResetVariables
+                    })
+                ) {
+                    self.reset_display_variables()?;
                 }
                 self.disk_transition = None;
                 self.finish_native()?;

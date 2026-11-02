@@ -16,6 +16,7 @@ pub enum Key {
     RecallLine,
     RecallCharacter,
     Pause,
+    Escape,
     NoKey,
     Ignored,
 }
@@ -29,7 +30,8 @@ impl Key {
             9 => Self::Tab,
             10 => Self::LineFeed,
             13 => Self::Enter,
-            0x13 | 0x1b => Self::Pause,
+            0x13 => Self::Pause,
+            0x1b => Self::Escape,
             0xc8 | 0xd6 => Self::EraseLine,
             0xc9 | 0xd4 => Self::RecallLine,
             0x1c | 0xd2 => Self::RecallCharacter,
@@ -129,9 +131,18 @@ impl InputEditor {
     /// Processes one translated key. Polling/draining a host queue belongs to
     /// the host; no key timing or grammar results are synthesized here.
     pub fn process_key(&mut self, key: Key) -> Vec<InputAction> {
+        self.process_key_with_pauses(key, true)
+    }
+
+    pub fn process_key_with_pauses(&mut self, key: Key, pauses: bool) -> Vec<InputAction> {
+        let key = match (pauses, key) {
+            (false, Key::Pause) => Key::Character(0x13),
+            (false, Key::Escape) => Key::Character(0x1b),
+            _ => key,
+        };
         let mut actions = Vec::new();
         if self.paused {
-            if matches!(key, Key::Pause | Key::NoKey) {
+            if matches!(key, Key::Pause | Key::Escape | Key::NoKey) {
                 return actions;
             }
             self.paused = false;
@@ -139,7 +150,7 @@ impl InputEditor {
             if matches!(key, Key::Enter | Key::LineFeed) {
                 return actions;
             }
-        } else if key == Key::Pause {
+        } else if matches!(key, Key::Pause | Key::Escape) {
             self.paused = true;
             actions.push(InputAction::PauseStatus { active: true });
             return actions;
@@ -187,7 +198,9 @@ impl InputEditor {
                 }
                 self.byte(0, &mut actions);
             }
-            Key::Pause | Key::NoKey => unreachable!("pause and empty polls handled above"),
+            Key::Pause | Key::Escape | Key::NoKey => {
+                unreachable!("pause and empty polls handled above")
+            }
         }
         actions
     }

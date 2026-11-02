@@ -92,7 +92,7 @@ fn special_key(key: Keycode, modifiers: Mod) -> Option<Key> {
         Keycode::Home | Keycode::F5 => Some(Key::EraseLine),
         Keycode::End | Keycode::F3 => Some(Key::RecallLine),
         Keycode::Right | Keycode::F1 => Some(Key::RecallCharacter),
-        Keycode::Escape => Some(Key::Pause),
+        Keycode::Escape => Some(Key::Escape),
         _ => None,
     }
 }
@@ -263,9 +263,9 @@ fn complete_file_request(
     Ok(())
 }
 
-pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), String> {
+pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Result<(), String> {
     let mut window = Window::new_with_geometry(
-        &game_title("Mindwheel", None),
+        &game_title(title, None),
         GEOMETRY,
         preferences.scale,
         preferences.presentation,
@@ -450,7 +450,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), Strin
             "F10 settings · Pause pauses · Ctrl+Q exits"
         };
         if previous_status != status {
-            window.set_title(&game_title("Mindwheel", Some(status)))?;
+            window.set_title(&game_title(title, Some(status)))?;
             previous_status = status;
         }
         if window.presentation_due() {
@@ -507,7 +507,7 @@ mod tests {
         for key in [Keycode::F1, Keycode::Right] {
             assert_eq!(special_key(key, Mod::NOMOD), Some(Key::RecallCharacter));
         }
-        assert_eq!(special_key(Keycode::Escape, Mod::NOMOD), Some(Key::Pause));
+        assert_eq!(special_key(Keycode::Escape, Mod::NOMOD), Some(Key::Escape));
         assert_eq!(special_key(Keycode::S, Mod::LCTRLMOD), Some(Key::Pause));
         for control in [Mod::LCTRLMOD, Mod::RCTRLMOD] {
             assert_eq!(special_key(Keycode::G, control), Some(Key::Character(7)));

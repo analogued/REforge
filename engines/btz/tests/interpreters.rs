@@ -133,9 +133,9 @@ fn first_row(session: &Session) -> String {
 #[test]
 fn native_service_slots_are_mapped_without_changing_shared_meanings() {
     assert_eq!(MINDWHEEL_DOS.service(7), Some(NativeService::EchoUnknown));
-    assert_eq!(ESSEX_DOS.service(7), Some(NativeService::EchoInput));
+    assert_eq!(ESSEX_DOS.service(7), Some(NativeService::EchoUnknown));
     assert_eq!(MINDWHEEL_DOS.service(10), Some(NativeService::EchoInput));
-    assert_eq!(ESSEX_DOS.service(10), Some(NativeService::EchoUnknown));
+    assert_eq!(ESSEX_DOS.service(10), Some(NativeService::EchoInput));
     assert_eq!(ESSEX_DOS.service(18), Some(NativeService::DrawFrame));
     assert_eq!(ESSEX_DOS.service(17), Some(NativeService::NoOp));
     assert_eq!(MINDWHEEL_DOS.service(15), None);
@@ -572,4 +572,170 @@ fn numeric_layout_uses_the_header_cached_at_initialization() {
     );
     assert_eq!(vm.variable(VarAddr(0x194)).unwrap(), 0xfffe);
     assert_eq!(vm.variable(VarAddr(0x1b4)).unwrap(), 0);
+}
+
+#[test]
+fn pause_control_skips_display_waits_without_disabling_ordinary_input() {
+    let mut session = session(fixture(
+        &[
+            0x2c, 0, 0x30, 0x134, 0x64, 3, 0x58, 0x8000, 0x2c, 0xffff, 0x64, 1,
+        ],
+        &[&[b"\x0c", b"ready"]],
+    ));
+    for _ in 0..1000 {
+        match session.advance().unwrap() {
+            SessionStep::ReadLine { .. } => break,
+            SessionStep::WaitKey => panic!("disabled pause requested a key"),
+            _ => {}
+        }
+    }
+    session
+        .key_batch(&[Key::Pause, Key::Escape, Key::Character(b'x')])
+        .unwrap();
+    assert!(!session.input().paused());
+    assert_eq!(session.input().buffer(), &[0x13, 0x1b, b'x']);
+    assert_eq!(first_row(&session), "Ready");
+}
+
+#[test]
+fn restored_extended_cursor_and_region_are_reinitialized_after_loading() {
+    let mut session = session(fixture(&[0x64, 6, 0x64, 3], &[]));
+    let mut bookmark = Bookmark::from_vm(session.vm().state(), [0xffff; 100], 0, 1).unwrap();
+    for (address, value) in [
+        (0x118, 21),
+        (0x11a, 13),
+        (0x11c, 5),
+        (0x120, 40),
+        (0x126, 22),
+        (0x1e, 0),
+    ] {
+        put(&mut bookmark.variables, address, value);
+    }
+    session.set_side_map(btz::services::SideMap {
+        entries: [btz::services::SideEntry {
+            physical_disk: 0,
+            drive: b'A',
+        }; 10],
+        trailing_value: 100,
+    });
+    for _ in 0..1000 {
+        if matches!(
+            session.advance().unwrap(),
+            SessionStep::Host(HostRequest::LoadBookmark)
+        ) {
+            break;
+        }
+    }
+    session
+        .complete_host(HostReply::Bytes(bookmark.encode().unwrap()))
+        .unwrap();
+    assert_eq!(session.vm().variable(VarAddr(0x118)).unwrap(), 1);
+    assert_eq!(session.vm().variable(VarAddr(0x11a)).unwrap(), 1);
+    assert_eq!(session.vm().variable(VarAddr(0x11c)).unwrap(), 1);
+    assert_eq!(session.vm().variable(VarAddr(0x120)).unwrap(), 77);
+    assert_eq!(session.vm().variable(VarAddr(0x126)).unwrap(), 24);
+}
+
+#[test]
+fn transcript_control_suppresses_output_without_closing_the_transcript() {
+    let mut session = session(fixture(
+        &[
+            0x64, 8, 0x58, 0x8000, 0x2c, 0, 0x30, 0x136, 0x58, 0x8001, 0x2c, 0xffff, 0x30, 0x136,
+            0x58, 0x8002, 0x2c, 0xffff, 0x64, 1,
+        ],
+        &[&[b"visible"], &[b"hidden", b"@"], &[b"again", b"@"]],
+    ));
+    let mut output = Vec::new();
+    for _ in 0..2000 {
+        match session.advance().unwrap() {
+            SessionStep::Host(HostRequest::TranscriptName { .. }) => session
+                .complete_host(HostReply::Name(b"test.txt".to_vec()))
+                .unwrap(),
+            SessionStep::Host(HostRequest::OpenTranscript { .. }) => {
+                session.complete_host(HostReply::Done).unwrap()
+            }
+            SessionStep::Host(HostRequest::WriteTranscript { bytes }) => {
+                output.extend(bytes);
+                session.complete_host(HostReply::Done).unwrap();
+            }
+            SessionStep::ReadLine { .. } => break,
+            _ => {}
+        }
+    }
+    assert_eq!(output, b"Visibleagain\r\n\r\n");
+}
+
+#[test]
+fn essex_echoes_unknown_words_and_original_input_through_the_correct_slots() {
+    let mut bytes = fixture(
+        &[
+            0x2c, 0xffff, 0x64, 1, 0x64, 7, 0x58, 0x8000, 0x64, 10, 0x2c, 0, 0x64, 3,
+        ],
+        &[&[b"@"]],
+    );
+    put(&mut bytes, 0xea, 0xffff);
+    let mut session = session(bytes);
+    for _ in 0..2000 {
+        match session.advance().unwrap() {
+            SessionStep::ReadLine { .. } if !session.input().line_ready() => {
+                session
+                    .key_batch(
+                        &b"GO XYZ\r"
+                            .iter()
+                            .copied()
+                            .map(Key::from_dos_byte)
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap();
+            }
+            SessionStep::WaitKey => break,
+            _ => {}
+        }
+    }
+    assert_eq!(first_row(&session), "Xyz");
+    let row = session.screen().dos_cells()[322..476]
+        .iter()
+        .step_by(2)
+        .copied()
+        .collect::<Vec<_>>();
+    assert!(row.starts_with(b"GO XYZ"));
+}
+
+#[test]
+fn display_extent_metadata_does_not_move_the_physical_pause_line() {
+    let mut bytes = fixture(
+        &[
+            0x2c,
+            5,
+            0x30,
+            0x11a,
+            0x64,
+            16,
+            0x34,
+            b'X' as u16,
+            0x2c,
+            10,
+            0x30,
+            0x124,
+            0x2c,
+            5,
+            0x30,
+            0x126,
+            0x64,
+            3,
+        ],
+        &[],
+    );
+    put(&mut bytes, 0x128, 0x1234);
+    put(&mut bytes, 0x12a, 0x5678);
+    let mut session = session(bytes);
+    for _ in 0..1000 {
+        if matches!(session.advance().unwrap(), SessionStep::WaitKey) {
+            break;
+        }
+    }
+    assert_eq!(session.screen().dos_cells()[(5 * 80 + 1) * 2], b'X');
+    assert_eq!(session.vm().variable(VarAddr(0x126)).unwrap(), 5);
+    assert_eq!(session.vm().variable(VarAddr(0x128)).unwrap(), 0x1234);
+    assert_eq!(session.vm().variable(VarAddr(0x12a)).unwrap(), 0x5678);
 }

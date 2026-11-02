@@ -313,12 +313,12 @@ impl KeyboardDecoder {
                 }
                 self.pending.pop_front();
                 self.escape_since = None;
-                return Input::Key(Key::Pause);
+                return Input::Key(Key::Escape);
             }
             if !matches!(self.pending.get(1), Some(b'[' | b'O')) {
                 self.pending.pop_front();
                 self.escape_since = None;
-                return Input::Key(Key::Pause);
+                return Input::Key(Key::Escape);
             }
             let end = self
                 .pending
@@ -662,7 +662,7 @@ mod tests {
         assert_eq!(decoder.next(now), Input::Idle);
         assert_eq!(decoder.next(now + Duration::from_millis(29)), Input::Idle);
         assert!(decoder.ready(now + ESCAPE_DELAY));
-        assert_eq!(decoder.next(now + ESCAPE_DELAY), Input::Key(Key::Pause));
+        assert_eq!(decoder.next(now + ESCAPE_DELAY), Input::Key(Key::Escape));
     }
 
     #[test]
@@ -670,7 +670,7 @@ mod tests {
         let now = Instant::now();
         let mut decoder = KeyboardDecoder::default();
         decoder.pending.extend([27, b'a']);
-        assert_eq!(decoder.next(now), Input::Key(Key::Pause));
+        assert_eq!(decoder.next(now), Input::Key(Key::Escape));
         assert_eq!(decoder.next(now), Input::Key(Key::Character(b'a')));
     }
 
@@ -714,7 +714,7 @@ mod tests {
             (0x08, Key::Backspace),
             (0x09, Key::Tab),
             (0x0d, Key::Enter),
-            (0x1b, Key::Pause),
+            (0x1b, Key::Escape),
             (0x25, Key::Backspace),
             (0x27, Key::RecallCharacter),
             (0x70, Key::RecallCharacter),

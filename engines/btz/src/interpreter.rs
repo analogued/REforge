@@ -51,6 +51,14 @@ pub enum NumericInput {
     ObjectSlots,
 }
 
+/// Variable-backed switches introduced by the extended DOS runtime. These
+/// control pauses and transcript output, not whether ordinary keys are read.
+#[derive(Clone, Copy, Debug)]
+pub struct OutputControls {
+    pub pauses: VarAddr,
+    pub transcript: VarAddr,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SubmittedRead {
     ShiftEight,
@@ -91,6 +99,7 @@ pub struct Interpreter {
     pub numeric_input: NumericInput,
     pub submitted_read: SubmittedRead,
     pub validate_property_id: bool,
+    pub output_controls: Option<OutputControls>,
 }
 
 impl Interpreter {
@@ -126,6 +135,7 @@ pub static MINDWHEEL_DOS: Interpreter = Interpreter {
     numeric_input: NumericInput::Disabled,
     submitted_read: SubmittedRead::ShiftEight,
     validate_property_id: true,
+    output_controls: None,
 };
 
 pub static ESSEX_DOS: Interpreter = Interpreter {
@@ -139,8 +149,6 @@ pub static ESSEX_DOS: Interpreter = Interpreter {
         (VarAddr(0x122), 17),
         (VarAddr(0x124), 79),
         (VarAddr(0x126), 24),
-        (VarAddr(0x128), 0),
-        (VarAddr(0x12a), 0),
         (VarAddr(0x12c), 15),
         (VarAddr(0x12e), 16),
         (VarAddr(0x132), 18),
@@ -157,10 +165,10 @@ pub static ESSEX_DOS: Interpreter = Interpreter {
         Exit,
         Save,
         Restore,
-        EchoInput,
+        EchoUnknown,
         OpenTranscript,
         CloseTranscript,
-        EchoUnknown,
+        EchoInput,
         ResetVariables,
         ResetStacks,
         NoOp,
@@ -175,6 +183,10 @@ pub static ESSEX_DOS: Interpreter = Interpreter {
     numeric_input: NumericInput::ObjectSlots,
     submitted_read: SubmittedRead::Divide85,
     validate_property_id: false,
+    output_controls: Some(OutputControls {
+        pauses: VarAddr(0x134),
+        transcript: VarAddr(0x136),
+    }),
 };
 
 /// Locations of externally supplied resources. Moving a table does not change

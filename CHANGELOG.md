@@ -15,6 +15,7 @@ Unreleased contains changes intended for the next public release.
 - Optional terminal play through `--renderer terminal` using an attached terminal.
 - Launcher options for graphical/terminal play, sharp pixels/CRT and
   windowed/fullscreen, retaining graphical preferences during terminal play.
+  Click a saved choice again to follow defaults, as with other games.
 - Native bookmarks and transcripts, with filename prompts in either frontend.
 
 ## 2026.1.0 (2026-11-01)

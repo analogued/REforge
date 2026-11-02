@@ -345,7 +345,19 @@ impl GameEntry {
                     cli: Default::default(),
                 });
                 let mut d = s.saved.clone();
-                d.set_terminal(choice.value == "terminal");
+                if let Some(value) = value {
+                    d.set_terminal(value == "terminal");
+                    if value == "graphical" && !d.game.contains_key("renderer") {
+                        // Like the other launch controls, clicking an inherited
+                        // default pins it, even when its value is unchanged.
+                        let renderer = d.global_values().renderer.as_str();
+                        d.game.insert("renderer".into(), renderer.into());
+                    }
+                } else {
+                    // Unpinning follows the global renderer. Selecting Graphical
+                    // instead restores the dormant per-game graphical renderer.
+                    d.game.remove("renderer");
+                }
                 s.commit(d)
             }
             Storage::Native { key, .. } => reforge_settings::launcher::save_native_option(

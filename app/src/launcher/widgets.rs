@@ -452,20 +452,18 @@ pub(crate) fn option_control(
         game.save_option(field, value);
     }
     // The group tooltip explains inherited and explicit state without a legend.
+    let mut tooltip = game.preferences.tooltip(field, current);
     if field == "Renderer"
         && game
             .options
             .iter()
             .any(|o| matches!(o.storage, reforge_sdl::launcher::Storage::TerminalMode))
     {
-        ui.response().on_hover_text("Graphical uses the renderer configured in Settings. Terminal requires an attached terminal. Switching preserves graphical preferences.");
-    } else {
-        ui.response()
-            .on_hover_text(game.preferences.tooltip(field, current))
-            .on_disabled_hover_text(
-                "These settings are retained and apply when Graphical is selected.",
-            );
+        tooltip.push_str("\nGraphical uses the renderer configured in Settings. Terminal requires an attached terminal.");
     }
+    ui.response().on_hover_text(tooltip).on_disabled_hover_text(
+        "These settings are retained and apply when Graphical is selected.",
+    );
 }
 pub fn draw_launch_options_rows(ui: &mut egui::Ui, ap: &ResolvedAppearance, game: &mut GameEntry) {
     primitives::surface(ui, &ap.theme, ap.theme.components.section, |ui| {

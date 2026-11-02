@@ -620,6 +620,87 @@ fn btz_launch_options_preserve_graphics_and_disable_unavailable_choices() {
 }
 
 #[test]
+fn btz_renderer_pins_and_unpins_like_other_launch_options() {
+    // The active-mode preview badge can also say "Terminal". Target the
+    // button beside Graphical rather than that noninteractive label.
+    let click_terminal = |h: &mut Harness| {
+        let output = h.settle();
+        let graphical = text_rect(&output, "Graphical").unwrap();
+        let point = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == "Terminal" => {
+                    let rect = Rect::from_min_size(text.pos, text.galley.size());
+                    ((rect.center().y - graphical.center().y).abs() < 4.0).then_some(rect.center())
+                }
+                _ => None,
+            })
+            .expect("Terminal renderer button");
+        h.click_at(point);
+    };
+    for theme in ThemeId::ALL {
+        for layout in LayoutVariant::ALL {
+            let fixture = Fixture::new(detection::RELEASES.len());
+            let mut session = fixture.session("mindwheel");
+            let mut draft = session.saved.clone();
+            draft.global.insert("renderer".into(), "gpu".into());
+            draft.game.insert("window_mode".into(), "fullscreen".into());
+            draft.game.insert("presentation".into(), "hyllian".into());
+            session.commit(draft).unwrap();
+            let original_graphics = session.saved.game;
+            let mut h = Harness::new(&fixture, theme, layout, true);
+            h.state.games.retain(|game| game.game_id == "mindwheel");
+            h.state.selected = Some(h.state.games[0].entry_id.clone());
+            h.state.options_open = true;
+            h.state.games[0].terminal_available = true;
+            assert!(!h.state.games[0].preferences.saved.contains_key("Renderer"));
+
+            // Clicking the inherited choice pins it, including a matching default.
+            h.click("Graphical");
+            assert_eq!(fixture.session("mindwheel").saved.game["renderer"], "gpu");
+            h.state.games[0].refresh_preferences().unwrap();
+            assert_eq!(h.state.games[0].preferences.saved["Renderer"], "Graphical");
+            let mut session = fixture.session("mindwheel");
+            let mut draft = session.saved.clone();
+            draft.global.insert("renderer".into(), "sdl".into());
+            session.commit(draft).unwrap();
+            h.state.games[0].refresh_preferences().unwrap();
+            assert_eq!(
+                fixture.session("mindwheel").saved.game_values().renderer,
+                reforge_settings::Renderer::Gpu
+            );
+
+            // Clicking the pinned choice removes it and follows updated globals.
+            h.click("Graphical");
+            assert_eq!(fixture.session("mindwheel").saved.game, original_graphics);
+            assert_eq!(
+                fixture.session("mindwheel").saved.game_values().renderer,
+                reforge_settings::Renderer::Sdl
+            );
+            assert!(!h.state.games[0].preferences.saved.contains_key("Renderer"));
+
+            // Both frontend choices use the same pin/unpin rule.
+            click_terminal(&mut h);
+            h.state.games[0].refresh_preferences().unwrap();
+            assert_eq!(h.state.games[0].preferences.saved["Renderer"], "Terminal");
+            click_terminal(&mut h);
+            h.state.games[0].refresh_preferences().unwrap();
+            assert!(!h.state.games[0].preferences.saved.contains_key("Renderer"));
+            assert_eq!(h.state.games[0].option_values()["Renderer"], "Graphical");
+            assert_eq!(fixture.session("mindwheel").saved.game, original_graphics);
+
+            // Unpinning Terminal clears its entire renderer override, whereas
+            // selecting Graphical restores the dormant override (covered above).
+            h.click("Graphical");
+            click_terminal(&mut h);
+            click_terminal(&mut h);
+            assert_eq!(fixture.session("mindwheel").saved.game, original_graphics);
+        }
+    }
+}
+
+#[test]
 fn layout_hotkeys_and_theme_keep_revert_and_dismissal_persist_independently() {
     let fixture = Fixture::new(2);
     let mut h = Harness::new(

@@ -66,10 +66,10 @@ impl StoryImage {
     }
 
     pub fn store(&self, store: usize) -> Result<&[u8], Error> {
-        if (2..=4).contains(&store) {
-            if let Some(text) = &self.text_overrides {
-                return Ok(&text[store - 2]);
-            }
+        if (2..=4).contains(&store)
+            && let Some(text) = &self.text_overrides
+        {
+            return Ok(&text[store - 2]);
         }
         let region = self
             .regions

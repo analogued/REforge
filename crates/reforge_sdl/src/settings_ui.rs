@@ -158,6 +158,7 @@ pub(super) fn draw(
                                 match game.as_str() {
                                     "alley-cat" => "Alley Cat",
                                     "mach-3" => "Mach 3",
+                                    "mindwheel" => "Mindwheel",
                                     _ => "Game",
                                 }
                             ),
@@ -280,10 +281,15 @@ pub(super) fn draw(
                                         ui,
                                         &mut value,
                                         rows,
-                                        menu.capabilities,
-                                        geometry,
-                                        windowed_scale,
-                                        original.renderer,
+                                        DisplayOptions {
+                                            capabilities: menu.capabilities,
+                                            geometry,
+                                            windowed_scale,
+                                            original_renderer: original.renderer,
+                                            terminal: (menu.scope == 1)
+                                                .then_some(menu.btz_terminal)
+                                                .flatten(),
+                                        },
                                     );
                                 } else if menu.page == 1 {
                                     crt_controls(ui, &mut value, rows);
@@ -434,117 +440,132 @@ pub(super) fn draw(
         });
     close
 }
-fn display_controls(
-    ui: &mut egui::Ui,
-    value: &mut RuntimeSettings,
-    rows: RowContext<'_>,
+struct DisplayOptions {
     capabilities: VideoCapabilities,
     geometry: crate::DisplayGeometry,
     windowed_scale: u32,
     original_renderer: Renderer,
+    terminal: Option<bool>,
+}
+
+fn display_controls(
+    ui: &mut egui::Ui,
+    value: &mut RuntimeSettings,
+    rows: RowContext<'_>,
+    options: DisplayOptions,
 ) {
+    let DisplayOptions {
+        capabilities,
+        geometry,
+        windowed_scale,
+        original_renderer,
+        terminal,
+    } = options;
     let RowContext { scope, cli, .. } = rows;
-    section(ui, "Window & scaling");
-    row(
-        ui,
-        "Window mode",
-        "window_mode",
-        rows.state("window_mode", value),
-        |ui| {
-            control(ui.radio_value(&mut value.fullscreen, false, "Windowed"));
-            ui.add_enabled_ui(capabilities.allow_fullscreen, |ui| {
-                control(ui.radio_value(&mut value.fullscreen, true, "Fullscreen"));
-            });
-        },
-    );
-    row(
-        ui,
-        "Window scale",
-        "scale",
-        rows.state("scale", value),
-        |ui| {
-            let mut auto = value.scale.is_none();
-            if control(ui.add_enabled(
-                capabilities.allow_auto || auto,
-                egui::Checkbox::new(&mut auto, "Auto"),
-            ))
-            .changed()
-            {
-                value.scale = if auto {
-                    None
-                } else {
-                    Some(
-                        windowed_scale.clamp(capabilities.min_scale.max(1), capabilities.max_scale),
-                    )
-                };
-            }
-            if value.scale.is_none() {
-                ui.label("Largest fit");
-            }
-        },
-    );
-    ui.add_enabled_ui(
-        value.scale.is_some() && !value.fullscreen && !cli.contains_key("scale"),
-        |ui| {
-            let mut n = value.scale.unwrap_or(windowed_scale);
-            let mut cap = capabilities;
-            if value.scale.is_none() {
-                cap.min_scale = cap.min_scale.min(n);
-                cap.max_scale = cap.max_scale.max(n);
-            }
-            scale_slider(ui, &mut n, cap);
-            if value.scale.is_some() {
-                value.scale = Some(n);
-            }
-        },
-    );
-    row(
-        ui,
-        "Scaling policy",
-        "scaling_policy",
-        rows.state("scaling_policy", value),
-        |ui| {
-            Selector::new(
-                "scaling_policy",
-                [
-                    Choice::new(ScalingPolicy::Integer, "Integer fit"),
-                    Choice::new(ScalingPolicy::Fit, "Fit to window (fractional)"),
-                    Choice::new(ScalingPolicy::Stretch, "Fill window (stretch)"),
-                ],
-            )
-            .show(ui, &mut value.scaling_policy);
-        },
-    );
-    row(
-        ui,
-        "Sampling",
-        "sampling",
-        rows.state("sampling", value),
-        |ui| {
-            Selector::new(
-                "sampling",
-                [
-                    Choice::new(Sampling::Nearest, "Nearest · sharp pixels"),
-                    Choice::new(Sampling::Linear, "Linear · smooth pixels"),
-                ],
-            )
-            .show(ui, &mut value.sampling);
-        },
-    );
-    row(
-        ui,
-        "Aspect ratio",
-        "aspect_ratio",
-        rows.state("aspect_ratio", value),
-        |ui| {
-            Selector::new(
-                "aspect_ratio",
-                [AspectRatio::Original, AspectRatio::Square]
-                    .map(|aspect| Choice::new(aspect, geometry.label(aspect, scope == 1))),
-            )
-            .show(ui, &mut value.aspect_ratio);
-        },
-    );
+    ui.add_enabled_ui(value.renderer != Renderer::Terminal, |ui| {
+        section(ui, "Window & scaling");
+        row(
+            ui,
+            "Window mode",
+            "window_mode",
+            rows.state("window_mode", value),
+            |ui| {
+                control(ui.radio_value(&mut value.fullscreen, false, "Windowed"));
+                ui.add_enabled_ui(capabilities.allow_fullscreen, |ui| {
+                    control(ui.radio_value(&mut value.fullscreen, true, "Fullscreen"));
+                });
+            },
+        );
+        row(
+            ui,
+            "Window scale",
+            "scale",
+            rows.state("scale", value),
+            |ui| {
+                let mut auto = value.scale.is_none();
+                if control(ui.add_enabled(
+                    capabilities.allow_auto || auto,
+                    egui::Checkbox::new(&mut auto, "Auto"),
+                ))
+                .changed()
+                {
+                    value.scale = if auto {
+                        None
+                    } else {
+                        Some(
+                            windowed_scale
+                                .clamp(capabilities.min_scale.max(1), capabilities.max_scale),
+                        )
+                    };
+                }
+                if value.scale.is_none() {
+                    ui.label("Largest fit");
+                }
+            },
+        );
+        ui.add_enabled_ui(
+            value.scale.is_some() && !value.fullscreen && !cli.contains_key("scale"),
+            |ui| {
+                let mut n = value.scale.unwrap_or(windowed_scale);
+                let mut cap = capabilities;
+                if value.scale.is_none() {
+                    cap.min_scale = cap.min_scale.min(n);
+                    cap.max_scale = cap.max_scale.max(n);
+                }
+                scale_slider(ui, &mut n, cap);
+                if value.scale.is_some() {
+                    value.scale = Some(n);
+                }
+            },
+        );
+        row(
+            ui,
+            "Scaling policy",
+            "scaling_policy",
+            rows.state("scaling_policy", value),
+            |ui| {
+                Selector::new(
+                    "scaling_policy",
+                    [
+                        Choice::new(ScalingPolicy::Integer, "Integer fit"),
+                        Choice::new(ScalingPolicy::Fit, "Fit to window (fractional)"),
+                        Choice::new(ScalingPolicy::Stretch, "Fill window (stretch)"),
+                    ],
+                )
+                .show(ui, &mut value.scaling_policy);
+            },
+        );
+        row(
+            ui,
+            "Sampling",
+            "sampling",
+            rows.state("sampling", value),
+            |ui| {
+                Selector::new(
+                    "sampling",
+                    [
+                        Choice::new(Sampling::Nearest, "Nearest · sharp pixels"),
+                        Choice::new(Sampling::Linear, "Linear · smooth pixels"),
+                    ],
+                )
+                .show(ui, &mut value.sampling);
+            },
+        );
+        row(
+            ui,
+            "Aspect ratio",
+            "aspect_ratio",
+            rows.state("aspect_ratio", value),
+            |ui| {
+                Selector::new(
+                    "aspect_ratio",
+                    [AspectRatio::Original, AspectRatio::Square]
+                        .map(|aspect| Choice::new(aspect, geometry.label(aspect, scope == 1))),
+                )
+                .show(ui, &mut value.aspect_ratio);
+            },
+        );
+    });
     section(ui, "Rendering");
     row(
         ui,
@@ -554,52 +575,70 @@ fn display_controls(
         |ui| {
             Selector::new(
                 "renderer",
-                [
-                    Renderer::Auto,
-                    Renderer::Gpu,
-                    Renderer::Sdl,
-                    Renderer::Software,
-                ]
-                .map(|r| Choice::new(r, renderer_label(r))),
+                renderer_options(terminal).into_iter().map(|(renderer, available)| {
+                    Choice::new(renderer, renderer_label(renderer)).enabled(
+                        available,
+                        "Terminal play requires an attached terminal and is selected before the game starts. Use --renderer terminal.",
+                    )
+                }),
             )
             .show(ui, &mut value.renderer);
         },
     );
-    if value.renderer != original_renderer
+    if value.renderer != Renderer::Terminal
+        && value.renderer != original_renderer
         && !cli.contains_key("renderer")
         && !cli.contains_key("backend")
         && !backends(value.renderer).contains(&value.backend)
     {
         value.backend = Backend::Auto;
     }
-    row(
-        ui,
-        "Backend",
-        "backend",
-        rows.state("backend", value),
-        |ui| {
-            ui.add_enabled_ui(value.renderer != Renderer::Software, |ui| {
-                backend_selector(ui, value);
-            });
-        },
-    );
-    row(ui, "VSync", "vsync", rows.state("vsync", value), |ui| {
-        control(ui.checkbox(&mut value.vsync, "Synchronise with the display"));
+    ui.add_enabled_ui(value.renderer != Renderer::Terminal, |ui| {
+        row(
+            ui,
+            "Backend",
+            "backend",
+            rows.state("backend", value),
+            |ui| {
+                ui.add_enabled_ui(value.renderer != Renderer::Software, |ui| {
+                    backend_selector(ui, value);
+                });
+            },
+        );
+        row(ui, "VSync", "vsync", rows.state("vsync", value), |ui| {
+            control(ui.checkbox(&mut value.vsync, "Synchronise with the display"));
+        });
+        row(
+            ui,
+            "Frame limit",
+            "frame_limit",
+            rows.state("frame_limit", value),
+            |ui| {
+                Selector::new(
+                    "frame_limit",
+                    FrameLimit::ALL.map(|limit| Choice::new(limit, limit.label())),
+                )
+                .show(ui, &mut value.frame_limit);
+            },
+        );
+        ui.weak("Presentation ceiling · simulation timing is unchanged");
     });
-    row(
-        ui,
-        "Frame limit",
-        "frame_limit",
-        rows.state("frame_limit", value),
-        |ui| {
-            Selector::new(
-                "frame_limit",
-                FrameLimit::ALL.map(|limit| Choice::new(limit, limit.label())),
-            )
-            .show(ui, &mut value.frame_limit);
-        },
-    );
-    ui.weak("Presentation ceiling · simulation timing is unchanged");
+    if value.renderer == Renderer::Terminal {
+        ui.weak("Terminal play uses the attached terminal. Window and CRT settings do not apply.");
+    }
+}
+
+fn renderer_options(terminal: Option<bool>) -> Vec<(Renderer, bool)> {
+    let mut choices = vec![
+        (Renderer::Auto, true),
+        (Renderer::Gpu, true),
+        (Renderer::Sdl, true),
+        (Renderer::Software, true),
+    ];
+    if let Some(available) = terminal {
+        choices.push((Renderer::Terminal, available));
+    }
+    choices
 }
 
 fn controls_controls(
@@ -637,71 +676,81 @@ fn controls_controls(
 }
 
 fn crt_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
-    let cli = rows.cli;
-    // Use this scope's pending Display choices, with temporary CLI
-    // rather than the renderer that remains active until Apply.
-    let mut display = value.clone();
-    display.renderer = cli
-        .get("renderer")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(value.renderer);
-    display.backend = cli
-        .get("backend")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(value.backend);
-    let hyllian_available = display.supports_hyllian();
-    section(ui, "Presentation");
-    row(
-        ui,
-        "Treatment",
-        "presentation",
-        rows.state("presentation", value),
-        |ui| {
-            Selector::new(
-                "presentation",
-                [
-                    Choice::new(Presentation::Pixels, "Sharp pixels"),
-                    Choice::new(Presentation::Hyllian, "Hyllian CRT").enabled(
-                        hyllian_available,
-                        "Select Automatic or GPU with a compatible backend in Display.",
-                    ),
-                ],
-            )
-            .selected_text(if value.presentation == Presentation::Pixels {
-                "Sharp pixels"
-            } else if !hyllian_available {
-                "Sharp pixels (on Apply)"
-            } else {
-                "Hyllian CRT"
-            })
-            .show(ui, &mut value.presentation);
-        },
-    );
-    // Treatment-specific controls share one advanced section. The CLI layer
-    // determines which treatment is active, without entering the saved draft.
-    let treatment = cli
-        .get("presentation")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(value.presentation);
-    ui.add_enabled_ui(
-        treatment != Presentation::Pixels && hyllian_available,
-        |ui| {
-            collapsing(
-                egui::CollapsingHeader::new("Fine adjustments")
-                    .id_salt("treatment_fine_adjustments")
-                    .default_open(false)
-                    .show(ui, |ui| match treatment {
-                        Presentation::Hyllian => hyllian_controls(ui, value, rows),
-                        Presentation::Pixels => {}
-                    }),
-            );
-        },
-    );
-    ui.weak(if hyllian_available {
-        "Hyllian requires the GPU renderer; fallbacks use sharp pixels."
-    } else {
-        "Hyllian is unavailable with this renderer/backend; sharp pixels will be used."
+    let terminal = value.renderer == Renderer::Terminal
+        || rows
+            .cli
+            .get("renderer")
+            .is_some_and(|renderer| renderer == "terminal");
+    ui.add_enabled_ui(!terminal, |ui| {
+        let cli = rows.cli;
+        // Use this scope's pending Display choices, with temporary CLI
+        // rather than the renderer that remains active until Apply.
+        let mut display = value.clone();
+        display.renderer = cli
+            .get("renderer")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(value.renderer);
+        display.backend = cli
+            .get("backend")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(value.backend);
+        let hyllian_available = display.supports_hyllian();
+        section(ui, "Presentation");
+        row(
+            ui,
+            "Treatment",
+            "presentation",
+            rows.state("presentation", value),
+            |ui| {
+                Selector::new(
+                    "presentation",
+                    [
+                        Choice::new(Presentation::Pixels, "Sharp pixels"),
+                        Choice::new(Presentation::Hyllian, "Hyllian CRT").enabled(
+                            hyllian_available,
+                            "Select Automatic or GPU with a compatible backend in Display.",
+                        ),
+                    ],
+                )
+                .selected_text(if value.presentation == Presentation::Pixels {
+                    "Sharp pixels"
+                } else if !hyllian_available {
+                    "Sharp pixels (on Apply)"
+                } else {
+                    "Hyllian CRT"
+                })
+                .show(ui, &mut value.presentation);
+            },
+        );
+        // Treatment-specific controls share one advanced section. The CLI layer
+        // determines which treatment is active, without entering the saved draft.
+        let treatment = cli
+            .get("presentation")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(value.presentation);
+        ui.add_enabled_ui(
+            treatment != Presentation::Pixels && hyllian_available,
+            |ui| {
+                collapsing(
+                    egui::CollapsingHeader::new("Fine adjustments")
+                        .id_salt("treatment_fine_adjustments")
+                        .default_open(false)
+                        .show(ui, |ui| match treatment {
+                            Presentation::Hyllian => hyllian_controls(ui, value, rows),
+                            Presentation::Pixels => {}
+                        }),
+                );
+            },
+        );
+        ui.weak(if hyllian_available {
+            "Hyllian requires the GPU renderer; fallbacks use sharp pixels."
+        } else {
+            "Hyllian is unavailable with this renderer/backend; sharp pixels will be used."
+        });
     });
+    if terminal {
+        ui.weak("CRT settings apply to windowed play; the terminal controls its own appearance.");
+    }
 }
 
 fn hyllian_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
@@ -1050,6 +1099,7 @@ fn renderer_label(r: Renderer) -> &'static str {
         Renderer::Gpu => "GPU",
         Renderer::Sdl => "SDL renderer",
         Renderer::Software => "Software",
+        Renderer::Terminal => "Terminal",
     }
 }
 fn row(
@@ -1207,6 +1257,9 @@ fn backend_selector(ui: &mut egui::Ui, value: &mut RuntimeSettings) -> egui::Res
 }
 fn backends(renderer: Renderer) -> Vec<Backend> {
     let mut values = vec![Backend::Auto];
+    if renderer == Renderer::Terminal {
+        return values;
+    }
     for backend in [
         Backend::Vulkan,
         Backend::OpenGl,
@@ -1380,6 +1433,26 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn terminal_choice_is_explicitly_scoped_and_requires_an_attached_terminal() {
+        assert!(
+            renderer_options(None)
+                .iter()
+                .all(|(renderer, _)| *renderer != Renderer::Terminal)
+        );
+        for available in [false, true] {
+            let choices = renderer_options(Some(available));
+            assert_eq!(choices.last(), Some(&(Renderer::Terminal, available)));
+            assert!(
+                choices[..choices.len() - 1]
+                    .iter()
+                    .all(|(_, enabled)| *enabled)
+            );
+        }
+        assert_eq!(backends(Renderer::Terminal), vec![Backend::Auto]);
+        assert_eq!(renderer_label(Renderer::Terminal), "Terminal");
+    }
 
     #[test]
     fn narrow_rows_stack_labels_and_keep_selectors_and_markers_inside_the_viewport() {

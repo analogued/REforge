@@ -173,7 +173,7 @@ impl Vm {
 
     pub fn write_variable(&mut self, address: VarAddr, value: u16) -> Result<(), Error> {
         let value = if address.0 == 0 { NONE } else { value };
-        if address.0 % 2 != 0 || (2..10).contains(&address.0) {
+        if !address.0.is_multiple_of(2) || (2..10).contains(&address.0) {
             return Err(Error(format!(
                 "protected or unaligned variable {:#x}",
                 address.0

@@ -6,14 +6,17 @@ declared in the Cargo manifests.
 
 ## Build and validate
 
-The normal library has no SDL or default third-party dependencies. The optional
-`dev-tools` feature enables the development binary and Unix terminal readiness
-support through `libc`.
+The core library has no default third-party dependencies. The `frontend` feature
+adds player loading and terminal support; `sdl` adds windowed presentation through
+the shared SDL crate. `dev-tools` enables the diagnostic binary and probes.
 
 ```sh
 cargo build --locked -p btz
 cargo test --locked -p btz
+cargo test --locked -p btz --features frontend
+cargo test --locked -p btz --features sdl
 cargo clippy --locked -p btz --all-targets -- -D warnings
+cargo clippy --locked -p btz --all-targets --all-features -- -D warnings
 cargo test --locked -p btz --features dev-tools
 cargo clippy --locked -p btz --all-targets --features dev-tools -- -D warnings
 cargo fmt --all -- --check
@@ -22,6 +25,14 @@ cargo fmt --all -- --check
 Also run the workspace checks required by the root contribution guide. Tests
 use authored synthetic fixtures, including owned Unix pseudoterminals. They do
 not require original game files or a desktop.
+
+## Player frontends
+
+REforge dispatches verified Mindwheel files to `cli::run_with_files`. Windowed
+play uses the shared SDL display and settings; `--renderer terminal` uses an
+attached terminal without initializing an SDL window. Both hosts use `Session`
+and the same player loading and file-service adapters. Graphical file prompts
+are asynchronous and never read standard input.
 
 ## Development frontend
 
@@ -33,7 +44,7 @@ cargo run --locked -p btz --features dev-tools --bin btz-core -- \
   --side-map /path/to/SIDE.TXT
 ```
 
-Interactive terminal play requires Unix and `stty`. This binary is separate
+The diagnostic terminal adapter supports Unix and Windows consoles. This binary is separate
 from REforge's application game detection interface. Without `--interpreter`,
 it operates as a raw VM trace probe rather than a playable session.
 

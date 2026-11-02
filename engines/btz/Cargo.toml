@@ -1,17 +1,21 @@
 [package]
 name = "btz"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 publish = false
 license.workspace = true
 description = "Reconstructed BTZ interpreter core"
 
 [features]
-dev-tools = ["dep:libc", "dep:sha2"]
+frontend = ["dep:libc", "dep:sha2", "dep:reforge_settings"]
+sdl = ["frontend", "dep:reforge_sdl"]
+dev-tools = ["frontend", "reforge_sdl?/dev-tools"]
 
 [dependencies]
 sha2 = { version = "=0.11.0", default-features = false, optional = true }
+reforge_settings = { path = "../../crates/reforge_settings", optional = true }
+reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2.190", optional = true }

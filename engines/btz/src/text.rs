@@ -290,8 +290,8 @@ impl TextScreen {
 
     pub fn unicode(&self) -> String {
         let mut text = String::new();
-        for row in self.cells.chunks_exact(160) {
-            for cell in row.chunks_exact(2) {
+        for row in self.cells.as_chunks::<160>().0 {
+            for cell in row.as_chunks::<2>().0 {
                 text.push(cp437(cell[0]));
             }
             text.push('\n');

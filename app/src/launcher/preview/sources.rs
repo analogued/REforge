@@ -105,6 +105,7 @@ fn revision(game: Game) -> u32 {
     match game {
         Game::AlleyCat => alleycat::launcher::PREVIEW_REVISION,
         Game::Mach3 => mach3::launcher::PREVIEW_REVISION,
+        Game::Mindwheel => 0,
     }
 }
 fn cache_id(release: &Release, variant: &str) -> String {
@@ -144,6 +145,7 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
     let variants = match release.game() {
         Game::AlleyCat => alleycat::launcher::PREVIEW_VARIANTS,
         Game::Mach3 => mach3::launcher::PREVIEW_VARIANTS,
+        Game::Mindwheel => &[],
     };
     // The entry was verified on the main thread. Reverify before decoding originals
     // so source replacement while a queued job waits cannot poison a release cache.
@@ -159,6 +161,7 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
         let frame = match cached_frame(path.as_deref(), || match release.game() {
             Game::AlleyCat => alleycat::launcher::preview(&detected.original, variant),
             Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
+            Game::Mindwheel => Err("No preview recipe for Mindwheel".into()),
         }) {
             Ok(frame) => frame,
             Err(error) => {

@@ -5,6 +5,16 @@ Unreleased contains changes intended for the next public release.
 
 ## Unreleased
 
+### New games
+
+- Added experimental support for Mindwheel (DOS).
+
+### Mindwheel
+
+- SDL text presentation with the shared display settings and CRT filter.
+- Optional terminal play through `--renderer terminal` using an attached terminal.
+- Native bookmarks and transcripts, with filename prompts in either frontend.
+
 ## 2026.1.0 (2026-11-01)
 
 ### New games

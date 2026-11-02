@@ -55,7 +55,7 @@ pub(super) fn prepare_for_play(bytes: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use btz::{ProgramAddr, decode::decode};
+    use crate::{ProgramAddr, decode::decode};
 
     fn authored_patch(bytes: &[u8]) -> Patch {
         Patch {

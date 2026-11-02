@@ -23,6 +23,7 @@ pub use catalog::{Edition, GameMetadata, RELEASES};
 pub enum Game {
     AlleyCat,
     Mach3,
+    Mindwheel,
 }
 
 impl Game {
@@ -30,6 +31,7 @@ impl Game {
         match self {
             Self::AlleyCat => "alley-cat",
             Self::Mach3 => "mach-3",
+            Self::Mindwheel => "mindwheel",
         }
     }
 
@@ -37,6 +39,7 @@ impl Game {
         match self {
             Self::AlleyCat => &catalog::ALLEY_CAT,
             Self::Mach3 => &catalog::MACH3,
+            Self::Mindwheel => &catalog::MINDWHEEL,
         }
     }
 
@@ -78,7 +81,7 @@ impl Release {
 pub struct Detected {
     pub game: Game,
     pub release: &'static Release,
-    /// The executable for Alley Cat, or the resource directory for Mach 3.
+    /// The executable for Alley Cat, or the resource directory for other games.
     pub original: PathBuf,
     /// Actual paths selected by full verification, keyed by catalog spelling.
     #[cfg_attr(not(feature = "sdl"), allow(dead_code))]
@@ -272,7 +275,7 @@ fn detect_with(
         [candidate] => {
             let original = match candidate.release.game() {
                 Game::AlleyCat => candidate.paths[0].clone(),
-                Game::Mach3 => directory.to_path_buf(),
+                Game::Mach3 | Game::Mindwheel => directory.to_path_buf(),
             };
             Ok(Detected {
                 game: candidate.release.game(),
@@ -440,6 +443,44 @@ mod tests {
     impl Drop for TestDirectory {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn mindwheel_identity_uses_program_and_interpreter_not_configurable_side_map() {
+        static RELEASE: &[Release] = &[Release {
+            id: "synthetic-mindwheel",
+            compatibility_id: "synthetic-mindwheel-saves",
+            edition: &catalog::MINDWHEEL_DOS,
+            files: &[
+                FileRecord {
+                    name: "ADISK.OBJ",
+                    size: 3,
+                    sha256: ABC,
+                },
+                FileRecord {
+                    name: "GO.EXE",
+                    size: 3,
+                    sha256: XYZ,
+                },
+            ],
+        }];
+        let directory = TestDirectory::new();
+        let data = directory.write("adisk.obj", b"abc");
+        let executable = directory.write("Go.ExE", b"xyz");
+        for map in [
+            b"first custom mapping".as_slice(),
+            b"replacement mapping".as_slice(),
+        ] {
+            directory.write("SIDE.TXT", map);
+            for anchor in [&directory.0, &data, &executable] {
+                let result = detect_with(anchor, RELEASE, file_size, hash_file).unwrap();
+                assert_eq!(result.game, Game::Mindwheel);
+                assert_eq!(result.original, directory.0);
+                assert_eq!(result.files["ADISK.OBJ"], data);
+                assert_eq!(result.files["GO.EXE"], executable);
+                assert!(!result.files.contains_key("SIDE.TXT"));
+            }
         }
     }
 
@@ -810,7 +851,7 @@ mod tests {
 
     #[test]
     fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
-        assert_eq!(RELEASES.len(), 2);
+        assert_eq!(RELEASES.len(), 3);
         let mut ids = std::collections::HashSet::new();
         for release in RELEASES {
             assert!(ids.insert(release.id), "duplicate detected-release ID");

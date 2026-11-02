@@ -4,8 +4,6 @@
 
 #[path = "core/host.rs"]
 mod host;
-#[path = "core/patches.rs"]
-mod patches;
 #[path = "core/terminal.rs"]
 mod terminal;
 
@@ -71,11 +69,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("--unlimited cannot be combined with a VM-step limit".into());
     }
     files.originals.push(path.clone());
-    let mut bytes = std::fs::read(path)?;
-    if interpreter.is_some() {
-        patches::prepare_for_play(&mut bytes);
-    }
-    let image = StoryImage::from_dos_obj(bytes)?;
+    let bytes = std::fs::read(path)?;
+    let image = if interpreter.is_some() {
+        btz::player::prepare_image(bytes)?
+    } else {
+        StoryImage::from_dos_obj(bytes)?
+    };
     let Some(interpreter) = interpreter else {
         if input_file.is_some() || screen_dump.is_some() || snapshot || unlimited {
             return Err("text/input options require --interpreter".into());
@@ -153,16 +152,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     io::stdout().flush()?;
                     last_screen = session.screen().dos_cells().to_vec();
                 }
-                if matches!(event, SessionStep::ReadLine { .. }) {
-                    if let Some(terminal) = &mut terminal {
-                        if !session.input().line_ready() && !session.input().paused() {
-                            // Waiting only wakes the host; it never submits a key.
-                            // At the next iteration, refresh BIOS time and let the
-                            // native deadline check precede the nonblocking poll.
-                            terminal.wait(until_next_bios_tick(clock_origin.elapsed()))?;
-                        }
-                        continue;
+                if matches!(event, SessionStep::ReadLine { .. })
+                    && let Some(terminal) = &mut terminal
+                {
+                    if !session.input().line_ready() && !session.input().paused() {
+                        // Waiting only wakes the host; it never submits a key.
+                        // At the next iteration, refresh BIOS time and let the
+                        // native deadline check precede the nonblocking poll.
+                        terminal.wait(until_next_bios_tick(clock_origin.elapsed()))?;
                     }
+                    continue;
                 }
                 let key = if let Some(replay) = &mut replay {
                     replay.pop_front().map(Key::from_dos_byte)
@@ -180,14 +179,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 if let Some(key) = key {
                     let mut keys = vec![key];
-                    if matches!(event, SessionStep::ReadLine { .. }) && key != Key::Enter {
-                        if let Some(replay) = &mut replay {
-                            while let Some(byte) = replay.pop_front() {
-                                let key = Key::from_dos_byte(byte);
-                                keys.push(key);
-                                if key == Key::Enter {
-                                    break;
-                                }
+                    if matches!(event, SessionStep::ReadLine { .. })
+                        && key != Key::Enter
+                        && let Some(replay) = &mut replay
+                    {
+                        while let Some(byte) = replay.pop_front() {
+                            let key = Key::from_dos_byte(byte);
+                            keys.push(key);
+                            if key == Key::Enter {
+                                break;
                             }
                         }
                     }
@@ -274,10 +274,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     // Restore echo/canonical input before returning to the shell.
-    drop(terminal);
     if live_screen {
         print!("\x1b[2J\x1b[H");
+        io::stdout().flush()?;
     }
+    drop(terminal);
     print!("{}", session.screen().unicode());
     if trace {
         eprintln!(

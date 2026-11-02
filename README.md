@@ -14,6 +14,7 @@ controller options. Linux is the current development platform.
 | --- | --- | --- |
 | Alley Cat | Alley Cat | [Playing Alley Cat](docs/games/alleycat.md) |
 | Mach 3 | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
+| BTZ | Mindwheel | [Playing Mindwheel](docs/games/mindwheel.md) |
 
 Each engine currently supports one verified DOS release. See its guide for the
 required files and current limitations.
@@ -45,6 +46,7 @@ or `-V`. Launch a game using its original files:
 ```sh
 ./target/release/reforge --original /path/to/alley-cat
 ./target/release/reforge --original /path/to/mach3
+./target/release/reforge --original /path/to/mindwheel
 ```
 
 Run `reforge` without arguments to open the launcher. Use **Add** to select a game
@@ -99,10 +101,11 @@ Notable user-facing changes are recorded in the [changelog](CHANGELOG.md).
 
 For source layout, validation and contribution guidance, see
 [CONTRIBUTING.md](CONTRIBUTING.md) and the technical engine documentation for
-[Alley Cat](engines/alleycat/README.md) and [Mach 3](engines/mach3/README.md).
+[Alley Cat](engines/alleycat/README.md), [Mach 3](engines/mach3/README.md), and
+[BTZ](engines/btz/README.md).
 
-An [experimental BTZ engine](engines/btz/README.md) also runs Mindwheel DOS
-through a separate [terminal frontend](docs/games/mindwheel.md).
+[Mindwheel](docs/games/mindwheel.md) supports the normal SDL text display and
+optional terminal play using `--renderer terminal`.
 
 ## License
 

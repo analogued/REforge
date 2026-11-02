@@ -12,6 +12,22 @@ use std::{
 };
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn terminal_launch_requires_a_real_attached_terminal() {
+    use reforge_settings::Renderer;
+    assert!(check_terminal_launch(Renderer::Terminal, false).is_err());
+    assert!(check_terminal_launch(Renderer::Terminal, true).is_ok());
+    for renderer in [
+        Renderer::Auto,
+        Renderer::Gpu,
+        Renderer::Sdl,
+        Renderer::Software,
+    ] {
+        assert!(check_terminal_launch(renderer, false).is_ok());
+    }
+}
+
 struct Fixture {
     directory: PathBuf,
     library: PathBuf,
@@ -940,16 +956,23 @@ fn native_key(key: Keycode) -> Event {
 
 #[test]
 fn duplicate_game_copies_keep_independent_quick_options_and_display_titles() {
-    let fixture = Fixture::new(3);
+    let duplicate_index = detection::RELEASES.len();
+    let fixture = Fixture::new(duplicate_index + 1);
     let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
-    assert_eq!(state.games[0].game_id, state.games[2].game_id);
+    assert_eq!(state.games[0].game_id, state.games[duplicate_index].game_id);
     state.games[0].save_option("Machine", "IBM PCjr");
     state.games[0].save_option("Window", "Fullscreen");
     state.refresh();
     assert_eq!(state.games[0].option_values()["Machine"], "IBM PCjr");
-    assert_eq!(state.games[2].option_values()["Machine"], "IBM CGA");
+    assert_eq!(
+        state.games[duplicate_index].option_values()["Machine"],
+        "IBM CGA"
+    );
     assert_eq!(state.games[0].option_values()["Window"], "Fullscreen");
-    assert_eq!(state.games[2].option_values()["Window"], "Windowed");
+    assert_eq!(
+        state.games[duplicate_index].option_values()["Window"],
+        "Windowed"
+    );
     let mut renamed = state.library.entries[0].clone();
     renamed.title = "Alley Cat — PCjr copy".into();
     let entry = model::GameEntry::from_entry(&renamed, fixture.config.clone(), false);
@@ -1160,6 +1183,7 @@ fn native_engine_previews() {
                         alleycat::launcher::preview(&detected.original, variant)
                     }
                     detection::Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
+                    detection::Game::Mindwheel => unreachable!("Mindwheel has no preview recipe"),
                 }
                 .unwrap();
                 assert_eq!(source.frame.rgba(), again.rgba());

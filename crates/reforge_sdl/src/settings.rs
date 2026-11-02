@@ -105,6 +105,7 @@ pub struct SettingsMenu<'a> {
     pub(super) audio_categories: Vec<reforge_settings::SoundCategory>,
     pub(super) mach3_options: bool,
     pub(super) alleycat_options: bool,
+    pub(super) btz_terminal: Option<bool>,
     pub(super) game_editing: [bool; 4],
     pub(super) page: usize,
     // A section reset prevents edit round trips from restoring cleared keys.
@@ -141,6 +142,18 @@ impl<'a> SettingsMenu<'a> {
             session.game_id = "alley-cat".into();
         }
         self.alleycat_options = session.game_id == "alley-cat";
+        drop(session);
+        self
+    }
+    /// Expose terminal play as a BTZ-only startup choice. A launcher supplies
+    /// whether its child can inherit an interactive terminal; SDL play passes
+    /// false because an existing game window cannot switch host mid-session.
+    pub fn with_btz_options(mut self, terminal_available: bool) -> Self {
+        let mut session = self.creator.session.borrow_mut();
+        if session.game_id == "standalone" {
+            session.game_id = "mindwheel".into();
+        }
+        self.btz_terminal = (session.game_id == "mindwheel").then_some(terminal_available);
         drop(session);
         self
     }
@@ -229,6 +242,7 @@ impl<'a> SettingsMenu<'a> {
             audio_categories: Vec::new(),
             mach3_options: false,
             alleycat_options: false,
+            btz_terminal: None,
             game_editing: [false; 4],
             page: 0,
             game_reset: [false; 4],
@@ -929,6 +943,53 @@ fn translate_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_startup_is_rejected_before_creating_an_sdl_window() {
+        let _guard = reforge_settings::Launch {
+            game_id: "mindwheel".into(),
+            entry_id: None,
+            path: None,
+            cli: reforge_settings::Patch::from([("renderer".into(), "terminal".into())]),
+        }
+        .install();
+        let result = crate::Window::new("terminal startup", 640, 480, Some(1));
+        assert!(matches!(result, Err(error) if error.contains("does not create an SDL window")));
+    }
+
+    #[test]
+    #[ignore = "owns SDL video; run serially with dummy/software"]
+    fn btz_terminal_choice_is_startup_scoped_and_cannot_replace_a_live_window() {
+        use reforge_settings::{Launch, Patch, Renderer};
+        let _guard = Launch {
+            game_id: "mindwheel".into(),
+            entry_id: None,
+            path: None,
+            cli: Patch::from([
+                ("renderer".into(), "software".into()),
+                ("vsync".into(), "false".into()),
+            ]),
+        }
+        .install();
+        let mut display = crate::Window::new("BTZ renderer choices", 640, 480, Some(1)).unwrap();
+        let creator = display.texture_creator();
+        for (game, available, expected) in [
+            ("mindwheel", false, Some(false)),
+            ("mindwheel", true, Some(true)),
+            ("alley-cat", true, None),
+            ("mach-3", true, None),
+        ] {
+            creator.session.borrow_mut().game_id = game.into();
+            let menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+                .with_btz_options(available);
+            assert_eq!(menu.btz_terminal, expected);
+        }
+        let before = display.settings();
+        let mut requested = before.clone();
+        requested.renderer = Renderer::Terminal;
+        assert!(display.apply_settings(requested).is_err());
+        assert_eq!(display.settings(), before);
+    }
 
     fn key(scan: Scancode, modifiers: Mod, down: bool, repeat: bool) -> Event {
         if down {

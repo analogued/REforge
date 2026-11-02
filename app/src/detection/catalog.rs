@@ -118,6 +118,29 @@ pub static MACH3: GameMetadata = GameMetadata {
     tagline: "Back into the cockpit.",
 };
 
+pub static MINDWHEEL: GameMetadata = GameMetadata {
+    identity: Game::Mindwheel,
+    title: "Mindwheel",
+    genres: &["Interactive fiction"],
+    tagline: "A journey through four minds.",
+};
+pub static MINDWHEEL_DOS_SPECS: SpecsProfile = SpecsProfile {
+    id: "mindwheel-dos",
+    video_features: &["80×25 text"],
+    audio_features: &["PC speaker"],
+};
+pub static MINDWHEEL_DOS: Edition = Edition {
+    id: "mindwheel-dos",
+    game: &MINDWHEEL,
+    platform: Platform::Dos,
+    title: None,
+    year: Some(1985),
+    developers: &["Synapse Software"],
+    publishers: &["Brøderbund Software"],
+    label: None,
+    specs: &MINDWHEEL_DOS_SPECS,
+};
+
 pub static ALLEY_CAT_DOS_SPECS: SpecsProfile = SpecsProfile {
     id: "alley-cat-dos",
     video_features: &["320×200", "CGA / PCjr"],
@@ -205,6 +228,23 @@ pub static RELEASES: &[Release] = &[
                 name: "DATA6",
                 size: 16_384,
                 sha256: "4b44015ccb5eb001d03670ad5fa46879912625f54a236d44e38556de8efbb2ce",
+            },
+        ],
+    },
+    Release {
+        id: "mindwheel-dos-a105872067",
+        compatibility_id: "mindwheel-dos-8502-19",
+        edition: &MINDWHEEL_DOS,
+        files: &[
+            FileRecord {
+                name: "ADISK.OBJ",
+                size: 188_928,
+                sha256: "4572f6fae68fa81be3e723c0a4a90994fd2c9f1219636a334d2db0761db0b091",
+            },
+            FileRecord {
+                name: "GO.EXE",
+                size: 33_280,
+                sha256: "268edea9a2ed7df72cd41f2d3c767a57e6ebbe019037b46638c06be5c8512bcb",
             },
         ],
     },

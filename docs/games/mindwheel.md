@@ -1,32 +1,45 @@
-# Mindwheel — experimental BTZ frontend
+# Mindwheel
 
-Mindwheel DOS currently runs through the experimental BTZ terminal frontend.
-It is not yet selectable through the normal REforge application. A winning
-playthrough has not been verified, and other BTZ releases are unvalidated.
+Play the DOS edition of Mindwheel through the BTZ interpreter, with its
+original text layout, interactive commands and background story activity.
+A winning playthrough has not been verified; other BTZ games remain unvalidated.
 
-## Start the frontend
+> [!IMPORTANT]
+> REforge does not include original Mindwheel assets or data. You must provide
+> the original files from a supported release. See [What you need](#what-you-need).
 
-Supply the corresponding files from your Mindwheel DOS copy:
+[Back to REforge](../../README.md)
 
-| File | Used for |
-| --- | --- |
-| `ADISK.OBJ` | The story program, world data, text and vocabulary |
-| `GO.EXE` | Tables needed to decode text and interpret input, some prompt strings, and a random-generator setting. The recreation reads it as data; it does not run the DOS executable. |
-| `SIDE.TXT` | The original data-disk map, used for disk handling, including restart and bookmark restore |
+## What you need
 
-From the repository root:
+Keep the corresponding **ADISK.OBJ**, **GO.EXE** and **SIDE.TXT** together in
+the game directory. ADISK.OBJ contains the story; GO.EXE supplies tables and
+native messages, and is read as data rather than executed. SIDE.TXT supplies
+logical-disk mappings used by restart and bookmark restore.
+
+## Start playing
+
+Add the game directory to the launcher and select **Play**, or run:
 
 ```sh
-cargo run --locked -p btz --features dev-tools --bin btz-core -- \
-  --original /path/to/ADISK.OBJ --interpreter /path/to/GO.EXE \
-  --side-map /path/to/SIDE.TXT
+reforge --original /path/to/mindwheel
 ```
 
-Interactive play requires Unix, a terminal and `stty`. Enter dismisses the
-title; follow the game's prompts. Ctrl-C/Ctrl-D exits and restores terminal
-settings. See the [engine overview](../../engines/btz/README.md) for support
-and the [development guide](../../engines/btz/CONTRIBUTING.md) for diagnostic
-options.
+The default display is an SDL text window. Its Rendering and CRT & Colour
+settings use the same controls as the other games. Enter dismisses the title;
+follow the game's prompts. **F10** opens Settings. **Ctrl+Q** or closing the
+window exits; **Pause/Break** toggles the host pause.
+
+To play directly in an existing terminal:
+
+```sh
+reforge --original /path/to/mindwheel --renderer terminal
+```
+
+Terminal play uses the terminal already attached to the process. It does not
+open a terminal application. In BTZ's per-game Rendering settings, **Terminal**
+is available when a terminal is attached; the choice applies at game startup.
+Backend, scaling and CRT controls apply to windowed play.
 
 ## Commands and controls
 
@@ -70,7 +83,7 @@ remain; see the runtime reference.
 ## Bookmarks and transcripts
 
 By default, every `BOOKMARK`, `RESUME NOVEL` and `SCRIPT` request prompts for a
-filename or path. `BOOKMARK` writes a bookmark; `RESUME NOVEL` reads it. No
+filename or path, in a windowed dialog or in the terminal. `BOOKMARK` writes a bookmark; `RESUME NOVEL` reads it. No
 extension is appended. Native bookmarks contain game state, not a complete
 recording of the screen, editor, timing and random state.
 

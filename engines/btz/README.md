@@ -5,10 +5,10 @@ It executes the story's wordcode and data through reconstructed VM, parser,
 text, keyboard, timing and native-service algorithms. Story rules remain in
 supplied game data.
 
-The development terminal frontend supports normal commands, bookmarks,
-transcripts, restart and exit. A complete winning playthrough has not been
-verified. Other BTZ games and interpreter revisions remain unvalidated; game
-detection and SDL application presentation are not integrated for this engine.
+The windowed and terminal frontends support commands, bookmarks, transcripts,
+restart and exit. A complete winning playthrough has not been
+verified. Other BTZ games and interpreter revisions remain unvalidated. Mindwheel is
+registered with REforge's game detection and graphical launcher.
 
 ## External inputs
 
@@ -22,7 +22,7 @@ are bundled. The [format reference](docs/mindwheel-dos-format.md) identifies
 the investigated inputs and their layout; this is not an automatic revision
 selector.
 
-For the experimental frontend, see the [Mindwheel guide](../../docs/games/mindwheel.md).
+For player controls, see the [Mindwheel guide](../../docs/games/mindwheel.md).
 Build, test and diagnostic commands are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Implemented architecture
@@ -40,7 +40,9 @@ boundaries:
 | [`random`](src/random.rs), [`timing`](src/timing.rs) | DOS RNG arithmetic, explicit idle advancement and BIOS-tick read deadlines |
 | [`bookmark`](src/bookmark.rs), [`services`](src/services.rs) | Native bookmark codec, transcript buffering, disk mappings and host request/reply types |
 | [`session`](src/session.rs) | VM plus native-service lifecycle, parser, editor, text and host interactions |
-| [`btz-core`](src/bin/core.rs) | Development clock, Unix terminal and filesystem adapters, behind the `dev-tools` feature |
+| [`player`](src/player.rs), [`cli`](src/cli.rs) | Shared player loading, file operations, terminal and normal application entry point |
+| [`windowed`](src/windowed.rs), [`display`](src/display/mod.rs) | SDL event loop, windowed prompts and character-screen rasterization |
+| [`btz-core`](src/bin/core.rs) | Raw VM trace, snapshots and key replays behind `dev-tools` |
 
 `Session` is the integrated execution interface. It accepts explicit clock and
 keyboard input and yields events or `HostRequest` operations. The host completes

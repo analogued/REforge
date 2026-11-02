@@ -342,8 +342,10 @@ fn bookmark_restore_keeps_load_ip_and_rng_but_restores_variables_and_stacks() {
         session
             .screen()
             .dos_cells()
-            .chunks_exact(2)
-            .all(|cell| cell == [b' ', 7])
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .all(|cell| *cell == [b' ', 7])
     );
     session.complete_host(HostReply::Done).unwrap();
     assert_eq!(session.advance().unwrap(), SessionStep::Exited { code: 0 });

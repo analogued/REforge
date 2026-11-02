@@ -241,6 +241,9 @@ impl Window {
                 .edit(false, "presentation", presentation.as_str().into());
         }
         let requested = session.effective(&session.saved);
+        if requested.renderer == reforge_settings::Renderer::Terminal {
+            return Err("terminal play does not create an SDL window".into());
+        }
         let presentation = requested.presentation;
         if let Some(warning) = &session.warning {
             eprintln!("REforge: {warning}");
@@ -529,6 +532,16 @@ impl Window {
             .keyboard_state()
     }
 
+    /// Enable composed text events for an engine's typed input.
+    pub fn start_text_input(&self) {
+        self._video.text_input().start(self.canvas.window());
+    }
+
+    /// Stop composed text events when an engine no longer accepts typed input.
+    pub fn stop_text_input(&self) {
+        self._video.text_input().stop(self.canvas.window());
+    }
+
     pub fn set_title(&mut self, title: &str) -> Result<(), String> {
         if title.contains('\0') {
             return Err("window title contains a NUL byte".into());
@@ -606,6 +619,9 @@ impl Window {
     /// ordinary geometry/VSync changes retain them. Failed requests restore a
     /// working display, with its last uploaded image available for reupload.
     pub fn apply_settings(&mut self, requested: settings::RuntimeSettings) -> Result<(), String> {
+        if requested.renderer == reforge_settings::Renderer::Terminal {
+            return Err("terminal play must be selected before the game starts".into());
+        }
         if requested.renderer == reforge_settings::Renderer::Sdl
             && requested.backend == reforge_settings::Backend::Vulkan
         {

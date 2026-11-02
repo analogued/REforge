@@ -1,20 +1,28 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Experimental DOS BTZ core and native services; other revisions remain unvalidated.
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 pub mod bookmark;
+#[cfg(feature = "frontend")]
+pub mod cli;
 pub mod decode;
+#[cfg(feature = "sdl")]
+pub mod display;
 pub mod image;
 pub mod input;
 pub mod media;
 pub mod parser;
+#[cfg(feature = "frontend")]
+pub mod player;
 pub mod random;
 pub mod services;
 pub mod session;
 pub mod text;
 pub mod timing;
 pub mod vm;
+#[cfg(feature = "sdl")]
+pub mod windowed;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Error(pub String);

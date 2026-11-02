@@ -24,6 +24,7 @@ pub fn run(
     let geometry = match game.as_deref() {
         Some("alley-cat") => alleycat::launcher::geometry(&native),
         Some("mach-3") => mach3::launcher::geometry(&native),
+        Some("mindwheel") => btz::windowed::GEOMETRY,
         _ => reforge_sdl::DisplayGeometry::new((320, 200), (320, 240)),
     };
     let guard = reforge_settings::Launch {
@@ -46,6 +47,10 @@ pub fn run(
             .with_mach3_options(None)
             .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
             .with_audio_categories(&SoundCategory::ALL),
+        Some("mindwheel") => {
+            use std::io::IsTerminal;
+            menu.with_btz_options(std::io::stdin().is_terminal() && std::io::stdout().is_terminal())
+        }
         _ => menu.with_global_defaults_only(),
     };
     menu.set_theme(catalog::ResolvedAppearance::resolve(state.saved_theme).theme);

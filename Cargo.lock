@@ -74,9 +74,11 @@ dependencies = [
 
 [[package]]
 name = "btz"
-version = "0.1.0"
+version = "2026.1.0"
 dependencies = [
  "libc",
+ "reforge_sdl",
+ "reforge_settings",
  "sha2",
 ]
 
@@ -392,6 +394,7 @@ name = "reforge"
 version = "2026.1.0"
 dependencies = [
  "alleycat",
+ "btz",
  "fs2",
  "mach3",
  "png",

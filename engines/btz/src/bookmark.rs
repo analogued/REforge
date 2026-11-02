@@ -145,7 +145,7 @@ impl Bookmark {
 }
 
 fn validate_extent(extent: usize) -> Result<(), Error> {
-    if extent < 0x114 || extent > usize::from(u16::MAX) || extent % 2 != 0 {
+    if extent < 0x114 || extent > usize::from(u16::MAX) || !extent.is_multiple_of(2) {
         return Err(Error("invalid bookmark variable extent".into()));
     }
     Ok(())

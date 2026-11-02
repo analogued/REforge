@@ -98,7 +98,7 @@ the license texts come from `fonts/OFL.txt` and `fonts/UFL.txt`. Hack's notices
 come from `fonts/Hack-Regular.txt`; Emoji Icon Font's from
 `fonts/emoji-icon-font-mit-license.txt`.
 
-### Alley Cat scoring font
+### DOS bitmap text fonts
 
 [`engines/alleycat/src/font.rs`](engines/alleycat/src/font.rs) adapts printable
 ASCII glyphs from SDL's
@@ -111,6 +111,11 @@ The adaptation selects characters 32–126, adds a blank space glyph and convert
 the byte rows to a Rust table. REforge's CGA packing helper is authored code;
 no font rows were copied from a game or BIOS dump. Upstream header SHA-256:
 `0c96157b6397485698ac07d20d33858e086c2752403f4d2f57a70acc26fa45df`.
+
+[`engines/btz/src/display/ascii.rs`](engines/btz/src/display/ascii.rs) reuses
+that adapted ASCII row table with the same notices. BTZ's line-drawing, block
+and shade glyphs in [`display/mod.rs`](engines/btz/src/display/mod.rs) are
+authored code under `GPL-3.0-or-later`.
 
 ## Hyllian CRT shader
 

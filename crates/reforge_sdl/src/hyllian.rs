@@ -42,6 +42,9 @@ pub(super) fn create_canvas_with(
         settings.renderer
     };
     let canvas = match selected {
+        Renderer::Terminal => {
+            return Err("terminal play does not create an SDL renderer".into());
+        }
         Renderer::Software => {
             sdl3::render::create_renderer(window, Some(c"software")).map_err(|e| e.to_string())?
         }

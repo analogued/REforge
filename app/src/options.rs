@@ -51,7 +51,7 @@ const SPECS: &[Spec] = &[
         game: None,
         value: Value::Scale,
         dev: false,
-        description: "Initial drawable pixel multiplier, auto|1..16 (default auto for both games)",
+        description: "Initial drawable pixel multiplier, auto|1..16 (default auto)",
     },
     Spec {
         name: "--config",
@@ -144,6 +144,34 @@ const SPECS: &[Spec] = &[
         value: Value::Choice(&["cga", "mono"]),
         dev: false,
         description: "Initial video mode (default cga); F3 switches during play",
+    },
+    Spec {
+        name: "--save-dir",
+        game: Some(Game::Mindwheel),
+        value: Value::Path,
+        dev: false,
+        description: "Directory for prompted bookmark and transcript filenames (default game directory)",
+    },
+    Spec {
+        name: "--bookmark-path",
+        game: Some(Game::Mindwheel),
+        value: Value::Path,
+        dev: false,
+        description: "Use this bookmark file for save and restore without filename prompts",
+    },
+    Spec {
+        name: "--transcript-path",
+        game: Some(Game::Mindwheel),
+        value: Value::Path,
+        dev: false,
+        description: "Use this transcript filename without prompting",
+    },
+    Spec {
+        name: "--side-map",
+        game: Some(Game::Mindwheel),
+        value: Value::Path,
+        dev: false,
+        description: "Use this disk mapping file (default SIDE.TXT beside the game data)",
     },
     Spec {
         name: "--machine",
@@ -365,6 +393,9 @@ fn validate(spec: &Spec, value: OsString, game: Game) -> Result<OsString, String
         return Ok(value);
     }
     let text = value.to_str().ok_or("value must be UTF-8")?;
+    if spec.name == "--renderer" && text == "terminal" && game == Game::Mindwheel {
+        return Ok(value);
+    }
     match spec.value {
         Value::Integer(min, max) => {
             let number = if let Some(hex) = text.strip_prefix("0x") {
@@ -441,6 +472,32 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
                     entries,
                     a.max(b),
                     &format!("conflicts with {}", if a > b { bname } else { aname }),
+                    warnings,
+                );
+                continue;
+            }
+            break;
+        }
+        if game == Game::Mindwheel {
+            let terminal = active("--renderer")
+                .and_then(|i| entries[i].value.as_ref())
+                .is_some_and(|v| v == "terminal");
+            if terminal
+                && let Some(index) = [
+                    "--backend",
+                    "--window-mode",
+                    "--scale",
+                    "--vsync",
+                    "--frame-limit",
+                    "--presentation",
+                ]
+                .into_iter()
+                .find_map(active)
+            {
+                remove(
+                    entries,
+                    index,
+                    "does not apply to the terminal renderer",
                     warnings,
                 );
                 continue;
@@ -638,7 +695,12 @@ pub fn help(game: Option<Game>) -> String {
                 spec.description
             ));
             if let Value::Choice(choices) = spec.value {
-                text.push_str(&format!("    Choices: {}\n", choices.join(", ")));
+                let suffix = if spec.name == "--renderer" && game == Some(Game::Mindwheel) {
+                    ", terminal (attached terminal)"
+                } else {
+                    ""
+                };
+                text.push_str(&format!("    Choices: {}{suffix}\n", choices.join(", ")));
             }
         }
     }
@@ -656,6 +718,66 @@ pub fn help(game: Option<Game>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn terminal_renderer_is_a_mindwheel_player_option() {
+        let result = prepare(args(&["--renderer", "terminal"]), Game::Mindwheel);
+        assert!(result.warnings.is_empty());
+        assert_eq!(result.args, args(&["--renderer", "terminal"]));
+        accepted(&result, Game::Mindwheel);
+        assert!(help(Some(Game::Mindwheel)).contains("software, terminal"));
+        for game in [Game::AlleyCat, Game::Mach3] {
+            let result = prepare(args(&["--renderer", "terminal"]), game);
+            assert!(result.args.is_empty());
+            assert_eq!(result.warnings.len(), 1);
+            assert!(!help(Some(game)).contains("software, terminal"));
+        }
+    }
+
+    #[test]
+    fn terminal_renderer_ignores_window_only_overrides() {
+        let result = prepare(
+            args(&[
+                "--renderer",
+                "terminal",
+                "--backend",
+                "opengl",
+                "--scale",
+                "3",
+                "--window-mode",
+                "fullscreen",
+                "--presentation",
+                "pixels",
+                "--save-dir",
+                "saves",
+            ]),
+            Game::Mindwheel,
+        );
+        assert_eq!(
+            result.args,
+            args(&["--renderer", "terminal", "--save-dir", "saves"])
+        );
+        assert!(result.warnings.len() >= 4);
+    }
+
+    #[test]
+    fn mindwheel_file_options_preserve_paths_and_reject_other_games() {
+        for option in [
+            "--save-dir",
+            "--bookmark-path",
+            "--transcript-path",
+            "--side-map",
+        ] {
+            let result = prepare(args(&[option, "a path with spaces"]), Game::Mindwheel);
+            assert!(result.warnings.is_empty());
+            assert_eq!(result.args, args(&[option, "a path with spaces"]));
+            for game in [Game::AlleyCat, Game::Mach3] {
+                let result = prepare(args(&[option, "a path with spaces"]), game);
+                assert!(result.args.is_empty());
+                assert_eq!(result.warnings.len(), 1);
+            }
+        }
+    }
+
     #[test]
     fn fps_shortcut_help_requires_graphical_development_build() {
         assert_eq!(
@@ -675,6 +797,9 @@ mod tests {
                 args.iter().map(|arg| arg.to_str().unwrap().to_owned()),
             )
             .unwrap();
+        }
+        if game == Game::Mindwheel {
+            btz::cli::validate_arguments(args.clone().into_iter()).unwrap();
         }
         #[cfg(feature = "sdl")]
         if game == Game::Mach3 {
@@ -810,7 +935,7 @@ mod tests {
     #[test]
     fn scale_defaults_are_left_to_engines_and_auto_is_forwarded() {
         assert_eq!(takes_value("--scale"), Some(true));
-        assert!(help(None).contains("auto|1..16 (default auto for both games)"));
+        assert!(help(None).contains("auto|1..16 (default auto)"));
         for game in [Game::AlleyCat, Game::Mach3] {
             let defaults = prepare(args(&[]), game);
             assert!(defaults.args.is_empty());

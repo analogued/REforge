@@ -20,12 +20,26 @@ use sdl3::{
     render::WindowCanvas,
 };
 use std::{
+    io::IsTerminal,
     path::{Path, PathBuf},
-    process::{Child, Command},
+    process::{Child, Command, Stdio},
     sync::mpsc,
     time::Duration,
 };
 use widgets::UiAction;
+
+fn check_terminal_launch(
+    renderer: reforge_settings::Renderer,
+    terminal_available: bool,
+) -> Result<(), String> {
+    if renderer == reforge_settings::Renderer::Terminal && !terminal_available {
+        return Err(
+            "Terminal rendering requires an attached terminal. Launch REforge from a terminal, or select a window renderer."
+                .into(),
+        );
+    }
+    Ok(())
+}
 
 impl State {
     fn draw(&mut self, context: &egui::Context, busy: bool) -> Option<UiAction> {
@@ -375,6 +389,21 @@ pub fn run() -> Result<(), String> {
                 }
                 UiAction::Play(id) => (|| {
                     let original = state.play_path(id.clone())?;
+                    let entry = state
+                        .games
+                        .iter()
+                        .find(|g| g.entry_id == id)
+                        .ok_or("Game is no longer in the library")?;
+                    let preferences = reforge_settings::Session::load(reforge_settings::Launch {
+                        game_id: entry.game_id.clone(),
+                        entry_id: Some(entry.entry_id.clone()),
+                        path: Some(state.config.clone()),
+                        cli: Default::default(),
+                    });
+                    check_terminal_launch(
+                        preferences.effective(&preferences.saved).renderer,
+                        std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
+                    )?;
                     let args = state
                         .games
                         .iter()
@@ -388,6 +417,9 @@ pub fn run() -> Result<(), String> {
                         .arg("--config")
                         .arg(&state.config)
                         .args(args)
+                        .stdin(Stdio::inherit())
+                        .stdout(Stdio::inherit())
+                        .stderr(Stdio::inherit())
                         .spawn()
                         .map_err(|e| format!("Cannot start game: {e}"))?;
                     canvas.window_mut().hide();

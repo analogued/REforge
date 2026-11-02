@@ -108,7 +108,7 @@ impl GameEntry {
         let options = match release.map(|r| r.game()) {
             Some(Game::AlleyCat) => alleycat::launcher::OPTIONS,
             Some(Game::Mach3) => mach3::launcher::OPTIONS,
-            None => &[],
+            Some(Game::Mindwheel) | None => &[],
         };
         let status = if verify {
             match super::verify_entry(entry) {
@@ -131,7 +131,7 @@ impl GameEntry {
             preview_option: match release.map(|r| r.game()) {
                 Some(Game::AlleyCat) => alleycat::launcher::PREVIEW_OPTION,
                 Some(Game::Mach3) => mach3::launcher::PREVIEW_OPTION,
-                None => "",
+                Some(Game::Mindwheel) | None => "",
             },
             status,
             preferences: Preferences::from_options(options),

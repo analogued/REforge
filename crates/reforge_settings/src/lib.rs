@@ -435,6 +435,7 @@ pub enum Renderer {
     Gpu,
     Sdl,
     Software,
+    Terminal,
 }
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Backend {
@@ -454,6 +455,7 @@ impl Renderer {
             Self::Gpu => "gpu",
             Self::Sdl => "sdl",
             Self::Software => "software",
+            Self::Terminal => "terminal",
         }
     }
 }
@@ -478,7 +480,8 @@ impl std::str::FromStr for Renderer {
             "gpu" => Ok(Self::Gpu),
             "sdl" => Ok(Self::Sdl),
             "software" => Ok(Self::Software),
-            _ => Err("renderer must be auto, gpu, sdl or software".into()),
+            "terminal" => Ok(Self::Terminal),
+            _ => Err("renderer must be auto, gpu, sdl, software or terminal".into()),
         }
     }
 }
@@ -639,6 +642,11 @@ pub struct Draft {
 impl Draft {
     pub fn global_values(&self) -> RuntimeSettings {
         let mut values = overlay(RuntimeSettings::default(), &self.global);
+        // Terminal play is an engine-specific startup selection, never a
+        // graphics default inherited by unrelated games or the launcher.
+        if values.renderer == Renderer::Terminal {
+            values.renderer = Renderer::Auto;
+        }
         values.mach3 = Mach3Settings::default();
         values.alleycat = AlleyCatSettings::default();
         values
@@ -658,7 +666,10 @@ impl Draft {
             self.edit(false, "presentation", "pixels".into());
         }
         let game = self.game_values();
-        if game.presentation == Presentation::Hyllian && !game.supports_hyllian() {
+        if game.renderer != Renderer::Terminal
+            && game.presentation == Presentation::Hyllian
+            && !game.supports_hyllian()
+        {
             self.edit(true, "presentation", "pixels".into());
         }
     }
@@ -686,6 +697,9 @@ impl Draft {
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
         if !game && matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE) {
+            return;
+        }
+        if !game && key == "renderer" && value == "terminal" {
             return;
         }
         let base = if game {
@@ -791,6 +805,9 @@ impl Session {
     }
     pub fn effective(&self, draft: &Draft) -> RuntimeSettings {
         let mut values = overlay(draft.game_values(), &self.cli);
+        if self.game_id != "mindwheel" && values.renderer == Renderer::Terminal {
+            values.renderer = Renderer::Auto;
+        }
         if self.game_id != "mach-3" {
             values.mach3 = Mach3Settings::default();
         }
@@ -870,7 +887,11 @@ fn read_draft(
                             String::new()
                         };
                         let mut validated = RuntimeSettings::default();
-                        if validated.set(key, &text).is_ok() {
+                        if validated.set(key, &text).is_ok()
+                            && !(key == "renderer"
+                                && validated.renderer == Renderer::Terminal
+                                && game != "mindwheel")
+                        {
                             p.insert(key.into(), validated.get(key));
                         } else {
                             *warning =
@@ -1179,6 +1200,68 @@ mod tests {
             cli: Patch::new(),
         })
     }
+    #[test]
+    fn terminal_renderer_is_game_scoped_and_round_trips_without_changing_graphics_preferences() {
+        assert_eq!("terminal".parse::<Renderer>().unwrap(), Renderer::Terminal);
+        assert_eq!(Renderer::Terminal.as_str(), "terminal");
+        assert!("terminal".parse::<Backend>().is_err());
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(
+            &path,
+            "[global.display]\nbackend = 'vulkan'\nscale = 3\n[global.crt]\npresentation = 'hyllian'\n",
+        )
+        .unwrap();
+        let mut s = session(path.clone(), "mindwheel");
+        let mut draft = s.saved.clone();
+        draft.edit(true, "renderer", "terminal".into());
+        draft.normalize_treatments(&s.saved);
+        s.commit(draft).unwrap();
+        let mut loaded = session(path.clone(), "mindwheel");
+        let terminal = loaded.effective(&loaded.saved);
+        assert_eq!(terminal.renderer, Renderer::Terminal);
+        assert_eq!(terminal.backend, Backend::Vulkan);
+        assert_eq!(terminal.scale, Some(3));
+        assert_eq!(terminal.presentation, Presentation::Hyllian);
+        assert!(!terminal.supports_hyllian());
+        loaded.cli.insert("renderer".into(), "gpu".into());
+        assert_eq!(loaded.effective(&loaded.saved).renderer, Renderer::Gpu);
+        assert_eq!(session(path.clone(), "mindwheel").saved, loaded.saved);
+        let mut reset = loaded.saved.clone();
+        reset.reset_section(true, 0);
+        assert_eq!(reset.game_values().renderer, Renderer::Auto);
+        assert_eq!(reset.game_values().presentation, Presentation::Hyllian);
+    }
+
+    #[test]
+    fn terminal_renderer_cannot_become_a_global_default_or_affect_other_games() {
+        let mut draft = Draft::default();
+        draft.edit(false, "renderer", "terminal".into());
+        assert!(!draft.global.contains_key("renderer"));
+        // Explicitly authored configuration and CLI input are independently
+        // checked even when they bypass the GUI's choice availability.
+        draft.global.insert("renderer".into(), "terminal".into());
+        assert_eq!(draft.global_values().renderer, Renderer::Auto);
+        draft.game.insert("renderer".into(), "terminal".into());
+        for game in ["alley-cat", "mach-3", "standalone"] {
+            let mut session = Session::for_window(None);
+            session.game_id = game.into();
+            session.cli.insert("renderer".into(), "terminal".into());
+            assert_eq!(session.effective(&draft).renderer, Renderer::Auto);
+        }
+        let doc: DocumentMut = "[global.display]\nrenderer = 'terminal'\n[entries.mindwheel.display]\nrenderer = 'terminal'\n[entries.mach-3.display]\nrenderer = 'terminal'\n".parse().unwrap();
+        let mut warning = None;
+        let mindwheel = read_draft(&doc, "mindwheel", Some("mindwheel"), &mut warning);
+        assert!(warning.is_some());
+        assert!(!mindwheel.global.contains_key("renderer"));
+        assert_eq!(mindwheel.game_values().renderer, Renderer::Terminal);
+        warning = None;
+        let mach = read_draft(&doc, "mach-3", Some("mach-3"), &mut warning);
+        assert!(warning.is_some());
+        assert!(!mach.game.contains_key("renderer"));
+        assert_eq!(mach.game_values().renderer, Renderer::Auto);
+    }
+
     #[test]
     fn alleycat_controls_are_game_only_sparse_and_apply_scoped() {
         let dir = TestDir::new();

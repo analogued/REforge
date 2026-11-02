@@ -10,6 +10,7 @@ mod pass;
 mod player;
 mod presentation;
 mod progression;
+pub mod raster;
 mod session;
 mod special;
 mod terrain;
@@ -120,6 +121,7 @@ pub struct Gameplay {
     remembered_draws: [Option<scene::Draw>; 29],
     remembered_requests: [usize; 29],
     remembered_hud_rects: Vec<Rect>,
+    restore_regions: Vec<Rect>,
     transitions: Vec<TransitionFrame>,
     sound_returned: bool,
     initial_input_applied: bool,
@@ -188,6 +190,7 @@ impl Gameplay {
             remembered_draws: [None; 29],
             remembered_requests: [0; 29],
             remembered_hud_rects,
+            restore_regions: Vec::new(),
             transitions: Vec::new(),
             sound_returned: false,
             initial_input_applied: false,
@@ -625,7 +628,9 @@ impl Gameplay {
         }
         let current = self.world_draws();
         let requests = self.world_requests();
+        self.restore_regions.clear();
         if self.render_pass == 1 {
+            self.restore_regions.push(viewport);
             presentation::restore_background(&mut frame, &background, viewport)?;
             self.draw_world(assets, &mut frame, viewport)?;
             self.remembered_draws = current;
@@ -668,6 +673,7 @@ impl Gameplay {
                 self.remembered_draws[slot] = current[slot];
                 self.remembered_requests[slot] = requests[slot];
             }
+            self.restore_regions.clone_from(&regions);
             for &clip in &regions {
                 presentation::restore_background(&mut frame, &background, clip)?;
             }

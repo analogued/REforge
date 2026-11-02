@@ -127,7 +127,8 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
                 | "--frame-limit"
                 | "--presentation"
                 | "--audio-renderer"
-                | "--digitized-samples"),
+                | "--digitized-samples"
+                | "--motion"),
             ) => {
                 if let Some(value) = remaining.next() {
                     let key = match name {
@@ -139,6 +140,7 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
                         "--presentation" => "presentation",
                         "--audio-renderer" => "audio_renderer",
                         "--digitized-samples" => "digitized_samples",
+                        "--motion" => "motion",
                         _ => "vsync",
                     };
                     if let Some(text) = value.to_str() {
@@ -149,7 +151,11 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
                     }
                     if matches!(
                         name,
-                        "--scale" | "--presentation" | "--audio-renderer" | "--digitized-samples"
+                        "--scale"
+                            | "--presentation"
+                            | "--audio-renderer"
+                            | "--digitized-samples"
+                            | "--motion"
                     ) {
                         args.push(arg);
                         args.push(value);
@@ -305,6 +311,18 @@ mod tests {
             Some("terminal")
         );
         assert_eq!(forward, args(&["--save-dir", "bookmarks"]));
+    }
+
+    #[test]
+    fn motion_override_is_temporary_locked_and_forwarded_to_mach3() {
+        let prepared = options::prepare(args(&["--motion", "original"]), Game::Mach3);
+        assert!(prepared.warnings.is_empty());
+        let (launch, forward) = launch_settings(prepared.args, Game::Mach3);
+        assert_eq!(
+            launch.cli.get(reforge_settings::MOTION).map(String::as_str),
+            Some("original")
+        );
+        assert_eq!(forward, args(&["--motion", "original"]));
     }
 
     #[test]

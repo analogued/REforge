@@ -10,9 +10,9 @@ use crate::settings_navigation::{
 use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
-    AspectRatio, Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, Presentation,
-    Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling,
-    ScalingPolicy, SoundCategory, SoundRenderer,
+    AspectRatio, Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, MOTION,
+    MotionMode, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
+    STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
 };
 const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
 // Presence is distinct from equality: explicit overrides may match global.
@@ -66,7 +66,7 @@ impl RowContext<'_> {
             };
         let mut tooltip = format!(
             "{}: {}\nSaved: {}",
-            if matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE) {
+            if matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE | MOTION) {
                 "Default"
             } else {
                 "Global"
@@ -286,6 +286,7 @@ pub(super) fn draw(
                                             geometry,
                                             windowed_scale,
                                             original_renderer: original.renderer,
+                                            mach3: menu.scope == 1 && menu.mach3_options,
                                             terminal: (menu.scope == 1)
                                                 .then_some(menu.btz_terminal)
                                                 .flatten(),
@@ -310,6 +311,18 @@ pub(super) fn draw(
                             });
                             crate::settings_navigation::scroll_focus(ui, first);
                         });
+                    if menu.page == 0
+                        && menu.scope == 1
+                        && menu.mach3_options
+                        && original.mach3.motion != value.mach3.motion
+                        && !cli.contains_key(MOTION)
+                    {
+                        draft.edit_game(
+                            MOTION,
+                            value.get(MOTION),
+                            (!menu.game_reset[menu.page]).then_some(&saved),
+                        );
+                    }
                     if menu.page == 2
                         && menu.scope == 1
                         && menu.mach3_options
@@ -363,7 +376,8 @@ pub(super) fn draw(
                 crate::settings_navigation::row_controls(ui, bounds, |ui| {
                     let reset_label = if menu.scope == 0 {
                         "Reset section"
-                    } else if menu.page == 3 || (menu.page == 2 && menu.mach3_options) {
+                    } else if menu.page == 3 || ([0, 2].contains(&menu.page) && menu.mach3_options)
+                    {
                         "Restore defaults"
                     } else {
                         "Restore global defaults"
@@ -446,6 +460,7 @@ struct DisplayOptions {
     windowed_scale: u32,
     original_renderer: Renderer,
     terminal: Option<bool>,
+    mach3: bool,
 }
 
 fn display_controls(
@@ -460,6 +475,7 @@ fn display_controls(
         windowed_scale,
         original_renderer,
         terminal,
+        mach3,
     } = options;
     let RowContext { scope, cli, .. } = rows;
     ui.add_enabled_ui(value.renderer != Renderer::Terminal, |ui| {
@@ -566,6 +582,13 @@ fn display_controls(
             },
         );
     });
+    if mach3 {
+        row(ui, "Motion", MOTION, rows.state(MOTION, value), |ui| {
+            Selector::new(MOTION, MotionMode::ALL.map(|mode| Choice::new(mode, mode.label())))
+                .show(ui, &mut value.mach3.motion)
+                .on_hover_text("Enhanced smooths craft and shadow movement. Original uses the game's native presentation. Gameplay timing and collisions are unchanged.");
+        });
+    }
     section(ui, "Rendering");
     row(
         ui,
@@ -1004,6 +1027,7 @@ fn section_has_cli_locks(
 ) -> bool {
     SECTION_KEYS[page].iter().any(|key| cli.contains_key(*key))
         || (page == 2 && scope == 1 && mach3_options && cli.contains_key(DIGITIZED_SAMPLES))
+        || (page == 0 && scope == 1 && mach3_options && cli.contains_key(MOTION))
 }
 
 fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {
@@ -1863,6 +1887,127 @@ mod tests {
             }
             if scope == 1 && mach3 && section_editable && !locked {
                 assert!(!value.mach3.digitized_samples);
+                assert_eq!(value.audio.enabled, !muted);
+            }
+        }
+    }
+
+    #[test]
+    fn mach3_motion_control_follows_display_defaults_scope_and_cli_locks() {
+        fn text_rect(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
+            output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == label => {
+                    Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+                }
+                _ => None,
+            })
+        }
+        for (scope, mach3, section_editable, muted, locked) in [
+            (0, true, true, false, false),
+            (1, false, true, false, false),
+            (1, true, false, true, false),
+            (1, true, false, false, false),
+            (1, true, true, false, false),
+            (1, true, true, true, false),
+            (1, true, true, false, true),
+            (1, true, false, false, true),
+        ] {
+            let context = egui::Context::default();
+            style(&context);
+            let mut value = RuntimeSettings::default();
+            value.audio.enabled = !muted;
+            let cli = if locked {
+                reforge_settings::Patch::from([(MOTION.into(), "original".into())])
+            } else {
+                Default::default()
+            };
+            let mut button = Pos2::ZERO;
+            let mut off = Pos2::ZERO;
+            for step in 0..9 {
+                let point = if step < 6 { button } else { off };
+                let events = if matches!(step, 2 | 3 | 6 | 7) {
+                    vec![
+                        egui::Event::PointerMoved(point),
+                        egui::Event::PointerButton {
+                            pos: point,
+                            button: egui::PointerButton::Primary,
+                            pressed: step == 2 || step == 6,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ]
+                } else {
+                    Vec::new()
+                };
+                let output = context.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            Pos2::ZERO,
+                            Vec2::new(900.0, 900.0),
+                        )),
+                        time: Some(step as f64 * 0.02),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            ui.add_enabled_ui(section_editable, |ui| {
+                                display_controls(
+                                    ui,
+                                    &mut value,
+                                    RowContext {
+                                        base: &RuntimeSettings::default(),
+                                        previous: &RuntimeSettings::default(),
+                                        scope,
+                                        overrides: Overrides::default(),
+                                        cli: &cli,
+                                    },
+                                    DisplayOptions {
+                                        capabilities: VideoCapabilities::default(),
+                                        geometry: crate::DisplayGeometry::new(
+                                            (320, 200),
+                                            (320, 240),
+                                        ),
+                                        windowed_scale: 2,
+                                        original_renderer: Renderer::Auto,
+                                        terminal: None,
+                                        mach3: scope == 1 && mach3,
+                                    },
+                                );
+                            });
+                        });
+                    },
+                );
+                let label = text_rect(&output, "Motion");
+                if scope == 0 || !mach3 {
+                    assert!(label.is_none());
+                    break;
+                }
+                let label = label.expect("Mach 3 control must be visible");
+                if locked {
+                    assert!(
+                        output.shapes.iter().any(|shape| {
+                            matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == CLI_LOCK)
+                        }),
+                        "CLI lock must retain its colour when section defaults disable the row"
+                    );
+                }
+                assert!(label.top() > text_rect(&output, "Aspect ratio").unwrap().bottom());
+                if step < 2 {
+                    button = text_rect(&output, "Enhanced").unwrap().center();
+                }
+                if step == 5 {
+                    if locked || !section_editable {
+                        assert!(text_rect(&output, "Original").is_none());
+                        assert_eq!(value.mach3.motion, MotionMode::Enhanced);
+                        break;
+                    }
+                    off = text_rect(&output, "Original")
+                        .expect("popup opens only when this section is editable")
+                        .center();
+                }
+            }
+            if scope == 1 && mach3 && section_editable && !locked {
+                assert_eq!(value.mach3.motion, MotionMode::Original);
                 assert_eq!(value.audio.enabled, !muted);
             }
         }

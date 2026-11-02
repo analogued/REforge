@@ -53,18 +53,19 @@ pub const STICK_DEAD_ZONE: &str = "stick_dead_zone";
 pub const CONTROL_KEYS: &[&str] = &[STICK_DEAD_ZONE];
 pub const SECTION_KEYS: [&[&str]; 4] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS, CONTROL_KEYS];
 pub const DIGITIZED_SAMPLES: &str = "digitized_samples";
+pub const MOTION: &str = "motion";
 pub const CONTROL_MODE: &str = "control_mode";
 // Dormant per-entry override while Terminal is selected. Absence means the
 // graphical renderer should continue to inherit the global setting.
 const GRAPHICAL_RENDERER: &str = "graphical_renderer";
 fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
-    match game {
-        "mach-3" => Some(DIGITIZED_SAMPLES),
-        "alley-cat" => Some(CONTROL_MODE),
-        "mindwheel" => Some(GRAPHICAL_RENDERER),
-        _ => None,
-    }
-    .into_iter()
+    let keys: &[&str] = match game {
+        "mach-3" => &[DIGITIZED_SAMPLES, MOTION],
+        "alley-cat" => &[CONTROL_MODE],
+        "mindwheel" => &[GRAPHICAL_RENDERER],
+        _ => &[],
+    };
+    keys.iter().copied()
 }
 pub fn section_index(key: &str) -> usize {
     if key == DIGITIZED_SAMPLES {
@@ -341,11 +342,44 @@ impl HyllianSettings {
     }
 }
 
-/// Mach 3's native sample switch changes execution, rather than host output.
-/// It has no global counterpart and is read by the engine only at startup.
+/// Mach 3-only preferences: startup sample execution and live visual motion.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Mach3Settings {
     pub digitized_samples: bool,
+    pub motion: MotionMode,
+}
+
+/// Mach 3 presentation only; authoritative game updates stay unchanged.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MotionMode {
+    #[default]
+    Enhanced,
+    Original,
+}
+impl MotionMode {
+    pub const ALL: [Self; 2] = [Self::Enhanced, Self::Original];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Enhanced => "enhanced",
+            Self::Original => "original",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Enhanced => "Enhanced",
+            Self::Original => "Original",
+        }
+    }
+}
+impl std::str::FromStr for MotionMode {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "enhanced" => Ok(Self::Enhanced),
+            "original" => Ok(Self::Original),
+            _ => Err("motion must be enhanced or original".into()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -388,6 +422,7 @@ impl Default for Mach3Settings {
     fn default() -> Self {
         Self {
             digitized_samples: true,
+            motion: MotionMode::default(),
         }
     }
 }
@@ -520,6 +555,7 @@ impl RuntimeSettings {
             STICK_DEAD_ZONE => self.stick_dead_zone.to_string(),
             DIGITIZED_SAMPLES => self.mach3.digitized_samples.to_string(),
             CONTROL_MODE => self.alleycat.control_mode.as_str().into(),
+            MOTION => self.mach3.motion.as_str().into(),
             "window_mode" => if self.fullscreen {
                 "fullscreen"
             } else {
@@ -559,6 +595,7 @@ impl RuntimeSettings {
                     .ok_or("stick dead zone must be 5..90 percent")?;
             }
             CONTROL_MODE => self.alleycat.control_mode = value.parse()?,
+            MOTION => self.mach3.motion = value.parse()?,
             DIGITIZED_SAMPLES => {
                 self.mach3.digitized_samples = match value {
                     "on" | "true" => true,
@@ -711,6 +748,7 @@ impl Draft {
         }
         if game && page == 0 {
             patch.remove(GRAPHICAL_RENDERER);
+            patch.remove(MOTION);
         }
     }
     /// Native game options can share a menu page without acquiring global keys.
@@ -718,11 +756,12 @@ impl Draft {
         SECTION_KEYS[page]
             .iter()
             .any(|key| self.game.contains_key(*key))
+            || page == 0 && self.game.contains_key(MOTION)
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
             || page == 3 && self.game.contains_key(CONTROL_MODE)
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
-        if !game && matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE) {
+        if !game && matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE | MOTION) {
             return;
         }
         if !game && key == "renderer" && value == "terminal" {
@@ -1370,6 +1409,76 @@ mod tests {
             assert!(s.saved.game_values().fullscreen);
             assert_eq!(s.saved.game_values().presentation, Presentation::Hyllian);
         }
+    }
+
+    #[test]
+    fn mach3_motion_is_game_only_persistent_and_defaults_to_enhanced() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(
+            &path,
+            "[global.display]\nmotion='original'\n[entries.alley-cat.display]\nmotion='original'\n",
+        )
+        .unwrap();
+        let mut mach = session(path.clone(), "mach-3");
+        assert_eq!(
+            mach.effective(&mach.saved).mach3.motion,
+            MotionMode::Enhanced
+        );
+        assert!(
+            !session(path.clone(), "alley-cat")
+                .saved
+                .game
+                .contains_key(MOTION)
+        );
+        let mut draft = mach.saved.clone();
+        draft.edit(false, MOTION, "original".into());
+        assert!(!draft.global.contains_key(MOTION));
+        draft.edit(true, MOTION, "original".into());
+        assert!(draft.has_game_overrides(0));
+        assert_eq!(section_index(MOTION), 0);
+        assert_eq!(
+            mach.effective(&mach.saved).mach3.motion,
+            MotionMode::Enhanced
+        );
+        mach.commit(draft).unwrap();
+        let mut loaded = session(path.clone(), "mach-3");
+        assert_eq!(
+            loaded.effective(&loaded.saved).mach3.motion,
+            MotionMode::Original
+        );
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("motion = \"original\"")
+        );
+        loaded.cli.insert(MOTION.into(), "enhanced".into());
+        assert_eq!(
+            loaded.effective(&loaded.saved).mach3.motion,
+            MotionMode::Enhanced
+        );
+        assert_eq!(
+            session(path.clone(), "mach-3")
+                .saved
+                .game
+                .get(MOTION)
+                .map(String::as_str),
+            Some("original")
+        );
+        let mut reset = loaded.saved.clone();
+        reset.reset_section(true, 2);
+        assert_eq!(reset.game_values().mach3.motion, MotionMode::Original);
+        reset.reset_section(true, 0);
+        assert!(!reset.has_game_overrides(0));
+        assert_eq!(reset.game_values().mach3.motion, MotionMode::Enhanced);
+        assert_eq!(
+            session(path, "alley-cat")
+                .effective(&loaded.saved)
+                .mach3
+                .motion,
+            MotionMode::Enhanced
+        );
+        assert!("faithful".parse::<MotionMode>().is_err());
     }
 
     #[test]

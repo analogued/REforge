@@ -426,6 +426,21 @@ to edit it. Restoring section defaults removes only the Alley Cat
 Controls override on Apply; global resets leave it intact. Reference/headless
 diagnostics retain original input polling.
 
+## Mach 3 motion
+
+**Mach 3 overrides → Display → Motion** offers **Enhanced** (the built-in
+default) and **Original**. Enhanced smooths craft and shadow placement; Original
+uses the native placements and publication cadence. Gameplay, collisions,
+randomness, PIT execution and audio timing are unchanged. Apply changes the
+running presentation and saves the preference; Cancel discards draft changes.
+
+This option is game-specific and has no global or other-game counterpart. Its
+storage is `[entries.mach-3-q8n2v5.display] motion = "original"`; selecting
+Enhanced normally removes the override. Check **Override global defaults** to
+edit it. Resetting the game Display section restores Enhanced on Apply; global
+Display resets leave the game override intact. `--motion enhanced|original`
+is a temporary, locked override and does not change the saved value.
+
 ## Mach 3 digitized samples
 
 Mach 3 overrides on the Audio page include **Digitized samples** immediately

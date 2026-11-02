@@ -11,6 +11,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 mod audio_output;
 mod input_history;
+mod motion;
 #[cfg(feature = "dev-tools")]
 mod preview;
 mod realtime;
@@ -55,6 +56,8 @@ pub enum Playback {
     Static,
 }
 
+pub use reforge_sdl::settings::MotionMode;
+
 #[derive(Clone, Debug)]
 pub struct Options {
     pub video: DisplayMode,
@@ -72,6 +75,9 @@ pub struct Options {
     pub input_trace: Option<std::path::PathBuf>,
     #[cfg(feature = "dev-tools")]
     pub timing_trace: Option<std::path::PathBuf>,
+    pub motion: Option<MotionMode>,
+    #[cfg(feature = "dev-tools")]
+    pub motion_trace: Option<std::path::PathBuf>,
 }
 
 impl Default for Options {
@@ -90,6 +96,9 @@ impl Default for Options {
             input_trace: None,
             #[cfg(feature = "dev-tools")]
             timing_trace: None,
+            motion: None,
+            #[cfg(feature = "dev-tools")]
+            motion_trace: None,
         }
     }
 }

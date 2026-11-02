@@ -23,7 +23,9 @@ use crate::FrameCreator;
 use crate::settings_selector::InputMode;
 
 use reforge_settings::Draft;
-pub use reforge_settings::{AudioSettings, ControlMode, RuntimeSettings, SoundRenderer};
+pub use reforge_settings::{
+    AudioSettings, ControlMode, MotionMode, RuntimeSettings, SoundRenderer,
+};
 /// An engine can restrict shared choices when its implementation requires it.
 #[derive(Clone, Copy, Debug)]
 pub struct VideoCapabilities {
@@ -186,6 +188,20 @@ impl<'a> SettingsMenu<'a> {
                     );
                 }
             }
+        }
+        self
+    }
+    /// A command-line motion choice is temporary and locked like shared display
+    /// overrides. Ordinary menu edits remain per-game and apply live.
+    pub fn with_mach3_motion(self, motion: Option<reforge_settings::MotionMode>) -> Self {
+        if self.mach3_options
+            && let Some(motion) = motion
+        {
+            self.creator
+                .session
+                .borrow_mut()
+                .cli
+                .insert(reforge_settings::MOTION.into(), motion.as_str().into());
         }
         self
     }
@@ -1015,6 +1031,84 @@ mod tests {
                 raw: 0,
             }
         }
+    }
+
+    #[test]
+    #[ignore = "owns SDL video; run serially with dummy/software"]
+    fn mach3_motion_applies_live_and_cancel_preserves_saved_selection() {
+        use reforge_settings::{Launch, MOTION, MotionMode, Patch, Session};
+        let path = std::env::temp_dir().join(format!(
+            "reforge-mach3-motion-ui-{}.toml",
+            std::process::id()
+        ));
+        assert!(!path.exists());
+        let launch = Launch {
+            game_id: "mach-3".into(),
+            entry_id: Some("mach-3".into()),
+            path: Some(path.clone()),
+            cli: Patch::from([
+                ("renderer".into(), "software".into()),
+                ("vsync".into(), "false".into()),
+            ]),
+        };
+        let _guard = launch.clone().install();
+        let mut display =
+            crate::Window::new("motion settings transaction", 320, 240, Some(2)).unwrap();
+        let creator = display.texture_creator();
+        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+            .with_mach3_options(None)
+            .with_mach3_motion(None);
+        assert_eq!(display.settings().mach3.motion, MotionMode::Enhanced);
+        menu.toggle();
+        menu.prepare(display.ui_metrics(), display.settings());
+        menu.draft
+            .as_mut()
+            .unwrap()
+            .edit(true, MOTION, "original".into());
+        assert_eq!(display.settings().mach3.motion, MotionMode::Enhanced);
+        assert!(!path.exists());
+        menu.pending = menu.draft.clone();
+        let request = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().unwrap());
+        display.apply_settings(request).unwrap();
+        menu.applied();
+        assert_eq!(display.settings().mach3.motion, MotionMode::Original);
+        assert_eq!(
+            Session::load(launch.clone())
+                .effective(&Session::load(launch.clone()).saved)
+                .mach3
+                .motion,
+            MotionMode::Original
+        );
+        assert!(display.settings().mach3.digitized_samples);
+        menu.draft.as_mut().unwrap().reset_section(true, 0);
+        menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false));
+        assert_eq!(display.settings().mach3.motion, MotionMode::Original);
+        assert_eq!(
+            Session::load(launch.clone())
+                .saved
+                .game_values()
+                .mach3
+                .motion,
+            MotionMode::Original
+        );
+        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+            .with_mach3_options(None)
+            .with_mach3_motion(Some(MotionMode::Enhanced));
+        assert_eq!(
+            creator.session.borrow().cli.get(MOTION).map(String::as_str),
+            Some("enhanced")
+        );
+        assert_eq!(menu.mach3_startup_settings().motion, MotionMode::Enhanced);
+        menu.toggle();
+        menu.prepare(display.ui_metrics(), display.settings());
+        assert_eq!(
+            Session::load(launch).saved.game_values().mach3.motion,
+            MotionMode::Original
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

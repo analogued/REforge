@@ -3,6 +3,7 @@
 //! Live presentation of the reconstructed device/foreground timeline.
 
 use super::input_history::InputEpoch;
+use super::motion::MotionPresenter;
 use super::*;
 #[cfg(test)]
 mod tests;
@@ -87,6 +88,7 @@ enum EndingStep {
     },
 }
 struct Simulation {
+    motion: Option<MotionPresenter>,
     clock: DeviceClock,
     phase: Phase,
     initial: Option<GameplayState>,
@@ -160,6 +162,7 @@ impl Simulation {
         let mut session = SessionState::default();
         let intro_choice = session.select_intro();
         Ok(Self {
+            motion: None,
             clock,
             phase: Phase::Splash,
             initial: Some(state),
@@ -188,6 +191,9 @@ impl Simulation {
         frames: &StartupFrames,
         resources: &Resources,
     ) -> Result<(), String> {
+        if let Some(motion) = &mut self.motion {
+            motion.reset(self.clock.tick(), "intro");
+        }
         // 03c2 calls 74c0 on every intro entry, including post-game returns.
         // This reloads hardware even when the count is unchanged; software
         // counters, held input and procedural cursors remain intact.
@@ -430,6 +436,9 @@ impl Simulation {
                             GameplayRuntime::begin(*game, state, CS, 64, &self.clock)
                                 .map_err(|e| e.to_string())?,
                         ));
+                        if let Some(motion) = &mut self.motion {
+                            motion.reset(self.clock.tick(), "new_game");
+                        }
                         repaint = true;
                         break;
                     } else {
@@ -438,6 +447,14 @@ impl Simulation {
                     }
                 }
                 Phase::Playing(mut runtime) => {
+                    let mut motion_events = Vec::new();
+                    let motion_active = self.motion.is_some();
+                    let mut observer = |tick, event| {
+                        if motion_active {
+                            motion_events.push((tick, event));
+                        }
+                        observe(tick, event);
+                    };
                     let progress = runtime
                         .advance_until(
                             target,
@@ -447,9 +464,25 @@ impl Simulation {
                                 samples: &memory,
                             },
                             &mut self.clock,
-                            observe,
+                            &mut observer,
                         )
                         .map_err(|e| e.to_string())?;
+                    if let Some(motion) = &mut self.motion {
+                        for (tick, event) in motion_events {
+                            motion.event(tick, event);
+                        }
+                        if progress == GameplayProgress::Pending
+                            && runtime.game().snapshot().player.phase != 0
+                        {
+                            motion.suspend(self.clock.tick(), "damage_pending");
+                        } else if progress == GameplayProgress::Pending
+                            && matches!(self.clock.handlers()[0].offset, 0x57a4 | 0x57b8)
+                        {
+                            // A skipped/disabled sample call is not a suspension.
+                            // These installed handlers identify active sample IRQs.
+                            motion.suspend(self.clock.tick(), "blocking_sample");
+                        }
+                    }
                     runtime.synchronize_session(&mut self.session);
                     self.palette_family = runtime.palette_family();
                     match progress {
@@ -457,13 +490,30 @@ impl Simulation {
                             self.phase = Phase::Playing(runtime);
                             break;
                         }
-                        GameplayProgress::Published { .. }
-                        | GameplayProgress::TransitionPublished { .. } => {
+                        GameplayProgress::Published { .. } => {
+                            if let Some(motion) = &mut self.motion {
+                                motion.publication(
+                                    self.clock.tick(),
+                                    runtime.game(),
+                                    frames.graphics(),
+                                )?;
+                            }
+                            self.visible = runtime.visible_frame().clone();
+                            repaint = true;
+                            self.phase = Phase::Playing(runtime);
+                        }
+                        GameplayProgress::TransitionPublished { .. } => {
+                            if let Some(motion) = &mut self.motion {
+                                motion.reset(self.clock.tick(), "transition");
+                            }
                             self.visible = runtime.visible_frame().clone();
                             repaint = true;
                             self.phase = Phase::Playing(runtime);
                         }
                         GameplayProgress::Returned => {
+                            if let Some(motion) = &mut self.motion {
+                                motion.reset(self.clock.tick(), "ending");
+                            }
                             for change in runtime.take_scheduled_joysticks().into_iter().rev() {
                                 self.joysticks.push_front(change);
                             }
@@ -1019,7 +1069,8 @@ pub(super) fn run(
     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
         .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
         .with_audio_categories(&reforge_audio::category::SoundCategory::ALL)
-        .with_mach3_options(options.digitized_samples);
+        .with_mach3_options(options.digitized_samples)
+        .with_mach3_motion(options.motion);
     let samples = menu.mach3_startup_settings().digitized_samples;
     simulation
         .initial
@@ -1049,6 +1100,9 @@ pub(super) fn run(
     let mut input = ControlInput::default();
     let mut history = InputEpoch::default();
     let epoch = pause.now(Instant::now());
+    let mut motion = MotionPresenter::for_options(&options);
+    motion.set_mode(options.motion.unwrap_or(window.settings().mach3.motion));
+    simulation.motion = Some(motion);
     let mut space_held = false;
     let mut navigation_space_release = false;
     #[cfg(feature = "dev-tools")]
@@ -1100,6 +1154,9 @@ pub(super) fn run(
             {
                 #[cfg(feature = "dev-tools")]
                 {
+                    if let Some(motion) = &mut simulation.motion {
+                        motion.flush();
+                    }
                     if let Some(trace) = &mut trace {
                         trace.flush()?;
                     }
@@ -1154,6 +1211,14 @@ pub(super) fn run(
             } else if !history.accepts(time.host) {
                 disposition = "ignored_before_reset";
             } else if let Some(pad) = pad {
+                #[cfg(feature = "dev-tools")]
+                if let Some(motion) = &mut simulation.motion {
+                    motion.host_gamepad(
+                        ticks_since(epoch, time.timeline),
+                        ticks_since(epoch, pause.now(received)),
+                        pad.actions.bits(),
+                    );
+                }
                 if matches!(simulation.phase, Phase::Splash) && pad.pressed.action {
                     simulation.finish_splash(frames, &resources)?;
                     gamepads.reset();
@@ -1202,6 +1267,14 @@ pub(super) fn run(
                     } => {
                         if let Some(scan) = scan_for_key(*key) {
                             simulation.receive(ticks_since(epoch, time.timeline), scan);
+                            #[cfg(feature = "dev-tools")]
+                            if let Some(motion) = &mut simulation.motion {
+                                motion.host_key(
+                                    ticks_since(epoch, time.timeline),
+                                    ticks_since(epoch, pause.now(received)),
+                                    scan,
+                                );
+                            }
                             disposition = "queued";
                         }
                     }
@@ -1210,6 +1283,14 @@ pub(super) fn run(
                     } => {
                         if let Some(scan) = scan_for_key(*key) {
                             simulation.receive(ticks_since(epoch, time.timeline), scan | 128);
+                            #[cfg(feature = "dev-tools")]
+                            if let Some(motion) = &mut simulation.motion {
+                                motion.host_key(
+                                    ticks_since(epoch, time.timeline),
+                                    ticks_since(epoch, pause.now(received)),
+                                    scan | 128,
+                                );
+                            }
                             disposition = "queued";
                         }
                         if *key == Keycode::Space {
@@ -1234,6 +1315,9 @@ pub(super) fn run(
             let _ = disposition;
         }
         prepare_settings(&mut menu, &mut window);
+        if let Some(motion) = &mut simulation.motion {
+            repaint |= motion.set_mode(options.motion.unwrap_or(window.settings().mach3.motion));
+        }
         if audio.sync_settings(simulation.clock.tick(), options.audio_renderer) {
             audio.pause(pause.is_paused());
         }
@@ -1311,6 +1395,13 @@ pub(super) fn run(
             catch_up = simulation.clock.tick() < wanted
                 && phase_before == std::mem::discriminant(&simulation.phase);
         }
+        let motion_tick = ticks_since(epoch, pause.now(Instant::now()));
+        if let Some(motion) = &mut simulation.motion {
+            motion.commit(motion_tick)?;
+            // Visual queries follow the user's shared presentation ceiling;
+            // observing native publications never schedules a second clock.
+            repaint |= motion.enhanced && !pause.is_paused();
+        }
         // Native pause can change the caption without publishing a new frame.
         // Update it even during catch-up, independently of texture presentation.
         let next_status = if menu.is_open() {
@@ -1320,19 +1411,48 @@ pub(super) fn run(
         };
         if next_status != status {
             status = next_status;
-            window.set_title(&game_title(GAME_NAME, Some(status)))?;
+            let caption = status.to_string();
+            window.set_title(&game_title(GAME_NAME, Some(&caption)))?;
         }
         if catch_up {
             continue;
         }
+        if simulation.motion.is_some() && !window.presentation_due() {
+            let next = (!pause.is_paused())
+                .then(|| simulation.wake_tick())
+                .flatten();
+            let delay = super::wakeup::delay(epoch, pause.now(Instant::now()), next);
+            if !delay.is_zero() {
+                std::thread::sleep(delay);
+            }
+            continue;
+        }
         if repaint {
             window.set_display_geometry(display_geometry(simulation.display_mode()))?;
+            let motion_frame = simulation
+                .motion
+                .as_ref()
+                .map(|m| m.render(motion_tick))
+                .transpose()?
+                .flatten();
+            let visible = motion_frame.as_ref().unwrap_or(&simulation.visible);
+            #[cfg(feature = "dev-tools")]
+            let motion_submit_start = Instant::now();
             texture.update(&display_rgb(
-                &simulation.visible,
+                visible,
                 simulation.display_mode(),
                 simulation.palette(),
             ))?;
             window.present_with(&texture, |canvas| menu.paint(canvas))?;
+            #[cfg(feature = "dev-tools")]
+            #[cfg(feature = "dev-tools")]
+            if let Some(motion) = &mut simulation.motion {
+                motion.presented(
+                    motion_tick,
+                    ticks_since(epoch, pause.now(Instant::now())),
+                    motion_submit_start.elapsed().as_micros() as u64,
+                );
+            }
             repaint = false;
         }
         let next_tick = if pause.is_paused() {

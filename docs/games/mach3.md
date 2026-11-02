@@ -83,3 +83,19 @@ additional hardware modes are outside the current supported set.
 
 For implementation details, diagnostic tools and sound rendering, see the
 [engine documentation](../../engines/mach3/README.md).
+
+## Motion
+
+Enhanced motion is the default. It smooths the craft and shadow while retaining
+native gameplay, input polling, collisions and sound timing. World objects and
+terrain keep their original updates.
+
+Use **F10 → Mach 3 overrides → Display → Motion** to choose **Enhanced** or
+**Original**. Enable **Override global defaults** to edit the game section.
+Apply changes motion immediately and saves the preference. Original presents
+the native craft placement and publication rhythm. `--motion enhanced|original`
+temporarily selects a mode and locks its menu control for that run.
+
+The display frame limit and VSync control presentation; they do not change game
+speed. Long host stalls can cause a visible position correction when playback
+catches up.

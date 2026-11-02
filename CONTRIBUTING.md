@@ -61,6 +61,17 @@ only sections that have entries. Summarize the effect for users rather than
 copying commit subjects. Under New games, use one "Added support for" entry per
 game, including the platform where relevant.
 
+Describe the difference from the last public release, not each development step.
+Consolidate related work into a few meaningful entries. Routine refactoring,
+tests and documentation formatting generally do not need changelog entries.
+
+When introducing a game in its first public release of support, do not list the
+bug fixes made while developing that support. They are part of preparing the
+initial implementation, not fixes to behavior users received in a prior release.
+Use the new-game announcement and, where useful, a brief support/limitations
+summary. Fixes affecting already released games or shared features can still
+warrant their own entries, even when discovered during new-game development.
+
 [Release packaging](docs/releases.md) documents calendar versioning and building
 distributable packages.
 

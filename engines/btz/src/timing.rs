@@ -19,13 +19,29 @@ pub struct DosReadTiming {
     timeout: u16,
     deadline: u32,
     counter_word: u16,
+    formula: crate::interpreter::SubmittedRead,
 }
 
 impl DosReadTiming {
     /// The native loop sign-extends its 16-bit timeout before adding it to the
     /// BIOS tick counter. It does not normalize the deadline at BIOS midnight.
     pub fn new(timeout: u16, bios_ticks: u32, counter_word: u16) -> Self {
+        Self::with_formula(
+            timeout,
+            bios_ticks,
+            counter_word,
+            crate::interpreter::SubmittedRead::ShiftEight,
+        )
+    }
+
+    pub fn with_formula(
+        timeout: u16,
+        bios_ticks: u32,
+        counter_word: u16,
+        formula: crate::interpreter::SubmittedRead,
+    ) -> Self {
         Self {
+            formula,
             timeout,
             deadline: bios_ticks.wrapping_add(timeout as i16 as i32 as u32),
             counter_word,
@@ -43,10 +59,10 @@ impl DosReadTiming {
     }
 
     /// In this conversion, the low stack word is uninitialized while its high
-    /// word is explicitly zeroed. A completed read exposes the shifted low word,
-    /// minus one when nonzero. It is not a measured elapsed-time result.
+    /// word is explicitly zeroed. The selected interpreter applies its integer
+    /// conversion, then subtracts one when nonzero. This is not elapsed time.
     pub fn submitted_value(&self) -> u16 {
-        (self.counter_word >> 8).saturating_sub(1)
+        self.formula.value(self.counter_word)
     }
 
     /// Submitted input wins over the deadline check. Otherwise ffff disables

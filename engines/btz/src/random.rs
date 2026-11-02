@@ -19,8 +19,15 @@ pub struct DosRandom {
 impl DosRandom {
     /// Uses the investigated DOS data layout; this does not detect revisions.
     pub fn from_dos_executable(exe: &[u8]) -> Result<Self, Error> {
+        Self::from_dos_resources(exe, crate::interpreter::MINDWHEEL_RESOURCES)
+    }
+
+    pub fn from_dos_resources(
+        exe: &[u8],
+        layout: crate::interpreter::DosResources,
+    ) -> Result<Self, Error> {
         let bytes = dos_data(exe)?
-            .get(0x6c7..0x6cb)
+            .get(layout.random_adjustment..layout.random_adjustment.saturating_add(4))
             .ok_or_else(|| Error("missing DOS random adjustment".into()))?;
         Ok(Self::from_state(
             RandomState {

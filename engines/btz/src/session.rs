@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Native services around the wordcode VM, with explicit input/parser boundaries.
 
+use crate::interpreter::{Interpreter, MINDWHEEL_DOS, NativeService};
 use crate::{
     Error, ProgramAddr, VarAddr,
     bookmark::Bookmark,
@@ -14,7 +15,7 @@ use crate::{
         DiskSelection, HostReply, HostRequest, ServiceMessages, SideMap, TranscriptBuffer,
         TranscriptEvent,
     },
-    text::{TextCodec, TextOutput, TextScreen},
+    text::{TextCodec, TextCursor, TextOutput, TextScreen},
     timing::{DosReadTiming, ReadPoll},
     vm::{Request, Step, Vm},
 };
@@ -53,6 +54,7 @@ pub struct Session {
     input: InputEditor,
     random: DosRandom,
     pending: Option<Request>,
+    active_text: Option<TextCursor>,
     input_timeout: Option<u16>,
     bells: usize,
     parser: Parser,
@@ -83,9 +85,33 @@ impl Session {
         random: DosRandom,
         keyboard: &mut dyn FnMut() -> Result<Vec<Key>, Error>,
     ) -> Result<Self, Error> {
-        let vm = Vm::new(image.clone())?;
+        Self::with_interpreter_and_keyboard(image, codec, random, &MINDWHEEL_DOS, keyboard)
+    }
+
+    pub fn with_interpreter(
+        image: StoryImage,
+        codec: TextCodec,
+        random: DosRandom,
+        interpreter: &'static Interpreter,
+    ) -> Result<Self, Error> {
+        Self::with_interpreter_and_keyboard(image, codec, random, interpreter, &mut || {
+            Ok(Vec::new())
+        })
+    }
+
+    pub fn with_interpreter_and_keyboard(
+        image: StoryImage,
+        codec: TextCodec,
+        random: DosRandom,
+        interpreter: &'static Interpreter,
+        keyboard: &mut dyn FnMut() -> Result<Vec<Key>, Error>,
+    ) -> Result<Self, Error> {
+        let vm = Vm::with_interpreter(image.clone(), interpreter)?;
         let mut text = TextOutput::new();
         text.enable_keyboard_polling();
+        if interpreter.text == crate::interpreter::TextExecution::WordcodeCallbacks {
+            text.enable_callbacks();
+        }
         text.set_pagination(vm.variable(VarAddr(0xdc))?, vm.variable(VarAddr(0xde))?);
         text.message(
             codec.message(&image, vm.variable(VarAddr(0x112))?)?,
@@ -100,6 +126,7 @@ impl Session {
             input: InputEditor::new(),
             random,
             pending: None,
+            active_text: None,
             input_timeout: None,
             bells: 0,
             parser,
@@ -151,7 +178,7 @@ impl Session {
         self.bios_ticks = ticks;
     }
     pub fn set_native_read_counter_word(&mut self, word: u16) {
-        self.read_return_value = (word >> 8).saturating_sub(1);
+        self.read_return_value = self.vm.interpreter().submitted_read.value(word);
     }
 
     /// Complete exactly the outstanding platform request. Cancellation returns
@@ -238,7 +265,12 @@ impl Session {
             (HostRequest::CloseTranscript, HostReply::Done) => {
                 self.host_requests.pop_front();
                 self.transcript.set_enabled(false);
-                if matches!(self.pending, Some(Request::NativeService { id: 9 })) {
+                if matches!(
+                    self.pending,
+                    Some(Request::NativeService {
+                        service: NativeService::CloseTranscript
+                    })
+                ) {
                     self.finish_native()?;
                 }
             }
@@ -272,7 +304,7 @@ impl Session {
         self.read_return_value = value;
     }
     pub fn take_bells(&mut self) -> usize {
-        std::mem::take(&mut self.bells)
+        std::mem::take(&mut self.bells) + self.text.take_bells()
     }
 
     /// The host supplies idle polls explicitly. No wall-clock pacing is invented
@@ -286,8 +318,12 @@ impl Session {
     /// Process one native keyboard-poll batch. The read loop advances RNG once
     /// after draining the editor queue, including the poll that submits CR.
     pub fn key_batch(&mut self, keys: &[Key]) -> Result<(), Error> {
-        let reading = matches!(self.pending, Some(Request::NativeService { id: 1 }))
-            && !self.input.line_ready()
+        let reading = matches!(
+            self.pending,
+            Some(Request::NativeService {
+                service: NativeService::ReadParse
+            })
+        ) && !self.input.line_ready()
             && !self.text.waiting_for_key();
         for &key in keys {
             self.key(key)?;
@@ -357,6 +393,27 @@ impl Session {
         if self.text.waiting_for_key() || self.input.paused() {
             return Ok(SessionStep::WaitKey);
         }
+        for value in self.text.take_value_pushes().collect::<Vec<_>>() {
+            self.vm.push_text_value(value)?;
+        }
+        if let Some(letter) = self.text.take_callback() {
+            let cursor = self
+                .active_text
+                .take()
+                .ok_or_else(|| Error("callback outside resumable text".into()))?;
+            self.vm
+                .begin_text_callback(cursor.argument, cursor.position, letter)?;
+            self.pending = None;
+            return Ok(SessionStep::Progress);
+        }
+        if self.text.idle() && self.active_text.is_some() {
+            let mut cursor = self.active_text.take().unwrap();
+            if let Some(word) = self.codec.next_word(&self.image, &mut cursor)? {
+                self.active_text = Some(cursor);
+                self.print(vec![word])?;
+                return Ok(SessionStep::Progress);
+            }
+        }
         if self.vm_poll_pending {
             self.vm.resume(None)?;
             self.vm_poll_pending = false;
@@ -365,15 +422,21 @@ impl Session {
         if let Some(request) = self.pending.clone() {
             return match request {
                 Request::Message { .. }
+                | Request::ResumeText { .. }
+                | Request::Character { .. }
                 | Request::Decimal { .. }
                 | Request::ObjectWords { .. }
-                | Request::NativeService { id: 3 } => {
+                | Request::NativeService {
+                    service: NativeService::WaitKey,
+                } => {
                     self.sync_pagination()?;
                     self.vm.resume(None)?;
                     self.pending = None;
                     Ok(SessionStep::Progress)
                 }
-                Request::NativeService { id: 1 } => {
+                Request::NativeService {
+                    service: NativeService::ReadParse,
+                } => {
                     let timeout = self.input_timeout.expect("line service preserves timeout");
                     let timing = self.read_timing.expect("read service preserves deadline");
                     let (line, submitted, value) =
@@ -386,7 +449,13 @@ impl Session {
                                 return Ok(SessionStep::ReadLine { timeout });
                             }
                             ReadPoll::Submitted { .. } => {
-                                DosReadTiming::counter_word_for_value(self.read_return_value)?;
+                                self.vm
+                                    .interpreter()
+                                    .submitted_read
+                                    .representative_word(self.read_return_value)
+                                    .ok_or_else(|| {
+                                        Error("submission result exceeds native range".into())
+                                    })?;
                                 (
                                     self.input.submitted_line().unwrap().to_vec(),
                                     true,
@@ -423,7 +492,9 @@ impl Session {
                         SessionStep::TimedOut { value }
                     })
                 }
-                Request::NativeService { id: 7 | 10 } => {
+                Request::NativeService {
+                    service: NativeService::EchoUnknown | NativeService::EchoInput,
+                } => {
                     self.text.suppress_case();
                     self.vm.resume(None)?;
                     self.pending = None;
@@ -432,6 +503,7 @@ impl Session {
                 request => Ok(SessionStep::Unsupported(request)),
             };
         }
+        self.sync_screen_region()?;
         match self.vm.step()? {
             Step::Executed {
                 instruction,
@@ -464,12 +536,40 @@ impl Session {
             Step::Suspended(request) => {
                 self.pending = Some(request.clone());
                 match request {
-                    Request::Message { id } => self.print(self.codec.message(&self.image, id)?)?,
+                    Request::Message { id } => {
+                        if self.vm.interpreter().text
+                            == crate::interpreter::TextExecution::WordcodeCallbacks
+                        {
+                            self.active_text =
+                                Some(self.codec.cursor(&self.image, id, None, true)?);
+                        } else {
+                            self.print(self.codec.message(&self.image, id)?)?;
+                        }
+                    }
+                    Request::ResumeText { argument, position } => {
+                        self.active_text = Some(self.codec.cursor(
+                            &self.image,
+                            argument,
+                            Some(position),
+                            argument & 0x8000 != 0,
+                        )?);
+                    }
+                    Request::Character { byte } => {
+                        self.text.raw_character(byte, self.codec.pause_prompt());
+                        self.sync_pagination()?;
+                    }
                     Request::Decimal { value } => {
                         self.print(vec![(value as i16).to_string().into_bytes()])?
                     }
                     Request::ObjectWords { object } => {
-                        self.print(self.codec.object_words(&self.image, object)?)?
+                        if self.vm.interpreter().text
+                            == crate::interpreter::TextExecution::WordcodeCallbacks
+                        {
+                            self.active_text =
+                                Some(self.codec.cursor(&self.image, object.0, None, false)?);
+                        } else {
+                            self.print(self.codec.object_words(&self.image, object)?)?;
+                        }
                     }
                     Request::RememberObject { object } => {
                         let maximum = crate::read_word(
@@ -481,19 +581,52 @@ impl Session {
                         self.vm.resume(None)?;
                         self.pending = None;
                     }
-                    Request::NativeService { id: 2 } => {
+                    Request::NativeService {
+                        service: NativeService::GetCursor,
+                    } => {
+                        let (row, column) = self.text.screen().upper_cursor();
+                        self.vm.write_variable(VarAddr(0x118), column as u16)?;
+                        self.vm.write_variable(VarAddr(0x11a), row as u16)?;
+                        self.finish_native()?;
+                    }
+                    Request::NativeService {
+                        service: NativeService::SetCursor,
+                    } => {
+                        self.text.set_cursor(
+                            self.vm.variable(VarAddr(0x11a))?,
+                            self.vm.variable(VarAddr(0x118))?,
+                        )?;
+                        self.finish_native()?;
+                    }
+                    Request::NativeService {
+                        service: NativeService::DrawFrame,
+                    } => {
+                        let (row, column) = self.input.cursor();
+                        self.text.redraw_frame(row, column);
+                        self.finish_native()?;
+                    }
+                    Request::NativeService {
+                        service: NativeService::ParsedEnd,
+                    } => {
                         if self.parser.last_grammar().is_none() {
                             return Err(Error("parsed-output end requested before parsing".into()));
                         }
                         self.vm.resume(Some(self.parser.output_end().0))?;
                         self.pending = None;
                     }
-                    Request::NativeService { id: 7 | 10 } => {
+                    Request::NativeService {
+                        service: NativeService::EchoUnknown | NativeService::EchoInput,
+                    } => {
                         self.text.set_pagination(
                             self.vm.variable(VarAddr(0xdc))?,
                             self.vm.variable(VarAddr(0xde))?,
                         );
-                        let token = if matches!(request, Request::NativeService { id: 7 }) {
+                        let token = if matches!(
+                            request,
+                            Request::NativeService {
+                                service: NativeService::EchoUnknown
+                            }
+                        ) {
                             self.parser.unknown_word()
                         } else {
                             self.parser.last_input()
@@ -501,29 +634,43 @@ impl Session {
                         self.text.native_token(token, self.codec.pause_prompt())?;
                         self.sync_pagination()?;
                     }
-                    Request::NativeService { id: 3 } => {
-                        self.text.wait_key(self.codec.pause_prompt())?
-                    }
-                    Request::NativeService { id: 1 } => {
+                    Request::NativeService {
+                        service: NativeService::WaitKey,
+                    } => self.text.wait_key(self.codec.pause_prompt())?,
+                    Request::NativeService {
+                        service: NativeService::ReadParse,
+                    } => {
                         self.input_timeout = Some(self.vm.accumulator());
-                        let word = DosReadTiming::counter_word_for_value(self.read_return_value)?;
-                        self.read_timing = Some(DosReadTiming::new(
+                        let word = self
+                            .vm
+                            .interpreter()
+                            .submitted_read
+                            .representative_word(self.read_return_value)
+                            .ok_or_else(|| {
+                                Error("submission result exceeds native range".into())
+                            })?;
+                        self.read_timing = Some(DosReadTiming::with_formula(
                             self.vm.accumulator(),
                             self.bios_ticks,
                             word,
+                            self.vm.interpreter().submitted_read,
                         ));
                         self.vm.write_variable(VarAddr(0xce), 0)?;
                         self.vm.write_variable(VarAddr(0xd8), 0)?;
                         self.record_transcript(TranscriptEvent::FlushRemainder)?;
                     }
-                    Request::NativeService { id: 4 } => {
+                    Request::NativeService {
+                        service: NativeService::Exit,
+                    } => {
                         self.text.clear_for_exit();
                         if self.transcript.enabled() {
                             self.host_requests.push_back(HostRequest::CloseTranscript);
                         }
                         self.host_requests.push_back(HostRequest::Exit { code: 0 });
                     }
-                    Request::NativeService { id: 5 } => {
+                    Request::NativeService {
+                        service: NativeService::Save,
+                    } => {
                         let mut bookmark = Bookmark::from_vm(
                             self.vm.state(),
                             *self.parser.history(),
@@ -536,26 +683,42 @@ impl Session {
                             data: bookmark.encode()?,
                         });
                     }
-                    Request::NativeService { id: 6 } => {
-                        self.host_requests.push_back(HostRequest::LoadBookmark)
-                    }
-                    Request::NativeService { id: 8 } => self
+                    Request::NativeService {
+                        service: NativeService::Restore,
+                    } => self.host_requests.push_back(HostRequest::LoadBookmark),
+                    Request::NativeService {
+                        service: NativeService::OpenTranscript,
+                    } => self
                         .host_requests
                         .push_back(self.service_messages.transcript_name_request()),
-                    Request::NativeService { id: 9 } => {
+                    Request::NativeService {
+                        service: NativeService::CloseTranscript,
+                    } => {
                         if self.transcript.enabled() {
                             self.host_requests.push_back(HostRequest::CloseTranscript);
                         } else {
                             self.finish_native()?;
                         }
                     }
-                    Request::NativeService { id: 11 | 14 } => {
-                        let target = if matches!(request, Request::NativeService { id: 11 }) {
+                    Request::NativeService {
+                        service: NativeService::ResetVariables | NativeService::SelectDisk,
+                    } => {
+                        let target = if matches!(
+                            request,
+                            Request::NativeService {
+                                service: NativeService::ResetVariables
+                            }
+                        ) {
                             0
                         } else {
                             self.vm.accumulator()
                         };
-                        if matches!(request, Request::NativeService { id: 11 }) {
+                        if matches!(
+                            request,
+                            Request::NativeService {
+                                service: NativeService::ResetVariables
+                            }
+                        ) {
                             self.vm.write_variable(VarAddr(0xce), 0)?;
                         }
                         self.begin_disk(target)?;
@@ -566,6 +729,19 @@ impl Session {
                 Ok(SessionStep::Progress)
             }
         }
+    }
+
+    fn sync_screen_region(&mut self) -> Result<(), Error> {
+        if self.vm.interpreter().screen == crate::interpreter::ScreenModel::VariableBacked {
+            self.text.set_region(
+                self.vm.variable(VarAddr(0x11c))?,
+                self.vm.variable(VarAddr(0x11e))?,
+                self.vm.variable(VarAddr(0x120))?,
+                self.vm.variable(VarAddr(0x122))?,
+                self.vm.variable(VarAddr(0x126))?,
+            )?;
+        }
+        Ok(())
     }
 
     fn drain_text(
@@ -659,7 +835,12 @@ impl Session {
                 physical_disk,
                 drive,
             } => {
-                if matches!(self.pending, Some(Request::NativeService { id: 6 })) {
+                if matches!(
+                    self.pending,
+                    Some(Request::NativeService {
+                        service: NativeService::Restore
+                    })
+                ) {
                     self.vm.write_variable(VarAddr(0xce), target)?;
                 }
                 self.physical_disk = physical_disk;
@@ -672,7 +853,12 @@ impl Session {
             }
             DiskSelection::Ready { drive_changed, .. } => {
                 if drive_changed {
-                    if matches!(self.pending, Some(Request::NativeService { id: 6 })) {
+                    if matches!(
+                        self.pending,
+                        Some(Request::NativeService {
+                            service: NativeService::Restore
+                        })
+                    ) {
                         self.vm.write_variable(VarAddr(0xce), target)?;
                     }
                     let Some(disk) = disk else {
@@ -687,10 +873,20 @@ impl Session {
                     };
                     self.image.replace_text_stores(&disk)?;
                 }
-                if matches!(self.pending, Some(Request::NativeService { id: 11 })) {
+                if matches!(
+                    self.pending,
+                    Some(Request::NativeService {
+                        service: NativeService::ResetVariables
+                    })
+                ) {
                     self.vm.reset_initial_variables()?;
                 }
-                if matches!(self.pending, Some(Request::NativeService { id: 6 })) {
+                if matches!(
+                    self.pending,
+                    Some(Request::NativeService {
+                        service: NativeService::Restore
+                    })
+                ) {
                     self.rebuild_frame();
                 }
                 self.disk_transition = None;

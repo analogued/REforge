@@ -26,6 +26,16 @@ pub struct LexicalLine {
     pub token_count: u16,
     pub input_offset: u16,
     pub unknown: bool,
+    pub numbers: Vec<NumericToken>,
+}
+
+/// Numbers are inserted before the recognized token at `position`, including
+/// the position just beyond the last token. Their values live in object slots.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NumericToken {
+    pub position: u16,
+    pub object: u16,
+    pub value: u16,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -158,6 +168,17 @@ impl Parser {
         codec: &TextCodec,
         raw: &[u8],
     ) -> Result<&LexicalLine, Error> {
+        self.lex_line_with_numbers(image, codec, raw, 0xffff, 0xffff)
+    }
+
+    fn lex_line_with_numbers(
+        &mut self,
+        image: &StoryImage,
+        codec: &TextCodec,
+        raw: &[u8],
+        mut number: u16,
+        number_end: u16,
+    ) -> Result<&LexicalLine, Error> {
         if raw.len() > 77 {
             return Err(Error("submitted input exceeds DOS editor capacity".into()));
         }
@@ -178,11 +199,25 @@ impl Parser {
             let Some(token) = self.next_token(&line.lowercase, &mut position)? else {
                 break;
             };
+            let numeric = if number != number_end {
+                decimal_prefix(&token)
+            } else {
+                None
+            };
+            if let Some(value) = numeric {
+                line.numbers.push(NumericToken {
+                    position: line.recognized.len() as u16,
+                    object: number,
+                    value,
+                });
+                number = number.wrapping_add(1);
+            }
             match self.dictionary_lookup(image, codec, &token)? {
                 Some(address) if address <= cutoff && address != 0xffff => {
                     line.recognized.push(address)
                 }
                 Some(_) => {}
+                None if numeric.is_some() => {}
                 None => {
                     line.unknown = true;
                     self.unknown_word.clone_from(&token);
@@ -206,9 +241,34 @@ impl Parser {
         vm: &mut Vm,
         raw: &[u8],
     ) -> Result<ParseResult, Error> {
-        self.lex_line(image, codec, raw)?;
+        let (start, end) = match vm.interpreter().numeric_input {
+            crate::interpreter::NumericInput::Disabled => (0xffff, 0xffff),
+            crate::interpreter::NumericInput::ObjectSlots => (
+                read_word(image.initial_variables(), 0x114, "numeric slot start")?,
+                read_word(image.initial_variables(), 0x116, "numeric slot end")?,
+            ),
+        };
+        self.lex_line_with_numbers(image, codec, raw, start, end)?;
+        if !self.lexical.numbers.is_empty() {
+            let bias = read_word(
+                image.initial_variables(),
+                0x10c,
+                "numeric direct-value bias",
+            )?;
+            for number in &self.lexical.numbers {
+                vm.write_variable(
+                    VarAddr(bias.wrapping_add(number.object.wrapping_mul(2))),
+                    number.value,
+                )?;
+            }
+        }
         vm.write_variable(VarAddr(0xd8), self.lexical.token_count)?;
-        let grammar = self.grammar.parse(image, vm, &self.lexical.recognized)?;
+        let grammar = self.grammar.parse_with_numbers(
+            image,
+            vm,
+            &self.lexical.recognized,
+            &self.lexical.numbers,
+        )?;
         let end = 0x2eusize + grammar.output.len() * 2;
         if end + 2 > vm.state().variables.len() || end > usize::from(u16::MAX) {
             return Err(Error("parsed output exceeds variable image".into()));
@@ -261,4 +321,23 @@ fn c_string(bytes: &[u8]) -> &[u8] {
         .iter()
         .position(|&byte| byte == 0)
         .unwrap_or(bytes.len())]
+}
+
+// Native atoi accepts a decimal prefix, optionally preceded by minus. Arithmetic
+// wraps at 16 bits; suffixes are not required to be digits.
+fn decimal_prefix(token: &[u8]) -> Option<u16> {
+    let negative = token.first() == Some(&b'-');
+    let digits = &token[usize::from(negative)..];
+    if !digits.first()?.is_ascii_digit() {
+        return None;
+    }
+    let mut value = 0u16;
+    for &byte in digits.iter().take_while(|byte| byte.is_ascii_digit()) {
+        value = value.wrapping_mul(10).wrapping_add(u16::from(byte - b'0'));
+    }
+    Some(if negative {
+        value.wrapping_neg()
+    } else {
+        value
+    })
 }

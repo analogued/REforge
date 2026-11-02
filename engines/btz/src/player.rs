@@ -28,6 +28,89 @@ pub fn prepare_image(mut bytes: Vec<u8>) -> Result<StoryImage, Error> {
     StoryImage::from_dos_obj(bytes)
 }
 
+/// Identification is a loading concern, outside the VM. Unknown diagnostic
+/// fixtures can still use the explicit definition/resource constructors.
+pub fn identify_dos_interpreter(
+    exe: &[u8],
+) -> Option<(
+    &'static crate::interpreter::Interpreter,
+    crate::interpreter::DosResources,
+)> {
+    use crate::interpreter::*;
+    use sha2::{Digest, Sha256};
+    match <[u8; 32]>::from(Sha256::digest(exe)) {
+        [
+            0x26,
+            0x8e,
+            0xde,
+            0xa9,
+            0xa2,
+            0xed,
+            0x7d,
+            0xf7,
+            0x2c,
+            0xd4,
+            0x1f,
+            0x2d,
+            0x3c,
+            0x76,
+            0x7a,
+            0x57,
+            0xe6,
+            0xeb,
+            0xbe,
+            0x01,
+            0x90,
+            0x37,
+            0xb4,
+            0x66,
+            0x38,
+            0xc0,
+            0x6b,
+            0xe5,
+            0xc8,
+            0x51,
+            0x2b,
+            0xcb,
+        ] => Some((&MINDWHEEL_DOS, MINDWHEEL_RESOURCES)),
+        [
+            0xca,
+            0xf6,
+            0xb0,
+            0x84,
+            0x90,
+            0xf4,
+            0xd3,
+            0x43,
+            0xab,
+            0x9c,
+            0x45,
+            0x07,
+            0xba,
+            0x59,
+            0x1f,
+            0x66,
+            0xb5,
+            0xfc,
+            0x47,
+            0xd1,
+            0x80,
+            0x7a,
+            0xac,
+            0x6d,
+            0xfc,
+            0xd2,
+            0x32,
+            0xec,
+            0x11,
+            0x40,
+            0x03,
+            0xbd,
+        ] => Some((&ESSEX_DOS, ESSEX_RESOURCES)),
+        _ => None,
+    }
+}
+
 pub fn load(data: &Path, interpreter: &Path, side_map: &Path) -> Result<Loaded, String> {
     let load = || -> Result<Loaded, Box<dyn std::error::Error>> {
         let resolve = |path: &Path| {
@@ -42,12 +125,19 @@ pub fn load(data: &Path, interpreter: &Path, side_map: &Path) -> Result<Loaded, 
         let side_map = resolve(side_map)?;
         let image = prepare_image(std::fs::read(&data)?)?;
         let exe = std::fs::read(&interpreter)?;
-        let mut session = Session::new(
+        // Production callers have already identified exact files in the game
+        // catalog. Retain the original default for explicit diagnostic fixtures.
+        let (definition, resources) = identify_dos_interpreter(&exe).unwrap_or((
+            &crate::interpreter::MINDWHEEL_DOS,
+            crate::interpreter::MINDWHEEL_RESOURCES,
+        ));
+        let mut session = Session::with_interpreter(
             image,
-            TextCodec::from_dos_executable(&exe)?,
-            DosRandom::from_dos_executable(&exe)?,
+            TextCodec::from_dos_resources(&exe, resources)?,
+            DosRandom::from_dos_resources(&exe, resources)?,
+            definition,
         )?;
-        session.set_service_messages(ServiceMessages::from_dos_executable(&exe)?);
+        session.set_service_messages(ServiceMessages::from_dos_resources(&exe, resources)?);
         session.set_side_map(SideMap::from_bytes(&std::fs::read(&side_map)?)?);
         let mut files = files::Files::new(&data)?;
         files.originals = vec![data, interpreter, side_map.clone()];

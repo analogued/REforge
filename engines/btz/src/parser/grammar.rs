@@ -165,6 +165,16 @@ impl GrammarState {
         vm: &mut Vm,
         tokens: &[u16],
     ) -> Result<GrammarResult, Error> {
+        self.parse_with_numbers(image, vm, tokens, &[])
+    }
+
+    pub(crate) fn parse_with_numbers(
+        &mut self,
+        image: &StoryImage,
+        vm: &mut Vm,
+        tokens: &[u16],
+        numbers: &[super::NumericToken],
+    ) -> Result<GrammarResult, Error> {
         if tokens.len() > 39 || tokens.contains(&NONE) {
             return Err(Error("invalid recognized-token vector".into()));
         }
@@ -205,7 +215,16 @@ impl GrammarState {
             }
         }
         let mut output = Vec::new();
-        for (index, &object) in line.objects.iter().enumerate() {
+        for index in 0..=line.objects.len() {
+            for number in numbers
+                .iter()
+                .filter(|number| usize::from(number.position) == index)
+            {
+                output.push(number.object);
+            }
+            let Some(&object) = line.objects.get(index) else {
+                break;
+            };
             if object != NONE {
                 output.push(object);
             }

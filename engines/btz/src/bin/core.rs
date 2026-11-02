@@ -92,14 +92,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
     let clock_origin = Instant::now();
-    let codec = TextCodec::from_dos_executable(&exe)?;
-    let random = DosRandom::from_dos_executable(&exe)?;
+    let (definition, resources) = btz::player::identify_dos_interpreter(&exe).unwrap_or((
+        &btz::interpreter::MINDWHEEL_DOS,
+        btz::interpreter::MINDWHEEL_RESOURCES,
+    ));
+    let codec = TextCodec::from_dos_resources(&exe, resources)?;
+    let random = DosRandom::from_dos_resources(&exe, resources)?;
     let mut session = if let Some(terminal) = &mut terminal {
-        Session::new_with_keyboard(image, codec, random, &mut || poll_terminal(terminal))?
+        Session::with_interpreter_and_keyboard(image, codec, random, definition, &mut || {
+            poll_terminal(terminal)
+        })?
     } else {
-        Session::new(image, codec, random)?
+        Session::with_interpreter(image, codec, random, definition)?
     };
-    session.set_service_messages(ServiceMessages::from_dos_executable(&exe)?);
+    session.set_service_messages(ServiceMessages::from_dos_resources(&exe, resources)?);
     if let Some(path) = &files.side_map_path {
         files.originals.push(path.clone());
         session.set_side_map(btz::services::SideMap::from_bytes(&std::fs::read(path)?)?);

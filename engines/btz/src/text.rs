@@ -12,6 +12,14 @@ use crate::{
     read_word,
 };
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TextCursor {
+    pub argument: u16,
+    pub position: u16,
+    end: u16,
+    message: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct TextCodec {
     pairs: [u8; 512],
@@ -24,23 +32,30 @@ impl TextCodec {
     /// Reads the observed Mindwheel DOS table layout, not a revision detector.
     /// Tables remain external original data, rather than constants in the engine.
     pub fn from_dos_executable(exe: &[u8]) -> Result<Self, Error> {
+        Self::from_dos_resources(exe, crate::interpreter::MINDWHEEL_RESOURCES)
+    }
+
+    pub fn from_dos_resources(
+        exe: &[u8],
+        layout: crate::interpreter::DosResources,
+    ) -> Result<Self, Error> {
         let data = dos_data(exe)?;
         let pairs = data
-            .get(0x36d..0x56d)
+            .get(layout.pairs..layout.pairs.saturating_add(512))
             .ok_or_else(|| Error("missing text pair tables".into()))?
             .try_into()
             .unwrap();
         let thirds = data
-            .get(0x56d..0x5ed)
+            .get(layout.thirds..layout.thirds.saturating_add(128))
             .ok_or_else(|| Error("missing text triple table".into()))?
             .try_into()
             .unwrap();
         let pause = data
-            .get(0xff..)
+            .get(layout.pause..)
             .and_then(|s| s.iter().position(|&b| b == 0).map(|end| s[..end].to_vec()))
             .ok_or_else(|| Error("unterminated interpreter pause prompt".into()))?;
         let input_classes = data
-            .get(0x7f..0xff)
+            .get(layout.classes..layout.classes.saturating_add(128))
             .ok_or_else(|| Error("missing input character classes".into()))?
             .try_into()
             .unwrap();
@@ -86,6 +101,97 @@ impl TextCodec {
                 return Err(Error("decoded word reaches DOS text buffer limit".into()));
             }
         }
+    }
+
+    pub(crate) fn cursor(
+        &self,
+        image: &StoryImage,
+        argument: u16,
+        resume: Option<u16>,
+        message: bool,
+    ) -> Result<TextCursor, Error> {
+        if argument == 0xffff {
+            return Ok(TextCursor {
+                argument,
+                position: 0,
+                end: 0,
+                message,
+            });
+        }
+        let (start, end) = if message {
+            if argument >= 0xc180 {
+                return Err(Error("message ID exceeds DOS message limit".into()));
+            }
+            let offset = argument.wrapping_sub(0x8000).wrapping_mul(2);
+            (
+                read_word(image.store(2)?, usize::from(offset), "message start")?,
+                read_word(
+                    image.store(2)?,
+                    usize::from(offset.wrapping_add(2)),
+                    "message end",
+                )?,
+            )
+        } else {
+            let maximum = read_word(image.initial_variables(), 0x102, "maximum object")?;
+            if argument > maximum {
+                return Err(Error("object name outside native range".into()));
+            }
+            let table = read_word(image.initial_variables(), 0xf0, "object phrase table")?;
+            let offset = table.wrapping_add(argument.wrapping_mul(2));
+            (
+                image.program_word(ProgramAddr(offset.wrapping_sub(2)))?,
+                image.program_word(ProgramAddr(offset))?,
+            )
+        };
+        let position = resume.unwrap_or(start);
+        if position < start || position > end {
+            return Err(Error("invalid text continuation position".into()));
+        }
+        Ok(TextCursor {
+            argument,
+            position,
+            end,
+            message,
+        })
+    }
+
+    pub(crate) fn next_word(
+        &self,
+        image: &StoryImage,
+        cursor: &mut TextCursor,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        if cursor.position >= cursor.end {
+            return Ok(None);
+        }
+        let address = if cursor.message {
+            let address = read_word(
+                image.store(4)?,
+                usize::from(cursor.position) * 2,
+                "message word",
+            )?;
+            cursor.position += 1;
+            address
+        } else {
+            let grammar = image.store(1)?;
+            let offset = usize::from(cursor.position);
+            if grammar.get(offset) == Some(&0xff) {
+                cursor.position = cursor.end;
+                return Ok(None);
+            }
+            if cursor.end - cursor.position < 2 {
+                return Err(Error("truncated object word".into()));
+            }
+            let pair = grammar
+                .get(offset..offset + 2)
+                .ok_or_else(|| Error("object word outside grammar".into()))?;
+            cursor.position += 2;
+            u16::from_be_bytes(pair.try_into().unwrap())
+        };
+        if address == 0xffff {
+            cursor.position = cursor.end;
+            return Ok(None);
+        }
+        Ok(Some(self.word(image, address)?))
     }
 
     pub fn message(&self, image: &StoryImage, id: u16) -> Result<Vec<Vec<u8>>, Error> {
@@ -158,12 +264,22 @@ impl TextCodec {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct TextRegion {
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+    status: usize,
+}
+
 /// A DOS 80 by 25 text screen. Each cell has a CP437 byte and an attribute.
 #[derive(Clone, Debug)]
 pub struct TextScreen {
     cells: Vec<u8>,
     row: usize,
     column: usize,
+    region: TextRegion,
 }
 
 impl Default for TextScreen {
@@ -172,6 +288,13 @@ impl Default for TextScreen {
             cells: [b' ', 7].repeat(2000),
             row: 1,
             column: 1,
+            region: TextRegion {
+                left: 1,
+                top: 1,
+                right: 77,
+                bottom: 17,
+                status: 24,
+            },
         };
         for row in [0, 18, 23] {
             for column in 0..79 {
@@ -194,53 +317,60 @@ impl Default for TextScreen {
 
 impl TextScreen {
     fn put(&mut self, row: usize, column: usize, byte: u8) {
-        self.cells[(row * 80 + column) * 2] = byte;
+        if row < 25 && column < 80 {
+            self.cells[(row * 80 + column) * 2] = byte;
+        }
     }
 
     fn character(&mut self, byte: u8) {
         match byte {
             8 => {
-                self.column = self.column.saturating_sub(1).max(1);
+                self.column = self.column.saturating_sub(1);
                 self.put(self.row, self.column, b' ');
             }
             10 => {
-                self.column = 1;
+                self.column = self.region.left;
                 self.row += 1;
             }
             13 => {}
+            7 => self.column += 1,
             _ => {
                 self.put(self.row, self.column, byte);
                 self.column += 1;
             }
         }
-        if self.row == 18 {
-            self.row = 17;
-            for row in 1..17 {
-                for column in 1..78 {
+        if self.row == self.region.bottom + 1 {
+            self.row = self.region.bottom;
+            for row in self.region.top..self.region.bottom {
+                for column in self.region.left..=self.region.right {
                     let byte = self.cells[((row + 1) * 80 + column) * 2];
                     self.put(row, column, byte);
                 }
             }
-            for column in 1..78 {
-                self.put(17, column, b' ');
+            for column in self.region.left..=self.region.right {
+                self.put(self.region.bottom, column, b' ');
             }
         }
     }
 
     fn status(&mut self, text: &[u8]) {
         for column in 0..80 {
-            self.put(24, column, text.get(column).copied().unwrap_or(b' '));
+            self.put(
+                self.region.status,
+                column,
+                text.get(column).copied().unwrap_or(b' '),
+            );
         }
     }
 
     fn clear_upper(&mut self) {
-        for row in 1..18 {
-            for column in 1..78 {
+        for row in self.region.top..=self.region.bottom {
+            for column in self.region.left..=self.region.right {
                 self.put(row, column, b' ');
             }
         }
-        self.row = 1;
-        self.column = 1;
+        self.row = self.region.top;
+        self.column = self.region.left;
     }
 
     pub fn dos_cells(&self) -> &[u8] {
@@ -326,13 +456,20 @@ pub struct TextOutput {
     uppercase: bool,
     quote: bool,
     sentence_space: bool,
-    line_length: usize,
+    line_length: u16,
     word: Vec<u8>,
     page_remaining: u16,
     page_reset: u16,
     transcript_events: VecDeque<TranscriptEvent>,
     keyboard_polling: bool,
     keyboard_poll_pending: bool,
+    callbacks: bool,
+    region_wrap: bool,
+    capturing: bool,
+    callback_letter: u8,
+    callback_pending: Option<u8>,
+    value_pushes: Vec<u16>,
+    bells: usize,
 }
 
 impl Default for TextOutput {
@@ -353,6 +490,13 @@ impl Default for TextOutput {
             transcript_events: VecDeque::new(),
             keyboard_polling: false,
             keyboard_poll_pending: false,
+            callbacks: false,
+            region_wrap: false,
+            capturing: false,
+            callback_letter: 0,
+            callback_pending: None,
+            value_pushes: Vec::new(),
+            bells: 0,
         }
     }
 }
@@ -360,6 +504,69 @@ impl Default for TextOutput {
 impl TextOutput {
     pub fn new() -> Self {
         Self::default()
+    }
+    pub fn enable_callbacks(&mut self) {
+        self.callbacks = true;
+    }
+    pub fn idle(&self) -> bool {
+        self.pending.is_empty() && !self.waiting && !self.keyboard_poll_pending
+    }
+    pub fn take_callback(&mut self) -> Option<u8> {
+        self.callback_pending.take()
+    }
+    pub fn take_value_pushes(&mut self) -> impl Iterator<Item = u16> + '_ {
+        self.value_pushes.drain(..)
+    }
+    pub fn raw_character(&mut self, byte: u8, pause_prompt: &[u8]) {
+        if matches!(byte, 11 | 12) {
+            return;
+        }
+        self.pending.push_back(Action::Byte(byte));
+        self.drain(pause_prompt);
+    }
+    pub(crate) fn set_region(
+        &mut self,
+        left: u16,
+        top: u16,
+        right: u16,
+        bottom: u16,
+        status: u16,
+    ) -> Result<(), Error> {
+        if left > right || right >= 80 || top > bottom || bottom >= 25 || status >= 25 {
+            return Err(Error("text region outside DOS screen".into()));
+        }
+        self.region_wrap = true;
+        self.screen.region = TextRegion {
+            left: usize::from(left),
+            top: usize::from(top),
+            right: usize::from(right),
+            bottom: usize::from(bottom),
+            status: usize::from(status),
+        };
+        Ok(())
+    }
+    pub(crate) fn set_cursor(&mut self, row: u16, column: u16) -> Result<(), Error> {
+        if row >= 25 || column >= 80 {
+            return Err(Error("cursor outside DOS screen".into()));
+        }
+        self.screen.row = usize::from(row);
+        self.screen.column = usize::from(column);
+        self.line_length = column.wrapping_sub(self.screen.region.left as u16);
+        self.word.clear();
+        self.transcript_events.push_back(TranscriptEvent::MarkSpace);
+        Ok(())
+    }
+    pub(crate) fn redraw_frame(&mut self, input_row: usize, input_column: usize) {
+        let frame = TextScreen::default();
+        for row in 0..24 {
+            for column in 0..79 {
+                if matches!(row, 0 | 18 | 23) || matches!(column, 0 | 78) {
+                    self.screen
+                        .put(row, column, frame.cells[(row * 80 + column) * 2]);
+                }
+            }
+        }
+        self.screen.put(input_row, input_column, 0xdb);
     }
     pub fn screen(&self) -> &TextScreen {
         &self.screen
@@ -481,7 +688,8 @@ impl TextOutput {
                             | 6
                             | 2
                             | 0x14
-                    ) || (first == b'"' && self.quote);
+                    ) || (first == b'"' && self.quote)
+                        || (self.callbacks && (first == b'|' || self.capturing));
                     self.pending.push_front(Action::TokenBody(token));
                     if !self.concatenate && !no_separator {
                         self.pending.push_front(Action::Separator);
@@ -544,17 +752,24 @@ impl TextOutput {
                     self.screen_character(byte);
                     self.transcript_events
                         .push_back(TranscriptEvent::Append(byte));
-                    self.line_length += 1;
+                    self.line_length = self.line_length.wrapping_add(1);
                 }
                 Action::EraseByte => self.screen_character(8),
             }
-            if self.keyboard_poll_pending {
+            if self.keyboard_poll_pending || self.callback_pending.is_some() {
                 break;
             }
         }
     }
 
+    pub fn take_bells(&mut self) -> usize {
+        std::mem::take(&mut self.bells)
+    }
+
     fn screen_character(&mut self, byte: u8) {
+        if byte == 7 {
+            self.bells += 1;
+        }
         self.screen.character(byte);
         self.keyboard_poll_pending = self.keyboard_polling;
     }
@@ -563,6 +778,29 @@ impl TextOutput {
         let Some(&first) = token.first() else {
             return;
         };
+        if self.callbacks && (first == b'|' || self.capturing) {
+            if first == b'|' {
+                if self.capturing {
+                    self.capturing = false;
+                    self.callback_pending = Some(self.callback_letter);
+                    return;
+                }
+                self.capturing = true;
+            }
+            for (index, byte) in token.into_iter().enumerate() {
+                if byte.is_ascii_alphabetic() {
+                    self.callback_letter = byte;
+                }
+                if byte.is_ascii_digit() {
+                    self.value_pushes.push(u16::from(byte - b'0'));
+                }
+                if index != 0 && byte == b'|' {
+                    self.capturing = false;
+                    self.callback_pending = Some(self.callback_letter);
+                }
+            }
+            return;
+        }
         let mut actions = Vec::new();
         match first {
             0x0e => {}
@@ -629,10 +867,17 @@ impl TextOutput {
         self.screen_character(byte);
         self.transcript_events
             .push_back(TranscriptEvent::Append(byte));
-        self.line_length += 1;
+        self.line_length = self.line_length.wrapping_add(1);
         self.word.push(byte);
-        if self.line_length + 1 > 77 {
-            if byte == b' ' {
+        if self
+            .line_length
+            .wrapping_add(self.screen.region.left as u16)
+            > self.screen.region.right as u16
+        {
+            if byte == b' '
+                || (self.region_wrap
+                    && self.word.len() >= self.screen.region.right - self.screen.region.left)
+            {
                 self.pending.push_front(Action::LineBreak(true));
             } else {
                 let erase_count = self.word.len();

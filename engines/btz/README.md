@@ -51,6 +51,7 @@ data. These are the current implementation boundaries:
 | Module | Responsibility |
 | --- | --- |
 | [`image`](src/image.rs), [`media`](src/media.rs) | Checked store loading, original data access and replacement text media |
+| [`interpreter`](src/interpreter.rs) | Immutable behavior definitions, named services and separate executable resource layouts |
 | [`decode`](src/decode.rs), [`vm`](src/vm.rs) | Eight operand forms, addressing, 16-bit operations, properties, stacks and suspended native operations |
 | [`parser`](src/parser/mod.rs) | Lexical processing, grammar matching, alternatives and remembered objects |
 | [`input`](src/input.rs), [`text`](src/text.rs) | Keyboard editor, text decoding/formatting and logical 80×25 character screen |
@@ -65,6 +66,9 @@ data. These are the current implementation boundaries:
 The ASCII bitmap font comes from the shared, SDL-independent
 [`reforge_graphics`](../../crates/reforge_graphics/README.md) crate. Character-screen
 layout, colours and border/block glyphs remain in BTZ's display module.
+
+[Interpreter definitions](docs/interpreter-definitions.md) describe the shared
+execution model and the verified differences between DOS implementations.
 
 `Session` is the integrated execution interface. It accepts explicit clock and
 keyboard input and yields events or `HostRequest` operations. The host completes

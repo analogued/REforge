@@ -1,7 +1,7 @@
 # Host preferences
 
-F10 opens the Compact Settings menu in either game. The Display page offers
-window mode (windowed or borderless desktop fullscreen), window scale (Auto or
+F10 opens the Compact Settings menu during graphical play in each supported game.
+The Display page offers window mode (windowed or borderless desktop fullscreen), window scale (Auto or
 ×1–×16), scaling policy, sampling, aspect ratio, renderer, backend, VSync and a
 frame limiter. CRT & Colour offers sharp pixels or Hyllian CRT with
 adjustable shader controls. Colour profiles and white points remain future
@@ -30,9 +30,10 @@ and VSync can still limit the achieved rate; Unlimited removes the software cap.
 Aspect ratio stores `original` (the default) or `square`. Each engine supplies
 its native pixel grid and aspect-corrected base display size; the shared menu and
 renderer use that same metadata. Global labels are Original display / Square
-pixels; game labels include the resolved ratios. Both current games use 320×200
-pixels on a 4:3 display, giving square pixels an 8:5 ratio. Mach 3's F3 monochrome
-mode uses 640×200 pixels, so Square pixels becomes 16:5 while Original stays 4:3.
+pixels; game labels include the resolved ratios. Alley Cat and Mach 3's colour
+mode use 320×200 pixels on a 4:3 display, giving square pixels an 8:5 ratio.
+Mach 3's monochrome mode and Mindwheel's text raster use 640×200 pixels, so
+Square pixels becomes 16:5 while Original stays 4:3.
 An expanded upload texture does not change the engine's native pixel geometry.
 Future engines may supply other ratios without changing the shared menu.
 
@@ -103,7 +104,7 @@ folder and identifies a supported game/release. Entries are saved immediately in
 `library.toml`, beside the default `config.toml` described below. The library
 records an entry ID, game/release IDs, title, canonical directory and original-data
 location. One directory has one entry. The same release in different directories
-has separate entries, preferences and future save locations. Directory aliases,
+has separate entries, preferences and a reserved save namespace. Directory aliases,
 including symlinks, select the same entry. Re-adding a directory selects its
 existing entry.
 
@@ -139,8 +140,10 @@ Relocate verifies the replacement using the detection catalog. It accepts the
 same release or another release with the same game ID and explicit
 `compatibility_id`, meaning compatible saves and persistent option semantics.
 Matching hashes, titles or platforms alone never establish compatibility. The
-stored release ID and paths change; entry identity, overrides and save location
-remain intact. A directory already registered to another entry is rejected.
+stored release ID and paths change; entry identity, overrides and its reserved
+save namespace remain intact. Saved files are not moved. Mindwheel's default
+save directory follows the selected game-data directory. A directory already
+registered to another entry is rejected.
 Files changed to another release in place require explicit Relocate as well.
 Unknown/unsupported releases remain rejected.
 
@@ -149,12 +152,20 @@ preferences. Original files and saves stay on disk. Manually removing a library
 record can leave unreferenced preferences/saves; adding the game again allocates
 a fresh ID rather than reclaiming them.
 
-Save functionality is deferred. Its reserved layout is `saves/<entry-id>/` under
+Saving is engine-specific. Mindwheel implements native bookmarks and text
+transcripts. Relative filenames default to the directory containing `ADISK.OBJ`;
+`--save-dir` changes that base, and absolute filenames select their own location.
+See the [Mindwheel guide](games/mindwheel.md#bookmarks-and-transcripts) for prompts,
+overwrite behavior and fixed-file options. Alley Cat and Mach 3 currently do not
+provide gameplay save/restore.
+
+The application reserves a layout of `saves/<entry-id>/` under
 `$XDG_DATA_HOME/reforge` (default `~/.local/share/reforge`) on Linux,
 `%APPDATA%/REforge` on Windows and
 `~/Library/Application Support/REforge` on macOS. No save folders are created by
-adding a game. Future save headers must record format version and compatibility
-group rather than require an exact release hash.
+adding a game. Mindwheel uses its native format and game-data-relative default,
+not this reserved namespace. Future REforge-owned save formats should record
+format version and compatibility group rather than require an exact release hash.
 
 Schema-1 numeric library IDs migrate automatically to stable string IDs. Old
 `[games.<game-id>]` preferences, including native launcher choices and explicit
@@ -231,7 +242,7 @@ Defaults are windowed, Auto scale, automatic GPU-preferred rendering,
 automatic backend, VSync enabled when supported, a display-refresh frame
 ceiling, and sharp pixels. Missing keys inherit: shared defaults, then
 global preferences, then entry preferences. Catalog game IDs (`alley-cat`,
-`mach-3`) identify games; entry IDs identify individual configured copies.
+`mach-3`, `mindwheel`) identify games; entry IDs identify individual configured copies.
 The example suffixes above are illustrative; use the IDs from your library.
 Explicit CLI values form the final temporary layer.
 
@@ -239,7 +250,7 @@ Explicit CLI values form the final temporary layer.
 | --- | --- |
 | window_mode | `"windowed"`, `"fullscreen"` |
 | scale | `"auto"` or integer 1–16 |
-| renderer | `"auto"`, `"gpu"`, `"sdl"`, `"software"` |
+| renderer | `"auto"`, `"gpu"`, `"sdl"`, `"software"`; `"terminal"` for Mindwheel entries only |
 | backend | `"auto"`, `"vulkan"`, `"opengl"`, `"opengles2"`, `"direct3d11"`, `"direct3d12"`, `"metal"` |
 | vsync | `true`, `false` |
 | frame_limit | `"display"`, `"60"`, `"120"`, `"unlimited"` |
@@ -253,11 +264,24 @@ switches failed native validation; explicit requests are rejected with guidance
 to select GPU/Vulkan.
 
 `--scale auto|1..16`, `--window-mode windowed|fullscreen`,
-`--renderer auto|gpu|sdl|software`, `--backend <name>`, `--vsync on|off`,
+`--renderer auto|gpu|sdl|software|terminal`, `--backend <name>`, `--vsync on|off`,
 `--frame-limit display|60|120|unlimited` and `--presentation pixels|hyllian` override
 only this run. Those controls are disabled in both editing scopes. Each scope
 shows its saved/draft value, with a separate line identifying the active CLI
 value. Apply never copies CLI values into the file.
+
+Terminal is a Mindwheel-only startup renderer. It uses the process's attached
+input/output terminal and does not open a terminal application or an SDL game
+window. It is available through `--renderer terminal`, including builds without
+SDL, or in per-entry Settings when a terminal is attached. It cannot be a global
+default or replace a running SDL game window. Other games warn and ignore the
+Terminal CLI choice.
+
+Window, backend and CRT preferences are retained and ignored during terminal
+play. Their controls are disabled while Terminal is selected; explicit CLI
+graphics overrides warn and are ignored for that run. Selecting Graphical in
+Mindwheel's launch options restores its graphical renderer preference. See
+[Mindwheel's launch instructions](games/mindwheel.md#start-playing).
 
 Preferences record requests rather than temporary runtime outcomes. Auto stays
 Auto; unavailable backend/VSync requests are not replaced in the file by their
@@ -342,14 +366,21 @@ runner remains silent. Engines declare supported Music, Speech and Sound effects
 unsupported game groups remain visible but disabled. Global category defaults
 can still be edited. Latency controls and stereo processing are not implemented.
 
+Mindwheel's Ctrl+G keyboard bell uses PC-speaker synthesis in graphical play and
+belongs to Sound effects. Master volume, Effects volume, output device and focus
+mute apply. Its terminal frontend sends BEL and respects sound-off or zero
+Master/Effects volume; the terminal controls the actual sound, flash and volume.
+
 Category levels are applied in synthesis, then Master controls the final host
 stream. All category levels at 100% preserve the original PCM exactly. Master
 defaults to 80% to leave upward adjustment to the existing full level at 100%;
 existing explicitly saved values are retained. These controls are independent of
 desktop/system volume: neither is read back into preferences or modified by them.
 Native single-speaker interruptions/priorities are preserved; lowering an effect
-does not resume music that the original game interrupted. Later category changes
-use a five-millisecond gain ramp, without resetting synthesis/filter history.
+does not resume music that the original game interrupted. In Alley Cat and
+Mach 3's continuous synthesis, later category changes use a five-millisecond gain
+ramp without resetting synthesis/filter history. Mindwheel applies Effects
+changes to subsequent bells and discards pending bell presentation on a change.
 
 Enable sound and Master volume operate on host output. Native sound routines,
 device counters, random behavior and the engine's timeline continue unchanged;
@@ -419,21 +450,27 @@ is distinct from setting Music or Speech volume to zero.
 
 ## Controllers
 
-SDL-recognized gamepads work in both games without Steam. Drivers, pairing and
-device permissions are operating-system setup; SDL reports available devices.
+SDL-recognized gamepads work during graphical play without Steam. Drivers,
+pairing and device permissions are operating-system setup; SDL reports available
+devices.
 The first available recognized controller is used, with a replacement selected
 if it disconnects. Device-open failures warn and leave keyboard play available.
 
-| Controller input   | Alley Cat                        | Mach 3          |
-| ------------------ | -------------------------------- | --------------- |
-| Left stick / D-pad | Move, jump and swim              | Steer           |
-| Bottom face button | Contextual action (keyboard Alt) | Fire            |
-| Start/Menu         | Host pause                       | Host pause      |
-| Back/View          | Toggle settings                  | Toggle settings |
+| Controller input   | Alley Cat                        | Mach 3          | Mindwheel |
+| ------------------ | -------------------------------- | --------------- | --------- |
+| Left stick / D-pad | Move, jump and swim              | Steer           | Navigate menus |
+| Bottom face button | Contextual action (keyboard Alt) | Fire            | Confirm menu control |
+| Start/Menu         | Host pause                       | Host pause      | Unassigned |
+| Back/View          | Toggle settings                  | Toggle settings | Toggle settings |
 
-The bottom face button advances title/start screens. Alley Cat's skill question
-accepts Up/Down to choose among its four initial skills and the bottom button to
-confirm; another fresh press starts play after the instructions. Settings supports
+The bottom face button advances Alley Cat and Mach 3's title/start screens.
+Mindwheel uses controllers for Settings and file-dialog navigation; game commands
+and filename text still use the keyboard. B cancels a filename prompt and the
+shoulders change focus. Terminal play uses its terminal's keyboard input.
+
+Alley Cat's skill question accepts Up/Down to choose among its four initial
+skills and the bottom button to confirm; another fresh press starts play after
+the instructions. Settings supports
 keyboard, mouse and controller navigation. Bindings are fixed; the right stick,
 triggers and remaining buttons are unassigned.
 
@@ -446,16 +483,17 @@ value; Cancel discards edits. There is no corresponding command-line option.
 Each left-stick axis activates a digital direction at that displacement and
 releases below five sevenths of that threshold (approximately 25% at the default
 35%). D-pad directions bypass the dead zone. Diagonals combine directions;
-displacement beyond the threshold does not change movement speed. Neither engine
-gets jump assistance, buffered taps or altered movement physics. Keyboard and
-controller holds remain independent; conflicts follow the engine's existing
-direction rules.
+In Alley Cat and Mach 3, displacement beyond the threshold does not change
+movement speed. Neither gets jump assistance, buffered taps or altered movement
+physics. Keyboard and controller holds remain independent; conflicts follow
+the engine's existing direction rules.
 
 Focus, pause and settings boundaries discard pending host controller input.
 Controls held across these boundaries, remapping or reconnection must return to
 neutral before controlling the game again. Unplugging releases controller actions.
-Engine adapters retain timestamped transitions on their own simulation timelines;
-host catch-up does not substitute the latest stick position for earlier polls.
+Alley Cat and Mach 3 retain timestamped transitions on their own simulation
+timelines; host catch-up does not substitute the latest stick position for
+earlier polls.
 
 ## Activation and persistence
 
@@ -540,6 +578,10 @@ editing quick options preserves the per-entry sample preference.
 Preview badges follow the same option order, omitting choices without badge text.
 PC speaker contributes no badge; Enhanced PCM contributes `PCM`, following `CRT`
 when CRT treatment is enabled.
+
+Mindwheel's quick options are Renderer (Graphical/Terminal), Display and Window.
+Terminal disables Display and Window controls while retaining their values;
+its preview badge replaces graphical option badges for that mode.
 
 The player-facing data has two owners:
 

@@ -30,9 +30,9 @@ controls and launch options.
 ## External inputs
 
 For Mindwheel DOS, supply the corresponding `ADISK.OBJ`, `GO.EXE` and
-`SIDE.TXT` files. `GO.EXE` supplies compression/classification tables, native messages and
-an RNG adjustment; its x86 code is not executed. `SIDE.TXT` supplies logical-disk
-mappings for services such as restart and bookmark restore.
+`SIDE.TXT` files. `GO.EXE` supplies compression/classification tables, native
+messages and an RNG adjustment; its x86 code is not executed. `SIDE.TXT` supplies
+logical-disk mappings for services such as restart and bookmark restore.
 
 No original game files, extracted vocabulary, story text or interpreter tables
 are bundled. The [format reference](docs/mindwheel-dos-format.md) identifies

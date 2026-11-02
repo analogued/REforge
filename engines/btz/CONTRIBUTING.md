@@ -1,8 +1,11 @@
 # Contributing to BTZ
 
-Follow the repository [contribution guide](../../CONTRIBUTING.md). Commands here
-run from the Cargo workspace root. BTZ uses Rust 2024; compiler requirements are
-declared in the Cargo manifests.
+Follow [REforge's contributing guide](../../CONTRIBUTING.md) for formatting,
+commit conventions, licensing and shared validation. The `btz` engine is a package
+in the combined Cargo workspace and uses its root `Cargo.lock`. Rust 1.88 or newer
+is required. Keep interpreter semantics, game formats, timing and randomness
+within this crate, and preserve dependency and imported-code notices; see the
+shared [dependency notices](../../THIRD_PARTY.md).
 
 ## Build and validate
 
@@ -44,9 +47,9 @@ cargo run --locked -p btz --features dev-tools --bin btz-core -- \
   --side-map /path/to/SIDE.TXT
 ```
 
-The diagnostic terminal adapter supports Unix and Windows consoles. This binary is separate
-from REforge's application game detection interface. Without `--interpreter`,
-it operates as a raw VM trace probe rather than a playable session.
+The diagnostic terminal adapter supports Unix and Windows consoles. This binary
+is separate from REforge's application game detection interface. Without
+`--interpreter`, it operates as a raw VM trace probe rather than a playable session.
 
 | Option | Meaning |
 | --- | --- |

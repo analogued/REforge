@@ -100,9 +100,10 @@ controlled by the terminal.
 ## Bookmarks and transcripts
 
 By default, every `BOOKMARK`, `RESUME NOVEL` and `SCRIPT` request prompts for a
-filename or path, in a windowed dialog or in the terminal. `BOOKMARK` writes a bookmark; `RESUME NOVEL` reads it. No
-extension is appended. Native bookmarks contain game state, not a complete
-recording of the screen, editor, timing and random state.
+filename or path, in a windowed dialog or in the terminal. `BOOKMARK` writes a
+bookmark; `RESUME NOVEL` reads it. No extension is appended. Native bookmarks
+contain game state, not a complete recording of the screen, editor, timing and
+random state.
 
 `SCRIPT` prompts for a transcript filename. It records printed game text,
 including submitted command echoes and background messages while active.

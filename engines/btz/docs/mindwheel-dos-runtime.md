@@ -171,7 +171,7 @@ word, with line-start handling preventing an extra indent after wrapping.
 | `@` | Start a line without creating a sentence-capitalization boundary. |
 
 The screen stores CP437 bytes and character attributes independently of its
-terminal or future graphical presentation. The frame occupies rows 0, 18 and
+terminal or graphical presentation. The frame occupies rows 0, 18 and
 23, with vertical edges at columns 0 and 78. Story output scrolls inside rows
 1 through 17 and columns 1 through 77. Input uses rows 19 through 22; row 24
 holds pause/status text. Ordinary output cannot scroll the input pane.

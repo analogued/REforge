@@ -19,6 +19,8 @@ Unreleased contains changes intended for the next public release.
 ### Mindwheel
 
 - Optional terminal play through `--renderer terminal`.
+- Read and write the original DOS bookmark format, allowing saves to be
+  exchanged with the original game.
 
 ## 2026.1.0 (2026-11-01)
 

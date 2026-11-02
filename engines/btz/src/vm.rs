@@ -483,12 +483,8 @@ impl Vm {
         {
             return Err(Error("bookmark dimensions do not match the VM".into()));
         }
-        // The original loader uses its variable writer: offset0 is forced to
-        // ffff and protected constants2..8 retain their current values.
-        let constants: [u8; 8] = self.state.variables[2..10].try_into().unwrap();
+        // Restore uses the native raw writer, not wordcode's protected setter.
         self.state.variables.copy_from_slice(variables);
-        self.state.variables[..2].copy_from_slice(&NONE.to_le_bytes());
-        self.state.variables[2..10].copy_from_slice(&constants);
         self.state.returns = returns.to_vec();
         self.state.values = values.to_vec();
         self.return_slots = *return_slots;

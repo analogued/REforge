@@ -239,8 +239,8 @@ input strings and sticky grammar-match flags are outside the bookmark record.
 The format has no game/revision identifier or checksum; the expected variable
 extent is checked before replacing live state.
 
-The variable writer forces variable 0 to `0xffff` and keeps protected constants
-at offsets 2 through 8. A same-logical-disk restore retains the saved accumulator.
+Restore uses a raw variable writer, preserving even offset 0 and the constants
+protected from ordinary wordcode writes. A same-logical-disk restore retains the saved accumulator.
 A required disk transition can use that accumulator for the loaded slot.
 Rebuilding the frame resets cursors and current input while retaining recall.
 

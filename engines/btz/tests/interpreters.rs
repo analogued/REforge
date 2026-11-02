@@ -739,3 +739,52 @@ fn display_extent_metadata_does_not_move_the_physical_pause_line() {
     assert_eq!(session.vm().variable(VarAddr(0x128)).unwrap(), 0x1234);
     assert_eq!(session.vm().variable(VarAddr(0x12a)).unwrap(), 0x5678);
 }
+
+#[test]
+fn native_restore_preserves_saved_bytes_outside_normal_wordcode_write_rules() {
+    for definition in [&MINDWHEEL_DOS, &ESSEX_DOS] {
+        let image = image(fixture(&[0x64, 6, 0x64, 3], &[]));
+        let mut session = Session::with_interpreter(
+            image,
+            codec(),
+            DosRandom::from_state(
+                RandomState {
+                    seed: 334,
+                    counter: 0,
+                },
+                0,
+            ),
+            definition,
+        )
+        .unwrap();
+        let mut bookmark = Bookmark::from_vm(session.vm().state(), [0xffff; 100], 0, 1).unwrap();
+        let saved = [0x42ff, 0x21, 0x43, 0x65, 0x87];
+        for (index, value) in saved.into_iter().enumerate() {
+            put(&mut bookmark.variables, index * 2, value);
+        }
+        session.set_side_map(btz::services::SideMap {
+            entries: [btz::services::SideEntry {
+                physical_disk: 0,
+                drive: b'A',
+            }; 10],
+            trailing_value: 100,
+        });
+        for _ in 0..1000 {
+            if matches!(
+                session.advance().unwrap(),
+                SessionStep::Host(HostRequest::LoadBookmark)
+            ) {
+                break;
+            }
+        }
+        session
+            .complete_host(HostReply::Bytes(bookmark.encode().unwrap()))
+            .unwrap();
+        for (index, value) in saved.into_iter().enumerate() {
+            assert_eq!(
+                session.vm().variable(VarAddr(index as u16 * 2)).unwrap(),
+                value
+            );
+        }
+    }
+}

@@ -402,6 +402,24 @@ mod terminal_input {
     }
 
     #[test]
+    fn terminal_callback_bell_does_not_wait_for_command_submission() {
+        let fixture = input_fixture(&[0x002c, 0xffff, 0x0064, 1, 0x0064, 4]);
+        let mut process = PtyProcess::spawn(&fixture, &[]);
+        assert!(
+            process.read_until(Instant::now() + Duration::from_secs(3), |bytes| {
+                contains(bytes, b"\x1b[2J\x1b[H")
+            })
+        );
+        process.master.write_all(&[7]).unwrap();
+        assert!(
+            process.read_until(Instant::now() + Duration::from_secs(1), |bytes| bytes
+                .contains(&7)),
+            "{}",
+            process.text()
+        );
+    }
+
+    #[test]
     fn prompted_bookmarks_and_transcripts_use_the_game_directory_or_save_dir_override() {
         for (use_override, absolute_prompt) in [(false, false), (true, false), (true, true)] {
             let fixture = input_fixture(&[0x0064, 5, 0x0064, 6, 0x0064, 8, 0x0064, 9, 0x0064, 4]);

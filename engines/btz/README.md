@@ -59,6 +59,7 @@ data. These are the current implementation boundaries:
 | [`session`](src/session.rs) | VM plus native-service lifecycle, parser, editor, text and host interactions |
 | [`player`](src/player.rs), [`cli`](src/cli.rs) | Shared player loading, file operations, terminal and normal application entry point |
 | [`windowed`](src/windowed.rs), [`display`](src/display/mod.rs) | SDL event loop, windowed prompts and character-screen rasterization |
+| [`sound`](src/sound.rs) | BIOS bell presentation through the shared speaker, synthesis and SDL audio facilities |
 | [`btz-core`](src/bin/core.rs) | Raw VM trace, snapshots and key replays behind `dev-tools` |
 
 `Session` is the integrated execution interface. It accepts explicit clock and
@@ -81,8 +82,8 @@ codec.
   services, timing/RNG and host behavior.
 
 All 14 observed native services have implementation paths. That does not imply
-complete behavioral equivalence: pause/typeahead, newline polling and bell
-feedback have remaining edge cases described in the runtime reference.
+complete behavioral equivalence: pause/typeahead and newline polling have
+remaining edge cases described in the runtime reference.
 
 The supported Mindwheel DOS input routine reads an uninitialized stack word.
 The player hosts use an explicit default-zero adapter rather than modeling the

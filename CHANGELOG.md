@@ -21,6 +21,8 @@ Unreleased contains changes intended for the next public release.
   windowed/fullscreen, retaining graphical preferences during terminal play.
   Click a saved choice again to follow defaults, as with other games.
 - Initials fallback artwork with a monochrome text palette strip.
+- Ctrl+G keyboard bell: PC-speaker audio in windowed play, respecting audio
+  settings, and immediate BEL output in terminal play.
 - Native bookmarks and transcripts, with filename prompts in either frontend.
 
 ## 2026.1.0 (2026-11-01)

@@ -60,6 +60,20 @@ normal editing. The low-level editor emits a bell action for BEL rather than
 painting a glyph, although it still stores the byte and advances its logical
 column. Screen updates and audible feedback are separate host actions.
 
+Ctrl-G supplies BEL (`07`) in both player frontends. The SDL host presents it
+using the shared PIT/speaker model and band-limited renderer, with master and
+Effects gains, focus mute and the selected output device. Its reference bell
+uses a channel-2 mode-3 divisor of 1320 (about 904 Hz) for 333 ms, following
+[DOSBox-X's BIOS teletype bell](https://dosbox-x.com/doxygen/html/int10__char_8cpp_source.html#l00787).
+A short synthesis tail settles the output. Playback is asynchronous; Session
+does not emulate the BIOS's blocking delay. This is a presentation reference,
+not a claim that every original PC BIOS used an identical bell.
+
+The terminal host flushes BEL immediately, including during read callbacks.
+It suppresses BEL when sound is disabled or master/Effects volume is zero;
+otherwise terminal preferences control the audible/visual response and its
+volume. It does not initialize SDL audio or play a second sound alongside BEL.
+
 The Unix terminal adapter must decode key sequences before supplying these
 editor keys. A bare Escape byte is also the prefix of terminal arrow/function
 sequences, such as Left's `ESC [ D`. The adapter allows up to 30 ms for the
@@ -312,7 +326,7 @@ and rejection behavior.
 
 ## Compatibility boundaries
 
-Four narrow input/presentation behaviors remain incomplete in the current host:
+Three narrow input/presentation behaviors remain incomplete in the current host:
 
 - A pause key dismissing a title or pagination wait can release pending text
   before the editor enters its own pause. The upper pane may clear or advance
@@ -323,9 +337,6 @@ Four narrow input/presentation behaviors remain incomplete in the current host:
 - A logical newline currently exposes only the LF keyboard boundary. The native
   writer polls separately around CR and LF, so a pause at the missing boundary
   cannot stop the row advance even though ordinary rendered text is unchanged.
-- Bell feedback generated through callback input can remain queued until a
-  later explicit wait-key operation. The editor retains the input byte, but the
-  terminal's audible feedback can be delayed or absent before exit.
 
 Malformed pointers, stores, buffers, stacks and bookmarks return checked errors.
 The original interpreter's diagnostic pause/recovery and unsafe corruption on

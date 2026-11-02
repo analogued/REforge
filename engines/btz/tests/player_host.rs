@@ -34,6 +34,197 @@ impl Drop for Directory {
     }
 }
 
+#[cfg(unix)]
+mod terminal_bell {
+    use super::*;
+    use std::{
+        fs::File,
+        io::{Read, Write},
+        os::fd::{AsRawFd, FromRawFd},
+        process::{Child, Command, Stdio},
+        time::{Duration, Instant},
+    };
+
+    fn loaded(directory: &Directory) -> btz::player::Loaded {
+        let put = |bytes: &mut [u8], offset: usize, value: u16| {
+            bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+        };
+        let mut bytes = vec![0; 7 * 512];
+        put(&mut bytes, 0, 512);
+        for (offset, value) in [
+            (0xe8, 0x40),
+            (0x112, 0xffff),
+            (0xdc, 0xffff),
+            (0xde, 0xffff),
+        ] {
+            put(&mut bytes, offset, value);
+        }
+        for (offset, value) in [
+            (4, 1),
+            (14, 3),
+            (12, 4),
+            (8, 5),
+            (10, 6),
+            (16, 3),
+            (26, 4),
+            (24, 5),
+            (20, 6),
+            (22, 7),
+        ] {
+            put(&mut bytes, 512 + offset, value);
+        }
+        // An unlimited input read; no submitted line or original data required.
+        for (index, word) in [0x002c, 0xffff, 0x0064, 1, 0x0064, 4]
+            .into_iter()
+            .enumerate()
+        {
+            put(&mut bytes, 512 + 0x40 + index * 2, word);
+        }
+        let mut exe = vec![0; 32 + 0x6cb];
+        exe[..2].copy_from_slice(b"MZ");
+        put(&mut exe, 8, 2);
+        let session = btz::session::Session::new(
+            btz::image::StoryImage::from_dos_obj(bytes).unwrap(),
+            btz::text::TextCodec::from_dos_executable(&exe).unwrap(),
+            btz::random::DosRandom::from_dos_executable(&exe).unwrap(),
+        )
+        .unwrap();
+        btz::player::Loaded {
+            session,
+            files: directory.files(),
+        }
+    }
+
+    struct Process(Child);
+    impl Drop for Process {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    fn receive(
+        master: &mut File,
+        until: Instant,
+        bytes: &mut Vec<u8>,
+        done: impl Fn(&[u8]) -> bool,
+    ) -> bool {
+        while Instant::now() < until {
+            if done(bytes) {
+                return true;
+            }
+            let mut descriptor = libc::pollfd {
+                fd: master.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: descriptor is a live one-element array; poll only reports
+            // readiness on the owned master descriptor.
+            if unsafe { libc::poll(&mut descriptor, 1, 10) } <= 0 {
+                continue;
+            }
+            let mut block = [0; 8192];
+            match master.read(&mut block) {
+                Ok(0) => break,
+                Ok(count) => bytes.extend_from_slice(&block[..count]),
+                Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
+                Err(error) => panic!("PTY read: {error}"),
+            }
+        }
+        done(bytes)
+    }
+
+    #[test]
+    fn ctrl_g_flushes_bel_during_input_and_respects_mute() {
+        const MARKER: &str = "REFORGE_BTZ_TERMINAL_BELL_TEST";
+        const TEST: &str = "terminal_bell::ctrl_g_flushes_bel_during_input_and_respects_mute";
+        if let Ok(mode) = std::env::var(MARKER) {
+            let directory = Directory::new();
+            let mut settings = reforge_settings::AudioSettings::default();
+            if mode == "disabled" {
+                settings.enabled = false;
+            }
+            if mode == "master-zero" {
+                settings.volume = 0;
+            }
+            if mode == "effects-zero" {
+                settings.categories.0[reforge_settings::SoundCategory::Effects.index()] = 0;
+            }
+            btz::player::run_terminal(loaded(&directory), settings).unwrap();
+            return;
+        }
+        for mode in ["enabled", "disabled", "master-zero", "effects-zero"] {
+            let (mut master, mut slave) = (-1, -1);
+            // SAFETY: output pointers are valid writable integers. Optional
+            // name, termios and size pointers are null for system defaults.
+            assert_eq!(
+                unsafe {
+                    libc::openpty(
+                        &mut master,
+                        &mut slave,
+                        std::ptr::null_mut(),
+                        std::ptr::null(),
+                        std::ptr::null(),
+                    )
+                },
+                0
+            );
+            // SAFETY: openpty returned two distinct, newly owned descriptors.
+            let (mut master, slave) =
+                unsafe { (File::from_raw_fd(master), File::from_raw_fd(slave)) };
+            let child = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST, "--nocapture", "--test-threads=1"])
+                .env(MARKER, mode)
+                .stdin(slave.try_clone().unwrap())
+                .stdout(slave.try_clone().unwrap())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            drop(slave);
+            let mut child = Process(child);
+            let mut bytes = Vec::new();
+            assert!(
+                receive(
+                    &mut master,
+                    Instant::now() + Duration::from_secs(3),
+                    &mut bytes,
+                    |b| b.windows(4).any(|w| w == b"\x1b[H\xe2")
+                ),
+                "terminal did not draw its initial frame: {}",
+                String::from_utf8_lossy(&bytes)
+            );
+            bytes.clear();
+            master.write_all(&[7]).unwrap();
+            let bell = receive(
+                &mut master,
+                Instant::now() + Duration::from_millis(400),
+                &mut bytes,
+                |b| b.contains(&7),
+            );
+            assert_eq!(
+                bell,
+                mode == "enabled",
+                "{mode}: {}",
+                String::from_utf8_lossy(&bytes)
+            );
+            master.write_all(&[17]).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                if let Some(status) = child.0.try_wait().unwrap() {
+                    assert!(status.success());
+                    break;
+                }
+                assert!(Instant::now() < deadline, "terminal did not exit");
+                receive(
+                    &mut master,
+                    Instant::now() + Duration::from_millis(10),
+                    &mut bytes,
+                    |_| false,
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn windowed_filename_submission_uses_the_same_save_directory_and_bytes() {
     let directory = Directory::new();

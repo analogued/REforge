@@ -50,6 +50,8 @@ pub fn run(
         Some("mindwheel") => {
             use std::io::IsTerminal;
             menu.with_btz_options(std::io::stdin().is_terminal() && std::io::stdout().is_terminal())
+                .with_audio_renderers(&[SoundRenderer::Speaker])
+                .with_audio_categories(&[SoundCategory::Effects])
         }
         _ => menu.with_global_defaults_only(),
     };

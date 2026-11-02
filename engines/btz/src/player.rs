@@ -73,7 +73,10 @@ pub fn terminal_available() -> bool {
     std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
-pub fn run_terminal(mut loaded: Loaded) -> Result<(), String> {
+pub fn run_terminal(
+    mut loaded: Loaded,
+    audio: reforge_settings::AudioSettings,
+) -> Result<(), String> {
     use crate::session::SessionStep;
     use std::io::{self, Write};
     use std::time::Instant;
@@ -119,9 +122,7 @@ pub fn run_terminal(mut loaded: Loaded) -> Result<(), String> {
                 io::stdout().flush()?;
                 last = loaded.session.screen().dos_cells().to_vec();
             }
-            for _ in 0..loaded.session.take_bells() {
-                print!("\x07");
-            }
+            write_bells(&mut io::stdout(), loaded.session.take_bells(), &audio)?;
             match event {
                 SessionStep::ReadLine { .. } => {
                     if !loaded.session.input().line_ready() {
@@ -187,4 +188,28 @@ pub fn run_terminal(mut loaded: Loaded) -> Result<(), String> {
         Ok(())
     };
     run().map_err(|error| error.to_string())
+}
+
+// A terminal owns the bell's actual sound/visual policy and volume. REforge can
+// suppress the request when its sound controls are muted, but cannot set the
+// terminal's bell amplitude. Flush immediately, including during an input wait.
+fn write_bells(
+    output: &mut impl std::io::Write,
+    count: usize,
+    settings: &reforge_settings::AudioSettings,
+) -> std::io::Result<()> {
+    if settings.enabled
+        && settings.volume != 0
+        && settings
+            .categories
+            .get(reforge_settings::SoundCategory::Effects)
+            != 0
+        && count != 0
+    {
+        for _ in 0..count {
+            output.write_all(&[7])?;
+        }
+        output.flush()?;
+    }
+    Ok(())
 }

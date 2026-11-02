@@ -78,7 +78,11 @@ fn special_key(key: Keycode, modifiers: Mod) -> Option<Key> {
         return None;
     }
     if modifiers.intersects(control) {
-        return (key == Keycode::S).then_some(Key::Pause);
+        return match key {
+            Keycode::S => Some(Key::Pause),
+            Keycode::G => Some(Key::Character(7)),
+            _ => None,
+        };
     }
     match key {
         Keycode::Return | Keycode::KpEnter | Keycode::Return2 => Some(Key::Enter),
@@ -247,14 +251,17 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), Strin
     window.apply_settings(preferences)?;
     window.start_text_input();
     let creator = window.texture_creator();
+    let mut audio = crate::sound::Player::new(creator.audio_playback())?;
     let mut frame = FrameTexture::new(
         &creator,
         display::WIDTH as u32,
         display::HEIGHT as u32,
         FrameFormat::Rgb,
     )?;
-    let mut menu =
-        SettingsMenu::new(&creator, VideoCapabilities::default()).with_btz_options(false);
+    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+        .with_btz_options(false)
+        .with_audio_renderers(&[reforge_settings::SoundRenderer::Speaker])
+        .with_audio_categories(&[reforge_settings::SoundCategory::Effects]);
     let mut gui = Gui::new(&creator);
     let mut overlay = Overlay::default();
     let mut keyboard = Keyboard::default();
@@ -263,7 +270,6 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), Strin
     let mut manual_pause = false;
     let mut previous_cells = Vec::new();
     let mut previous_phase = None;
-    let mut bell_until = None;
     let mut previous_status = "";
     loop {
         let was_menu = menu.is_open();
@@ -388,25 +394,19 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), Strin
         if overlay.open() && !pause.is_paused() {
             pause.toggle(Instant::now());
         }
-        if loaded.session.take_bells() != 0 {
-            // A visual terminal bell provides feedback without inventing a
-            // reconstructed PC-speaker waveform for the original BIOS BEL.
-            bell_until = Some(Instant::now() + Duration::from_millis(80));
-        }
+        audio.service(
+            loaded.session.take_bells(),
+            pause.now(Instant::now()).saturating_duration_since(epoch),
+            paused || overlay.open(),
+        );
         let blink_on = (epoch.elapsed().as_millis() / 500).is_multiple_of(2);
-        let bell = bell_until.is_some_and(|end| Instant::now() < end);
         let cells = loaded.session.screen().dos_cells();
-        if previous_cells != cells || previous_phase != Some((blink_on, bell)) {
-            let mut pixels = display::render(cells, blink_on)?;
-            if bell {
-                pixels
-                    .iter_mut()
-                    .for_each(|channel| *channel = 255 - *channel);
-            }
+        if previous_cells != cells || previous_phase != Some(blink_on) {
+            let pixels = display::render(cells, blink_on)?;
             frame.update(&pixels)?;
             previous_cells.clear();
             previous_cells.extend_from_slice(cells);
-            previous_phase = Some((blink_on, bell));
+            previous_phase = Some(blink_on);
         }
         let status = if overlay.open() {
             "Game files"
@@ -477,6 +477,11 @@ mod tests {
         }
         assert_eq!(special_key(Keycode::Escape, Mod::NOMOD), Some(Key::Pause));
         assert_eq!(special_key(Keycode::S, Mod::LCTRLMOD), Some(Key::Pause));
+        for control in [Mod::LCTRLMOD, Mod::RCTRLMOD] {
+            assert_eq!(special_key(Keycode::G, control), Some(Key::Character(7)));
+        }
+        assert_eq!(special_key(Keycode::G, Mod::LALTMOD), None);
+        assert_eq!(special_key(Keycode::G, Mod::LCTRLMOD | Mod::RALTMOD), None);
         assert_eq!(special_key(Keycode::S, Mod::LALTMOD), None);
     }
 

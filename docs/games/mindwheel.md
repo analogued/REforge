@@ -18,7 +18,7 @@ logical-disk mappings used by restart and bookmark restore.
 
 > [!NOTE]
 > A complete winning playthrough has not been verified. Random events can differ
-> from a DOS run, and some pause, queued-input and bell feedback cases remain
+> from a DOS run, and some pause and queued-input cases remain
 > imperfect. See the [runtime compatibility notes](../../engines/btz/docs/mindwheel-dos-runtime.md#compatibility-boundaries).
 
 ## Start playing
@@ -88,6 +88,12 @@ recalls its next character.
 Ctrl-S or Escape pauses the game. Enter dismisses an ordinary display pause
 without submitting an empty command. Some pause and queued-input edge cases
 remain; see the runtime reference.
+
+**Ctrl+G** rings the keyboard bell. Windowed play uses a PC-speaker tone and
+respects the sound, master volume and Sound effects controls. Terminal play
+sends BEL: your terminal's settings determine whether it sounds, flashes or
+stays silent. REforge's mute controls can suppress it; terminal bell volume is
+controlled by the terminal.
 
 ## Bookmarks and transcripts
 

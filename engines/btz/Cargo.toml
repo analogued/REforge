@@ -9,13 +9,14 @@ description = "Reconstructed BTZ interpreter core"
 
 [features]
 frontend = ["dep:libc", "dep:sha2", "dep:reforge_settings"]
-sdl = ["frontend", "dep:reforge_sdl"]
+sdl = ["frontend", "dep:reforge_sdl", "dep:reforge_audio"]
 dev-tools = ["frontend", "reforge_sdl?/dev-tools"]
 
 [dependencies]
 sha2 = { version = "=0.11.0", default-features = false, optional = true }
 reforge_settings = { path = "../../crates/reforge_settings", optional = true }
 reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
+reforge_audio = { path = "../../crates/reforge_audio", features = ["blip"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2.190", optional = true }

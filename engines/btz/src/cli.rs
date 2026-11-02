@@ -117,7 +117,7 @@ pub fn run_with_files(
     loaded.files.bookmark_path = options.bookmark;
     loaded.files.transcript_path = options.transcript;
     if options.settings.renderer == Renderer::Terminal {
-        return crate::player::run_terminal(loaded);
+        return crate::player::run_terminal(loaded, options.settings.audio);
     }
     #[cfg(feature = "sdl")]
     {

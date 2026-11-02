@@ -127,6 +127,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             session.advance()?
         };
+        let bells = session.take_bells();
+        if bells != 0 {
+            for _ in 0..bells {
+                print!("\x07");
+            }
+            io::stdout().flush()?;
+        }
         match event {
             SessionStep::Executed {
                 instruction,

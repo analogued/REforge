@@ -20,6 +20,8 @@ pub mod player;
 pub mod random;
 pub mod services;
 pub mod session;
+#[cfg(feature = "sdl")]
+mod sound;
 pub mod text;
 pub mod timing;
 pub mod vm;

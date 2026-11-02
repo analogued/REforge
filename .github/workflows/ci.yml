@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+  SDL_VIDEODRIVER: dummy
+  SDL_AUDIODRIVER: dummy
+  SDL_RENDER_DRIVER: software
+
+jobs:
+  linux:
+    name: Linux / Rust ${{ matrix.toolchain }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, "1.88.0"]
+    env:
+      RUST_TOOLCHAIN: ${{ matrix.toolchain }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Rust and configure build output
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/reforge-target" >> "$GITHUB_ENV"
+
+      - name: Install formatting and lint tools
+        if: matrix.toolchain == 'stable'
+        run: rustup component add --toolchain stable rustfmt clippy
+
+      - name: Check formatting
+        if: matrix.toolchain == 'stable'
+        run: cargo +stable fmt --all -- --check
+
+      - name: Cache Cargo downloads
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install SDL3
+        if: matrix.toolchain == 'stable'
+        id: sdl
+        uses: libsdl-org/setup-sdl@afd98199e97f9c2aa739474be7e0886d149a5e47
+        with:
+          version: "3.4.0"
+          pre-release: false
+          build-type: Release
+          install-linux-dependencies: true
+          add-to-environment: true
+          cmake-arguments: -DSDL_SHARED=ON -DSDL_STATIC=OFF
+
+      - name: Configure SDL3 linker path
+        if: matrix.toolchain == 'stable'
+        env:
+          SDL_PREFIX: ${{ steps.sdl.outputs.prefix }}
+        run: echo "LIBRARY_PATH=$SDL_PREFIX/lib${LIBRARY_PATH:+:$LIBRARY_PATH}" >> "$GITHUB_ENV"
+
+      - name: Test and lint normal builds
+        if: matrix.toolchain == 'stable'
+        run: |
+          cargo +stable test --locked --workspace
+          cargo +stable clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Test and lint builds without default features
+        if: matrix.toolchain == 'stable'
+        run: |
+          cargo +stable test --locked --workspace --no-default-features
+          cargo +stable clippy --locked --workspace --all-targets --no-default-features -- -D warnings
+
+      - name: Test and lint development builds
+        if: matrix.toolchain == 'stable'
+        run: |
+          cargo +stable test --locked --workspace --features dev-tools
+          cargo +stable clippy --locked --workspace --all-targets --features dev-tools -- -D warnings
+
+      - name: Test and lint development builds without default features
+        if: matrix.toolchain == 'stable'
+        run: |
+          cargo +stable test --locked --workspace --no-default-features --features dev-tools
+          cargo +stable clippy --locked --workspace --all-targets --no-default-features --features dev-tools -- -D warnings
+
+      - name: Test launcher software rendering and modal navigation
+        if: matrix.toolchain == 'stable'
+        run: |
+          cargo +stable test --locked -p reforge --features dev-tools launcher::tests::native_painter_capture_matrix_and_modal_navigation -- --exact --ignored --test-threads=1
+          cargo +stable test --locked -p reforge --features dev-tools launcher::tests::btz_presentation_controls_native_painter -- --exact --ignored --test-threads=1
+
+      - name: Check minimum supported Rust
+        if: matrix.toolchain == '1.88.0'
+        run: cargo +1.88.0 check --locked --workspace --all-targets --all-features

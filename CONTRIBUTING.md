@@ -12,8 +12,8 @@ needs another line-ending convention, keep its Git and editor rules consistent.
 
 The implementation uses Rust, standard Rust naming and rustfmt.
 Format the workspace with `cargo fmt --all`. Supporting tools may use
-other languages with documented formatters. Add formatting checks when CI is
-introduced.
+other languages with documented formatters. Keep CI formatting checks in step
+with those tools.
 
 Keep broad formatting changes separate from functional changes. Preserve
 third-party style and notices. Do not reformat generated files or fixtures whose
@@ -103,6 +103,12 @@ Contributions to authored code and documentation use
 that license before adoption, retaining their original terms and attribution.
 
 ## Validation
+
+GitHub Actions runs Linux checks on pushes and pull requests to `main`, and can
+also be started manually. It checks formatting, workspace tests and Clippy with
+normal, headless and development feature combinations, selected software-rendered
+launcher tests, and the minimum supported Rust version. SDL3 is built from a pinned
+release; tests use synthetic fixtures and need no original game files or desktop.
 
 Run `cargo fmt --all -- --check`,
 `cargo test --locked --workspace`, and

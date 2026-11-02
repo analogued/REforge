@@ -18,26 +18,7 @@ Unreleased contains changes intended for the next public release.
 
 ### Mindwheel
 
-- Match the DOS text border's stroke widths, line spacing, corners and junctions.
-- Left/Right caret movement and Shift selection work in filename prompts
-  alongside keyboard and controller dialog navigation.
-- Disk-map overrides through `--side-map` require a `dev-tools` build; normal
-  play uses the verified game files selected through `--original`.
-- Controller navigation for in-game Settings and file dialogs, including
-  View/Back to open Settings and B to cancel a filename prompt.
-- Report invalid or unreadable preferences during terminal startup while
-  preserving the configuration file and using fallback settings.
-- Require the verified `SIDE.TXT` disk map alongside `ADISK.OBJ` and `GO.EXE`
-  during detection and launcher verification.
-- SDL text presentation with the shared display settings and CRT filter.
-- Optional terminal play through `--renderer terminal` using an attached terminal.
-- Launcher options for graphical/terminal play, sharp pixels/CRT and
-  windowed/fullscreen, retaining graphical preferences during terminal play.
-  Click a saved choice again to follow defaults, as with other games.
-- Initials fallback artwork with a monochrome text palette strip.
-- Ctrl+G keyboard bell: PC-speaker audio in windowed play, respecting audio
-  settings, and immediate BEL output in terminal play.
-- Native bookmarks and transcripts, with filename prompts in either frontend.
+- Optional terminal play through `--renderer terminal`.
 
 ## 2026.1.0 (2026-11-01)
 

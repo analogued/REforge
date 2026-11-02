@@ -1,11 +1,11 @@
 # Host preferences
 
 F10 opens the Compact Settings menu during graphical play in each supported game.
-The Display page offers window mode (windowed or borderless desktop fullscreen), window scale (Auto or
-×1–×16), scaling policy, sampling, aspect ratio, renderer, backend, VSync and a
-frame limiter. CRT & Colour offers sharp pixels or Hyllian CRT with
-adjustable shader controls. Colour profiles and white points remain future
-work. Audio offers enable sound, master/category volumes, per-game sound
+The Display page offers window mode (windowed or borderless desktop fullscreen),
+window scale (Auto or ×1–×16), scaling policy, sampling, aspect ratio, renderer,
+backend, VSync and a frame limiter. CRT & Colour offers sharp pixels or Hyllian
+CRT with adjustable shader controls. Colour profiles and white points remain
+future work. Audio offers enable sound, master/category volumes, per-game sound
 renderer, output device and focus muting.
 Controls offers a shared controller stick dead zone and Alley Cat's game-specific
 input response.

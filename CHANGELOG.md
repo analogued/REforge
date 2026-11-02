@@ -23,13 +23,10 @@ Unreleased contains changes intended for the next public release.
   play uses the verified game files selected through `--original`.
 - Controller navigation for in-game Settings and file dialogs, including
   View/Back to open Settings and B to cancel a filename prompt.
-
 - Report invalid or unreadable preferences during terminal startup while
   preserving the configuration file and using fallback settings.
-
 - Require the verified `SIDE.TXT` disk map alongside `ADISK.OBJ` and `GO.EXE`
   during detection and launcher verification.
-
 - SDL text presentation with the shared display settings and CRT filter.
 - Optional terminal play through `--renderer terminal` using an attached terminal.
 - Launcher options for graphical/terminal play, sharp pixels/CRT and

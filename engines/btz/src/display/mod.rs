@@ -26,6 +26,9 @@ const COLOURS: [[u8; 3]; 16] = [
     [255, 255, 255],
 ];
 
+/// Background and foreground of the interpreter's ordinary attribute-7 text.
+pub const TEXT_PALETTE: [[u8; 3]; 2] = [COLOURS[0], COLOURS[7]];
+
 /// Paint an 80x25 character/attribute buffer. Bit7 of an attribute is the
 /// original text-mode blink bit; the caller supplies the current blink phase.
 pub fn render(cells: &[u8], blink_on: bool) -> Result<Vec<u8>, String> {

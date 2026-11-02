@@ -9,6 +9,10 @@ Unreleased contains changes intended for the next public release.
 
 - Added experimental support for Mindwheel (DOS).
 
+### General
+
+- Consistent top-left option badges for preview images and initials fallbacks.
+
 ### Mindwheel
 
 - SDL text presentation with the shared display settings and CRT filter.
@@ -16,6 +20,7 @@ Unreleased contains changes intended for the next public release.
 - Launcher options for graphical/terminal play, sharp pixels/CRT and
   windowed/fullscreen, retaining graphical preferences during terminal play.
   Click a saved choice again to follow defaults, as with other games.
+- Initials fallback artwork with a monochrome text palette strip.
 - Native bookmarks and transcripts, with filename prompts in either frontend.
 
 ## 2026.1.0 (2026-11-01)

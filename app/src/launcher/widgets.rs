@@ -298,11 +298,11 @@ pub fn paint_preview_in_rect(
             game.palette_swatches(),
             game.status.is_missing(),
         );
-        paint_symbolic(painter, rect, game, show_badge);
+        paint_symbolic(painter, rect, game);
         rect
     };
     let inner = rect.shrink(1.0);
-    if source.is_some() && show_badge && !game.full_mode_label().is_empty() {
+    if show_badge && !game.status.is_missing() && !game.full_mode_label().is_empty() {
         let label = game.full_mode_label();
         let galley = painter.layout_no_wrap(label, FontId::proportional(10.5), Color32::WHITE);
         let badge = Rect::from_min_size(
@@ -687,7 +687,7 @@ pub fn draw_empty_onboarding(ui: &mut egui::Ui, ap: &ResolvedAppearance) -> Opti
     action
 }
 
-fn paint_symbolic(painter: &egui::Painter, rect: Rect, game: &GameEntry, show_badge: bool) {
+fn paint_symbolic(painter: &egui::Painter, rect: Rect, game: &GameEntry) {
     let painter = &painter.with_clip_rect(rect);
     let colours = game.palette_swatches();
     let rect = rect.shrink(1.0);
@@ -700,27 +700,10 @@ fn paint_symbolic(painter: &egui::Painter, rect: Rect, game: &GameEntry, show_ba
         });
     let text = super::symbolic::initials(&game.title);
     painter.text(
-        rect.center()
-            - Vec2::new(
-                0.0,
-                if show_badge && rect.height() > 64.0 {
-                    7.0
-                } else {
-                    0.0
-                },
-            ),
+        rect.center(),
         egui::Align2::CENTER_CENTER,
         text,
         FontId::proportional((rect.height() * 0.28).clamp(13.0, 28.0)),
         super::preview::dim(accent, game.status.is_missing()),
     );
-    if show_badge && rect.height() > 64.0 && !game.status.is_missing() {
-        painter.text(
-            Pos2::new(rect.center().x, rect.center().y + 14.0),
-            egui::Align2::CENTER_CENTER,
-            game.full_mode_label(),
-            FontId::proportional(10.5),
-            Color32::from_gray(165),
-        );
-    }
 }

@@ -419,7 +419,7 @@ fn all_themes_layouts_and_library_states_keep_actions_usable_at_supported_sizes(
 
 #[test]
 fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
-    let fixture = Fixture::new(2);
+    let fixture = Fixture::new(detection::RELEASES.len());
     for theme in ThemeId::ALL {
         for layout in LayoutVariant::ALL {
             let mut h = Harness::new(&fixture, theme, layout, true);
@@ -427,6 +427,7 @@ fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
             assert!(texts(&output).contains(&"AC"));
             if layout != LayoutVariant::SplitInspector {
                 assert!(texts(&output).contains(&"M3"));
+                assert!(texts(&output).contains(&"MI"));
             }
             let game = &mut h.state.games[0];
             assert_eq!(game.title, detection::RELEASES[0].edition.title());
@@ -446,6 +447,17 @@ fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
             assert_eq!(game.palette_swatches(), &[[0, 0, 0], [255, 255, 255]]);
             assert_eq!(game.native_arguments(), ["--video", "mono"]);
             game.save_option("Video", "Monochrome");
+            let game = h
+                .state
+                .games
+                .iter_mut()
+                .find(|game| game.game_id == "mindwheel")
+                .unwrap();
+            assert!(game.previews.is_empty());
+            assert_eq!(game.palette_swatches(), &btz::display::TEXT_PALETTE);
+            game.terminal_available = true;
+            game.save_option("Renderer", "Terminal");
+            assert_eq!(game.palette_swatches(), &btz::display::TEXT_PALETTE);
         }
     }
 }

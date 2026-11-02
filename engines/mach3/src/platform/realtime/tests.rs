@@ -859,7 +859,7 @@ fn gameplay_run_motion(
             motion.toggle(receipt);
             let _ = motion.render(receipt).unwrap();
             motion.toggle(receipt);
-            motion.presented(receipt, receipt);
+            motion.presented(receipt, receipt, 0);
             assert_eq!(native, simulation.visible);
         }
         if switch {

@@ -1257,6 +1257,14 @@ pub(super) fn run(
             } else if !history.accepts(time.host) {
                 disposition = "ignored_before_reset";
             } else if let Some(pad) = pad {
+                #[cfg(feature = "dev-tools")]
+                if let Some(motion) = &mut simulation.motion {
+                    motion.host_gamepad(
+                        ticks_since(epoch, time.timeline),
+                        ticks_since(epoch, pause.now(received)),
+                        pad.actions.bits(),
+                    );
+                }
                 if matches!(simulation.phase, Phase::Splash) && pad.pressed.action {
                     simulation.finish_splash(frames, &resources)?;
                     gamepads.reset();
@@ -1495,6 +1503,8 @@ pub(super) fn run(
             let visible = motion_frame.as_ref().unwrap_or(&simulation.visible);
             #[cfg(not(feature = "dev-tools"))]
             let visible = &simulation.visible;
+            #[cfg(feature = "dev-tools")]
+            let motion_submit_start = Instant::now();
             texture.update(&display_rgb(
                 visible,
                 simulation.display_mode(),
@@ -1503,7 +1513,11 @@ pub(super) fn run(
             window.present_with(&texture, |canvas| menu.paint(canvas))?;
             #[cfg(feature = "dev-tools")]
             if let Some(motion) = &mut simulation.motion {
-                motion.presented(motion_tick, ticks_since(epoch, pause.now(Instant::now())));
+                motion.presented(
+                    motion_tick,
+                    ticks_since(epoch, pause.now(Instant::now())),
+                    motion_submit_start.elapsed().as_micros() as u64,
+                );
                 motion.check()?;
             }
             repaint = false;

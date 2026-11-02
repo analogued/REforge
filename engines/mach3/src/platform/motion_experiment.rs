@@ -5,28 +5,25 @@
 use crate::{
     assets::GraphicsAssets,
     frame::Frame,
-    gameplay::{Gameplay, PauseEvent, execution::GameplayEvent, experiment::Scene},
-    motion::{self, Pose, Tracker},
+    gameplay::{Gameplay, PauseEvent, execution::GameplayEvent},
+    motion::{self, Observation, Tracker, World},
     sound::GameplayAction,
 };
 use reforge_audio::PIT_HZ;
 use std::{
+    cell::Cell,
     fs::OpenOptions,
     io::{BufWriter, Write},
     path::Path,
+    time::Instant,
 };
 
 fn seconds(tick: u64) -> f64 {
     tick as f64 / PIT_HZ as f64
 }
 
-struct Observation {
-    pose: Pose,
-    scene: Scene,
-    offset: f64,
-}
 enum Pending {
-    Pose(Observation),
+    Pose(Box<Observation>),
     Event(u64, GameplayEvent),
     Reset(u64, &'static str),
     Suspend(u64, &'static str),
@@ -35,6 +32,10 @@ enum Pending {
 pub(super) struct Experiment {
     pub enhanced: bool,
     tracker: Tracker,
+    world: World,
+    render_us: Cell<u64>,
+    submit_us: u64,
+    export_us: u64,
     latest: Option<Observation>,
     pending: Vec<Pending>,
     next_id: u64,
@@ -53,10 +54,14 @@ impl Experiment {
             .open(path)
             .map_err(|e| e.to_string())?;
         let mut trace = BufWriter::new(file);
-        writeln!(trace,"kind\ttick\tseen_tick\tsource_tick\tid\tanchor\tnative_anchor\tleft_px\tenhanced\tcontrols\tphase\treason").map_err(|e|e.to_string())?;
+        writeln!(trace,"kind\ttick\tseen_tick\tsource_tick\tid\tanchor\tnative_anchor\tleft_px\tenhanced\tcontrols\tphase\treason\tanchor_y\tshadow_y\tnative_y\tnative_shadow_y\tcraft_source\tshadow_source\tlateral\theight\thorizon\torigin\tvx\tvy\treset_distance\trender_us\tsubmit_us\texport_us\tbody\tpass\tdepth").map_err(|e|e.to_string())?;
         Ok(Self {
             enhanced: true,
             tracker: Tracker::default(),
+            world: World::default(),
+            render_us: Cell::new(0),
+            submit_us: 0,
+            export_us: 0,
             latest: None,
             pending: Vec::new(),
             next_id: 0,
@@ -70,7 +75,7 @@ impl Experiment {
 
     pub fn label(&self) -> &'static str {
         if self.enhanced {
-            "Motion: enhanced (F8 switches)"
+            "Motion: forecast 2D (F8 switches)"
         } else {
             "Motion: faithful (F8 switches)"
         }
@@ -83,8 +88,9 @@ impl Experiment {
         if self.rows == 100_000 {
             if let Err(e) = writeln!(
                 self.trace,
-                "truncated\t{tick}\t{seen}\t0\t0\t0\t0\t0\t{}\t0\t0\trow_limit",
-                u8::from(self.enhanced)
+                "truncated\t{tick}\t{seen}\t0\t0\t0\t0\t0\t{}\t0\t0\trow_limit{}",
+                u8::from(self.enhanced),
+                "\t0".repeat(19)
             ) {
                 self.error = Some(e.to_string());
             }
@@ -92,33 +98,47 @@ impl Experiment {
             return;
         }
         let sample = self.tracker.sample(seconds(tick));
-        let (source, id, native, controls, offset) =
-            self.latest.as_ref().map_or((0, 0, 0.0, 0, 0.0), |o| {
-                (
-                    (o.pose.at * PIT_HZ as f64).round() as u64,
-                    o.pose.id,
-                    o.pose.anchor(),
-                    o.pose.controls,
-                    o.offset,
-                )
-            });
-        let phase = self.latest.as_ref().map_or(0, |o| o.pose.phase);
-        let anchor = if self.enhanced && phase == 0 {
-            sample.map_or(native, |s| s.anchor)
+        let pose = self.latest.as_ref().map(|o| o.pose);
+        let native = pose.map_or([0.0; 3], |p| p.anchors());
+        let anchors = if self.enhanced && pose.is_some_and(|p| p.normal()) {
+            sample.map_or(native, |s| s.anchors)
         } else {
-            self.latest.as_ref().map_or(native, |o| {
-                o.scene
-                    .layers
-                    .iter()
-                    .find(|l| l.slot == 0)
-                    .map_or(native, |l| f64::from(l.rect.x_bytes) * 4.0 + offset)
-            })
+            self.latest.as_ref().map_or(native, |o| o.native_anchors)
         };
-        let left = (anchor - offset + 0.5).floor();
+        let offset = self.latest.as_ref().map_or(0.0, |o| o.offsets[0]);
+        let source = pose.map_or(0, |p| (p.at * PIT_HZ as f64).round() as u64);
+        let id = pose.map_or(0, |p| p.id);
+        let controls = pose.map_or(0, |p| p.controls);
+        let phase = pose.map_or(0, |p| p.phase);
+        let left = (anchors[0] - offset + 0.5).floor();
+        let source_ids = pose.map_or([0, 0], |p| [p.source[0], p.source[3]]);
+        let coordinates = pose.map_or([0; 3], |p| p.coordinates);
+        let velocity = pose.map_or([0; 2], |p| p.velocity);
         if let Err(e) = writeln!(
             self.trace,
-            "{kind}\t{tick}\t{seen}\t{source}\t{id}\t{anchor:.9}\t{native:.9}\t{left:.0}\t{}\t{controls}\t{phase}\t{reason}",
-            u8::from(self.enhanced)
+            "{kind}\t{tick}\t{seen}\t{source}\t{id}\t{:.9}\t{:.9}\t{left:.0}\t{}\t{controls}\t{phase}\t{reason}\t{:.9}\t{:.9}\t{:.9}\t{:.9}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.9}\t{}\t{}\t{}\t{}\t{}\t{}",
+            anchors[0],
+            native[0],
+            u8::from(self.enhanced),
+            anchors[1],
+            anchors[2],
+            native[1],
+            native[2],
+            source_ids[0],
+            source_ids[1],
+            coordinates[1],
+            coordinates[2],
+            pose.map_or(0, |p| p.horizon),
+            pose.map_or(0, |p| p.origin),
+            velocity[0],
+            velocity[1],
+            sample.map_or(0.0, |s| s.reset_distance),
+            self.render_us.get(),
+            self.submit_us,
+            self.export_us,
+            pose.map_or(0, |p| p.body),
+            pose.map_or(0, |p| p.pass),
+            coordinates[0]
         ) {
             self.error = Some(e.to_string());
         }
@@ -134,6 +154,7 @@ impl Experiment {
         self.pending.push(Pending::Event(tick, event));
     }
     pub fn reset(&mut self, tick: u64, reason: &'static str) {
+        self.world.reset();
         self.pending.push(Pending::Reset(tick, reason));
     }
     pub fn suspend(&mut self, tick: u64, reason: &'static str) {
@@ -147,53 +168,26 @@ impl Experiment {
         self.log("host_key", tick, seen, &format!("scan={scan:02x}"));
     }
 
+    pub fn host_gamepad(&mut self, tick: u64, seen: u64, mask: u8) {
+        self.log("host_gamepad", tick, seen, &format!("mask={mask:02x}"));
+    }
+
     pub fn publication(
         &mut self,
         tick: u64,
         game: &Gameplay,
         assets: &GraphicsAssets,
     ) -> Result<(), String> {
-        let scene = game.experimental_scene(assets).map_err(|e| e.to_string())?;
-        let Some(craft) = scene.layers.iter().find(|l| l.slot == 0) else {
-            self.reset(tick, "missing_craft");
-            return Ok(());
-        };
-        let Some(shadow) = scene.layers.iter().find(|l| l.slot == 1) else {
-            self.reset(tick, "missing_shadow");
-            return Ok(());
-        };
-        let state = game.snapshot();
-        let mut source = [
-            craft.source,
-            craft.rect.width_bytes * 4,
-            craft.rect.height,
-            shadow.source,
-            shadow.rect.width_bytes * 4,
-            shadow.rect.height,
-        ];
-        let horizontal = (2_097_152 / (i32::from(state.player.coordinates[0]) + 64))
-            * i32::from(state.player.coordinates[1]);
-        let coarse = 160 + 4 * ((horizontal >> 16) >> 2);
-        let offset = f64::from(coarse - craft.rect.x_bytes * 4);
-        if (11..=15).contains(&source[0]) && offset != 12.0 {
-            source[3] = usize::MAX;
+        let started = Instant::now();
+        if let Some(o) = self
+            .world
+            .capture(game, assets, seconds(tick), self.next_id)
+            .map_err(|e| e.to_string())?
+        {
+            self.next_id = self.next_id.saturating_add(1);
+            self.pending.push(Pending::Pose(Box::new(o)));
         }
-        let pose = Pose {
-            at: seconds(tick),
-            id: self.next_id,
-            body: state.body,
-            pass: state.render_pass,
-            coordinates: state.player.coordinates,
-            phase: state.player.phase,
-            controls: (state.player.effective_input & 15) as u8,
-            source,
-        };
-        self.next_id = self.next_id.saturating_add(1);
-        self.pending.push(Pending::Pose(Observation {
-            pose,
-            scene,
-            offset,
-        }));
+        self.export_us = started.elapsed().as_micros() as u64;
         Ok(())
     }
 
@@ -204,7 +198,7 @@ impl Experiment {
         let seen = seconds(seen_tick);
         let stale = pending
             .iter()
-            .any(|p| matches!(p,Pending::Pose(o) if seen-o.pose.at>0.066));
+            .any(|p| matches!(p,Pending::Pose(o) if seen-o.pose.at>motion::HORIZON));
         let last = pending.iter().rev().find_map(|p| {
             if let Pending::Pose(o) = p {
                 Some(o.pose.id)
@@ -217,7 +211,7 @@ impl Experiment {
                 Pending::Pose(o) => {
                     self.tracker
                         .observe(o.pose, seen, stale && Some(o.pose.id) == last);
-                    self.latest = Some(o);
+                    self.latest = Some(*o);
                     let reason = self.tracker.sample(seen).map_or("none", |s| s.reason);
                     self.log("observation", seen_tick, seen_tick, reason);
                 }
@@ -273,27 +267,32 @@ impl Experiment {
         let deadline = self.deadline();
         (deadline > tick).then_some(deadline)
     }
-    pub fn presented(&mut self, tick: u64, seen: u64) {
+    pub fn presented(&mut self, tick: u64, seen: u64, submit_us: u64) {
+        self.submit_us = submit_us;
         self.next_presentation =
             ((tick as u128 * 120 / PIT_HZ as u128 + 1) * PIT_HZ as u128).div_ceil(120) as u64;
         self.log("present", tick, seen, "host_submission_not_scanout");
     }
     pub fn render(&self, tick: u64) -> Result<Option<Frame>, String> {
+        self.render_us.set(0);
         if !self.enhanced {
             return Ok(None);
         }
         let Some(o) = &self.latest else {
             return Ok(None);
         };
-        if o.pose.phase != 0 {
+        if !o.pose.normal() {
             return Ok(None);
         }
         let Some(sample) = self.tracker.sample(seconds(tick)) else {
             return Ok(None);
         };
-        motion::compose(&o.scene, Some(sample.anchor - o.offset))
+        let started = Instant::now();
+        let frame = motion::compose(o, sample.anchors)
             .map(Some)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string());
+        self.render_us.set(started.elapsed().as_micros() as u64);
+        frame
     }
     pub fn check(&mut self) -> Result<(), String> {
         self.error.take().map_or(Ok(()), Err)
@@ -326,7 +325,7 @@ mod tests {
         assert!(Experiment::create(&path).is_err());
         assert_eq!(before, std::fs::read(&path).unwrap());
         assert!(e.due(0));
-        e.presented(0, 0);
+        e.presented(0, 0, 0);
         let deadline = e.deadline();
         assert!(!e.due(deadline - 1));
         assert!(e.due(deadline));
@@ -336,15 +335,20 @@ mod tests {
         assert!(!e.enhanced);
         assert_eq!(e.deadline(), deadline);
         assert!(e.tracker.sample(1.0).is_none());
+        e.rows = 100_000;
+        e.presented(deadline, deadline, 0);
         e.flush().unwrap();
         drop(e);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let columns = text.lines().next().unwrap().split('\t').count();
+        assert!(text.lines().all(|line| line.split('\t').count() == columns));
         std::fs::remove_file(path).unwrap();
     }
     #[test]
     fn native_pause_freezes_the_visual_pose_and_transition_discards_the_scene() {
         let path = path();
         let mut e = Experiment::create(&path).unwrap();
-        let pose = Pose {
+        let pose = crate::motion::Pose {
             at: 0.0,
             id: 0,
             body: 0,
@@ -352,24 +356,44 @@ mod tests {
             coordinates: [14, 0, -100],
             phase: 0,
             controls: 0,
-            source: [13, 56, 18, 18, 56, 12],
+            horizon: 0,
+            origin: 106,
+            velocity: [0, 0],
+            source: [13, 4, 1, 18, 4, 1],
         };
-        let scene = Scene {
-            base: Frame::from_packed(&vec![0; crate::frame::FRAME_BYTES]).unwrap(),
-            layers: Vec::new(),
+        let layer = crate::gameplay::experiment::Layer {
+            slot: 0,
+            source: 13,
+            rect: crate::frame::Rect {
+                x_bytes: 37,
+                y: 94,
+                width_bytes: 1,
+                height: 1,
+            },
+            color: vec![0],
+            mask: vec![255],
         };
-        e.pending.push(Pending::Pose(Observation {
+        e.pending.push(Pending::Pose(Box::new(Observation {
             pose,
-            scene,
-            offset: 12.0,
-        }));
+            scene: crate::gameplay::experiment::Scene {
+                base: Frame::from_packed(&vec![0; crate::frame::FRAME_BYTES]).unwrap(),
+                layers: Vec::new(),
+            },
+            order: std::array::from_fn(|i| i),
+            actors: [
+                layer.clone(),
+                crate::gameplay::experiment::Layer { slot: 1, ..layer },
+            ],
+            offsets: [12.0, 12.0, 0.0],
+            native_anchors: pose.anchors(),
+        })));
         e.commit(0).unwrap();
         assert!(e.render(0).unwrap().is_some());
         e.event(100, GameplayEvent::Pause(PauseEvent::Paused));
         e.commit(100).unwrap();
         assert_eq!(
-            e.tracker.sample(seconds(100)).unwrap().anchor,
-            e.tracker.sample(seconds(PIT_HZ)).unwrap().anchor
+            e.tracker.sample(seconds(100)).unwrap().anchors,
+            e.tracker.sample(seconds(PIT_HZ)).unwrap().anchors
         );
         e.reset(200, "transition");
         e.commit(200).unwrap();

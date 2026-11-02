@@ -256,6 +256,7 @@ mod tests {
         let assets = super::super::tests::synthetic_assets();
         let mut game = Gameplay::test_game(&assets).unwrap();
         let mut retained = game.frame().clone();
+        let mut visual_world = crate::motion::World::default();
         for step in 0..60 {
             game.advance_subframe(
                 &assets,
@@ -273,6 +274,22 @@ mod tests {
             assert_eq!(format!("{game:?}"), before);
             apply(raster, &mut retained);
             assert_eq!(retained, *game.pass_frame(), "step {step}");
+            if step == 16 {
+                visual_world.reset();
+            }
+            if let Some(o) = visual_world
+                .capture(&game, &assets, f64::from(step) / 30.0, step as u64)
+                .unwrap()
+            {
+                if o.pose.normal() {
+                    assert_eq!(
+                        crate::motion::compose(&o, o.native_anchors).unwrap(),
+                        *game.pass_frame()
+                    );
+                }
+            } else {
+                assert_ne!(game.snapshot().render_pass, 1);
+            }
         }
     }
 

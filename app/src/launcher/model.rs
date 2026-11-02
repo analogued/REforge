@@ -420,15 +420,17 @@ pub struct State {
 impl State {
     pub fn new(path: PathBuf, config: PathBuf) -> Self {
         let pref = reforge_settings::launcher::load(&config);
-        let (theme, layout, error) = match pref {
+        let (theme, layout, selected, error) = match pref {
             Ok(p) => (
                 ThemeId::from_slug(&p.theme).unwrap_or_default(),
                 LayoutVariant::parse(&p.layout),
+                p.selected_entry,
                 None,
             ),
             Err(e) => (
                 ThemeId::default(),
                 LayoutVariant::default(),
+                None,
                 Some((e, true)),
             ),
         };
@@ -445,7 +447,7 @@ impl State {
             preview_focus_pending: false,
             filter_query: String::new(),
             options_open: false,
-            selected: None,
+            selected,
             games: Vec::new(),
             pending_remove: None,
             remove_focus_pending: false,
@@ -511,6 +513,12 @@ impl State {
     }
     pub fn selected_game(&self) -> Option<&GameEntry> {
         self.selected_index().map(|i| &self.games[i])
+    }
+    pub fn save_on_close(&mut self) -> Result<(), String> {
+        if self.preview_open {
+            self.commit_preview();
+        }
+        reforge_settings::launcher::save_selected_entry(&self.config, self.selected.as_deref())
     }
     pub fn toggle_preview(&mut self) {
         if self.preview_open {

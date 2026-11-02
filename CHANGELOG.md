@@ -11,6 +11,7 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Restore the last selected library entry when reopening the launcher.
 - Consistent top-left option badges for preview images and initials fallbacks.
 - Fixed washed-out disabled launcher choices in Soft Tonal, Warm Amber and
   Crisp Light by using the same fading as other disabled controls.

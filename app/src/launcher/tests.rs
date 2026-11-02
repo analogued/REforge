@@ -14,6 +14,69 @@ use std::{
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn close_restores_selected_entry_without_changing_library_order() {
+    for layout in LayoutVariant::ALL {
+        // Two copies of Alley Cat distinguish entry identity from game identity.
+        let fixture = Fixture::new(4);
+        let mut state = fixture.state(ThemeId::ClassicDark, layout, false);
+        let order: Vec<_> = state.games.iter().map(|g| g.entry_id.clone()).collect();
+        state.selected = Some(order[3].clone());
+        state.save_on_close().unwrap();
+        let mut restored = State::new(fixture.library.clone(), fixture.config.clone());
+        assert_eq!(restored.selected.as_ref(), Some(&order[3]));
+        assert_eq!(
+            restored
+                .games
+                .iter()
+                .map(|g| &g.entry_id)
+                .collect::<Vec<_>>(),
+            order.iter().collect::<Vec<_>>()
+        );
+        restored.library.remove(&order[3]).unwrap();
+        restored = State::new(fixture.library.clone(), fixture.config.clone());
+        assert_eq!(restored.selected.as_ref(), Some(&order[0]));
+        restored.save_on_close().unwrap();
+        assert_eq!(
+            reforge_settings::launcher::load(&fixture.config)
+                .unwrap()
+                .selected_entry,
+            Some(order[0].clone())
+        );
+        for id in &order[..3] {
+            restored.library.remove(id).unwrap();
+        }
+        restored.refresh();
+        restored.save_on_close().unwrap();
+        let empty = State::new(fixture.library.clone(), fixture.config.clone());
+        assert_eq!(empty.selected, None);
+        assert_eq!(
+            reforge_settings::launcher::load(&fixture.config)
+                .unwrap()
+                .selected_entry,
+            None
+        );
+    }
+}
+
+#[test]
+fn unreadable_library_does_not_erase_saved_selection_on_close() {
+    let fixture = Fixture::new(2);
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, false);
+    state.selected = Some(state.games[1].entry_id.clone());
+    state.save_on_close().unwrap();
+    std::fs::write(&fixture.library, "invalid = [").unwrap();
+    let mut restored = State::new(fixture.library.clone(), fixture.config.clone());
+    restored.save_on_close().unwrap();
+    assert_eq!(restored.selected, state.selected);
+    assert_eq!(
+        reforge_settings::launcher::load(&fixture.config)
+            .unwrap()
+            .selected_entry,
+        state.selected
+    );
+}
+
+#[test]
 fn terminal_launch_requires_a_real_attached_terminal() {
     use reforge_settings::Renderer;
     assert!(check_terminal_launch(Renderer::Terminal, false).is_err());

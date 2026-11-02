@@ -13,6 +13,7 @@ use toml_edit::{DocumentMut, Item, Table, value};
 pub struct Preferences {
     pub theme: String,
     pub layout: String,
+    pub selected_entry: Option<String>,
 }
 
 impl Default for Preferences {
@@ -20,6 +21,7 @@ impl Default for Preferences {
         Self {
             theme: "classic-dark".into(),
             layout: "split".into(),
+            selected_entry: None,
         }
     }
 }
@@ -36,6 +38,24 @@ pub fn save_theme(path: &Path, theme: &str) -> Result<(), String> {
 
 pub fn save_layout(path: &Path, layout: &str) -> Result<(), String> {
     save_preference(path, "layout", layout)
+}
+
+/// Remember a library entry independently of its release, directory or order.
+pub fn save_selected_entry(path: &Path, entry_id: Option<&str>) -> Result<(), String> {
+    super::edit_document(path, "settings", |doc| {
+        preferences(doc)?;
+        schema(doc);
+        let table = table_mut(doc, &["launcher"])?;
+        if let Some(entry_id) = entry_id {
+            set_string(table, "selected_entry", entry_id);
+        } else {
+            table
+                .as_table_like_mut()
+                .expect("validated table")
+                .remove("selected_entry");
+        }
+        Ok(())
+    })
 }
 
 /// Return explicit native selections, including values equal to engine defaults.
@@ -107,6 +127,13 @@ fn preferences(doc: &DocumentMut) -> Result<Preferences, String> {
                     .ok_or_else(|| format!("Invalid launcher {key}; settings file preserved"))?
                     .into();
             }
+        }
+        if let Some(item) = table.get("selected_entry") {
+            preferences.selected_entry = Some(
+                item.as_str()
+                    .ok_or("Invalid launcher selected_entry; settings file preserved")?
+                    .into(),
+            );
         }
     }
     Ok(preferences)
@@ -289,6 +316,33 @@ mod tests {
     }
 
     #[test]
+    fn selected_entry_survives_unrelated_edits_and_can_be_cleared() {
+        let temp = Temp::new();
+        let path = temp.path();
+        fs::write(&path, "[launcher]\ncustom = 'keep' # note\n").unwrap();
+        save_selected_entry(&path, Some("alley-cat-abc123")).unwrap();
+        save_theme(&path, "crisp-light").unwrap();
+        save_layout(&path, "compact").unwrap();
+        save_native_option(&path, "alley-cat-abc123", "machine", Some("pcjr")).unwrap();
+        assert_eq!(
+            load(&path).unwrap().selected_entry.as_deref(),
+            Some("alley-cat-abc123")
+        );
+        save_selected_entry(&path, None).unwrap();
+        let preferences = load(&path).unwrap();
+        assert_eq!(preferences.selected_entry, None);
+        assert_eq!(preferences.theme, "crisp-light");
+        assert_eq!(preferences.layout, "compact");
+        assert_eq!(
+            native_options(&path, "alley-cat-abc123").unwrap()["machine"],
+            "pcjr"
+        );
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("custom = 'keep' # note"));
+        assert!(!text.contains("selected_entry"));
+    }
+
+    #[test]
     fn malformed_presentation_sections_and_documents_are_never_rewritten() {
         let temp = Temp::new();
         let path = temp.path();
@@ -298,11 +352,14 @@ mod tests {
             "launcher = 'broken'",
             "[launcher]\ntheme = 7",
             "[launcher]\nlayout = false",
+            "[launcher]\nselected_entry = 42",
         ] {
             fs::write(&path, malformed).unwrap();
             assert!(load(&path).is_err(), "{malformed}");
             assert!(save_theme(&path, "classic-dark").is_err());
             assert!(save_layout(&path, "split").is_err());
+            assert!(save_selected_entry(&path, Some("alley-cat-abc123")).is_err());
+            assert!(save_selected_entry(&path, None).is_err());
             assert_eq!(fs::read_to_string(&path).unwrap(), malformed);
         }
     }

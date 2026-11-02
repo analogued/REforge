@@ -108,6 +108,11 @@ has separate entries, preferences and a reserved save namespace. Directory alias
 including symlinks, select the same entry. Re-adding a directory selects its
 existing entry.
 
+Games follow their entry order in `library.toml`. Closing the launcher saves the
+selected entry ID as `selected_entry` under `[launcher]` in `config.toml`.
+The next launch restores that selection, including a game with missing files.
+If the entry was removed, the first remaining entry is selected instead.
+
 Detection checks required filenames, then sizes, then complete SHA-256 hashes.
 Names match without regard to ASCII case. When several spellings exist, it tries
 the catalog's exact spelling first, then the other spellings alphabetically;

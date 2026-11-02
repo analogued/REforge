@@ -271,10 +271,7 @@ pub fn run() -> Result<(), String> {
                         ..
                     }
             ) {
-                if state.preview_open {
-                    state.commit_preview();
-                }
-                return Ok(());
+                return state.save_on_close();
             }
             let pad = pads.handle(&event);
             if child.is_none() && picker.is_none() {
@@ -359,7 +356,7 @@ pub fn run() -> Result<(), String> {
         if state.settings_open
             && settings::run(&mut canvas, &mut gui, &mut events, &mut pads, &mut state)?
         {
-            return Ok(());
+            return state.save_on_close();
         }
         if let Some(action) = action {
             if state.preview_open {

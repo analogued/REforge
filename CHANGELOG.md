@@ -17,6 +17,8 @@ Unreleased contains changes intended for the next public release.
 
 ### Mindwheel
 
+- Disk-map overrides through `--side-map` require a `dev-tools` build; normal
+  play uses the verified game files selected through `--original`.
 - Controller navigation for in-game Settings and file dialogs, including
   View/Back to open Settings and B to cancel a filename prompt.
 

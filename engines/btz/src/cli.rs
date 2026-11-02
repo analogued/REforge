@@ -5,10 +5,11 @@
 use reforge_settings::{Renderer, RuntimeSettings, Session};
 use std::{collections::BTreeMap, ffi::OsString, path::PathBuf};
 
-const HELP: &str = "Usage: reforge --original <game-directory> [--renderer auto|gpu|sdl|software|terminal]\n\nMindwheel uses the normal windowed text display by default.\n--renderer terminal plays in the terminal already attached to the process.\nBOOKMARK and RESUME NOVEL save/load; SCRIPT and UNSCRIPT control transcripts.\n--save-dir directory sets the base for prompted filenames (default: game data directory).\n--bookmark-path file and --transcript-path file select fixed destinations.\n--side-map file supplies an alternate SIDE.TXT.\nEnter begins play; Ctrl+Q exits. Escape and Ctrl-S retain game pause controls.";
+const HELP: &str = "Usage: reforge --original <game-directory> [--renderer auto|gpu|sdl|software|terminal]\n\nMindwheel uses the normal windowed text display by default.\n--renderer terminal plays in the terminal already attached to the process.\nBOOKMARK and RESUME NOVEL save/load; SCRIPT and UNSCRIPT control transcripts.\n--save-dir directory sets the base for prompted filenames (default: game data directory).\n--bookmark-path file and --transcript-path file select fixed destinations.\nEnter begins play; Ctrl+Q exits. Escape and Ctrl-S retain game pause controls.";
 
 struct Options {
     original: PathBuf,
+    #[cfg(feature = "dev-tools")]
     side_map: Option<PathBuf>,
     save_dir: Option<PathBuf>,
     bookmark: Option<PathBuf>,
@@ -29,6 +30,7 @@ fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Options>, String
     let prefs = Session::for_window(None);
     let mut options = Options {
         original: PathBuf::new(),
+        #[cfg(feature = "dev-tools")]
         side_map: None,
         save_dir: None,
         bookmark: None,
@@ -52,6 +54,7 @@ fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Options>, String
                 }
                 options.original = value.into();
             }
+            #[cfg(feature = "dev-tools")]
             "--side-map" => options.side_map = Some(value.into()),
             "--save-dir" => options.save_dir = Some(value.into()),
             "--bookmark-path" => options.bookmark = Some(value.into()),
@@ -86,6 +89,8 @@ pub fn run_with_files(
 ) -> Result<(), String> {
     let Some(options) = parse(args)? else {
         println!("{HELP}");
+        #[cfg(feature = "dev-tools")]
+        println!("--side-map file [dev-tools] supplies an alternate SIDE.TXT.");
         return Ok(());
     };
     if options.settings.renderer == Renderer::Terminal {
@@ -114,7 +119,9 @@ pub fn run_with_files(
     };
     let data = selected("ADISK.OBJ");
     let interpreter = selected("GO.EXE");
-    let map = options.side_map.unwrap_or_else(|| selected("SIDE.TXT"));
+    let map = selected("SIDE.TXT");
+    #[cfg(feature = "dev-tools")]
+    let map = options.side_map.unwrap_or(map);
     let mut loaded = crate::player::load(&data, &interpreter, &map)?;
     if let Some(path) = options.save_dir {
         loaded.files.save_directory = std::path::absolute(path).map_err(|e| e.to_string())?;
@@ -174,5 +181,14 @@ mod tests {
         ] {
             assert!(validate_arguments(args(&flags)).is_err());
         }
+    }
+
+    #[test]
+    fn side_map_override_is_development_only() {
+        let result = parse(args(&["--original", "game", "--side-map", "custom map"]));
+        #[cfg(feature = "dev-tools")]
+        assert_eq!(result.unwrap().unwrap().side_map, Some("custom map".into()));
+        #[cfg(not(feature = "dev-tools"))]
+        assert!(matches!(result, Err(error) if error == "unknown option: --side-map"));
     }
 }

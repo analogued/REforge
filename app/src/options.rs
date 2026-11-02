@@ -170,7 +170,7 @@ const SPECS: &[Spec] = &[
         name: "--side-map",
         game: Some(Game::Mindwheel),
         value: Value::Path,
-        dev: false,
+        dev: true,
         description: "Use this disk mapping file (default SIDE.TXT beside the game data)",
     },
     Spec {
@@ -761,12 +761,7 @@ mod tests {
 
     #[test]
     fn mindwheel_file_options_preserve_paths_and_reject_other_games() {
-        for option in [
-            "--save-dir",
-            "--bookmark-path",
-            "--transcript-path",
-            "--side-map",
-        ] {
+        for option in ["--save-dir", "--bookmark-path", "--transcript-path"] {
             let result = prepare(args(&[option, "a path with spaces"]), Game::Mindwheel);
             assert!(result.warnings.is_empty());
             assert_eq!(result.args, args(&[option, "a path with spaces"]));
@@ -775,6 +770,32 @@ mod tests {
                 assert!(result.args.is_empty());
                 assert_eq!(result.warnings.len(), 1);
             }
+        }
+    }
+
+    #[test]
+    fn side_map_override_requires_development_build() {
+        let input = args(&["--side-map", "a path with spaces"]);
+        let result = prepare(input.clone(), Game::Mindwheel);
+        assert_eq!(
+            help(Some(Game::Mindwheel)).contains("--side-map"),
+            cfg!(feature = "dev-tools")
+        );
+        if cfg!(feature = "dev-tools") {
+            assert!(result.warnings.is_empty());
+            assert_eq!(result.args, input);
+            accepted(&result, Game::Mindwheel);
+        } else {
+            assert!(result.args.is_empty());
+            assert_eq!(
+                result.warnings,
+                ["--side-map requires a dev-tools build; ignored"]
+            );
+        }
+        for game in [Game::AlleyCat, Game::Mach3] {
+            let result = prepare(input.clone(), game);
+            assert!(result.args.is_empty());
+            assert_eq!(result.warnings.len(), 1);
         }
     }
 

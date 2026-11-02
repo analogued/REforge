@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 #[cfg(feature = "dev-tools")]
-use crate::platform::Playback;
+use crate::platform::{MotionMode, Playback};
 use crate::{
     gameplay::{DisplayMode, F3Mode},
     platform::Options,
@@ -37,7 +37,7 @@ fn help() -> String {
     #[cfg(feature = "dev-tools")]
     {
         format!(
-            "{HELP}\nF9 [dev-tools]: toggle the presentation FPS indicator (hidden by default).\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping and need MACH3.EXE and DATA1 through DATA6.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file.\n--motion-experiment PATH [dev-tools, isolated branch]: live craft motion comparison and new trace; F8 switches faithful/enhanced."
+            "{HELP}\nF9 [dev-tools]: toggle the presentation FPS indicator (hidden by default).\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping and need MACH3.EXE and DATA1 through DATA6.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file.\n--motion faithful|enhanced [dev-tools, isolated branch]: compare craft presentation; F8 switches modes.\n--trace-motion PATH [dev-tools]: optional motion diagnostics; failures disable logging only.\n--motion-experiment PATH [dev-tools]: compatibility alias for --motion enhanced --trace-motion PATH."
         )
     }
     #[cfg(not(feature = "dev-tools"))]
@@ -215,11 +215,24 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                 options.timing_trace = Some(PathBuf::from(path));
             }
             #[cfg(feature = "dev-tools")]
-            Some("--motion-experiment") => {
+            Some("--motion") => {
+                options.motion = Some(match args.next().as_deref().and_then(|v| v.to_str()) {
+                    Some("faithful") => MotionMode::Faithful,
+                    Some("enhanced") => MotionMode::Enhanced,
+                    _ => return Err("--motion must be faithful or enhanced".into()),
+                });
+            }
+            #[cfg(feature = "dev-tools")]
+            Some("--trace-motion" | "--motion-experiment") => {
                 let path = args
                     .next_if(|arg| !arg.to_string_lossy().starts_with('-'))
                     .filter(|path| !path.is_empty())
-                    .ok_or_else(|| "--motion-experiment requires a new trace path".to_string())?;
+                    .ok_or_else(|| {
+                        format!("{} requires a new trace path", arg.to_string_lossy())
+                    })?;
+                if arg == "--motion-experiment" {
+                    options.motion = Some(MotionMode::Enhanced);
+                }
                 options.motion_trace = Some(PathBuf::from(path));
             }
             Some(value) if value.starts_with('-') => return Err(help()),
@@ -234,8 +247,8 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
     let directory =
         directory.ok_or_else(|| "Missing required --original <assets-directory>".to_string())?;
     #[cfg(feature = "dev-tools")]
-    if options.motion_trace.is_some() && options.is_preview() {
-        return Err("--motion-experiment requires animated playback".into());
+    if (options.motion.is_some() || options.motion_trace.is_some()) && options.is_preview() {
+        return Err("motion observation requires animated playback".into());
     }
     Ok(Some((directory, options)))
 }
@@ -283,6 +296,63 @@ mod tests {
             ]))
             .is_err()
         );
+    }
+
+    #[test]
+    fn motion_selection_and_diagnostics_are_independent_and_feature_gated() {
+        for suffix in [
+            vec!["--motion", "enhanced"],
+            vec!["--motion", "faithful"],
+            vec!["--trace-motion", "motion.tsv"],
+        ] {
+            let mut argv = vec!["--original", "assets"];
+            argv.extend(&suffix);
+            let parsed = parse_args(args(&argv));
+            #[cfg(feature = "dev-tools")]
+            {
+                use crate::platform::MotionMode;
+                let options = parsed.unwrap().unwrap().1;
+                match suffix[0] {
+                    "--motion" => {
+                        assert_eq!(
+                            options.motion,
+                            Some(if suffix[1] == "enhanced" {
+                                MotionMode::Enhanced
+                            } else {
+                                MotionMode::Faithful
+                            })
+                        );
+                        assert!(options.motion_trace.is_none());
+                    }
+                    _ => {
+                        assert!(options.motion.is_none());
+                        assert_eq!(options.motion_trace, Some(PathBuf::from("motion.tsv")));
+                    }
+                }
+                argv.push("--static");
+                assert!(parse_args(args(&argv)).is_err());
+            }
+            #[cfg(not(feature = "dev-tools"))]
+            assert!(parsed.is_err());
+        }
+        #[cfg(feature = "dev-tools")]
+        {
+            let options = parse_args(args(&["--original", "assets"]))
+                .unwrap()
+                .unwrap()
+                .1;
+            assert!(options.motion.is_none() && options.motion_trace.is_none());
+        }
+        for suffix in [
+            vec!["--motion"],
+            vec!["--motion", "fast"],
+            vec!["--trace-motion"],
+            vec!["--trace-motion", ""],
+        ] {
+            let mut argv = vec!["--original", "assets"];
+            argv.extend(suffix);
+            assert!(parse_args(args(&argv)).is_err());
+        }
     }
 
     #[test]

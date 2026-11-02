@@ -314,11 +314,25 @@ const SPECS: &[Spec] = &[
         description: "Write simulation and presentation timing to a new file",
     },
     Spec {
+        name: "--motion",
+        game: Some(Game::Mach3),
+        value: Value::Choice(&["faithful", "enhanced"]),
+        dev: true,
+        description: "Select isolated craft presentation; F8 switches modes",
+    },
+    Spec {
+        name: "--trace-motion",
+        game: Some(Game::Mach3),
+        value: Value::Path,
+        dev: true,
+        description: "Write optional motion diagnostics to a new file",
+    },
+    Spec {
         name: "--motion-experiment",
         game: Some(Game::Mach3),
         value: Value::Path,
         dev: true,
-        description: "Run the isolated visual experiment; F8 toggles motion; write a new trace",
+        description: "Alias for --motion enhanced --trace-motion PATH",
     },
 ];
 
@@ -366,7 +380,7 @@ fn validate(spec: &Spec, value: OsString, game: Game) -> Result<OsString, String
         if spec.game == Some(Game::Mach3)
             && matches!(
                 spec.name,
-                "--trace-input" | "--trace-timing" | "--motion-experiment"
+                "--trace-input" | "--trace-timing" | "--trace-motion" | "--motion-experiment"
             )
             && is_option(&value)
         {
@@ -1237,7 +1251,7 @@ mod tests {
     }
     #[test]
     fn mach3_traces_are_development_only() {
-        for option in ["--trace-input", "--trace-timing"] {
+        for option in ["--trace-input", "--trace-timing", "--trace-motion"] {
             assert_eq!(takes_value(option), Some(true));
             let result = prepare(args(&[option, "trace.tsv"]), Game::Mach3);
             #[cfg(not(feature = "dev-tools"))]
@@ -1255,7 +1269,7 @@ mod tests {
             }
             accepted(&result, Game::Mach3);
             let foreign = prepare(args(&[option, "trace.tsv"]), Game::AlleyCat);
-            if option == "--trace-input" {
+            if option != "--trace-timing" {
                 assert!(foreign.args.is_empty());
                 assert_eq!(foreign.warnings.len(), 1);
                 assert!(foreign.warnings[0].contains("applies to Mach 3"));
@@ -1284,10 +1298,60 @@ mod tests {
             accepted(&foreign, Game::AlleyCat);
         }
     }
+    #[test]
+    fn isolated_motion_options_obey_game_feature_and_choice_gates() {
+        let selected = prepare(args(&["--motion", "enhanced"]), Game::Mach3);
+        let traced = prepare(args(&["--trace-motion", "motion.tsv"]), Game::Mach3);
+        #[cfg(feature = "dev-tools")]
+        {
+            assert_eq!(selected.args, args(&["--motion", "enhanced"]));
+            assert!(selected.warnings.is_empty());
+            assert_eq!(traced.args, args(&["--trace-motion", "motion.tsv"]));
+            assert!(traced.warnings.is_empty());
+            let invalid = prepare(
+                args(&[
+                    "--motion",
+                    "enhanced",
+                    "--motion",
+                    "fast",
+                    "--f3-mode",
+                    "press",
+                ]),
+                Game::Mach3,
+            );
+            assert_eq!(
+                invalid.args,
+                args(&["--motion", "enhanced", "--f3-mode", "press"])
+            );
+            assert_eq!(invalid.warnings.len(), 1);
+        }
+        #[cfg(not(feature = "dev-tools"))]
+        {
+            assert!(selected.args.is_empty() && traced.args.is_empty());
+            assert_eq!(selected.warnings.len(), 1);
+            assert_eq!(traced.warnings.len(), 1);
+        }
+        for option in ["--motion", "--trace-motion"] {
+            let foreign = prepare(
+                args(&[
+                    option,
+                    if option == "--motion" {
+                        "enhanced"
+                    } else {
+                        "motion.tsv"
+                    },
+                ]),
+                Game::AlleyCat,
+            );
+            assert!(foreign.args.is_empty());
+            assert_eq!(foreign.warnings.len(), 1);
+        }
+    }
+
     #[cfg(feature = "dev-tools")]
     #[test]
     fn inline_trace_filename_starting_with_dash_reaches_engine_as_a_path() {
-        for option in ["--trace-input", "--trace-timing"] {
+        for option in ["--trace-input", "--trace-timing", "--trace-motion"] {
             let result = prepare(args(&[&format!("{option}=-trace.tsv")]), Game::Mach3);
             assert_eq!(
                 result.args,
@@ -1306,7 +1370,7 @@ mod tests {
     #[cfg(feature = "dev-tools")]
     #[test]
     fn invalid_trace_paths_preserve_previous_path_and_following_options() {
-        for option in ["--trace-input", "--trace-timing"] {
+        for option in ["--trace-input", "--trace-timing", "--trace-motion"] {
             let result = prepare(
                 args(&[
                     &format!("{option}=trace.tsv"),
@@ -1331,7 +1395,7 @@ mod tests {
     fn mach3_traces_preserve_non_utf8_paths() {
         use std::os::unix::ffi::OsStringExt;
         let path = OsString::from_vec(b"trace-\xff.tsv".to_vec());
-        for option in ["--trace-input", "--trace-timing"] {
+        for option in ["--trace-input", "--trace-timing", "--trace-motion"] {
             let result = prepare([OsString::from(option), path.clone()], Game::Mach3);
             assert_eq!(result.args, vec![OsString::from(option), path.clone()]);
             assert!(result.warnings.is_empty());

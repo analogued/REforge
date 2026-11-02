@@ -57,6 +57,13 @@ pub enum Playback {
     Static,
 }
 
+#[cfg(feature = "dev-tools")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MotionMode {
+    Faithful,
+    Enhanced,
+}
+
 #[derive(Clone, Debug)]
 pub struct Options {
     pub video: DisplayMode,
@@ -74,6 +81,8 @@ pub struct Options {
     pub input_trace: Option<std::path::PathBuf>,
     #[cfg(feature = "dev-tools")]
     pub timing_trace: Option<std::path::PathBuf>,
+    #[cfg(feature = "dev-tools")]
+    pub motion: Option<MotionMode>,
     #[cfg(feature = "dev-tools")]
     pub motion_trace: Option<std::path::PathBuf>,
 }
@@ -94,6 +103,8 @@ impl Default for Options {
             input_trace: None,
             #[cfg(feature = "dev-tools")]
             timing_trace: None,
+            #[cfg(feature = "dev-tools")]
+            motion: None,
             #[cfg(feature = "dev-tools")]
             motion_trace: None,
         }

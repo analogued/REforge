@@ -1113,11 +1113,7 @@ pub(super) fn run(
     let epoch = pause.now(Instant::now());
     #[cfg(feature = "dev-tools")]
     {
-        simulation.motion = options
-            .motion_trace
-            .as_ref()
-            .map(|p| Experiment::create(p))
-            .transpose()?;
+        simulation.motion = Experiment::for_options(&options);
         if let Some(motion) = &simulation.motion {
             window.set_title(&game_title(
                 GAME_NAME,
@@ -1193,7 +1189,7 @@ pub(super) fn run(
                 #[cfg(feature = "dev-tools")]
                 {
                     if let Some(motion) = &mut simulation.motion {
-                        motion.flush()?;
+                        motion.flush();
                     }
                     if let Some(trace) = &mut trace {
                         trace.flush()?;
@@ -1443,7 +1439,9 @@ pub(super) fn run(
         #[cfg(feature = "dev-tools")]
         if let Some(motion) = &mut simulation.motion {
             motion.commit(motion_tick)?;
-            repaint |= motion.due(motion_tick);
+            // Visual queries follow the user's shared presentation ceiling;
+            // observing native publications never schedules a second clock.
+            repaint |= motion.enhanced && !pause.is_paused();
         }
         // Native pause can change the caption without publishing a new frame.
         // Update it even during catch-up, independently of texture presentation.
@@ -1467,23 +1465,10 @@ pub(super) fn run(
             continue;
         }
         #[cfg(feature = "dev-tools")]
-        if simulation.motion.as_ref().is_some_and(|m| {
-            (!pause.is_paused() && !m.due(motion_tick)) || !window.presentation_due()
-        }) {
-            let next = if pause.is_paused() {
-                None
-            } else {
-                simulation
-                    .wake_tick()
-                    .into_iter()
-                    .chain(
-                        simulation
-                            .motion
-                            .as_ref()
-                            .and_then(|m| m.wake_deadline(motion_tick)),
-                    )
-                    .min()
-            };
+        if simulation.motion.is_some() && !window.presentation_due() {
+            let next = (!pause.is_paused())
+                .then(|| simulation.wake_tick())
+                .flatten();
             let delay = super::wakeup::delay(epoch, pause.now(Instant::now()), next);
             if !delay.is_zero() {
                 std::thread::sleep(delay);
@@ -1518,7 +1503,6 @@ pub(super) fn run(
                     ticks_since(epoch, pause.now(Instant::now())),
                     motion_submit_start.elapsed().as_micros() as u64,
                 );
-                motion.check()?;
             }
             repaint = false;
         }
@@ -1526,20 +1510,6 @@ pub(super) fn run(
             None
         } else {
             simulation.wake_tick()
-        };
-        #[cfg(feature = "dev-tools")]
-        let next_tick = if pause.is_paused() {
-            None
-        } else {
-            next_tick
-                .into_iter()
-                .chain(
-                    simulation
-                        .motion
-                        .as_ref()
-                        .and_then(|m| m.wake_deadline(motion_tick)),
-                )
-                .min()
         };
         let delay = super::wakeup::delay(epoch, pause.now(Instant::now()), next_tick);
         if !delay.is_zero() {

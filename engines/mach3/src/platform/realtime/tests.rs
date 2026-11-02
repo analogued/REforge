@@ -808,7 +808,24 @@ fn gameplay_run_motion(
     let log = logged_initial_signal_clock(&mut simulation, signal.clone());
     enter_playing(&mut simulation, &frames, &resources);
     #[cfg(feature = "dev-tools")]
-    let motion_path = if motion_mode > 0 {
+    let motion_path = if motion_mode == 3 {
+        simulation.motion = Some(Experiment::new());
+        None
+    } else if motion_mode == 4 {
+        simulation.motion = Experiment::for_options(&Options {
+            motion: Some(MotionMode::Enhanced),
+            motion_trace: Some(
+                std::env::temp_dir()
+                    .join(format!(
+                        "mach3-missing-motion-parent-{}",
+                        std::process::id()
+                    ))
+                    .join("trace.tsv"),
+            ),
+            ..Options::default()
+        });
+        None
+    } else if motion_mode > 0 {
         let path = std::env::temp_dir().join(format!(
             "mach3-motion-{}-{}.tsv",
             std::process::id(),
@@ -918,7 +935,7 @@ fn gameplay_run_motion(
     };
     #[cfg(feature = "dev-tools")]
     if let Some(path) = motion_path {
-        simulation.motion.as_mut().unwrap().flush().unwrap();
+        simulation.motion.as_mut().unwrap().flush();
         assert!(std::fs::metadata(&path).unwrap().len() > 0);
         std::fs::remove_file(path).unwrap();
     }
@@ -938,7 +955,7 @@ fn live_motion_observation_toggle_and_delayed_receipt_preserve_execution_and_pcm
         volumes,
         0,
     );
-    for receipt in [1, 2] {
+    for receipt in [1, 2, 3, 4] {
         let observed = gameplay_run_motion(
             |_| 10_000,
             CHUNK as u32,

@@ -19,7 +19,7 @@ fn attach(sim: &mut Simulation) -> std::path::PathBuf {
 }
 
 fn finish(sim: &mut Simulation, path: std::path::PathBuf) -> String {
-    sim.motion.as_mut().unwrap().flush().unwrap();
+    sim.motion.as_mut().unwrap().flush();
     let trace = std::fs::read_to_string(&path).unwrap();
     std::fs::remove_file(path).unwrap();
     trace

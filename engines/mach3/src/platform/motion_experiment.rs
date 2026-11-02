@@ -29,6 +29,11 @@ enum Pending {
     Suspend(u64, &'static str),
 }
 
+struct Trace {
+    writer: Box<dyn Write>,
+    rows: u64,
+}
+
 pub(super) struct Experiment {
     pub enhanced: bool,
     tracker: Tracker,
@@ -39,23 +44,13 @@ pub(super) struct Experiment {
     latest: Option<Observation>,
     pending: Vec<Pending>,
     next_id: u64,
-    next_presentation: u64,
-    trace: BufWriter<std::fs::File>,
-    error: Option<String>,
-    rows: u64,
+    trace: Option<Trace>,
     last_poll: Option<(u16, u8)>,
 }
 
 impl Experiment {
-    pub fn create(path: &Path) -> Result<Self, String> {
-        let file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .map_err(|e| e.to_string())?;
-        let mut trace = BufWriter::new(file);
-        writeln!(trace,"kind\ttick\tseen_tick\tsource_tick\tid\tanchor\tnative_anchor\tleft_px\tenhanced\tcontrols\tphase\treason\tanchor_y\tshadow_y\tnative_y\tnative_shadow_y\tcraft_source\tshadow_source\tlateral\theight\thorizon\torigin\tvx\tvy\treset_distance\trender_us\tsubmit_us\texport_us\tbody\tpass\tdepth").map_err(|e|e.to_string())?;
-        Ok(Self {
+    pub fn new() -> Self {
+        Self {
             enhanced: true,
             tracker: Tracker::default(),
             world: World::default(),
@@ -65,12 +60,49 @@ impl Experiment {
             latest: None,
             pending: Vec::new(),
             next_id: 0,
-            next_presentation: 0,
-            trace,
-            error: None,
-            rows: 0,
+            trace: None,
             last_poll: None,
+        }
+    }
+
+    pub fn create(path: &Path) -> Result<Self, String> {
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .map_err(|e| e.to_string())?;
+        let mut writer = BufWriter::new(file);
+        writeln!(writer,"kind\ttick\tseen_tick\tsource_tick\tid\tanchor\tnative_anchor\tleft_px\tenhanced\tcontrols\tphase\treason\tanchor_y\tshadow_y\tnative_y\tnative_shadow_y\tcraft_source\tshadow_source\tlateral\theight\thorizon\torigin\tvx\tvy\treset_distance\trender_us\tsubmit_us\texport_us\tbody\tpass\tdepth").map_err(|e|e.to_string())?;
+        // Discover header/output failures now, before enabling this sink.
+        writer.flush().map_err(|e| e.to_string())?;
+        Ok(Self {
+            trace: Some(Trace {
+                writer: Box::new(writer),
+                rows: 0,
+            }),
+            ..Self::new()
         })
+    }
+
+    pub fn for_options(options: &super::Options) -> Option<Self> {
+        if options.motion.is_none() && options.motion_trace.is_none() {
+            return None;
+        }
+        let mut observer = match options.motion_trace.as_deref().map(Self::create) {
+            Some(Ok(observer)) => observer,
+            Some(Err(error)) => {
+                eprintln!("Warning: motion trace disabled: {error}");
+                Self::new()
+            }
+            None => Self::new(),
+        };
+        observer.enhanced = options.motion == Some(super::MotionMode::Enhanced);
+        Some(observer)
+    }
+
+    fn trace_failed(&mut self, error: std::io::Error) {
+        self.trace = None;
+        eprintln!("Warning: motion trace disabled: {error}");
     }
 
     pub fn label(&self) -> &'static str {
@@ -82,19 +114,24 @@ impl Experiment {
     }
 
     fn log(&mut self, kind: &str, tick: u64, seen: u64, reason: &str) {
-        if self.rows > 100_000 {
+        let Some(trace) = &mut self.trace else {
+            return;
+        };
+        if trace.rows > 100_000 {
             return;
         }
-        if self.rows == 100_000 {
-            if let Err(e) = writeln!(
-                self.trace,
+        if trace.rows == 100_000 {
+            let result = writeln!(
+                trace.writer,
                 "truncated\t{tick}\t{seen}\t0\t0\t0\t0\t0\t{}\t0\t0\trow_limit{}",
                 u8::from(self.enhanced),
                 "\t0".repeat(19)
-            ) {
-                self.error = Some(e.to_string());
+            )
+            .and_then(|()| trace.writer.flush());
+            trace.rows += 1;
+            if let Err(error) = result {
+                self.trace_failed(error);
             }
-            self.rows += 1;
             return;
         }
         let sample = self.tracker.sample(seconds(tick));
@@ -114,8 +151,8 @@ impl Experiment {
         let source_ids = pose.map_or([0, 0], |p| [p.source[0], p.source[3]]);
         let coordinates = pose.map_or([0; 3], |p| p.coordinates);
         let velocity = pose.map_or([0; 2], |p| p.velocity);
-        if let Err(e) = writeln!(
-            self.trace,
+        let result = writeln!(
+            trace.writer,
             "{kind}\t{tick}\t{seen}\t{source}\t{id}\t{:.9}\t{:.9}\t{left:.0}\t{}\t{controls}\t{phase}\t{reason}\t{:.9}\t{:.9}\t{:.9}\t{:.9}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.9}\t{}\t{}\t{}\t{}\t{}\t{}",
             anchors[0],
             native[0],
@@ -139,18 +176,25 @@ impl Experiment {
             pose.map_or(0, |p| p.body),
             pose.map_or(0, |p| p.pass),
             coordinates[0]
-        ) {
-            self.error = Some(e.to_string());
-        }
-        self.rows += 1;
-        if self.rows.is_multiple_of(512)
-            && let Err(e) = self.trace.flush()
-        {
-            self.error = Some(e.to_string());
+        );
+        trace.rows += 1;
+        let result = result.and_then(|()| {
+            if trace.rows.is_multiple_of(512) {
+                trace.writer.flush()
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(error) = result {
+            self.trace_failed(error);
         }
     }
 
     pub fn event(&mut self, tick: u64, event: GameplayEvent) {
+        // Poll diagnostics must not grow a queue when logging is disabled.
+        if matches!(event, GameplayEvent::InputPoll { .. }) && self.trace.is_none() {
+            return;
+        }
         self.pending.push(Pending::Event(tick, event));
     }
     pub fn reset(&mut self, tick: u64, reason: &'static str) {
@@ -165,11 +209,15 @@ impl Experiment {
         self.log("toggle", tick, tick, self.label());
     }
     pub fn host_key(&mut self, tick: u64, seen: u64, scan: u8) {
-        self.log("host_key", tick, seen, &format!("scan={scan:02x}"));
+        if self.trace.is_some() {
+            self.log("host_key", tick, seen, &format!("scan={scan:02x}"));
+        }
     }
 
     pub fn host_gamepad(&mut self, tick: u64, seen: u64, mask: u8) {
-        self.log("host_gamepad", tick, seen, &format!("mask={mask:02x}"));
+        if self.trace.is_some() {
+            self.log("host_gamepad", tick, seen, &format!("mask={mask:02x}"));
+        }
     }
 
     pub fn publication(
@@ -254,23 +302,11 @@ impl Experiment {
                 },
             }
         }
-        self.check()
+        Ok(())
     }
 
-    pub fn due(&self, tick: u64) -> bool {
-        tick >= self.next_presentation
-    }
-    pub fn deadline(&self) -> u64 {
-        self.next_presentation
-    }
-    pub fn wake_deadline(&self, tick: u64) -> Option<u64> {
-        let deadline = self.deadline();
-        (deadline > tick).then_some(deadline)
-    }
     pub fn presented(&mut self, tick: u64, seen: u64, submit_us: u64) {
         self.submit_us = submit_us;
-        self.next_presentation =
-            ((tick as u128 * 120 / PIT_HZ as u128 + 1) * PIT_HZ as u128).div_ceil(120) as u64;
         self.log("present", tick, seen, "host_submission_not_scanout");
     }
     pub fn render(&self, tick: u64) -> Result<Option<Frame>, String> {
@@ -294,18 +330,144 @@ impl Experiment {
         self.render_us.set(started.elapsed().as_micros() as u64);
         frame
     }
-    pub fn check(&mut self) -> Result<(), String> {
-        self.error.take().map_or(Ok(()), Err)
-    }
-    pub fn flush(&mut self) -> Result<(), String> {
-        self.trace.flush().map_err(|e| e.to_string())?;
-        self.check()
+    pub fn flush(&mut self) {
+        if let Some(trace) = &mut self.trace
+            && let Err(error) = trace.writer.flush()
+        {
+            self.trace_failed(error);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn observation(i: u64) -> Observation {
+        let pose = crate::motion::Pose {
+            at: i as f64 * 0.04,
+            id: i,
+            body: (i / 3) as u16,
+            pass: (i % 3 + 1) as u8,
+            coordinates: [14, i as i16 * 4, 80],
+            phase: 0,
+            controls: 9,
+            horizon: 40,
+            origin: 106,
+            velocity: [1, 1],
+            source: [13, 4, 1, 18, 4, 1],
+        };
+        let layer = crate::gameplay::experiment::Layer {
+            slot: 0,
+            source: 13,
+            rect: crate::frame::Rect {
+                x_bytes: 0,
+                y: 0,
+                width_bytes: 1,
+                height: 1,
+            },
+            color: vec![255],
+            mask: vec![0],
+        };
+        Observation {
+            pose,
+            scene: crate::gameplay::experiment::Scene {
+                base: Frame::from_packed(&vec![0; crate::frame::FRAME_BYTES]).unwrap(),
+                layers: Vec::new(),
+            },
+            order: std::array::from_fn(|i| i),
+            actors: [
+                layer.clone(),
+                crate::gameplay::experiment::Layer { slot: 1, ..layer },
+            ],
+            offsets: [0.0; 3],
+            native_anchors: pose.anchors(),
+        }
+    }
+
+    struct FailedOutput {
+        flush_only: bool,
+    }
+    impl Write for FailedOutput {
+        fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+            if self.flush_only {
+                Ok(data.len())
+            } else {
+                Err(std::io::Error::other("injected full output"))
+            }
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("injected flush failure"))
+        }
+    }
+
+    #[test]
+    fn no_trace_and_failed_trace_preserve_visual_motion_and_frames() {
+        let path = path();
+        let mut observers = [
+            Experiment::new(),
+            Experiment::create(&path).unwrap(),
+            Experiment::new(),
+            Experiment::new(),
+        ];
+        for (i, flush_only) in [(2, false), (3, true)] {
+            observers[i].trace = Some(Trace {
+                writer: Box::new(FailedOutput { flush_only }),
+                rows: 511,
+            });
+        }
+        for i in 0..16 {
+            let o = observation(i);
+            let tick = (o.pose.at * PIT_HZ as f64).ceil() as u64;
+            for e in &mut observers {
+                e.pending.push(Pending::Pose(Box::new(o.clone())));
+                if i == 7 {
+                    e.event(tick, GameplayEvent::Pause(PauseEvent::Paused));
+                }
+                e.commit(tick).unwrap();
+            }
+            for query in [tick, tick + 1000, tick + 10_000] {
+                let expected = observers[0].render(query).unwrap();
+                let anchors = observers[0].tracker.sample(seconds(query)).unwrap().anchors;
+                for e in &observers[1..] {
+                    assert_eq!(e.render(query).unwrap(), expected);
+                    assert_eq!(e.tracker.sample(seconds(query)).unwrap().anchors, anchors);
+                }
+            }
+        }
+        assert!(observers[0].trace.is_none());
+        assert!(observers[1].trace.is_some());
+        assert!(observers[2].trace.is_none() && observers[3].trace.is_none());
+        // A failure at final flush is also diagnostic-only.
+        observers[1].trace.as_mut().unwrap().writer = Box::new(FailedOutput { flush_only: true });
+        observers[1].flush();
+        assert!(observers[1].trace.is_none());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn options_enable_motion_without_storage_and_preserve_existing_files() {
+        use super::super::{MotionMode, Options};
+        assert!(Experiment::for_options(&Options::default()).is_none());
+        let mut options = Options {
+            motion: Some(MotionMode::Enhanced),
+            ..Options::default()
+        };
+        let e = Experiment::for_options(&options).unwrap();
+        assert!(e.enhanced && e.trace.is_none());
+        let path = path();
+        std::fs::write(&path, "preserve this").unwrap();
+        options.motion_trace = Some(path.clone());
+        let e = Experiment::for_options(&options).unwrap();
+        assert!(e.enhanced && e.trace.is_none());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserve this");
+        std::fs::remove_file(&path).unwrap();
+        options.motion = None;
+        let mut e = Experiment::for_options(&options).unwrap();
+        assert!(!e.enhanced && e.trace.is_some());
+        e.flush();
+        std::fs::remove_file(path).unwrap();
+    }
     fn path() -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
             "mach3-motion-adapter-{}-{}.tsv",
@@ -317,27 +479,20 @@ mod tests {
         ))
     }
     #[test]
-    fn trace_is_new_and_mode_switching_cannot_advance_presentation() {
+    fn trace_is_new_and_mode_switching_does_not_create_observations() {
         let path = path();
         let mut e = Experiment::create(&path).unwrap();
-        e.flush().unwrap();
+        e.flush();
         let before = std::fs::read(&path).unwrap();
         assert!(Experiment::create(&path).is_err());
         assert_eq!(before, std::fs::read(&path).unwrap());
-        assert!(e.due(0));
         e.presented(0, 0, 0);
-        let deadline = e.deadline();
-        assert!(!e.due(deadline - 1));
-        assert!(e.due(deadline));
-        assert_eq!(e.wake_deadline(deadline - 1), Some(deadline));
-        assert_eq!(e.wake_deadline(deadline), None);
         e.toggle(0);
         assert!(!e.enhanced);
-        assert_eq!(e.deadline(), deadline);
         assert!(e.tracker.sample(1.0).is_none());
-        e.rows = 100_000;
-        e.presented(deadline, deadline, 0);
-        e.flush().unwrap();
+        e.trace.as_mut().unwrap().rows = 100_000;
+        e.presented(100, 100, 0);
+        e.flush();
         drop(e);
         let text = std::fs::read_to_string(&path).unwrap();
         let columns = text.lines().next().unwrap().split('\t').count();

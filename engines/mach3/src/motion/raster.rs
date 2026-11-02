@@ -365,4 +365,77 @@ mod tests {
         assert_eq!(l.color, [255, 255, 255, 0, 255, 255, 255, 255]);
         assert_eq!(l.mask, [0, 0, 0, 255, 0, 0, 0, 0]);
     }
+
+    #[test]
+    fn displaced_actors_match_an_independent_clipped_painter() {
+        // Canonical painter order, with retained far-object fragments and an
+        // overlapping later effect. The oracle paints all operations afresh;
+        // it does not calculate visibility or use compose's pixel helper.
+        let mut far = layer(5, 5, 7, 0x69, 0x36);
+        let mut effect = layer(23, 7, 3, 0x82, 0x59);
+        for row in 0..4 {
+            // A previous background restore erased this retained clip.
+            far.color[row * 7 + 3] = 0;
+            far.mask[row * 7 + 3] = 255;
+            // Only a clipped portion of the effect was repainted.
+            effect.color[row * 3] = 0;
+            effect.mask[row * 3] = 255;
+        }
+        let mut o = observation(
+            vec![far, effect, layer(29, 9, 1, 0x05, 0xf0)],
+            layer(0, 0, 5, 0xc6, 0x39),
+        );
+        o.actors[1] = layer(1, 0, 6, 0x91, 0x6c);
+        o.scene.base = Frame::from_packed(&vec![0x1b; FRAME_BYTES]).unwrap();
+        o.offsets = [2.0, 1.0, 0.0];
+        for x in [12.25, 24.0, 29.5, 302.0] {
+            for y in [42.0, 50.25, 156.0] {
+                let anchors = [x, y, y + 1.0];
+                let mut pixels = vec![0; 320 * 200];
+                for row in 0..200 {
+                    for column in 0..320 {
+                        pixels[row * 320 + column] = at(&o.scene.base, column, row);
+                    }
+                }
+                // Native order here is shadow, far craft, player, effect, HUD.
+                for (l, actor) in [
+                    (&o.actors[1], Some(1)),
+                    (&o.scene.layers[0], None),
+                    (&o.actors[0], Some(0)),
+                    (&o.scene.layers[1], None),
+                    (&o.scene.layers[2], None),
+                ] {
+                    let (left, top) = actor.map_or((l.rect.x_bytes * 4, l.rect.y), |slot| {
+                        (
+                            (anchors[0] - o.offsets[0] + 0.5).floor() as i32,
+                            (anchors[slot + 1] - o.offsets[slot + 1] + 0.5).floor() as i32,
+                        )
+                    });
+                    for row in 0..l.rect.height {
+                        for column in 0..l.rect.width_bytes * 4 {
+                            let (dx, dy) = (left + column as i32, top + row as i32);
+                            if !(16..304).contains(&dx) || !(44..158).contains(&dy) {
+                                continue;
+                            }
+                            let byte = row * l.rect.width_bytes + column / 4;
+                            let shift = 6 - column % 4 * 2;
+                            let pixel = &mut pixels[dy as usize * 320 + dx as usize];
+                            *pixel = (*pixel & ((l.mask[byte] >> shift) & 3))
+                                | ((l.color[byte] >> shift) & 3);
+                        }
+                    }
+                }
+                let actual = compose(&o, anchors).unwrap();
+                for y in 0..200 {
+                    for x in 0..320 {
+                        assert_eq!(
+                            at(&actual, x, y),
+                            pixels[y * 320 + x],
+                            "{anchors:?} {x},{y}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

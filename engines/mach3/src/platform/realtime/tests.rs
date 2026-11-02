@@ -2773,3 +2773,7 @@ fn disabling_event_recording_preserves_live_execution_pixels_and_pcm() {
     }
     assert_eq!(run(true), run(false));
 }
+
+#[cfg(feature = "dev-tools")]
+#[path = "motion_tests.rs"]
+mod motion_tests;

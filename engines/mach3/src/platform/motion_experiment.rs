@@ -401,4 +401,57 @@ mod tests {
         drop(e);
         std::fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn host_pause_freezes_prediction_and_settling_without_aging_them() {
+        use crate::motion::Pose;
+        use reforge_sdl::HostPause;
+        use std::time::Duration;
+        let mut t = Tracker::default();
+        for i in 0..4 {
+            let pose = Pose {
+                at: f64::from(i) * 0.04,
+                id: i as u64,
+                body: i / 3,
+                pass: (i % 3 + 1) as u8,
+                coordinates: [14, 0, 80],
+                phase: 0,
+                controls: 8,
+                horizon: 40,
+                origin: 106,
+                velocity: [1, 0],
+                source: [13, 4, 1, 18, 4, 1],
+            };
+            t.observe(pose, pose.at, false);
+        }
+        let epoch = Instant::now();
+        for ms in [135, 200] {
+            // active prediction, then post-horizon settling
+            let mut pause = HostPause::default();
+            let at = epoch + Duration::from_millis(ms);
+            let query = |now| pause.now(now).duration_since(epoch).as_secs_f64();
+            let expected = t.sample(query(at)).unwrap();
+            pause.toggle(at);
+            assert_eq!(
+                t.sample(
+                    pause
+                        .now(at + Duration::from_secs(5))
+                        .duration_since(epoch)
+                        .as_secs_f64()
+                )
+                .unwrap()
+                .anchors,
+                expected.anchors
+            );
+            pause.toggle(at + Duration::from_secs(5));
+            let resumed = pause
+                .now(at + Duration::from_millis(5010))
+                .duration_since(epoch)
+                .as_secs_f64();
+            assert_eq!(
+                t.sample(resumed).unwrap().anchors,
+                t.sample(ms as f64 / 1000.0 + 0.01).unwrap().anchors
+            );
+        }
+    }
 }

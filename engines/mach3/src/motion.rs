@@ -68,7 +68,7 @@ struct Segment {
     start: [f64; 3],
     target: [f64; 3],
     velocity: [f64; 3],
-    lifetime: f64,
+    lifetime: [f64; 3],
     response: f64,
     reason: &'static str,
     reset_distance: f64,
@@ -77,11 +77,11 @@ struct Segment {
 impl Segment {
     fn sample(self, now: f64) -> Sample {
         let age = (now - self.seen).max(0.0);
-        let t = age.min(self.lifetime);
         let anchors = if self.response == 0.0 {
             self.start
         } else {
             std::array::from_fn(|i| {
+                let t = age.min(self.lifetime[i]);
                 let x = self.target[i]
                     + self.velocity[i] * (t - self.response)
                     + (self.start[i] - self.target[i] + self.velocity[i] * self.response)
@@ -98,7 +98,7 @@ impl Segment {
             anchors,
             target: self.target,
             velocity: self.velocity,
-            hold: age >= self.lifetime,
+            hold: self.lifetime.iter().all(|&t| age >= t),
             reason: self.reason,
             id: self.pose.id,
             source_at: self.pose.at,
@@ -121,11 +121,8 @@ fn accelerate(mut velocity: i16, positive: bool, negative: bool, limit: i16) -> 
     velocity
 }
 
-/// One visual forecast using already accepted controls and original movement
-/// clamps. The measured body cadence converts updates to presentation velocity;
-/// this never advances the game or consults the host's unpolled held state.
-pub fn forecast(pose: Pose, period: f64) -> [f64; 3] {
-    let [depth, lateral, height] = pose.coordinates;
+fn next_velocity(pose: Pose) -> [i16; 2] {
+    let [_, lateral, height] = pose.coordinates;
     let mut vx = accelerate(
         pose.velocity[0],
         pose.controls & 8 != 0,
@@ -143,6 +140,15 @@ pub fn forecast(pose: Pose, period: f64) -> [f64; 3] {
     if i32::from(height) + 4 * i32::from(vy) > 230 {
         vy = (230 - height) >> 2;
     }
+    [vx, vy]
+}
+
+/// One visual forecast using already accepted controls and original movement
+/// clamps. The measured body cadence converts updates to presentation velocity;
+/// this never advances the game or consults the host's unpolled held state.
+pub fn forecast(pose: Pose, period: f64) -> [f64; 3] {
+    let [vx, vy] = next_velocity(pose);
+    let depth = pose.coordinates[0];
     let scale = f64::from(2_097_152 / (i32::from(depth) + 64)) / 65_536.0;
     let shadow_scale = f64::from(2_097_152 / (i32::from(depth) + 65)) / 65_536.0;
     [
@@ -150,6 +156,40 @@ pub fn forecast(pose: Pose, period: f64) -> [f64; 3] {
         -3.0 * scale * f64::from(vy) / period,
         shadow_scale * f64::from(vy) / period,
     ]
+}
+
+/// Time until the forecast reaches each native movement limit. Craft and
+/// shadow Y share the same vertical-motion stop; X remains independent.
+fn limit_times(pose: Pose, period: f64) -> [f64; 3] {
+    let [vx, vy] = next_velocity(pose);
+    let [_, lateral, height] = pose.coordinates;
+    let x = if vx > 0 {
+        f64::from(280 - lateral) / (4.0 * f64::from(vx))
+    } else if vx < 0 {
+        f64::from(-320 - lateral) / (4.0 * f64::from(vx))
+    } else {
+        f64::INFINITY
+    };
+    let y = if vy > 0 {
+        f64::from(230 - height) / (4.0 * f64::from(vy))
+    } else if vy < 0 {
+        f64::from(pose.horizon) / -f64::from(vy)
+    } else {
+        f64::INFINITY
+    };
+    [
+        x.max(0.0) * period,
+        y.max(0.0) * period,
+        y.max(0.0) * period,
+    ]
+}
+
+fn follows(previous: Pose, next: Pose) -> bool {
+    match previous.pass {
+        1 | 2 => next.body == previous.body && next.pass == previous.pass + 1,
+        3 => next.body == previous.body.wrapping_add(1) && next.pass == 1,
+        _ => false,
+    }
 }
 
 /// Bounded causal forecast with an exactly integrated first-order response.
@@ -177,7 +217,7 @@ impl Tracker {
                 start: position,
                 target: position,
                 velocity: [0.0; 3],
-                lifetime: 0.0,
+                lifetime: [0.0; 3],
                 response: 0.0,
                 reason,
                 reset_distance: 0.0,
@@ -194,9 +234,11 @@ impl Tracker {
         debug_assert!(self.last.is_none_or(|p| pose.id > p.id && pose.at >= p.at));
         let mut target = pose.anchors();
         let mut position = self.sample(seen).map_or(target, |s| s.anchors);
+        // Native cadence can legitimately slow down. Only missing/reordered
+        // passes and explicit lifecycle/receipt boundaries invalidate history.
         let boundary = self
             .last
-            .is_none_or(|p| !pose.normal() || !p.normal() || pose.at - p.at > 0.075)
+            .is_none_or(|p| !pose.normal() || !p.normal() || !follows(p, pose))
             || self.blocked
             || rebase;
         let reason = if self.last.is_none() {
@@ -223,13 +265,12 @@ impl Tracker {
         let period = if self.cadence.len() == 4 {
             let first = self.cadence[0];
             let span = pose.at - first.at;
-            (pose.body.wrapping_sub(first.body) == 1 && (0.075..=0.150).contains(&span))
-                .then_some(span / 3.0)
+            (pose.body.wrapping_sub(first.body) == 1 && span > 0.0).then_some(span / 3.0)
         } else {
             None
         };
         let mut velocity = [0.0; 3];
-        let mut lifetime = 0.0;
+        let mut lifetime = [0.0; 3];
         if let Some(period) = period
             && pose.normal()
             && reason == "tracking"
@@ -237,11 +278,13 @@ impl Tracker {
             velocity = forecast(pose, period);
             let speed = velocity[0].hypot(velocity[1]);
             let max_age = HORIZON.min(if speed == 0.0 { HORIZON } else { BOUND / speed });
-            let age = (seen - pose.at).max(0.0).min(max_age);
+            let limits = limit_times(pose, period);
             for i in 0..3 {
+                let stop = max_age.min(limits[i]);
+                let age = (seen - pose.at).max(0.0).min(stop);
                 target[i] += velocity[i] * age;
+                lifetime[i] = (stop - age).max(0.0);
             }
-            lifetime = (max_age - age).max(0.0);
         }
         self.segment = Some(Segment {
             pose,
@@ -349,8 +392,109 @@ mod tests {
             p.controls = 9;
             t.observe(p, p.at, false);
             let s = t.segment.unwrap();
-            assert!(s.lifetime <= HORIZON);
-            assert!(s.velocity[0].hypot(s.velocity[1]) * s.lifetime <= BOUND + 1e-12);
+            assert!(s.lifetime.iter().all(|&t| t <= HORIZON));
+            assert!(
+                (s.velocity[0] * s.lifetime[0]).hypot(s.velocity[1] * s.lifetime[1])
+                    <= BOUND + 1e-12
+            );
+        }
+    }
+
+    #[test]
+    fn ordered_native_cadence_has_no_duration_cutoff() {
+        let mut t = Tracker::default();
+        let mut at = 0.0;
+        for i in 0..21 {
+            // Includes the measured slow 178.51 ms body, followed by faster
+            // cadence. These are native intervals, not delayed delivery.
+            at += if i < 12 {
+                if i % 3 == 0 { 0.08925 } else { 0.04463 }
+            } else {
+                0.02
+            };
+            let mut p = pose(i);
+            p.at = at;
+            p.body = u16::MAX.wrapping_add((i / 3) as u16);
+            let before = t.sample(at);
+            t.observe(p, at, false);
+            let after = t.sample(at).unwrap();
+            if let Some(before) = before {
+                assert_eq!(after.reason, "tracking");
+                assert_eq!(after.reset_distance, 0.0);
+                for axis in 0..3 {
+                    assert!((before.anchors[axis] - after.anchors[axis]).abs() < 1e-10);
+                }
+            }
+            if i >= 3 {
+                assert!(after.velocity[0] > 0.0);
+            }
+        }
+        // A genuinely omitted pass still invalidates history, even if its
+        // timestamp gap is small.
+        let mut missing = pose(22);
+        missing.at = at + 0.01;
+        t.observe(missing, missing.at, false);
+        assert_eq!(t.sample(missing.at).unwrap().reason, "boundary");
+    }
+
+    fn tracking_at(mut p: Pose, receipt_delay: f64) -> Tracker {
+        let mut t = Tracker::default();
+        for i in 0..4 {
+            let previous = pose(i);
+            p.at = previous.at;
+            p.id = previous.id;
+            p.body = previous.body;
+            p.pass = previous.pass;
+            t.observe(p, p.at + receipt_delay, false);
+        }
+        t
+    }
+
+    #[test]
+    fn forecast_stops_at_lateral_limits_without_stopping_vertical_motion() {
+        for (lateral, vx, controls, limit) in [(276, 7, 9, 280), (-316, -7, 5, -320)] {
+            for delay in [0.0, 0.045] {
+                let mut p = pose(0);
+                p.coordinates = [14, lateral, 80];
+                p.horizon = 40;
+                p.velocity = [vx, 0];
+                p.controls = controls;
+                let t = tracking_at(p, delay);
+                let s = t.segment.unwrap();
+                assert!(s.lifetime[0] < s.lifetime[1]);
+                p.coordinates[1] = limit;
+                let end = s.target[0] + s.velocity[0] * s.lifetime[0];
+                assert!((end - p.anchors()[0]).abs() < 1e-10);
+                let min = 160.0 + f64::from(2_097_152 / 78) / 65_536.0 * -320.0;
+                let max = 160.0 + f64::from(2_097_152 / 78) / 65_536.0 * 280.0;
+                for ms in 0..250 {
+                    let x = t.sample(s.seen + f64::from(ms) / 1000.0).unwrap().anchors[0];
+                    assert!((min - 1e-10..=max + 1e-10).contains(&x));
+                }
+            }
+        }
+        for (limit, controls) in [(280, 8), (-320, 4)] {
+            let mut p = pose(0);
+            p.coordinates[1] = limit;
+            p.controls = controls;
+            let t = tracking_at(p, 0.0);
+            assert_eq!(t.sample(1.0).unwrap().anchors[0], p.anchors()[0]);
+        }
+    }
+
+    #[test]
+    fn vertical_limit_stops_craft_and_shadow_together_but_not_x() {
+        for (height, horizon, vy, controls) in [(226, 40, 6, 9), (80, 1, -6, 10)] {
+            let mut p = pose(0);
+            p.coordinates = [14, 0, height];
+            p.horizon = horizon;
+            p.velocity = [0, vy];
+            p.controls = controls;
+            let t = tracking_at(p, 0.0);
+            let s = t.segment.unwrap();
+            assert_eq!(s.lifetime[1], s.lifetime[2]);
+            assert!((s.lifetime[1] - 0.04).abs() < 1e-10);
+            assert!(s.lifetime[0] > s.lifetime[1]);
         }
     }
 }

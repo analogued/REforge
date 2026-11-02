@@ -14,6 +14,7 @@ struct Options {
     bookmark: Option<PathBuf>,
     transcript: Option<PathBuf>,
     settings: RuntimeSettings,
+    warning: Option<String>,
 }
 
 pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
@@ -33,6 +34,7 @@ fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Options>, String
         bookmark: None,
         transcript: None,
         settings: prefs.effective(&prefs.saved),
+        warning: prefs.warning,
     };
     let mut args = args.peekable();
     while let Some(arg) = args.next() {
@@ -86,8 +88,13 @@ pub fn run_with_files(
         println!("{HELP}");
         return Ok(());
     };
-    if options.settings.renderer == Renderer::Terminal && !crate::player::terminal_available() {
-        return Err("Terminal rendering requires an attached input/output terminal. Start reforge --original <game> --renderer terminal from a terminal.".into());
+    if options.settings.renderer == Renderer::Terminal {
+        if let Some(warning) = &options.warning {
+            eprintln!("REforge: {warning}");
+        }
+        if !crate::player::terminal_available() {
+            return Err("Terminal rendering requires an attached input/output terminal. Start reforge --original <game> --renderer terminal from a terminal.".into());
+        }
     }
     let directory = if options.original.is_dir() {
         options.original.clone()

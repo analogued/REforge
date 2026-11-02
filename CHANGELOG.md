@@ -17,6 +17,9 @@ Unreleased contains changes intended for the next public release.
 
 ### Mindwheel
 
+- Report invalid or unreadable preferences during terminal startup while
+  preserving the configuration file and using fallback settings.
+
 - Require the verified `SIDE.TXT` disk map alongside `ADISK.OBJ` and `GO.EXE`
   during detection and launcher verification.
 

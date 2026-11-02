@@ -83,16 +83,15 @@ mod terminal_bell {
         let mut exe = vec![0; 32 + 0x6cb];
         exe[..2].copy_from_slice(b"MZ");
         put(&mut exe, 8, 2);
-        let session = btz::session::Session::new(
-            btz::image::StoryImage::from_dos_obj(bytes).unwrap(),
-            btz::text::TextCodec::from_dos_executable(&exe).unwrap(),
-            btz::random::DosRandom::from_dos_executable(&exe).unwrap(),
+        fs::write(directory.0.join("ADISK.OBJ"), bytes).unwrap();
+        fs::write(directory.0.join("GO.EXE"), exe).unwrap();
+        fs::write(directory.0.join("SIDE.TXT"), "0\na\n".repeat(10) + "0\n").unwrap();
+        btz::player::load(
+            &directory.0.join("ADISK.OBJ"),
+            &directory.0.join("GO.EXE"),
+            &directory.0.join("SIDE.TXT"),
         )
-        .unwrap();
-        btz::player::Loaded {
-            session,
-            files: directory.files(),
-        }
+        .unwrap()
     }
 
     struct Process(Child);
@@ -149,10 +148,41 @@ mod terminal_bell {
             if mode == "effects-zero" {
                 settings.categories.0[reforge_settings::SoundCategory::Effects.index()] = 0;
             }
-            btz::player::run_terminal(loaded(&directory), settings).unwrap();
+            let game = loaded(&directory);
+            if mode == "invalid-preferences" {
+                let path = directory.0.join("config.toml");
+                let original = b"invalid = [";
+                fs::write(&path, original).unwrap();
+                let _guard = reforge_settings::Launch {
+                    game_id: "mindwheel".into(),
+                    entry_id: None,
+                    path: Some(path.clone()),
+                    cli: Default::default(),
+                }
+                .install();
+                btz::cli::run(
+                    [
+                        "--original".into(),
+                        directory.0.as_os_str().into(),
+                        "--renderer".into(),
+                        "terminal".into(),
+                    ]
+                    .into_iter(),
+                )
+                .unwrap();
+                assert_eq!(fs::read(path).unwrap(), original);
+            } else {
+                btz::player::run_terminal(game, settings).unwrap();
+            }
             return;
         }
-        for mode in ["enabled", "disabled", "master-zero", "effects-zero"] {
+        for mode in [
+            "enabled",
+            "disabled",
+            "master-zero",
+            "effects-zero",
+            "invalid-preferences",
+        ] {
             let (mut master, mut slave) = (-1, -1);
             // SAFETY: output pointers are valid writable integers. Optional
             // name, termios and size pointers are null for system defaults.
@@ -202,7 +232,7 @@ mod terminal_bell {
             );
             assert_eq!(
                 bell,
-                mode == "enabled",
+                matches!(mode, "enabled" | "invalid-preferences"),
                 "{mode}: {}",
                 String::from_utf8_lossy(&bytes)
             );
@@ -221,6 +251,19 @@ mod terminal_bell {
                     |_| false,
                 );
             }
+            let mut stderr = String::new();
+            child
+                .0
+                .stderr
+                .take()
+                .unwrap()
+                .read_to_string(&mut stderr)
+                .unwrap();
+            assert_eq!(
+                stderr.matches("REforge:").count(),
+                usize::from(mode == "invalid-preferences"),
+                "{mode}: {stderr}"
+            );
         }
     }
 }

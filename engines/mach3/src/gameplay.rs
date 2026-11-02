@@ -5,6 +5,8 @@
 mod ending;
 mod enemy;
 pub mod execution;
+#[cfg(feature = "dev-tools")]
+pub mod experiment;
 mod hud;
 mod pass;
 mod player;

@@ -3,7 +3,7 @@
 # Mindwheel DOS data and wordcode
 
 This reference describes the DOS layout implemented by the BTZ crate for the
-investigated Mindwheel `ADISK.OBJ` and `GO.EXE` pair. It is not a specification
+supported Mindwheel `ADISK.OBJ` and `GO.EXE` pair. It is not a specification
 for every BTZ release. Other interpreter revisions are unvalidated.
 See the [engine overview](../README.md) for supported inputs and the
 [runtime reference](mindwheel-dos-runtime.md) for input, timing and host services.
@@ -12,15 +12,16 @@ Story rules reside in supplied wordcode and object data. `GO.EXE` also supplies
 text compression tables, character classes, native strings and an RNG adjustment.
 The Rust engine reads those resources without executing the DOS program.
 
-The investigated file identities are:
+The supported file identities are:
 
 | File | Bytes | SHA-256 |
 | --- | ---: | --- |
 | `ADISK.OBJ` | 188,928 | `4572f6fae68fa81be3e723c0a4a90994fd2c9f1219636a334d2db0761db0b091` |
 | `GO.EXE` | 33,280 | `268edea9a2ed7df72cd41f2d3c767a57e6ebbe019037b46638c06be5c8512bcb` |
 
-These identities scope the observations below; the current development loader
-does not implement release selection from a hash catalog.
+These identities scope the format and interpreter rules below. REforge's
+application catalog identifies this release; the crate's object loader validates
+the supplied container's structure.
 
 ## Container and address spaces
 
@@ -207,7 +208,7 @@ These sentinel roles must not be collapsed into a single host Boolean.
 
 ## Dictionary, messages and grammar
 
-For the investigated MZ executable, the resource-data origin is the header size
+For this release's MZ executable, the resource-data origin is the header size
 in paragraphs plus the initial stack-segment value, multiplied by 16. This is
 the observed executable convention, not a general method for locating data in
 arbitrary DOS programs. The engine reads these offsets relative to that origin:

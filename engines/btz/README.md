@@ -1,35 +1,52 @@
-# BTZ interpreter
+# BTZ engine
 
-Experimental REforge engine for the investigated Mindwheel DOS interpreter.
-It executes the story's wordcode and data through reconstructed VM, parser,
-text, keyboard, timing and native-service algorithms. Story rules remain in
-supplied game data.
+The `btz` crate implements **BTZ (Better Than Zork)**, a text-adventure
+interpreter, for [REforge](../../README.md). It executes original game wordcode
+and data through reconstructed VM, parser, text, keyboard, timing and native
+services. Story rules remain in the supplied game data.
+
+Mindwheel for DOS is the first supported game. Support for Essex, Brimstone
+and Breakers will be added as their game data and interpreter revisions are
+implemented and validated. The engine's shared interpreter and player hosts
+provide the foundation for those games.
+
+> [!IMPORTANT]
+> This engine does not include original BTZ game assets or data. You must
+> provide the original files from a supported release. See
+> [External inputs](#external-inputs) for requirements.
 
 The windowed and terminal frontends support commands, bookmarks, transcripts,
-restart and exit. A complete winning playthrough has not been
-verified. Other BTZ games and interpreter revisions remain unvalidated. Mindwheel is
-registered with REforge's game detection and graphical launcher.
+restart and exit. Supported games use REforge's game detection and graphical
+launcher; see the [Mindwheel player guide](../../docs/games/mindwheel.md) for
+controls and launch options.
+
+> [!NOTE]
+> BTZ support is experimental. Currently one verified Mindwheel DOS release
+> is supported, and a complete winning playthrough has not been verified.
+> Other BTZ games, platform versions and interpreter revisions are not yet
+> supported. See [Reference and compatibility](#reference-and-compatibility)
+> for the current limits.
 
 ## External inputs
 
-Supply the corresponding `ADISK.OBJ` and `GO.EXE` files from Mindwheel DOS.
-The executable supplies compression/classification tables, native messages and
+For Mindwheel DOS, supply the corresponding `ADISK.OBJ`, `GO.EXE` and
+`SIDE.TXT` files. `GO.EXE` supplies compression/classification tables, native messages and
 an RNG adjustment; its x86 code is not executed. `SIDE.TXT` supplies logical-disk
 mappings for services such as restart and bookmark restore.
 
 No original game files, extracted vocabulary, story text or interpreter tables
 are bundled. The [format reference](docs/mindwheel-dos-format.md) identifies
-the investigated inputs and their layout; this is not an automatic revision
-selector.
+the supported Mindwheel release and its layout. Its format and runtime rules
+are documented separately from engine-wide interfaces.
 
-For player controls, see the [Mindwheel guide](../../docs/games/mindwheel.md).
 Build, test and diagnostic commands are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Implemented architecture
 
-The library has no SDL or default third-party dependencies. Mutable session
-state is separate from the original data. These are the current implementation
-boundaries:
+The core library has no default third-party dependencies and runs without SDL.
+The `frontend` feature adds player loading and terminal support; `sdl` adds
+windowed presentation. Mutable session state is separate from the original
+data. These are the current implementation boundaries:
 
 | Module | Responsibility |
 | --- | --- |
@@ -67,8 +84,8 @@ All 14 observed native services have implementation paths. That does not imply
 complete behavioral equivalence: pause/typeahead, newline polling and bell
 feedback have remaining edge cases described in the runtime reference.
 
-The investigated DOS input routine reads an uninitialized stack word. The
-development host uses an explicit default-zero adapter rather than modeling the
+The supported Mindwheel DOS input routine reads an uninitialized stack word.
+The player hosts use an explicit default-zero adapter rather than modeling the
 DOS memory/stack environment. This affects the discarded post-input draw and
 subsequent random sequence; later gameplay draws retain their own bounds.
 Exact DOS polling schedules and random-sequence fidelity remain unverified.

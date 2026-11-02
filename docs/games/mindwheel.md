@@ -2,7 +2,6 @@
 
 Play the DOS edition of Mindwheel through the BTZ interpreter, with its
 original text layout, interactive commands and background story activity.
-A winning playthrough has not been verified; other BTZ games remain unvalidated.
 
 > [!IMPORTANT]
 > REforge does not include original Mindwheel assets or data. You must provide
@@ -117,6 +116,7 @@ its waiting time has expired, it handles that before accepting new keystrokes.
 If you have already submitted a command when it checks, your command takes
 priority.
 
-Random events can differ from a DOS run. Some pause, queued-input and bell
-feedback cases also remain imperfect. Technical details are in the
-[runtime compatibility notes](../../engines/btz/docs/mindwheel-dos-runtime.md#compatibility-boundaries).
+> [!NOTE]
+> A complete winning playthrough has not been verified. Random events can differ
+> from a DOS run, and some pause, queued-input and bell feedback cases remain
+> imperfect. See the [runtime compatibility notes](../../engines/btz/docs/mindwheel-dos-runtime.md#compatibility-boundaries).

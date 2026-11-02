@@ -10,7 +10,7 @@ specified separately in [Mindwheel DOS formats](mindwheel-dos-format.md).
 See the [engine overview](../README.md) for supported use and build entry points.
 
 The story program and its rules come from externally supplied `ADISK.OBJ` data.
-`GO.EXE` supplies the investigated tables, native strings and RNG adjustment;
+`GO.EXE` supplies this release's tables, native strings and RNG adjustment;
 its machine code is not executed by the recreation. `SIDE.TXT` supplies disk
 mapping. Original game files and extracted text/tables are not bundled.
 These observations do not establish compatibility with another BTZ release.
@@ -28,9 +28,9 @@ timeout, key waits, platform requests and process exit. A suspended operation
 remains pending until its required work completes.
 
 `HostRequest` and `HostReply` separate filesystem, media and process actions from
-interpreter algorithms. The development frontend supplies a Unix terminal,
-BIOS-clock inputs and filesystem paths. Presentation and application detection
-remain separate from the VM and the normal library build.
+interpreter algorithms. The player hosts supply an SDL window or attached
+terminal, BIOS-clock inputs and filesystem paths. Presentation and application
+detection remain separate from the VM.
 
 `new_with_keyboard` and `advance_with_keyboard` accept a nonblocking source of
 currently available typed keys. These entry points service input while executing
@@ -250,7 +250,7 @@ replaces stores 2, 3 and 4, retaining program store 0 and grammar store 1.
 The secondary-media path is implemented with checked bounds; compatibility with
 original secondary media remains unverified.
 
-The development host resolves prompted relative bookmark and transcript names
+Both player hosts resolve prompted relative bookmark and transcript names
 beside the supplied `ADISK.OBJ`. `--save-dir directory` overrides that base for
 both writing and resuming bookmarks and for transcripts. An absolute prompted
 name keeps its chosen location. Explicit `--bookmark-path` and `--transcript-path`
@@ -283,7 +283,7 @@ are not normalized across the BIOS midnight reset.
 The submitted-read calculation in the observed executable reads an uninitialized
 native stack word. Its result is `max((word >> 8) - 1, 0)`, not measured elapsed
 time. DOS load layout and prior cache/stdio calls can change that word. Original
-game files alone do not determine it. The development host uses an explicit
+game files alone do not determine it. The player hosts use an explicit
 submitted-read return of zero by default. `set_native_read_counter_word` or the
 observed-result adapter supplies another value for a chosen environment; valid
 submitted results range from 0 through 254. Exact DOS memory/stack reconstruction

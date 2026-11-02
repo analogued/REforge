@@ -11,6 +11,8 @@ pub mod decode;
 pub mod display;
 pub mod image;
 pub mod input;
+#[cfg(feature = "sdl")]
+pub mod launcher;
 pub mod media;
 pub mod parser;
 #[cfg(feature = "frontend")]

@@ -10,6 +10,7 @@ use reforge_settings::{
 };
 use std::{
     collections::BTreeMap,
+    io::IsTerminal,
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -96,6 +97,7 @@ pub struct GameEntry {
     pub status: EntryStatus,
     pub preferences: Preferences,
     pub options: &'static [OptionDefinition],
+    pub terminal_available: bool,
     pub error: Option<String>,
     config: PathBuf,
 }
@@ -108,7 +110,8 @@ impl GameEntry {
         let options = match release.map(|r| r.game()) {
             Some(Game::AlleyCat) => alleycat::launcher::OPTIONS,
             Some(Game::Mach3) => mach3::launcher::OPTIONS,
-            Some(Game::Mindwheel) | None => &[],
+            Some(Game::Mindwheel) => btz::launcher::OPTIONS,
+            None => &[],
         };
         let status = if verify {
             match super::verify_entry(entry) {
@@ -136,6 +139,7 @@ impl GameEntry {
             status,
             preferences: Preferences::from_options(options),
             options,
+            terminal_available: std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
             error: None,
             config,
         };
@@ -177,6 +181,9 @@ impl GameEntry {
             .unwrap_or("")
     }
     pub fn crt_preview(&self) -> bool {
+        if self.terminal_selected() {
+            return false;
+        }
         let values = self.option_values();
         self.options
             .iter()
@@ -194,6 +201,19 @@ impl GameEntry {
             .map(|o| (o.label, o.choices.iter().map(|c| c.label).collect()))
             .collect()
     }
+    pub fn terminal_selected(&self) -> bool {
+        self.options
+            .iter()
+            .any(|o| matches!(o.storage, Storage::TerminalMode))
+            && self.option_values().get("Renderer") == Some(&"Terminal")
+    }
+    pub fn option_enabled(&self, field: &str) -> bool {
+        !self.terminal_selected() || !matches!(field, "Display" | "Window")
+    }
+    pub fn choice_enabled(&self, field: &str, choice: &str) -> bool {
+        self.option_enabled(field)
+            && !(field == "Renderer" && choice == "Terminal" && !self.terminal_available)
+    }
     pub fn short_label(&self, field: &str, value: &'static str) -> &'static str {
         self.options
             .iter()
@@ -210,6 +230,7 @@ impl GameEntry {
         let values = self.option_values();
         self.options
             .iter()
+            .filter(|o| self.option_enabled(o.label))
             .filter_map(|o| {
                 o.choices
                     .iter()
@@ -262,6 +283,16 @@ impl GameEntry {
         let mut p = Preferences::default();
         for o in self.options {
             let (default, saved) = match o.storage {
+                Storage::TerminalMode => (
+                    "graphical".into(),
+                    session.saved.game.get("renderer").map(|value| {
+                        if value == "terminal" {
+                            "terminal"
+                        } else {
+                            "graphical"
+                        }
+                    }),
+                ),
                 Storage::Shared(key) => {
                     if !reforge_settings::keys().any(|shared| shared == key) {
                         p.native.push(o.label);
@@ -291,6 +322,9 @@ impl GameEntry {
         Ok(())
     }
     pub fn save_option(&mut self, field: &'static str, value: &'static str) {
+        if !self.choice_enabled(field, value) {
+            return;
+        }
         let Some(option) = self.options.iter().find(|o| o.label == field) else {
             return;
         };
@@ -303,6 +337,17 @@ impl GameEntry {
             Some(choice.value)
         };
         let result = match option.storage {
+            Storage::TerminalMode => {
+                let mut s = Session::load(Launch {
+                    game_id: self.game_id.clone(),
+                    entry_id: Some(self.entry_id.clone()),
+                    path: Some(self.config.clone()),
+                    cli: Default::default(),
+                });
+                let mut d = s.saved.clone();
+                d.set_terminal(choice.value == "terminal");
+                s.commit(d)
+            }
             Storage::Native { key, .. } => reforge_settings::launcher::save_native_option(
                 &self.config,
                 &self.entry_id,

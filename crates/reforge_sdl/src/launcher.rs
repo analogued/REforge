@@ -20,6 +20,8 @@ pub struct Choice {
 pub enum Storage {
     /// An existing preference managed by the shared Settings transaction.
     Shared(&'static str),
+    /// BTZ's startup frontend switch, retaining its graphical renderer choice.
+    TerminalMode,
     /// Engine-specific preference passed through its ordinary argument parser.
     Native {
         key: &'static str,
@@ -39,6 +41,7 @@ impl OptionDefinition {
     pub const fn key(&self) -> &'static str {
         match self.storage {
             Storage::Shared(key) | Storage::Native { key, .. } => key,
+            Storage::TerminalMode => "renderer",
         }
     }
 }

@@ -30,7 +30,9 @@ reforge --original /path/to/mindwheel
 ```
 
 The default display is an SDL text window. Its Rendering and CRT & Colour
-settings use the same controls as the other games. Enter dismisses the title;
+settings use the same controls as the other games. The launch options offer
+**Display: Sharp pixels / Hyllian CRT** and **Window: Windowed / Fullscreen**.
+Enter dismisses the title;
 follow the game's prompts. **F10** opens Settings. **Ctrl+Q** or closing the
 window exits; **Pause/Break** toggles the host pause.
 
@@ -41,9 +43,12 @@ reforge --original /path/to/mindwheel --renderer terminal
 ```
 
 Terminal play uses the terminal already attached to the process. It does not
-open a terminal application. In BTZ's per-game Rendering settings, **Terminal**
+open a terminal application. Choose **Renderer: Graphical / Terminal** in the
+launch options, or **Terminal** in BTZ's per-game Rendering settings. Terminal
 is available when a terminal is attached; the choice applies at game startup.
-Backend, scaling and CRT controls apply to windowed play.
+Display and Window launch options are disabled during terminal play. Graphical
+preferences are retained and apply again when you select Graphical, including
+the renderer configured in Settings.
 
 ## Commands and controls
 

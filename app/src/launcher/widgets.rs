@@ -396,7 +396,13 @@ pub(crate) fn option_control(
                     // feedback behind the text with fixed rounded geometry.
                     button = button.fill(Color32::TRANSPARENT).stroke(Stroke::NONE);
                 }
-                let response = Gui::control(ui.add(button));
+                let response =
+                    Gui::control(ui.add_enabled(game.choice_enabled(field, value), button));
+                if field == "Renderer" && *value == "Terminal" && !game.terminal_available {
+                    response.clone().on_disabled_hover_text(
+                        "Launch REforge from a terminal to enable terminal play.",
+                    );
+                }
                 if let Some(frame) = frame {
                     let p = ap.theme.palette;
                     let base = if explicit {
@@ -438,14 +444,28 @@ pub(crate) fn option_control(
         })
         .inner
     } else {
-        primitives::choice_strip(ui, &ap.theme, &options, &current, state)
+        primitives::choice_strip_enabled(ui, &ap.theme, &options, &current, state, |value| {
+            game.choice_enabled(field, value)
+        })
     };
     if let Some(value) = clicked {
         game.save_option(field, value);
     }
     // The group tooltip explains inherited and explicit state without a legend.
-    ui.response()
-        .on_hover_text(game.preferences.tooltip(field, current));
+    if field == "Renderer"
+        && game
+            .options
+            .iter()
+            .any(|o| matches!(o.storage, reforge_sdl::launcher::Storage::TerminalMode))
+    {
+        ui.response().on_hover_text("Graphical uses the renderer configured in Settings. Terminal requires an attached terminal. Switching preserves graphical preferences.");
+    } else {
+        ui.response()
+            .on_hover_text(game.preferences.tooltip(field, current))
+            .on_disabled_hover_text(
+                "These settings are retained and apply when Graphical is selected.",
+            );
+    }
 }
 pub fn draw_launch_options_rows(ui: &mut egui::Ui, ap: &ResolvedAppearance, game: &mut GameEntry) {
     primitives::surface(ui, &ap.theme, ap.theme.components.section, |ui| {
@@ -455,6 +475,9 @@ pub fn draw_launch_options_rows(ui: &mut egui::Ui, ap: &ResolvedAppearance, game
         ui.vertical(|ui| {
             for (field, choices) in game.option_choices() {
                 ui.horizontal(|ui| {
+                    if !game.option_enabled(field) {
+                        ui.disable();
+                    }
                     ui.allocate_ui_with_layout(
                         Vec2::new(82.0, 24.0),
                         Layout::left_to_right(Align::Center),
@@ -503,6 +526,9 @@ pub fn draw_launch_options_inline(
                     Vec2::new(width, 32.0),
                     Layout::left_to_right(Align::Center),
                     |ui| {
+                        if !game.option_enabled(field) {
+                            ui.disable();
+                        }
                         ui.spacing_mut().item_spacing.x = 6.0;
                         option_label(ui, ap, game, field);
                         option_control(ui, ap, game, field, &choices, true);

@@ -589,7 +589,7 @@ impl<'a> SettingsMenu<'a> {
             let result = self.creator.session.borrow_mut().commit(draft.clone());
             match result {
                 Ok(()) => {
-                    self.draft = Some(draft);
+                    self.draft = Some(self.creator.session.borrow().saved.clone());
                     self.error = None;
                     self.game_reset = [false; 4];
                 }

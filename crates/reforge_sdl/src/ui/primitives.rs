@@ -151,13 +151,25 @@ pub fn choice_strip<T: Clone + PartialEq>(
     current: &T,
     origin: SelectionState,
 ) -> Option<T> {
+    choice_strip_enabled(ui, theme, choices, current, origin, |_| true)
+}
+
+/// A choice strip with unavailable choices excluded from input navigation.
+pub fn choice_strip_enabled<T: Clone + PartialEq>(
+    ui: &mut Ui,
+    theme: &Theme,
+    choices: &[(T, &str)],
+    current: &T,
+    origin: SelectionState,
+    enabled: impl Fn(&T) -> bool,
+) -> Option<T> {
     let style = theme.components.choices;
     let joined = matches!(
         style.shape,
         ChoiceShape::Sharp | ChoiceShape::Segmented | ChoiceShape::Pill
     );
     if joined {
-        return joined_choice_strip(ui, theme, choices, current, origin);
+        return joined_choice_strip(ui, theme, choices, current, origin, enabled);
     }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = style.gap;
@@ -178,8 +190,19 @@ pub fn choice_strip<T: Clone + PartialEq>(
                 padding: style.padding,
                 outline: style.shape == ChoiceShape::Buttons,
             };
-            let response = draw_button(ui, theme, appearance, (*label).into(), state, Vec2::ZERO);
-            if crate::settings_navigation::control(response).activated() {
+            let response = ui
+                .add_enabled_ui(enabled(value), |ui| {
+                    crate::settings_navigation::control(draw_button(
+                        ui,
+                        theme,
+                        appearance,
+                        (*label).into(),
+                        state,
+                        Vec2::ZERO,
+                    ))
+                })
+                .inner;
+            if response.activated() {
                 clicked = Some(value.clone());
             }
         }
@@ -194,6 +217,7 @@ fn joined_choice_strip<T: Clone + PartialEq>(
     choices: &[(T, &str)],
     current: &T,
     origin: SelectionState,
+    enabled: impl Fn(&T) -> bool,
 ) -> Option<T> {
     if choices.is_empty() {
         return None;
@@ -253,25 +277,33 @@ fn joined_choice_strip<T: Clone + PartialEq>(
     let mut clicked = None;
     for (i, ((value, label), galley)) in choices.iter().zip(galleys).enumerate() {
         let tile = Rect::from_min_size(egui::pos2(x, top), Vec2::new(widths[i], height) / scale);
-        let response = crate::settings_navigation::control(ui.interact(
-            tile,
-            group.id.with(i),
-            egui::Sense::click_and_drag(),
-        ));
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), *label)
-        });
+        let available = ui.is_enabled() && enabled(value);
+        let response = ui
+            .add_enabled_ui(available, |ui| {
+                crate::settings_navigation::control(ui.interact(
+                    tile,
+                    group.id.with(i),
+                    egui::Sense::click_and_drag(),
+                ))
+            })
+            .inner;
+        response
+            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, available, *label));
         let state = if value == current {
             origin
         } else {
             SelectionState::Unselected
         };
         let p = theme.palette;
-        let (base, text) = match state {
+        let (mut base, mut text) = match state {
             SelectionState::Explicit => (p.selection.background, p.selection.foreground),
             SelectionState::Inherited => (p.inherited.background, p.inherited.foreground),
             SelectionState::Unselected => (Color32::TRANSPARENT, p.inactive.foreground),
         };
+        if !enabled(value) {
+            base = base.gamma_multiply(0.45);
+            text = text.gamma_multiply(0.45);
+        }
         let fill = if response.is_pointer_button_down_on() && response.contains_pointer() {
             if state == SelectionState::Unselected {
                 p.active.weak_background

@@ -13,6 +13,8 @@ Unreleased contains changes intended for the next public release.
 
 - SDL text presentation with the shared display settings and CRT filter.
 - Optional terminal play through `--renderer terminal` using an attached terminal.
+- Launcher options for graphical/terminal play, sharp pixels/CRT and
+  windowed/fullscreen, retaining graphical preferences during terminal play.
 - Native bookmarks and transcripts, with filename prompts in either frontend.
 
 ## 2026.1.0 (2026-11-01)

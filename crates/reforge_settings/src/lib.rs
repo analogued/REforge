@@ -54,10 +54,14 @@ pub const CONTROL_KEYS: &[&str] = &[STICK_DEAD_ZONE];
 pub const SECTION_KEYS: [&[&str]; 4] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS, CONTROL_KEYS];
 pub const DIGITIZED_SAMPLES: &str = "digitized_samples";
 pub const CONTROL_MODE: &str = "control_mode";
+// Dormant per-entry override while Terminal is selected. Absence means the
+// graphical renderer should continue to inherit the global setting.
+const GRAPHICAL_RENDERER: &str = "graphical_renderer";
 fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     match game {
         "mach-3" => Some(DIGITIZED_SAMPLES),
         "alley-cat" => Some(CONTROL_MODE),
+        "mindwheel" => Some(GRAPHICAL_RENDERER),
         _ => None,
     }
     .into_iter()
@@ -654,6 +658,25 @@ impl Draft {
     pub fn game_values(&self) -> RuntimeSettings {
         overlay(self.global_values(), &self.game)
     }
+    /// Switch BTZ's startup frontend without replacing graphical preferences.
+    pub fn set_terminal(&mut self, terminal: bool) {
+        if terminal {
+            if self.game_values().renderer != Renderer::Terminal {
+                if let Some(renderer) = self.game.get("renderer").cloned() {
+                    self.game.insert(GRAPHICAL_RENDERER.into(), renderer);
+                } else {
+                    self.game.remove(GRAPHICAL_RENDERER);
+                }
+                self.game.insert("renderer".into(), "terminal".into());
+            }
+        } else if self.game_values().renderer == Renderer::Terminal {
+            if let Some(renderer) = self.game.remove(GRAPHICAL_RENDERER) {
+                self.game.insert("renderer".into(), renderer);
+            } else {
+                self.game.remove("renderer");
+            }
+        }
+    }
     /// Resolve incompatible treatment preferences at menu Apply, before CLI
     /// overrides. Game edits leave global defaults alone; global edits also
     /// reconcile this game's inherited choices without touching other games.
@@ -685,6 +708,9 @@ impl Draft {
         }
         if game && page == 3 {
             patch.remove(CONTROL_MODE);
+        }
+        if game && page == 0 {
+            patch.remove(GRAPHICAL_RENDERER);
         }
     }
     /// Native game options can share a menu page without acquiring global keys.
@@ -816,9 +842,27 @@ impl Session {
         }
         values
     }
-    pub fn commit(&mut self, draft: Draft) -> Result<(), String> {
+    pub fn commit(&mut self, mut draft: Draft) -> Result<(), String> {
         if self.blocked {
             return Err("preferences were applied, but the invalid/unreadable configuration was preserved; repair it before saving".into());
+        }
+        // Settings can choose Terminal through the full Renderer selector too.
+        // Preserve the explicit graphical override across either entry point.
+        if self.game_id == "mindwheel" {
+            if draft.game_values().renderer == Renderer::Terminal {
+                let key = if self.saved.game_values().renderer == Renderer::Terminal {
+                    GRAPHICAL_RENDERER
+                } else {
+                    "renderer"
+                };
+                if let Some(renderer) = self.saved.game.get(key).cloned() {
+                    draft.game.insert(GRAPHICAL_RENDERER.into(), renderer);
+                } else {
+                    draft.game.remove(GRAPHICAL_RENDERER);
+                }
+            } else {
+                draft.game.remove(GRAPHICAL_RENDERER);
+            }
         }
         if let Some(path) = &self.path {
             save_changes(
@@ -887,6 +931,19 @@ fn read_draft(
                             String::new()
                         };
                         let mut validated = RuntimeSettings::default();
+                        if key == GRAPHICAL_RENDERER {
+                            match text.parse::<Renderer>() {
+                                Ok(renderer) if renderer != Renderer::Terminal => {
+                                    p.insert(key.into(), renderer.as_str().into());
+                                }
+                                _ => {
+                                    *warning = Some(
+                                        "Invalid graphical renderer; using inherited value".into(),
+                                    )
+                                }
+                            }
+                            continue;
+                        }
                         if validated.set(key, &text).is_ok()
                             && !(key == "renderer"
                                 && validated.renderer == Renderer::Terminal
@@ -1260,6 +1317,59 @@ mod tests {
         assert!(warning.is_some());
         assert!(!mach.game.contains_key("renderer"));
         assert_eq!(mach.game_values().renderer, Renderer::Auto);
+    }
+
+    #[test]
+    fn frontend_switch_restores_explicit_renderer_and_retains_inheritance() {
+        for renderer in [
+            None,
+            Some("auto"),
+            Some("gpu"),
+            Some("sdl"),
+            Some("software"),
+        ] {
+            let dir = TestDir::new();
+            let path = dir.file();
+            let mut s = session(path.clone(), "mindwheel");
+            let mut d = s.saved.clone();
+            d.global.insert("renderer".into(), "gpu".into());
+            d.game.insert("window_mode".into(), "fullscreen".into());
+            d.game.insert("presentation".into(), "hyllian".into());
+            if let Some(renderer) = renderer {
+                d.game.insert("renderer".into(), renderer.into());
+            }
+            s.commit(d).unwrap();
+            let graphical = s.saved.clone();
+            // Use the same direct setting edit as the full Renderer selector.
+            let mut d = s.saved.clone();
+            d.edit(true, "renderer", "terminal".into());
+            s.commit(d).unwrap();
+            s = session(path.clone(), "mindwheel");
+            assert_eq!(s.effective(&s.saved).renderer, Renderer::Terminal);
+            let mut d = s.saved.clone();
+            d.set_terminal(false);
+            s.commit(d).unwrap();
+            assert_eq!(session(path.clone(), "mindwheel").saved, graphical);
+
+            let mut d = s.saved.clone();
+            d.set_terminal(true);
+            s.commit(d).unwrap();
+            // Inherited renderers keep following global changes while dormant.
+            let mut d = s.saved.clone();
+            d.global.insert("renderer".into(), "sdl".into());
+            s.commit(d).unwrap();
+            s = session(path, "mindwheel");
+            let mut d = s.saved.clone();
+            d.set_terminal(false);
+            s.commit(d).unwrap();
+            assert_eq!(s.saved.game.get("renderer").map(String::as_str), renderer);
+            assert_eq!(
+                s.saved.game_values().renderer.as_str(),
+                renderer.unwrap_or("sdl")
+            );
+            assert!(s.saved.game_values().fullscreen);
+            assert_eq!(s.saved.game_values().presentation, Presentation::Hyllian);
+        }
     }
 
     #[test]

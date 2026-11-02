@@ -451,11 +451,11 @@ fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
 }
 
 #[test]
-fn both_engines_quick_options_fit_the_minimum_logical_window() {
-    let fixture = Fixture::new(2);
+fn all_engines_quick_options_fit_the_minimum_logical_window() {
+    let fixture = Fixture::new(detection::RELEASES.len());
     for theme in ThemeId::ALL {
         for layout in LayoutVariant::ALL {
-            for index in 0..2 {
+            for index in 0..detection::RELEASES.len() {
                 let mut h = Harness::new(&fixture, theme, layout, true);
                 h.size = Vec2::new(630.0, 470.0);
                 h.state.selected = Some(h.state.games[index].entry_id.clone());
@@ -564,6 +564,57 @@ fn immediate_pins_survive_reloads_and_global_changes_even_when_values_match() {
             let reloaded = fixture.state(theme, layout, false);
             assert_eq!(reloaded.games[0].preferences.saved["Window"], "Fullscreen");
             assert_eq!(reloaded.games[0].option_values()["Window"], "Fullscreen");
+        }
+    }
+}
+
+#[test]
+fn btz_launch_options_preserve_graphics_and_disable_unavailable_choices() {
+    for theme in ThemeId::ALL {
+        for layout in LayoutVariant::ALL {
+            let fixture = Fixture::new(detection::RELEASES.len());
+            let mut h = Harness::new(&fixture, theme, layout, true);
+            h.state.games.retain(|game| game.game_id == "mindwheel");
+            h.size = Vec2::new(630.0, 470.0);
+            h.state.selected = Some(h.state.games[0].entry_id.clone());
+            h.state.options_open = true;
+            let game = &mut h.state.games[0];
+            game.terminal_available = true;
+            assert_eq!(
+                game.option_choices()
+                    .iter()
+                    .map(|(field, _)| *field)
+                    .collect::<Vec<_>>(),
+                ["Renderer", "Display", "Window"]
+            );
+            let mut s = fixture.session("mindwheel");
+            let mut d = s.saved.clone();
+            d.game.insert("renderer".into(), "gpu".into());
+            s.commit(d).unwrap();
+            game.refresh_preferences().unwrap();
+            game.save_option("Display", "Hyllian CRT");
+            game.save_option("Window", "Fullscreen");
+            let graphical = fixture.session("mindwheel").saved;
+            h.click("Terminal");
+            assert!(h.state.games[0].terminal_selected());
+            assert_eq!(h.state.games[0].full_mode_label(), "Terminal");
+            assert!(!h.state.games[0].crt_preview());
+            assert!(!h.state.games[0].option_enabled("Display"));
+            assert!(!h.state.games[0].option_enabled("Window"));
+            h.click("Sharp pixels");
+            h.click("Windowed");
+            assert_eq!(h.state.games[0].option_values()["Display"], "Hyllian CRT");
+            assert_eq!(h.state.games[0].option_values()["Window"], "Fullscreen");
+            // Reload from disk while terminal mode is active.
+            h.state.games[0].refresh_preferences().unwrap();
+            h.click("Graphical");
+            assert_eq!(fixture.session("mindwheel").saved, graphical);
+            assert!(h.state.games[0].option_enabled("Display"));
+            assert!(h.state.games[0].option_enabled("Window"));
+            h.state.games[0].terminal_available = false;
+            h.click("Terminal");
+            assert!(!h.state.games[0].terminal_selected());
+            assert_eq!(fixture.session("mindwheel").saved, graphical);
         }
     }
 }
@@ -801,6 +852,72 @@ fn folder_callback_owns_selection_and_handles_cancellation() {
 
 /// Run alone so SDL owns video on one thread. The normal suite above is entirely
 /// headless; this opt-in check also exercises the production input and painter.
+#[test]
+#[ignore = "owns SDL video; run with SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software --test-threads=1"]
+fn btz_presentation_controls_native_painter() {
+    use reforge_sdl::settings::UiMetrics;
+    let fixture = Fixture::new(detection::RELEASES.len());
+    let _guard = Launch {
+        game_id: "standalone".into(),
+        entry_id: None,
+        path: Some(fixture.config.clone()),
+        cli: reforge_settings::Patch::from([("renderer".into(), "software".into())]),
+    }
+    .install();
+    let sdl = sdl3::init().unwrap();
+    let video = sdl.video().unwrap();
+    let window = video
+        .window("BTZ presentation", 630, 470)
+        .hidden()
+        .build()
+        .unwrap();
+    let mut canvas = window.into_canvas();
+    let creator = FrameCreator::for_ui(&canvas);
+    let mut gui = Gui::new(&creator);
+    gui.set_focus_overlay(false);
+    let metrics = UiMetrics {
+        drawable: (630, 470),
+        window: (630, 470),
+        pixels_per_point: 1.0,
+    };
+    let capture = std::env::var_os("REFORGE_LAUNCHER_CAPTURE").map(PathBuf::from);
+    if let Some(directory) = &capture {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    for theme in ThemeId::ALL {
+        gui.set_theme(ResolvedAppearance::resolve(theme).theme);
+        for layout in LayoutVariant::ALL {
+            for terminal in [false, true] {
+                let mut state = fixture.state(theme, layout, true);
+                state.games.retain(|game| game.game_id == "mindwheel");
+                state.selected = Some(state.games[0].entry_id.clone());
+                state.options_open = true;
+                let game = &mut state.games[0];
+                game.preferences
+                    .saved
+                    .insert("Renderer", if terminal { "Terminal" } else { "Graphical" });
+                game.preferences.saved.insert("Display", "Hyllian CRT");
+                game.preferences.saved.insert("Window", "Fullscreen");
+                game.terminal_available = true;
+                for _ in 0..4 {
+                    native_frame(&mut gui, &mut canvas, &mut state, metrics);
+                }
+                if let Some(directory) = &capture {
+                    canvas
+                        .read_pixels(None)
+                        .unwrap()
+                        .save_bmp(directory.join(format!(
+                            "btz-{}-{}-{terminal}.bmp",
+                            theme.slug(),
+                            layout.slug()
+                        )))
+                        .unwrap();
+                }
+            }
+        }
+    }
+}
+
 #[test]
 #[ignore = "owns SDL video; run with SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software --test-threads=1"]
 fn native_painter_capture_matrix_and_modal_navigation() {

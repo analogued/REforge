@@ -7,8 +7,6 @@ original text layout, interactive commands and background story activity.
 > REforge does not include original Mindwheel assets or data. You must provide
 > the original files from a supported release. See [What you need](#what-you-need).
 
-[Back to REforge](../../README.md)
-
 ## What you need
 
 Keep the corresponding **ADISK.OBJ**, **GO.EXE** and **SIDE.TXT** together in
@@ -18,12 +16,12 @@ logical-disk mappings used by restart and bookmark restore.
 
 All three files must match the supported release's sizes and SHA-256 hashes.
 
+## Start playing
+
 > [!NOTE]
 > A complete winning playthrough has not been verified. Random events can differ
 > from a DOS run, and some pause and queued-input cases remain
 > imperfect. See the [runtime compatibility notes](../../engines/btz/docs/mindwheel-dos-runtime.md#compatibility-boundaries).
-
-## Start playing
 
 Add the game directory to the launcher and select **Play**, or run:
 

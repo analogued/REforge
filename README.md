@@ -90,7 +90,7 @@ locations and command-line overrides. For available launch options, run:
 ## Development
 
 Build with `--features dev-tools` to enable diagnostics. During play,
-**F9** toggles a small FPS indicator in either game, including in Settings.
+**F9** toggles a small FPS indicator during windowed play, including in Settings.
 It starts hidden and reports completed frame presentations averaged over
 half-second intervals, rather than simulation updates or monitor refresh rate.
 

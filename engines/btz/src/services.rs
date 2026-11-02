@@ -59,12 +59,19 @@ pub struct ServiceMessages {
 impl ServiceMessages {
     /// Reads the investigated DOS offsets; this does not identify revisions.
     pub fn from_dos_executable(exe: &[u8]) -> Result<Self, Error> {
+        Self::from_dos_resources(exe, crate::interpreter::MINDWHEEL_RESOURCES)
+    }
+
+    pub fn from_dos_resources(
+        exe: &[u8],
+        layout: crate::interpreter::DosResources,
+    ) -> Result<Self, Error> {
         let data = dos_data(exe)?;
         Ok(Self {
-            printer_prompt: c_string(data, 0x23f)?,
-            printer_error: c_string(data, 0x18f)?,
-            disk_prompt: c_string(data, 0x270)?,
-            wrong_disk: c_string(data, 0x297)?,
+            printer_prompt: c_string(data, layout.service_strings[0])?,
+            printer_error: c_string(data, layout.service_strings[1])?,
+            disk_prompt: c_string(data, layout.service_strings[2])?,
+            wrong_disk: c_string(data, layout.service_strings[3])?,
         })
     }
     pub fn transcript_name_request(&self) -> HostRequest {

@@ -4,6 +4,7 @@
 
 use crate::decode::{Instruction, OperandMode, decode};
 use crate::image::StoryImage;
+use crate::interpreter::{ExtensionOpcode, Interpreter, MINDWHEEL_DOS, NativeService};
 use crate::{Error, ObjectId, ProgramAddr, VarAddr, read_word};
 
 const NONE: u16 = 0xffff;
@@ -59,9 +60,11 @@ impl Layout {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Request {
     PollInput,
+    Character { byte: u8 },
+    ResumeText { argument: u16, position: u16 },
     Random { maximum: u16 },
     Message { id: u16 },
-    NativeService { id: u16 },
+    NativeService { service: NativeService },
     ObjectWords { object: ObjectId },
     Decimal { value: u16 },
     RememberObject { object: ObjectId },
@@ -86,6 +89,7 @@ enum Stage {
 
 pub struct Vm {
     image: StoryImage,
+    interpreter: &'static Interpreter,
     layout: Layout,
     state: VmState,
     stage: Stage,
@@ -96,13 +100,17 @@ pub struct Vm {
 
 impl Vm {
     pub fn new(image: StoryImage) -> Result<Self, Error> {
+        Self::with_interpreter(image, &MINDWHEEL_DOS)
+    }
+
+    pub fn with_interpreter(
+        image: StoryImage,
+        interpreter: &'static Interpreter,
+    ) -> Result<Self, Error> {
         let initial = image.initial_variables();
         let mut variables = initial.to_vec();
         variables[..2].copy_from_slice(&NONE.to_le_bytes());
-        for value in 1u16..=14 {
-            let offset = usize::from(value) * 2;
-            variables[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
-        }
+        initialize_variables(&mut variables, interpreter)?;
         let state = VmState {
             ip: ProgramAddr(read_word(initial, 0xe8, "entry")?),
             argument: 0,
@@ -111,11 +119,19 @@ impl Vm {
             returns: Vec::new(),
             values: Vec::new(),
         };
-        Self::from_state(image, state)
+        Self::from_state_with_interpreter(image, state, interpreter)
     }
 
     /// Restores a fetch-boundary checkpoint, not a suspended native operation.
     pub fn from_state(image: StoryImage, state: VmState) -> Result<Self, Error> {
+        Self::from_state_with_interpreter(image, state, &MINDWHEEL_DOS)
+    }
+
+    pub fn from_state_with_interpreter(
+        image: StoryImage,
+        state: VmState,
+        interpreter: &'static Interpreter,
+    ) -> Result<Self, Error> {
         let layout = Layout::read(image.initial_variables())?;
         if state.variables.len() != image.initial_variables().len()
             || state.returns.len() > STACK_CAPACITY
@@ -134,6 +150,7 @@ impl Vm {
         value_slots[..state.values.len()].copy_from_slice(&state.values);
         Ok(Self {
             image,
+            interpreter,
             layout,
             state,
             stage: Stage::Fetch,
@@ -141,6 +158,10 @@ impl Vm {
             return_slots,
             value_slots,
         })
+    }
+
+    pub fn interpreter(&self) -> &'static Interpreter {
+        self.interpreter
     }
 
     pub fn state(&self) -> &VmState {
@@ -189,6 +210,62 @@ impl Vm {
         Ok(())
     }
 
+    fn pop_return(&mut self) -> Result<u16, Error> {
+        self.state
+            .returns
+            .pop()
+            .ok_or_else(|| Error("return stack underflow".into()))
+    }
+
+    pub(crate) fn push_text_value(&mut self, value: u16) -> Result<(), Error> {
+        Self::push(
+            &mut self.state.values,
+            &mut self.value_slots,
+            value,
+            "value",
+        )
+    }
+
+    /// The four words are native return-stack entries, so bookmarks taken
+    /// inside a callback can resume the suspended message without host state.
+    pub(crate) fn begin_text_callback(
+        &mut self,
+        argument: u16,
+        position: u16,
+        letter: u8,
+    ) -> Result<(), Error> {
+        if !letter.is_ascii_lowercase() {
+            return Err(Error("text callback letter outside a..z".into()));
+        }
+        if !matches!(
+            self.stage,
+            Stage::Request(
+                Request::Message { .. } | Request::ObjectWords { .. } | Request::ResumeText { .. }
+            )
+        ) {
+            return Err(Error(
+                "text callback requires a pending text request".into(),
+            ));
+        }
+        let table = self.variable(VarAddr(0x138))?;
+        let target = self.variable(VarAddr(table.wrapping_add(u16::from(letter - b'a') * 2)))?;
+        if self.state.returns.len() + 4 > STACK_CAPACITY {
+            return Err(Error("text continuation exceeds return stack".into()));
+        }
+        self.write_variable(VarAddr(0x130), argument)?;
+        for word in [position, argument, self.state.ip.0, 0] {
+            Self::push(
+                &mut self.state.returns,
+                &mut self.return_slots,
+                word,
+                "return",
+            )?;
+        }
+        self.state.ip = ProgramAddr(target);
+        self.stage = Stage::Fetch;
+        Ok(())
+    }
+
     fn program_word(&self, address: u16) -> Result<u16, Error> {
         self.image.program_word(ProgramAddr(address))
     }
@@ -229,13 +306,25 @@ impl Vm {
         let predicate = |test| if test { NONE } else { 0 };
         match opcode {
             0x00 => {
-                self.state.ip = ProgramAddr(
-                    self.state
-                        .returns
-                        .pop()
-                        .ok_or_else(|| Error("return stack underflow".into()))?,
-                );
-                self.set_accumulator(argument);
+                let callbacks =
+                    self.interpreter.text == crate::interpreter::TextExecution::WordcodeCallbacks;
+                if callbacks {
+                    self.set_accumulator(argument);
+                }
+                self.state.ip = ProgramAddr(self.pop_return()?);
+                if !callbacks {
+                    self.set_accumulator(argument);
+                }
+                if callbacks && self.state.ip.0 == 0 {
+                    self.state.ip = ProgramAddr(self.pop_return()?);
+                    self.state.argument = self.pop_return()?;
+                    self.write_variable(VarAddr(0x130), NONE)?;
+                    let position = self.pop_return()?;
+                    return Ok(self.suspend(Request::ResumeText {
+                        argument: self.state.argument,
+                        position,
+                    }));
+                }
             }
             0x01 => self.call(argument)?,
             0x02 => self.jump(argument),
@@ -250,7 +339,35 @@ impl Vm {
             0x0a => self.set_accumulator(predicate(accumulator < argument)),
             0x0b => self.set_accumulator(argument),
             0x0c => self.write_variable(VarAddr(argument), accumulator)?,
-            0x0d..=0x0f | 0x17 | 0x18 => {}
+            0x0d..=0x0f => match self.interpreter.extensions[usize::from(opcode - 0x0d)] {
+                ExtensionOpcode::NoOp => {}
+                ExtensionOpcode::Character => {
+                    return Ok(self.suspend(Request::Character {
+                        byte: argument as u8,
+                    }));
+                }
+                ExtensionOpcode::LoadByte => {
+                    let byte = *self
+                        .state
+                        .variables
+                        .get(usize::from(argument))
+                        .ok_or_else(|| Error("byte read outside variable image".into()))?;
+                    self.set_accumulator(u16::from(byte));
+                }
+                ExtensionOpcode::StoreByte => {
+                    // Native offset zero is changed to ffff before its bounds test.
+                    if argument == 0 || (2..10).contains(&argument) {
+                        return Err(Error("protected byte write".into()));
+                    }
+                    let target = self
+                        .state
+                        .variables
+                        .get_mut(usize::from(argument))
+                        .ok_or_else(|| Error("byte write outside variable image".into()))?;
+                    *target = accumulator as u8;
+                }
+            },
+            0x17 | 0x18 => {}
             0x10 => self.set_accumulator(accumulator.wrapping_add(argument)),
             0x11 => self.set_accumulator(accumulator.wrapping_sub(argument)),
             0x12 => self.set_accumulator(argument.wrapping_sub(accumulator)),
@@ -259,14 +376,14 @@ impl Vm {
             0x14 => self.set_accumulator(accumulator / argument),
             0x15 => return Ok(self.suspend(Request::Random { maximum: argument })),
             0x16 => return Ok(self.suspend(Request::Message { id: argument })),
-            0x19 => match argument {
-                12 => {
+            0x19 => match self.interpreter.service(argument) {
+                Some(NativeService::ResetStacks) => {
                     self.state.returns.clear();
                     self.state.values.clear();
                 }
-                13 => {}
-                1..=14 => return Ok(self.suspend(Request::NativeService { id: argument })),
-                _ => return Err(Error(format!("invalid native service {argument}"))),
+                Some(NativeService::NoOp) => {}
+                Some(service) => return Ok(self.suspend(Request::NativeService { service })),
+                None => return Err(Error(format!("invalid native service {argument}"))),
             },
             0x1a => {
                 return Ok(self.suspend(Request::ObjectWords {
@@ -327,7 +444,12 @@ impl Vm {
     /// Service 1 redirects lexical misses through the story's own handler,
     /// preserving the interrupted return address before completing the service.
     pub(crate) fn call_from_parser(&mut self, address: ProgramAddr) -> Result<(), Error> {
-        if !matches!(self.stage, Stage::Request(Request::NativeService { id: 1 })) {
+        if !matches!(
+            self.stage,
+            Stage::Request(Request::NativeService {
+                service: NativeService::ReadParse
+            })
+        ) {
             return Err(Error(
                 "parser redirect requires a pending read service".into(),
             ));
@@ -345,7 +467,12 @@ impl Vm {
         return_slots: &[u16; STACK_CAPACITY],
         value_slots: &[u16; STACK_CAPACITY],
     ) -> Result<(), Error> {
-        if !matches!(self.stage, Stage::Request(Request::NativeService { id: 6 })) {
+        if !matches!(
+            self.stage,
+            Stage::Request(Request::NativeService {
+                service: NativeService::Restore
+            })
+        ) {
             return Err(Error(
                 "bookmark restore requires a pending restore service".into(),
             ));
@@ -373,7 +500,9 @@ impl Vm {
     pub(crate) fn reset_initial_variables(&mut self) -> Result<(), Error> {
         if !matches!(
             self.stage,
-            Stage::Request(Request::NativeService { id: 11 })
+            Stage::Request(Request::NativeService {
+                service: NativeService::ResetVariables
+            })
         ) {
             return Err(Error(
                 "initial-variable reload requires native service11".into(),
@@ -383,15 +512,12 @@ impl Vm {
             .variables
             .copy_from_slice(self.image.initial_variables());
         self.state.variables[..2].copy_from_slice(&NONE.to_le_bytes());
-        for value in 1u16..=14 {
-            let offset = usize::from(value) * 2;
-            self.state.variables[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
-        }
+        initialize_variables(&mut self.state.variables, self.interpreter)?;
         Ok(())
     }
 
-    /// Completes a request. PollInput currently supports an empty keyboard only;
-    /// actual keyboard parsing is explicitly not implemented by this core.
+    /// Completes a request after the native algorithm or host adapter has run.
+    /// PollInput carries no result; Session services its keyboard opportunity.
     pub fn resume(&mut self, value: Option<u16>) -> Result<(), Error> {
         match self.stage.clone() {
             Stage::Poll(instruction) => {
@@ -504,7 +630,10 @@ impl Vm {
         if !address && (object.0 == NONE || property.0 == NONE) {
             return Ok(NONE);
         }
-        if property.0 > self.layout.max_object && property.0 != NONE {
+        if self.interpreter.validate_property_id
+            && property.0 > self.layout.max_object
+            && property.0 != NONE
+        {
             return Err(Error("property ID outside object table".into()));
         }
         let mut object = object.0;
@@ -591,4 +720,19 @@ impl Vm {
     pub fn property_found(&self) -> bool {
         self.property_found
     }
+}
+
+fn initialize_variables(variables: &mut [u8], interpreter: &Interpreter) -> Result<(), Error> {
+    for value in 1u16..=14 {
+        let offset = usize::from(value) * 2;
+        variables[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+    for &(address, value) in interpreter.initial_values {
+        let offset = usize::from(address.0);
+        variables
+            .get_mut(offset..offset + 2)
+            .ok_or_else(|| Error("extended interpreter header is truncated".into()))?
+            .copy_from_slice(&value.to_le_bytes());
+    }
+    Ok(())
 }

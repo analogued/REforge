@@ -295,14 +295,17 @@ fn joined_choice_strip<T: Clone + PartialEq>(
             SelectionState::Unselected
         };
         let p = theme.palette;
-        let (mut base, mut text) = match state {
+        let (base, text) = match state {
             SelectionState::Explicit => (p.selection.background, p.selection.foreground),
             SelectionState::Inherited => (p.inherited.background, p.inherited.foreground),
             SelectionState::Unselected => (Color32::TRANSPARENT, p.inactive.foreground),
         };
-        if !enabled(value) {
-            base = base.gamma_multiply(0.45);
-            text = text.gamma_multiply(0.45);
+        // Custom painting happens outside the disabled interaction scope.
+        // Use egui's normal fade for an unavailable choice, without adding
+        // opacity or compounding the fade inherited from a disabled group.
+        let mut painter = ui.painter().clone();
+        if !available {
+            painter.set_fade_to_color(Some(ui.visuals().fade_out_to_color()));
         }
         let fill = if response.is_pointer_button_down_on() && response.contains_pointer() {
             if state == SelectionState::Unselected {
@@ -333,10 +336,8 @@ fn joined_choice_strip<T: Clone + PartialEq>(
         };
         // Hover and selection change colour only: no expansion into adjacent
         // options, the group border, or its rounded outer corners.
-        ui.painter()
-            .rect(tile, radius, fill, stroke, StrokeKind::Inside);
-        ui.painter()
-            .galley(tile.center() - galley.size() * 0.5, galley, text);
+        painter.rect(tile, radius, fill, stroke, StrokeKind::Inside);
+        painter.galley(tile.center() - galley.size() * 0.5, galley, text);
         if response.activated() {
             clicked = Some(value.clone());
         }

@@ -103,6 +103,69 @@ fn frame(
 }
 
 #[test]
+fn disabled_joined_choices_use_normal_fading_once() {
+    for id in [
+        themes::ThemeId::SoftTonal,
+        themes::ThemeId::WarmAmber,
+        themes::ThemeId::CrispLight,
+    ] {
+        let theme = themes::ResolvedAppearance::resolve(id).theme;
+        for state in [SelectionState::Inherited, SelectionState::Explicit] {
+            for parent_enabled in [false, true] {
+                let context = Context::default();
+                theme.apply_palette(&context);
+                let output = context.run(RawInput::default(), |context| {
+                    egui::CentralPanel::default().show(context, |ui| {
+                        ui.add_enabled_ui(parent_enabled, |ui| {
+                            primitives::choice_strip_enabled(
+                                ui,
+                                &theme,
+                                &[(0, "CGA"), (1, "PCjr")],
+                                &0,
+                                state,
+                                |choice| *choice != 0,
+                            );
+                        });
+                    });
+                });
+                let selected = if state == SelectionState::Inherited {
+                    theme.palette.inherited
+                } else {
+                    theme.palette.selection
+                };
+                let visuals = &context.style().visuals;
+                let fill = visuals.gray_out(selected.background);
+                assert!(
+                    output.shapes.iter().any(|shape| matches!(
+                        &shape.shape, egui::Shape::Rect(rect) if rect.fill == fill
+                    )),
+                    "{id:?} {state:?}: disabled selection must use normal fading"
+                );
+                for (label, expected) in [
+                    ("CGA", visuals.gray_out(selected.foreground)),
+                    (
+                        "PCjr",
+                        if parent_enabled {
+                            theme.palette.inactive.foreground
+                        } else {
+                            visuals.gray_out(theme.palette.inactive.foreground)
+                        },
+                    ),
+                ] {
+                    let actual = output.shapes.iter().find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text) if text.galley.text() == label => {
+                            Some(text.fallback_color)
+                        }
+                        _ => None,
+                    });
+                    assert_eq!(actual, Some(expected), "{id:?} {state:?} {label}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn every_choice_primitive_returns_clicks_including_active_values() {
     for shape in [
         ChoiceShape::Buttons,

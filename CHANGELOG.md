@@ -12,6 +12,8 @@ Unreleased contains changes intended for the next public release.
 ### General
 
 - Consistent top-left option badges for preview images and initials fallbacks.
+- Fixed washed-out disabled launcher choices in Soft Tonal, Warm Amber and
+  Crisp Light by using the same fading as other disabled controls.
 
 ### Mindwheel
 

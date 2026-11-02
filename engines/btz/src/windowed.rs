@@ -146,7 +146,7 @@ impl Overlay {
                 .default_width(440.0)
                 .show(context, |ui| {
                     ui.label(&prompt.label);
-                    let field = Gui::control(
+                    let field = Gui::text_edit(
                         ui.add(
                             egui::TextEdit::singleline(&mut prompt.path)
                                 .hint_text("Filename or path")
@@ -648,7 +648,7 @@ mod tests {
         overlay.prompt = Some(FilePrompt {
             request: HostRequest::LoadBookmark,
             label: "Bookmark".into(),
-            path: "kept".into(),
+            path: "save.dat".into(),
             focus: true,
         });
         let mut action = None;
@@ -658,6 +658,41 @@ mod tests {
             });
         }
         assert!(action.is_none());
+        // Filename editing must keep its caret keys instead of moving UI focus.
+        gui.handle_event(&press(Keycode::End, Mod::NOMOD));
+        gui.handle_event(&press(Keycode::Left, Mod::NOMOD));
+        gui.handle_event(&Event::TextInput {
+            timestamp: 0,
+            window_id: 1,
+            text: "X".into(),
+        });
+        gui.prepare(metrics, |ctx| {
+            action = overlay.show(ctx);
+        });
+        assert!(action.is_none());
+        assert_eq!(overlay.prompt.as_ref().unwrap().path, "save.daXt");
+
+        gui.handle_event(&press(Keycode::Right, Mod::NOMOD));
+        gui.handle_event(&Event::TextInput {
+            timestamp: 0,
+            window_id: 1,
+            text: "Y".into(),
+        });
+        gui.prepare(metrics, |ctx| {
+            action = overlay.show(ctx);
+        });
+        assert_eq!(overlay.prompt.as_ref().unwrap().path, "save.daXtY");
+        gui.handle_event(&press(Keycode::Left, Mod::LSHIFTMOD));
+        gui.handle_event(&Event::TextInput {
+            timestamp: 0,
+            window_id: 1,
+            text: "Z".into(),
+        });
+        gui.prepare(metrics, |ctx| {
+            action = overlay.show(ctx);
+        });
+        assert_eq!(overlay.prompt.as_ref().unwrap().path, "save.daXtZ");
+
         // The field and both buttons must participate in shared navigation.
         for _ in 0..2 {
             assert!(route_gamepad(
@@ -712,6 +747,6 @@ mod tests {
             matches!(action, Some(OverlayAction::Submit(None))),
             "controller B did not cancel the filename prompt"
         );
-        assert_eq!(overlay.prompt.as_ref().unwrap().path, "kept");
+        assert_eq!(overlay.prompt.as_ref().unwrap().path, "save.daXtZ");
     }
 }

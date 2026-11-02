@@ -97,6 +97,14 @@ impl<'a> Gui<'a> {
     pub fn control(response: egui::Response) -> egui::Response {
         crate::settings_navigation::control(response)
     }
+    /// Register a text field while retaining Left/Right for caret movement and
+    /// selection. Tab, vertical arrows and controller shoulders navigate away.
+    pub fn text_edit(response: egui::Response) -> egui::Response {
+        crate::settings_navigation::value_control(
+            response,
+            crate::settings_navigation::Kind::TextEdit,
+        )
+    }
     pub fn prepare(&mut self, metrics: UiMetrics, mut draw: impl FnMut(&egui::Context)) {
         let s = &mut self.surface;
         s.density = metrics.density();

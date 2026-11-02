@@ -17,6 +17,8 @@ Unreleased contains changes intended for the next public release.
 
 ### Mindwheel
 
+- Left/Right caret movement and Shift selection work in filename prompts
+  alongside keyboard and controller dialog navigation.
 - Disk-map overrides through `--side-map` require a `dev-tools` build; normal
   play uses the verified game files selected through `--original`.
 - Controller navigation for in-game Settings and file dialogs, including

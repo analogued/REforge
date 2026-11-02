@@ -108,7 +108,10 @@ impl Navigation {
                 memory.set_focus_lock_filter(
                     target.id,
                     egui::EventFilter {
-                        horizontal_arrows: matches!(target.kind, Kind::Slider | Kind::Selector),
+                        horizontal_arrows: matches!(
+                            target.kind,
+                            Kind::Slider | Kind::Selector | Kind::TextEdit
+                        ),
                         ..Default::default()
                     },
                 )
@@ -145,10 +148,10 @@ impl Navigation {
                 continue;
             }
             let current = targets.iter().position(|target| Some(target.id) == focused);
-            // Widget-owned horizontal arrows still adjust sliders and selectors.
+            // Widget-owned horizontal arrows adjust values or edit a text caret.
             if arrow
                 && current.is_some_and(|index| match targets[index].kind {
-                    Kind::Slider | Kind::Selector => {
+                    Kind::Slider | Kind::Selector | Kind::TextEdit => {
                         matches!(key, Key::ArrowLeft | Key::ArrowRight)
                     }
                     Kind::Number | Kind::Control => false,
@@ -273,6 +276,8 @@ pub(super) fn take_selector_events(context: &Context, id: Id) -> Vec<Event> {
 #[derive(Clone, Copy)]
 pub(super) enum Kind {
     Control,
+    /// A navigable text field owns Left/Right, including selection modifiers.
+    TextEdit,
     Slider,
     /// Mouse editor, tracked for its slider owner but omitted from navigation.
     Number,

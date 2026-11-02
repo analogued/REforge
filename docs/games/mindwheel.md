@@ -7,6 +7,11 @@ original text layout, interactive commands and background story activity.
 > REforge does not include original Mindwheel assets or data. You must provide
 > the original files from a supported release. See [What you need](#what-you-need).
 
+> [!NOTE]
+> A complete winning playthrough has not been verified. Random events can differ
+> from a DOS run, and some pause, queued-input and bell feedback cases remain
+> imperfect. See the [runtime compatibility notes](../../engines/btz/docs/mindwheel-dos-runtime.md#compatibility-boundaries).
+
 [Back to REforge](../../README.md)
 
 ## What you need
@@ -108,15 +113,10 @@ available each time, so you can choose different files.
 Relative paths supplied by these launch options resolve from the launch
 directory. Active game input files are protected from overwrite.
 
-## Timing and current limits
+## Timing
 
 Characters and background events may continue while you type or wait. The game
 keeps its own pace, so a faster computer does not make time pass faster. When
 its waiting time has expired, it handles that before accepting new keystrokes.
 If you have already submitted a command when it checks, your command takes
 priority.
-
-> [!NOTE]
-> A complete winning playthrough has not been verified. Random events can differ
-> from a DOS run, and some pause, queued-input and bell feedback cases remain
-> imperfect. See the [runtime compatibility notes](../../engines/btz/docs/mindwheel-dos-runtime.md#compatibility-boundaries).

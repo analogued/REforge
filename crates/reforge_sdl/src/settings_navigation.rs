@@ -2042,4 +2042,87 @@ mod tests {
         drop(draw);
         assert_eq!(context.memory(|memory| memory.focused()), Some(anchor));
     }
+
+    #[test]
+    #[ignore = "owns SDL video; run alone with SDL_VIDEODRIVER=dummy"]
+    fn themed_settings_focus_renders_canvas_labels_and_override_values() {
+        use crate::settings::{SettingsMenu, UiMetrics, VideoCapabilities};
+        use crate::ui::themes::{ResolvedAppearance, ThemeId};
+        use sdl3::pixels::Color;
+
+        let metrics = UiMetrics {
+            drawable: (1280, 960),
+            window: (1280, 960),
+            pixels_per_point: 1.0,
+        };
+        let capture =
+            std::env::var_os("REFORGE_SETTINGS_FOCUS_CAPTURE").map(std::path::PathBuf::from);
+        if let Some(path) = &capture {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        let sdl = sdl3::init().unwrap();
+        let video = sdl.video().unwrap();
+        let window = video
+            .window("focus colour readback", 1280, 960)
+            .hidden()
+            .build()
+            .unwrap();
+        let mut canvas = sdl3::render::create_renderer(window, Some(c"software")).unwrap();
+        let creator = crate::FrameCreator::new(
+            &canvas,
+            reforge_settings::Session::for_window(None),
+            4,
+            crate::DisplayGeometry::new((320, 200), (320, 240)),
+            None,
+        );
+        for theme in ThemeId::ALL {
+            let mut menu =
+                SettingsMenu::new(&creator, VideoCapabilities::default()).with_mach3_options(None);
+            menu.set_theme(ResolvedAppearance::resolve(theme).theme);
+            menu.toggle();
+            menu.scope = 1;
+            menu.prepare(metrics, reforge_settings::RuntimeSettings::default());
+            menu.game_editing[0] = true;
+            menu.draft
+                .as_mut()
+                .unwrap()
+                .edit(true, "motion", "original".into());
+            for _ in 0..3 {
+                menu.prepare(metrics, reforge_settings::RuntimeSettings::default());
+            }
+            let targets = menu
+                .context
+                .data(|data| data.get_temp::<Targets>(targets_key()).unwrap().0);
+            let checkbox = targets
+                .iter()
+                .find(|target| {
+                    target.group == Group::Content && matches!(target.kind, Kind::Control)
+                })
+                .unwrap()
+                .id;
+            let selector = targets
+                .iter()
+                .filter(|target| matches!(target.kind, Kind::Selector))
+                .nth(3) // Scaling policy, sampling, aspect ratio, then Mach 3 motion.
+                .unwrap()
+                .id;
+            for (label, focus) in [("checkbox", checkbox), ("selector", selector)] {
+                menu.navigation.set_mode(&menu.context, InputMode::Keyboard);
+                menu.context
+                    .memory_mut(|memory| memory.request_focus(focus));
+                menu.prepare(metrics, reforge_settings::RuntimeSettings::default());
+                assert_eq!(menu.context.memory(|memory| memory.focused()), Some(focus));
+                canvas.set_draw_color(Color::RGB(50, 50, 50));
+                canvas.clear();
+                menu.paint(&mut canvas).unwrap();
+                if let Some(path) = &capture {
+                    canvas
+                        .read_pixels(None)
+                        .unwrap()
+                        .save_bmp(path.join(format!("{}-{label}.bmp", theme.slug())))
+                        .unwrap();
+                }
+            }
+        }
+    }
 }

@@ -10,8 +10,6 @@ PC Speaker music and effects.
 > the original files from a supported release. See [What you need](#what-you-need)
 > below for details.
 
-[Back to REforge](../../README.md)
-
 ## What you need
 
 Supply the original DOS **CAT.EXE**. One verified DOS release is currently

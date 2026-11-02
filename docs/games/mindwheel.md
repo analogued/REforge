@@ -7,8 +7,6 @@ original text layout, interactive commands and background story activity.
 > REforge does not include original Mindwheel assets or data. You must provide
 > the original files from a supported release. See [What you need](#what-you-need).
 
-[Back to REforge](../../README.md)
-
 ## What you need
 
 Keep the corresponding **ADISK.OBJ**, **GO.EXE** and **SIDE.TXT** together in

@@ -9,8 +9,6 @@ original PC Speaker presentation and an alternative Enhanced PCM audio renderer.
 > the original files from a supported release. See [What you need](#what-you-need)
 > below for details.
 
-[Back to REforge](../../README.md)
-
 ## What you need
 
 Supply the original DOS game directory, keeping **MACH3.EXE** and **DATA1**

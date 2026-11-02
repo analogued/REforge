@@ -24,6 +24,7 @@ pub enum Game {
     AlleyCat,
     Mach3,
     Mindwheel,
+    Essex,
 }
 
 impl Game {
@@ -32,6 +33,7 @@ impl Game {
             Self::AlleyCat => "alley-cat",
             Self::Mach3 => "mach-3",
             Self::Mindwheel => "mindwheel",
+            Self::Essex => "essex",
         }
     }
 
@@ -40,7 +42,12 @@ impl Game {
             Self::AlleyCat => &catalog::ALLEY_CAT,
             Self::Mach3 => &catalog::MACH3,
             Self::Mindwheel => &catalog::MINDWHEEL,
+            Self::Essex => &catalog::ESSEX,
         }
+    }
+
+    pub const fn is_btz(self) -> bool {
+        matches!(self, Self::Mindwheel | Self::Essex)
     }
 
     pub const fn title(self) -> &'static str {
@@ -275,7 +282,7 @@ fn detect_with(
         [candidate] => {
             let original = match candidate.release.game() {
                 Game::AlleyCat => candidate.paths[0].clone(),
-                Game::Mach3 | Game::Mindwheel => directory.to_path_buf(),
+                Game::Mach3 | Game::Mindwheel | Game::Essex => directory.to_path_buf(),
             };
             Ok(Detected {
                 game: candidate.release.game(),
@@ -447,53 +454,66 @@ mod tests {
     }
 
     #[test]
-    fn mindwheel_requires_all_three_exact_files() {
-        static RELEASE: &[Release] = &[Release {
-            id: "synthetic-mindwheel",
-            compatibility_id: "synthetic-mindwheel-saves",
-            edition: &catalog::MINDWHEEL_DOS,
-            files: &[
-                FileRecord {
-                    name: "ADISK.OBJ",
-                    size: 3,
-                    sha256: ABC,
-                },
-                FileRecord {
-                    name: "GO.EXE",
-                    size: 3,
-                    sha256: XYZ,
-                },
-                FileRecord {
-                    name: "SIDE.TXT",
-                    size: 3,
-                    sha256: ABC,
-                },
-            ],
-        }];
-        let directory = TestDirectory::new();
-        let data = directory.write("adisk.obj", b"abc");
-        let executable = directory.write("Go.ExE", b"xyz");
-        let missing = detect_with(&directory.0, RELEASE, file_size, hash_file).unwrap_err();
-        assert!(missing.contains("SIDE.TXT"), "{missing}");
-        let map = directory.write("SiDe.TxT", b"abc");
-        for anchor in [&directory.0, &data, &executable, &map] {
-            let result = detect_with(anchor, RELEASE, file_size, hash_file).unwrap();
-            assert_eq!(result.game, Game::Mindwheel);
-            assert_eq!(result.original, directory.0);
-            assert_eq!(result.files["ADISK.OBJ"], data);
-            assert_eq!(result.files["GO.EXE"], executable);
-            assert_eq!(result.files["SIDE.TXT"], map);
-        }
-        for (contents, diagnostic) in [
-            (b"bad".as_slice(), "SHA-256 mismatch"),
-            (b"wrong size".as_slice(), "expected 3 bytes"),
-        ] {
-            fs::write(&map, contents).unwrap();
-            let error = detect_with(&directory.0, RELEASE, file_size, hash_file).unwrap_err();
-            assert!(
-                error.contains("SiDe.TxT") && error.contains(diagnostic),
-                "{error}"
-            );
+    fn btz_games_require_all_three_exact_files() {
+        static FILES: &[FileRecord] = &[
+            FileRecord {
+                name: "ADISK.OBJ",
+                size: 3,
+                sha256: ABC,
+            },
+            FileRecord {
+                name: "GO.EXE",
+                size: 3,
+                sha256: XYZ,
+            },
+            FileRecord {
+                name: "SIDE.TXT",
+                size: 3,
+                sha256: ABC,
+            },
+        ];
+        static CANDIDATES: &[Release] = &[
+            Release {
+                id: "synthetic-mindwheel",
+                compatibility_id: "synthetic-mindwheel",
+                edition: &catalog::MINDWHEEL_DOS,
+                files: FILES,
+            },
+            Release {
+                id: "synthetic-essex",
+                compatibility_id: "synthetic-essex",
+                edition: &catalog::ESSEX_DOS,
+                files: FILES,
+            },
+        ];
+        for candidate in CANDIDATES {
+            let game = candidate.game();
+            let release = std::slice::from_ref(candidate);
+            let directory = TestDirectory::new();
+            let data = directory.write("adisk.obj", b"abc");
+            let executable = directory.write("Go.ExE", b"xyz");
+            let missing = detect_with(&directory.0, release, file_size, hash_file).unwrap_err();
+            assert!(missing.contains("SIDE.TXT"), "{missing}");
+            let map = directory.write("SiDe.TxT", b"abc");
+            for anchor in [&directory.0, &data, &executable, &map] {
+                let result = detect_with(anchor, release, file_size, hash_file).unwrap();
+                assert_eq!(result.game, game);
+                assert_eq!(result.original, directory.0);
+                assert_eq!(result.files["ADISK.OBJ"], data);
+                assert_eq!(result.files["GO.EXE"], executable);
+                assert_eq!(result.files["SIDE.TXT"], map);
+            }
+            for (contents, diagnostic) in [
+                (b"bad".as_slice(), "SHA-256 mismatch"),
+                (b"wrong size".as_slice(), "expected 3 bytes"),
+            ] {
+                fs::write(&map, contents).unwrap();
+                let error = detect_with(&directory.0, release, file_size, hash_file).unwrap_err();
+                assert!(
+                    error.contains("SiDe.TxT") && error.contains(diagnostic),
+                    "{error}"
+                );
+            }
         }
     }
 
@@ -864,7 +884,7 @@ mod tests {
 
     #[test]
     fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
-        assert_eq!(RELEASES.len(), 3);
+        assert_eq!(RELEASES.len(), 4);
         let mut ids = std::collections::HashSet::new();
         for release in RELEASES {
             assert!(ids.insert(release.id), "duplicate detected-release ID");

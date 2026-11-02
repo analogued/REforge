@@ -153,7 +153,8 @@ impl<'a> SettingsMenu<'a> {
         if session.game_id == "standalone" {
             session.game_id = "mindwheel".into();
         }
-        self.btz_terminal = (session.game_id == "mindwheel").then_some(terminal_available);
+        self.btz_terminal =
+            reforge_settings::supports_terminal(&session.game_id).then_some(terminal_available);
         drop(session);
         self
     }
@@ -976,6 +977,8 @@ mod tests {
         for (game, available, expected) in [
             ("mindwheel", false, Some(false)),
             ("mindwheel", true, Some(true)),
+            ("essex", false, Some(false)),
+            ("essex", true, Some(true)),
             ("alley-cat", true, None),
             ("mach-3", true, None),
         ] {

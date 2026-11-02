@@ -57,11 +57,16 @@ pub const CONTROL_MODE: &str = "control_mode";
 // Dormant per-entry override while Terminal is selected. Absence means the
 // graphical renderer should continue to inherit the global setting.
 const GRAPHICAL_RENDERER: &str = "graphical_renderer";
+/// Game identities with an attached-terminal player host.
+pub fn supports_terminal(game: &str) -> bool {
+    matches!(game, "mindwheel" | "essex")
+}
+
 fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     match game {
         "mach-3" => Some(DIGITIZED_SAMPLES),
         "alley-cat" => Some(CONTROL_MODE),
-        "mindwheel" => Some(GRAPHICAL_RENDERER),
+        "mindwheel" | "essex" => Some(GRAPHICAL_RENDERER),
         _ => None,
     }
     .into_iter()
@@ -831,7 +836,7 @@ impl Session {
     }
     pub fn effective(&self, draft: &Draft) -> RuntimeSettings {
         let mut values = overlay(draft.game_values(), &self.cli);
-        if self.game_id != "mindwheel" && values.renderer == Renderer::Terminal {
+        if !supports_terminal(&self.game_id) && values.renderer == Renderer::Terminal {
             values.renderer = Renderer::Auto;
         }
         if self.game_id != "mach-3" {
@@ -848,7 +853,7 @@ impl Session {
         }
         // Settings can choose Terminal through the full Renderer selector too.
         // Preserve the explicit graphical override across either entry point.
-        if self.game_id == "mindwheel" {
+        if supports_terminal(&self.game_id) {
             if draft.game_values().renderer == Renderer::Terminal {
                 let key = if self.saved.game_values().renderer == Renderer::Terminal {
                     GRAPHICAL_RENDERER
@@ -947,7 +952,7 @@ fn read_draft(
                         if validated.set(key, &text).is_ok()
                             && !(key == "renderer"
                                 && validated.renderer == Renderer::Terminal
-                                && game != "mindwheel")
+                                && !supports_terminal(game))
                         {
                             p.insert(key.into(), validated.get(key));
                         } else {
@@ -1262,32 +1267,34 @@ mod tests {
         assert_eq!("terminal".parse::<Renderer>().unwrap(), Renderer::Terminal);
         assert_eq!(Renderer::Terminal.as_str(), "terminal");
         assert!("terminal".parse::<Backend>().is_err());
-        let dir = TestDir::new();
-        let path = dir.file();
-        fs::write(
+        for game in ["mindwheel", "essex"] {
+            let dir = TestDir::new();
+            let path = dir.file();
+            fs::write(
             &path,
             "[global.display]\nbackend = 'vulkan'\nscale = 3\n[global.crt]\npresentation = 'hyllian'\n",
         )
         .unwrap();
-        let mut s = session(path.clone(), "mindwheel");
-        let mut draft = s.saved.clone();
-        draft.edit(true, "renderer", "terminal".into());
-        draft.normalize_treatments(&s.saved);
-        s.commit(draft).unwrap();
-        let mut loaded = session(path.clone(), "mindwheel");
-        let terminal = loaded.effective(&loaded.saved);
-        assert_eq!(terminal.renderer, Renderer::Terminal);
-        assert_eq!(terminal.backend, Backend::Vulkan);
-        assert_eq!(terminal.scale, Some(3));
-        assert_eq!(terminal.presentation, Presentation::Hyllian);
-        assert!(!terminal.supports_hyllian());
-        loaded.cli.insert("renderer".into(), "gpu".into());
-        assert_eq!(loaded.effective(&loaded.saved).renderer, Renderer::Gpu);
-        assert_eq!(session(path.clone(), "mindwheel").saved, loaded.saved);
-        let mut reset = loaded.saved.clone();
-        reset.reset_section(true, 0);
-        assert_eq!(reset.game_values().renderer, Renderer::Auto);
-        assert_eq!(reset.game_values().presentation, Presentation::Hyllian);
+            let mut s = session(path.clone(), game);
+            let mut draft = s.saved.clone();
+            draft.edit(true, "renderer", "terminal".into());
+            draft.normalize_treatments(&s.saved);
+            s.commit(draft).unwrap();
+            let mut loaded = session(path.clone(), game);
+            let terminal = loaded.effective(&loaded.saved);
+            assert_eq!(terminal.renderer, Renderer::Terminal);
+            assert_eq!(terminal.backend, Backend::Vulkan);
+            assert_eq!(terminal.scale, Some(3));
+            assert_eq!(terminal.presentation, Presentation::Hyllian);
+            assert!(!terminal.supports_hyllian());
+            loaded.cli.insert("renderer".into(), "gpu".into());
+            assert_eq!(loaded.effective(&loaded.saved).renderer, Renderer::Gpu);
+            assert_eq!(session(path.clone(), game).saved, loaded.saved);
+            let mut reset = loaded.saved.clone();
+            reset.reset_section(true, 0);
+            assert_eq!(reset.game_values().renderer, Renderer::Auto);
+            assert_eq!(reset.game_values().presentation, Presentation::Hyllian);
+        }
     }
 
     #[test]

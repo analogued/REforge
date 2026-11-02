@@ -8,6 +8,7 @@ Unreleased contains changes intended for the next public release.
 ### New games
 
 - Added experimental support for Mindwheel (DOS).
+- Added experimental support for Essex (DOS).
 
 ### General
 
@@ -16,11 +17,11 @@ Unreleased contains changes intended for the next public release.
 - Fixed washed-out disabled launcher choices in Soft Tonal, Warm Amber and
   Crisp Light by using the same fading as other disabled controls.
 
-### Mindwheel
+### BTZ
 
 - Optional terminal play through `--renderer terminal`.
 - Read and write the original DOS bookmark format, allowing saves to be
-  exchanged with the original game.
+  exchanged with the original games.
 
 ## 2026.1.0 (2026-11-01)
 

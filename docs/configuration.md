@@ -32,7 +32,7 @@ its native pixel grid and aspect-corrected base display size; the shared menu an
 renderer use that same metadata. Global labels are Original display / Square
 pixels; game labels include the resolved ratios. Alley Cat and Mach 3's colour
 mode use 320×200 pixels on a 4:3 display, giving square pixels an 8:5 ratio.
-Mach 3's monochrome mode and Mindwheel's text raster use 640×200 pixels, so
+Mach 3's monochrome mode and BTZ's text raster use 640×200 pixels, so
 Square pixels becomes 16:5 while Original stays 4:3.
 An expanded upload texture does not change the engine's native pixel geometry.
 Future engines may supply other ratios without changing the shared menu.
@@ -146,7 +146,7 @@ same release or another release with the same game ID and explicit
 `compatibility_id`, meaning compatible saves and persistent option semantics.
 Matching hashes, titles or platforms alone never establish compatibility. The
 stored release ID and paths change; entry identity, overrides and its reserved
-save namespace remain intact. Saved files are not moved. Mindwheel's default
+save namespace remain intact. Saved files are not moved. BTZ games' default
 save directory follows the selected game-data directory. A directory already
 registered to another entry is rejected.
 Files changed to another release in place require explicit Relocate as well.
@@ -157,10 +157,10 @@ preferences. Original files and saves stay on disk. Manually removing a library
 record can leave unreferenced preferences/saves; adding the game again allocates
 a fresh ID rather than reclaiming them.
 
-Saving is engine-specific. Mindwheel implements native bookmarks and text
+Saving is engine-specific. BTZ implements native bookmarks and text
 transcripts. Relative filenames default to the directory containing `ADISK.OBJ`;
 `--save-dir` changes that base, and absolute filenames select their own location.
-See the [Mindwheel guide](games/mindwheel.md#bookmarks-and-transcripts) for prompts,
+See the [BTZ guide](games/btz.md#bookmarks-and-transcripts) for prompts,
 overwrite behavior and fixed-file options. Alley Cat and Mach 3 currently do not
 provide gameplay save/restore.
 
@@ -168,7 +168,7 @@ The application reserves a layout of `saves/<entry-id>/` under
 `$XDG_DATA_HOME/reforge` (default `~/.local/share/reforge`) on Linux,
 `%APPDATA%/REforge` on Windows and
 `~/Library/Application Support/REforge` on macOS. No save folders are created by
-adding a game. Mindwheel uses its native format and game-data-relative default,
+adding a game. BTZ uses its native format and game-data-relative default,
 not this reserved namespace. Future REforge-owned save formats should record
 format version and compatibility group rather than require an exact release hash.
 
@@ -247,7 +247,7 @@ Defaults are windowed, Auto scale, automatic GPU-preferred rendering,
 automatic backend, VSync enabled when supported, a display-refresh frame
 ceiling, and sharp pixels. Missing keys inherit: shared defaults, then
 global preferences, then entry preferences. Catalog game IDs (`alley-cat`,
-`mach-3`, `mindwheel`) identify games; entry IDs identify individual configured copies.
+`mach-3`, `mindwheel`, `essex`) identify games; entry IDs identify individual configured copies.
 The example suffixes above are illustrative; use the IDs from your library.
 Explicit CLI values form the final temporary layer.
 
@@ -255,7 +255,7 @@ Explicit CLI values form the final temporary layer.
 | --- | --- |
 | window_mode | `"windowed"`, `"fullscreen"` |
 | scale | `"auto"` or integer 1–16 |
-| renderer | `"auto"`, `"gpu"`, `"sdl"`, `"software"`; `"terminal"` for Mindwheel entries only |
+| renderer | `"auto"`, `"gpu"`, `"sdl"`, `"software"`; `"terminal"` for BTZ entries only |
 | backend | `"auto"`, `"vulkan"`, `"opengl"`, `"opengles2"`, `"direct3d11"`, `"direct3d12"`, `"metal"` |
 | vsync | `true`, `false` |
 | frame_limit | `"display"`, `"60"`, `"120"`, `"unlimited"` |
@@ -275,7 +275,7 @@ only this run. Those controls are disabled in both editing scopes. Each scope
 shows its saved/draft value, with a separate line identifying the active CLI
 value. Apply never copies CLI values into the file.
 
-Terminal is a Mindwheel-only startup renderer. It uses the process's attached
+Terminal is a BTZ-only startup renderer. It uses the process's attached
 input/output terminal and does not open a terminal application or an SDL game
 window. It is available through `--renderer terminal`, including builds without
 SDL, or in per-entry Settings when a terminal is attached. It cannot be a global
@@ -285,8 +285,8 @@ Terminal CLI choice.
 Window, backend and CRT preferences are retained and ignored during terminal
 play. Their controls are disabled while Terminal is selected; explicit CLI
 graphics overrides warn and are ignored for that run. Selecting Graphical in
-Mindwheel's launch options restores its graphical renderer preference. See
-[Mindwheel's launch instructions](games/mindwheel.md#start-playing).
+the BTZ launch options restores the graphical renderer preference. See
+[BTZ launch instructions](games/btz.md#start-playing).
 
 Preferences record requests rather than temporary runtime outcomes. Auto stays
 Auto; unavailable backend/VSync requests are not replaced in the file by their
@@ -371,7 +371,7 @@ runner remains silent. Engines declare supported Music, Speech and Sound effects
 unsupported game groups remain visible but disabled. Global category defaults
 can still be edited. Latency controls and stereo processing are not implemented.
 
-Mindwheel's Ctrl+G keyboard bell uses PC-speaker synthesis in graphical play and
+BTZ's Ctrl+G keyboard bell uses PC-speaker synthesis in graphical play and
 belongs to Sound effects. Master volume, Effects volume, output device and focus
 mute apply. Its terminal frontend sends BEL and respects sound-off or zero
 Master/Effects volume; the terminal controls the actual sound, flash and volume.
@@ -384,7 +384,7 @@ desktop/system volume: neither is read back into preferences or modified by them
 Native single-speaker interruptions/priorities are preserved; lowering an effect
 does not resume music that the original game interrupted. In Alley Cat and
 Mach 3's continuous synthesis, later category changes use a five-millisecond gain
-ramp without resetting synthesis/filter history. Mindwheel applies Effects
+ramp without resetting synthesis/filter history. BTZ applies Effects
 changes to subsequent bells and discards pending bell presentation on a change.
 
 Enable sound and Master volume operate on host output. Native sound routines,
@@ -461,7 +461,7 @@ devices.
 The first available recognized controller is used, with a replacement selected
 if it disconnects. Device-open failures warn and leave keyboard play available.
 
-| Controller input   | Alley Cat                        | Mach 3          | Mindwheel |
+| Controller input   | Alley Cat                        | Mach 3          | BTZ games |
 | ------------------ | -------------------------------- | --------------- | --------- |
 | Left stick / D-pad | Move, jump and swim              | Steer           | Navigate menus |
 | Bottom face button | Contextual action (keyboard Alt) | Fire            | Confirm menu control |
@@ -469,7 +469,7 @@ if it disconnects. Device-open failures warn and leave keyboard play available.
 | Back/View          | Toggle settings                  | Toggle settings | Toggle settings |
 
 The bottom face button advances Alley Cat and Mach 3's title/start screens.
-Mindwheel uses controllers for Settings and file-dialog navigation; game commands
+BTZ games use controllers for Settings and file-dialog navigation; game commands
 and filename text still use the keyboard. B cancels a filename prompt and the
 shoulders change focus. Terminal play uses its terminal's keyboard input.
 
@@ -584,7 +584,7 @@ Preview badges follow the same option order, omitting choices without badge text
 PC speaker contributes no badge; Enhanced PCM contributes `PCM`, following `CRT`
 when CRT treatment is enabled.
 
-Mindwheel's quick options are Renderer (Graphical/Terminal), Display and Window.
+BTZ's quick options are Renderer (Graphical/Terminal), Display and Window.
 Terminal disables Display and Window controls while retaining their values;
 its preview badge replaces graphical option badges for that mode.
 

@@ -124,8 +124,25 @@ pub static MINDWHEEL: GameMetadata = GameMetadata {
     genres: &["Interactive fiction"],
     tagline: "A journey through four minds.",
 };
-pub static MINDWHEEL_DOS_SPECS: SpecsProfile = SpecsProfile {
-    id: "mindwheel-dos",
+pub static ESSEX: GameMetadata = GameMetadata {
+    identity: Game::Essex,
+    title: "Essex",
+    genres: &["Interactive fiction"],
+    tagline: "Board the Starship Essex.",
+};
+pub static ESSEX_DOS: Edition = Edition {
+    id: "essex-dos",
+    game: &ESSEX,
+    platform: Platform::Dos,
+    title: None,
+    year: Some(1985),
+    developers: &["Synapse Software"],
+    publishers: &[],
+    label: None,
+    specs: &BTZ_DOS_SPECS,
+};
+pub static BTZ_DOS_SPECS: SpecsProfile = SpecsProfile {
+    id: "btz-dos-text",
     video_features: &["80×25 text"],
     audio_features: &["PC speaker"],
 };
@@ -138,7 +155,7 @@ pub static MINDWHEEL_DOS: Edition = Edition {
     developers: &["Synapse Software"],
     publishers: &["Brøderbund Software"],
     label: None,
-    specs: &MINDWHEEL_DOS_SPECS,
+    specs: &BTZ_DOS_SPECS,
 };
 
 pub static ALLEY_CAT_DOS_SPECS: SpecsProfile = SpecsProfile {
@@ -250,6 +267,28 @@ pub static RELEASES: &[Release] = &[
                 name: "SIDE.TXT",
                 size: 65,
                 sha256: "40f185dc69d51a5f98769f5d89f10405f29132ebbbdd73290c7f139a12efd1e7",
+            },
+        ],
+    },
+    Release {
+        id: "essex-dos-2ba69b4250",
+        compatibility_id: "essex-dos",
+        edition: &ESSEX_DOS,
+        files: &[
+            FileRecord {
+                name: "ADISK.OBJ",
+                size: 180736,
+                sha256: "06579988cbfd31342d741cbb729898aea575d95fbd4558c09e0982d92abb6541",
+            },
+            FileRecord {
+                name: "GO.EXE",
+                size: 35328,
+                sha256: "caf6b08490f4d343ab9c4507ba591f66b5fc47d1807aac6dfcd232ec114003bd",
+            },
+            FileRecord {
+                name: "SIDE.TXT",
+                size: 65,
+                sha256: "12f0b71b9be8bb76619bc86057b8edbf82c22ae136843fa779b54eb329586800",
             },
         ],
     },

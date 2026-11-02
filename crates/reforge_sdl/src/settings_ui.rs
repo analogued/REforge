@@ -159,6 +159,7 @@ pub(super) fn draw(
                                     "alley-cat" => "Alley Cat",
                                     "mach-3" => "Mach 3",
                                     "mindwheel" => "Mindwheel",
+                                    "essex" => "Essex",
                                     _ => "Game",
                                 }
                             ),

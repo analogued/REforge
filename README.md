@@ -14,9 +14,9 @@ controller options. Linux is the current development platform.
 | --- | --- | --- |
 | Alley Cat | Alley Cat | [Playing Alley Cat](docs/games/alleycat.md) |
 | Mach 3 | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
-| BTZ | Mindwheel | [Playing Mindwheel](docs/games/mindwheel.md) |
+| BTZ | Mindwheel, Essex | [Playing Mindwheel](docs/games/mindwheel.md) · [Playing Essex](docs/games/essex.md) |
 
-Each engine currently supports one verified DOS release. See its guide for the
+Each game currently supports one identified DOS release. See its guide for the
 required files and current limitations.
 
 ## Features
@@ -104,8 +104,8 @@ For source layout, validation and contribution guidance, see
 [Alley Cat](engines/alleycat/README.md), [Mach 3](engines/mach3/README.md), and
 [BTZ](engines/btz/README.md).
 
-[Mindwheel](docs/games/mindwheel.md) supports the normal SDL text display and
-optional terminal play using `--renderer terminal`.
+[BTZ games](docs/games/btz.md) support the normal SDL text display and optional
+terminal play using `--renderer terminal`.
 
 ## License
 

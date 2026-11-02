@@ -18,9 +18,32 @@ enum Value {
     Damage,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Scope {
+    Common,
+    Game(Game),
+    Btz,
+}
+impl Scope {
+    fn applies(self, game: Game) -> bool {
+        match self {
+            Self::Common => true,
+            Self::Game(owner) => owner == game,
+            Self::Btz => game.is_btz(),
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Self::Common => "all games",
+            Self::Game(game) => game.title(),
+            Self::Btz => "BTZ games",
+        }
+    }
+}
+
 struct Spec {
     name: &'static str,
-    game: Option<Game>,
+    scope: Scope,
     value: Value,
     dev: bool,
     description: &'static str,
@@ -41,49 +64,49 @@ const SCENES: &[&str] = &[
 const SPECS: &[Spec] = &[
     Spec {
         name: "--original",
-        game: None,
+        scope: Scope::Common,
         value: Value::Path,
         dev: false,
         description: "Original game file or directory; identify a verified release automatically",
     },
     Spec {
         name: "--scale",
-        game: None,
+        scope: Scope::Common,
         value: Value::Scale,
         dev: false,
         description: "Initial drawable pixel multiplier, auto|1..16 (default auto)",
     },
     Spec {
         name: "--config",
-        game: None,
+        scope: Scope::Common,
         value: Value::Path,
         dev: false,
         description: "Read/write preferences at this path",
     },
     Spec {
         name: "--no-config",
-        game: None,
+        scope: Scope::Common,
         value: Value::Flag,
         dev: false,
         description: "Run without reading or saving preferences",
     },
     Spec {
         name: "--window-mode",
-        game: None,
+        scope: Scope::Common,
         value: Value::Choice(&["windowed", "fullscreen"]),
         dev: false,
         description: "Temporary window mode override",
     },
     Spec {
         name: "--renderer",
-        game: None,
+        scope: Scope::Common,
         value: Value::Choice(&["auto", "gpu", "sdl", "software"]),
         dev: false,
         description: "Temporary renderer override",
     },
     Spec {
         name: "--backend",
-        game: None,
+        scope: Scope::Common,
         value: Value::Choice(&[
             "auto",
             "vulkan",
@@ -98,245 +121,245 @@ const SPECS: &[Spec] = &[
     },
     Spec {
         name: "--vsync",
-        game: None,
+        scope: Scope::Common,
         value: Value::Choice(&["on", "off"]),
         dev: false,
         description: "Temporary VSync override",
     },
     Spec {
         name: "--frame-limit",
-        game: None,
+        scope: Scope::Common,
         value: Value::Choice(&["display", "60", "120", "unlimited"]),
         dev: false,
         description: "Temporary presentation ceiling (display refresh, 60, 120 or unlimited)",
     },
     Spec {
         name: "--presentation",
-        game: None,
+        scope: Scope::Common,
         value: Value::Choice(&["pixels", "hyllian"]),
         dev: false,
         description: "Temporary window presentation override: pixels or Hyllian CRT",
     },
     Spec {
         name: "--help",
-        game: None,
+        scope: Scope::Common,
         value: Value::Flag,
         dev: false,
         description: "Show common help, or detected-game help with --original",
     },
     Spec {
         name: "--list",
-        game: None,
+        scope: Scope::Common,
         value: Value::Flag,
         dev: false,
         description: "List supported games",
     },
     Spec {
         name: "--version",
-        game: None,
+        scope: Scope::Common,
         value: Value::Flag,
         dev: false,
         description: "Show the REforge version (-V)",
     },
     Spec {
         name: "--video",
-        game: Some(Game::Mach3),
+        scope: Scope::Game(Game::Mach3),
         value: Value::Choice(&["cga", "mono"]),
         dev: false,
         description: "Initial video mode (default cga); F3 switches during play",
     },
     Spec {
         name: "--save-dir",
-        game: Some(Game::Mindwheel),
+        scope: Scope::Btz,
         value: Value::Path,
         dev: false,
         description: "Directory for prompted bookmark and transcript filenames (default game directory)",
     },
     Spec {
         name: "--bookmark-path",
-        game: Some(Game::Mindwheel),
+        scope: Scope::Btz,
         value: Value::Path,
         dev: false,
         description: "Use this bookmark file for save and restore without filename prompts",
     },
     Spec {
         name: "--transcript-path",
-        game: Some(Game::Mindwheel),
+        scope: Scope::Btz,
         value: Value::Path,
         dev: false,
         description: "Use this transcript filename without prompting",
     },
     Spec {
         name: "--side-map",
-        game: Some(Game::Mindwheel),
+        scope: Scope::Btz,
         value: Value::Path,
         dev: true,
         description: "Use this disk mapping file (default SIDE.TXT beside the game data)",
     },
     Spec {
         name: "--machine",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Choice(&["cga", "pcjr"]),
         dev: false,
         description: "Hardware path (default cga)",
     },
     Spec {
         name: "--difficulty",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Integer(0, 7),
         dev: false,
         description: "Initial difficulty, 0..7; skip skill question",
     },
     Spec {
         name: "--scene",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Choice(SCENES),
         dev: true,
         description: "Start in the named scene",
     },
     Spec {
         name: "--seed",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Integer(2, 65535),
         dev: false,
         description: "Explicit startup seed, 2..65535 or 0xHEX (default timer-derived)",
     },
     Spec {
         name: "--step-hz",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Rate,
         dev: true,
         description: "Diagnostic accepted updates/sec, 0.1..1000",
     },
     Spec {
         name: "--headless",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Flag,
         dev: true,
         description: "Run without a window",
     },
     Spec {
         name: "--timed",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Flag,
         dev: true,
         description: "Use the reference clock in headless runs",
     },
     Spec {
         name: "--steps",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Integer(0, usize::MAX as u64),
         dev: true,
         description: "Number of accepted updates (default 60 headless)",
     },
     Spec {
         name: "--script",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Path,
         dev: true,
         description: "Headless input CSV: x,y[,action]",
     },
     Spec {
         name: "--trace",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Path,
         dev: true,
         description: "Write accepted player states as CSV",
     },
     Spec {
         name: "--trace-timing",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Path,
         dev: true,
         description: "Write timed outer-loop events as CSV",
     },
     Spec {
         name: "--dump-cga",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Path,
         dev: true,
         description: "Write final packed framebuffer",
     },
     Spec {
         name: "--dump-ppm",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Path,
         dev: true,
         description: "Write final 320x200 image",
     },
     Spec {
         name: "--disable-damage",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Damage,
         dev: true,
         description: "all, none or comma-separated damage identifiers",
     },
     Spec {
         name: "--disable-actors",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Actors,
         dev: true,
         description: "all, none or comma-separated actor identifiers",
     },
     Spec {
         name: "--infinite-lives",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Flag,
         dev: true,
         description: "Retain lives while preserving death effects",
     },
     Spec {
         name: "--original-window-timing",
-        game: Some(Game::AlleyCat),
+        scope: Scope::Game(Game::AlleyCat),
         value: Value::Flag,
         dev: true,
         description: "Restore original difficulty-6 window hold",
     },
     Spec {
         name: "--audio-renderer",
-        game: Some(Game::Mach3),
+        scope: Scope::Game(Game::Mach3),
         value: Value::Choice(&["speaker", "enhanced-pcm"]),
         dev: false,
         description: "Host audio rendering for normal animation (default speaker); previews stay silent",
     },
     Spec {
         name: "--digitized-samples",
-        game: Some(Game::Mach3),
+        scope: Scope::Game(Game::Mach3),
         value: Value::Choice(&["on", "off"]),
         dev: false,
         description: "Enable recorded speech/music (default on); off retains procedural effects",
     },
     Spec {
         name: "--f3-mode",
-        game: Some(Game::Mach3),
+        scope: Scope::Game(Game::Mach3),
         value: Value::Choice(&["press", "original"]),
         dev: false,
         description: "F3 once per press (default press), or every active original control poll",
     },
     Spec {
         name: "--step",
-        game: Some(Game::Mach3),
+        scope: Scope::Game(Game::Mach3),
         value: Value::Flag,
         dev: true,
         description: "Advance one body/title step per fresh Enter press",
     },
     Spec {
         name: "--static",
-        game: Some(Game::Mach3),
+        scope: Scope::Game(Game::Mach3),
         value: Value::Flag,
         dev: true,
         description: "Show initial scene only",
     },
     Spec {
         name: "--trace-input",
-        game: Some(Game::Mach3),
+        scope: Scope::Game(Game::Mach3),
         value: Value::Path,
         dev: true,
         description: "Write input diagnostic trace to a new file",
     },
     Spec {
         name: "--trace-timing",
-        game: Some(Game::Mach3),
+        scope: Scope::Game(Game::Mach3),
         value: Value::Path,
         dev: true,
         description: "Write simulation and presentation timing to a new file",
@@ -384,7 +407,7 @@ fn validate(spec: &Spec, value: OsString, game: Game) -> Result<OsString, String
         }
         // The engine receives separate name/value arguments. Protect an
         // explicitly inline filename beginning with '-' from its option gate.
-        if spec.game == Some(Game::Mach3)
+        if spec.scope == Scope::Game(Game::Mach3)
             && matches!(spec.name, "--trace-input" | "--trace-timing")
             && is_option(&value)
         {
@@ -393,7 +416,7 @@ fn validate(spec: &Spec, value: OsString, game: Game) -> Result<OsString, String
         return Ok(value);
     }
     let text = value.to_str().ok_or("value must be UTF-8")?;
-    if spec.name == "--renderer" && text == "terminal" && game == Game::Mindwheel {
+    if spec.name == "--renderer" && text == "terminal" && game.is_btz() {
         return Ok(value);
     }
     match spec.value {
@@ -478,7 +501,7 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
             }
             break;
         }
-        if game == Game::Mindwheel {
+        if game.is_btz() {
             let terminal = active("--renderer")
                 .and_then(|i| entries[i].value.as_ref())
                 .is_some_and(|v| v == "terminal");
@@ -592,7 +615,7 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
         let (name, inline) = split_option(&arg);
         let Some(spec) = SPECS
             .iter()
-            .find(|spec| spec.name == name && (spec.game.is_none() || spec.game == Some(game)))
+            .find(|spec| spec.name == name && spec.scope.applies(game))
             .or_else(|| SPECS.iter().find(|spec| spec.name == name))
         else {
             warnings.push(format!("unrecognized argument {arg:?}; ignored"));
@@ -603,11 +626,11 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
         } else {
             inline.or_else(|| args.next_if(|next| !is_option(next)))
         };
-        if let Some(owner) = spec.game.filter(|owner| *owner != game) {
+        if !spec.scope.applies(game) {
             warnings.push(format!(
                 "{} applies to {}, not {}; ignored",
                 spec.name,
-                owner.title(),
+                spec.scope.label(),
                 game.title()
             ));
             continue;
@@ -678,10 +701,13 @@ pub fn help(game: Option<Game>) -> String {
         if let Some(owner) = owner {
             text.push_str(&format!("\n{} options:\n", owner.title()));
         }
-        for spec in SPECS
-            .iter()
-            .filter(|spec| spec.game == owner && (!spec.dev || cfg!(feature = "dev-tools")))
-        {
+        for spec in SPECS.iter().filter(|spec| {
+            (if let Some(game) = owner {
+                spec.scope != Scope::Common && spec.scope.applies(game)
+            } else {
+                spec.scope == Scope::Common
+            }) && (!spec.dev || cfg!(feature = "dev-tools"))
+        }) {
             let value = match spec.value {
                 Value::Flag => "",
                 Value::Path => " PATH",
@@ -695,7 +721,7 @@ pub fn help(game: Option<Game>) -> String {
                 spec.description
             ));
             if let Value::Choice(choices) = spec.value {
-                let suffix = if spec.name == "--renderer" && game == Some(Game::Mindwheel) {
+                let suffix = if spec.name == "--renderer" && game.is_some_and(Game::is_btz) {
                     ", terminal (attached terminal)"
                 } else {
                     ""
@@ -819,7 +845,7 @@ mod tests {
             )
             .unwrap();
         }
-        if game == Game::Mindwheel {
+        if game.is_btz() {
             btz::cli::validate_arguments(args.clone().into_iter()).unwrap();
         }
         #[cfg(feature = "sdl")]
@@ -860,7 +886,7 @@ mod tests {
     }
     #[test]
     fn frame_limit_choices_are_shared_and_invalid_values_warn() {
-        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel] {
+        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex] {
             for value in ["display", "60", "120", "unlimited"] {
                 let result = prepare(args(&["--frame-limit", value]), game);
                 if cfg!(feature = "sdl") {
@@ -880,7 +906,7 @@ mod tests {
     #[test]
     fn shared_presentation_choices_and_build_availability() {
         assert_eq!(takes_value("--presentation"), Some(true));
-        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel] {
+        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex] {
             let help = help(Some(game));
             assert!(help.contains("--presentation VALUE"));
             assert!(help.contains("Choices: pixels, hyllian"));
@@ -908,7 +934,7 @@ mod tests {
     #[cfg(feature = "sdl")]
     #[test]
     fn presentation_validation_retains_previous_value_and_following_options() {
-        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel] {
+        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex] {
             for value in ["", "crt", "Hyllian", "-1"] {
                 let result = prepare(
                     args(&[
@@ -957,7 +983,7 @@ mod tests {
     fn scale_defaults_are_left_to_engines_and_auto_is_forwarded() {
         assert_eq!(takes_value("--scale"), Some(true));
         assert!(help(None).contains("auto|1..16 (default auto)"));
-        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel] {
+        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex] {
             let defaults = prepare(args(&[]), game);
             assert!(defaults.args.is_empty());
             assert!(defaults.warnings.is_empty());
@@ -985,7 +1011,7 @@ mod tests {
 
     #[test]
     fn invalid_scale_warns_and_retains_auto_fixed_or_engine_default() {
-        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel] {
+        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex] {
             for value in ["0", "17", "-1", "1.5", "Auto", "", "0x", "4294967296"] {
                 for previous in [None, Some("auto"), Some("3")] {
                     let mut input = Vec::new();
@@ -1264,8 +1290,8 @@ mod tests {
                     matches!(other.value, Value::Flag)
                 );
                 if !std::ptr::eq(spec, other) {
-                    assert!(spec.game.is_some() && other.game.is_some());
-                    assert_ne!(spec.game, other.game);
+                    assert!(spec.scope != Scope::Common && other.scope != Scope::Common);
+                    assert_ne!(spec.scope, other.scope);
                 }
             }
         }
@@ -1294,44 +1320,46 @@ mod tests {
                     }
                     let spec = SPECS
                         .iter()
-                        .find(|spec| {
-                            spec.name == quoted && (spec.game.is_none() || spec.game == Some(game))
-                        })
+                        .find(|spec| spec.name == quoted && spec.scope.applies(game))
                         .unwrap_or_else(|| panic!("uncataloged {quoted}"));
-                    assert!(spec.game.is_none() || spec.game == Some(game), "{quoted}");
+                    assert!(spec.scope.applies(game), "{quoted}");
                 }
             }
         }
         for spec in SPECS
             .iter()
-            .filter(|s| s.game.is_some() && (!s.dev || cfg!(feature = "dev-tools")))
+            .filter(|s| s.scope != Scope::Common && (!s.dev || cfg!(feature = "dev-tools")))
         {
-            let game = spec.game.unwrap();
-            let mut values = vec![spec.name];
-            let numeric;
-            match spec.value {
-                Value::Flag => {}
-                Value::Path => values.push("synthetic-path"),
-                Value::Integer(min, _) => {
-                    numeric = min.to_string();
-                    values.push(&numeric);
+            for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex]
+                .into_iter()
+                .filter(|&game| spec.scope.applies(game))
+            {
+                let mut values = vec![spec.name];
+                let numeric;
+                match spec.value {
+                    Value::Flag => {}
+                    Value::Path => values.push("synthetic-path"),
+                    Value::Integer(min, _) => {
+                        numeric = min.to_string();
+                        values.push(&numeric);
+                    }
+                    Value::Rate => values.push("1"),
+                    Value::Scale => values.push("auto"),
+                    Value::Choice(choices) => values.push(choices[0]),
+                    Value::Actors | Value::Damage => values.push("none"),
                 }
-                Value::Rate => values.push("1"),
-                Value::Scale => values.push("auto"),
-                Value::Choice(choices) => values.push(choices[0]),
-                Value::Actors | Value::Damage => values.push("none"),
+                if spec.name == "--script" || spec.name == "--timed" {
+                    values.push("--headless");
+                }
+                let result = prepare(args(&values), game);
+                assert!(
+                    result.warnings.is_empty(),
+                    "{}: {:?}",
+                    spec.name,
+                    result.warnings
+                );
+                accepted(&result, game);
             }
-            if spec.name == "--script" || spec.name == "--timed" {
-                values.push("--headless");
-            }
-            let result = prepare(args(&values), game);
-            assert!(
-                result.warnings.is_empty(),
-                "{}: {:?}",
-                spec.name,
-                result.warnings
-            );
-            accepted(&result, game);
         }
     }
     #[test]

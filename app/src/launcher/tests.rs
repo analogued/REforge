@@ -1456,7 +1456,9 @@ fn native_engine_previews() {
                         alleycat::launcher::preview(&detected.original, variant)
                     }
                     detection::Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
-                    detection::Game::Mindwheel => unreachable!("Mindwheel has no preview recipe"),
+                    detection::Game::Mindwheel | detection::Game::Essex => {
+                        unreachable!("BTZ games have no preview recipe")
+                    }
                 }
                 .unwrap();
                 assert_eq!(source.frame.rgba(), again.rgba());

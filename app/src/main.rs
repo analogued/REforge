@@ -243,7 +243,11 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
                 .collect::<Result<Vec<_>, _>>()?;
             alleycat::cli::run(args)
         }
-        Game::Mindwheel => btz::cli::run_with_files(args.into_iter(), &plan.detected.files),
+        Game::Mindwheel | Game::Essex => btz::cli::run_with_title(
+            args.into_iter(),
+            &plan.detected.files,
+            plan.detected.game.title(),
+        ),
         Game::Mach3 => {
             #[cfg(feature = "sdl")]
             {
@@ -290,21 +294,23 @@ mod tests {
         })
     }
     #[test]
-    fn mindwheel_terminal_renderer_reaches_launch_settings_without_opening_launcher() {
-        let original = args(&["--original", "mindwheel", "--renderer", "terminal"]);
-        assert!(!opens_launcher(&original));
-        let prepared = options::prepare(
-            args(&["--renderer", "terminal", "--save-dir", "bookmarks"]),
-            Game::Mindwheel,
-        );
-        assert!(prepared.warnings.is_empty());
-        let (launch, forward) = launch_settings(prepared.args, Game::Mindwheel);
-        assert_eq!(launch.game_id, "mindwheel");
-        assert_eq!(
-            launch.cli.get("renderer").map(String::as_str),
-            Some("terminal")
-        );
-        assert_eq!(forward, args(&["--save-dir", "bookmarks"]));
+    fn btz_terminal_renderer_reaches_launch_settings_without_opening_launcher() {
+        for game in [Game::Mindwheel, Game::Essex] {
+            let original = args(&["--original", game.id(), "--renderer", "terminal"]);
+            assert!(!opens_launcher(&original));
+            let prepared = options::prepare(
+                args(&["--renderer", "terminal", "--save-dir", "bookmarks"]),
+                game,
+            );
+            assert!(prepared.warnings.is_empty());
+            let (launch, forward) = launch_settings(prepared.args, game);
+            assert_eq!(launch.game_id, game.id());
+            assert_eq!(
+                launch.cli.get("renderer").map(String::as_str),
+                Some("terminal")
+            );
+            assert_eq!(forward, args(&["--save-dir", "bookmarks"]));
+        }
     }
 
     #[test]

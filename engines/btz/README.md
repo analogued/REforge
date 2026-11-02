@@ -62,6 +62,10 @@ data. These are the current implementation boundaries:
 | [`sound`](src/sound.rs) | BIOS bell presentation through the shared speaker, synthesis and SDL audio facilities |
 | [`btz-core`](src/bin/core.rs) | Raw VM trace, snapshots and key replays behind `dev-tools` |
 
+The ASCII bitmap font comes from the shared, SDL-independent
+[`reforge_graphics`](../../crates/reforge_graphics/README.md) crate. Character-screen
+layout, colours and border/block glyphs remain in BTZ's display module.
+
 `Session` is the integrated execution interface. It accepts explicit clock and
 keyboard input and yields events or `HostRequest` operations. The host completes
 filesystem/media requests with `HostReply`. `Vm` is the lower-level wordcode

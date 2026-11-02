@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Rasterization of the engine's DOS character cells, independent of SDL.
 
-mod ascii;
+use reforge_graphics::font8x8;
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 200;
@@ -57,7 +57,7 @@ pub fn render(cells: &[u8], blink_on: bool) -> Result<Vec<u8>, String> {
 }
 
 fn glyph(character: u8) -> [u8; 8] {
-    if let Some(rows) = ascii::glyph(character) {
+    if let Some(rows) = font8x8::glyph(character) {
         return rows;
     }
     // Authored geometric DOS border/block glyphs. No BIOS font rows are used.
@@ -82,7 +82,7 @@ fn glyph(character: u8) -> [u8; 8] {
         0xdf => [0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0],
         0xdd => [0x0f; 8],
         0xde => [0xf0; 8],
-        _ => ascii::glyph(b'?').expect("printable ASCII fallback"),
+        _ => font8x8::glyph(b'?').expect("printable ASCII fallback"),
     }
 }
 

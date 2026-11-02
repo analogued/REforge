@@ -1,0 +1,8 @@
+[package]
+name = "reforge_graphics"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license.workspace = true
+description = "Shared bitmap graphics primitives for REforge"

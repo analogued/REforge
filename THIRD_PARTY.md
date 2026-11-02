@@ -100,22 +100,22 @@ come from `fonts/Hack-Regular.txt`; Emoji Icon Font's from
 
 ### DOS bitmap text fonts
 
-[`engines/alleycat/src/font.rs`](engines/alleycat/src/font.rs) adapts printable
-ASCII glyphs from SDL's
+[`crates/reforge_graphics/src/font8x8.rs`](crates/reforge_graphics/src/font8x8.rs)
+adapts printable ASCII glyphs from SDL's
 [`src/render/SDL_render_debug_font.h` at release-3.4.16](https://github.com/libsdl-org/SDL/blob/release-3.4.16/src/render/SDL_render_debug_font.h).
 The upstream header credits Marcel Sondaar and International Business Machines
 (public domain VGA fonts) and marks the font definition Public Domain. The
 SDL copyright and Zlib notice are retained in the adapted source.
 
 The adaptation selects characters 32–126, adds a blank space glyph and converts
-the byte rows to a Rust table. REforge's CGA packing helper is authored code;
-no font rows were copied from a game or BIOS dump. Upstream header SHA-256:
+the byte rows to a Rust table shared by Alley Cat and BTZ. No font rows were
+copied from a game or BIOS dump. Upstream header SHA-256:
 `0c96157b6397485698ac07d20d33858e086c2752403f4d2f57a70acc26fa45df`.
 
-[`engines/btz/src/display/ascii.rs`](engines/btz/src/display/ascii.rs) reuses
-that adapted ASCII row table with the same notices. BTZ's line-drawing, block
-and shade glyphs in [`display/mod.rs`](engines/btz/src/display/mod.rs) are
-authored code under `GPL-3.0-or-later`.
+Alley Cat's CGA packing helper in
+[`font.rs`](engines/alleycat/src/font.rs) and BTZ's line-drawing, block and shade
+glyphs in [`display/mod.rs`](engines/btz/src/display/mod.rs) are authored code
+under `GPL-3.0-or-later`.
 
 ## Hyllian CRT shader
 

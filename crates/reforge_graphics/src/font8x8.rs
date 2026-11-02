@@ -25,10 +25,10 @@
 // Upstream credits Marcel Sondaar and International Business Machines
 // (public domain VGA fonts); the font definition is marked Public Domain.
 // The SDL source-file notice above is retained; see the root THIRD_PARTY.md.
-// Rust table adaptation and BTZ lookup: Copyright (c) 2026 analogued.
+// Rust table adaptation and glyph lookup: Copyright (c) 2026 analogued.
 // The authored Rust helpers are licensed under GPL-3.0-or-later.
 
-//! Printable ASCII glyphs, adapted for the BTZ text framebuffer.
+//! Printable ASCII glyphs shared by engine bitmap renderers.
 //! Rows follow SDL's orientation: bit zero is the leftmost pixel.
 
 const ROWS: [[u8; 8]; 95] = [
@@ -129,7 +129,9 @@ const ROWS: [[u8; 8]; 95] = [
     [0x6e, 0x3b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], // ASCII 126
 ];
 
-pub(super) fn glyph(character: u8) -> Option<[u8; 8]> {
+/// Return an 8×8 bitmap for printable ASCII (32–126), or `None` for other bytes.
+/// Each byte is a top-to-bottom row, with bit zero at the left edge.
+pub fn glyph(character: u8) -> Option<[u8; 8]> {
     character
         .checked_sub(b' ')
         .and_then(|index| ROWS.get(usize::from(index)))

@@ -137,8 +137,10 @@ to place a carried gift near the cat's current position.
 Pause preserves the game state and virtual clock without catching up on resume.
 The overlay reads the original pause title from the executable and uses the
 original placement and palette color, with an updated hint for the toggle keys.
-Its lettering uses SDL's built-in 8×8 font. Scoring uses an attributed adaptation
-of the same glyphs, including in headless builds.
+Its lettering uses SDL's built-in 8×8 font. Scoring and menu text use an
+attributed adaptation of the same glyphs from
+[`reforge_graphics`](../../crates/reforge_graphics/README.md), including in
+headless builds.
 
 `--machine pcjr` selects the PCjr palette and player countdown; the default is
 `cga`. Both modes use the same packed 320×200, four-colour framebuffer. Pixels

@@ -41,6 +41,7 @@ name = "alleycat"
 version = "2026.1.0"
 dependencies = [
  "reforge_audio",
+ "reforge_graphics",
  "reforge_sdl",
  "sha2",
 ]
@@ -78,6 +79,7 @@ version = "2026.1.0"
 dependencies = [
  "libc",
  "reforge_audio",
+ "reforge_graphics",
  "reforge_sdl",
  "reforge_settings",
  "sha2",
@@ -411,6 +413,10 @@ version = "2026.1.0"
 dependencies = [
  "blip_buf",
 ]
+
+[[package]]
+name = "reforge_graphics"
+version = "2026.1.0"
 
 [[package]]
 name = "reforge_sdl"

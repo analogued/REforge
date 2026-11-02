@@ -1,9 +1,9 @@
 # Input tracing
 
-The optional `dev-tools` feature adds `--trace-input PATH` to Mach 3's viewer.
-It records host events and actual reconstructed control polls without changing
-input processing, game clocks, keyboard priorities or native pause rules.
-REforge forwards its `dev-tools` feature to the engine:
+The optional `dev-tools` feature adds `--trace-input PATH` to Mach 3's
+windowed frontend. It records host events and actual reconstructed control
+polls without changing input processing, game clocks, keyboard priorities or
+native pause rules. REforge forwards its `dev-tools` feature to the engine:
 
 ```sh
 cargo run --locked --release -p reforge --features dev-tools -- \
@@ -22,7 +22,7 @@ Interactive viewing defaults to one F3 toggle per press. This intentional
 frontend convenience also applies when tracing; the recorder does not change
 the selected policy. Use `--f3-mode original` for physical-input fidelity
 comparisons requiring the original toggle at every active poll. Original-game
-recording replays retain per-poll F3 behavior independently of this viewer option.
+recording replays retain per-poll F3 behavior independently of this frontend option.
 
 Normal animated viewing schedules raw scans on its PIT timeline. Gameplay
 observations use `boundary` rows labeled `pit_event`, with the exact simulation
@@ -97,7 +97,8 @@ Poll labels correspond to the production call sites:
 Poll details include the **pre-advance** body/pass state, whether player controls
 are enabled, native pause phase, F2 counter and sound/display toggle results.
 Player controls are enabled by default. Native pause polls have no ordinary-pass
-deadline; their polling cadence follows the frontend's pause loop. Step-mode polls likewise do not claim an animated deadline.
+deadline; their polling cadence follows the frontend's pause loop. Step-mode
+polls likewise do not claim an animated deadline.
 
 Boundary labels include startup, game entry, return to intro, host pause,
 native pause phases/ticks/waits/resume, transition entry and intermediate waits,

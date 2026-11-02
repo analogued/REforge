@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Main-thread queued PCM playback, independent of engine clocks.
 //!
@@ -83,7 +84,7 @@ impl AudioOutput {
                     "Output device {name:?} is unavailable or its name is ambiguous; choose System default"
                 ));
             }
-            AudioDevice::new(found[0], audio.clone())
+            AudioDevice::new(found[0], audio)
         } else {
             audio.default_playback_device()
         };

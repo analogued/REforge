@@ -391,7 +391,7 @@ model instruction interrupt shadows or acknowledge pulses. A source-read or
 handler error stops that clock permanently, rather than abandoning an entered
 interrupt and advancing silently. This deterministic approximation preserves
 meaningful ordering without claiming instruction-exact DOS timestamps. The live
-viewer uses this same clock through intro, pre-game, gameplay and ending waits.
+frontend uses this same clock through intro, pre-game, gameplay and ending waits.
 At gameplay return, the caller's `74c0` reset restores handler `7532`, programs
 divisor `ffff` and disables the speaker before the ending waits. `GameplayTask`
 owns this reset through `Gameplay::return_sound`; the frontend does not repeat
@@ -415,16 +415,17 @@ frontend supplies explicit bootstrap pins/vectors and the DOS allocation name
 `MACH3` for `DosSampleMemory`'s modeled MCB suffix; that context is not sample data
 or a universal DOS heap assumption.
 
-By default, PC speaker drive edges feed the shared signal renderer at their simulation ticks.
-The viewer synthesizes 48 kHz mono signed 16-bit PCM and feeds timestamped blocks
-to the shared [`reforge_sdl::audio::queue`](../../../crates/reforge_sdl/README.md).
-Its shared policy prefills 50 ms, preserves buffer-covered interruptions, and
+By default, PC speaker drive edges feed the shared signal renderer at their
+simulation ticks. The windowed frontend synthesizes 48 kHz mono signed 16-bit
+PCM and feeds timestamped blocks to the shared
+[`reforge_sdl::audio::queue`](../../../crates/reforge_sdl/README.md). Its
+shared policy prefills 50 ms, preserves buffer-covered interruptions, and
 recovers only when output exceeds the conservative lateness budget. Recovery
-discards expired presentation audio and retains future PCM; ordinary submissions
-do not trim a fixed-age tail. SDL handles native device format conversion.
-Neither recovery nor device failure resets the PIT or advances gameplay from a
-callback. Device failure warns and mutes host output; sample, procedural and wait
-execution continues on the same native timeline.
+discards expired presentation audio and retains future PCM; ordinary
+submissions do not trim a fixed-age tail. SDL handles native device format
+conversion. Neither recovery nor device failure resets the PIT or advances
+gameplay from a callback. Device failure warns and mutes host output; sample,
+procedural and wait execution continues on the same native timeline.
 
 Ending playback uses this clock for the guarded mandatory Game Over `DATA9`
 sample and the strictly improved High Score `DATA7` sample before their hold

@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Game timer counters, foreground waits, and ordered device/IRQ execution.
 //!
 //! Handlers remain engine routines: advancing this clock returns at interrupt

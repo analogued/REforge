@@ -155,6 +155,7 @@ several output rates, long silent intervals, repeated PWM operations, rendering
 near the timestamp limit, output failures, level headroom and WAV boundaries.
 Device results remain identical with different output rates.
 
-Authored code follows the repository-wide license decision, which remains
-undecided. See [dependency notices](../../THIRD_PARTY.md) for the optional
-renderer dependency and its retained terms.
+Authored code and documentation use REforge's
+[`GPL-3.0-or-later` license](../../LICENSE). See
+[dependency notices](../../THIRD_PARTY.md) for the optional renderer dependency
+and its retained terms.

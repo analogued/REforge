@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (c) 2026 analogued.
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Offline developer helper; ordinary builds use the bundled shader assets.
 set -eu
 

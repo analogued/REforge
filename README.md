@@ -4,6 +4,10 @@ Play classic DOS games on a modern desktop, using your original game files.
 REforge recreates their behavior natively, with modern display, audio and
 controller options. Linux is the current development platform.
 
+> [!IMPORTANT]
+> REforge does not include any original game assets or data. You must provide
+> the required original files from a supported release of each game.
+
 ## Supported engines
 
 | Engine | Games | Player guide |
@@ -12,7 +16,7 @@ controller options. Linux is the current development platform.
 | Mach 3 | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
 
 Each engine currently supports one verified DOS release. See its guide for the
-required files and current limitations. Original game data is not included.
+required files and current limitations.
 
 ## Features
 
@@ -27,7 +31,7 @@ Enhanced PCM audio, are described in the player guides.
 
 ## Getting started
 
-Build from the repository root with Rust 1.85 or newer, Cargo and SDL3 3.4 or
+Build from the repository root with Rust 1.88 or newer, Cargo and SDL3 3.4 or
 newer development/runtime libraries installed:
 
 ```sh
@@ -35,12 +39,24 @@ cargo build --locked --release -p reforge
 ```
 
 The application is written to `target/release/reforge` unless you select another
-Cargo output directory. Launch a game using its original files:
+Cargo output directory. Check its version with `./target/release/reforge --version`
+or `-V`. Launch a game using its original files:
 
 ```sh
 ./target/release/reforge --original /path/to/alley-cat
 ./target/release/reforge --original /path/to/mach3
 ```
+
+Run `reforge` without arguments to open the launcher. Use **Add** to select a game
+folder, then select **Play**. Your library is remembered between launches; exiting
+a game returns to the launcher. **Remove** forgets an entry without deleting files.
+The launcher remembers game locations, not gameplay progress. Choose a colour theme
+with the palette button or **Ctrl+T**. **F2**, **F3** and **F4** select Split,
+Gallery and Compact layouts; theme and layout choices are remembered separately.
+Game options save immediately. Dim selections follow defaults; a full highlight
+marks a saved override. Select a saved choice again to return to defaults.
+Artwork uses cached, engine-generated previews, with symbolic initials as a
+fallback.
 
 Use the directories containing the required files, as described in each engine's
 player guide.
@@ -77,21 +93,24 @@ It starts hidden and reports completed frame presentations averaged over
 half-second intervals, rather than simulation updates or monitor refresh rate.
 
 REforge is under active development. Please include the game, your system,
-REforge revision, relevant settings and steps to reproduce when reporting a bug.
+REforge version (`reforge --version`), relevant settings and steps to reproduce
+when reporting a bug. For source builds, include the Git revision as well.
+Notable user-facing changes are recorded in the [changelog](CHANGELOG.md).
 
 For source layout, validation and contribution guidance, see
 [CONTRIBUTING.md](CONTRIBUTING.md) and the technical engine documentation for
 [Alley Cat](engines/alleycat/README.md) and [Mach 3](engines/mach3/README.md).
 
 An [experimental BTZ engine](engines/btz/README.md) also runs Mindwheel DOS
-through a separate [terminal frontend](docs/games/mindwheel.md). It is not yet
-integrated into the application's game selection.
+through a separate [terminal frontend](docs/games/mindwheel.md).
 
 ## License
 
+Copyright (c) 2026 analogued.
+
 REforge's authored code and documentation are licensed under the GNU General
 Public License, version 3 or any later version (`GPL-3.0-or-later`). See
-[LICENSE](LICENSE).
+[LICENSE](LICENSE) for the full terms.
 
 Third-party code and assets retain their own licenses. Attribution is in
 [THIRD_PARTY.md](THIRD_PARTY.md), with license texts in [LICENSES/](LICENSES/).

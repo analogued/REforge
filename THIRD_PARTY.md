@@ -4,7 +4,7 @@ This inventory covers direct dependencies, imported code and bundled assets.
 License texts are shared by license type under [LICENSES/](LICENSES/); the
 component-specific copyright notices below accompany those texts. Existing
 notices in imported source files remain intact. Third-party material retains
-its own terms; REforge's authored code and documentation use
+these terms; REforge's authored code and documentation use
 [`GPL-3.0-or-later`](LICENSE).
 
 Cargo dependencies are used unmodified through their ordinary APIs. Exact
@@ -20,16 +20,21 @@ MIT is selected where an alternative is offered.
 
 | Component | Version | Used by / purpose | Selected license |
 | --- | --- | --- | --- |
-| [sha2](https://crates.io/crates/sha2/0.11.0) | 0.11.0 | Application, Alley Cat and BTZ development frontend: original-file verification | [MIT](LICENSES/MIT.txt) |
+| [png](https://crates.io/crates/png/0.17.16) | 0.17.16 | Application: local native preview PNG cache | [MIT](LICENSES/MIT.txt) |
+| [unicode-segmentation](https://crates.io/crates/unicode-segmentation/1.12.0) | 1.12.0 | Application: Unicode-aware Symbolic initials | [MIT](LICENSES/MIT.txt) |
+| [sha2](https://crates.io/crates/sha2/0.11.0) | 0.11.0 | Application, Alley Cat and BTZ: original-file verification | [MIT](LICENSES/MIT.txt) |
 | [sdl3](https://crates.io/crates/sdl3/0.20.0) | 0.20.0 | Shared SDL: window, input, rendering and audio APIs | [MIT](LICENSES/MIT.txt) |
-| [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | Shared SDL: settings interface, with default fonts | [MIT](LICENSES/MIT.txt); font terms below |
+| [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | Shared SDL: settings and launcher interfaces, with default fonts | [MIT](LICENSES/MIT.txt); font terms below |
 | [blip_buf](https://crates.io/crates/blip_buf/0.2.1) | 0.2.1 | Shared audio: optional band-limited speaker renderer | [MIT](LICENSES/MIT.txt) |
 | [toml_edit](https://crates.io/crates/toml_edit/0.22.27) | 0.22.27 | Shared settings: TOML parsing and editing | [MIT](LICENSES/MIT.txt) |
-| [fs2](https://crates.io/crates/fs2/0.4.3) | 0.4.3 | Shared settings: file locking | [MIT](LICENSES/MIT.txt) |
-| [libc](https://crates.io/crates/libc/0.2.190) | 0.2.190 | BTZ development frontend on Unix: terminal readiness polling | [MIT](LICENSES/MIT.txt) |
+| [getrandom](https://crates.io/crates/getrandom/0.3.4) | 0.3.4 | Shared settings: operating-system randomness for library IDs | [MIT](LICENSES/MIT.txt) |
+| [libc](https://crates.io/crates/libc/0.2.190) | 0.2.190 | BTZ terminal frontend: terminal readiness polling | [MIT](LICENSES/MIT.txt) |
+| [fs2](https://crates.io/crates/fs2/0.4.3) | 0.4.3 | Shared settings and launcher preview cache: file locking | [MIT](LICENSES/MIT.txt) |
 
 Copyright notices, transcribed from the corresponding upstream license files:
 
+- **png:** Copyright (c) 2015 nwin.
+- **unicode-segmentation:** Copyright (c) 2015 The Rust Project Developers.
 - **sha2:** Copyright (c) 2016-2026 The RustCrypto Project Developers;
   Copyright (c) 2016 Artyom Pavlov; Copyright (c) 2009-2013 Mozilla Foundation;
   Copyright (c) 2006-2009 Graydon Hoare.
@@ -41,8 +46,10 @@ Copyright notices, transcribed from the corresponding upstream license files:
 - **blip_buf:** Copyright (c) 2015 Mathijs van de Nes. Published upstream revision
   [06c66ea66151a9d7a3d338342165a1b0a0bf7303](https://github.com/mvdnes/blip_buf-rs/tree/06c66ea66151a9d7a3d338342165a1b0a0bf7303).
 - **toml_edit:** Copyright (c) Individual contributors.
-- **fs2:** Copyright (c) 2015 The Rust Project Developers.
+- **getrandom:** Copyright (c) 2018-2025 The rust-random Project Developers;
+  Copyright (c) 2014 The Rust Project Developers.
 - **libc:** Copyright (c) The Rust Project Developers.
+- **fs2:** Copyright (c) 2015 The Rust Project Developers.
 
 Except for egui's upstream root license, these notices come from `LICENSE` or
 `LICENSE-MIT` in each published crate archive. No implementation from these

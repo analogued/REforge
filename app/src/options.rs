@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Player CLI catalog. Engine-specific parsers receive only validated options.
 
@@ -129,6 +130,20 @@ const SPECS: &[Spec] = &[
         value: Value::Flag,
         dev: false,
         description: "List supported games",
+    },
+    Spec {
+        name: "--version",
+        game: None,
+        value: Value::Flag,
+        dev: false,
+        description: "Show the REforge version (-V)",
+    },
+    Spec {
+        name: "--video",
+        game: Some(Game::Mach3),
+        value: Value::Choice(&["cga", "mono"]),
+        dev: false,
+        description: "Initial video mode (default cga); F3 switches during play",
     },
     Spec {
         name: "--machine",
@@ -301,7 +316,7 @@ const SPECS: &[Spec] = &[
 ];
 
 pub fn takes_value(name: &str) -> Option<bool> {
-    if name == "-h" {
+    if matches!(name, "-h" | "-V") {
         return Some(false);
     }
     SPECS
@@ -432,30 +447,29 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
             }
             break;
         }
-        if active("--headless").is_some() {
-            if let Some(index) = active("--presentation").or_else(|| active("--frame-limit")) {
-                remove(entries, index, "does not apply to --headless", warnings);
-                continue;
-            }
+        if active("--headless").is_some()
+            && let Some(index) = active("--presentation").or_else(|| active("--frame-limit"))
+        {
+            remove(entries, index, "does not apply to --headless", warnings);
+            continue;
         }
-        if active("--headless").is_none() {
-            if let Some(index) = active("--script").or_else(|| active("--timed")) {
-                remove(entries, index, "requires --headless", warnings);
-                continue;
-            }
+        if active("--headless").is_none()
+            && let Some(index) = active("--script").or_else(|| active("--timed"))
+        {
+            remove(entries, index, "requires --headless", warnings);
+            continue;
         }
         let scene = active("--scene")
             .and_then(|i| entries[i].value.as_ref())
             .and_then(|v| v.to_str())
             .unwrap_or("alley");
-        if scene == "splash" {
-            if let Some(index) = ["--script", "--trace", "--trace-timing", "--step-hz"]
+        if scene == "splash"
+            && let Some(index) = ["--script", "--trace", "--trace-timing", "--step-hz"]
                 .into_iter()
                 .find_map(active)
-            {
-                remove(entries, index, "does not apply to --scene splash", warnings);
-                continue;
-            }
+        {
+            remove(entries, index, "does not apply to --scene splash", warnings);
+            continue;
         }
         if !["alley", "birdcage", "splash"].contains(&scene) {
             if let Some(index) = active("--step-hz") {
@@ -478,28 +492,29 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
                 continue;
             }
         }
-        if let Some(step) = active("--step-hz") {
-            if let Some(other) = active("--timed").or_else(|| active("--trace-timing")) {
-                let index = step.max(other);
-                remove(
-                    entries,
-                    index,
-                    "conflicts with the selected timing mode",
-                    warnings,
-                );
-                continue;
-            }
+        if let Some(step) = active("--step-hz")
+            && let Some(other) = active("--timed").or_else(|| active("--trace-timing"))
+        {
+            let index = step.max(other);
+            remove(
+                entries,
+                index,
+                "conflicts with the selected timing mode",
+                warnings,
+            );
+            continue;
         }
-        if active("--headless").is_some() && active("--timed").is_none() {
-            if let Some(index) = active("--trace-timing") {
-                remove(
-                    entries,
-                    index,
-                    "requires --timed for headless execution",
-                    warnings,
-                );
-                continue;
-            }
+        if active("--headless").is_some()
+            && active("--timed").is_none()
+            && let Some(index) = active("--trace-timing")
+        {
+            remove(
+                entries,
+                index,
+                "requires --timed for headless execution",
+                warnings,
+            );
+            continue;
         }
         break;
     }
@@ -548,7 +563,7 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
             warnings.push(format!("{} requires an SDL build; ignored", spec.name));
             continue;
         }
-        if matches!(spec.name, "--original" | "--help" | "--list") {
+        if matches!(spec.name, "--original" | "--help" | "--list" | "--version") {
             continue;
         }
         if matches!(spec.value, Value::Flag) {
@@ -597,7 +612,7 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
 
 pub fn help(game: Option<Game>) -> String {
     let mut text = String::from(
-        "REforge\n\nUsage: reforge --original <file-or-directory> [options]\n       reforge --help\n       reforge --list\n\nDetection checks filenames, then sizes, then SHA-256 hashes.\nInvalid, unavailable and other-game options are warned about and ignored.\nOriginal data is required and is never included.\n\nCommon options:\n",
+        "REforge\n\nUsage: reforge\n       reforge --original <file-or-directory> [options]\n       reforge --help\n       reforge --list\n       reforge --version\n\nWithout arguments, open the launcher and saved game library.\nDetection checks filenames, then sizes, then SHA-256 hashes.\nInvalid, unavailable and other-game options are warned about and ignored.\nOriginal data is required and is never included.\n\nCommon options:\n",
     );
     for owner in [None, game]
         .into_iter()
@@ -1123,11 +1138,10 @@ mod tests {
                 if !line.contains("=>") || !line.contains("\"--") {
                     continue;
                 }
-                for quoted in line
-                    .split('"')
-                    .skip(1)
-                    .step_by(2)
-                    .filter(|word| word.starts_with("--"))
+                for quoted in
+                    line.split('"').skip(1).step_by(2).filter(|word| {
+                        word.starts_with("--") && !word.chars().any(char::is_whitespace)
+                    })
                 {
                     if quoted == "--" {
                         continue;

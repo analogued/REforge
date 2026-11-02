@@ -42,16 +42,27 @@ docs: Clarify commit scope prefixes
 Update workspace dependencies
 ```
 
-Aim for around 50 characters in the subject, including a prefix, without
-sacrificing clarity. For substantive changes, leave a blank line and explain
-the reason, relevant behavior changes, and validation in the body. Wrap body
-text around 72 characters where practical.
+Keep the subject concise, preferably 50 characters or fewer, including any scope
+prefix. Prioritize clarity over exact length. For substantive changes, leave a
+blank line and explain the reason, relevant behavior changes, and validation in
+the body. Wrap body text around 72 characters where practical.
 
 The default branch is `main`. Keep each commit focused on a coherent change,
 avoiding unrelated changes across areas. Broader structural commits are acceptable
 during initial setup; use tighter scopes as the project matures. Coordinated
 refactors may legitimately span several areas. Conventional Commits syntax is
 not required.
+
+## Release notes
+
+Add notable user-facing changes to `Unreleased` in [CHANGELOG.md](CHANGELOG.md).
+Group entries by New games, General, individual engines or platforms; include
+only sections that have entries. Summarize the effect for users rather than
+copying commit subjects. Under New games, use one "Added support for" entry per
+game, including the platform where relevant.
+
+[Release packaging](docs/releases.md) documents calendar versioning and building
+distributable packages.
 
 ## Third-party code
 
@@ -76,7 +87,7 @@ imported source. Do not maintain per-version license directories or manually
 duplicate indirect Cargo notices; [release packaging](docs/releases.md) generates
 one combined notices document for the selected target and features.
 
-REforge's authored code and documentation use
+Contributions to authored code and documentation use
 [`GPL-3.0-or-later`](LICENSE). Review proposed imports for compatibility with
 that license before adoption, retaining their original terms and attribution.
 
@@ -89,11 +100,18 @@ feature/build combinations required by the affected crates. Package-scoped
 checks can aid development; shared changes must validate affected games.
 See [Alley Cat checks](engines/alleycat/CONTRIBUTING.md),
 [Mach 3 checks](engines/mach3/CONTRIBUTING.md), and
-[BTZ checks](engines/btz/CONTRIBUTING.md) for engine-specific validation.
+[BTZ checks](engines/btz/CONTRIBUTING.md) for their feature matrices and tools.
 For application CLI changes, test and lint `-p reforge` with default features,
 `--no-default-features`, `--features dev-tools`, and both options combined.
 Release optimization (`--release`) is independent of the opt-in `dev-tools`
 feature; normal builds exclude engine testing and diagnostic switches.
+
+When changing dependencies or using new language/library features, also check
+the minimum supported Rust version, currently 1.88. With that toolchain installed:
+
+```sh
+cargo +1.88.0 check --locked --workspace --all-targets --all-features
+```
 
 Tests must use authored synthetic fixtures, with original-data comparisons
 stored externally. Document concrete commands and limitations as crates are added.

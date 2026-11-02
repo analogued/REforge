@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Window projectile launch, falling sprites and the timed first-hit contract.
 //! The caller owns background composition and pauses gameplay during the effect.

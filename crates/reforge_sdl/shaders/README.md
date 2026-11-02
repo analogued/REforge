@@ -8,8 +8,8 @@ retained for inspection; change `hyllian.frag` and regenerate all targets.
 They are embedded by REforge; building and running REforge needs no shader
 compiler, Qt, DOSBox Staging installation or shader files alongside the executable.
 Retain [the MIT license and attribution](../../../THIRD_PARTY.md#hyllian-crt-shader)
-when redistributing these shaders. MIT permits use with the project's candidate permissive or GPL
-licenses; it does not select a license for the rest of REforge.
+when redistributing these shaders. The shaders retain their MIT license within
+REforge, whose authored code and documentation use GPL-3.0-or-later.
 
 ## Provenance and adaptations
 

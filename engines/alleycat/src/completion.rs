@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Ordinary-room success presentation, with external cat faces and BIOS-style text.
 //! Tick waits and speaker writes are independent of host rendering.

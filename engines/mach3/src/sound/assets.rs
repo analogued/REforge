@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Headerless sample resources and explicitly supplied bytes outside them.
 
 use std::{collections::BTreeMap, path::Path};
@@ -82,9 +83,15 @@ pub struct SoundAssets {
 
 impl SoundAssets {
     pub fn load(directory: impl AsRef<Path>) -> Result<Self, Error> {
+        Self::load_with(|name| read_resource(directory.as_ref(), name))
+    }
+
+    pub(crate) fn load_with(
+        mut read: impl FnMut(&str) -> Result<Vec<u8>, Error>,
+    ) -> Result<Self, Error> {
         let mut samples = BTreeMap::new();
         for resource in Resource::ALL {
-            let bytes = read_resource(directory.as_ref(), resource.name())?;
+            let bytes = read(resource.name())?;
             if bytes.len() != resource.bytes() {
                 return Err(Error::InvalidData(format!(
                     "{}: expected {} raw sample bytes, got {}",

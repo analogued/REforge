@@ -1,25 +1,28 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! DOS CGA asset decoding, composition, and reconstructed gameplay.
 #![forbid(unsafe_code)]
 
 pub mod assets;
-#[cfg(feature = "viewer")]
+#[cfg(feature = "sdl")]
 pub mod cli;
 pub mod executable;
 pub mod frame;
 pub mod gameplay;
-#[cfg(all(feature = "viewer", feature = "dev-tools"))]
+#[cfg(all(feature = "sdl", feature = "dev-tools"))]
 mod input_trace;
+#[cfg(feature = "sdl")]
+pub mod launcher;
 pub mod live;
+#[cfg(feature = "sdl")]
+pub mod platform;
 pub mod scene;
 pub mod session_replay;
 pub mod sound;
 pub mod startup;
 pub mod timer;
-#[cfg(all(feature = "viewer", feature = "dev-tools"))]
+#[cfg(all(feature = "sdl", feature = "dev-tools"))]
 mod timing_trace;
-#[cfg(feature = "viewer")]
-pub mod viewer;
 
 #[derive(Debug)]
 pub enum Error {

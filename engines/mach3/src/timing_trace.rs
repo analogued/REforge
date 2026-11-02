@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Development-only host execution spans and native scheduling observations.
 
 use crate::gameplay::Snapshot;

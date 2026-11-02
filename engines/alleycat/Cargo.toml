@@ -1,9 +1,10 @@
 [package]
 name = "alleycat"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 publish = false
+license.workspace = true
 description = "Alley Cat reconstruction for modern desktop systems"
 
 [features]

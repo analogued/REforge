@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Shared ordinary-room neutral/failure return presentation (CS:1bf0/1d76).
 //! Imagery, speaker sequences and tick gates use the original tables.

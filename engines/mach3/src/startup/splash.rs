@@ -1,10 +1,11 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The startup DOS-clock wait at 5df0, before installing game timer handlers.
 
 use reforge_audio::PIT_HZ;
 
 /// Channel zero is reprogrammed directly, without the game's counter helper.
-#[cfg(feature = "viewer")]
+#[cfg(feature = "sdl")]
 pub(crate) const SPLASH_DIVISOR: u16 = 0x2a30;
 const BIOS_DAY_TICKS: u32 = 0x1800b0;
 

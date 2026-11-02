@@ -1,7 +1,11 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 mod detection;
+#[cfg(feature = "sdl")]
+mod launcher;
 mod options;
+mod profile;
 
 use detection::{Detected, Game};
 use std::{
@@ -17,6 +21,7 @@ struct Input {
     warnings: Vec<String>,
     help: bool,
     list: bool,
+    version: bool,
 }
 
 fn extract(args: impl IntoIterator<Item = OsString>) -> Input {
@@ -41,13 +46,15 @@ fn extract(args: impl IntoIterator<Item = OsString>) -> Input {
                         .push("--original requires a file or directory; ignored".into()),
                 }
             }
-            "--help" | "-h" | "--list" => {
+            "--help" | "-h" | "--list" | "--version" | "-V" => {
                 if inline.is_some() {
                     input
                         .warnings
                         .push(format!("{name} is a flag and takes no value; ignored"));
                 } else if name == "--list" {
                     input.list = true;
+                } else if matches!(name.as_str(), "--version" | "-V") {
+                    input.version = true;
                 } else {
                     input.help = true;
                 }
@@ -100,7 +107,8 @@ fn warn(warnings: &[String]) {
 fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Launch, Vec<OsString>) {
     let mut args = Vec::new();
     let mut prefs = reforge_settings::Launch {
-        game: game.id().into(),
+        game_id: game.id().into(),
+        entry_id: None,
         path: reforge_settings::default_path(),
         cli: Default::default(),
     };
@@ -157,14 +165,34 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
     (prefs, args)
 }
 
+fn opens_launcher(args: &[OsString]) -> bool {
+    args.is_empty()
+}
+
 fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
+    let args: Vec<_> = args.into_iter().collect();
+    if opens_launcher(&args) {
+        #[cfg(feature = "sdl")]
+        return launcher::run();
+        #[cfg(not(feature = "sdl"))]
+        return Err(
+            "The graphical launcher requires the sdl feature; use --help for command-line usage"
+                .into(),
+        );
+    }
     let input = extract(args);
+    if input.version {
+        warn(&input.warnings);
+        println!("REforge {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     if input.list {
         warn(&input.warnings);
         let mut listed = std::collections::HashSet::new();
         for release in detection::RELEASES {
-            if listed.insert(release.game.id()) {
-                println!("{}: {}", release.game.id(), release.game.title());
+            let game = release.game();
+            if listed.insert(game.id()) {
+                println!("{}: {}", game.id(), game.title());
             }
         }
         return Ok(());
@@ -198,7 +226,10 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
             .map_err(|error| format!("Cannot resolve original path: {error}"))?
             .into_os_string(),
     ];
-    let (prefs, remaining) = launch_settings(plan.args, plan.detected.game);
+    let (mut prefs, mut remaining) = launch_settings(plan.args, plan.detected.game);
+    if let Err(error) = profile::bind(&mut prefs, &plan.detected, &mut remaining) {
+        eprintln!("REforge: {error}; using global defaults where possible");
+    }
     args.extend(remaining);
     let _preferences = prefs.install();
     match plan.detected.game {
@@ -215,7 +246,7 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
         Game::Mach3 => {
             #[cfg(feature = "sdl")]
             {
-                mach3::cli::run(args.into_iter())
+                mach3::cli::run_with_files(args.into_iter(), &plan.detected.files)
             }
             #[cfg(not(feature = "sdl"))]
             {
@@ -248,8 +279,12 @@ mod tests {
             Game::Mach3
         };
         Ok(Detected {
+            files: Default::default(),
             game,
-            release: detection::RELEASES.iter().find(|r| r.game == game).unwrap(),
+            release: detection::RELEASES
+                .iter()
+                .find(|r| r.game() == game)
+                .unwrap(),
             original: path.into(),
         })
     }
@@ -335,7 +370,7 @@ mod tests {
         );
         assert!(prepared.warnings.is_empty());
         let (launch, forward) = launch_settings(prepared.args, Game::AlleyCat);
-        assert_eq!(launch.game, "alley-cat");
+        assert_eq!(launch.game_id, "alley-cat");
         assert!(launch.path.is_none());
         assert_eq!(launch.cli.get("scale").map(String::as_str), Some("4"));
         assert_eq!(launch.cli.get("vsync").map(String::as_str), Some("false"));
@@ -347,9 +382,39 @@ mod tests {
     }
 
     #[test]
-    fn help_and_catalog_do_not_require_originals() {
-        for values in [&[][..], &["--help"][..], &["--list"][..]] {
+    fn informational_flags_do_not_require_originals() {
+        for values in [
+            &["--help"][..],
+            &["--list"][..],
+            &["--version"][..],
+            &["-V"][..],
+        ] {
             assert!(run(args(values)).is_ok());
+        }
+    }
+    #[test]
+    fn version_exits_before_original_detection_and_rejects_inline_values() {
+        for flag in ["--version", "-V"] {
+            assert_eq!(options::takes_value(flag), Some(false));
+            assert!(run(args(&["--original", "missing", flag])).is_ok());
+            let input = extract(args(&[&format!("{flag}=unexpected")]));
+            assert!(!input.version);
+            assert_eq!(input.warnings.len(), 1);
+        }
+    }
+    #[test]
+    fn launcher_requires_exactly_zero_arguments() {
+        assert!(opens_launcher(&[]));
+        for values in [
+            &["--help"][..],
+            &["--list"][..],
+            &["--version"][..],
+            &["--original", "cat"][..],
+            &["--unknown"][..],
+            &["--original"][..],
+            &[""][..],
+        ] {
+            assert!(!opens_launcher(&args(values)));
         }
     }
     #[test]
@@ -407,5 +472,9 @@ mod tests {
         let input = extract(args(&["--trace=--help", "--original", "cat"]));
         assert!(!input.help);
         assert_eq!(input.remaining, args(&["--trace=--help"]));
+        let input = extract(args(&["--trace=--version", "--original=--version"]));
+        assert!(!input.version);
+        assert_eq!(input.original, Some(PathBuf::from("--version")));
+        assert_eq!(input.remaining, args(&["--trace=--version"]));
     }
 }

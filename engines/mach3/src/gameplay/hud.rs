@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! HUD fuel, weapon heat, score, and delayed source resolution.
 
 use crate::{Error, assets::GraphicsAssets, frame::Rect, scene::Draw};
@@ -160,7 +161,7 @@ impl Hud {
             self.state.marker_width = dimensions.0;
             self.state.marker_height = dimensions.1;
         }
-        if loop_index % 2 == 0 {
+        if loop_index.is_multiple_of(2) {
             self.add_points(self.progression);
             // The original compares the score word signed and never borrows
             // between decimal digits when an overflowing award becomes negative.
@@ -182,7 +183,7 @@ impl Hud {
                 score.wrapping_mul(10).wrapping_add(digit as u32)
             });
         }
-        if loop_index % 2 == 0 || resolve_marker {
+        if loop_index.is_multiple_of(2) || resolve_marker {
             if self.state.marker_requested == self.state.marker_previous
                 && self
                     .marker_styles
@@ -223,7 +224,7 @@ impl Hud {
             self.state.right_bar_x = 58 + i32::from(shift);
             self.state.right_bar_width = (14 - shift) as usize;
         }
-        if loop_index % 2 == 0 {
+        if loop_index.is_multiple_of(2) {
             self.state.right_bar_draw_x = self.state.right_bar_x;
             self.state.right_bar_draw_width = self.state.right_bar_width;
         }

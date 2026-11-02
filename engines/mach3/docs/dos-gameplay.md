@@ -334,7 +334,7 @@ startup timer transition make precise DOS elapsed time
 dependent on execution conditions.
 The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
-The viewer offers an interval override and manual stepping.
+The windowed frontend offers an interval override and manual stepping.
 
 The headless `mach3::timer` execution layer reconstructs these counters and
 foreground waits against the shared PIT clock. It stops at interrupt entry,
@@ -418,7 +418,7 @@ or reorder the suspended foreground work.
 ## Player steering
 
 `2277` polls held inputs three times per body. Original Up/S, Down/X, Left/B,
-and Right/N map to bits 1, 2, 4, and 8. The native viewer exposes these aliases
+and Right/N map to bits 1, 2, 4, and 8. The windowed frontend exposes these aliases
 and arrow keys. The original joystick path also reduces axes to directional
 bits; stick displacement does not provide proportional steering.
 Up and Right acceleration run before Down and Left. Opposing directions remain
@@ -513,7 +513,7 @@ another fresh Space press to advance that intro screen.
 
 The ending retains gameplay's palette family and display mode. An ordinary F3
 poll selects family 1 as in gameplay; crossing into the ending does not itself
-change the palette. The live viewer repaints palette or display-mode changes
+change the palette. The live frontend repaints palette or display-mode changes
 even when native pause leaves the framebuffer unchanged.
 
 
@@ -578,20 +578,21 @@ player updates. F2 toggles its sound flag after four active polls; F3 switches
 on each active poll. Mode 6 displays the same video bytes as 640 one-bit pixels
 per row. Both modes fill a 4:3 display.
 
-Interactive viewers default to `--f3-mode press`: one toggle per press, with a
+Interactive frontends default to `--f3-mode press`: one toggle per press, with a
 release required before the next toggle. This frontend policy is a modern
 convenience, not reconstructed original behavior. `--f3-mode original` retains
 the per-poll behavior for physical-input comparisons. Headless execution and
 original-game recording replay retain the original rules unless a caller
 explicitly enables the frontend policy; F1/F2 processing remains unchanged.
 
-F3 saves the framebuffer bytes, switches the BIOS mode and restores those bytes,
-but does not restore the palette register. Both CGA mode sets select family 1;
-returning to color therefore restores bright cyan/magenta/white until a later
-script command selects another palette. The viewer and recording replay apply
-this reset at each effective F3 control poll, including native pause polls.
-Subsequent CD/CE commands select family 1/0 in execution order; the last script
-selection is not automatically reapplied after a mode switch.
+F3 saves the framebuffer bytes, switches the BIOS mode and restores those
+bytes, but does not restore the palette register. Both CGA mode sets select
+family 1; returning to color therefore restores bright cyan/magenta/white
+until a later script command selects another palette. The windowed frontend
+and recording replay apply this reset at each effective F3 control poll,
+including native pause polls. Subsequent CD/CE commands select family 1/0 in
+execution order; the last script selection is not automatically reapplied
+after a mode switch.
 
 F1 enters a release/press/release pause handshake with two timer waits before
 press detection and two before the decision. The decision samples whether F1
@@ -606,7 +607,7 @@ controls before a fresh press. Received scan transitions are retained until
 their scheduled polls, so catch-up uses the historical keyboard state. A short
 press/release pair completed between polls can still be missed. Events delivered
 after an executed poll apply prospectively; no rollback is performed.
-The viewer does not emulate hardware keyboard transport or physical key timing;
+The windowed frontend does not emulate hardware keyboard transport or physical key timing;
 externally scripted per-poll input is a separate replay interface. See
 [input timing and tracing](input-tracing.md) for frontend boundary rules.
 

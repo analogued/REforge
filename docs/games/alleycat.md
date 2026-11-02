@@ -5,6 +5,11 @@ challenges, and reach the female cat in the Hearts stage. REforge includes all
 five ordinary rooms, the underwater section and the Hearts bonus scene, with
 PC Speaker music and effects.
 
+> [!IMPORTANT]
+> REforge does not include original Alley Cat assets or data. You must provide
+> the original files from a supported release. See [What you need](#what-you-need)
+> below for details.
+
 [Back to REforge](../../README.md)
 
 ## What you need
@@ -51,8 +56,8 @@ skill selection. Start/Menu pauses; Back/View opens Settings.
 **Responsive controls** are enabled by default. They reduce the wait before
 direction and action requests are read, while preserving movement speed and
 jump physics. To use the original polling behavior, open
-**F10 → Alley Cat overrides → Controls → Input response**. Uncheck the section's
-defaults checkbox to edit, then Apply.
+**F10 → Alley Cat overrides → Controls → Input response**. Check
+**Override global defaults** to edit, then Apply.
 
 **CGA or PCjr graphics:** CGA is the default. Add `--machine pcjr` to select
 the PCjr palette. Both modes currently use PC Speaker sound.

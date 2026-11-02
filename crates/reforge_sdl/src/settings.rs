@@ -1,7 +1,11 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Host settings UI, painted through SDL geometry on every renderer.
 //! Game input and clocks remain the responsibility of each engine adapter.
+
+mod gui;
+pub use gui::Gui;
 
 use std::{collections::HashMap, time::Instant};
 
@@ -80,6 +84,7 @@ impl UiMetrics {
 pub struct SettingsMenu<'a> {
     pub(super) creator: &'a FrameCreator,
     pub(super) context: egui::Context,
+    theme: crate::ui::Theme,
     pub(super) capabilities: VideoCapabilities,
     pub(super) open: bool,
     events: Vec<MenuEvent>,
@@ -89,6 +94,7 @@ pub struct SettingsMenu<'a> {
     pub(super) draft: Option<Draft>,
     pub(super) pending: Option<Draft>,
     pub(super) scope: usize,
+    pub(super) game_overrides: bool,
     #[cfg(test)]
     pub(super) cancel_rect: Option<egui::Rect>,
     #[cfg(test)]
@@ -101,7 +107,8 @@ pub struct SettingsMenu<'a> {
     pub(super) alleycat_options: bool,
     pub(super) game_editing: [bool; 4],
     pub(super) page: usize,
-    pub(super) game_touched: [bool; 4],
+    // A section reset prevents edit round trips from restoring cleared keys.
+    pub(super) game_reset: [bool; 4],
     pub(super) status: Option<String>,
     pub(super) jobs: Vec<egui::ClippedPrimitive>,
     pub(super) pending_textures: egui::TexturesDelta,
@@ -120,13 +127,20 @@ enum MenuEvent {
 }
 
 impl<'a> SettingsMenu<'a> {
+    /// Show shared preferences without a game-override scope, for example before
+    /// a launcher has any games. Applying preserves all existing game settings.
+    pub fn with_global_defaults_only(mut self) -> Self {
+        self.game_overrides = false;
+        self.scope = 0;
+        self
+    }
     /// Expose Alley Cat's game-only input policy beside shared controller settings.
     pub fn with_alleycat_options(mut self) -> Self {
         let mut session = self.creator.session.borrow_mut();
-        if session.game == "standalone" {
-            session.game = "alley-cat".into();
+        if session.game_id == "standalone" {
+            session.game_id = "alley-cat".into();
         }
-        self.alleycat_options = session.game == "alley-cat";
+        self.alleycat_options = session.game_id == "alley-cat";
         drop(session);
         self
     }
@@ -147,10 +161,10 @@ impl<'a> SettingsMenu<'a> {
     pub fn with_mach3_options(mut self, samples: Option<bool>) -> Self {
         {
             let mut session = self.creator.session.borrow_mut();
-            if session.game == "standalone" {
-                session.game = "mach-3".into();
+            if session.game_id == "standalone" {
+                session.game_id = "mach-3".into();
             }
-            self.mach3_options = session.game == "mach-3";
+            self.mach3_options = session.game_id == "mach-3";
             if self.mach3_options {
                 if let Some(value) = samples {
                     session.cli.insert(
@@ -168,19 +182,33 @@ impl<'a> SettingsMenu<'a> {
         let session = self.creator.session.borrow();
         session.effective(&session.saved).mach3
     }
+    /// Apply UI colours without changing Settings geometry, draft or navigation.
+    pub fn set_theme(&mut self, theme: crate::ui::Theme) {
+        self.theme = theme;
+        theme.apply_palette(&self.context);
+    }
+    pub fn theme(&self) -> &crate::ui::Theme {
+        &self.theme
+    }
     pub fn new(creator: &'a FrameCreator, capabilities: VideoCapabilities) -> Self {
         let context = egui::Context::default();
-        context.set_visuals(egui::Visuals::dark());
-        context.style_mut(|style| {
-            style.animation_time = 0.0;
-            style.spacing.item_spacing = Vec2::new(12.0, 12.0);
-            style.spacing.button_padding = Vec2::new(14.0, 7.0);
-            style.visuals.selection.bg_fill = Color32::from_rgb(43, 103, 131);
-        });
         crate::settings_ui::style(&context);
+        let theme_id = creator
+            .session
+            .borrow()
+            .path
+            .as_deref()
+            .and_then(|path| reforge_settings::launcher::load(path).ok())
+            .and_then(|preferences| crate::ui::themes::ThemeId::from_slug(&preferences.theme))
+            .unwrap_or_default();
+        let theme = crate::ui::themes::ResolvedAppearance::resolve(theme_id).theme;
+        // Settings keeps its existing geometry; only the saved theme's colours
+        // are applied. Invalid or unknown preferences are preserved on disk.
+        theme.apply_palette(&context);
         Self {
             creator,
             context,
+            theme,
             capabilities,
             open: false,
             events: Vec::new(),
@@ -190,6 +218,7 @@ impl<'a> SettingsMenu<'a> {
             draft: None,
             pending: None,
             scope: 0,
+            game_overrides: true,
             #[cfg(test)]
             cancel_rect: None,
             #[cfg(test)]
@@ -202,7 +231,7 @@ impl<'a> SettingsMenu<'a> {
             alleycat_options: false,
             game_editing: [false; 4],
             page: 0,
-            game_touched: [false; 4],
+            game_reset: [false; 4],
             status: None,
             jobs: Vec::new(),
             pending_textures: egui::TexturesDelta::default(),
@@ -239,7 +268,7 @@ impl<'a> SettingsMenu<'a> {
         }
         self.draft = None;
         self.pending = None;
-        self.game_touched = [false; 4];
+        self.game_reset = [false; 4];
         self.events.clear();
         let mode = self.navigation.mode;
         self.navigation = Default::default();
@@ -458,8 +487,8 @@ impl<'a> SettingsMenu<'a> {
             let memory = self.context.memory(Clone::clone);
             self.context = egui::Context::default();
             self.context.memory_mut(|new| *new = memory);
-            self.context.set_visuals(egui::Visuals::dark());
             crate::settings_ui::style(&self.context);
+            self.theme.apply_palette(&self.context);
             self.generation = self.creator.generation();
         }
         if self.draft.is_none() {
@@ -509,7 +538,7 @@ impl<'a> SettingsMenu<'a> {
             ctx.layer_painter(egui::LayerId::background()).rect_filled(
                 screen,
                 0.0,
-                Color32::from_black_alpha(165),
+                self.theme.palette.scrim,
             );
             if crate::settings_ui::draw(self, ctx, screen) {
                 self.open = false;
@@ -548,7 +577,7 @@ impl<'a> SettingsMenu<'a> {
                 Ok(()) => {
                     self.draft = Some(draft);
                     self.error = None;
-                    self.game_touched = [false; 4];
+                    self.game_reset = [false; 4];
                 }
                 Err(error) => {
                     self.error = Some(format!("Settings applied, but could not save: {error}"))
@@ -979,7 +1008,8 @@ mod tests {
             std::env::temp_dir().join(format!("reforge-controls-ui-{}.toml", std::process::id()));
         assert!(!path.exists());
         let launch = Launch {
-            game: "alley-cat".into(),
+            game_id: "alley-cat".into(),
+            entry_id: Some("alley-cat".into()),
             path: Some(path.clone()),
             cli: Patch::from([
                 ("renderer".into(), "software".into()),
@@ -1019,8 +1049,11 @@ mod tests {
         click(&mut menu, "Alley Cat overrides");
         click(&mut menu, "Controls");
         assert_eq!(menu.page, 3);
-        assert!(label(&draw(&mut menu, vec![]), "Use defaults for this section").is_some());
-        click(&mut menu, "Use defaults for this section");
+        let override_label = "Override global defaults · only differences are saved";
+        assert!(label(&draw(&mut menu, vec![]), override_label).is_some());
+        assert!(!menu.game_editing[3]);
+        click(&mut menu, override_label);
+        assert!(menu.game_editing[3]);
         click(&mut menu, "Responsive");
         click(&mut menu, "Original");
         assert_eq!(
@@ -1032,6 +1065,13 @@ mod tests {
                 .control_mode,
             ControlMode::Original
         );
+        click(&mut menu, override_label);
+        assert!(!menu.game_editing[3]);
+        assert!(!menu.draft.as_ref().unwrap().has_game_overrides(3));
+        click(&mut menu, override_label);
+        assert!(menu.game_editing[3]);
+        click(&mut menu, "Responsive");
+        click(&mut menu, "Original");
         assert_eq!(
             display.settings().alleycat.control_mode,
             ControlMode::Responsive
@@ -1094,12 +1134,99 @@ mod tests {
             display.settings().alleycat.control_mode,
             ControlMode::Responsive
         );
-        assert!(!Session::load(launch).saved.has_game_overrides(3));
+        assert!(!Session::load(launch.clone()).saved.has_game_overrides(3));
+
+        // An explicit launcher preference may equal global. Exercise the real
+        // menu and Apply path, rather than just editing the model directly.
+        let mut explicit = creator.session.borrow().saved.clone();
+        explicit
+            .game
+            .insert("window_mode".into(), "windowed".into());
+        creator
+            .session
+            .borrow_mut()
+            .commit(explicit.clone())
+            .unwrap();
+        menu.draft = Some(explicit);
+        menu.scope = 1;
+        menu.page = 0;
+        menu.game_editing[0] = true;
+        menu.game_reset[0] = false;
+        click(&mut menu, "Fullscreen");
+        click(&mut menu, "Windowed");
+        assert_eq!(
+            menu.draft.as_ref().unwrap().game["window_mode"],
+            "windowed",
+            "returning to the starting value restores the explicit override"
+        );
+        click(&mut menu, "Integer fit");
+        click(&mut menu, "Fit to window (fractional)");
+        click(&mut menu, "Apply");
+        assert_eq!(
+            menu.pending.as_ref().unwrap().game["window_mode"],
+            "windowed",
+            "Apply must not prune another override in the same section"
+        );
+        let request = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().unwrap());
+        display.apply_settings(request).unwrap();
+        menu.applied();
+        assert_eq!(
+            Session::load(launch.clone()).saved.game["window_mode"],
+            "windowed"
+        );
+
+        click(&mut menu, "Global defaults");
+        click(&mut menu, "Fullscreen");
+        click(&mut menu, "Apply");
+        assert_eq!(
+            menu.pending.as_ref().unwrap().game["window_mode"],
+            "windowed",
+            "global edits must leave explicit game overrides intact"
+        );
+        // Discard this pending global edit without requiring desktop fullscreen.
+        menu.toggle();
+        menu.toggle();
+        menu.prepare(display.ui_metrics(), display.settings());
+        menu.scope = 1;
+        menu.page = 0;
+        click(&mut menu, override_label);
+        assert!(
+            !menu
+                .draft
+                .as_ref()
+                .unwrap()
+                .game
+                .contains_key("window_mode")
+        );
+        click(&mut menu, override_label);
+        click(&mut menu, "Fullscreen");
+        click(&mut menu, "Windowed");
+        assert!(
+            !menu
+                .draft
+                .as_ref()
+                .unwrap()
+                .game
+                .contains_key("window_mode"),
+            "an explicit section reset must not resurrect its old override"
+        );
+        click(&mut menu, "Apply");
+        let request = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().unwrap());
+        display.apply_settings(request).unwrap();
+        menu.applied();
+        assert!(!Session::load(launch).saved.has_game_overrides(0));
+        click(&mut menu, "Controls");
         click(&mut menu, "Global defaults");
         assert_eq!(menu.page, 3, "Controls is now shared across scopes");
         assert!(label(&draw(&mut menu, vec![]), "Stick dead zone").is_some());
         assert!(label(&draw(&mut menu, vec![]), "Input response").is_none());
-        creator.session.borrow_mut().game = "mach-3".into();
+        creator.session.borrow_mut().game_id = "mach-3".into();
         let mut mach_menu =
             SettingsMenu::new(&creator, VideoCapabilities::default()).with_mach3_options(None);
         mach_menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
@@ -1108,6 +1235,54 @@ mod tests {
         mach_menu.page = 3;
         assert!(label(&draw(&mut mach_menu, vec![]), "Stick dead zone").is_some());
         assert!(label(&draw(&mut mach_menu, vec![]), "Input response").is_none());
+
+        // A launcher without a game exposes shared settings only. Even when
+        // used with a session containing overrides, Apply must leave them alone.
+        {
+            let mut session = creator.session.borrow_mut();
+            let mut draft = session.saved.clone();
+            draft.game.insert("window_mode".into(), "windowed".into());
+            session.commit(draft).unwrap();
+        }
+        let before = creator.session.borrow().saved.game.clone();
+        let mut global_menu =
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_global_defaults_only();
+        global_menu.toggle();
+        global_menu.prepare(display.ui_metrics(), display.settings());
+        for page in 0..4 {
+            global_menu.page = page;
+            let output = draw(&mut global_menu, vec![]);
+            assert!(label(&output, "Global defaults").is_some());
+            for hidden in [
+                "Game overrides",
+                "Alley Cat overrides",
+                "Mach 3 overrides",
+                "Input response",
+                "Digitized samples",
+            ] {
+                assert!(label(&output, hidden).is_none(), "unexpected {hidden}");
+            }
+        }
+        assert!(label(&draw(&mut global_menu, vec![]), "Stick dead zone").is_some());
+        global_menu.page = 0;
+        click(&mut global_menu, "Fullscreen");
+        click(&mut global_menu, "Apply");
+        assert_eq!(global_menu.pending.as_ref().unwrap().game, before);
+        global_menu.applied();
+        let saved = creator.session.borrow().saved.clone();
+        assert!(saved.global_values().fullscreen);
+        assert_eq!(saved.game, before);
+        assert_eq!(
+            Session::load(Launch {
+                game_id: "mach-3".into(),
+                entry_id: Some("alley-cat".into()),
+                path: Some(path.clone()),
+                cli: Patch::new(),
+            })
+            .saved
+            .game,
+            before
+        );
         std::fs::remove_file(path).unwrap();
     }
 
@@ -1279,6 +1454,12 @@ mod tests {
         frame.update(&pixels).unwrap();
         assert!(frame.update(&pixels[..pixels.len() - 1]).is_err());
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+        let theme = crate::ui::Theme::default().with_overrides(|theme| {
+            theme.palette.focus = egui::Color32::GOLD;
+            theme.palette.override_text = egui::Color32::GOLD;
+            theme.components.button.shape = crate::ui::ButtonShape::Pill;
+        });
+        menu.set_theme(theme);
         menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
         menu.prepare(display.ui_metrics(), display.settings());
         let unchanged = display.settings();
@@ -1397,6 +1578,16 @@ mod tests {
                     .unwrap();
             }
             menu.prepare(display.ui_metrics(), display.settings());
+            assert_eq!(*menu.theme(), theme);
+            assert_eq!(crate::ui::current_theme(&menu.context), theme);
+            assert_eq!(
+                menu.context.style().spacing.button_padding,
+                egui::vec2(8.0, 3.0)
+            );
+            assert_eq!(
+                menu.context.style().visuals.widgets.inactive.corner_radius,
+                egui::CornerRadius::same(2)
+            );
             display
                 .present_with(&frame, |canvas| {
                     menu.paint(canvas)?;
@@ -1465,7 +1656,8 @@ mod tests {
             return;
         }
         let _launch = reforge_settings::Launch {
-            game: "mach-3".into(),
+            game_id: "mach-3".into(),
+            entry_id: None,
             path: None,
             cli: reforge_settings::Patch::from([
                 ("renderer".into(), "sdl".into()),
@@ -1602,7 +1794,7 @@ mod tests {
             crate::FrameTexture::new(&creator, 320, 200, crate::FrameFormat::Rgba).unwrap();
         frame.update(&[31, 67, 109, 255].repeat(320 * 200)).unwrap();
         for game in ["alley-cat", "mach-3"] {
-            creator.session.borrow_mut().game = game.into();
+            creator.session.borrow_mut().game_id = game.into();
             creator.session.borrow_mut().cli =
                 reforge_settings::Patch::from([("vsync".into(), "false".into())]);
             let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());

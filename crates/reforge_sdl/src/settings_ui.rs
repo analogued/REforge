@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Compact settings pages. Editing is separate from activation and persistence.
 //! Register interactive responses with control/group_control/value_control (or Selector/collapsing)
 //! so keyboard/controller navigation targets settings rather than scroll geometry.
@@ -11,14 +12,92 @@ use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     AspectRatio, Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, Presentation,
     Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling,
-    ScalingPolicy, SoundCategory, SoundRenderer, section_index,
+    ScalingPolicy, SoundCategory, SoundRenderer,
 };
-const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
-const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
-const CLI_LOCK: Color32 = Color32::from_rgb(182, 169, 214);
-const CLI_BANNER: Color32 = Color32::from_rgb(35, 58, 72);
-const CLI_NOTICE: Color32 = Color32::from_rgb(190, 214, 228);
 const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
+// Presence is distinct from equality: explicit overrides may match global.
+#[derive(Clone, Copy, Default)]
+struct Overrides<'a> {
+    current: Option<&'a reforge_settings::Patch>,
+    saved: Option<&'a reforge_settings::Patch>,
+}
+impl<'a> Overrides<'a> {
+    fn current(self, key: &str) -> Option<&'a str> {
+        self.current
+            .and_then(|patch| patch.get(key))
+            .map(String::as_str)
+    }
+    fn saved(self, key: &str) -> Option<&'a str> {
+        self.saved
+            .and_then(|patch| patch.get(key))
+            .map(String::as_str)
+    }
+}
+
+// Borrow page snapshots; each widget receives only its own marker/tooltip data.
+#[derive(Clone, Copy)]
+struct RowContext<'a> {
+    base: &'a RuntimeSettings,
+    previous: &'a RuntimeSettings,
+    scope: usize,
+    overrides: Overrides<'a>,
+    cli: &'a reforge_settings::Patch,
+}
+struct RowState {
+    lock_tooltip: Option<String>,
+    overridden: bool,
+    dirty: bool,
+    tooltip: String,
+    saved: String,
+}
+impl RowContext<'_> {
+    fn state(self, key: &str, value: &RuntimeSettings) -> RowState {
+        let lock_tooltip = self
+            .cli
+            .get(key)
+            .map(|active| cli_tooltip(key, active))
+            .or_else(|| dependency_lock(key, value).map(str::to_owned));
+        let saved = self.previous.get(key);
+        let dirty = !self.cli.contains_key(key)
+            && if self.scope == 1 {
+                self.overrides.current(key) != self.overrides.saved(key)
+            } else {
+                value.get(key) != saved
+            };
+        let mut tooltip = format!(
+            "{}: {}\nSaved: {}",
+            if matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE) {
+                "Default"
+            } else {
+                "Global"
+            },
+            self.base.get(key),
+            saved
+        );
+        if self.scope == 1 {
+            tooltip.push_str(if self.overrides.saved(key).is_some() {
+                " (game override)"
+            } else {
+                " (inherited)"
+            });
+            tooltip.push_str(&match self.overrides.current(key) {
+                Some(value) => format!("\nGame override: {value}"),
+                None => "\nFollows defaults; no game override.".into(),
+            });
+        }
+        if let Some(reason) = &lock_tooltip {
+            tooltip = format!("{reason}\n\n{tooltip}");
+        }
+        RowState {
+            lock_tooltip,
+            dirty,
+            tooltip,
+            saved,
+            overridden: self.scope == 1 && self.overrides.current(key).is_some(),
+        }
+    }
+}
+
 pub(super) fn style(context: &egui::Context) {
     context.style_mut(|s| {
         s.animation_time = 0.0;
@@ -29,9 +108,9 @@ pub(super) fn style(context: &egui::Context) {
         for text in [egui::TextStyle::Body, egui::TextStyle::Button] {
             s.text_styles.insert(text, egui::FontId::proportional(14.0));
         }
-        s.visuals.selection.bg_fill = Color32::from_rgb(43, 103, 131);
         s.visuals.slider_trailing_fill = true;
     });
+    crate::ui::current_theme(context).apply_palette(context);
 }
 pub(super) fn draw(
     menu: &mut SettingsMenu<'_>,
@@ -42,7 +121,7 @@ pub(super) fn draw(
     let session = menu.creator.session.borrow();
     let saved = session.saved.clone();
     let cli = session.cli.clone();
-    let game = session.game.clone();
+    let game = session.game_id.clone();
     let warning = session.warning.clone();
     drop(session);
     let draft = menu.draft.as_mut().expect("open draft");
@@ -52,6 +131,9 @@ pub(super) fn draw(
     let height = (screen.height() - 48.0).max(260.0);
     let body_height = (height - 120.0).max(160.0);
     let mut close = false;
+    if !menu.game_overrides {
+        menu.scope = 0;
+    }
     egui::Window::new("Settings")
         .id(egui::Id::new("reforge_settings"))
         .collapsible(false)
@@ -66,25 +148,27 @@ pub(super) fn draw(
                     ui.selectable_value(&mut menu.scope, 0, "Global defaults"),
                     Group::Scope,
                 );
-                let game_scope = group_control(
-                    ui.selectable_value(
-                        &mut menu.scope,
-                        1,
-                        format!(
-                            "{} overrides",
-                            match game.as_str() {
-                                "alley-cat" => "Alley Cat",
-                                "mach-3" => "Mach 3",
-                                _ => "Game",
-                            }
+                let game_scope = menu.game_overrides.then(|| {
+                    group_control(
+                        ui.selectable_value(
+                            &mut menu.scope,
+                            1,
+                            format!(
+                                "{} overrides",
+                                match game.as_str() {
+                                    "alley-cat" => "Alley Cat",
+                                    "mach-3" => "Mach 3",
+                                    _ => "Game",
+                                }
+                            ),
                         ),
-                    ),
-                    Group::Scope,
-                );
-                if menu.navigation.focus_first && first.enabled() && game_scope.enabled() {
+                        Group::Scope,
+                    )
+                });
+                if menu.navigation.focus_first && first.enabled() {
                     if menu.scope == 0 {
                         first.request_focus();
-                    } else {
+                    } else if let Some(game_scope) = game_scope {
                         game_scope.request_focus();
                     }
                     menu.navigation.focus_first = false;
@@ -100,7 +184,18 @@ pub(super) fn draw(
                         if group_control(
                             ui.add_sized(
                                 [132.0, 32.0],
-                                egui::Button::new(label).selected(menu.page == page),
+                                // egui otherwise makes selected buttons square.
+                                egui::Button::new({
+                                    let palette = crate::ui::current_palette(ui.ctx());
+                                    let text = egui::RichText::new(label);
+                                    if !palette.dark && menu.page == page {
+                                        text.color(palette.selection.foreground)
+                                    } else {
+                                        text
+                                    }
+                                })
+                                .selected(menu.page == page)
+                                .corner_radius(3.0),
                             ),
                             Group::Sidebar,
                         )
@@ -123,27 +218,27 @@ pub(super) fn draw(
                         cli_notice(ui);
                     }
                     if menu.scope == 1 {
-                        let mut inherit = !menu.game_editing[menu.page];
+                        let mut override_defaults = menu.game_editing[menu.page];
                         if control(ui.checkbox(
-                            &mut inherit,
-                            if menu.page == 3 || (menu.page == 2 && menu.mach3_options) {
-                                "Use defaults for this section"
-                            } else {
-                                "Use global defaults for this section"
-                            },
+                            &mut override_defaults,
+                            "Override global defaults · only differences are saved",
                         ))
                         .changed()
                         {
-                            menu.game_editing[menu.page] = !inherit;
-                            if inherit {
+                            menu.game_editing[menu.page] = override_defaults;
+                            if !override_defaults {
                                 draft.reset_section(true, menu.page);
-                                menu.game_touched[menu.page] = true;
+                                menu.game_reset[menu.page] = true;
                             }
                         }
                     } else {
                         ui.weak("Shared defaults · individual games can override these values");
                     }
                     ui.add_space(8.0);
+                    let overrides = Overrides {
+                        current: Some(&draft.game),
+                        saved: Some(&saved.game),
+                    };
                     let base = draft.global_values();
                     let original = if menu.scope == 0 {
                         base.clone()
@@ -161,6 +256,13 @@ pub(super) fn draw(
                     } else {
                         saved.game_values()
                     };
+                    let rows = RowContext {
+                        base: &base,
+                        previous: &previous,
+                        scope: menu.scope,
+                        overrides,
+                        cli: &cli,
+                    };
                     let enabled = menu.scope == 0 || menu.game_editing[menu.page];
                     egui::ScrollArea::vertical()
                         .animated(false)
@@ -174,265 +276,22 @@ pub(super) fn draw(
                             let first = crate::settings_navigation::scroll_start(ui.ctx());
                             ui.add_enabled_ui(enabled || menu.page == 2, |ui| {
                                 if menu.page == 0 {
-                                    section(ui, "Window & scaling");
-                                    row(
-                                        ui,
-                                        "Window mode",
-                                        "window_mode",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
-                                        |ui| {
-                                            control(ui.radio_value(
-                                                &mut value.fullscreen,
-                                                false,
-                                                "Windowed",
-                                            ));
-                                            ui.add_enabled_ui(
-                                                menu.capabilities.allow_fullscreen,
-                                                |ui| {
-                                                    control(ui.radio_value(
-                                                        &mut value.fullscreen,
-                                                        true,
-                                                        "Fullscreen",
-                                                    ));
-                                                },
-                                            );
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "Window scale",
-                                        "scale",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
-                                        |ui| {
-                                            let mut auto = value.scale.is_none();
-                                            if control(ui.add_enabled(
-                                                menu.capabilities.allow_auto || auto,
-                                                egui::Checkbox::new(&mut auto, "Auto"),
-                                            ))
-                                            .changed()
-                                            {
-                                                value.scale = if auto {
-                                                    None
-                                                } else {
-                                                    Some(windowed_scale.clamp(
-                                                        menu.capabilities.min_scale.max(1),
-                                                        menu.capabilities.max_scale,
-                                                    ))
-                                                };
-                                            }
-                                            if value.scale.is_none() {
-                                                ui.label("Largest fit");
-                                            }
-                                        },
-                                    );
-                                    ui.add_enabled_ui(
-                                        value.scale.is_some()
-                                            && !value.fullscreen
-                                            && !cli.contains_key("scale"),
-                                        |ui| {
-                                            let mut n = value.scale.unwrap_or(windowed_scale);
-                                            let mut cap = menu.capabilities;
-                                            if value.scale.is_none() {
-                                                cap.min_scale = cap.min_scale.min(n);
-                                                cap.max_scale = cap.max_scale.max(n);
-                                            }
-                                            scale_slider(ui, &mut n, cap);
-                                            if value.scale.is_some() {
-                                                value.scale = Some(n);
-                                            }
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "Scaling policy",
-                                        "scaling_policy",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
-                                        |ui| {
-                                            Selector::new(
-                                                "scaling_policy",
-                                                [
-                                                    Choice::new(
-                                                        ScalingPolicy::Integer,
-                                                        "Integer fit",
-                                                    ),
-                                                    Choice::new(
-                                                        ScalingPolicy::Fit,
-                                                        "Fit to window (fractional)",
-                                                    ),
-                                                    Choice::new(
-                                                        ScalingPolicy::Stretch,
-                                                        "Fill window (stretch)",
-                                                    ),
-                                                ],
-                                            )
-                                            .show(ui, &mut value.scaling_policy);
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "Sampling",
-                                        "sampling",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
-                                        |ui| {
-                                            Selector::new(
-                                                "sampling",
-                                                [
-                                                    Choice::new(
-                                                        Sampling::Nearest,
-                                                        "Nearest · sharp pixels",
-                                                    ),
-                                                    Choice::new(
-                                                        Sampling::Linear,
-                                                        "Linear · smooth pixels",
-                                                    ),
-                                                ],
-                                            )
-                                            .show(ui, &mut value.sampling);
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "Aspect ratio",
-                                        "aspect_ratio",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
-                                        |ui| {
-                                            Selector::new(
-                                                "aspect_ratio",
-                                                [AspectRatio::Original, AspectRatio::Square].map(
-                                                    |aspect| {
-                                                        Choice::new(
-                                                            aspect,
-                                                            geometry.label(aspect, menu.scope == 1),
-                                                        )
-                                                    },
-                                                ),
-                                            )
-                                            .show(ui, &mut value.aspect_ratio);
-                                        },
-                                    );
-                                    section(ui, "Rendering");
-                                    row(
-                                        ui,
-                                        "Renderer",
-                                        "renderer",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
-                                        |ui| {
-                                            Selector::new(
-                                                "renderer",
-                                                [
-                                                    Renderer::Auto,
-                                                    Renderer::Gpu,
-                                                    Renderer::Sdl,
-                                                    Renderer::Software,
-                                                ]
-                                                .map(|r| Choice::new(r, renderer_label(r))),
-                                            )
-                                            .show(ui, &mut value.renderer);
-                                        },
-                                    );
-                                    if value.renderer != original.renderer
-                                        && !cli.contains_key("renderer")
-                                        && !cli.contains_key("backend")
-                                        && !backends(value.renderer).contains(&value.backend)
-                                    {
-                                        value.backend = Backend::Auto;
-                                    }
-                                    row(
-                                        ui,
-                                        "Backend",
-                                        "backend",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
-                                        |ui| {
-                                            ui.add_enabled_ui(
-                                                value.renderer != Renderer::Software,
-                                                |ui| {
-                                                    backend_selector(ui, &mut value);
-                                                },
-                                            );
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "VSync",
-                                        "vsync",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
-                                        |ui| {
-                                            control(ui.checkbox(
-                                                &mut value.vsync,
-                                                "Synchronise with the display",
-                                            ));
-                                        },
-                                    );
-                                    row(
-                                        ui,
-                                        "Frame limit",
-                                        "frame_limit",
-                                        value.clone(),
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
-                                        |ui| {
-                                            Selector::new(
-                                                "frame_limit",
-                                                FrameLimit::ALL
-                                                    .map(|limit| Choice::new(limit, limit.label())),
-                                            )
-                                            .show(ui, &mut value.frame_limit);
-                                        },
-                                    );
-                                    ui.weak(
-                                        "Presentation ceiling · simulation timing is unchanged",
-                                    );
-                                } else if menu.page == 1 {
-                                    crt_controls(
+                                    display_controls(
                                         ui,
                                         &mut value,
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
+                                        rows,
+                                        menu.capabilities,
+                                        geometry,
+                                        windowed_scale,
+                                        original.renderer,
                                     );
+                                } else if menu.page == 1 {
+                                    crt_controls(ui, &mut value, rows);
                                 } else if menu.page == 2 {
                                     audio_controls(
                                         ui,
                                         &mut value,
-                                        base.clone(),
-                                        previous.clone(),
-                                        menu.scope,
-                                        &cli,
+                                        rows,
                                         &menu.audio_devices,
                                         &menu.audio_renderers,
                                         &menu.audio_categories,
@@ -440,15 +299,7 @@ pub(super) fn draw(
                                         menu.mach3_options,
                                     );
                                 } else if menu.page == 3 {
-                                    controls_controls(
-                                        ui,
-                                        &mut value,
-                                        base.clone(),
-                                        previous.clone(),
-                                        &cli,
-                                        menu.scope,
-                                        controls_visible,
-                                    );
+                                    controls_controls(ui, &mut value, rows, controls_visible);
                                 }
                             });
                             crate::settings_navigation::scroll_focus(ui, first);
@@ -459,23 +310,34 @@ pub(super) fn draw(
                         && original.mach3 != value.mach3
                         && !cli.contains_key(DIGITIZED_SAMPLES)
                     {
-                        draft.edit(true, DIGITIZED_SAMPLES, value.get(DIGITIZED_SAMPLES));
-                        menu.game_touched[menu.page] = true;
+                        draft.edit_game(
+                            DIGITIZED_SAMPLES,
+                            value.get(DIGITIZED_SAMPLES),
+                            (!menu.game_reset[menu.page]).then_some(&saved),
+                        );
                     }
                     if menu.page == 3
                         && controls_visible
                         && original.alleycat != value.alleycat
                         && !cli.contains_key(CONTROL_MODE)
                     {
-                        draft.edit(true, CONTROL_MODE, value.get(CONTROL_MODE));
-                        menu.game_touched[menu.page] = true;
+                        draft.edit_game(
+                            CONTROL_MODE,
+                            value.get(CONTROL_MODE),
+                            (!menu.game_reset[menu.page]).then_some(&saved),
+                        );
                     }
                     let keys = SECTION_KEYS[menu.page];
                     for &key in keys {
                         if original.get(key) != value.get(key) && !cli.contains_key(key) {
-                            draft.edit(menu.scope == 1, key, value.get(key));
                             if menu.scope == 1 {
-                                menu.game_touched[menu.page] = true;
+                                draft.edit_game(
+                                    key,
+                                    value.get(key),
+                                    (!menu.game_reset[menu.page]).then_some(&saved),
+                                );
+                            } else {
+                                draft.edit(false, key, value.get(key));
                             }
                         }
                     }
@@ -530,7 +392,7 @@ pub(super) fn draw(
                         } else {
                             draft.reset_section(true, menu.page);
                             menu.game_editing[menu.page] = false;
-                            menu.game_touched[menu.page] = true;
+                            menu.game_reset[menu.page] = true;
                         }
                     }
                     let apply = primary_footer_control(ui.add_enabled(
@@ -543,11 +405,9 @@ pub(super) fn draw(
                     }
                     if apply.clicked() {
                         draft.normalize_treatments(&saved);
-                        let baseline = draft.global_values();
-                        draft.game.retain(|key, v| {
-                            let page = section_index(key);
-                            !menu.game_touched[page] || *v != baseline.get(key)
-                        });
+                        if !menu.game_overrides {
+                            draft.game.clone_from(&saved.game);
+                        }
                         menu.pending = Some(draft.clone());
                     }
                     let cancel = group_control(ui.button("Cancel"), Group::Footer);
@@ -566,7 +426,7 @@ pub(super) fn draw(
                 });
             });
             if let Some(error) = menu.error.as_ref().or(warning.as_ref()) {
-                ui.colored_label(Color32::from_rgb(255, 169, 144), error);
+                ui.colored_label(crate::ui::current_palette(ui.ctx()).notice_error, error);
             }
             if let Some(status) = &menu.status {
                 ui.weak(status);
@@ -574,13 +434,178 @@ pub(super) fn draw(
         });
     close
 }
+fn display_controls(
+    ui: &mut egui::Ui,
+    value: &mut RuntimeSettings,
+    rows: RowContext<'_>,
+    capabilities: VideoCapabilities,
+    geometry: crate::DisplayGeometry,
+    windowed_scale: u32,
+    original_renderer: Renderer,
+) {
+    let RowContext { scope, cli, .. } = rows;
+    section(ui, "Window & scaling");
+    row(
+        ui,
+        "Window mode",
+        "window_mode",
+        rows.state("window_mode", value),
+        |ui| {
+            control(ui.radio_value(&mut value.fullscreen, false, "Windowed"));
+            ui.add_enabled_ui(capabilities.allow_fullscreen, |ui| {
+                control(ui.radio_value(&mut value.fullscreen, true, "Fullscreen"));
+            });
+        },
+    );
+    row(
+        ui,
+        "Window scale",
+        "scale",
+        rows.state("scale", value),
+        |ui| {
+            let mut auto = value.scale.is_none();
+            if control(ui.add_enabled(
+                capabilities.allow_auto || auto,
+                egui::Checkbox::new(&mut auto, "Auto"),
+            ))
+            .changed()
+            {
+                value.scale = if auto {
+                    None
+                } else {
+                    Some(
+                        windowed_scale.clamp(capabilities.min_scale.max(1), capabilities.max_scale),
+                    )
+                };
+            }
+            if value.scale.is_none() {
+                ui.label("Largest fit");
+            }
+        },
+    );
+    ui.add_enabled_ui(
+        value.scale.is_some() && !value.fullscreen && !cli.contains_key("scale"),
+        |ui| {
+            let mut n = value.scale.unwrap_or(windowed_scale);
+            let mut cap = capabilities;
+            if value.scale.is_none() {
+                cap.min_scale = cap.min_scale.min(n);
+                cap.max_scale = cap.max_scale.max(n);
+            }
+            scale_slider(ui, &mut n, cap);
+            if value.scale.is_some() {
+                value.scale = Some(n);
+            }
+        },
+    );
+    row(
+        ui,
+        "Scaling policy",
+        "scaling_policy",
+        rows.state("scaling_policy", value),
+        |ui| {
+            Selector::new(
+                "scaling_policy",
+                [
+                    Choice::new(ScalingPolicy::Integer, "Integer fit"),
+                    Choice::new(ScalingPolicy::Fit, "Fit to window (fractional)"),
+                    Choice::new(ScalingPolicy::Stretch, "Fill window (stretch)"),
+                ],
+            )
+            .show(ui, &mut value.scaling_policy);
+        },
+    );
+    row(
+        ui,
+        "Sampling",
+        "sampling",
+        rows.state("sampling", value),
+        |ui| {
+            Selector::new(
+                "sampling",
+                [
+                    Choice::new(Sampling::Nearest, "Nearest · sharp pixels"),
+                    Choice::new(Sampling::Linear, "Linear · smooth pixels"),
+                ],
+            )
+            .show(ui, &mut value.sampling);
+        },
+    );
+    row(
+        ui,
+        "Aspect ratio",
+        "aspect_ratio",
+        rows.state("aspect_ratio", value),
+        |ui| {
+            Selector::new(
+                "aspect_ratio",
+                [AspectRatio::Original, AspectRatio::Square]
+                    .map(|aspect| Choice::new(aspect, geometry.label(aspect, scope == 1))),
+            )
+            .show(ui, &mut value.aspect_ratio);
+        },
+    );
+    section(ui, "Rendering");
+    row(
+        ui,
+        "Renderer",
+        "renderer",
+        rows.state("renderer", value),
+        |ui| {
+            Selector::new(
+                "renderer",
+                [
+                    Renderer::Auto,
+                    Renderer::Gpu,
+                    Renderer::Sdl,
+                    Renderer::Software,
+                ]
+                .map(|r| Choice::new(r, renderer_label(r))),
+            )
+            .show(ui, &mut value.renderer);
+        },
+    );
+    if value.renderer != original_renderer
+        && !cli.contains_key("renderer")
+        && !cli.contains_key("backend")
+        && !backends(value.renderer).contains(&value.backend)
+    {
+        value.backend = Backend::Auto;
+    }
+    row(
+        ui,
+        "Backend",
+        "backend",
+        rows.state("backend", value),
+        |ui| {
+            ui.add_enabled_ui(value.renderer != Renderer::Software, |ui| {
+                backend_selector(ui, value);
+            });
+        },
+    );
+    row(ui, "VSync", "vsync", rows.state("vsync", value), |ui| {
+        control(ui.checkbox(&mut value.vsync, "Synchronise with the display"));
+    });
+    row(
+        ui,
+        "Frame limit",
+        "frame_limit",
+        rows.state("frame_limit", value),
+        |ui| {
+            Selector::new(
+                "frame_limit",
+                FrameLimit::ALL.map(|limit| Choice::new(limit, limit.label())),
+            )
+            .show(ui, &mut value.frame_limit);
+        },
+    );
+    ui.weak("Presentation ceiling · simulation timing is unchanged");
+}
+
 fn controls_controls(
     ui: &mut egui::Ui,
     value: &mut RuntimeSettings,
-    base: RuntimeSettings,
-    previous: RuntimeSettings,
-    cli: &reforge_settings::Patch,
-    scope: usize,
+    rows: RowContext<'_>,
     alleycat: bool,
 ) {
     section(ui, "Controller");
@@ -588,11 +613,7 @@ fn controls_controls(
         ui,
         "Stick dead zone",
         STICK_DEAD_ZONE,
-        value.clone(),
-        base.clone(),
-        previous.clone(),
-        scope,
-        cli,
+        rows.state(STICK_DEAD_ZONE, value),
         |ui| {
             value_control(
                 ui.add(egui::Slider::new(&mut value.stick_dead_zone, 5..=90).suffix("%")),
@@ -608,26 +629,16 @@ fn controls_controls(
         ui,
         "Input response",
         CONTROL_MODE,
-        value.clone(),
-        base,
-        previous,
-        1,
-        cli,
+        rows.state(CONTROL_MODE, value),
         |ui| {
             Selector::new(CONTROL_MODE, ControlMode::ALL.map(|mode| Choice::new(mode, mode.label()))).show(ui, &mut value.alleycat.control_mode).on_hover_text("Responsive reacts sooner to direction and action changes. Original preserves the game's original input response.");
         },
     );
 }
 
-fn crt_controls(
-    ui: &mut egui::Ui,
-    value: &mut RuntimeSettings,
-    base: RuntimeSettings,
-    previous: RuntimeSettings,
-    scope: usize,
-    cli: &reforge_settings::Patch,
-) {
-    // Use this scope's pending Display choices, with temporary CLI overrides,
+fn crt_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
+    let cli = rows.cli;
+    // Use this scope's pending Display choices, with temporary CLI
     // rather than the renderer that remains active until Apply.
     let mut display = value.clone();
     display.renderer = cli
@@ -644,11 +655,7 @@ fn crt_controls(
         ui,
         "Treatment",
         "presentation",
-        value.clone(),
-        base.clone(),
-        previous.clone(),
-        scope,
-        cli,
+        rows.state("presentation", value),
         |ui| {
             Selector::new(
                 "presentation",
@@ -684,9 +691,7 @@ fn crt_controls(
                     .id_salt("treatment_fine_adjustments")
                     .default_open(false)
                     .show(ui, |ui| match treatment {
-                        Presentation::Hyllian => {
-                            hyllian_controls(ui, value, base.clone(), previous.clone(), scope, cli)
-                        }
+                        Presentation::Hyllian => hyllian_controls(ui, value, rows),
                         Presentation::Pixels => {}
                     }),
             );
@@ -699,23 +704,12 @@ fn crt_controls(
     });
 }
 
-fn hyllian_controls(
-    ui: &mut egui::Ui,
-    value: &mut RuntimeSettings,
-    base: RuntimeSettings,
-    previous: RuntimeSettings,
-    scope: usize,
-    cli: &reforge_settings::Patch,
-) {
+fn hyllian_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
     row(
         ui,
         "Horizontal filter",
         "horizontal_filter",
-        value.clone(),
-        base.clone(),
-        previous.clone(),
-        scope,
-        cli,
+        rows.state("horizontal_filter", value),
         |ui| {
             Selector::new(
                 "horizontal_filter",
@@ -732,11 +726,7 @@ fn hyllian_controls(
             ui,
             param.label,
             param.key,
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            cli,
+            rows.state(param.key, value),
             |ui| {
                 ui.spacing_mut().slider_width = 150.0_f32.min(slider_track_width(ui, 56.0));
                 let mut n = f32::from(value.hyllian.values[i]) / 100.0;
@@ -770,16 +760,14 @@ fn hyllian_controls(
 fn audio_controls(
     ui: &mut egui::Ui,
     value: &mut RuntimeSettings,
-    base: RuntimeSettings,
-    previous: RuntimeSettings,
-    scope: usize,
-    cli: &reforge_settings::Patch,
+    rows: RowContext<'_>,
     devices: &[String],
     renderers: &[SoundRenderer],
     categories: &[SoundCategory],
     section_editable: bool,
     mach3_options: bool,
 ) {
+    let scope = rows.scope;
     let available = !renderers.is_empty();
     if !available {
         ui.weak("Audio playback is unavailable in this run. Shared defaults can still be saved.");
@@ -790,11 +778,7 @@ fn audio_controls(
             ui,
             "",
             "sound_enabled",
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            cli,
+            rows.state("sound_enabled", value),
             |ui| {
                 control(ui.checkbox(&mut value.audio.enabled, "Enable sound"));
             },
@@ -808,11 +792,7 @@ fn audio_controls(
             ui,
             "Master volume",
             "master_volume",
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            cli,
+            rows.state("master_volume", value),
             volume_width,
             |ui| {
                 ui.spacing_mut().slider_width = slider_track_width(ui, 56.0);
@@ -840,11 +820,7 @@ fn audio_controls(
                 ui,
                 category.label(),
                 category.key(),
-                value.clone(),
-                base.clone(),
-                previous.clone(),
-                scope,
-                cli,
+                rows.state(category.key(), value),
                 volume_width,
                 |ui| {
                     ui.add_enabled_ui(scope == 0 || categories.contains(&category), |ui| {
@@ -881,11 +857,7 @@ fn audio_controls(
             ui,
             "Sound renderer",
             "audio_renderer",
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            cli,
+            rows.state("audio_renderer", value),
             |ui| {
                 ui.add_enabled_ui(scope == 1 && available, |ui| {
                     Selector::new(
@@ -912,11 +884,7 @@ fn audio_controls(
                 ui,
                 "Digitized samples",
                 DIGITIZED_SAMPLES,
-                value.clone(),
-                base.clone(),
-                previous.clone(),
-                scope,
-                cli,
+                rows.state(DIGITIZED_SAMPLES, value),
                 |ui| {
                     Selector::new(
                         DIGITIZED_SAMPLES,
@@ -933,11 +901,7 @@ fn audio_controls(
             ui,
             "Output device",
             "output_device",
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            cli,
+            rows.state("output_device", value),
             |ui| {
                 Selector::new(
                     ("output_device", devices),
@@ -968,11 +932,7 @@ fn audio_controls(
             ui,
             "",
             "mute_unfocused",
-            value.clone(),
-            base.clone(),
-            previous.clone(),
-            scope,
-            cli,
+            rows.state("mute_unfocused", value),
             |ui| {
                 control(ui.checkbox(&mut value.audio.mute_unfocused, "Mute when unfocused"));
             },
@@ -1015,7 +975,7 @@ fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {
         2.0,
         colour,
     );
-    let keyhole = Color32::from_gray(40);
+    let keyhole = crate::ui::current_palette(painter.ctx()).lock_keyhole;
     painter.circle_filled(center + Vec2::new(0.0, 2.0), 1.2, keyhole);
     painter.line_segment(
         [center + Vec2::new(0.0, 2.0), center + Vec2::new(0.0, 5.0)],
@@ -1024,15 +984,16 @@ fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {
 }
 
 fn cli_notice(ui: &mut egui::Ui) -> egui::Response {
+    let palette = crate::ui::current_palette(ui.ctx());
     egui::Frame::NONE
-        .fill(CLI_BANNER)
+        .fill(palette.cli_background)
         .corner_radius(3.0)
         .inner_margin(8.0)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal_top(|ui| {
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(16.0, 18.0), egui::Sense::hover());
-                paint_lock(ui.painter(), rect.center(), CLI_NOTICE);
+                paint_lock(ui.painter(), rect.center(), palette.cli_text);
                 control(
                     ui.add(
                         egui::Label::new(
@@ -1040,7 +1001,7 @@ fn cli_notice(ui: &mut egui::Ui) -> egui::Response {
                                 "Some settings are locked by command-line arguments.",
                             )
                             .size(13.0)
-                            .color(CLI_NOTICE),
+                            .color(palette.cli_text),
                         )
                         .wrap(),
                     ),
@@ -1076,7 +1037,11 @@ fn dependency_lock(key: &str, value: &RuntimeSettings) -> Option<&'static str> {
 
 fn section(ui: &mut egui::Ui, label: &str) {
     ui.add_space(8.0);
-    ui.strong(label);
+    ui.label(
+        egui::RichText::new(label)
+            .strong()
+            .color(crate::ui::current_palette(ui.ctx()).strong_text),
+    );
     ui.separator();
 }
 fn renderer_label(r: Renderer) -> &'static str {
@@ -1087,52 +1052,33 @@ fn renderer_label(r: Renderer) -> &'static str {
         Renderer::Software => "Software",
     }
 }
-#[allow(clippy::too_many_arguments)]
 fn row(
     ui: &mut egui::Ui,
     label: &str,
     key: &str,
-    value: RuntimeSettings,
-    global: RuntimeSettings,
-    saved: RuntimeSettings,
-    scope: usize,
-    cli: &reforge_settings::Patch,
+    state: RowState,
     draw_control: impl FnOnce(&mut egui::Ui),
 ) {
-    row_with_width(
-        ui,
-        label,
-        key,
-        value,
-        global,
-        saved,
-        scope,
-        cli,
-        220.0,
-        draw_control,
-    );
+    row_with_width(ui, label, key, state, 220.0, draw_control);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn row_with_width(
     ui: &mut egui::Ui,
     label: &str,
     key: &str,
-    value: RuntimeSettings,
-    global: RuntimeSettings,
-    saved: RuntimeSettings,
-    scope: usize,
-    cli: &reforge_settings::Patch,
+    state: RowState,
     control_width: f32,
     draw_control: impl FnOnce(&mut egui::Ui),
 ) {
-    let lock_tooltip = cli
-        .get(key)
-        .map(|active| cli_tooltip(key, active))
-        .or_else(|| dependency_lock(key, &value).map(str::to_owned));
+    let RowState {
+        lock_tooltip,
+        overridden,
+        dirty,
+        tooltip,
+        saved,
+    } = state;
     let locked = lock_tooltip.is_some();
-    let different = scope == 1 && value.get(key) != global.get(key);
-    let dirty = !cli.contains_key(key) && value.get(key) != saved.get(key);
+    let palette = crate::ui::current_palette(ui.ctx());
     let available = visible_width(ui);
     let spacing = ui.spacing().item_spacing.x;
     let markers = 20.0 + 12.0 + spacing * 2.0;
@@ -1143,25 +1089,12 @@ fn row_with_width(
         control_width.min((available - markers).max(1.0))
     };
     let colour = if locked {
-        Color32::from_gray(100)
-    } else if different {
-        ACCENT
+        palette.locked_text
+    } else if overridden {
+        palette.override_text
     } else {
         ui.visuals().text_color()
     };
-    let mut tooltip = format!(
-        "{}: {}\nSaved: {}",
-        if key == DIGITIZED_SAMPLES {
-            "Default"
-        } else {
-            "Global"
-        },
-        global.get(key),
-        saved.get(key)
-    );
-    if let Some(reason) = &lock_tooltip {
-        tooltip = format!("{reason}\n\n{tooltip}");
-    }
     let draw_label = |ui: &mut egui::Ui| {
         let label = egui::Label::new(egui::RichText::new(label).color(colour));
         let response = if stacked {
@@ -1212,8 +1145,9 @@ fn row_with_width(
                                 .spacing()
                                 .slider_width
                                 .min(slider_track_width(child, 56.0));
-                            if different && !locked {
-                                child.visuals_mut().override_text_color = Some(ACCENT);
+                            if overridden && !locked {
+                                child.visuals_mut().override_text_color =
+                                    Some(palette.override_text);
                             }
                             crate::settings_navigation::row_controls(child, rect, |child| {
                                 child
@@ -1230,7 +1164,7 @@ fn row_with_width(
                         if ui.is_visible() {
                             let mut painter = ui.painter().clone();
                             painter.set_fade_to_color(None);
-                            paint_lock(&painter, rect.center(), CLI_LOCK);
+                            paint_lock(&painter, rect.center(), palette.cli_lock);
                         }
                         response
                             .on_hover_text(reason)
@@ -1239,9 +1173,9 @@ fn row_with_width(
                     let (rect, response) =
                         ui.allocate_exact_size(Vec2::new(12.0, 22.0), egui::Sense::hover());
                     if dirty {
-                        ui.painter().circle_filled(rect.center(), 3.0, PENDING);
-                        response
-                            .on_hover_text(format!("Unapplied change. Saved: {}", saved.get(key)));
+                        ui.painter()
+                            .circle_filled(rect.center(), 3.0, palette.pending);
+                        response.on_hover_text(format!("Unapplied change. Saved: {}", saved));
                     }
                 },
             );
@@ -1379,6 +1313,72 @@ fn scale_slider(
 
 #[cfg(test)]
 mod tests {
+    const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
+    const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
+    const CLI_LOCK: Color32 = Color32::from_rgb(182, 169, 214);
+    #[test]
+    fn override_colours_and_pending_dots_follow_presence_even_when_values_match() {
+        for scope in [0, 1] {
+            for current in [false, true] {
+                for saved in [false, true] {
+                    let context = egui::Context::default();
+                    style(&context);
+                    let mut current_patch = reforge_settings::Patch::new();
+                    let mut saved_patch = reforge_settings::Patch::new();
+                    if current {
+                        current_patch.insert("window_mode".into(), "windowed".into());
+                    }
+                    if saved {
+                        saved_patch.insert("window_mode".into(), "windowed".into());
+                    }
+                    let output = context.run(Default::default(), |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            row(
+                                ui,
+                                "Window mode",
+                                "window_mode",
+                                RowContext {
+                                    base: &RuntimeSettings::default(),
+                                    previous: &RuntimeSettings::default(),
+                                    scope,
+                                    overrides: Overrides {
+                                        current: Some(&current_patch),
+                                        saved: Some(&saved_patch),
+                                    },
+                                    cli: &Default::default(),
+                                }
+                                .state("window_mode", &RuntimeSettings::default()),
+                                |ui| {
+                                    ui.label("Windowed");
+                                },
+                            );
+                        });
+                    });
+                    let text = output
+                        .shapes
+                        .iter()
+                        .find_map(|s| match &s.shape {
+                            egui::Shape::Text(t) if t.galley.text() == "Window mode" => Some(t),
+                            _ => None,
+                        })
+                        .unwrap();
+                    let accent = text
+                        .galley
+                        .job
+                        .sections
+                        .iter()
+                        .any(|s| s.format.color == ACCENT);
+                    let dot = output
+                        .shapes
+                        .iter()
+                        .any(|s| matches!(&s.shape, egui::Shape::Circle(c) if c.fill==PENDING));
+                    assert_eq!(accent, scope == 1 && current);
+                    assert_eq!(dot, scope == 1 && current != saved);
+                }
+            }
+        }
+    }
+
     use super::*;
 
     #[test]
@@ -1411,11 +1411,14 @@ mod tests {
                                     ui,
                                     "Renderer",
                                     "renderer",
-                                    value.clone(),
-                                    value.clone(),
-                                    value,
-                                    0,
-                                    &cli,
+                                    RowContext {
+                                        base: &value,
+                                        previous: &value,
+                                        scope: 0,
+                                        overrides: Overrides::default(),
+                                        cli: &cli,
+                                    }
+                                    .state("renderer", &value),
                                     |ui| {
                                         let response = Selector::new(
                                             "responsive renderer",
@@ -1529,11 +1532,14 @@ mod tests {
                                 ui,
                                 "Dependent setting",
                                 key,
-                                value.clone(),
-                                saved.clone(),
-                                saved.clone(),
-                                1,
-                                &Default::default(),
+                                RowContext {
+                                    base: &saved,
+                                    previous: &saved,
+                                    scope: 1,
+                                    overrides: Overrides::default(),
+                                    cli: &Default::default(),
+                                }
+                                .state(key, &value),
                                 |ui| {
                                     let response = if key == "aspect_ratio" {
                                         Selector::new(
@@ -1625,11 +1631,14 @@ mod tests {
                                     ui,
                                     "Setting",
                                     key,
-                                    value.clone(),
-                                    value.clone(),
-                                    value,
-                                    1,
-                                    &cli,
+                                    RowContext {
+                                        base: &value,
+                                        previous: &value,
+                                        scope: 1,
+                                        overrides: Overrides::default(),
+                                        cli: &cli,
+                                    }
+                                    .state(key, &value),
                                     |ui| {
                                         let response = if key == "window_mode" {
                                             ui.radio_value(&mut selected, true, "Fullscreen")
@@ -1734,10 +1743,13 @@ mod tests {
                             audio_controls(
                                 ui,
                                 &mut value,
-                                RuntimeSettings::default(),
-                                RuntimeSettings::default(),
-                                scope,
-                                &cli,
+                                RowContext {
+                                    base: &RuntimeSettings::default(),
+                                    previous: &RuntimeSettings::default(),
+                                    scope,
+                                    overrides: Overrides::default(),
+                                    cli: &cli,
+                                },
                                 &[],
                                 &[SoundRenderer::Speaker],
                                 &SoundCategory::ALL,
@@ -1821,11 +1833,14 @@ mod tests {
                             ui,
                             "Backend",
                             "backend",
-                            value.clone(),
-                            value.clone(),
-                            value.clone(),
-                            0,
-                            &Default::default(),
+                            RowContext {
+                                base: &value,
+                                previous: &value,
+                                scope: 0,
+                                overrides: Overrides::default(),
+                                cli: &Default::default(),
+                            }
+                            .state("backend", &value),
                             |ui| {
                                 button = backend_selector(ui, &mut value).rect;
                             },

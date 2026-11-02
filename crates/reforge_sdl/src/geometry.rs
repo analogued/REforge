@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Engine-provided pixel geometry; texture oversampling is not native resolution.
 
 use reforge_settings::{AspectRatio, RuntimeSettings, ScalingPolicy};

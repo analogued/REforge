@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Budgeted headless gameplay on the sound device's single simulation timeline.
 //!
 //! Foreground segments and handlers are atomic and have zero instruction cost.
@@ -139,7 +140,7 @@ struct TransitionPlayback {
 
 impl GameplayTask {
     /// Read-only host scheduling hint; the transition remains owned by execution.
-    #[cfg(feature = "viewer")]
+    #[cfg(feature = "sdl")]
     pub(crate) fn next_transition_deadline(&self) -> Option<u64> {
         self.transition
             .as_ref()

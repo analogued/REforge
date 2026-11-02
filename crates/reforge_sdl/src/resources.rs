@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Explicit texture invalidation makes renderer teardown precede replacement.
 use reforge_settings::Session;
 use sdl3::{
@@ -34,6 +35,15 @@ pub struct FrameCreator {
     textures: Rc<RefCell<Vec<Weak<Slot>>>>,
 }
 impl FrameCreator {
+    /// Texture ownership for a standalone host UI, without game preferences.
+    pub fn for_ui(canvas: &WindowCanvas) -> Self {
+        Self::for_ui_with_geometry(canvas, crate::DisplayGeometry::new((1, 1), (1, 1)))
+    }
+    /// Standalone UI with game display metadata for contextual Settings labels.
+    /// Preferences still come from the explicitly installed launch session.
+    pub fn for_ui_with_geometry(canvas: &WindowCanvas, geometry: crate::DisplayGeometry) -> Self {
+        Self::new(canvas, Session::for_window(None), 1, geometry, None)
+    }
     pub(crate) fn new(
         canvas: &WindowCanvas,
         session: Session,

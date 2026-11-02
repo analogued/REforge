@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The verified no-directional-input initial scene, before the gameplay loop.
 //! These are resolved draw records, not a model of subsequent gameplay updates.
 

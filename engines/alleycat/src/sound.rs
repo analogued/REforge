@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Original PC speaker programs. Host muting never gates game-state work.
 //!
 //! Tables remain in the external data segment. Events are device writes in PIT

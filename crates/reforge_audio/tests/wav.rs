@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 use reforge_audio::wav::WavWriter;
 use std::io::{self, Cursor, Seek, SeekFrom, Write};

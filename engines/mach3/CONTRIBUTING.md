@@ -1,59 +1,71 @@
-# Contributing to Mach 3
+# Contributing to the Mach 3 engine
 
 Follow [REforge's contributing guide](../../CONTRIBUTING.md) for formatting,
-commit conventions, licensing and shared validation. Mach 3 is the `mach3`
-package within the combined Cargo workspace, with one lockfile at its root.
-Rust requires version 1.85 or later and uses the repository's rustfmt settings.
-Keep game-specific formats, gameplay, timing, randomness and input behavior
-within this crate.
-
-Tests use authored synthetic data and must not import original game material.
-Preserve third-party style and notices, including the complete dependency terms
-linked from [dependency notices](../../THIRD_PARTY.md).
+commit conventions, licensing and shared validation. The `mach3` engine is a
+package in the combined Cargo workspace and uses its root `Cargo.lock`. Rust
+1.87 or newer is required. Keep game-specific file formats, gameplay, timing,
+randomness and input behavior within this crate. Preserve imported code
+attribution and license notices; see the shared
+[dependency notices](../../THIRD_PARTY.md).
 
 ## Rust validation
 
-From the combined repository root, run:
+For changes to the Rust implementation, run these checks from the combined
+repository root. They supplement the workspace checks in REforge's contributing
+guide. Describe material validation limitations when relevant.
 
 ```sh
 cargo fmt --all -- --check
 cargo test --locked -p mach3
 cargo clippy --locked -p mach3 --all-targets -- -D warnings
+cargo test --locked -p mach3 --no-default-features
+cargo clippy --locked -p mach3 --all-targets --no-default-features -- -D warnings
 cargo test --locked -p mach3 --features dev-tools
 cargo clippy --locked -p mach3 --all-targets --features dev-tools -- -D warnings
+cargo test --locked -p mach3 --no-default-features --features dev-tools
+cargo clippy --locked -p mach3 --all-targets --no-default-features --features dev-tools -- -D warnings
 ```
-
-With SDL3 development and runtime libraries installed, also check the viewer:
-
-```sh
-cargo test --locked -p mach3 --features viewer
-cargo clippy --locked -p mach3 --all-targets --features viewer -- -D warnings
-cargo test --locked -p mach3 --features viewer,dev-tools
-cargo clippy --locked -p mach3 --all-targets --features viewer,dev-tools -- -D warnings
-```
-
-Build the library with `cargo build --locked -p mach3`; add `--features dev-tools`
-to build the frame renderer, opening exporter, replay tool and sound exporter.
-Use `--features viewer` to build the windowed viewer, or `--features viewer,dev-tools`
-for both. The `viewer` feature exposes `mach3::cli::run` for REforge dispatch and
-the standalone `mach3-viewer` binary. Dependencies are recorded in the root
-`Cargo.lock` and [dependency notices](../../THIRD_PARTY.md). Once Cargo has
-fetched them, use `--offline` for local checks and builds.
-
-The opt-in `dev-tools` feature enables all four diagnostic/export binaries and
-their CLI integration tests, optional offline speaker WAV rendering, and input
-and timing diagnostics and silent step/static previews in viewer builds; it
-does not enable SDL3 by itself. Normal builds exclude `--step`, `--static`,
-`--trace-input` and `--trace-timing`, including
-release builds unless `dev-tools` is explicitly enabled. Test all
-four combinations above when changing tracing or viewer input. REforge's
-`dev-tools` feature forwards this feature to Mach 3.
 
 Shared presentation tests (`cargo test --locked -p reforge_sdl`) use offscreen
-surfaces and require no desktop display. Tests use synthetic resources; private captures and original
-assets must not become test fixtures. Set `CARGO_TARGET_DIR` when build output
-belongs in a separately configured working directory. Shared application changes
-must also validate affected games as described in the root contributing guide.
+surfaces and require no desktop display. Tests must use authored synthetic data
+and must not import original game files, extracted assets or private captures.
 
-Runtime captures and comparisons with original-derived images remain external
-evidence. Describe material validation limitations when relevant.
+## Build features and tools
+
+The default `sdl` feature enables windowed playback and requires SDL3 development
+and runtime libraries. Use `--no-default-features` to build without SDL3.
+Headless diagnostic runs also require `--features dev-tools`.
+
+With `sdl` enabled, `mach3::cli::run` provides windowed playback for REforge and
+the standalone `mach-3` executable. Build both the library and standalone
+executable with `cargo build --locked -p mach3`.
+
+Add `--features dev-tools` to build the frame renderer, opening exporter, replay
+tool and sound exporter, and enable their CLI integration tests and offline
+speaker WAV rendering. In windowed builds, it also enables input/timing
+diagnostics and silent step/static previews. Combine it with
+`--no-default-features` when only headless tools are needed; `dev-tools` does not
+enable SDL3 by itself.
+
+Normal builds exclude `--step`, `--static`, `--trace-input` and `--trace-timing`,
+including release builds unless `dev-tools` is explicitly enabled. Check all
+four combinations above when changing tracing or windowed input. REforge's
+`dev-tools` feature forwards this feature to the engine.
+
+## Original-data validation
+
+Runtime checks require the supported external game files described in the
+[engine README](README.md). Keep captures and raw comparison evidence outside
+Git, with input hashes and reproduction metadata.
+
+Compare reconstructed behavior against controlled original-code evidence before
+claiming fidelity. Distinguish logical replay, synthetic tests, native
+presentation checks and timing/audio comparisons; none alone establishes
+full-game fidelity.
+
+## Build output and dependencies
+
+Use `CARGO_TARGET_DIR` and, when appropriate, `CARGO_HOME` to direct reproducible
+build/cache output to a configured working directory. Do not commit those outputs.
+Once Cargo has fetched the locked dependencies, use `--offline` for local checks
+and builds.

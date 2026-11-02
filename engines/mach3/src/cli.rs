@@ -1,14 +1,22 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 #![forbid(unsafe_code)]
 
 #[cfg(feature = "dev-tools")]
-use crate::viewer::Playback;
+use crate::platform::Playback;
 use crate::{
-    gameplay::F3Mode, sound::render::AudioRenderer, startup::StartupFrames, viewer::Options,
+    gameplay::{DisplayMode, F3Mode},
+    platform::Options,
+    sound::render::AudioRenderer,
+    startup::StartupFrames,
 };
-use std::{ffi::OsString, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
-const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--f3-mode press|original] [--digitized-samples on|off]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--video cga|mono] [--f3-mode press|original] [--digitized-samples on|off]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
 F10: open settings; F10, Escape or Close returns. Scaling and fullscreen changes apply live.\n\
@@ -21,6 +29,7 @@ Normal animation runs gameplay, sound and waits on one PIT timeline.\n\
 --audio-renderer speaker|enhanced-pcm: select host audio rendering (default speaker); timing is unchanged.\n\
 --digitized-samples on|off: execute recorded speech/music (default on); off retains procedural effects and skips sample waits.\n\
 P or Pause/Break freezes host simulation and playback. F1 retains original pause/end-game behavior; F2 toggles native sound, F3 switches color/monochrome.\n\
+--video cga|mono: initial native colour or monochrome display (default cga); F3 still toggles during play.\n\
 --f3-mode press|original: toggle F3 once per press (default press), or at every active original control poll.\n\
 Unavailable audio warns and mutes host output; guest execution continues. Exact CPU-dependent pacing remains unmodeled.";
 
@@ -37,33 +46,59 @@ fn help() -> String {
     }
 }
 
-/// Run the Mach 3 viewer with arguments excluding the executable name.
+/// Run the Mach 3 windowed frontend with arguments excluding the executable name.
 ///
-/// The `viewer` feature provides this entry point for REforge and the standalone
-/// `mach3-viewer` binary.
+/// The `sdl` feature provides this entry point for REforge and the standalone
+/// `mach-3` binary.
 pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    run_with_files(args, &BTreeMap::new())
+}
+
+/// Run using the physical files selected by REforge's release detector.
+/// Unlisted resources retain the standalone loader's ordinary resolution.
+pub fn run_with_files(
+    args: impl Iterator<Item = OsString>,
+    files: &BTreeMap<&str, PathBuf>,
+) -> Result<(), String> {
     let Some((directory, options)) = parse_args(args)? else {
         println!("{}", help());
         return Ok(());
     };
-    let frames = StartupFrames::load(&directory).map_err(|error| error.to_string())?;
-    let program = crate::executable::load_program(&directory).map_err(|error| error.to_string())?;
+    let mut read = |name: &str| read_selected(&directory, files, name);
+    let frames = StartupFrames::load_with(&mut read).map_err(|error| error.to_string())?;
+    let program = crate::executable::expand_program(&read("MACH3.EXE").map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
     let rules = crate::gameplay::ScriptRules::from_data_segment(
         crate::executable::data_segment(&program).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
     #[cfg(feature = "dev-tools")]
     if options.is_preview() {
-        return crate::viewer::run_preview(&frames, options, rules);
+        return crate::platform::run_preview(&frames, options, rules);
     }
-    let samples = crate::sound::SoundAssets::load(&directory).map_err(|e| e.to_string())?;
+    let samples = crate::sound::SoundAssets::load_with(&mut read).map_err(|e| e.to_string())?;
     let intro = crate::sound::IntroProgram::from_expanded(&program).map_err(|e| e.to_string())?;
     let procedural =
         crate::sound::ProceduralProgram::from_expanded(&program).map_err(|e| e.to_string())?;
-    crate::viewer::run_live(&frames, options, rules, samples, intro, procedural)
+    crate::platform::run_live(&frames, options, rules, samples, intro, procedural)
 }
 
-/// Validate the viewer argument contract without loading original data or SDL.
+fn read_selected(
+    directory: &Path,
+    files: &BTreeMap<&str, PathBuf>,
+    name: &str,
+) -> Result<Vec<u8>, crate::Error> {
+    if let Some((_, path)) = files
+        .iter()
+        .find(|(catalog_name, _)| catalog_name.eq_ignore_ascii_case(name))
+    {
+        std::fs::read(path).map_err(crate::Error::Io)
+    } else {
+        crate::assets::read_resource(directory, name)
+    }
+}
+
+/// Validate the windowed argument contract without loading original data or SDL.
 pub fn validate_arguments(args: impl Iterator<Item = OsString>) -> Result<(), String> {
     parse_args(args).map(|_| ())
 }
@@ -135,6 +170,13 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     }
                 };
             }
+            Some("--video") => {
+                options.video = match args.next().as_deref().and_then(|arg| arg.to_str()) {
+                    Some("cga") => DisplayMode::Color,
+                    Some("mono") => DisplayMode::Monochrome,
+                    _ => return Err("--video must be cga or mono".into()),
+                };
+            }
             Some("--f3-mode") => {
                 options.f3_mode = match args.next().as_deref().and_then(|arg| arg.to_str()) {
                     Some("press") => F3Mode::Press,
@@ -190,9 +232,55 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
 mod tests {
     use super::{help, parse_args};
     #[cfg(feature = "dev-tools")]
-    use crate::viewer::Playback;
+    use crate::platform::Playback;
     use crate::{gameplay::F3Mode, sound::render::AudioRenderer};
     use std::{ffi::OsString, path::PathBuf};
+
+    #[test]
+    fn verified_file_choices_override_case_collisions_without_silent_fallback() {
+        use std::{
+            collections::BTreeMap,
+            fs,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+        let directory = std::env::temp_dir().join(format!(
+            "mach3-selected-files-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).unwrap();
+        for (name, content) in [
+            ("MACH3.EXE", b"wrong".as_slice()),
+            ("mach3.exe", b"chosen program"),
+            ("DATA1", b"wrong"),
+            ("data1", b"chosen image"),
+            ("DATA7", b"unlisted sample"),
+        ] {
+            fs::write(directory.join(name), content).unwrap();
+        }
+        let files = BTreeMap::from([
+            ("mach3.exe", directory.join("mach3.exe")),
+            ("DATA1", directory.join("data1")),
+        ]);
+        assert_eq!(
+            super::read_selected(&directory, &files, "MACH3.EXE").unwrap(),
+            b"chosen program"
+        );
+        assert_eq!(
+            super::read_selected(&directory, &files, "DATA1").unwrap(),
+            b"chosen image"
+        );
+        assert_eq!(
+            super::read_selected(&directory, &files, "DATA7").unwrap(),
+            b"unlisted sample"
+        );
+        fs::remove_file(directory.join("data1")).unwrap();
+        assert!(super::read_selected(&directory, &files, "DATA1").is_err());
+        fs::remove_dir_all(&directory).unwrap();
+    }
 
     fn args(values: &[&str]) -> impl Iterator<Item = OsString> {
         values
@@ -208,6 +296,51 @@ mod tests {
             flags.extend([Some("--step"), Some("--static")]);
         }
         flags
+    }
+
+    #[test]
+    fn video_argument_selects_native_startup_mode_in_every_playback() {
+        use crate::gameplay::DisplayMode;
+        let (_, defaults) = parse_args(args(&["--original", "assets"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(defaults.video, DisplayMode::Color);
+        for playback in playback_flags() {
+            for (value, expected) in [
+                ("cga", DisplayMode::Color),
+                ("mono", DisplayMode::Monochrome),
+            ] {
+                let mut input = vec!["--original", "assets", "--video", value];
+                if let Some(flag) = playback {
+                    input.push(flag);
+                }
+                let (_, options) = parse_args(args(&input)).unwrap().unwrap();
+                assert_eq!(options.video, expected);
+            }
+        }
+        let (_, options) = parse_args(args(&[
+            "--original",
+            "assets",
+            "--video",
+            "mono",
+            "--video",
+            "cga",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(options.video, DisplayMode::Color);
+        for value in ["", "colour", "MONO", "--scale"] {
+            assert!(
+                parse_args(args(&["--original", "assets", "--video", value]))
+                    .unwrap_err()
+                    .contains("--video")
+            );
+        }
+        assert!(
+            parse_args(args(&["--original", "assets", "--video"]))
+                .unwrap_err()
+                .contains("--video")
+        );
     }
 
     #[test]
@@ -421,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn f3_mode_defaults_to_press_and_is_available_in_all_viewer_modes() {
+    fn f3_mode_defaults_to_press_and_is_available_in_all_playback_modes() {
         let (_, defaults) = parse_args(args(&["--original", "assets"]))
             .unwrap()
             .unwrap();

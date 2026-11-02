@@ -189,9 +189,36 @@ Run it on an otherwise idle desktop or with `SDL_VIDEODRIVER=dummy`. The native
 check expects space for a 1280×960 rendering area. Dummy/software checks do not
 establish the compositor's final monitor-pixel mapping.
 
-Authored project code has no selected license yet. Preserve the
+Authored code and documentation use REforge's
+[`GPL-3.0-or-later` license](../../LICENSE). Preserve the
 [dependency notices and license texts](../../THIRD_PARTY.md) when distributing
 the corresponding dependencies. This crate bundles no game data.
+
+## UI appearance
+
+`ui::Theme` combines a complete semantic colour palette with independently
+chosen button, choice-strip, section and selection-marker appearances. Base
+themes can freely mix these components; there is no prescribed default recipe.
+`Theme::with_overrides` creates an independent modified copy for future variants.
+The current default preserves the existing appearance. A selectable theme catalog,
+variant names and theme persistence are not implemented yet.
+
+`ui::primitives` provides native, flat, rounded, sharp and pill buttons;
+button, flat, sharp, segmented and pill choice strips; section surfaces and
+separators; and fill, outline or left-bar selection markers. Screens retain
+their layout and navigation groups. Choice strips return clicks on an active
+value too, allowing callers to implement explicit/inherited preference toggles.
+`SelectionState::Inherited` uses the palette's dim selection colours, while
+`Explicit` uses the full selection colours. The primitives do not save settings
+or decide whether a value is an override.
+
+`Gui::set_theme` and `SettingsMenu::set_theme` install a theme without replacing
+egui spacing, fonts, widget geometry, focus or draft values. Settings currently
+uses only the palette, including override, pending, command-line lock and focus
+colours; its existing control shapes and layout remain independent of the
+theme's component choices. The selected appearance survives renderer replacement.
+Custom egui screens can use `Theme::apply_palette`, then draw the shared
+primitives with that theme. Ordinary egui widgets receive the same palette.
 
 ## Settings menu
 

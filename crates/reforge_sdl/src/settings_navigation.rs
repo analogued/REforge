@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Host menu navigation. Controller repeat uses host UI time, never game time.
 
 use egui::{Context, Event, Id, Key, Modifiers, Response, Ui, WidgetText};
@@ -59,7 +60,17 @@ impl Navigation {
         let mut targets = context
             .data(|data| data.get_temp::<Targets>(targets_key()).unwrap_or_default())
             .0;
-        if let Some(root) = targets.first().map(|target| target.layer) {
+        if let Some(root) = context
+            .memory(|memory| memory.top_modal_layer())
+            .or_else(|| {
+                let focused = context.memory(|memory| memory.focused());
+                targets
+                    .iter()
+                    .find(|target| Some(target.id) == focused)
+                    .map(|target| target.layer)
+            })
+            .or_else(|| targets.first().map(|target| target.layer))
+        {
             targets.retain(|target| target.layer == root);
         }
         let mut input = std::mem::take(&mut self.deferred);
@@ -657,7 +668,7 @@ pub(super) fn paint_focus(context: &Context) {
             context.layer_painter(target.layer).rect_stroke(
                 target.visible.expand(2.0),
                 3.0,
-                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(100, 200, 226)),
+                egui::Stroke::new(1.5_f32, crate::ui::current_palette(context).focus),
                 egui::StrokeKind::Outside,
             );
         }
@@ -668,6 +679,74 @@ pub(super) fn paint_focus(context: &Context) {
 mod tests {
     use super::*;
     use crate::gamepad::Actions;
+
+    #[test]
+    fn modal_navigation_stays_with_its_buttons() {
+        let context = Context::default();
+        let mut cancel = Id::NULL;
+        let mut confirm = Id::NULL;
+        for _ in 0..3 {
+            let _ = context.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800.0, 600.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    begin_frame(ctx);
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        control(ui.button("Background"));
+                    });
+                    egui::Modal::new(Id::new("confirm")).show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            cancel = control(ui.button("Cancel")).id;
+                            confirm = control(ui.button("Remove")).id;
+                        });
+                    });
+                },
+            );
+        }
+        context.memory_mut(|memory| memory.request_focus(cancel));
+        let mut navigation = Navigation::default();
+        let mut events = vec![Event::Key {
+            key: Key::ArrowRight,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }];
+        navigation.navigate(&context, &mut events);
+        assert_eq!(context.memory(|memory| memory.focused()), Some(confirm));
+    }
+
+    #[test]
+    fn focused_nonmodal_popover_keeps_its_navigation_layer() {
+        let context = Context::default();
+        let mut first = Id::NULL;
+        let mut second = Id::NULL;
+        for _ in 0..3 {
+            let _ = context.run(egui::RawInput::default(), |ctx| {
+                begin_frame(ctx);
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    control(ui.button("Background"));
+                });
+                egui::Area::new(Id::new("theme_popover"))
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        first = control(ui.button("Classic Dark")).id;
+                        second = control(ui.button("Soft Tonal")).id;
+                    });
+            });
+        }
+        context.memory_mut(|memory| memory.request_focus(first));
+        let mut navigation = Navigation::default();
+        let mut events = Vec::new();
+        pulse(&mut events, Key::ArrowDown, false, false);
+        navigation.navigate(&context, &mut events);
+        assert_eq!(context.memory(|memory| memory.focused()), Some(second));
+    }
 
     #[test]
     fn sidebar_right_enters_content_below_notices_and_falls_back_to_actions() {
@@ -827,7 +906,7 @@ mod tests {
                     ((2560, 1920), 2.25),
                 ] {
                     for controller in [false, true] {
-                        creator.session.borrow_mut().game =
+                        creator.session.borrow_mut().game_id =
                             if mach3 { "mach-3" } else { "alley-cat" }.into();
                         let metrics = UiMetrics {
                             drawable: size,
@@ -1132,7 +1211,7 @@ mod tests {
                 controller(&mut menu, confirm);
                 assert_eq!(menu.page, page);
             }
-            controller(&mut menu, next); // Use defaults checkbox
+            controller(&mut menu, next); // Override defaults checkbox
             assert!(!menu.game_editing[3]);
             controller(&mut menu, confirm);
             assert!(menu.game_editing[3]);
@@ -1490,7 +1569,7 @@ mod tests {
                 ((1920, 1440), 2.25, false),
             ] {
                 for controller in [false, true] {
-                    creator.session.borrow_mut().game =
+                    creator.session.borrow_mut().game_id =
                         if mach3 { "mach-3" } else { "alley-cat" }.into();
                     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
                     menu = if mach3 {

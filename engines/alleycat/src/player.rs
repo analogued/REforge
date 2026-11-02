@@ -1,4 +1,5 @@
-// Copyright 2026 analogued. License selection is pending.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Accepted-update movement for the alley and ordinary room player paths.
 //!

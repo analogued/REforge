@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Decode and execute one bounded traversal of the original intro wrappers.
 //!
 //! The original first wrapper repeats calls as unrolled instruction blocks.
@@ -28,7 +29,7 @@ pub struct IntroProgram {
 }
 
 impl IntroProgram {
-    #[cfg(all(test, feature = "viewer"))]
+    #[cfg(all(test, feature = "sdl"))]
     pub(crate) fn synthetic() -> Self {
         Self::from_expanded(&tests::fixture()).unwrap()
     }

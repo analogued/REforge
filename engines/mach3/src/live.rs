@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Presentation bridge for budgeted gameplay on the caller's device timeline.
 //!
 //! The caller owns the clock across startup playback, gameplay and endings, and
@@ -34,7 +35,7 @@ pub struct GameplayRuntime {
 }
 
 impl GameplayRuntime {
-    #[cfg(feature = "viewer")]
+    #[cfg(feature = "sdl")]
     pub(crate) fn next_transition_deadline(&self) -> Option<u64> {
         self.task.next_transition_deadline()
     }

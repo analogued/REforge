@@ -8,14 +8,19 @@ the [timing reference](docs/timing.md) describes the model and its limits,
 including the deferred physical PCjr timing comparison.
 Alley Cat is the `alleycat` engine crate in **REforge**.
 
+> [!IMPORTANT]
+> This engine does not include original Alley Cat assets or data. You must
+> provide the original files from a supported release. See
+> [Original game required](#original-game-required) for details.
+
 ## Responsive controls
 
 Responsive controls reduce the wait before the game reads direction and action
 requests. They are enabled by default and preserve movement speed, physics and
 blocking effects. Original input polling remains available under
 F10 → Alley Cat overrides → Controls → Input response.
-Uncheck **Use defaults for this section** to edit; Apply activates and saves the
-selection, and Cancel discards it. The preference persists across restarts.
+Check **Override global defaults** to edit; Apply activates and
+saves the selection, and Cancel discards it. The preference persists across restarts.
 
 Directions and Alt preserve timestamped transitions during catch-up. Brief taps
 between input samples can still be missed; see [input timing](docs/timing.md)
@@ -77,7 +82,7 @@ files and any generated captures outside this repository.
 See the [application README](../../README.md) for the combined build and
 [contributing guide](CONTRIBUTING.md) for this game's validation commands.
 
-Install Rust 1.85 or newer with Cargo, and an SDL3 development package providing
+Install Rust 1.88 or newer with Cargo, and an SDL3 development package providing
 the native `SDL3` library. The [shared window backend](../../crates/reforge_sdl/README.md)
 uses the `sdl3` Rust wrapper; SDL image/font/mixer extensions are not required.
 Cargo fetches `sha2` and its locked dependencies for executable verification.
@@ -452,7 +457,7 @@ evidence. Output files must not already exist. See `--help` for all options.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for validation, formatting, and commit
 conventions. Development does not require a particular parent workspace.
 
-REforge's repository-wide license has not been selected; no project license is granted yet.
-Dependency attribution and license notices are in
-[THIRD_PARTY.md](../../THIRD_PARTY.md). Those notices do not grant rights to the
-original game data.
+Authored code and documentation use REforge's
+[`GPL-3.0-or-later` license](../../LICENSE). Third-party attribution and retained
+terms are in [THIRD_PARTY.md](../../THIRD_PARTY.md). Original game data is not
+included or licensed by this repository.

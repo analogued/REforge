@@ -3,10 +3,10 @@
 F10 opens the Compact Settings menu in either game. The Display page offers
 window mode (windowed or borderless desktop fullscreen), window scale (Auto or
 ×1–×16), scaling policy, sampling, aspect ratio, renderer, backend, VSync and a
-frame limiter. CRT & Colour offers sharp
-pixels or Hyllian CRT with adjustable shader controls. Colour profiles and white
-points remain future work. Audio offers enable sound, master/category volumes, per-game
-sound renderer, output device and focus muting.
+frame limiter. CRT & Colour offers sharp pixels or Hyllian CRT with
+adjustable shader controls. Colour profiles and white points remain future
+work. Audio offers enable sound, master/category volumes, per-game sound
+renderer, output device and focus muting.
 Controls offers a shared controller stick dead zone and Alley Cat's game-specific
 input response.
 Navigate with Tab/Shift+Tab or the arrow keys; Enter/Space activates a control.
@@ -78,15 +78,106 @@ clears only the current game's overrides for the selected section when editing
 that game. Display, CRT & Colour, Audio and Controls reset independently.
 Both operations remain drafts until Apply.
 
-Game fields differing from the global draft use cyan text. An amber dot marks
-a change compared with saved preferences, including removal of an old override.
+Game fields with an override in the draft use the theme accent text, including
+explicit values matching global defaults. An amber dot marks a change compared with
+saved preferences, including removal of an old override.
 Hover labels/dots for global or saved values. No override badges or individual
-reset buttons are displayed. Unchecking Use global defaults enables game editing
-without copying the global section. Only edited differences become overrides.
-Values equal to global inherit. Applying global edits does not rewrite game
-entries; redundant game entries are removed when game settings are edited/applied.
+reset buttons are displayed. Checking **Override global defaults**
+enables game editing without copying the global section. The checkbox explains
+that only different values are saved. Unchecking it clears that section's game
+overrides in the draft; Apply saves the reset and Cancel discards it.
+
+New game edits save only differences from the current global draft (or built-in
+value for game-only options). Existing overrides are preserved when editing
+other fields or global defaults, even when their values match global. Changing
+a field away and back to its starting value preserves its original override
+state. Explicit section resets clear that state; subsequent edits do not restore
+cleared overrides. Apply never prunes unrelated overrides from the same section.
+Renderer/treatment compatibility adjustments still apply. Hover details
+distinguish saved overrides from inherited values.
 
 ## File and precedence
+
+The launcher opens only when REforge receives no arguments. **Add** selects a
+folder and identifies a supported game/release. Entries are saved immediately in
+`library.toml`, beside the default `config.toml` described below. The library
+records an entry ID, game/release IDs, title, canonical directory and original-data
+location. One directory has one entry. The same release in different directories
+has separate entries, preferences and future save locations. Directory aliases,
+including symlinks, select the same entry. Re-adding a directory selects its
+existing entry.
+
+Detection checks required filenames, then sizes, then complete SHA-256 hashes.
+Names match without regard to ASCII case. When several spellings exist, it tries
+the catalog's exact spelling first, then the other spellings alphabetically;
+wrong-size files are skipped before hashing. The first matching file for each
+required record is passed to the engine. Multiple matching releases still require
+disambiguation. Selecting a file restricts candidates by its name, while its
+siblings supply the other required files. Only the selected directory is searched.
+
+Entry IDs combine the game ID and six random lowercase letters/digits, such as
+`alley-cat-m7k4p9`. They use operating-system randomness with collision checks
+against the library, retained entry preferences and save-folder names. There is
+no separate UUID or sequence counter. IDs remain unchanged when relocating or
+switching to a compatible release. Keep IDs intact when manually editing files;
+changing one creates a different profile. The stored title starts with the catalog
+name and can be edited without changing identity or save storage.
+
+```toml
+schema_version = 2
+
+[[entries]]
+entry_id = "alley-cat-m7k4p9"
+game_id = "alley-cat"
+release_id = "alley-cat-dos-06ff7fe280"
+title = "Alley Cat"
+directory = "/Games/AlleyCat"
+original = "/Games/AlleyCat/CAT.EXE"
+```
+
+Relocate verifies the replacement using the detection catalog. It accepts the
+same release or another release with the same game ID and explicit
+`compatibility_id`, meaning compatible saves and persistent option semantics.
+Matching hashes, titles or platforms alone never establish compatibility. The
+stored release ID and paths change; entry identity, overrides and save location
+remain intact. A directory already registered to another entry is rejected.
+Files changed to another release in place require explicit Relocate as well.
+Unknown/unsupported releases remain rejected.
+
+Remove asks for confirmation and removes the library record and that entry's
+preferences. Original files and saves stay on disk. Manually removing a library
+record can leave unreferenced preferences/saves; adding the game again allocates
+a fresh ID rather than reclaiming them.
+
+Save functionality is deferred. Its reserved layout is `saves/<entry-id>/` under
+`$XDG_DATA_HOME/reforge` (default `~/.local/share/reforge`) on Linux,
+`%APPDATA%/REforge` on Windows and
+`~/Library/Application Support/REforge` on macOS. No save folders are created by
+adding a game. Future save headers must record format version and compatibility
+group rather than require an exact release hash.
+
+Schema-1 numeric library IDs migrate automatically to stable string IDs. Old
+`[games.<game-id>]` preferences, including native launcher choices and explicit
+pins equal to globals, are copied to every existing entry for that game. Those
+legacy sections are then removed; unmapped game sections are preserved until
+an entry for that game exists. The migration is restartable if interrupted
+between the library and preferences writes. Unknown entry fields and comments
+are retained. Repair malformed preferences before completing a pending migration.
+
+The launcher uses the same Compact UI and supports mouse, keyboard and controller
+navigation. Games run through the ordinary `--original` path in a child REforge
+process while the launcher is hidden; exiting the game restores the launcher.
+Existing global/entry preferences apply. Launching with command-line arguments
+does not add library entries. A detected directory matching an existing entry
+uses that entry's preferences and launcher choices; otherwise it uses global
+and built-in defaults. Explicit CLI values take precedence. Native launcher
+choices are applied by windowed (SDL-enabled) builds. `--config` and
+`--no-config` continue to affect that command-line game launch; they do not
+redirect the no-argument launcher's library.
+
+Library saves use their own lock and atomic replacement, merging edits from
+other launcher instances. Malformed files and unsupported schema versions are
+preserved with an error, rather than overwritten by an empty library.
 
 Linux uses `$XDG_CONFIG_HOME/reforge/config.toml`, falling back to
 `~/.config/reforge/config.toml`. Relative XDG_CONFIG_HOME is ignored.
@@ -96,7 +187,7 @@ behavior has not yet been validated. `--config <path>` selects an alternative.
 `--no-config` disables reads/writes, retaining in-memory menu use.
 
 ```toml
-schema_version = 1
+schema_version = 2
 
 [global.display]
 window_mode = "windowed"
@@ -116,31 +207,32 @@ mask_intensity = 0.35
 [global.controls]
 stick_dead_zone = 35
 
-[games.alley-cat.display]
+[entries.alley-cat-m7k4p9.display]
 scale = 4
 
-[games.alley-cat.controls]
+[entries.alley-cat-m7k4p9.controls]
 control_mode = "original"
 
-[games.mach-3.display]
+[entries.mach-3-q8n2v5.display]
 vsync = false
 
 [global.audio]
 master_volume = 80
 mute_unfocused = true
 
-[games.mach-3.audio]
+[entries.mach-3-q8n2v5.audio]
 audio_renderer = "enhanced-pcm"
 
-[games.mach-3.gameplay]
+[entries.mach-3-q8n2v5.gameplay]
 digitized_samples = true
 ```
 
-Defaults are windowed, Auto scale, automatic GPU-preferred rendering, automatic
-backend, VSync enabled when supported, a display-refresh frame ceiling, and sharp
-pixels. Missing keys inherit: shared defaults,
-then global preferences, then game preferences. Game identities are the catalog
-IDs `alley-cat` and `mach-3`, independent of engines or original data paths.
+Defaults are windowed, Auto scale, automatic GPU-preferred rendering,
+automatic backend, VSync enabled when supported, a display-refresh frame
+ceiling, and sharp pixels. Missing keys inherit: shared defaults, then
+global preferences, then entry preferences. Catalog game IDs (`alley-cat`,
+`mach-3`) identify games; entry IDs identify individual configured copies.
+The example suffixes above are illustrative; use the IDs from your library.
 Explicit CLI values form the final temporary layer.
 
 | Key | Values |
@@ -187,7 +279,7 @@ the observed frame rate lower than the chosen ceiling.
 
 ## CRT & Colour
 
-CRT preferences use `[global.crt]` and `[games.<game-id>.crt]`, with the same
+CRT preferences use `[global.crt]` and `[entries.<entry-id>.crt]`, with the same
 sparse inheritance and Apply/Cancel rules as Display. `presentation` accepts
 `"pixels"` (default) or `"hyllian"`. Fine adjustments is a shared collapsible
 section for the selected treatment's controls, closed by default. Hyllian exposes
@@ -226,7 +318,7 @@ pairs discard the pair's overrides at that scope and warn.
 
 ## Audio
 
-Audio preferences use `[global.audio]` and `[games.<game-id>.audio]` with the
+Audio preferences use `[global.audio]` and `[entries.<entry-id>.audio]` with the
 same draft, sparse overrides and section reset rules. Sound renderer selection
 is enabled in game overrides for engines/runs that provide audio. Shared levels,
 devices and focus defaults can be edited globally even from a silent game.
@@ -281,8 +373,7 @@ Unavailable audio does not prevent unrelated Display/CRT changes.
 
 `--audio-renderer speaker|enhanced-pcm` remains a temporary Mach 3 override and
 locks its menu control for that run. It is never saved into preferences.
-Latency remains the existing buffering policy, and output remains mono; the
-mockup's Latency and Keep original mono controls are intentionally absent.
+Audio buffering uses the existing latency policy, and output remains mono.
 
 ## Alley Cat controls
 
@@ -293,9 +384,9 @@ retains the original game's input polling. Apply changes the running game and
 saves the preference; Cancel discards pending edits.
 
 This option exists only for Alley Cat, without a Global defaults or Mach 3
-counterpart. It is stored as `[games.alley-cat.controls] control_mode = "original"`;
-selecting Responsive removes that override. Uncheck **Use defaults for this
-section** to edit it. Restoring section defaults removes only the Alley Cat
+counterpart. It is stored as `[entries.alley-cat-m7k4p9.controls] control_mode = "original"`;
+selecting Responsive removes that override. Check **Override global defaults**
+to edit it. Restoring section defaults removes only the Alley Cat
 Controls override on Apply; global resets leave it intact. Reference/headless
 diagnostics retain original input polling.
 
@@ -303,12 +394,12 @@ diagnostics retain original input polling.
 
 Mach 3 overrides on the Audio page include **Digitized samples** immediately
 below Sound renderer. It defaults to On and is stored only as
-`[games.mach-3.gameplay] digitized_samples = true|false`. There is no global or
-Alley Cat counterpart. On this page, **Use defaults for this section** makes
-shared audio inherit global defaults and restores Digitized samples to its
-built-in On value. All section controls are grayed out until that checkbox is
-unchecked. A saved samples Off value counts as an Audio override, so the section
-reopens enabled. **Restore defaults** has the same reset behavior; Apply saves
+`[entries.mach-3-q8n2v5.gameplay] digitized_samples = true|false`. There is no global or
+Alley Cat counterpart. On this page, unchecking **Override global defaults**
+makes shared audio inherit global defaults and restores Digitized
+samples to its built-in On value. Section preference controls are grayed out
+until that checkbox is checked. A saved samples Off value counts as an Audio
+override, so the section reopens enabled. **Restore defaults** has the same reset behavior; Apply saves
 the reset and Cancel discards it. Resetting global audio leaves game overrides
 intact. Host mute remains separate from the native sample policy.
 
@@ -342,14 +433,14 @@ if it disconnects. Device-open failures warn and leave keyboard play available.
 
 The bottom face button advances title/start screens. Alley Cat's skill question
 accepts Up/Down to choose among its four initial skills and the bottom button to
-confirm; another fresh press starts play after the instructions. Settings editing
-currently uses keyboard/mouse. Bindings are fixed; the right stick, triggers and
-remaining buttons are unassigned.
+confirm; another fresh press starts play after the instructions. Settings supports
+keyboard, mouse and controller navigation. Bindings are fixed; the right stick,
+triggers and remaining buttons are unassigned.
 
 **Stick dead zone** is an integer percentage from 5 to 90, default 35. Set it in
-Global defaults → Controls, or uncheck the defaults checkbox in a game's Controls
-page to override it. TOML uses `[global.controls] stick_dead_zone = 35` and
-`[games.<game-id>.controls] stick_dead_zone = 35`. Apply activates and saves the
+Global defaults → Controls, or check **Override global defaults** in a game's
+Controls page to override it. TOML uses `[global.controls] stick_dead_zone = 35` and
+`[entries.<entry-id>.controls] stick_dead_zone = 35`. Apply activates and saves the
 value; Cancel discards edits. There is no corresponding command-line option.
 
 Each left-stick axis activates a digital direction at that displacement and
@@ -403,3 +494,188 @@ existing fatal-error behavior.
 and UI. Engine adapters preserve pause/input boundaries and acknowledge runtime
 success before saving. Standalone diagnostic engine binaries retain in-memory
 preferences; the REforge app supplies persistent settings and the common CLI.
+
+## Launcher appearance and quick options
+
+The no-argument launcher supports Classic Dark, Soft Tonal, Warm Amber and Crisp
+Light. Its palette button (Ctrl+T) previews colours; Keep, clicking elsewhere,
+Escape or Ctrl+T saves and closes. Revert restores the saved theme. Settings uses
+the chosen colours while retaining its own control geometry.
+
+F2 selects Split, F3 Gallery and F4 Compact. Appearance choices are independent:
+
+```toml
+[launcher]
+theme = "classic-dark"
+layout = "split"
+```
+
+The first launch uses Classic Dark and Split. Unknown stored appearance values
+fall back for display without rewriting them until the player changes that choice.
+
+Quick options are declared by each engine. Choosing a value saves it immediately,
+even when it currently equals its default. Its full highlight means an override
+exists; dim highlighting means the option follows its default. Clicking an
+explicit selection removes that override. Global edits and unrelated Settings
+Apply operations preserve explicit selections, including matching defaults.
+
+Shared options use the ordinary per-entry Settings keys. Native startup choices
+use the entry's launcher table, for example:
+
+```toml
+[entries.alley-cat-m7k4p9.launcher]
+machine = "pcjr"
+
+[entries.mach-3-q8n2v5.launcher]
+video = "mono"
+```
+
+Native choices are passed through the ordinary engine argument parser on launcher
+starts; command-line launches retain their explicit startup arguments. Engine
+metadata supplies available choices, badge labels and optional palette colours.
+
+Mach 3 quick options are ordered Video, Display, Window, then Audio. Digitized
+samples are configured through the full Audio settings or the command line;
+editing quick options preserves the per-entry sample preference.
+Preview badges follow the same option order, omitting choices without badge text.
+PC speaker contributes no badge; Enhanced PCM contributes `PCM`, following `CRT`
+when CRT treatment is enabled.
+
+The player-facing data has two owners:
+
+| Owner | Data |
+| --- | --- |
+| [Detection catalog](../app/src/detection/catalog.rs) | Shared game/editorial data, edition facts, reusable specs profiles, detection fingerprints and compatibility groups. |
+| Engine `launcher` module | Available launch options, their defaults and storage keys, labels and preview badges, mode palettes, display geometry, preview variants, recipe revision and native image generation. |
+
+The catalog has four linked record types:
+
+| Record | Data |
+| --- | --- |
+| `GameMetadata` | Typed game identity, canonical title, genres and tagline. |
+| `Edition` | Internal edition ID, game reference, platform, optional title replacement, year, developers, publishers, optional display label and specs profile reference. |
+| `SpecsProfile` | Internal profile ID and video/audio feature lists. |
+| `Release` | Existing detected-release ID, edition reference, compatibility group and filename/size/SHA-256 fingerprints. |
+
+Multiple detected distributions can reference one edition, for example when
+only an executable changes. Separate editions can reference the same game and
+specs profile while keeping their dates and credits explicit. Relationships use
+direct Rust references; edition and profile IDs identify the named catalog
+records without requiring string lookups. Game IDs and existing detected-release
+IDs remain unchanged in libraries, configuration, saves and preview identities.
+
+The current chains are:
+
+| Detected release ID | Edition ID | Game ID | Specs profile ID |
+| --- | --- | --- | --- |
+| `alley-cat-dos-06ff7fe280` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
+| `mach-3-dos-5f6ec0fc8b` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
+
+Both editions have platform `Platform::Dos`. Platform placement in the launcher
+is not yet defined. Edition IDs name catalog groupings; the precise commercial
+edition/version designations remain unverified. Edition, specs and compatibility
+IDs have separate namespaces. Both current detected releases use their game's
+`*-dos` compatibility ID, matching the edition/profile spelling. Sharing edition
+or specs records does not establish save/configuration compatibility: each
+detected release retains its explicit compatibility group.
+
+Detected-release IDs use `<game-id>-<platform>-<10 hex digits>`. The suffix is
+derived from the complete catalogued required-file manifest. DOS filenames use
+ASCII case-insensitive normalization, matching detection; non-ASCII characters
+remain exact. File-list order and hexadecimal SHA-256 letter casing do not affect
+the identity. Other platforms must select their own filename case semantics.
+Original file contents remain byte-exact and are verified with the full SHA-256.
+Absolute installation paths and editorial/edition/specs metadata are excluded.
+
+The version-one fingerprint encoding is fixed: the ASCII marker
+`reforge-detected-release-v1` followed by a NUL byte, the file count as an unsigned
+64-bit little-endian integer, then records sorted by normalized UTF-8 filename.
+Each record contains its filename byte length as the same integer type, filename
+bytes, file size as the same integer type, and 64 lowercase ASCII SHA-256 hex
+characters. Hash this encoding with SHA-256 and take the first ten hex digits.
+The game ID and platform form the readable prefix outside the digest.
+
+IDs are assigned in the catalog. [Authoring checks](../app/src/detection/identity.rs)
+validate normalization and reject duplicate IDs, including shortened-fingerprint
+collisions. Runtime detection uses the assigned IDs and full file hashes. No
+legacy-ID aliases or automatic migration are provided for these pre-release
+renames; local library `release_id` references are edited directly.
+
+Years are optional numbers. Credits, genres and feature summaries are separate
+lists; unknown facts use `None` or empty lists. An edition uses its game's title
+unless it explicitly supplies a replacement. Its optional `label` is display text,
+independent of its ID. `tagline` is the short shared editorial line, such as
+“A small cat, a very busy neighbourhood.” There is no separate description field.
+Split details keep the original single-line tagline spacing, including when the
+tagline is absent. A second line uses the existing gaps above and below without
+moving the credits, specs or Play button. Taglines have no ellipsis or tooltip.
+Keep catalog taglines short enough to fit within two lines at the launcher's
+630 × 470 logical UI unit minimum. A rendering regression check enforces this
+across themes and representative display densities; tagline length does not
+raise the runtime window minimum.
+
+Split sidebar entries and Gallery cards show year and developer only. Split
+details and Compact entries can include publisher and genres; identical
+developer/publisher lists appear once. The launcher formats lists and separators,
+omitting absent facts. Video/audio feature summaries describe the catalogued
+release as supported by REforge, including explicitly named enhancements; active
+option values and palette swatches come from the engine instead.
+
+A library entry has its own display title, initially copied from the detected
+edition's resolved title and editable independently in the library file. Other
+metadata is read through the catalog links and is not duplicated in user
+configuration. Metadata edits leave native preview cache identities unchanged.
+The local development `project.toml` inventories are not runtime catalog inputs.
+
+After verification, the launcher loads or generates static engine scene previews
+in a background worker. It warms the available visual variants (CGA/PCjr for
+Alley Cat, colour/monochrome for Mach 3). Mach 3 uses its first splash screen.
+Alley Cat uses its intro, advanced with fixed seed `0xcafe` and the normal virtual
+startup loop until the cat sits on the fence with the SynSoft footer visible. Preview generation
+has no effect on the player's startup seed or session. Native RGBA pixels, engine-supplied
+display geometry and colour model are cached together in PNG files under:
+
+- Linux: `$XDG_CACHE_HOME/reforge/previews`, or `~/.cache/reforge/previews`.
+- macOS: `~/Library/Caches/REforge/previews`.
+- Windows: `%LOCALAPPDATA%/REforge/Cache/previews`.
+
+The cache identifies the release's complete detection fingerprints, visual variant
+and engine preview recipe revision. Separate library entries can share those
+source images. Each completed PNG is a checkpoint, published only after its
+write finishes. Preview work continues independently while a launched game runs.
+After a launcher crash or an interrupted close, restart reuses valid completed
+variants and regenerates missing or corrupt ones; an unfinished image starts over.
+Workers serialize cache access across launcher instances and remove abandoned
+staging files under that lock. Preview errors and Rust panics leave the launcher
+usable and do not stop later queued games. No queue/progress manifest is needed.
+Deleting the cache is safe; verified entries regenerate it. Missing
+originals, unsupported providers and preview errors retain Symbolic placeholders.
+Their initials use the first letters/numbers of the first two Unicode words, or
+the first two characters of one word, uppercased; empty/non-text names use `?`.
+
+Native images are fitted to the preview cell using their intended display aspect.
+Each axis uses Catmull–Rom bicubic filtering when shrinking and pixel coverage
+when enlarging; exact integer enlargement preserves whole source pixels. Both
+passes retain fractional values until final colour conversion. This applies to
+both Sharp pixels and CRT previews.
+
+Selecting Hyllian CRT adds an illustrative launcher treatment: scanline strength
+**0.30**, spacing **3 logical UI units** and RGB mask strength **20%**, with slight
+horizontal softening. Monochrome engine previews retain grayscale and omit the
+RGB grille. The cue is generated at the final physical preview size, after
+resampling, and is independent of gameplay's actual Hyllian shader and its fine
+adjustments. There are no launcher filter tuning controls.
+
+Previews and frames use bounded in-memory texture and frame-mask caches,
+regenerated when their actual source, physical size, desktop density, treatment or
+appearance changes. Their joined antialiased boundary preserves the neutral frame
+appearance on all renderers, including software. Presentation changes reuse clean
+source images; they never regenerate engine scenes or advance gameplay.
+
+Add verifies the supported release before saving its location. Relocate validates
+the replacement against the game and compatibility group. Missing entries retain their
+identity and offer Locate Files. Remove asks for confirmation and removes only
+the library entry and its preferences. Success notices expire; errors can be
+dismissed. Floating notifications wrap long messages within the window and scroll
+lengthy diagnostics without moving the launcher layout or hiding Dismiss.
+The original files are never changed by these library operations.

@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! PC speaker digital wiring, before any physical response or PCM renderer.
 
 use crate::pit::{CountOnePolicy, Edge, Error, Pit};

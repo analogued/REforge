@@ -15,8 +15,8 @@ The copy length is `0x3f40` bytes. A visible mode-4 frame is 320 by 200 pixels,
 with four two-bit pixels per byte and 80 bytes per scanline. Even scanlines
 occupy the bank at offset zero; odd scanlines occupy the bank at `0x2000`.
 These framebuffer coordinates fill a 4:3 display, with a pixel width-to-height
-ratio of 5:6. The viewer applies that correction when presenting frames;
-framebuffer exports retain the original 320-by-200 grid. The viewer supplies the
+ratio of 5:6. The windowed frontend applies that correction when presenting frames;
+framebuffer exports retain the original 320-by-200 grid. The windowed frontend supplies the
 native grid and a 320-by-240 display base to shared presentation metadata. The
 optional Square pixels preference uses the native grid without correction.
 F3 mode 6 changes that grid to 640 by 200 while retaining the same 4:3 original
@@ -92,7 +92,7 @@ Initial scene rendering completes at `044a`, before another playback call and
 entry into the gameplay loop. No intro duration is asserted here: timer changes
 and debugger pauses make wall-clock measurements unsuitable for that purpose.
 See [DOS sound assets](sound-assets.md) for the stored samples and verified
-digitized playback path and the normal viewer's PC speaker synthesis.
+digitized playback path and the normal frontend's PC speaker synthesis.
 
 ## Gameplay graphics resources
 
@@ -190,9 +190,9 @@ It implements the verified initial scene only. The alternate background is
 decoded; gameplay selects both bases and draws procedural gates and goal panels.
 
 `StartupFrames` also decodes `data1` and `data6` using the CGA bank layout.
-The optional `mach3-viewer` presents those frames and the initial scene through
+The standalone `mach-3` executable presents those frames and the initial scene through
 SDL3. Normal animated playback uses the timed splash and reconstructed
-audio-dependent intro control flow described above, then runs the
-[gameplay simulation](dos-gameplay.md#rust-gameplay-simulation) through game over
-and restart. Silent step/static diagnostic previews retain manual
-Space advancement of their startup screens, with held/repeated presses ignored.
+audio-dependent intro control flow described above, then runs the [gameplay
+simulation](dos-gameplay.md#rust-gameplay-simulation) through game over and
+restart. Silent step/static diagnostic previews retain manual Space
+advancement of their startup screens, with held/repeated presses ignored.

@@ -1,15 +1,23 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Identify supported originals without depending on private reference paths.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs::{self, File},
     io::Read,
     path::{Path, PathBuf},
 };
 
 use sha2::{Digest, Sha256};
+
+mod catalog;
+#[cfg(test)]
+mod identity;
+#[cfg(test)]
+use catalog::{ALLEY_CAT_DOS, MACH3_DOS};
+pub use catalog::{Edition, GameMetadata, RELEASES};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Game {
@@ -25,11 +33,15 @@ impl Game {
         }
     }
 
-    pub const fn title(self) -> &'static str {
+    pub const fn metadata(self) -> &'static GameMetadata {
         match self {
-            Self::AlleyCat => "Alley Cat",
-            Self::Mach3 => "Mach 3",
+            Self::AlleyCat => &catalog::ALLEY_CAT,
+            Self::Mach3 => &catalog::MACH3,
         }
+    }
+
+    pub const fn title(self) -> &'static str {
+        self.metadata().title
     }
 }
 
@@ -42,67 +54,25 @@ pub struct FileRecord {
 
 #[derive(Debug)]
 pub struct Release {
-    /// A reference identifier, not a claim about the commercial version.
+    /// Stable detected-distribution ID; not an official game version number.
     pub id: &'static str,
-    pub game: Game,
+    /// Verified compatibility of saves and persistent option semantics.
+    pub compatibility_id: &'static str,
+    pub edition: &'static Edition,
     pub files: &'static [FileRecord],
 }
 
-// These fingerprints identify the verified inputs used by the engines. Their
-// historical commercial release/version identities remain unknown. Only files
-// needed by the current implementations are required; unrelated extras are fine.
-pub static RELEASES: &[Release] = &[
-    Release {
-        id: "alley-cat-verified-reference",
-        game: Game::AlleyCat,
-        files: &[FileRecord {
-            name: "CAT.EXE",
-            size: 55_067,
-            sha256: "4979c8867826e08881d1d4bec95c95d6bc1ac70fd21050ccdb4f733a50d7bfdd",
-        }],
-    },
-    Release {
-        id: "mach-3-verified-reference",
-        game: Game::Mach3,
-        files: &[
-            FileRecord {
-                name: "MACH3.EXE",
-                size: 43_008,
-                sha256: "0cc5c73476ec31ebc52f5c3a66be58e08244c85b2e8178abac65178a37474fe1",
-            },
-            FileRecord {
-                name: "DATA1",
-                size: 16_384,
-                sha256: "e791d95500402c5c38574c349c65b402ba75302795eaf7b44c069ed8c3588ff0",
-            },
-            FileRecord {
-                name: "DATA2",
-                size: 28_960,
-                sha256: "eac1b4e82b6b2a88bee2d8b523e16bf949382572d973cd551ceab1b962c01e50",
-            },
-            FileRecord {
-                name: "DATA3",
-                size: 16_000,
-                sha256: "8733be0ec3afd731bca5fa17fae661675c186d1e84a0941b80b77e0a3d2c9bc8",
-            },
-            FileRecord {
-                name: "DATA4",
-                size: 25_704,
-                sha256: "a7cc941fa54ea1c3cddfcbc11a568d021f33d46a179c0d673db64a4222fd6580",
-            },
-            FileRecord {
-                name: "DATA5",
-                size: 25_704,
-                sha256: "3e1ab7a0e8cd3c4fd44486c6a402506257f13defe2949a49cbdd4565087678cb",
-            },
-            FileRecord {
-                name: "DATA6",
-                size: 16_384,
-                sha256: "4b44015ccb5eb001d03670ad5fa46879912625f54a236d44e38556de8efbb2ce",
-            },
-        ],
-    },
-];
+impl Release {
+    pub const fn game(&self) -> Game {
+        self.edition.game.identity
+    }
+
+    pub fn compatible_with(&self, other: &Self) -> bool {
+        self.game() == other.game()
+            && !self.compatibility_id.is_empty()
+            && self.compatibility_id == other.compatibility_id
+    }
+}
 
 #[derive(Debug)]
 pub struct Detected {
@@ -110,6 +80,9 @@ pub struct Detected {
     pub release: &'static Release,
     /// The executable for Alley Cat, or the resource directory for Mach 3.
     pub original: PathBuf,
+    /// Actual paths selected by full verification, keyed by catalog spelling.
+    #[cfg_attr(not(feature = "sdl"), allow(dead_code))]
+    pub files: BTreeMap<&'static str, PathBuf>,
 }
 
 pub fn detect(path: &Path) -> Result<Detected, String> {
@@ -117,6 +90,10 @@ pub fn detect(path: &Path) -> Result<Detected, String> {
 }
 
 struct Candidate {
+    release: &'static Release,
+    paths: Vec<Vec<PathBuf>>,
+}
+struct Verified {
     release: &'static Release,
     paths: Vec<PathBuf>,
 }
@@ -167,8 +144,7 @@ fn detect_with(
     // its siblings still supply the remaining required originals.
     let mut named = Vec::new();
     let mut incomplete = Vec::new();
-    let mut ambiguous = Vec::new();
-    'release: for release in releases {
+    for release in releases {
         if anchor.is_some_and(|anchor| {
             !release
                 .files
@@ -180,24 +156,24 @@ fn detect_with(
         let mut paths = Vec::new();
         let mut missing = Vec::new();
         for file in release.files {
-            let matches = entries
+            let mut matches = entries
                 .iter()
                 .filter(|(name, _)| {
                     name.to_str()
                         .is_some_and(|name| name.eq_ignore_ascii_case(file.name))
                 })
                 .collect::<Vec<_>>();
-            match matches.as_slice() {
-                [] => missing.push(file.name),
-                [(_, path)] => paths.push(path.clone()),
-                _ => {
-                    ambiguous.push(format!(
-                        "Ambiguous original file name {} in {}: multiple case-insensitive DOS matches",
-                        file.name,
-                        directory.display()
-                    ));
-                    continue 'release;
-                }
+            // Prefer the catalog's exact spelling. Other ASCII case variants
+            // have a deterministic alphabetical order, independent of read_dir.
+            matches.sort_by(|(a, _), (b, _)| {
+                (a.to_str() != Some(file.name))
+                    .cmp(&(b.to_str() != Some(file.name)))
+                    .then_with(|| a.cmp(b))
+            });
+            if matches.is_empty() {
+                missing.push(file.name);
+            } else {
+                paths.push(matches.into_iter().map(|(_, path)| path.clone()).collect());
             }
         }
         if missing.is_empty() {
@@ -205,15 +181,13 @@ fn detect_with(
         } else if !paths.is_empty() {
             incomplete.push(format!(
                 "{}: missing {}",
-                release.game.title(),
+                release.game().title(),
                 missing.join(", ")
             ));
         }
     }
     if named.is_empty() {
-        return if !ambiguous.is_empty() {
-            Err(ambiguous.join("; "))
-        } else if incomplete.is_empty() {
+        return if incomplete.is_empty() {
             Err(unknown(path, "no supported original file names"))
         } else {
             Err(format!(
@@ -228,30 +202,30 @@ fn detect_with(
     let mut sizes = HashMap::new();
     let mut sized = Vec::new();
     let mut mismatches = Vec::new();
-    for candidate in named {
+    for mut candidate in named {
         let mut valid = true;
-        for (file, path) in candidate.release.files.iter().zip(&candidate.paths) {
-            let actual = match sizes.get(path) {
-                Some(actual) => *actual,
-                None => {
-                    let actual = match size(path) {
-                        Ok(actual) => actual,
-                        Err(error) => {
-                            valid = false;
-                            mismatches.push(error);
-                            break;
-                        }
-                    };
-                    sizes.insert(path.clone(), actual);
-                    actual
+        for (file, paths) in candidate.release.files.iter().zip(&mut candidate.paths) {
+            paths.retain(|path| {
+                let actual = sizes.entry(path.clone()).or_insert_with(|| size(path));
+                match actual {
+                    Ok(actual) if *actual == file.size => true,
+                    Ok(actual) => {
+                        mismatches.push(format!(
+                            "{}: {} expected {} bytes, found {actual}",
+                            candidate.release.id,
+                            path.display(),
+                            file.size
+                        ));
+                        false
+                    }
+                    Err(error) => {
+                        mismatches.push(error.clone());
+                        false
+                    }
                 }
-            };
-            if actual != file.size {
+            });
+            if paths.is_empty() {
                 valid = false;
-                mismatches.push(format!(
-                    "{}: {} expected {} bytes, found {actual}",
-                    candidate.release.id, file.name, file.size
-                ));
             }
         }
         if valid {
@@ -262,37 +236,57 @@ fn detect_with(
     let mut hashes = HashMap::new();
     let mut verified = Vec::new();
     for candidate in sized {
-        let mut valid = true;
-        for (file, path) in candidate.release.files.iter().zip(&candidate.paths) {
-            if !hashes.contains_key(path) {
-                hashes.insert(path.clone(), hash(path)?);
-            }
-            if hashes[path] != file.sha256 {
-                valid = false;
-                mismatches.push(format!(
-                    "{}: {} SHA-256 mismatch",
-                    candidate.release.id, file.name
-                ));
+        let mut selected = Vec::new();
+        for (file, paths) in candidate.release.files.iter().zip(&candidate.paths) {
+            let selected_path = paths.iter().find(|path| {
+                match hashes.entry((*path).clone()).or_insert_with(|| hash(path)) {
+                    Ok(actual) if actual == file.sha256 => true,
+                    Ok(_) => {
+                        mismatches.push(format!(
+                            "{}: {} SHA-256 mismatch",
+                            candidate.release.id,
+                            path.display()
+                        ));
+                        false
+                    }
+                    Err(error) => {
+                        mismatches.push(error.clone());
+                        false
+                    }
+                }
+            });
+            if let Some(path) = selected_path {
+                selected.push(path.clone());
+            } else {
                 break;
             }
         }
-        if valid {
-            verified.push(candidate);
+        if selected.len() == candidate.release.files.len() {
+            verified.push(Verified {
+                release: candidate.release,
+                paths: selected,
+            });
         }
     }
     match verified.as_slice() {
         [candidate] => {
-            let original = match candidate.release.game {
+            let original = match candidate.release.game() {
                 Game::AlleyCat => candidate.paths[0].clone(),
                 Game::Mach3 => directory.to_path_buf(),
             };
             Ok(Detected {
-                game: candidate.release.game,
+                game: candidate.release.game(),
                 release: candidate.release,
                 original,
+                files: candidate
+                    .release
+                    .files
+                    .iter()
+                    .zip(&candidate.paths)
+                    .map(|(file, path)| (file.name, path.clone()))
+                    .collect(),
             })
         }
-        [] if !ambiguous.is_empty() => Err(ambiguous.join("; ")),
         [] => Err(unknown(path, &mismatches.join("; "))),
         _ => Err(format!(
             "Ambiguous original data in {}: matched {}; select a game's original file with --original",
@@ -301,7 +295,7 @@ fn detect_with(
                 .iter()
                 .map(|candidate| format!(
                     "{} ({})",
-                    candidate.release.game.title(),
+                    candidate.release.game().title(),
                     candidate.release.id
                 ))
                 .collect::<Vec<_>>()
@@ -352,12 +346,33 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    #[test]
+    fn compatibility_is_explicit_and_never_crosses_game_identity() {
+        let release = &RELEASES[0];
+        let mut other = Release {
+            id: "synthetic-different-packaging",
+            compatibility_id: release.compatibility_id,
+            edition: release.edition,
+            files: &[],
+        };
+        assert!(release.compatible_with(&other));
+        other.compatibility_id = "synthetic-incompatible-saves";
+        assert!(!release.compatible_with(&other));
+        other.compatibility_id = release.compatibility_id;
+        other.edition = &MACH3_DOS;
+        assert!(!release.compatible_with(&other));
+        other.edition = release.edition;
+        other.compatibility_id = "";
+        assert!(!other.compatible_with(&other));
+    }
+
     const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
     const XYZ: &str = "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282";
     static SYNTHETIC: &[Release] = &[
         Release {
             id: "synthetic-cat-a",
-            game: Game::AlleyCat,
+            compatibility_id: "alley-cat-dos",
+            edition: &ALLEY_CAT_DOS,
             files: &[FileRecord {
                 name: "CAT.EXE",
                 size: 3,
@@ -366,7 +381,8 @@ mod tests {
         },
         Release {
             id: "synthetic-cat-b",
-            game: Game::AlleyCat,
+            compatibility_id: "alley-cat-dos",
+            edition: &ALLEY_CAT_DOS,
             files: &[FileRecord {
                 name: "CAT.EXE",
                 size: 3,
@@ -375,7 +391,8 @@ mod tests {
         },
         Release {
             id: "synthetic-mach",
-            game: Game::Mach3,
+            compatibility_id: "mach-3-dos",
+            edition: &MACH3_DOS,
             files: &[
                 FileRecord {
                     name: "MACH3.EXE",
@@ -521,8 +538,8 @@ mod tests {
         let directory = TestDirectory::new();
         directory.write("CAT.EXE", b"abc");
         directory.write("MACH3.EXE", b"xyz");
-        directory.write("DATA1", b"abc");
-        directory.write("data1", b"xyz");
+        directory.write("DATA1", b"bad");
+        directory.write("data1", b"bad");
         if fs::read_dir(&directory.0).unwrap().count() == 4 {
             assert_eq!(directory.detect(&directory.0).unwrap().game, Game::AlleyCat);
         }
@@ -536,20 +553,126 @@ mod tests {
     }
 
     #[test]
-    fn case_collisions_are_ambiguous_even_with_an_explicit_file_anchor() {
+    fn exact_case_is_preferred_then_alphabetical_variants_with_directory_or_file_input() {
         let directory = TestDirectory::new();
-        let cat = directory.write("CAT.EXE", b"abc");
-        directory.write("cat.exe", b"abc");
-        // A case-insensitive filesystem may store only one of these paths.
-        if fs::read_dir(&directory.0).unwrap().count() == 2 {
-            for path in [&directory.0, &cat] {
-                let error = directory.detect(path).unwrap_err();
-                assert!(
-                    error.contains("Ambiguous original file name CAT.EXE"),
-                    "{error}"
-                );
-            }
+        let exact = directory.write("CAT.EXE", b"abc");
+        let lower = directory.write("cat.exe", b"abc");
+        let mixed = directory.write("Cat.Exe", b"abc");
+        if fs::read_dir(&directory.0).unwrap().count() != 3 {
+            return;
         }
+        for input in [&directory.0, &exact, &lower] {
+            let mut hashed = Vec::new();
+            let result = detect_with(input, &SYNTHETIC[..1], file_size, |path| {
+                hashed.push(path.to_owned());
+                hash_file(path)
+            })
+            .unwrap();
+            assert_eq!(hashed, std::slice::from_ref(&exact));
+            assert_eq!(result.original, exact);
+            assert_eq!(result.files["CAT.EXE"], exact);
+        }
+        fs::write(&exact, b"bad").unwrap();
+        for input in [&directory.0, &exact, &lower] {
+            let mut hashed = Vec::new();
+            let result = detect_with(input, &SYNTHETIC[..1], file_size, |path| {
+                hashed.push(path.to_owned());
+                hash_file(path)
+            })
+            .unwrap();
+            assert_eq!(hashed, [exact.clone(), mixed.clone()]);
+            assert_eq!(result.original, mixed);
+        }
+        fs::remove_file(&exact).unwrap();
+        fs::write(&mixed, b"bad").unwrap();
+        let mut hashed = Vec::new();
+        let result = detect_with(&directory.0, &SYNTHETIC[..1], file_size, |path| {
+            hashed.push(path.to_owned());
+            hash_file(path)
+        })
+        .unwrap();
+        assert_eq!(hashed, [mixed, lower.clone()]);
+        assert_eq!(result.original, lower);
+    }
+
+    #[test]
+    fn case_variants_skip_wrong_sizes_and_nonfiles_before_hashing() {
+        let directory = TestDirectory::new();
+        let exact = directory.write("CAT.EXE", b"wrong size");
+        let lower = directory.write("cat.exe", b"abc");
+        if fs::read_dir(&directory.0).unwrap().count() != 2 {
+            return;
+        }
+        for nonfile in [false, true] {
+            if nonfile {
+                fs::remove_file(&exact).unwrap();
+                fs::create_dir(&exact).unwrap();
+            }
+            let mut hashed = Vec::new();
+            let result = detect_with(&directory.0, &SYNTHETIC[..1], file_size, |path| {
+                hashed.push(path.to_owned());
+                hash_file(path)
+            })
+            .unwrap();
+            assert_eq!(hashed, std::slice::from_ref(&lower));
+            assert_eq!(result.original, lower);
+        }
+    }
+
+    #[test]
+    fn multifile_case_variants_are_verified_independently_and_returned_to_loader() {
+        let directory = TestDirectory::new();
+        directory.write("MACH3.EXE", b"xyz");
+        directory.write("DATA1", b"bad");
+        let data = directory.write("data1", b"abc");
+        if fs::read_dir(&directory.0).unwrap().count() != 3 {
+            return;
+        }
+        let result = directory.detect(&directory.0).unwrap();
+        assert_eq!(result.game, Game::Mach3);
+        assert_eq!(result.files["DATA1"], data);
+    }
+
+    #[test]
+    fn case_variants_continue_after_read_errors_and_report_all_failed_hashes() {
+        let directory = TestDirectory::new();
+        let exact = directory.write("CAT.EXE", b"abc");
+        let lower = directory.write("cat.exe", b"abc");
+        if fs::read_dir(&directory.0).unwrap().count() != 2 {
+            return;
+        }
+        let result = detect_with(&directory.0, &SYNTHETIC[..1], file_size, |path| {
+            if path == exact {
+                Err("simulated unreadable exact spelling".into())
+            } else {
+                hash_file(path)
+            }
+        })
+        .unwrap();
+        assert_eq!(result.original, lower);
+        fs::write(&exact, b"bad").unwrap();
+        fs::write(&lower, b"bad").unwrap();
+        let error = directory.detect(&directory.0).unwrap_err();
+        assert!(
+            error.contains("CAT.EXE SHA-256 mismatch")
+                && error.contains("cat.exe SHA-256 mismatch")
+        );
+    }
+
+    #[test]
+    fn different_releases_in_case_variants_remain_ambiguous() {
+        let directory = TestDirectory::new();
+        directory.write("CAT.EXE", b"abc");
+        directory.write("cat.exe", b"xyz");
+        if fs::read_dir(&directory.0).unwrap().count() != 2 {
+            return;
+        }
+        let error = directory.detect(&directory.0).unwrap_err();
+        assert!(
+            error.contains("Ambiguous original data")
+                && error.contains("synthetic-cat-a")
+                && error.contains("synthetic-cat-b")
+        );
     }
 
     #[test]
@@ -563,48 +686,6 @@ mod tests {
             |_| panic!("must not hash incomplete candidates"),
         );
         assert!(result.unwrap_err().contains("Incomplete"));
-        directory.write("DATA1", b"abc");
-        let cat = directory.write("CAT.EXE", b"abc");
-        directory.write("cat.exe", b"abc");
-        if fs::read_dir(&directory.0).unwrap().count() == 4 {
-            let result = detect_with(&directory.0, &SYNTHETIC[2..], file_size, hash_file);
-            assert!(result.is_ok());
-            // Put the complete Mach candidate before the colliding Cat names.
-            static MACH_FIRST: &[Release] = &[
-                Release {
-                    id: "mach-first",
-                    game: Game::Mach3,
-                    files: &[FileRecord {
-                        name: "MACH3.EXE",
-                        size: 3,
-                        sha256: XYZ,
-                    }],
-                },
-                Release {
-                    id: "cat-last",
-                    game: Game::AlleyCat,
-                    files: &[FileRecord {
-                        name: "CAT.EXE",
-                        size: 3,
-                        sha256: ABC,
-                    }],
-                },
-            ];
-            let result = detect_with(
-                &directory.0,
-                MACH_FIRST,
-                |path| {
-                    // Remove the collision only after the name phase. A staged
-                    // detector must still exclude Cat; an interleaved detector
-                    // could incorrectly reconsider it as a second match.
-                    fs::remove_file(directory.0.join("cat.exe")).unwrap();
-                    file_size(path)
-                },
-                hash_file,
-            );
-            assert_eq!(result.unwrap().game, Game::Mach3);
-        }
-        fs::remove_file(cat).unwrap();
     }
 
     #[test]
@@ -663,7 +744,8 @@ mod tests {
         static OVERLAPPING: &[Release] = &[
             Release {
                 id: "first",
-                game: Game::AlleyCat,
+                compatibility_id: "alley-cat-dos",
+                edition: &ALLEY_CAT_DOS,
                 files: &[FileRecord {
                     name: "CAT.EXE",
                     size: 3,
@@ -672,7 +754,8 @@ mod tests {
             },
             Release {
                 id: "second",
-                game: Game::AlleyCat,
+                compatibility_id: "alley-cat-dos",
+                edition: &ALLEY_CAT_DOS,
                 files: &[FileRecord {
                     name: "CAT.EXE",
                     size: 3,
@@ -728,13 +811,16 @@ mod tests {
     #[test]
     fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
         assert_eq!(RELEASES.len(), 2);
+        let mut ids = std::collections::HashSet::new();
         for release in RELEASES {
-            assert!(release.id.contains("verified-reference"));
-            assert!(!release.game.id().is_empty());
+            assert!(ids.insert(release.id), "duplicate detected-release ID");
+            assert_eq!(release.id, identity::release_id(release).unwrap());
+            assert!(!release.game().id().is_empty());
             for file in release.files {
                 assert!(file.size > 0);
                 assert_eq!(file.sha256.len(), 64);
                 assert!(file.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()));
+                assert_eq!(file.sha256, file.sha256.to_ascii_lowercase());
                 assert_eq!(
                     release
                         .files
@@ -747,7 +833,7 @@ mod tests {
         }
         let mach = RELEASES
             .iter()
-            .find(|release| release.game == Game::Mach3)
+            .find(|release| release.game() == Game::Mach3)
             .unwrap();
         assert_eq!(mach.files.len(), 7);
     }

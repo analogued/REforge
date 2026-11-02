@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Binary Intel 8254 modes 0–3. This is an explicit subset, not a complete PIT.
 //!
 //! Integer timestamps represent completed CLK pulses. Writes at time t occur

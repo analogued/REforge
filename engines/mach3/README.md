@@ -5,6 +5,11 @@ The `mach3` crate reconstructs the DOS version of Mach 3 (1987, Loriciels) for
 the [player guide](../../docs/games/mach3.md). This README covers development
 interfaces and diagnostic tools.
 
+> [!IMPORTANT]
+> This engine does not include original Mach 3 assets or data. You must provide
+> the original files from a supported release. See the
+> [player guide](../../docs/games/mach3.md) for details.
+
 Live play includes steering, shooting, encounter progression, collision responses,
 endings and retained-session restarts, with no gameplay loop cap. Samples,
 procedural sound and foreground waits share one reconstructed PIT timeline.
@@ -29,15 +34,16 @@ additional hardware modes remain outside the supported set.
 
 ## Crate interfaces
 
-`assets`, `frame` and `scene` decode graphics, draw packed frames and compose the
-fixed initial scene. `executable` expands the external program without executing
-DOS code. `gameplay::Gameplay` owns reconstructed state, `session_replay` consumes
-recorded inputs, and `viewer::run_live` runs the normal PIT-driven frontend.
-`viewer::run_preview` provides silent nominal stepping; its scheduler is separate
-from live execution and the host-audio adapter. The library exposes headless
-continuations independently of host audio output.
+`assets`, `frame` and `scene` decode graphics, draw packed frames and compose
+the fixed initial scene. `executable` expands the external program without
+executing DOS code. `gameplay::Gameplay` owns reconstructed state,
+`session_replay` consumes recorded inputs, and `platform::run_live` runs the
+normal PIT-driven frontend. `platform::run_preview` provides silent nominal
+stepping; its scheduler is separate from live execution and the host-audio
+adapter. The library exposes headless continuations independently of host
+audio output.
 
-With the `viewer` feature, `mach3::cli::run(args)` accepts `OsString` arguments
+With the `sdl` feature, `mach3::cli::run(args)` accepts `OsString` arguments
 excluding the executable name, allowing REforge to dispatch the same interface.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for feature combinations and validation.
 Run the commands below from the combined repository root. Once dependencies are
@@ -51,8 +57,8 @@ emulator state. Supplied filenames are case-insensitive, and output files or
 directories must be new.
 
 ```sh
-cargo run --locked -p mach3 --features dev-tools --bin mach3-frame -- /path/to/assets /path/to/first-frame.ppm
-cargo run --locked -p mach3 --features dev-tools --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
+cargo run --locked -p mach3 --no-default-features --features dev-tools --bin mach3-frame -- /path/to/assets /path/to/first-frame.ppm
+cargo run --locked -p mach3 --no-default-features --features dev-tools --bin mach3-frame -- --format cga /path/to/assets /path/to/frame.bin
 ```
 
 `mach3-frame` needs `DATA2` through `DATA5` and exports the fixed initial scene
@@ -62,27 +68,29 @@ The animated simulation is separate from this initial-scene exporter.
 
 ## Windowed playback and previews
 
-The optional standalone viewer requires SDL3 development/runtime libraries and
-the `viewer` feature:
+Windowed playback requires SDL3 development/runtime libraries. The `sdl` feature
+is enabled by default; run the standalone `mach-3` executable with:
 
 ```sh
-cargo run --locked -p mach3 --features viewer --bin mach3-viewer -- --original /path/to/assets
+cargo run --locked -p mach3 --bin mach-3 -- --original /path/to/assets
 ```
 
 Normal animation needs `MACH3.EXE` and `DATA1` through `DATAH`. Steering
 and firing are enabled by default. Startup, ending and original F1/F2/F3
 processing retain their separate input rules.
 
-The viewer uses a 640×200 texture for both colour and the original monochrome
-interpretation, presenting each at 4:3. Shared window sizing, fullscreen,
-renderer/backend selection, CRT treatment and host audio settings are documented
-in [configuration](../../docs/configuration.md) and the
-[shared SDL backend](../../crates/reforge_sdl/README.md).
-F10 is available during startup, gameplay and diagnostic previews; closing
-Settings restores the preceding host-pause state.
+The windowed frontend uses a 640×200 texture for both colour and the original
+monochrome interpretation, presenting each at 4:3. Shared window sizing,
+fullscreen, renderer/backend selection, CRT treatment and host audio settings
+are documented in [configuration](../../docs/configuration.md) and the [shared
+SDL backend](../../crates/reforge_sdl/README.md). F10 is available during
+startup, gameplay and diagnostic previews; closing Settings restores the
+preceding host-pause state.
 
 Mach 3-specific comparison options include:
 
+- `--video cga|mono`: select the initial native colour or monochrome display.
+  F3 can still switch modes during play.
 - `--f3-mode original`: retain the original toggle on every active poll instead
   of the interactive default's one toggle per press. Recorded original inputs
   always use original polling. See [session controls](docs/dos-gameplay.md#session-and-gameplay-controls).
@@ -94,21 +102,22 @@ Mach 3-specific comparison options include:
   host mute and category levels leave those calls intact. See
   [sample-disable behavior](docs/dos-startup.md#original-sample-disable-argument).
 
-`--step` and `--static` require `viewer,dev-tools` for the standalone viewer,
-or `dev-tools` through REforge. `--step` advances one body or title step per
-fresh Enter press; `--static` retains the initial scene. These previews use
-a fixed nominal period, are silent and need only `MACH3.EXE` and `DATA1`
-through `DATA6`. Fresh Space presses advance startup; Space remains Fire during
-manual gameplay. They do not reproduce the live PIT scheduler's elapsed times.
+`--step` and `--static` require `dev-tools` in addition to the default `sdl`
+feature, for either the standalone executable or REforge. `--step` advances
+one body or title step per fresh Enter press; `--static` retains the initial
+scene. These previews use a fixed nominal period, are silent and need only
+`MACH3.EXE` and `DATA1` through `DATA6`. Fresh Space presses advance startup;
+Space remains Fire during manual gameplay. They do not reproduce the live PIT
+scheduler's elapsed times.
 
-`--trace-input PATH` and `--trace-timing PATH` require `viewer,dev-tools` for the
-standalone viewer, or `dev-tools` when launched through REforge. Their respective
-technical references describe formats, output preservation and limitations.
+`--trace-input PATH` and `--trace-timing PATH` have the same feature requirements.
+Their respective technical references describe formats, output preservation and
+limitations.
 
 ## Headless gameplay export
 
 ```sh
-cargo run --locked -p mach3 --features dev-tools --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
+cargo run --locked -p mach3 --no-default-features --features dev-tools --bin mach3-opening -- /path/to/assets /path/to/new-output-directory
 ```
 
 This exports the neutral-input opening as `000.cga` through `836.cga`, plus
@@ -132,6 +141,7 @@ PCM WAVs, use `mach3-sound` as described in
 
 ## License
 
-Authored code follows [REforge's repository license decision](../../README.md#license),
-which remains undecided. Third-party attribution and terms are maintained in the
-root [THIRD_PARTY.md](../../THIRD_PARTY.md).
+Authored code and documentation use REforge's
+[`GPL-3.0-or-later` license](../../LICENSE). Third-party attribution and retained
+terms are in [THIRD_PARTY.md](../../THIRD_PARTY.md). Original game data is not
+included or licensed by this repository.

@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Software-only large flat fills, using ordinary top-left triangle coverage.
 //! Keep SDL's rectangle recognition and textured/gradient rasterization intact.
 

@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Timestamped host playback. Positions are mono input-sample indices on one
 //! engine-defined timeline, never wall-clock readings. No synthesis runs here.
 use super::{DEFAULT_PREFILL, Playback};

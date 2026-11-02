@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The surviving DOS allocation-name bytes reached by DATAB reverse playback.
 
 use super::{ByteOrigin, MemoryByte, Resource, SampleMemory, SoundAssets};

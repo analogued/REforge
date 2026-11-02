@@ -1,4 +1,5 @@
-// Copyright (c) 2026 analogued. Project license has not yet been selected.
+// Copyright (c) 2026 analogued.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The original first and post-game title screens, using an external-data copy.
 //!
@@ -359,6 +360,12 @@ impl Splash {
         Ok(true)
     }
 
+    /// The original alternates its two credit bitmaps; SynSoft is shown first.
+    #[cfg(any(feature = "sdl", test))]
+    pub(crate) fn synsoft_credit_visible(&self) -> bool {
+        word(&self.data, 0x6a8d) & 2 != 0
+    }
+
     pub fn framebuffer(&self) -> &Framebuffer {
         &self.framebuffer
     }
@@ -537,12 +544,15 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(image(&splash), vec![0xff; 240]);
+        assert!(splash.synsoft_credit_visible());
         assert!(!splash.advance(35, false, false).unwrap().redrawn);
         assert_eq!(image(&splash), vec![0xff; 240]);
         assert!(splash.advance(36, false, false).unwrap().redrawn);
+        assert!(!splash.synsoft_credit_visible());
         assert_eq!(image(&splash), vec![0x55; 240]);
         assert!(!splash.advance(36, false, false).unwrap().redrawn);
         splash.advance(72, false, false).unwrap();
+        assert!(splash.synsoft_credit_visible());
         assert_eq!(image(&splash), vec![0xff; 240]);
     }
 

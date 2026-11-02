@@ -16,6 +16,8 @@ the game directory. ADISK.OBJ contains the story; GO.EXE supplies tables and
 native messages, and is read as data rather than executed. SIDE.TXT supplies
 logical-disk mappings used by restart and bookmark restore.
 
+All three files must match the supported release's sizes and SHA-256 hashes.
+
 > [!NOTE]
 > A complete winning playthrough has not been verified. Random events can differ
 > from a DOS run, and some pause and queued-input cases remain

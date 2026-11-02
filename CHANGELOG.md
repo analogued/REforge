@@ -17,6 +17,9 @@ Unreleased contains changes intended for the next public release.
 
 ### Mindwheel
 
+- Require the verified `SIDE.TXT` disk map alongside `ADISK.OBJ` and `GO.EXE`
+  during detection and launcher verification.
+
 - SDL text presentation with the shared display settings and CRT filter.
 - Optional terminal play through `--renderer terminal` using an attached terminal.
 - Launcher options for graphical/terminal play, sharp pixels/CRT and

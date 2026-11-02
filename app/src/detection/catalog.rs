@@ -232,7 +232,7 @@ pub static RELEASES: &[Release] = &[
         ],
     },
     Release {
-        id: "mindwheel-dos-a105872067",
+        id: "mindwheel-dos-2f53a47931",
         compatibility_id: "mindwheel-dos-8502-19",
         edition: &MINDWHEEL_DOS,
         files: &[
@@ -245,6 +245,11 @@ pub static RELEASES: &[Release] = &[
                 name: "GO.EXE",
                 size: 33_280,
                 sha256: "268edea9a2ed7df72cd41f2d3c767a57e6ebbe019037b46638c06be5c8512bcb",
+            },
+            FileRecord {
+                name: "SIDE.TXT",
+                size: 65,
+                sha256: "40f185dc69d51a5f98769f5d89f10405f29132ebbbdd73290c7f139a12efd1e7",
             },
         ],
     },

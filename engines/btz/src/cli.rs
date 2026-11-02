@@ -107,9 +107,7 @@ pub fn run_with_files(
     };
     let data = selected("ADISK.OBJ");
     let interpreter = selected("GO.EXE");
-    let map = options
-        .side_map
-        .unwrap_or_else(|| directory.join("SIDE.TXT"));
+    let map = options.side_map.unwrap_or_else(|| selected("SIDE.TXT"));
     let mut loaded = crate::player::load(&data, &interpreter, &map)?;
     if let Some(path) = options.save_dir {
         loaded.files.save_directory = std::path::absolute(path).map_err(|e| e.to_string())?;

@@ -447,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn mindwheel_identity_uses_program_and_interpreter_not_configurable_side_map() {
+    fn mindwheel_requires_all_three_exact_files() {
         static RELEASE: &[Release] = &[Release {
             id: "synthetic-mindwheel",
             compatibility_id: "synthetic-mindwheel-saves",
@@ -463,24 +463,37 @@ mod tests {
                     size: 3,
                     sha256: XYZ,
                 },
+                FileRecord {
+                    name: "SIDE.TXT",
+                    size: 3,
+                    sha256: ABC,
+                },
             ],
         }];
         let directory = TestDirectory::new();
         let data = directory.write("adisk.obj", b"abc");
         let executable = directory.write("Go.ExE", b"xyz");
-        for map in [
-            b"first custom mapping".as_slice(),
-            b"replacement mapping".as_slice(),
+        let missing = detect_with(&directory.0, RELEASE, file_size, hash_file).unwrap_err();
+        assert!(missing.contains("SIDE.TXT"), "{missing}");
+        let map = directory.write("SiDe.TxT", b"abc");
+        for anchor in [&directory.0, &data, &executable, &map] {
+            let result = detect_with(anchor, RELEASE, file_size, hash_file).unwrap();
+            assert_eq!(result.game, Game::Mindwheel);
+            assert_eq!(result.original, directory.0);
+            assert_eq!(result.files["ADISK.OBJ"], data);
+            assert_eq!(result.files["GO.EXE"], executable);
+            assert_eq!(result.files["SIDE.TXT"], map);
+        }
+        for (contents, diagnostic) in [
+            (b"bad".as_slice(), "SHA-256 mismatch"),
+            (b"wrong size".as_slice(), "expected 3 bytes"),
         ] {
-            directory.write("SIDE.TXT", map);
-            for anchor in [&directory.0, &data, &executable] {
-                let result = detect_with(anchor, RELEASE, file_size, hash_file).unwrap();
-                assert_eq!(result.game, Game::Mindwheel);
-                assert_eq!(result.original, directory.0);
-                assert_eq!(result.files["ADISK.OBJ"], data);
-                assert_eq!(result.files["GO.EXE"], executable);
-                assert!(!result.files.contains_key("SIDE.TXT"));
-            }
+            fs::write(&map, contents).unwrap();
+            let error = detect_with(&directory.0, RELEASE, file_size, hash_file).unwrap_err();
+            assert!(
+                error.contains("SiDe.TxT") && error.contains(diagnostic),
+                "{error}"
+            );
         }
     }
 
@@ -877,5 +890,17 @@ mod tests {
             .find(|release| release.game() == Game::Mach3)
             .unwrap();
         assert_eq!(mach.files.len(), 7);
+        let mindwheel = RELEASES
+            .iter()
+            .find(|release| release.game() == Game::Mindwheel)
+            .unwrap();
+        assert_eq!(
+            mindwheel
+                .files
+                .iter()
+                .map(|file| file.name)
+                .collect::<Vec<_>>(),
+            ["ADISK.OBJ", "GO.EXE", "SIDE.TXT"]
+        );
     }
 }

@@ -3,7 +3,7 @@
 # Mindwheel DOS data and wordcode
 
 This reference describes the DOS layout implemented by the BTZ crate for the
-supported Mindwheel `ADISK.OBJ` and `GO.EXE` pair. It is not a specification
+supported Mindwheel data, interpreter and disk map. It is not a specification
 for every BTZ release. Other interpreter revisions are unvalidated.
 See the [engine overview](../README.md) for supported inputs and the
 [runtime reference](mindwheel-dos-runtime.md) for input, timing and host services.
@@ -18,6 +18,7 @@ The supported file identities are:
 | --- | ---: | --- |
 | `ADISK.OBJ` | 188,928 | `4572f6fae68fa81be3e723c0a4a90994fd2c9f1219636a334d2db0761db0b091` |
 | `GO.EXE` | 33,280 | `268edea9a2ed7df72cd41f2d3c767a57e6ebbe019037b46638c06be5c8512bcb` |
+| `SIDE.TXT` | 65 | `40f185dc69d51a5f98769f5d89f10405f29132ebbbdd73290c7f139a12efd1e7` |
 
 These identities scope the format and interpreter rules below. REforge's
 application catalog identifies this release; the crate's object loader validates

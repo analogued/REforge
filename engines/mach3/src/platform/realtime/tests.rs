@@ -779,6 +779,26 @@ fn gameplay_run_levels(
     switch: bool,
     volumes: reforge_audio::category::CategoryVolumes,
 ) -> (Outcome, Vec<i16>) {
+    gameplay_run_motion(
+        budget,
+        render_chunk,
+        discard_output,
+        mode,
+        switch,
+        volumes,
+        0,
+    )
+}
+
+fn gameplay_run_motion(
+    budget: impl Fn(&Simulation) -> u64,
+    render_chunk: u32,
+    discard_output: bool,
+    mode: AudioRenderer,
+    switch: bool,
+    volumes: reforge_audio::category::CategoryVolumes,
+    motion_mode: u8,
+) -> (Outcome, Vec<i16>) {
     let frames = frames();
     let resources = resources();
     let signal = signal(render_chunk);
@@ -787,6 +807,23 @@ fn gameplay_run_levels(
     let mut simulation = Simulation::new(&frames, signal.clone()).unwrap();
     let log = logged_initial_signal_clock(&mut simulation, signal.clone());
     enter_playing(&mut simulation, &frames, &resources);
+    #[cfg(feature = "dev-tools")]
+    let motion_path = if motion_mode > 0 {
+        let path = std::env::temp_dir().join(format!(
+            "mach3-motion-{}-{}.tsv",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        simulation.motion = Some(Experiment::create(&path).unwrap());
+        Some(path)
+    } else {
+        None
+    };
+    #[cfg(not(feature = "dev-tools"))]
+    let _ = motion_mode;
     let start = simulation.clock.tick();
     for (offset, raw) in [
         (20_000, 0x4b),
@@ -812,6 +849,19 @@ fn gameplay_run_levels(
     while simulation.clock.tick() < end {
         let target = (simulation.clock.tick() + budget(&simulation)).min(end);
         advance(&mut simulation, target, &frames, &resources, &mut events);
+        #[cfg(feature = "dev-tools")]
+        if let Some(motion) = &mut simulation.motion {
+            let tick = simulation.clock.tick();
+            let receipt = tick + if motion_mode == 2 { 100_000 } else { 0 };
+            motion.commit(receipt).unwrap();
+            let native = simulation.visible.clone();
+            let _ = motion.render(receipt).unwrap();
+            motion.toggle(receipt);
+            let _ = motion.render(receipt).unwrap();
+            motion.toggle(receipt);
+            motion.presented(receipt, receipt);
+            assert_eq!(native, simulation.visible);
+        }
         if switch {
             let mode = if ((simulation.clock.tick() - start) / 50_000).is_multiple_of(2) {
                 AudioRenderer::Speaker
@@ -866,7 +916,40 @@ fn gameplay_run_levels(
         generated: signal.borrow().generated,
         transactions: log.borrow().clone(),
     };
+    #[cfg(feature = "dev-tools")]
+    if let Some(path) = motion_path {
+        simulation.motion.as_mut().unwrap().flush().unwrap();
+        assert!(std::fs::metadata(&path).unwrap().len() > 0);
+        std::fs::remove_file(path).unwrap();
+    }
     (outcome, pcm)
+}
+
+#[cfg(feature = "dev-tools")]
+#[test]
+fn live_motion_observation_toggle_and_delayed_receipt_preserve_execution_and_pcm() {
+    let volumes = reforge_audio::category::CategoryVolumes::default();
+    let baseline = gameplay_run_motion(
+        |_| 10_000,
+        CHUNK as u32,
+        false,
+        AudioRenderer::Speaker,
+        false,
+        volumes,
+        0,
+    );
+    for receipt in [1, 2] {
+        let observed = gameplay_run_motion(
+            |_| 10_000,
+            CHUNK as u32,
+            false,
+            AudioRenderer::Speaker,
+            false,
+            volumes,
+            receipt,
+        );
+        assert_eq!(baseline, observed);
+    }
 }
 
 #[test]

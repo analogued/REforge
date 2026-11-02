@@ -12,6 +12,8 @@ use std::collections::{BTreeSet, VecDeque};
 mod audio_output;
 mod input_history;
 #[cfg(feature = "dev-tools")]
+mod motion_experiment;
+#[cfg(feature = "dev-tools")]
 mod preview;
 mod realtime;
 mod wakeup;
@@ -72,6 +74,8 @@ pub struct Options {
     pub input_trace: Option<std::path::PathBuf>,
     #[cfg(feature = "dev-tools")]
     pub timing_trace: Option<std::path::PathBuf>,
+    #[cfg(feature = "dev-tools")]
+    pub motion_trace: Option<std::path::PathBuf>,
 }
 
 impl Default for Options {
@@ -90,6 +94,8 @@ impl Default for Options {
             input_trace: None,
             #[cfg(feature = "dev-tools")]
             timing_trace: None,
+            #[cfg(feature = "dev-tools")]
+            motion_trace: None,
         }
     }
 }

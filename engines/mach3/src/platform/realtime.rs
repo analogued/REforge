@@ -3,6 +3,8 @@
 //! Live presentation of the reconstructed device/foreground timeline.
 
 use super::input_history::InputEpoch;
+#[cfg(feature = "dev-tools")]
+use super::motion_experiment::Experiment;
 use super::*;
 #[cfg(test)]
 mod tests;
@@ -87,6 +89,8 @@ enum EndingStep {
     },
 }
 struct Simulation {
+    #[cfg(feature = "dev-tools")]
+    motion: Option<Experiment>,
     clock: DeviceClock,
     phase: Phase,
     initial: Option<GameplayState>,
@@ -160,6 +164,8 @@ impl Simulation {
         let mut session = SessionState::default();
         let intro_choice = session.select_intro();
         Ok(Self {
+            #[cfg(feature = "dev-tools")]
+            motion: None,
             clock,
             phase: Phase::Splash,
             initial: Some(state),
@@ -188,6 +194,10 @@ impl Simulation {
         frames: &StartupFrames,
         resources: &Resources,
     ) -> Result<(), String> {
+        #[cfg(feature = "dev-tools")]
+        if let Some(motion) = &mut self.motion {
+            motion.reset(self.clock.tick(), "intro");
+        }
         // 03c2 calls 74c0 on every intro entry, including post-game returns.
         // This reloads hardware even when the count is unchanged; software
         // counters, held input and procedural cursors remain intact.
@@ -430,6 +440,10 @@ impl Simulation {
                             GameplayRuntime::begin(*game, state, CS, 64, &self.clock)
                                 .map_err(|e| e.to_string())?,
                         ));
+                        #[cfg(feature = "dev-tools")]
+                        if let Some(motion) = &mut self.motion {
+                            motion.reset(self.clock.tick(), "new_game");
+                        }
                         repaint = true;
                         break;
                     } else {
@@ -438,6 +452,17 @@ impl Simulation {
                     }
                 }
                 Phase::Playing(mut runtime) => {
+                    #[cfg(feature = "dev-tools")]
+                    let mut motion_events = Vec::new();
+                    #[cfg(feature = "dev-tools")]
+                    let motion_active = self.motion.is_some();
+                    let mut observer = |tick, event| {
+                        #[cfg(feature = "dev-tools")]
+                        if motion_active {
+                            motion_events.push((tick, event));
+                        }
+                        observe(tick, event);
+                    };
                     let progress = runtime
                         .advance_until(
                             target,
@@ -447,9 +472,26 @@ impl Simulation {
                                 samples: &memory,
                             },
                             &mut self.clock,
-                            observe,
+                            &mut observer,
                         )
                         .map_err(|e| e.to_string())?;
+                    #[cfg(feature = "dev-tools")]
+                    if let Some(motion) = &mut self.motion {
+                        for (tick, event) in motion_events {
+                            motion.event(tick, event);
+                        }
+                        if progress == GameplayProgress::Pending
+                            && runtime.game().snapshot().player.phase != 0
+                        {
+                            motion.suspend(self.clock.tick(), "damage_pending");
+                        } else if progress == GameplayProgress::Pending
+                            && matches!(self.clock.handlers()[0].offset, 0x57a4 | 0x57b8)
+                        {
+                            // A skipped/disabled sample call is not a suspension.
+                            // These installed handlers identify active sample IRQs.
+                            motion.suspend(self.clock.tick(), "blocking_sample");
+                        }
+                    }
                     runtime.synchronize_session(&mut self.session);
                     self.palette_family = runtime.palette_family();
                     match progress {
@@ -457,13 +499,33 @@ impl Simulation {
                             self.phase = Phase::Playing(runtime);
                             break;
                         }
-                        GameplayProgress::Published { .. }
-                        | GameplayProgress::TransitionPublished { .. } => {
+                        GameplayProgress::Published { .. } => {
+                            #[cfg(feature = "dev-tools")]
+                            if let Some(motion) = &mut self.motion {
+                                motion.publication(
+                                    self.clock.tick(),
+                                    runtime.game(),
+                                    frames.graphics(),
+                                )?;
+                            }
+                            self.visible = runtime.visible_frame().clone();
+                            repaint = true;
+                            self.phase = Phase::Playing(runtime);
+                        }
+                        GameplayProgress::TransitionPublished { .. } => {
+                            #[cfg(feature = "dev-tools")]
+                            if let Some(motion) = &mut self.motion {
+                                motion.reset(self.clock.tick(), "transition");
+                            }
                             self.visible = runtime.visible_frame().clone();
                             repaint = true;
                             self.phase = Phase::Playing(runtime);
                         }
                         GameplayProgress::Returned => {
+                            #[cfg(feature = "dev-tools")]
+                            if let Some(motion) = &mut self.motion {
+                                motion.reset(self.clock.tick(), "ending");
+                            }
                             for change in runtime.take_scheduled_joysticks().into_iter().rev() {
                                 self.joysticks.push_front(change);
                             }
@@ -1049,6 +1111,20 @@ pub(super) fn run(
     let mut input = ControlInput::default();
     let mut history = InputEpoch::default();
     let epoch = pause.now(Instant::now());
+    #[cfg(feature = "dev-tools")]
+    {
+        simulation.motion = options
+            .motion_trace
+            .as_ref()
+            .map(|p| Experiment::create(p))
+            .transpose()?;
+        if let Some(motion) = &simulation.motion {
+            window.set_title(&game_title(
+                GAME_NAME,
+                Some(&format!("{status} · {}", motion.label())),
+            ))?;
+        }
+    }
     let mut space_held = false;
     let mut navigation_space_release = false;
     #[cfg(feature = "dev-tools")]
@@ -1080,6 +1156,10 @@ pub(super) fn run(
     let mut repaint = true;
     loop {
         let mut catch_up = false;
+        #[cfg(feature = "dev-tools")]
+        let mut motion_caption_dirty = false;
+        #[cfg(not(feature = "dev-tools"))]
+        let motion_caption_dirty = false;
         gamepads.set_dead_zone(window.settings().stick_dead_zone);
         for event in window.poll_events() {
             let pad = gamepads.handle(&event);
@@ -1088,6 +1168,18 @@ pub(super) fn run(
                 EventTime::sample(&event, reforge_sdl::event_clock_sample(), &pause, received);
             let pad_consumed = pad.is_some_and(|pad| menu.handle_gamepad(pad));
             let menu_consumed = !host_quit(&event) && (menu.handle_event(&event) || pad_consumed);
+            #[cfg(feature = "dev-tools")]
+            let motion_toggle = simulation.motion.is_some()
+                && matches!(
+                    event,
+                    Event::KeyDown {
+                        keycode: Some(Keycode::F8),
+                        repeat: false,
+                        ..
+                    }
+                );
+            #[cfg(not(feature = "dev-tools"))]
+            let motion_toggle = false;
             if host_quit(&event)
                 || (!menu_consumed
                     && matches!(
@@ -1100,6 +1192,9 @@ pub(super) fn run(
             {
                 #[cfg(feature = "dev-tools")]
                 {
+                    if let Some(motion) = &mut simulation.motion {
+                        motion.flush()?;
+                    }
                     if let Some(trace) = &mut trace {
                         trace.flush()?;
                     }
@@ -1122,6 +1217,14 @@ pub(super) fn run(
             let mut disposition = "handled";
             if menu_consumed {
                 disposition = "settings_menu";
+            } else if motion_toggle {
+                #[cfg(feature = "dev-tools")]
+                if let Some(motion) = &mut simulation.motion {
+                    motion.toggle(ticks_since(epoch, pause.now(received)));
+                    motion_caption_dirty = true;
+                    repaint = true;
+                }
+                disposition = "motion_toggle";
             } else if host_shortcut(&event) == Some(HostShortcut::TogglePause)
                 || pad.is_some_and(|pad| pad.pause)
             {
@@ -1202,6 +1305,14 @@ pub(super) fn run(
                     } => {
                         if let Some(scan) = scan_for_key(*key) {
                             simulation.receive(ticks_since(epoch, time.timeline), scan);
+                            #[cfg(feature = "dev-tools")]
+                            if let Some(motion) = &mut simulation.motion {
+                                motion.host_key(
+                                    ticks_since(epoch, time.timeline),
+                                    ticks_since(epoch, pause.now(received)),
+                                    scan,
+                                );
+                            }
                             disposition = "queued";
                         }
                     }
@@ -1210,6 +1321,14 @@ pub(super) fn run(
                     } => {
                         if let Some(scan) = scan_for_key(*key) {
                             simulation.receive(ticks_since(epoch, time.timeline), scan | 128);
+                            #[cfg(feature = "dev-tools")]
+                            if let Some(motion) = &mut simulation.motion {
+                                motion.host_key(
+                                    ticks_since(epoch, time.timeline),
+                                    ticks_since(epoch, pause.now(received)),
+                                    scan | 128,
+                                );
+                            }
                             disposition = "queued";
                         }
                         if *key == Keycode::Space {
@@ -1311,6 +1430,13 @@ pub(super) fn run(
             catch_up = simulation.clock.tick() < wanted
                 && phase_before == std::mem::discriminant(&simulation.phase);
         }
+        #[cfg(feature = "dev-tools")]
+        let motion_tick = ticks_since(epoch, pause.now(Instant::now()));
+        #[cfg(feature = "dev-tools")]
+        if let Some(motion) = &mut simulation.motion {
+            motion.commit(motion_tick)?;
+            repaint |= motion.due(motion_tick);
+        }
         // Native pause can change the caption without publishing a new frame.
         // Update it even during catch-up, independently of texture presentation.
         let next_status = if menu.is_open() {
@@ -1318,27 +1444,88 @@ pub(super) fn run(
         } else {
             simulation.status()
         };
-        if next_status != status {
+        if next_status != status || motion_caption_dirty {
             status = next_status;
-            window.set_title(&game_title(GAME_NAME, Some(status)))?;
+            #[cfg(feature = "dev-tools")]
+            let caption = simulation.motion.as_ref().map_or_else(
+                || status.to_string(),
+                |m| format!("{status} · {}", m.label()),
+            );
+            #[cfg(not(feature = "dev-tools"))]
+            let caption = status.to_string();
+            window.set_title(&game_title(GAME_NAME, Some(&caption)))?;
         }
         if catch_up {
             continue;
         }
+        #[cfg(feature = "dev-tools")]
+        if simulation.motion.as_ref().is_some_and(|m| {
+            (!pause.is_paused() && !m.due(motion_tick)) || !window.presentation_due()
+        }) {
+            let next = if pause.is_paused() {
+                None
+            } else {
+                simulation
+                    .wake_tick()
+                    .into_iter()
+                    .chain(
+                        simulation
+                            .motion
+                            .as_ref()
+                            .and_then(|m| m.wake_deadline(motion_tick)),
+                    )
+                    .min()
+            };
+            let delay = super::wakeup::delay(epoch, pause.now(Instant::now()), next);
+            if !delay.is_zero() {
+                std::thread::sleep(delay);
+            }
+            continue;
+        }
         if repaint {
             window.set_display_geometry(display_geometry(simulation.display_mode()))?;
+            #[cfg(feature = "dev-tools")]
+            let motion_frame = simulation
+                .motion
+                .as_ref()
+                .map(|m| m.render(motion_tick))
+                .transpose()?
+                .flatten();
+            #[cfg(feature = "dev-tools")]
+            let visible = motion_frame.as_ref().unwrap_or(&simulation.visible);
+            #[cfg(not(feature = "dev-tools"))]
+            let visible = &simulation.visible;
             texture.update(&display_rgb(
-                &simulation.visible,
+                visible,
                 simulation.display_mode(),
                 simulation.palette(),
             ))?;
             window.present_with(&texture, |canvas| menu.paint(canvas))?;
+            #[cfg(feature = "dev-tools")]
+            if let Some(motion) = &mut simulation.motion {
+                motion.presented(motion_tick, ticks_since(epoch, pause.now(Instant::now())));
+                motion.check()?;
+            }
             repaint = false;
         }
         let next_tick = if pause.is_paused() {
             None
         } else {
             simulation.wake_tick()
+        };
+        #[cfg(feature = "dev-tools")]
+        let next_tick = if pause.is_paused() {
+            None
+        } else {
+            next_tick
+                .into_iter()
+                .chain(
+                    simulation
+                        .motion
+                        .as_ref()
+                        .and_then(|m| m.wake_deadline(motion_tick)),
+                )
+                .min()
         };
         let delay = super::wakeup::delay(epoch, pause.now(Instant::now()), next_tick);
         if !delay.is_zero() {

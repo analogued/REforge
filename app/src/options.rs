@@ -313,6 +313,13 @@ const SPECS: &[Spec] = &[
         dev: true,
         description: "Write simulation and presentation timing to a new file",
     },
+    Spec {
+        name: "--motion-experiment",
+        game: Some(Game::Mach3),
+        value: Value::Path,
+        dev: true,
+        description: "Run the isolated visual experiment; F8 toggles motion; write a new trace",
+    },
 ];
 
 pub fn takes_value(name: &str) -> Option<bool> {
@@ -357,7 +364,10 @@ fn validate(spec: &Spec, value: OsString, game: Game) -> Result<OsString, String
         // The engine receives separate name/value arguments. Protect an
         // explicitly inline filename beginning with '-' from its option gate.
         if spec.game == Some(Game::Mach3)
-            && matches!(spec.name, "--trace-input" | "--trace-timing")
+            && matches!(
+                spec.name,
+                "--trace-input" | "--trace-timing" | "--motion-experiment"
+            )
             && is_option(&value)
         {
             return Ok(std::path::PathBuf::from(".").join(value).into_os_string());

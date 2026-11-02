@@ -14,6 +14,8 @@ mod input_trace;
 #[cfg(feature = "sdl")]
 pub mod launcher;
 pub mod live;
+#[cfg(feature = "dev-tools")]
+pub mod motion;
 #[cfg(feature = "sdl")]
 pub mod platform;
 pub mod scene;

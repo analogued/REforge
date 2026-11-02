@@ -37,7 +37,7 @@ fn help() -> String {
     #[cfg(feature = "dev-tools")]
     {
         format!(
-            "{HELP}\nF9 [dev-tools]: toggle the presentation FPS indicator (hidden by default).\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping and need MACH3.EXE and DATA1 through DATA6.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file."
+            "{HELP}\nF9 [dev-tools]: toggle the presentation FPS indicator (hidden by default).\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping and need MACH3.EXE and DATA1 through DATA6.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file.\n--motion-experiment PATH [dev-tools, isolated branch]: live craft motion comparison and new trace; F8 switches faithful/enhanced."
         )
     }
     #[cfg(not(feature = "dev-tools"))]
@@ -214,6 +214,14 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     .ok_or_else(|| "--trace-timing requires a nonempty output path".to_string())?;
                 options.timing_trace = Some(PathBuf::from(path));
             }
+            #[cfg(feature = "dev-tools")]
+            Some("--motion-experiment") => {
+                let path = args
+                    .next_if(|arg| !arg.to_string_lossy().starts_with('-'))
+                    .filter(|path| !path.is_empty())
+                    .ok_or_else(|| "--motion-experiment requires a new trace path".to_string())?;
+                options.motion_trace = Some(PathBuf::from(path));
+            }
             Some(value) if value.starts_with('-') => return Err(help()),
             _ => {
                 return Err(format!(
@@ -225,6 +233,10 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
     }
     let directory =
         directory.ok_or_else(|| "Missing required --original <assets-directory>".to_string())?;
+    #[cfg(feature = "dev-tools")]
+    if options.motion_trace.is_some() && options.is_preview() {
+        return Err("--motion-experiment requires animated playback".into());
+    }
     Ok(Some((directory, options)))
 }
 
@@ -235,6 +247,43 @@ mod tests {
     use crate::platform::Playback;
     use crate::{gameplay::F3Mode, sound::render::AudioRenderer};
     use std::{ffi::OsString, path::PathBuf};
+
+    #[test]
+    fn motion_experiment_requires_a_path_and_is_feature_gated() {
+        let parsed = parse_args(args(&[
+            "--original",
+            "assets",
+            "--motion-experiment",
+            "motion.tsv",
+        ]));
+        #[cfg(feature = "dev-tools")]
+        assert_eq!(
+            parsed.unwrap().unwrap().1.motion_trace,
+            Some(PathBuf::from("motion.tsv"))
+        );
+        #[cfg(not(feature = "dev-tools"))]
+        assert!(parsed.is_err());
+        for suffix in [
+            vec!["--motion-experiment"],
+            vec!["--motion-experiment", ""],
+            vec!["--motion-experiment", "--scale"],
+        ] {
+            let mut argv = vec!["--original", "assets"];
+            argv.extend(suffix);
+            assert!(parse_args(args(&argv)).is_err());
+        }
+        #[cfg(feature = "dev-tools")]
+        assert!(
+            parse_args(args(&[
+                "--original",
+                "assets",
+                "--motion-experiment",
+                "motion.tsv",
+                "--step"
+            ]))
+            .is_err()
+        );
+    }
 
     #[test]
     fn verified_file_choices_override_case_collisions_without_silent_fallback() {

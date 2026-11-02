@@ -11,6 +11,7 @@ use crate::{
 };
 use reforge_sdl::{
     DisplayGeometry, FrameFormat, FrameTexture, HostPause, HostShortcut, Window, egui, game_title,
+    gamepad::{Gamepads, PadEvent},
     host_shortcut,
     sdl3::{
         event::{Event, WindowEvent},
@@ -108,6 +109,7 @@ struct Overlay {
     prompt: Option<FilePrompt>,
     error: Option<String>,
     retry: Option<HostRequest>,
+    back: bool,
 }
 
 enum OverlayAction {
@@ -135,6 +137,7 @@ impl Overlay {
 
     fn show(&mut self, context: &egui::Context) -> Option<OverlayAction> {
         let mut action = None;
+        let back = std::mem::take(&mut self.back);
         if let Some(prompt) = &mut self.prompt {
             egui::Window::new("Game files")
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -143,10 +146,12 @@ impl Overlay {
                 .default_width(440.0)
                 .show(context, |ui| {
                     ui.label(&prompt.label);
-                    let field = ui.add(
-                        egui::TextEdit::singleline(&mut prompt.path)
-                            .hint_text("Filename or path")
-                            .desired_width(f32::INFINITY),
+                    let field = Gui::control(
+                        ui.add(
+                            egui::TextEdit::singleline(&mut prompt.path)
+                                .hint_text("Filename or path")
+                                .desired_width(f32::INFINITY),
+                        ),
                     );
                     if prompt.focus {
                         field.request_focus();
@@ -156,14 +161,14 @@ impl Overlay {
                         ui.colored_label(egui::Color32::LIGHT_RED, error);
                     }
                     let enter = ui.input(|input| input.key_pressed(egui::Key::Enter));
-                    let escape = ui.input(|input| input.key_pressed(egui::Key::Escape));
+                    let escape = back || ui.input(|input| input.key_pressed(egui::Key::Escape));
                     ui.horizontal(|ui| {
-                        if ui.button("Continue").clicked() || enter {
+                        if Gui::control(ui.button("Continue")).clicked() || enter {
                             action = Some(OverlayAction::Submit(
                                 (!prompt.path.is_empty()).then(|| PathBuf::from(&prompt.path)),
                             ));
                         }
-                        if ui.button("Cancel").clicked() || escape {
+                        if Gui::control(ui.button("Cancel")).clicked() || escape {
                             action = Some(OverlayAction::Submit(None));
                         }
                     });
@@ -178,16 +183,17 @@ impl Overlay {
                     ui.label(error);
                     if self.retry.is_some() {
                         ui.horizontal(|ui| {
-                            if ui.button("Retry").clicked()
+                            if Gui::control(ui.button("Retry")).clicked()
                                 || ui.input(|input| input.key_pressed(egui::Key::Enter))
                             {
                                 action = Some(OverlayAction::Retry);
                             }
-                            if ui.button("Close game").clicked() {
+                            if Gui::control(ui.button("Close game")).clicked() {
                                 action = Some(OverlayAction::Exit);
                             }
                         });
-                    } else if ui.button("Continue").clicked()
+                    } else if Gui::control(ui.button("Continue")).clicked()
+                        || back
                         || ui.input(|input| {
                             input.key_pressed(egui::Key::Enter)
                                 || input.key_pressed(egui::Key::Escape)
@@ -198,6 +204,22 @@ impl Overlay {
                 });
         }
         action
+    }
+}
+
+/// Controller actions belong to host menus, never to the story's text editor.
+fn route_gamepad(
+    pad: PadEvent,
+    menu: &mut SettingsMenu<'_>,
+    gui: &mut Gui<'_>,
+    overlay: &mut Overlay,
+) -> bool {
+    if overlay.open() {
+        overlay.back |= pad.cancel;
+        gui.handle_gamepad(pad);
+        true
+    } else {
+        menu.handle_gamepad(pad)
     }
 }
 
@@ -265,6 +287,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), Strin
     let mut gui = Gui::new(&creator);
     let mut overlay = Overlay::default();
     let mut keyboard = Keyboard::default();
+    let mut gamepads = Gamepads::new(window.settings().stick_dead_zone);
     let epoch = Instant::now();
     let mut pause = HostPause::default();
     let mut manual_pause = false;
@@ -273,7 +296,9 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), Strin
     let mut previous_status = "";
     loop {
         let was_menu = menu.is_open();
+        gamepads.set_dead_zone(window.settings().stick_dead_zone);
         for event in window.poll_events() {
+            let pad = gamepads.handle(&event);
             if matches!(
                 event,
                 Event::Quit { .. }
@@ -285,9 +310,11 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), Strin
             {
                 return Ok(());
             }
+            let pad_consumed =
+                pad.is_some_and(|pad| route_gamepad(pad, &mut menu, &mut gui, &mut overlay));
             if overlay.open() {
                 gui.handle_event(&event);
-            } else if menu.handle_event(&event) {
+            } else if menu.handle_event(&event) || pad_consumed {
                 keyboard.keys.clear();
             } else if host_shortcut(&event) == Some(HostShortcut::TogglePause) {
                 manual_pause = !manual_pause;
@@ -298,6 +325,9 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), Strin
         }
         if was_menu && !menu.is_open() {
             window.start_text_input();
+        }
+        if was_menu != menu.is_open() {
+            gamepads.reset();
         }
         let paused = manual_pause || menu.is_open() || overlay.open();
         if paused != pause.is_paused() {
@@ -334,6 +364,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), Strin
                 }
                 gui.reset_input();
                 keyboard.keys.clear();
+                gamepads.reset();
             }
         } else if !paused {
             // A bounded slice only yields to SDL; it is never a lifetime limit.
@@ -372,6 +403,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings) -> Result<(), Strin
                             });
                             keyboard.keys.clear();
                             gui.reset_input();
+                            gamepads.reset();
                         } else {
                             complete_file_request(&mut loaded, &request, None, &mut overlay)?;
                         }
@@ -528,5 +560,158 @@ mod tests {
             assert!(overlay.prompt.is_none());
             assert_eq!(overlay.retry, Some(request));
         }
+    }
+
+    #[test]
+    fn controller_navigation_reaches_settings_and_file_dialogs() {
+        const TEST: &str =
+            "windowed::tests::controller_navigation_reaches_settings_and_file_dialogs";
+        const MARKER: &str = "REFORGE_BTZ_CONTROLLER_TEST";
+        if std::env::var(MARKER).as_deref() != Ok(TEST) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST, "--test-threads=1"])
+                .env(MARKER, TEST)
+                .env("SDL_VIDEODRIVER", "dummy")
+                .env("SDL_RENDER_DRIVER", "software")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let _guard = reforge_settings::Launch {
+            game_id: "mindwheel".into(),
+            entry_id: None,
+            path: None,
+            cli: Default::default(),
+        }
+        .install();
+        let sdl = reforge_sdl::sdl3::init().unwrap();
+        let video = sdl.video().unwrap();
+        let window = video
+            .window("BTZ controller regression", 640, 480)
+            .hidden()
+            .build()
+            .unwrap();
+        let canvas = window.into_canvas();
+        let creator = reforge_sdl::FrameCreator::for_ui(&canvas);
+        let mut menu =
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_btz_options(false);
+        let mut gui = Gui::new(&creator);
+        let mut overlay = Overlay::default();
+        let metrics = Gui::metrics(&canvas).unwrap();
+
+        assert!(!route_gamepad(
+            PadEvent::default(),
+            &mut menu,
+            &mut gui,
+            &mut overlay
+        ));
+        assert!(route_gamepad(
+            PadEvent {
+                settings: true,
+                ..Default::default()
+            },
+            &mut menu,
+            &mut gui,
+            &mut overlay
+        ));
+        assert!(menu.is_open());
+        for _ in 0..3 {
+            menu.prepare(metrics, RuntimeSettings::default());
+        }
+        assert!(route_gamepad(
+            PadEvent {
+                next: true,
+                ..Default::default()
+            },
+            &mut menu,
+            &mut gui,
+            &mut overlay
+        ));
+        menu.prepare(metrics, RuntimeSettings::default());
+        route_gamepad(
+            PadEvent {
+                cancel: true,
+                ..Default::default()
+            },
+            &mut menu,
+            &mut gui,
+            &mut overlay,
+        );
+        assert!(!menu.is_open());
+
+        overlay.prompt = Some(FilePrompt {
+            request: HostRequest::LoadBookmark,
+            label: "Bookmark".into(),
+            path: "kept".into(),
+            focus: true,
+        });
+        let mut action = None;
+        for _ in 0..3 {
+            gui.prepare(metrics, |ctx| {
+                action = overlay.show(ctx);
+            });
+        }
+        assert!(action.is_none());
+        // The field and both buttons must participate in shared navigation.
+        for _ in 0..2 {
+            assert!(route_gamepad(
+                PadEvent {
+                    next: true,
+                    ..Default::default()
+                },
+                &mut menu,
+                &mut gui,
+                &mut overlay
+            ));
+            gui.prepare(metrics, |ctx| {
+                action = overlay.show(ctx);
+            });
+            assert!(action.is_none());
+        }
+        route_gamepad(
+            PadEvent {
+                pressed: reforge_sdl::gamepad::Actions {
+                    action: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            &mut menu,
+            &mut gui,
+            &mut overlay,
+        );
+        gui.prepare(metrics, |ctx| {
+            action = overlay.show(ctx);
+        });
+        assert!(
+            matches!(action, Some(OverlayAction::Submit(None))),
+            "controller A did not activate Cancel"
+        );
+        assert!(!menu.is_open());
+
+        gui.reset_input();
+        route_gamepad(
+            PadEvent {
+                cancel: true,
+                ..Default::default()
+            },
+            &mut menu,
+            &mut gui,
+            &mut overlay,
+        );
+        gui.prepare(metrics, |ctx| {
+            action = overlay.show(ctx);
+        });
+        assert!(
+            matches!(action, Some(OverlayAction::Submit(None))),
+            "controller B did not cancel the filename prompt"
+        );
+        assert_eq!(overlay.prompt.as_ref().unwrap().path, "kept");
     }
 }

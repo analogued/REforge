@@ -17,6 +17,9 @@ Unreleased contains changes intended for the next public release.
 
 ### Mindwheel
 
+- Controller navigation for in-game Settings and file dialogs, including
+  View/Back to open Settings and B to cancel a filename prompt.
+
 - Report invalid or unreadable preferences during terminal startup while
   preserving the configuration file and using fallback settings.
 

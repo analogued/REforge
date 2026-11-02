@@ -83,10 +83,18 @@ For source layout, validation and contribution guidance, see
 [CONTRIBUTING.md](CONTRIBUTING.md) and the technical engine documentation for
 [Alley Cat](engines/alleycat/README.md) and [Mach 3](engines/mach3/README.md).
 
+An [experimental BTZ engine](engines/btz/README.md) also runs Mindwheel DOS
+through a separate [terminal frontend](docs/games/mindwheel.md). It is not yet
+integrated into the application's game selection.
+
 ## License
 
-The project license has not yet been selected. Third-party terms and attribution
-are in [THIRD_PARTY.md](THIRD_PARTY.md), with license texts in
-[LICENSES/](LICENSES/). Release packages include a combined third-party notices
+REforge's authored code and documentation are licensed under the GNU General
+Public License, version 3 or any later version (`GPL-3.0-or-later`). See
+[LICENSE](LICENSE).
+
+Third-party code and assets retain their own licenses. Attribution is in
+[THIRD_PARTY.md](THIRD_PARTY.md), with license texts in [LICENSES/](LICENSES/).
+Release packages include the project license and a combined third-party notices
 document; see [release packaging](docs/releases.md).
 Original game data is not included or licensed by this repository.

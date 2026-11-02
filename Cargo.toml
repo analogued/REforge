@@ -1,4 +1,7 @@
 [workspace]
-members = ["app", "engines/alleycat", "engines/mach3", "crates/reforge_sdl", "crates/reforge_audio", "crates/reforge_settings"]
+members = ["app", "engines/alleycat", "engines/mach3", "engines/btz", "crates/reforge_sdl", "crates/reforge_audio", "crates/reforge_settings"]
 default-members = ["app"]
 resolver = "3"
+
+[workspace.package]
+license = "GPL-3.0-or-later"

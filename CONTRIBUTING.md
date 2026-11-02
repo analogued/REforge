@@ -76,9 +76,9 @@ imported source. Do not maintain per-version license directories or manually
 duplicate indirect Cargo notices; [release packaging](docs/releases.md) generates
 one combined notices document for the selected target and features.
 
-The project license remains undecided. Assess proposed reuse against the candidate
-licenses and record any constraints before adoption; do not silently narrow the
-choice.
+REforge's authored code and documentation use
+[`GPL-3.0-or-later`](LICENSE). Review proposed imports for compatibility with
+that license before adoption, retaining their original terms and attribution.
 
 ## Validation
 
@@ -87,8 +87,9 @@ Run `cargo fmt --all -- --check`,
 `cargo clippy --locked --workspace --all-targets -- -D warnings`, plus the
 feature/build combinations required by the affected crates. Package-scoped
 checks can aid development; shared changes must validate affected games.
-See [Alley Cat checks](engines/alleycat/CONTRIBUTING.md) and
-[Mach 3 checks](engines/mach3/CONTRIBUTING.md) for their feature matrices and tools.
+See [Alley Cat checks](engines/alleycat/CONTRIBUTING.md),
+[Mach 3 checks](engines/mach3/CONTRIBUTING.md), and
+[BTZ checks](engines/btz/CONTRIBUTING.md) for engine-specific validation.
 For application CLI changes, test and lint `-p reforge` with default features,
 `--no-default-features`, `--features dev-tools`, and both options combined.
 Release optimization (`--release`) is independent of the opt-in `dev-tools`

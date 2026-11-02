@@ -1,0 +1,22 @@
+[package]
+name = "btz"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+license.workspace = true
+description = "Reconstructed BTZ interpreter core"
+
+[features]
+dev-tools = ["dep:libc", "dep:sha2"]
+
+[dependencies]
+sha2 = { version = "=0.11.0", default-features = false, optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2.190", optional = true }
+
+[[bin]]
+name = "btz-core"
+path = "src/bin/core.rs"
+required-features = ["dev-tools"]

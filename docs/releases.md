@@ -17,8 +17,8 @@ python3 tools/package_release.py
 
 The command builds the `reforge` application in release mode using Cargo.lock
 and writes `out/releases/reforge-<target>.tar.gz` (ZIP for Windows targets).
-The archive contains the executable and one self-contained `THIRD_PARTY.html`.
-Once the project license is selected, the root `LICENSE` is included as well.
+The archive contains the executable, one self-contained `THIRD_PARTY.html`, and
+the project's GPL version 3 license text from [LICENSE](../LICENSE).
 This command creates a local artifact; it does not publish a release. It does
 not bundle original game data, SDL or other system libraries. Players need the
 SDL3 runtime for the normal build; bundling native libraries requires reviewing

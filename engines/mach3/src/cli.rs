@@ -6,7 +6,7 @@
 use crate::platform::Playback;
 use crate::{
     gameplay::{DisplayMode, F3Mode},
-    platform::Options,
+    platform::{MotionMode, Options},
     sound::render::AudioRenderer,
     startup::StartupFrames,
 };
@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--video cga|mono] [--f3-mode press|original] [--digitized-samples on|off]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--video cga|mono] [--f3-mode press|original] [--digitized-samples on|off] [--motion enhanced|original]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
 F10: open settings; F10, Escape or Close returns. Scaling and fullscreen changes apply live.\n\
@@ -28,6 +28,7 @@ Arrows or S/X/B/N steer; Space or keypad5 fires. Gameplay has no loop cap.\n\
 Normal animation runs gameplay, sound and waits on one PIT timeline.\n\
 --audio-renderer speaker|enhanced-pcm: select host audio rendering (default speaker); timing is unchanged.\n\
 --digitized-samples on|off: execute recorded speech/music (default on); off retains procedural effects and skips sample waits.\n\
+--motion enhanced|original: smooth craft/shadow presentation (default enhanced) or original motion; gameplay and collisions are unchanged.\n\
 P or Pause/Break freezes host simulation and playback. F1 retains original pause/end-game behavior; F2 toggles native sound, F3 switches color/monochrome.\n\
 --video cga|mono: initial native colour or monochrome display (default cga); F3 still toggles during play.\n\
 --f3-mode press|original: toggle F3 once per press (default press), or at every active original control poll.\n\
@@ -37,7 +38,7 @@ fn help() -> String {
     #[cfg(feature = "dev-tools")]
     {
         format!(
-            "{HELP}\nF9 [dev-tools]: toggle the presentation FPS indicator (hidden by default).\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping and need MACH3.EXE and DATA1 through DATA6.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file."
+            "{HELP}\nF9 [dev-tools]: toggle the presentation FPS indicator (hidden by default).\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping and need MACH3.EXE and DATA1 through DATA6.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file.\n--trace-motion PATH [dev-tools]: optional motion diagnostics; failures disable logging only.\n--motion-experiment PATH [dev-tools]: compatibility alias for --motion enhanced --trace-motion PATH."
         )
     }
     #[cfg(not(feature = "dev-tools"))]
@@ -214,6 +215,26 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
                     .ok_or_else(|| "--trace-timing requires a nonempty output path".to_string())?;
                 options.timing_trace = Some(PathBuf::from(path));
             }
+            Some("--motion") => {
+                options.motion = Some(match args.next().as_deref().and_then(|v| v.to_str()) {
+                    Some("original") => MotionMode::Original,
+                    Some("enhanced") => MotionMode::Enhanced,
+                    _ => return Err("--motion must be original or enhanced".into()),
+                });
+            }
+            #[cfg(feature = "dev-tools")]
+            Some("--trace-motion" | "--motion-experiment") => {
+                let path = args
+                    .next_if(|arg| !arg.to_string_lossy().starts_with('-'))
+                    .filter(|path| !path.is_empty())
+                    .ok_or_else(|| {
+                        format!("{} requires a new trace path", arg.to_string_lossy())
+                    })?;
+                if arg == "--motion-experiment" {
+                    options.motion = Some(MotionMode::Enhanced);
+                }
+                options.motion_trace = Some(PathBuf::from(path));
+            }
             Some(value) if value.starts_with('-') => return Err(help()),
             _ => {
                 return Err(format!(
@@ -225,16 +246,101 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
     }
     let directory =
         directory.ok_or_else(|| "Missing required --original <assets-directory>".to_string())?;
+    #[cfg(feature = "dev-tools")]
+    if (options.motion.is_some() || options.motion_trace.is_some()) && options.is_preview() {
+        return Err("motion observation requires animated playback".into());
+    }
     Ok(Some((directory, options)))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{help, parse_args};
+    use super::{MotionMode, help, parse_args};
     #[cfg(feature = "dev-tools")]
     use crate::platform::Playback;
     use crate::{gameplay::F3Mode, sound::render::AudioRenderer};
     use std::{ffi::OsString, path::PathBuf};
+
+    #[test]
+    fn motion_experiment_requires_a_path_and_is_feature_gated() {
+        let parsed = parse_args(args(&[
+            "--original",
+            "assets",
+            "--motion-experiment",
+            "motion.tsv",
+        ]));
+        #[cfg(feature = "dev-tools")]
+        assert_eq!(
+            parsed.unwrap().unwrap().1.motion_trace,
+            Some(PathBuf::from("motion.tsv"))
+        );
+        #[cfg(not(feature = "dev-tools"))]
+        assert!(parsed.is_err());
+        for suffix in [
+            vec!["--motion-experiment"],
+            vec!["--motion-experiment", ""],
+            vec!["--motion-experiment", "--scale"],
+        ] {
+            let mut argv = vec!["--original", "assets"];
+            argv.extend(suffix);
+            assert!(parse_args(args(&argv)).is_err());
+        }
+        #[cfg(feature = "dev-tools")]
+        assert!(
+            parse_args(args(&[
+                "--original",
+                "assets",
+                "--motion-experiment",
+                "motion.tsv",
+                "--step"
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn motion_is_available_in_normal_builds_and_defaults_to_saved_preferences() {
+        for (name, mode) in [
+            ("enhanced", MotionMode::Enhanced),
+            ("original", MotionMode::Original),
+        ] {
+            let options = parse_args(args(&["--original", "assets", "--motion", name]))
+                .unwrap()
+                .unwrap()
+                .1;
+            assert_eq!(options.motion, Some(mode));
+            #[cfg(feature = "dev-tools")]
+            assert!(options.motion_trace.is_none());
+        }
+        assert!(
+            parse_args(args(&["--original", "assets"]))
+                .unwrap()
+                .unwrap()
+                .1
+                .motion
+                .is_none()
+        );
+        for suffix in [
+            vec!["--motion"],
+            vec!["--motion", "fast"],
+            vec!["--motion", "faithful"],
+        ] {
+            let mut argv = vec!["--original", "assets"];
+            argv.extend(suffix);
+            assert!(parse_args(args(&argv)).is_err());
+        }
+        #[cfg(feature = "dev-tools")]
+        assert!(
+            parse_args(args(&[
+                "--original",
+                "assets",
+                "--motion",
+                "enhanced",
+                "--static"
+            ]))
+            .is_err()
+        );
+    }
 
     #[test]
     fn verified_file_choices_override_case_collisions_without_silent_fallback() {

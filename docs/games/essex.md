@@ -29,4 +29,3 @@ See the [BTZ player guide](btz.md) for commands, keyboard controls, launch optio
 [bookmarks and transcripts](btz.md#bookmarks-and-transcripts), and timing behavior.
 Bookmarks use the original DOS format, so saves can be exchanged with the
 corresponding original game release.
-

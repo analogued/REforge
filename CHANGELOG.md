@@ -17,6 +17,12 @@ Unreleased contains changes intended for the next public release.
 - Fixed washed-out disabled launcher choices in Soft Tonal, Warm Amber and
   Crisp Light by using the same fading as other disabled controls.
 
+### Mach 3
+
+- Enhanced craft and shadow motion is now the default, with Original motion
+  available in Settings and through `--motion original`. Gameplay timing and
+  collisions are unchanged.
+
 ### BTZ
 
 - Optional terminal play through `--renderer terminal`.

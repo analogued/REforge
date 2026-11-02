@@ -60,7 +60,8 @@ fn glyph(character: u8) -> [u8; 8] {
     if let Some(rows) = font8x8::glyph(character) {
         return rows;
     }
-    // Authored geometric DOS border/block glyphs. No BIOS font rows are used.
+    // Authored geometric DOS border/block glyphs. Double-line vertical strokes
+    // occupy x=2..3 and x=5..6; horizontal strokes occupy y=2 and y=4.
     // Pixel bit0 is the left edge, matching the imported ASCII row orientation.
     match character {
         0 | 0xff => [0; 8],
@@ -68,15 +69,15 @@ fn glyph(character: u8) -> [u8; 8] {
         0xb1 => [0x55, 0xaa, 0x55, 0xaa, 0x55, 0xaa, 0x55, 0xaa],
         0xb2 => [0xee, 0xbb, 0xee, 0xbb, 0xee, 0xbb, 0xee, 0xbb],
         0xb3 => [0x08; 8],
-        0xba => [0x24; 8],
+        0xba => [0x6c; 8],
         0xc4 => [0, 0, 0, 0xff, 0, 0, 0, 0],
-        0xcd => [0, 0, 0xff, 0, 0, 0xff, 0, 0],
-        0xc9 => [0, 0, 0xfc, 0x04, 0x04, 0xe4, 0x24, 0x24],
-        0xbb => mirror([0, 0, 0xfc, 0x04, 0x04, 0xe4, 0x24, 0x24]),
-        0xc8 => [0x24, 0x24, 0xe4, 0x04, 0x04, 0xfc, 0, 0],
-        0xbc => mirror([0x24, 0x24, 0xe4, 0x04, 0x04, 0xfc, 0, 0]),
-        0xcc => [0x24, 0x24, 0xe4, 0x04, 0x04, 0xe4, 0x24, 0x24],
-        0xb9 => mirror([0x24, 0x24, 0xe4, 0x04, 0x04, 0xe4, 0x24, 0x24]),
+        0xcd => [0, 0, 0xff, 0, 0xff, 0, 0, 0],
+        0xc9 => [0, 0, 0xfc, 0x0c, 0xec, 0x6c, 0x6c, 0x6c],
+        0xbb => [0, 0, 0x7f, 0x60, 0x6f, 0x6c, 0x6c, 0x6c],
+        0xc8 => [0x6c, 0x6c, 0xec, 0x0c, 0xfc, 0, 0, 0],
+        0xbc => [0x6c, 0x6c, 0x6f, 0x60, 0x7f, 0, 0, 0],
+        0xcc => [0x6c, 0x6c, 0xec, 0x0c, 0xec, 0x6c, 0x6c, 0x6c],
+        0xb9 => [0x6c, 0x6c, 0x6f, 0x60, 0x6f, 0x6c, 0x6c, 0x6c],
         0xdb => [0xff; 8],
         0xdc => [0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff],
         0xdf => [0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0],
@@ -84,10 +85,6 @@ fn glyph(character: u8) -> [u8; 8] {
         0xde => [0xf0; 8],
         _ => font8x8::glyph(b'?').expect("printable ASCII fallback"),
     }
-}
-
-fn mirror(rows: [u8; 8]) -> [u8; 8] {
-    rows.map(u8::reverse_bits)
 }
 
 #[cfg(test)]
@@ -108,15 +105,39 @@ mod tests {
     }
 
     #[test]
-    fn blink_hides_only_foreground_and_borders_join_at_cell_edges() {
+    fn blink_hides_only_foreground() {
         let mut cells = [b' ', 7].repeat(2000);
         cells[..2].copy_from_slice(&[0xdb, 0x9e]);
         assert_eq!(&render(&cells, false).unwrap()[..3], &COLOURS[1]);
         assert_eq!(&render(&cells, true).unwrap()[..3], &COLOURS[14]);
-        assert_eq!(glyph(0xcd)[2], 0xff);
-        assert_eq!(glyph(0xcd)[5], 0xff);
-        assert_eq!(glyph(0xba)[0], glyph(0xba)[7]);
-        assert_eq!(glyph(0xbb), mirror(glyph(0xc9)));
-        assert_eq!(glyph(0xbc), mirror(glyph(0xc8)));
+    }
+
+    #[test]
+    fn frame_forms_two_pixel_vertical_strokes_and_one_pixel_horizontal_gaps() {
+        let mut cells = crate::text::TextScreen::default().dos_cells().to_vec();
+        cells[(19 * 80 + 1) * 2] = b' '; // Exclude the input cursor.
+        let pixels = render(&cells, true).unwrap();
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let outer_horizontal = matches!(y, 2 | 188) && (2..=630).contains(&x);
+                let outer_vertical = (2..=188).contains(&y) && matches!(x, 2 | 3 | 629 | 630);
+                let inner_horizontal = matches!(y, 4 | 186) && (5..=627).contains(&x);
+                let inner_vertical =
+                    (4..=186).contains(&y) && y != 147 && matches!(x, 5 | 6 | 626 | 627);
+                let divider = matches!(y, 146 | 148) && (5..=627).contains(&x);
+                let expected = if outer_horizontal
+                    || outer_vertical
+                    || inner_horizontal
+                    || inner_vertical
+                    || divider
+                {
+                    COLOURS[7]
+                } else {
+                    COLOURS[0]
+                };
+                let offset = (y * WIDTH + x) * 3;
+                assert_eq!(&pixels[offset..offset + 3], &expected, "pixel ({x}, {y})");
+            }
+        }
     }
 }

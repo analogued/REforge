@@ -17,6 +17,7 @@ Unreleased contains changes intended for the next public release.
 
 ### Mindwheel
 
+- Match the DOS text border's stroke widths, line spacing, corners and junctions.
 - Left/Right caret movement and Shift selection work in filename prompts
   alongside keyboard and controller dialog navigation.
 - Disk-map overrides through `--side-map` require a `dev-tools` build; normal

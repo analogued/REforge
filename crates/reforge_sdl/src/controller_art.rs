@@ -66,6 +66,7 @@ const MODELS: [Model; 3] = [
 static MASKS: [OnceLock<Mask>; 3] = [const { OnceLock::new() }; 3];
 static GLYPHS: OnceLock<Mask> = OnceLock::new();
 const UV: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+pub(super) const PREFERRED_DIAGRAM_HEIGHT: f32 = 340.0;
 
 fn family(style: ControllerStyle) -> usize {
     match style {
@@ -289,6 +290,7 @@ pub(super) fn glyph(
 
 /// Allocate one stable diagram rectangle, independent of movement/button choice.
 /// Unknown controller families use the Xbox physical-position reference.
+/// Short viewports scroll rather than shrinking below 60% of the normal size.
 pub(super) fn drawing(
     ui: &mut Ui,
     style: ControllerStyle,
@@ -301,8 +303,9 @@ pub(super) fn drawing(
     let model = &MODELS[family];
     let available = ui.available_width();
     let aspect = model.view[3] / model.view[2];
-    let width = available.min(max_height.max(80.0) / aspect).min(700.0);
-    let height = width * aspect;
+    let size = diagram_size(available, max_height, aspect);
+    let width = size.x;
+    let height = size.y;
     let (space, response) = ui.allocate_exact_size(vec2(available, height), Sense::hover());
     let rect = Rect::from_center_size(space.center(), vec2(width, height));
     if !ui.is_rect_visible(rect) {
@@ -371,9 +374,41 @@ pub(super) fn drawing(
     response
 }
 
+fn diagram_size(available_width: f32, preferred_height: f32, aspect: f32) -> egui::Vec2 {
+    let limit = available_width.clamp(0.0, 700.0);
+    let normal_width = (PREFERRED_DIAGRAM_HEIGHT / aspect).min(limit);
+    let width = (preferred_height / aspect).clamp(normal_width * 0.60, limit);
+    vec2(width, width * aspect)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_viewports_keep_diagrams_readable_without_overflow_or_size_jumps() {
+        for model in &MODELS {
+            let aspect = model.view[3] / model.view[2];
+            for available in [180.0, 360.0, 660.0, 900.0] {
+                let short = diagram_size(available, 0.0, aspect);
+                let normal = diagram_size(available, PREFERRED_DIAGRAM_HEIGHT, aspect);
+                assert!(short.x >= normal.x * 0.60);
+                assert!(short.x <= available);
+                assert_eq!(short.y, short.x * aspect);
+                let mut previous = short;
+                for height in 1..=600 {
+                    let current = diagram_size(available, height as f32, aspect);
+                    assert!(current.x >= previous.x);
+                    assert!(current.x - previous.x <= 1.0 / aspect + 0.001);
+                    previous = current;
+                }
+            }
+            // Keep the existing preferred size when there is enough room.
+            let roomy = diagram_size(660.0, 340.0, aspect);
+            assert!((roomy.y - 340.0).abs() < 0.001);
+            assert!(diagram_size(660.0, 110.0, aspect).x > 290.0);
+        }
+    }
 
     #[test]
     fn embedded_masks_have_all_control_regions_and_opaque_body() {

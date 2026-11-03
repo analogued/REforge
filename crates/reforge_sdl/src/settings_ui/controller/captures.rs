@@ -236,6 +236,7 @@ fn native_controller_templates_and_themes() {
     }
     for theme in [ThemeId::ClassicDark, ThemeId::CrispLight] {
         cases.push((theme, ControllerStyle::Xbox, [630, 470], true, 1.0));
+        cases.push((theme, ControllerStyle::Xbox, [860, 560], true, 2.25));
         cases.push((theme, ControllerStyle::Xbox, [960, 720], true, 2.25));
     }
     let mut captured = 0;
@@ -272,6 +273,13 @@ fn native_controller_templates_and_themes() {
             directional.diagram.is_positive(),
             "full controller image must be present after initial layout"
         );
+        if size == [860, 560] {
+            assert!(
+                directional.diagram.width() >= 290.0,
+                "short, wide windows must keep a useful diagram size: {:?}",
+                directional.diagram
+            );
+        }
         assert_visible_text(&directional, "Movement", theme.palette.window);
         assert_visible_text(
             &directional,

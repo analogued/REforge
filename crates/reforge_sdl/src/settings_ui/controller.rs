@@ -159,7 +159,7 @@ pub(super) fn controls(
         let (jump, action) = settings.controller_buttons.binding();
         (Some(jump), action)
     };
-    let height = (ui.clip_rect().height() - 220.0).clamp(110.0, 340.0);
+    let height = (ui.clip_rect().height() - 220.0).clamp(0.0, art::PREFERRED_DIAGRAM_HEIGHT);
     art::drawing(
         ui,
         style,

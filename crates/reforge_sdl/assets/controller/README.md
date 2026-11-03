@@ -41,5 +41,8 @@ reduced the same way and tinted at paint time. The two texture handles are reuse
 and updated only when size, theme or highlighted controls change; there is no
 per-pixel geometry or per-frame SVG/PNG decoding. The controller drawings are
 capped at 700 logical pixels wide and their textures at 2048 physical pixels.
+The preferred height adapts to the viewport. Short windows retain at least 60%
+of the normal diagram size (340 UI units high, constrained by column width),
+using page scrolling when needed instead of continuing to shrink the artwork.
 The retained masks cover ordinary UI densities up to approximately three physical
 pixels per point; higher densities upscale the cached 2048-pixel representation.

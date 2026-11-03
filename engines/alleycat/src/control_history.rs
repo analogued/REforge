@@ -21,6 +21,9 @@ pub(crate) enum Key {
     PadLeft,
     PadRight,
     PadAction,
+    PadSwimUp,
+    PadSwimDown,
+    PadButtonJump,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -36,8 +39,13 @@ impl Keys {
         }
     }
 
-    pub fn controls(self) -> (Controls, bool) {
+    pub fn controls(self, swimming: bool) -> (Controls, bool) {
         let down = |key| self.0 & (1 << key as u8) != 0;
+        let (pad_up, pad_down) = if swimming && down(Key::PadButtonJump) {
+            (Key::PadSwimUp, Key::PadSwimDown)
+        } else {
+            (Key::PadUp, Key::PadDown)
+        };
         (
             Controls {
                 x: if down(Key::Left) || down(Key::PadLeft) {
@@ -45,10 +53,10 @@ impl Keys {
                 } else {
                     i8::from(down(Key::Right) || down(Key::PadRight))
                 },
-                y: if down(Key::Up) || down(Key::PadUp) {
+                y: if down(Key::Up) || down(pad_up) {
                     -1
                 } else {
-                    i8::from(down(Key::Down) || down(Key::PadDown))
+                    i8::from(down(Key::Down) || down(pad_down))
                 },
             },
             down(Key::LeftAlt) || down(Key::RightAlt) || down(Key::PadAction),
@@ -107,11 +115,11 @@ impl ControlHistory {
         }
     }
 
-    pub fn sample(&mut self, guest_ns: u128) -> (Controls, bool) {
+    pub fn sample(&mut self, guest_ns: u128, swimming: bool) -> (Controls, bool) {
         while self.pending.front().is_some_and(|(at, _)| *at <= guest_ns) {
             self.held = self.pending.pop_front().unwrap().1;
         }
-        self.held.controls()
+        self.held.controls(swimming)
     }
 }
 
@@ -129,15 +137,18 @@ mod tests {
         keys.set(Key::PadRight, false);
         keys.set(Key::PadAction, false);
         history.boundary(100, keys);
-        assert_eq!(history.sample(99), (Controls { x: 1, y: -1 }, true));
-        assert_eq!(history.sample(100), (Controls { x: 1, y: -1 }, true));
+        assert_eq!(history.sample(99, false), (Controls { x: 1, y: -1 }, true));
+        assert_eq!(history.sample(100, false), (Controls { x: 1, y: -1 }, true));
         keys.set(Key::Right, false);
         keys.set(Key::LeftAlt, false);
         history.boundary(200, keys);
-        assert_eq!(history.sample(200), (Controls { x: 0, y: -1 }, false));
+        assert_eq!(
+            history.sample(200, false),
+            (Controls { x: 0, y: -1 }, false)
+        );
         keys.set(Key::PadUp, false);
         history.boundary(300, keys);
-        assert_eq!(history.sample(300), (Controls::default(), false));
+        assert_eq!(history.sample(300, false), (Controls::default(), false));
     }
     use super::*;
 
@@ -170,8 +181,8 @@ mod tests {
                     },
                 ],
             );
-            assert_eq!(history.sample(u128::from(ms(110))).0.x, expected);
-            assert_eq!(history.sample(u128::from(ms(150))).0.x, 0);
+            assert_eq!(history.sample(u128::from(ms(110)), false).0.x, expected);
+            assert_eq!(history.sample(u128::from(ms(150)), false).0.x, 0);
         }
     }
 
@@ -188,7 +199,7 @@ mod tests {
             }],
         );
         // Only 20 ms of the first batch have been executed when more input is pumped.
-        assert_eq!(history.sample(u128::from(ms(20))).0.x, 0);
+        assert_eq!(history.sample(u128::from(ms(20)), false).0.x, 0);
         history.extend(
             ms(120),
             Duration::from_millis(20),
@@ -198,9 +209,9 @@ mod tests {
                 keys: Keys::default(),
             }],
         );
-        assert_eq!(history.sample(u128::from(ms(80))).0.x, 0);
-        assert_eq!(history.sample(u128::from(ms(100))).0.x, 1);
-        assert_eq!(history.sample(u128::from(ms(115))).0.x, 0);
+        assert_eq!(history.sample(u128::from(ms(80)), false).0.x, 0);
+        assert_eq!(history.sample(u128::from(ms(100)), false).0.x, 1);
+        assert_eq!(history.sample(u128::from(ms(115)), false).0.x, 0);
     }
 
     #[test]
@@ -225,9 +236,9 @@ mod tests {
                 },
             ],
         );
-        assert_eq!(history.sample(u128::from(ms(20))).0.x, 0);
-        assert_eq!(history.sample(u128::from(ms(69))).0.x, 0);
-        assert_eq!(history.sample(u128::from(ms(70))).0.x, 1);
+        assert_eq!(history.sample(u128::from(ms(20)), false).0.x, 0);
+        assert_eq!(history.sample(u128::from(ms(69)), false).0.x, 0);
+        assert_eq!(history.sample(u128::from(ms(70)), false).0.x, 1);
     }
 
     #[test]
@@ -242,7 +253,7 @@ mod tests {
                 keys: right(),
             }],
         );
-        assert_eq!(history.sample(0).0.x, 1);
+        assert_eq!(history.sample(0, false).0.x, 1);
     }
 
     #[test]
@@ -253,13 +264,13 @@ mod tests {
         // Resume much later at the same guest deadline; no paused event times enter it.
         history.boundary(u128::from(ms(100)), Keys::default());
         history.boundary(u128::from(ms(120)), right());
-        assert_eq!(history.sample(u128::from(ms(50))).0.x, 0);
-        assert_eq!(history.sample(u128::from(ms(70))).0.x, 1);
-        assert_eq!(history.sample(u128::from(ms(100))).0.x, 0);
-        assert_eq!(history.sample(u128::from(ms(120))).0.x, 1);
+        assert_eq!(history.sample(u128::from(ms(50)), false).0.x, 0);
+        assert_eq!(history.sample(u128::from(ms(70)), false).0.x, 1);
+        assert_eq!(history.sample(u128::from(ms(100)), false).0.x, 0);
+        assert_eq!(history.sample(u128::from(ms(120)), false).0.x, 1);
         // Manual pause/restart drops pending pacing debt, as before.
         history = ControlHistory::new(Keys::default());
-        assert_eq!(history.sample(u128::from(ms(70))).0.x, 0);
+        assert_eq!(history.sample(u128::from(ms(70)), false).0.x, 0);
     }
 
     #[test]
@@ -268,11 +279,11 @@ mod tests {
         for key in [Key::Left, Key::Up, Key::Down, Key::LeftAlt, Key::RightAlt] {
             keys.set(key, true);
         }
-        assert_eq!(keys.controls(), (Controls { x: -1, y: -1 }, true));
+        assert_eq!(keys.controls(false), (Controls { x: -1, y: -1 }, true));
         keys.set(Key::LeftAlt, false);
-        assert!(keys.controls().1);
+        assert!(keys.controls(false).1);
         keys.set(Key::RightAlt, false);
-        assert!(!keys.controls().1);
+        assert!(!keys.controls(false).1);
     }
 
     #[test]
@@ -311,7 +322,7 @@ mod tests {
                 start = end;
             }
             for at in [50, 70, 90, 110, 130] {
-                polls.push(history.sample(u128::from(ms(at))).0.x);
+                polls.push(history.sample(u128::from(ms(at)), false).0.x);
             }
             polls
         };

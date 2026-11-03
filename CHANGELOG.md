@@ -23,6 +23,11 @@ Unreleased contains changes intended for the next public release.
   available in Settings and through `--motion original`. Gameplay timing and
   collisions are unchanged.
 
+### Alley Cat
+
+- Optional button-based jumping and dropping, with controller layout templates
+  and diagrams in Settings. Swimming retains full directional control.
+
 ### BTZ
 
 - Optional terminal play through `--renderer terminal`.

@@ -45,9 +45,17 @@ You can also choose with the arrow keys and Enter, or a gamepad.
 Alt lets you travel between paired cheese-room holes, drink from milk bowls,
 and place carried gifts in Hearts. Gifts are picked up automatically.
 
-On a gamepad, use the left stick or D-pad for movement and the bottom face
+By default, use the left stick or D-pad for movement and the bottom face
 button for Alt's action. It also advances title/instruction screens and confirms
 skill selection. Start/Menu pauses; Back/View opens Settings.
+
+In **Settings → Alley Cat overrides → Controls**, enable **Override global
+defaults** to choose a controller layout. **Directional jump** keeps Up to jump
+and Down to drop, with a choice of Action button. **Button jump** uses left/right
+movement and separate Jump/Drop and Action buttons. Hold Down before pressing
+Jump to drop. Swimming always uses all four directions. Each movement mode
+remembers its button layout; Apply saves the choices for that library entry.
+Keyboard and menu controls keep their usual bindings.
 
 ## Game-specific options
 

@@ -3,11 +3,60 @@
 //! SDL gamepad ownership and digital left-stick/D-pad conversion. No game clocks,
 //! keyboard emulation, input buffering or movement assistance live here.
 
+use reforge_settings::FaceButton;
 use sdl3::{
     event::{Event, WindowEvent},
-    gamepad::{Axis, Button, Gamepad},
+    gamepad::{Axis, Button, Gamepad, GamepadType},
     joystick::JoystickId,
 };
+
+/// Physical face positions, independent of gameplay bindings and menu actions.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FaceButtons {
+    pub south: bool,
+    pub east: bool,
+    pub west: bool,
+    pub north: bool,
+}
+impl FaceButtons {
+    pub fn held(self, button: FaceButton) -> bool {
+        match button {
+            FaceButton::South => self.south,
+            FaceButton::East => self.east,
+            FaceButton::West => self.west,
+            FaceButton::North => self.north,
+        }
+    }
+    fn newly_pressed(self, before: Self) -> Self {
+        Self {
+            south: self.south && !before.south,
+            east: self.east && !before.east,
+            west: self.west && !before.west,
+            north: self.north && !before.north,
+        }
+    }
+}
+
+/// Diagram family for SDL's active controller; unknown types use Xbox positions.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ControllerStyle {
+    #[default]
+    Xbox,
+    DualSense,
+    Switch,
+}
+impl ControllerStyle {
+    fn for_type(kind: GamepadType) -> Self {
+        match kind {
+            GamepadType::PS3 | GamepadType::PS4 | GamepadType::PS5 => Self::DualSense,
+            GamepadType::NintendoSwitchPro
+            | GamepadType::NintendoSwitchJoyconLeft
+            | GamepadType::NintendoSwitchJoyconRight
+            | GamepadType::NintendoSwitchJoyconPair => Self::Switch,
+            _ => Self::Xbox,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Actions {
@@ -32,6 +81,9 @@ impl Actions {
 pub struct PadEvent {
     pub actions: Actions,
     pub pressed: Actions,
+    pub faces: FaceButtons,
+    pub pressed_faces: FaceButtons,
+    pub style: ControllerStyle,
     pub pause: bool,
     pub settings: bool,
     /// Menu-only edges. They do not add reconstructed game actions.
@@ -61,6 +113,8 @@ fn button_bit(button: Button) -> u16 {
         Button::East => 128,
         Button::LeftShoulder => 256,
         Button::RightShoulder => 512,
+        Button::West => 1024,
+        Button::North => 2048,
         _ => 0,
     }
 }
@@ -108,8 +162,20 @@ impl Digital {
             action: self.buttons & 16 != 0,
         }
     }
+    fn face_buttons(&self) -> FaceButtons {
+        if !self.focused || !self.armed {
+            return FaceButtons::default();
+        }
+        FaceButtons {
+            south: self.buttons & 16 != 0,
+            east: self.buttons & 128 != 0,
+            west: self.buttons & 1024 != 0,
+            north: self.buttons & 2048 != 0,
+        }
+    }
     fn update(&mut self, axis: Option<(Axis, i16)>, button: Option<(Button, bool)>) -> PadEvent {
         let before = self.actions();
+        let before_faces = self.face_buttons();
         let old_buttons = self.buttons;
         if let Some((axis, value)) = axis {
             let index = match axis {
@@ -139,6 +205,9 @@ impl Digital {
         let buttons = self.buttons & !old_buttons;
         PadEvent {
             actions,
+            faces: self.face_buttons(),
+            pressed_faces: self.face_buttons().newly_pressed(before_faces),
+            style: ControllerStyle::default(),
             pressed: Actions {
                 up: pressed & 1 != 0,
                 down: pressed & 2 != 0,
@@ -211,6 +280,23 @@ impl Gamepads {
     pub fn actions(&self) -> Actions {
         self.digital.actions()
     }
+    pub fn face_buttons(&self) -> FaceButtons {
+        self.digital.face_buttons()
+    }
+    pub fn style(&self) -> ControllerStyle {
+        self.pad
+            .as_ref()
+            .map_or(ControllerStyle::default(), |(_, pad)| {
+                let kind = pad.real_type();
+                ControllerStyle::for_type(
+                    if matches!(kind, GamepadType::Unknown | GamepadType::Standard) {
+                        pad.r#type()
+                    } else {
+                        kind
+                    },
+                )
+            })
+    }
     /// Discard old input across host boundaries; held controls need neutral first.
     /// Host pause/settings buttons retain their own release-to-press edge state.
     pub fn reset(&mut self) {
@@ -227,6 +313,8 @@ impl Gamepads {
                 Button::East,
                 Button::LeftShoulder,
                 Button::RightShoulder,
+                Button::West,
+                Button::North,
             ]
             .into_iter()
             .filter(|&b| pad.button(b))
@@ -247,10 +335,14 @@ impl Gamepads {
     }
     /// Call in SDL queue order. Use the source event's timestamp for engine history.
     pub fn handle(&mut self, event: &Event) -> Option<PadEvent> {
-        match *event {
+        let notification = match *event {
             Event::GamepadAdded { .. } => {
                 self.open_first();
-                None
+                Some(PadEvent {
+                    actions: self.actions(),
+                    faces: self.face_buttons(),
+                    ..PadEvent::default()
+                })
             }
             Event::GamepadRemoved { which, .. }
                 if self.pad.as_ref().is_some_and(|(id, _)| *id == which) =>
@@ -299,13 +391,88 @@ impl Gamepads {
                 ))
             }
             _ => None,
-        }
+        };
+        notification.map(|mut pad| {
+            pad.style = self.style();
+            pad
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn face_positions_have_independent_edges_without_changing_menu_or_game_actions() {
+        let mut digital = Digital::new(35);
+        digital.reset();
+        for (button, face) in [
+            (Button::South, FaceButton::South),
+            (Button::East, FaceButton::East),
+            (Button::West, FaceButton::West),
+            (Button::North, FaceButton::North),
+        ] {
+            let pressed = digital.update(None, Some((button, true)));
+            assert!(pressed.faces.held(face) && pressed.pressed_faces.held(face));
+            assert_eq!(pressed.pressed.action, button == Button::South);
+            assert_eq!(pressed.cancel, button == Button::East);
+            assert!(
+                !digital
+                    .update(None, Some((button, true)))
+                    .pressed_faces
+                    .held(face)
+            );
+            assert!(!digital.update(None, Some((button, false))).faces.held(face));
+        }
+        for (button, face) in [
+            (Button::South, FaceButton::South),
+            (Button::East, FaceButton::East),
+            (Button::West, FaceButton::West),
+            (Button::North, FaceButton::North),
+        ] {
+            // In particular, South may confirm a title and also be Jump in the
+            // following game. A boundary must suppress it until a fresh press.
+            digital.update(None, Some((button, true)));
+            digital.reset();
+            assert_eq!(digital.face_buttons(), FaceButtons::default());
+            assert!(!digital.update(None, Some((button, true))).faces.held(face));
+            digital.update(None, Some((button, false)));
+            assert!(
+                digital
+                    .update(None, Some((button, true)))
+                    .pressed_faces
+                    .held(face)
+            );
+            digital.update(None, Some((button, false)));
+        }
+        digital.focused = false;
+        digital.reset();
+        assert_eq!(digital.face_buttons(), FaceButtons::default());
+    }
+
+    #[test]
+    fn controller_diagrams_follow_sdl_hardware_family() {
+        assert_eq!(
+            ControllerStyle::for_type(GamepadType::PS5),
+            ControllerStyle::DualSense
+        );
+        assert_eq!(
+            ControllerStyle::for_type(GamepadType::PS4),
+            ControllerStyle::DualSense
+        );
+        assert_eq!(
+            ControllerStyle::for_type(GamepadType::NintendoSwitchPro),
+            ControllerStyle::Switch
+        );
+        assert_eq!(
+            ControllerStyle::for_type(GamepadType::Unknown),
+            ControllerStyle::Xbox
+        );
+        assert_eq!(
+            ControllerStyle::for_type(GamepadType::Xbox360),
+            ControllerStyle::Xbox
+        );
+    }
     #[test]
     fn sdl_virtual_controller_delivers_events_resets_and_disconnects() {
         const NAME: &str =

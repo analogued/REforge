@@ -550,7 +550,7 @@ fn historical_input_is_sampled_at_the_control_gate_not_pass_start() {
             let event = runtime
                 .advance_pass_with_input(&mut alley, |at| {
                     samples.push(at);
-                    history.sample(at)
+                    history.sample(at, false)
                 })
                 .unwrap();
             assert!(event.control_polled);

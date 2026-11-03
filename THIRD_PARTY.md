@@ -20,7 +20,7 @@ MIT is selected where an alternative is offered.
 
 | Component | Version | Used by / purpose | Selected license |
 | --- | --- | --- | --- |
-| [png](https://crates.io/crates/png/0.17.16) | 0.17.16 | Application: local native preview PNG cache | [MIT](LICENSES/MIT.txt) |
+| [png](https://crates.io/crates/png/0.17.16) | 0.17.16 | Application preview cache and shared SDL controller artwork | [MIT](LICENSES/MIT.txt) |
 | [unicode-segmentation](https://crates.io/crates/unicode-segmentation/1.12.0) | 1.12.0 | Application: Unicode-aware Symbolic initials | [MIT](LICENSES/MIT.txt) |
 | [sha2](https://crates.io/crates/sha2/0.11.0) | 0.11.0 | Application, Alley Cat and BTZ: original-file verification | [MIT](LICENSES/MIT.txt) |
 | [sdl3](https://crates.io/crates/sdl3/0.20.0) | 0.20.0 | Shared SDL: window, input, rendering and audio APIs | [MIT](LICENSES/MIT.txt) |
@@ -139,6 +139,23 @@ SPIR-V, DXIL, HLSL and Metal variants are compiled or translated forms of this
 adaptation and carry the same attribution. Source hashes, preset provenance,
 technical adaptations and regeneration commands are in the shader README.
 Shader compilers are separate developer tools, not shipped with REforge.
+
+## Controller artwork
+
+[`crates/reforge_sdl/assets/controller/`](crates/reforge_sdl/assets/controller/README.md)
+contains selected drawings from Gidedin's
+[Gamepad Line Art Pack](https://gidedin.itch.io/gamepad-line-art-pack) and button
+glyphs from Kenney's [Input Prompts 1.5A](https://kenney.nl/assets/input-prompts).
+Both are dedicated to the public domain under
+[CC0 1.0 Universal](LICENSES/CC0-1.0.txt). These UI assets are independent of
+original game data. Controller names and marks belong to their respective owners;
+no affiliation or endorsement is implied.
+
+Unmodified SVG masters, upstream notices, archive/file hashes and regeneration
+instructions accompany the generated lossless masks. The generation labels
+existing paths by physical control and normalizes glyph viewports. Runtime code
+tints the masks for each theme and selected template; the authored generator and
+UI code use the repository license.
 
 ## Original game data and external tools
 

@@ -14,6 +14,8 @@ use std::{
 use toml_edit::{DocumentMut, Item};
 mod audio;
 pub use audio::{AudioSettings, CategoryVolumes, SoundCategory, SoundRenderer};
+mod controller;
+pub use controller::{ControllerButtons, ControllerMovement, FaceButton};
 
 pub const DISPLAY_KEYS: &[&str] = &[
     "window_mode",
@@ -55,6 +57,15 @@ pub const SECTION_KEYS: [&[&str]; 4] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS, CONT
 pub const DIGITIZED_SAMPLES: &str = "digitized_samples";
 pub const MOTION: &str = "motion";
 pub const CONTROL_MODE: &str = "control_mode";
+pub const CONTROLLER_MOVEMENT: &str = "controller_movement";
+pub const CONTROLLER_ACTION: &str = "controller_action";
+pub const CONTROLLER_BUTTONS: &str = "controller_buttons";
+const ALLEYCAT_CONTROL_KEYS: &[&str] = &[
+    CONTROL_MODE,
+    CONTROLLER_MOVEMENT,
+    CONTROLLER_ACTION,
+    CONTROLLER_BUTTONS,
+];
 // Dormant per-entry override while Terminal is selected. Absence means the
 // graphical renderer should continue to inherit the global setting.
 const GRAPHICAL_RENDERER: &str = "graphical_renderer";
@@ -66,7 +77,7 @@ pub fn supports_terminal(game: &str) -> bool {
 fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     let keys: &[&str] = match game {
         "mach-3" => &[DIGITIZED_SAMPLES, MOTION],
-        "alley-cat" => &[CONTROL_MODE],
+        "alley-cat" => ALLEYCAT_CONTROL_KEYS,
         "mindwheel" | "essex" => &[GRAPHICAL_RENDERER],
         _ => &[],
     };
@@ -76,7 +87,7 @@ pub fn section_index(key: &str) -> usize {
     if key == DIGITIZED_SAMPLES {
         return 2;
     }
-    if key == CONTROL_MODE {
+    if ALLEYCAT_CONTROL_KEYS.contains(&key) {
         return 3;
     }
     SECTION_KEYS
@@ -91,7 +102,7 @@ pub fn keys() -> impl Iterator<Item = &'static str> {
 fn section(key: &str) -> &'static str {
     if key == DIGITIZED_SAMPLES {
         "gameplay"
-    } else if key == CONTROL_MODE || CONTROL_KEYS.contains(&key) {
+    } else if ALLEYCAT_CONTROL_KEYS.contains(&key) || CONTROL_KEYS.contains(&key) {
         "controls"
     } else if CRT_KEYS.contains(&key) {
         "crt"
@@ -422,6 +433,9 @@ impl std::str::FromStr for ControlMode {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct AlleyCatSettings {
     pub control_mode: ControlMode,
+    pub controller_movement: ControllerMovement,
+    pub controller_action: FaceButton,
+    pub controller_buttons: ControllerButtons,
 }
 impl Default for Mach3Settings {
     fn default() -> Self {
@@ -560,6 +574,9 @@ impl RuntimeSettings {
             STICK_DEAD_ZONE => self.stick_dead_zone.to_string(),
             DIGITIZED_SAMPLES => self.mach3.digitized_samples.to_string(),
             CONTROL_MODE => self.alleycat.control_mode.as_str().into(),
+            CONTROLLER_MOVEMENT => self.alleycat.controller_movement.as_str().into(),
+            CONTROLLER_ACTION => self.alleycat.controller_action.as_str().into(),
+            CONTROLLER_BUTTONS => self.alleycat.controller_buttons.as_str().into(),
             MOTION => self.mach3.motion.as_str().into(),
             "window_mode" => if self.fullscreen {
                 "fullscreen"
@@ -600,6 +617,9 @@ impl RuntimeSettings {
                     .ok_or("stick dead zone must be 5..90 percent")?;
             }
             CONTROL_MODE => self.alleycat.control_mode = value.parse()?,
+            CONTROLLER_MOVEMENT => self.alleycat.controller_movement = value.parse()?,
+            CONTROLLER_ACTION => self.alleycat.controller_action = value.parse()?,
+            CONTROLLER_BUTTONS => self.alleycat.controller_buttons = value.parse()?,
             MOTION => self.mach3.motion = value.parse()?,
             DIGITIZED_SAMPLES => {
                 self.mach3.digitized_samples = match value {
@@ -749,7 +769,7 @@ impl Draft {
             patch.remove(DIGITIZED_SAMPLES);
         }
         if game && page == 3 {
-            patch.remove(CONTROL_MODE);
+            patch.retain(|key, _| !ALLEYCAT_CONTROL_KEYS.contains(&key.as_str()));
         }
         if game && page == 0 {
             patch.remove(GRAPHICAL_RENDERER);
@@ -763,10 +783,15 @@ impl Draft {
             .any(|key| self.game.contains_key(*key))
             || page == 0 && self.game.contains_key(MOTION)
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
-            || page == 3 && self.game.contains_key(CONTROL_MODE)
+            || page == 3
+                && ALLEYCAT_CONTROL_KEYS
+                    .iter()
+                    .any(|key| self.game.contains_key(*key))
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
-        if !game && matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE | MOTION) {
+        if !game
+            && (matches!(key, DIGITIZED_SAMPLES | MOTION) || ALLEYCAT_CONTROL_KEYS.contains(&key))
+        {
             return;
         }
         if !game && key == "renderer" && value == "terminal" {
@@ -1208,6 +1233,13 @@ mod tests {
             ("master_volume", "80", "60"),
             (DIGITIZED_SAMPLES, "true", "false"),
             (CONTROL_MODE, "responsive", "original"),
+            (CONTROLLER_MOVEMENT, "directional", "button"),
+            (CONTROLLER_ACTION, "south", "north"),
+            (
+                CONTROLLER_BUTTONS,
+                "west-jump-south-action",
+                "east-action-south-jump",
+            ),
         ] {
             let original = Draft {
                 game: Patch::from([(key.into(), initial.into())]),
@@ -1579,6 +1611,113 @@ control_mode = "original"
             invalid.effective(&invalid.saved).alleycat.control_mode,
             ControlMode::Responsive
         );
+    }
+
+    #[test]
+    fn controller_templates_are_entry_only_and_keep_each_modes_layout() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let selected = [
+            (CONTROLLER_MOVEMENT, "button"),
+            (CONTROLLER_ACTION, "north"),
+            (CONTROLLER_BUTTONS, "east-action-south-jump"),
+        ];
+        let values = selected
+            .map(|(key, value)| format!("{key} = '{value}'\n"))
+            .join("");
+        fs::write(
+            &path,
+            format!("[global.controls]\n{values}[entries.mach-3.controls]\n{values}"),
+        )
+        .unwrap();
+        let mut cat = session(path.clone(), "alley-cat");
+        let defaults = AlleyCatSettings::default();
+        assert_eq!(cat.saved.game_values().alleycat, defaults);
+        let mut draft = cat.saved.clone();
+        for (key, value) in selected {
+            assert_eq!(section_index(key), 3);
+            draft.edit(false, key, value.into());
+            assert!(draft.global.is_empty(), "{key} has no global value");
+            draft.edit(true, key, value.into());
+        }
+        assert!(draft.has_game_overrides(3));
+        cat.commit(draft).unwrap();
+
+        let mut loaded = session(path.clone(), "alley-cat");
+        let saved_layout = loaded.saved.game_values().alleycat;
+        assert_eq!(saved_layout.controller_movement, ControllerMovement::Button);
+        assert_eq!(saved_layout.controller_action, FaceButton::North);
+        assert_eq!(
+            saved_layout.controller_buttons,
+            ControllerButtons::EastActionSouthJump
+        );
+        let other = Session::load(Launch {
+            game_id: "alley-cat".into(),
+            entry_id: Some("alley-cat-other".into()),
+            path: Some(path.clone()),
+            cli: Patch::new(),
+        });
+        assert_eq!(other.saved.game_values().alleycat, defaults);
+        let mach = session(path.clone(), "mach-3");
+        assert_eq!(mach.effective(&mach.saved).alleycat, defaults);
+        for (key, _) in selected {
+            assert!(!mach.saved.game.contains_key(key));
+        }
+
+        // A mode switch leaves both independent layout choices stored.
+        let mut draft = loaded.saved.clone();
+        draft.edit(true, CONTROLLER_MOVEMENT, "directional".into());
+        loaded.commit(draft).unwrap();
+        let mut loaded = session(path.clone(), "alley-cat");
+        let directional = loaded.saved.game_values().alleycat;
+        assert_eq!(
+            directional.controller_movement,
+            ControllerMovement::Directional
+        );
+        assert_eq!(
+            directional.controller_action,
+            saved_layout.controller_action
+        );
+        assert_eq!(
+            directional.controller_buttons,
+            saved_layout.controller_buttons
+        );
+        assert!(!loaded.saved.game.contains_key(CONTROLLER_MOVEMENT));
+        assert!(loaded.saved.has_game_overrides(3));
+
+        let mut reset = loaded.saved.clone();
+        reset.reset_section(true, 0);
+        assert_eq!(reset.game_values().alleycat, directional);
+        reset.reset_section(true, 3);
+        assert_eq!(reset.game_values().alleycat, defaults);
+        assert!(!reset.has_game_overrides(3));
+        loaded.commit(reset).unwrap();
+        let doc = read(&path).unwrap();
+        for (key, value) in selected {
+            assert!(doc["entries"]["alley-cat"]["controls"].get(key).is_none());
+            assert_eq!(doc["global"]["controls"][key].as_str(), Some(value));
+            assert_eq!(
+                doc["entries"]["mach-3"]["controls"][key].as_str(),
+                Some(value)
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_controller_templates_warn_without_rewriting_the_file() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        for key in [CONTROLLER_MOVEMENT, CONTROLLER_ACTION, CONTROLLER_BUTTONS] {
+            let text = format!("[entries.alley-cat.controls]\n{key} = 'unknown'\n");
+            fs::write(&path, &text).unwrap();
+            let invalid = session(path.clone(), "alley-cat");
+            assert!(invalid.warning.is_some(), "invalid {key} must warn");
+            assert_eq!(
+                invalid.saved.game_values().alleycat,
+                AlleyCatSettings::default()
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        }
     }
 
     #[test]

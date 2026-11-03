@@ -148,6 +148,9 @@ pub(super) fn present_game_over(
         return Ok(false);
     }
     alley.start_after_game_over(&splash)?;
+    // The title's South confirmation may also be the selected Jump button.
+    // Require a fresh controller gesture before the new gameplay epoch starts.
+    window.reset_controller();
     Ok(true)
 }
 
@@ -254,7 +257,7 @@ pub(super) fn interactive(
             continue;
         }
         runtime.responsive_controls = window.responsive_controls();
-        let input = window.poll_input();
+        let input = window.poll_game_input(alley.scene() == 2);
         if input.quit {
             break;
         }
@@ -268,6 +271,7 @@ pub(super) fn interactive(
             }
         } else if restarting {
             alley.restart(0)?;
+            window.reset_controller();
         }
         if input.menu_pressed || restarting {
             window.audio.reset()?;
@@ -330,11 +334,14 @@ pub(super) fn interactive(
                     return Ok(false);
                 }
                 #[cfg(not(feature = "dev-tools"))]
-                runtime.advance_pass_with_input(alley, |at| control_history.sample(at))?;
+                runtime.advance_pass_with_scene_input(alley, |at, scene| {
+                    control_history.sample(at, scene == 2)
+                })?;
                 #[cfg(feature = "dev-tools")]
                 {
-                    let event =
-                        runtime.advance_pass_with_input(alley, |at| control_history.sample(at))?;
+                    let event = runtime.advance_pass_with_scene_input(alley, |at, scene| {
+                        control_history.sample(at, scene == 2)
+                    })?;
                     if let Some(output) = timing_trace.as_mut() {
                         timing_row(output, pass, &event, alley.selection_trace_state())?;
                     }

@@ -25,6 +25,11 @@ Mach 3 also has a per-entry native startup preference for digitized samples,
 kept outside shared/global host audio keys. The engine reads it once at startup;
 later menu commits persist the next-launch choice without changing execution.
 
+Alley Cat's Controls preferences are per-entry too. Its movement mode and the
+independent button choices for directional and button jumping use physical
+positions, so changing controller models does not change the bindings. Defaults
+retain directional jumping and the south face button for Action.
+
 ## Dependencies
 
 Direct dependencies and their attribution are maintained in the repository's

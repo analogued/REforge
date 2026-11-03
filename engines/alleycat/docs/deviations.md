@@ -43,6 +43,13 @@ Original polling remains selectable in the Alley Cat settings. See the
 Headless reference and uniform diagnostic runs retain original input unless
 explicitly selected by a runtime caller.
 
+Controller templates can separately replace land Up/Down requests with a
+Jump/Drop face button. Down is sampled when that button is pressed; changing
+directions while holding it does not switch between jumping and dropping.
+Swimming retains four-way direction input. Keyboard input, menu confirmation,
+movement gates and the reconstructed physics are unchanged. The original
+directional controller layout remains the default.
+
 ## Shared ordinary-action timing
 
 The default XT profile uses common execution allowances for comparable ordinary

@@ -121,9 +121,13 @@ all lives, the high score is updated and the animated title returns. This later
 title waits for a fresh key press, then starts another run at the selected skill
 without repeating the menu. It resets the score and gives three lives, retaining
 the high score, shared random state and ordinary-room selection history.
-SDL gamepads use the left stick/D-pad for these same directions and the bottom
-face button for Alt's contextual action. Up remains jump; diagonal-jump timing
-is unchanged. Start/Menu toggles host pause and Back/View toggles settings.
+SDL gamepads default to the left stick/D-pad for these same directions and the
+bottom face button for Alt's contextual action. Alley Cat's Controls page also
+offers Button jump: directions move left/right on land, a selected face button
+jumps, and holding Down when pressing it drops. The jump/drop choice stays fixed
+until that button is released. Each movement mode remembers its own button
+layout. Swimming always keeps all four directions, and keyboard controls remain
+unchanged. Start/Menu toggles host pause and Back/View toggles settings.
 The bottom button advances titles and confirms skill selection. Advancing the
 title with it shows the skill cursor on Kitten immediately. Otherwise, the first
 controller Up/Down/A or keyboard Up/Down/Enter/Space reveals the cursor on Kitten

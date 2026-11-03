@@ -401,7 +401,7 @@ fn run_player_preview(
             window.present(&alley.rgba())?;
             continue;
         }
-        let input = window.poll_input();
+        let input = window.poll_game_input(alley.scene() == 2);
         if input.quit {
             break;
         }
@@ -412,6 +412,7 @@ fn run_player_preview(
             }
         } else if restarting {
             alley.restart(0)?;
+            window.reset_controller();
         }
         if input.menu_pressed || restarting {
             let now = Instant::now();

@@ -1006,6 +1006,8 @@ mod tests {
             ("mindwheel", true, Some(true)),
             ("essex", false, Some(false)),
             ("essex", true, Some(true)),
+            ("brimstone", false, Some(false)),
+            ("brimstone", true, Some(true)),
             ("alley-cat", true, None),
             ("mach-3", true, None),
         ] {

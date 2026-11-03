@@ -249,7 +249,7 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
                 .collect::<Result<Vec<_>, _>>()?;
             alleycat::cli::run(args)
         }
-        Game::Mindwheel | Game::Essex => btz::cli::run_with_title(
+        Game::Mindwheel | Game::Essex | Game::Brimstone => btz::cli::run_with_title(
             args.into_iter(),
             &plan.detected.files,
             plan.detected.game.title(),
@@ -301,7 +301,7 @@ mod tests {
     }
     #[test]
     fn btz_terminal_renderer_reaches_launch_settings_without_opening_launcher() {
-        for game in [Game::Mindwheel, Game::Essex] {
+        for game in [Game::Mindwheel, Game::Essex, Game::Brimstone] {
             let original = args(&["--original", game.id(), "--renderer", "terminal"]);
             assert!(!opens_launcher(&original));
             let prepared = options::prepare(

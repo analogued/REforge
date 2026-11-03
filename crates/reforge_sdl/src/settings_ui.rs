@@ -170,6 +170,7 @@ pub(super) fn draw(
                                     "mach-3" => "Mach 3",
                                     "mindwheel" => "Mindwheel",
                                     "essex" => "Essex",
+                                    "brimstone" => "Brimstone",
                                     _ => "Game",
                                 }
                             ),

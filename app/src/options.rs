@@ -910,7 +910,13 @@ mod tests {
     }
     #[test]
     fn frame_limit_choices_are_shared_and_invalid_values_warn() {
-        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex] {
+        for game in [
+            Game::AlleyCat,
+            Game::Mach3,
+            Game::Mindwheel,
+            Game::Essex,
+            Game::Brimstone,
+        ] {
             for value in ["display", "60", "120", "unlimited"] {
                 let result = prepare(args(&["--frame-limit", value]), game);
                 if cfg!(feature = "sdl") {
@@ -930,7 +936,13 @@ mod tests {
     #[test]
     fn shared_presentation_choices_and_build_availability() {
         assert_eq!(takes_value("--presentation"), Some(true));
-        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex] {
+        for game in [
+            Game::AlleyCat,
+            Game::Mach3,
+            Game::Mindwheel,
+            Game::Essex,
+            Game::Brimstone,
+        ] {
             let help = help(Some(game));
             assert!(help.contains("--presentation VALUE"));
             assert!(help.contains("Choices: pixels, hyllian"));
@@ -958,7 +970,13 @@ mod tests {
     #[cfg(feature = "sdl")]
     #[test]
     fn presentation_validation_retains_previous_value_and_following_options() {
-        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex] {
+        for game in [
+            Game::AlleyCat,
+            Game::Mach3,
+            Game::Mindwheel,
+            Game::Essex,
+            Game::Brimstone,
+        ] {
             for value in ["", "crt", "Hyllian", "-1"] {
                 let result = prepare(
                     args(&[
@@ -1007,7 +1025,13 @@ mod tests {
     fn scale_defaults_are_left_to_engines_and_auto_is_forwarded() {
         assert_eq!(takes_value("--scale"), Some(true));
         assert!(help(None).contains("auto|1..16 (default auto)"));
-        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex] {
+        for game in [
+            Game::AlleyCat,
+            Game::Mach3,
+            Game::Mindwheel,
+            Game::Essex,
+            Game::Brimstone,
+        ] {
             let defaults = prepare(args(&[]), game);
             assert!(defaults.args.is_empty());
             assert!(defaults.warnings.is_empty());
@@ -1035,7 +1059,13 @@ mod tests {
 
     #[test]
     fn invalid_scale_warns_and_retains_auto_fixed_or_engine_default() {
-        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex] {
+        for game in [
+            Game::AlleyCat,
+            Game::Mach3,
+            Game::Mindwheel,
+            Game::Essex,
+            Game::Brimstone,
+        ] {
             for value in ["0", "17", "-1", "1.5", "Auto", "", "0x", "4294967296"] {
                 for previous in [None, Some("auto"), Some("3")] {
                     let mut input = Vec::new();
@@ -1354,9 +1384,15 @@ mod tests {
             .iter()
             .filter(|s| s.scope != Scope::Common && (!s.dev || cfg!(feature = "dev-tools")))
         {
-            for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel, Game::Essex]
-                .into_iter()
-                .filter(|&game| spec.scope.applies(game))
+            for game in [
+                Game::AlleyCat,
+                Game::Mach3,
+                Game::Mindwheel,
+                Game::Essex,
+                Game::Brimstone,
+            ]
+            .into_iter()
+            .filter(|&game| spec.scope.applies(game))
             {
                 let mut values = vec![spec.name];
                 let numeric;

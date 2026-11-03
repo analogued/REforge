@@ -141,6 +141,23 @@ pub static ESSEX_DOS: Edition = Edition {
     label: None,
     specs: &BTZ_DOS_SPECS,
 };
+pub static BRIMSTONE: GameMetadata = GameMetadata {
+    identity: Game::Brimstone,
+    title: "Brimstone: The Dream of Gawain",
+    genres: &["Interactive fiction"],
+    tagline: "Guide Sir Gawain through the underworld of Ulro.",
+};
+pub static BRIMSTONE_DOS: Edition = Edition {
+    id: "brimstone-dos",
+    game: &BRIMSTONE,
+    platform: Platform::Dos,
+    title: None,
+    year: Some(1985),
+    developers: &["Synapse Software"],
+    publishers: &["Brøderbund Software"],
+    label: None,
+    specs: &BTZ_DOS_SPECS,
+};
 pub static BTZ_DOS_SPECS: SpecsProfile = SpecsProfile {
     id: "btz-dos-text",
     video_features: &["80×25 text"],
@@ -284,6 +301,28 @@ pub static RELEASES: &[Release] = &[
                 name: "GO.EXE",
                 size: 35328,
                 sha256: "caf6b08490f4d343ab9c4507ba591f66b5fc47d1807aac6dfcd232ec114003bd",
+            },
+            FileRecord {
+                name: "SIDE.TXT",
+                size: 65,
+                sha256: "12f0b71b9be8bb76619bc86057b8edbf82c22ae136843fa779b54eb329586800",
+            },
+        ],
+    },
+    Release {
+        id: "brimstone-dos-0020ff40a4",
+        compatibility_id: "brimstone-dos",
+        edition: &BRIMSTONE_DOS,
+        files: &[
+            FileRecord {
+                name: "ADISK.OBJ",
+                size: 183_296,
+                sha256: "34f6cd14b2f0d6fd1d5b8d6c99891fb603ae4cf692599e039c8eecff1c3baef4",
+            },
+            FileRecord {
+                name: "GO.EXE",
+                size: 35_328,
+                sha256: "33e398866bc736f3475c36002591c218dfdc2cd54d33b87ed7c0b1d3e9ab46b7",
             },
             FileRecord {
                 name: "SIDE.TXT",

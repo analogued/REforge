@@ -25,6 +25,7 @@ pub enum Game {
     Mach3,
     Mindwheel,
     Essex,
+    Brimstone,
 }
 
 impl Game {
@@ -34,6 +35,7 @@ impl Game {
             Self::Mach3 => "mach-3",
             Self::Mindwheel => "mindwheel",
             Self::Essex => "essex",
+            Self::Brimstone => "brimstone",
         }
     }
 
@@ -43,11 +45,12 @@ impl Game {
             Self::Mach3 => &catalog::MACH3,
             Self::Mindwheel => &catalog::MINDWHEEL,
             Self::Essex => &catalog::ESSEX,
+            Self::Brimstone => &catalog::BRIMSTONE,
         }
     }
 
     pub const fn is_btz(self) -> bool {
-        matches!(self, Self::Mindwheel | Self::Essex)
+        matches!(self, Self::Mindwheel | Self::Essex | Self::Brimstone)
     }
 
     pub const fn title(self) -> &'static str {
@@ -282,7 +285,9 @@ fn detect_with(
         [candidate] => {
             let original = match candidate.release.game() {
                 Game::AlleyCat => candidate.paths[0].clone(),
-                Game::Mach3 | Game::Mindwheel | Game::Essex => directory.to_path_buf(),
+                Game::Mach3 | Game::Mindwheel | Game::Essex | Game::Brimstone => {
+                    directory.to_path_buf()
+                }
             };
             Ok(Detected {
                 game: candidate.release.game(),
@@ -483,6 +488,12 @@ mod tests {
                 id: "synthetic-essex",
                 compatibility_id: "synthetic-essex",
                 edition: &catalog::ESSEX_DOS,
+                files: FILES,
+            },
+            Release {
+                id: "synthetic-brimstone",
+                compatibility_id: "synthetic-brimstone",
+                edition: &catalog::BRIMSTONE_DOS,
                 files: FILES,
             },
         ];
@@ -884,7 +895,7 @@ mod tests {
 
     #[test]
     fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
-        assert_eq!(RELEASES.len(), 4);
+        assert_eq!(RELEASES.len(), 5);
         let mut ids = std::collections::HashSet::new();
         for release in RELEASES {
             assert!(ids.insert(release.id), "duplicate detected-release ID");

@@ -1,13 +1,14 @@
 # BTZ games
 
-Play Mindwheel and Essex for DOS through the BTZ interpreter, with their
+Play Mindwheel, Essex and Brimstone for DOS through the BTZ interpreter, with their
 original text layout, interactive commands and background story activity.
 
 > [!IMPORTANT]
 > REforge does not include original BTZ assets or data. You must provide
 > the original files from a supported release. See [What you need](#what-you-need).
 
-Supported games: [Mindwheel](mindwheel.md) and [Essex](essex.md).
+Supported games: [Mindwheel](mindwheel.md), [Essex](essex.md) and
+[Brimstone: The Dream of Gawain](brimstone.md).
 
 ## What you need
 
@@ -55,7 +56,8 @@ the renderer configured in Settings.
 
 ## Commands and controls
 
-Commands are interpreted by each game's original data. Common BTZ commands include:
+Commands are interpreted by each game's original data. Availability and wording
+vary by game; consult its manual. Common BTZ commands include:
 
 | Command | Function |
 | --- | --- |

@@ -9,6 +9,7 @@ Unreleased contains changes intended for the next public release.
 
 - Added experimental support for Mindwheel (DOS).
 - Added experimental support for Essex (DOS).
+- Added experimental support for Brimstone: The Dream of Gawain (DOS).
 
 ### General
 

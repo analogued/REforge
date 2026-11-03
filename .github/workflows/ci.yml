@@ -73,7 +73,9 @@ jobs:
           build-type: Release
           install-linux-dependencies: true
           add-to-environment: true
-          cmake-arguments: -DSDL_SHARED=ON -DSDL_STATIC=OFF
+          # Dummy video still uses udev to discover host input devices. CI
+          # supplies synthetic input, including SDL virtual controllers.
+          cmake-arguments: -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_LIBUDEV=OFF
 
       - name: Configure SDL3 linker path
         if: matrix.toolchain == 'stable'

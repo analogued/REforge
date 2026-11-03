@@ -137,7 +137,7 @@ pub static ESSEX_DOS: Edition = Edition {
     title: None,
     year: Some(1985),
     developers: &["Synapse Software"],
-    publishers: &[],
+    publishers: &["Brøderbund Software"],
     label: None,
     specs: &BTZ_DOS_SPECS,
 };

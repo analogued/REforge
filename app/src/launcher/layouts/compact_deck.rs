@@ -13,8 +13,8 @@ use super::super::{
     switchers::{self, AnchorPlacement},
     widgets::{
         ChevronDir, UiAction, draw_options_panel, draw_provenance_inline, options_toggle_button,
-        paint_palette_dots_at, paint_preview_in_rect, primary_button, quiet_text_button,
-        secondary_button,
+        paint_palette_dots_at, paint_preview_in_rect, paint_title, primary_button,
+        quiet_text_button, secondary_button,
     },
 };
 
@@ -195,9 +195,63 @@ fn draw_deck_row(
     let (title_col, sub_col) = ap.game_text_colours(&response, selected, title_col, sub_col);
 
     let text_x = thumb_rect.right() + 12.0;
-    ui.painter().text(
+    let mut title_right = rect.right() - 10.0;
+    if rect.width() >= 420.0 {
+        let (label_str, label_col) = if game.status.is_missing() {
+            ("Missing files".to_string(), ap.missing.foreground)
+        } else {
+            (game.full_mode_label(), sub_col)
+        };
+        let (_, label_col) = ap.game_text_colours(&response, selected, label_col, label_col);
+        let label_col = if game.status.is_missing() {
+            ap.missing.foreground
+        } else {
+            label_col
+        };
+        let galley = ui
+            .painter()
+            .layout_no_wrap(label_str, FontId::proportional(11.5), label_col);
+        let label_pos = Pos2::new(
+            rect.right()
+                - galley.size().x
+                - 14.0
+                - if game.status.is_missing() { 13.4 } else { 0.0 },
+            rect.center().y - galley.size().y * 0.5,
+        );
+        title_right = label_pos.x - 10.0;
+        let dot_y = label_pos.y + galley.size().y * 0.5;
+        ui.painter().galley(label_pos, galley, label_col);
+        if game.status.is_missing() {
+            ui.painter().circle_filled(
+                Pos2::new(rect.right() - 14.0 - 3.2, dot_y),
+                3.2,
+                ap.missing.foreground,
+            );
+        }
+
+        if !game.status.is_missing() && rect.width() >= 500.0 {
+            let swatches = game.palette_swatches();
+            let dot_size = 6.0;
+            let dots_w =
+                swatches.len() as f32 * dot_size + (swatches.len().saturating_sub(1)) as f32 * 3.0;
+            title_right = label_pos.x - dots_w - 20.0;
+            paint_palette_dots_at(
+                ui.painter(),
+                ap,
+                Pos2::new(
+                    label_pos.x - dots_w - 10.0,
+                    rect.center().y - dot_size * 0.5,
+                ),
+                swatches,
+                dot_size,
+            );
+        }
+    }
+
+    paint_title(
+        ui.painter(),
         Pos2::new(text_x, rect.top() + 7.5),
-        egui::Align2::LEFT_TOP,
+        title_right - text_x,
         &game.title,
         FontId::proportional(14.5),
         title_col,
@@ -223,56 +277,6 @@ fn draw_deck_row(
         Pos2::new(max_meta_x.max(text_x), rect.bottom()),
     ));
     clipped.galley(Pos2::new(text_x, rect.top() + 28.0), meta_galley, sub_col);
-
-    if rect.width() >= 420.0 {
-        let (label_str, label_col) = if game.status.is_missing() {
-            ("Missing files".to_string(), ap.missing.foreground)
-        } else {
-            (game.full_mode_label(), sub_col)
-        };
-        let (_, label_col) = ap.game_text_colours(&response, selected, label_col, label_col);
-        let label_col = if game.status.is_missing() {
-            ap.missing.foreground
-        } else {
-            label_col
-        };
-        let galley = ui
-            .painter()
-            .layout_no_wrap(label_str, FontId::proportional(11.5), label_col);
-        let label_pos = Pos2::new(
-            rect.right()
-                - galley.size().x
-                - 14.0
-                - if game.status.is_missing() { 13.4 } else { 0.0 },
-            rect.center().y - galley.size().y * 0.5,
-        );
-        let dot_y = label_pos.y + galley.size().y * 0.5;
-        ui.painter().galley(label_pos, galley, label_col);
-        if game.status.is_missing() {
-            ui.painter().circle_filled(
-                Pos2::new(rect.right() - 14.0 - 3.2, dot_y),
-                3.2,
-                ap.missing.foreground,
-            );
-        }
-
-        if !game.status.is_missing() && rect.width() >= 500.0 {
-            let swatches = game.palette_swatches();
-            let dot_size = 6.0;
-            let dots_w =
-                swatches.len() as f32 * dot_size + (swatches.len().saturating_sub(1)) as f32 * 3.0;
-            paint_palette_dots_at(
-                ui.painter(),
-                ap,
-                Pos2::new(
-                    label_pos.x - dots_w - 10.0,
-                    rect.center().y - dot_size * 0.5,
-                ),
-                swatches,
-                dot_size,
-            );
-        }
-    }
 
     response
 }

@@ -32,6 +32,28 @@ pub enum ChevronDir {
     Down,
 }
 
+/// Keep fixed-height library titles inside their allotted width. The original
+/// string remains intact; egui replaces only the overflowing display with `…`.
+pub fn paint_title(
+    painter: &egui::Painter,
+    position: Pos2,
+    width: f32,
+    title: &str,
+    font: FontId,
+    colour: Color32,
+) {
+    let width = width.max(0.0);
+    let mut job = egui::text::LayoutJob::simple_singleline(title.into(), font, colour);
+    // Text layout rounds its width to whole points. Round down here so that
+    // rounding cannot place the ellipsis beyond a fractional right edge.
+    job.wrap = egui::text::TextWrapping::truncate_at_width(width.floor());
+    let galley = painter.layout_job(job);
+    let bounds = Rect::from_min_size(position, Vec2::new(width, galley.size().y));
+    painter
+        .with_clip_rect(bounds)
+        .galley(position, galley, colour);
+}
+
 pub fn paint_chevron(painter: &egui::Painter, center: Pos2, dir: ChevronDir, color: Color32) {
     let pts = match dir {
         ChevronDir::Up => vec![

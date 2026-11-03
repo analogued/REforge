@@ -14,6 +14,158 @@ use std::{
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn long_library_titles_elide_without_changing_rows_or_hiding_actions() {
+    let fixture = Fixture::new(2);
+    let titles = [
+        "Brimstone: The Dream of Gawain".to_owned(),
+        "A very long title with Unicode — Élan Ω and an exceptionally long subtitle".repeat(3),
+    ];
+    for theme in ThemeId::ALL {
+        for layout in LayoutVariant::ALL {
+            for verified in [true, false] {
+                for (size, density) in [
+                    (Vec2::new(630.0, 470.0), 2.25),
+                    (Vec2::new(1000.0, 720.0), 1.0),
+                ] {
+                    let mut h = Harness::new(&fixture, theme, layout, verified);
+                    h.size = size;
+                    h.density = density;
+                    h.state.selected = Some(h.state.games[0].entry_id.clone());
+                    h.state.games[0].title = "Short title".into();
+                    h.state.games[1].title = "Another title".into();
+                    let before = h.settle();
+                    let row = text_rect(&before, "Another title").unwrap();
+                    let action = if verified { "Play" } else { "Locate Files…" };
+                    let action_rect = text_rect(&before, action).unwrap();
+                    for (game, title) in h.state.games.iter_mut().zip(&titles) {
+                        game.title.clone_from(title);
+                    }
+                    let output = h.settle();
+                    let actual_action = text_rect(&output, action).unwrap();
+                    assert!(Rect::from_min_size(Pos2::ZERO, size).contains(actual_action.center()));
+                    if layout != LayoutVariant::SplitInspector {
+                        assert_eq!(actual_action, action_rect, "{theme:?} {layout:?} {size:?}");
+                    }
+                    let second = text_rect(&output, &titles[1]).unwrap();
+                    assert_eq!(row.top(), second.top(), "title changed row placement");
+                    assert_eq!(row.height(), second.height(), "title changed row height");
+                    let mut elided = 0;
+                    let mut full_heading = false;
+                    for shape in &output.shapes {
+                        let egui::Shape::Text(text) = &shape.shape else {
+                            continue;
+                        };
+                        if !titles.iter().any(|title| title == text.galley.text()) {
+                            continue;
+                        }
+                        if text.galley.elided {
+                            elided += 1;
+                            assert_eq!(text.galley.rows.len(), 1);
+                            assert_eq!(text.galley.rows[0].glyphs.last().unwrap().chr, '…');
+                            let rect = Rect::from_min_size(text.pos, text.galley.size());
+                            assert!(rect.left() >= shape.clip_rect.left() - 0.1);
+                            assert!(
+                                rect.right() <= shape.clip_rect.right() + 0.1,
+                                "{theme:?} {layout:?} {size:?}: title={rect:?}, clip={:?}",
+                                shape.clip_rect
+                            );
+                            assert!(rect.right() <= size.x);
+                            if layout == LayoutVariant::CompactDeck {
+                                for other in &output.shapes {
+                                    let egui::Shape::Text(label) = &other.shape else {
+                                        continue;
+                                    };
+                                    if h.state.games.iter().any(|game| {
+                                        label.galley.text()
+                                            == if verified {
+                                                game.full_mode_label()
+                                            } else {
+                                                "Missing files".into()
+                                            }
+                                    }) {
+                                        let label_rect =
+                                            Rect::from_min_size(label.pos, label.galley.size());
+                                        assert!(
+                                            !rect.intersects(label_rect),
+                                            "title overlaps Compact mode/status label"
+                                        );
+                                    }
+                                }
+                            }
+                        } else if text.galley.text() == titles[0] {
+                            full_heading = true;
+                        }
+                    }
+                    assert!(elided > 0, "{theme:?} {layout:?} {size:?}");
+                    if layout == LayoutVariant::SplitInspector {
+                        assert!(full_heading, "detail heading must keep the full title");
+                    }
+                    assert_eq!(h.state.games[0].title, titles[0]);
+                    assert_eq!(h.state.games[1].title, titles[1]);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "owns SDL video; run alone with SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software"]
+fn long_titles_native_painter() {
+    use reforge_sdl::settings::UiMetrics;
+    let fixture = Fixture::new(2);
+    let sdl = sdl3::init().unwrap();
+    let video = sdl.video().unwrap();
+    let capture = std::env::var_os("REFORGE_LAUNCHER_CAPTURE").map(PathBuf::from);
+    if let Some(directory) = &capture {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    for (size, density) in [((630, 470), 2.25_f32), ((1000, 720), 1.0_f32)] {
+        let pixels = (
+            (size.0 as f32 * density).round() as u32,
+            (size.1 as f32 * density).round() as u32,
+        );
+        let window = video
+            .window("Long library titles", pixels.0, pixels.1)
+            .hidden()
+            .build()
+            .unwrap();
+        let mut canvas = window.into_canvas();
+        let creator = FrameCreator::for_ui(&canvas);
+        let mut gui = Gui::new(&creator);
+        gui.set_focus_overlay(false);
+        gui.set_theme(ResolvedAppearance::resolve(ThemeId::CrispLight).theme);
+        let metrics = UiMetrics {
+            drawable: pixels,
+            window: pixels,
+            pixels_per_point: density,
+        };
+        for layout in LayoutVariant::ALL {
+            let mut state = fixture.state(ThemeId::CrispLight, layout, true);
+            state.games[0].title = "Brimstone: The Dream of Gawain".into();
+            state.games[1].title =
+                "A very long title with Unicode — Élan Ω and an exceptionally long subtitle"
+                    .repeat(3);
+            state.selected = Some(state.games[0].entry_id.clone());
+            for _ in 0..4 {
+                native_frame(&mut gui, &mut canvas, &mut state, metrics);
+            }
+            if let Some(directory) = &capture {
+                canvas
+                    .read_pixels(None)
+                    .unwrap()
+                    .save_bmp(directory.join(format!(
+                        "{}-{}x{}.bmp",
+                        layout.slug(),
+                        size.0,
+                        size.1
+                    )))
+                    .unwrap();
+            }
+        }
+    }
+}
+
+#[test]
 fn close_restores_selected_entry_without_changing_library_order() {
     for layout in LayoutVariant::ALL {
         // Two copies of Alley Cat distinguish entry identity from game identity.

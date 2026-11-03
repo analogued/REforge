@@ -13,6 +13,8 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Truncate long library titles with an ellipsis so they stay inside their rows
+  and cards, preserving the full title in Split details.
 - Hide the idle mouse cursor during graphical play, including fullscreen.
 - Restore the last selected library entry when reopening the launcher.
 - Consistent top-left option badges for preview images and initials fallbacks.

@@ -13,8 +13,8 @@ use super::super::{
     switchers::{self, AnchorPlacement},
     widgets::{
         ChevronDir, UiAction, draw_options_panel, draw_provenance_inline, options_toggle_button,
-        paint_palette_dots_at, paint_preview_in_rect, primary_button, quiet_text_button,
-        secondary_button,
+        paint_palette_dots_at, paint_preview_in_rect, paint_title, primary_button,
+        quiet_text_button, secondary_button,
     },
 };
 
@@ -114,11 +114,45 @@ pub fn draw(
                     ui.add_space(6.0);
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        ui.label(
-                            RichText::new(&snapshot.title)
-                                .size(15.0)
-                                .strong()
-                                .color(ap.tokens.text_primary),
+                        // Keep room for the status marker/word before allowing
+                        // the title and original path to consume the remainder.
+                        let status = if snapshot.status.is_missing() {
+                            "Missing"
+                        } else {
+                            "Verified"
+                        };
+                        let status_width = ui
+                            .painter()
+                            .layout_no_wrap(
+                                format!("{status} · …"),
+                                FontId::proportional(11.5),
+                                ap.tokens.text_muted,
+                            )
+                            .size()
+                            .x
+                            + 13.0;
+                        let font = FontId::proportional(15.0);
+                        let natural = ui
+                            .painter()
+                            .layout_no_wrap(
+                                snapshot.title.clone(),
+                                font.clone(),
+                                ap.tokens.text_primary,
+                            )
+                            .size();
+                        let width = natural.x.min(
+                            (ui.available_width() - status_width - ui.spacing().item_spacing.x)
+                                .max(0.0),
+                        );
+                        let (rect, _) =
+                            ui.allocate_exact_size(Vec2::new(width, natural.y), Sense::hover());
+                        paint_title(
+                            ui.painter(),
+                            rect.min,
+                            width,
+                            &snapshot.title,
+                            font,
+                            ap.tokens.text_primary,
                         );
                         draw_provenance_inline(ui, ap, &snapshot);
                     });
@@ -305,9 +339,14 @@ fn draw_game_card(
         sub_col
     };
 
-    ui.painter().text(
+    let swatches = game.palette_swatches();
+    let dot_size = 6.0;
+    let dots_w = swatches.len() as f32 * dot_size + (swatches.len().saturating_sub(1)) as f32 * 3.0;
+    let title_right = rect.right() - pad - dots_w - 8.0;
+    paint_title(
+        ui.painter(),
         Pos2::new(rect.left() + pad, text_top),
-        egui::Align2::LEFT_TOP,
+        title_right - (rect.left() + pad),
         &game.title,
         FontId::proportional(14.5),
         title_col,
@@ -334,9 +373,6 @@ fn draw_game_card(
         );
     }
 
-    let swatches = game.palette_swatches();
-    let dot_size = 6.0;
-    let dots_w = swatches.len() as f32 * dot_size + (swatches.len().saturating_sub(1)) as f32 * 3.0;
     paint_palette_dots_at(
         ui.painter(),
         ap,

@@ -14,7 +14,8 @@ use super::super::{
     switchers::{self, AnchorPlacement},
     widgets::{
         UiAction, draw_launch_options_rows, draw_palette_dots, draw_preview_screen,
-        draw_provenance_inline, primary_button, quiet_text_button, secondary_button, section_rule,
+        draw_provenance_inline, paint_title, primary_button, quiet_text_button, secondary_button,
+        section_rule,
     },
 };
 
@@ -265,9 +266,10 @@ fn draw_sidebar_row(
         sub_col
     };
 
-    ui.painter().text(
+    paint_title(
+        ui.painter(),
         Pos2::new(text_x, rect.top() + 6.0),
-        egui::Align2::LEFT_TOP,
+        rect.right() - 10.0 - text_x - if game.status.is_missing() { 7.2 } else { 0.0 },
         &game.title,
         FontId::proportional(13.5),
         title_col,

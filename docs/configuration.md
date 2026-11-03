@@ -719,6 +719,9 @@ omitting absent facts. Video/audio feature summaries describe the catalogued
 release as supported by REforge, including explicitly named enhancements; active
 option values and palette swatches come from the engine instead.
 
+Split sidebar, Gallery and Compact titles use an ellipsis when they exceed the
+available width. Split details show the full title, wrapping when needed.
+
 A library entry has its own display title, initially copied from the detected
 edition's resolved title and editable independently in the library file. Other
 metadata is read through the catalog links and is not duplicated in user

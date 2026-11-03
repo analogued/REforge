@@ -60,12 +60,17 @@ data. These are the current implementation boundaries:
 | [`session`](src/session.rs) | VM plus native-service lifecycle, parser, editor, text and host interactions |
 | [`player`](src/player.rs), [`cli`](src/cli.rs) | Shared player loading, file operations, terminal and normal application entry point |
 | [`windowed`](src/windowed.rs), [`display`](src/display/mod.rs) | SDL event loop, windowed prompts and character-screen rasterization |
+| [`launcher`](src/launcher.rs) | Presentation choices and title-screen previews generated from the supplied data |
 | [`sound`](src/sound.rs) | BIOS bell presentation through the shared speaker, synthesis and SDL audio facilities |
 | [`btz-core`](src/bin/core.rs) | Raw VM trace, snapshots and key replays behind `dev-tools` |
 
 The ASCII bitmap font comes from the shared, SDL-independent
 [`reforge_graphics`](../../crates/reforge_graphics/README.md) crate. Character-screen
 layout, colours and border/block glyphs remain in BTZ's display module.
+
+Launcher previews retain the original title and credits, with the loading label,
+continue prompt and input cursor removed from the preview copy. They use the
+same text rasterizer as gameplay, without advancing the story or opening a host.
 
 [Interpreter definitions](docs/interpreter-definitions.md) describe the shared
 execution model and the verified differences between DOS implementations.

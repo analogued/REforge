@@ -168,6 +168,12 @@ impl GameEntry {
             .map_or_else(String::new, detection::Edition::features_line)
     }
     pub fn preview_variant(&self) -> &'static str {
+        if self
+            .edition
+            .is_some_and(|edition| edition.game.identity.is_btz())
+        {
+            return btz::launcher::PREVIEW_VARIANT;
+        }
         let values = self.option_values();
         self.options
             .iter()

@@ -693,9 +693,13 @@ After verification, the launcher loads or generates static engine scene previews
 in a background worker. It warms the available visual variants (CGA/PCjr for
 Alley Cat, colour/monochrome for Mach 3). Mach 3 uses its first splash screen.
 Alley Cat uses its intro, advanced with fixed seed `0xcafe` and the normal virtual
-startup loop until the cat sits on the fence with the SynSoft footer visible. Preview generation
-has no effect on the player's startup seed or session. Native RGBA pixels, engine-supplied
-display geometry and colour model are cached together in PNG files under:
+startup loop until the cat sits on the fence with the SynSoft footer visible.
+BTZ uses the game's original title screen, with the loading label, continue
+prompt and input cursor removed from the preview copy. Its single monochrome
+image is shared by graphical and terminal launch choices. Preview generation
+has no effect on the player's startup seed or session. Native RGBA pixels,
+engine-supplied display geometry and colour model are cached together in PNG
+files under:
 
 - Linux: `$XDG_CACHE_HOME/reforge/previews`, or `~/.cache/reforge/previews`.
 - macOS: `~/Library/Caches/REforge/previews`.

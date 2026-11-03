@@ -695,6 +695,39 @@ fn btz_launch_options_preserve_graphics_and_disable_unavailable_choices() {
 }
 
 #[test]
+fn btz_title_preview_is_shared_by_graphical_and_terminal_choices() {
+    use reforge_sdl::{DisplayGeometry, preview::Frame};
+    use std::sync::Arc;
+    let fixture = Fixture::new(detection::RELEASES.len());
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::GalleryShelf, false);
+    for game in state
+        .games
+        .iter_mut()
+        .filter(|game| matches!(game.game_id.as_str(), "mindwheel" | "essex"))
+    {
+        game.terminal_available = true;
+        let frame = Frame::new_monochrome(
+            DisplayGeometry::new((2, 1), (4, 3)),
+            [170, 170, 170, 255].repeat(2),
+        )
+        .unwrap();
+        game.previews.insert(
+            btz::launcher::PREVIEW_VARIANT.into(),
+            preview::sources::Source {
+                id: "original-title".into(),
+                frame: Arc::new(frame),
+            },
+        );
+        for renderer in ["Terminal", "Graphical"] {
+            game.save_option("Renderer", renderer);
+            assert_eq!(game.preview_variant(), btz::launcher::PREVIEW_VARIANT);
+            assert_eq!(game.previews.len(), 1);
+            assert_eq!(game.previews[game.preview_variant()].id, "original-title");
+        }
+    }
+}
+
+#[test]
 fn btz_renderer_pins_and_unpins_like_other_launch_options() {
     // The active-mode preview badge can also say "Terminal". Target the
     // button beside Graphical rather than that noninteractive label.
@@ -1393,7 +1426,7 @@ fn native_notification_previews() {
 }
 
 #[test]
-#[ignore = "owns SDL video; optional REFORGE_PREVIEW_ORIGINALS supplies two originals; run serially"]
+#[ignore = "owns SDL video; optional REFORGE_PREVIEW_ORIGINALS supplies two or four originals; run serially"]
 fn native_engine_previews() {
     use reforge_sdl::{DisplayGeometry, preview::Frame, settings::UiMetrics};
     use std::sync::Arc;
@@ -1401,10 +1434,9 @@ fn native_engine_previews() {
     let originals = std::env::var_os("REFORGE_PREVIEW_ORIGINALS")
         .map(|v| std::env::split_paths(&v).collect::<Vec<_>>());
     if let Some(paths) = &originals {
-        assert_eq!(
-            paths.len(),
-            2,
-            "Alley Cat executable and Mach 3 directory required"
+        assert!(
+            matches!(paths.len(), 2 | 4),
+            "Alley Cat and Mach 3 originals required; optionally append Mindwheel and Essex"
         );
         let mut library = Library::new(fixture.library.clone());
         // Real inputs remain outside the repository and untouched. Multiple
@@ -1422,7 +1454,7 @@ fn native_engine_previews() {
         }
     }
     let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::GalleryShelf, true);
-    if originals.is_some() {
+    if let Some(paths) = &originals {
         state.games.retain(|g| {
             super::verify_entry(
                 &state
@@ -1435,10 +1467,17 @@ fn native_engine_previews() {
             )
             .is_ok()
         });
-        assert_eq!(state.games.len(), 2);
+        assert_eq!(state.games.len(), paths.len());
         let mut manager = preview::sources::Manager::new(Some(fixture.directory.join("previews")));
         let start = std::time::Instant::now();
-        while state.games.iter().any(|g| g.previews.len() != 2) {
+        while state.games.iter().any(|g| {
+            g.previews.len()
+                != if matches!(g.game_id.as_str(), "mindwheel" | "essex") {
+                    1
+                } else {
+                    2
+                }
+        }) {
             assert!(
                 start.elapsed() < Duration::from_secs(15),
                 "engine preview generation timed out"
@@ -1457,7 +1496,7 @@ fn native_engine_previews() {
                     }
                     detection::Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
                     detection::Game::Mindwheel | detection::Game::Essex => {
-                        unreachable!("BTZ games have no preview recipe")
+                        btz::launcher::preview(&detected.files, variant)
                     }
                 }
                 .unwrap();
@@ -1483,6 +1522,7 @@ fn native_engine_previews() {
             );
         }
         let mut additional = state.games.clone();
+        additional.retain(|game| matches!(game.game_id.as_str(), "alley-cat" | "mach-3"));
         for game in &mut additional {
             game.entry_id.push_str("-variant");
             let option = if game.game_id == "alley-cat" {

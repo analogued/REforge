@@ -73,15 +73,6 @@ release it before switching again. Both modes work with optional CRT presentatio
 For fullscreen, scaling, CRT presentation, audio levels and controller settings,
 see the shared [Settings menu](../configuration.md).
 
-## Current limits
-
-Support currently covers the verified DOS release. Later gameplay paths still
-need broader comparisons with the original, and other platform versions and
-additional hardware modes are outside the current supported set.
-
-For implementation details, diagnostic tools and sound rendering, see the
-[engine documentation](../../engines/mach3/README.md).
-
 ## Motion
 
 Enhanced motion is the default. It smooths the craft and shadow while retaining
@@ -97,3 +88,12 @@ temporarily selects a mode and locks its menu control for that run.
 The display frame limit and VSync control presentation; they do not change game
 speed. Long host stalls can cause a visible position correction when playback
 catches up.
+
+## Current limits
+
+Support currently covers the verified DOS release. Later gameplay paths still
+need broader comparisons with the original, and other platform versions and
+additional hardware modes are outside the current supported set.
+
+For implementation details, diagnostic tools and sound rendering, see the
+[engine documentation](../../engines/mach3/README.md).

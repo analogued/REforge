@@ -808,8 +808,15 @@ fn gameplay_run_motion(
     let log = logged_initial_signal_clock(&mut simulation, signal.clone());
     enter_playing(&mut simulation, &frames, &resources);
     #[cfg(feature = "dev-tools")]
-    let motion_path = if motion_mode == 3 {
-        simulation.motion = Some(MotionPresenter::new());
+    let motion_path = if matches!(motion_mode, 3 | 5) {
+        simulation.motion = Some(MotionPresenter::for_options(&Options {
+            motion: Some(if motion_mode == 5 {
+                MotionMode::Scene
+            } else {
+                MotionMode::Enhanced
+            }),
+            ..Options::default()
+        }));
         None
     } else if motion_mode == 4 {
         simulation.motion = Some(MotionPresenter::for_options(&Options {
@@ -840,8 +847,15 @@ fn gameplay_run_motion(
         None
     };
     #[cfg(not(feature = "dev-tools"))]
-    if motion_mode == 3 {
-        simulation.motion = Some(MotionPresenter::new());
+    if matches!(motion_mode, 3 | 5) {
+        simulation.motion = Some(MotionPresenter::for_options(&Options {
+            motion: Some(if motion_mode == 5 {
+                MotionMode::Scene
+            } else {
+                MotionMode::Enhanced
+            }),
+            ..Options::default()
+        }));
     }
     let start = simulation.clock.tick();
     for (offset, raw) in [
@@ -865,6 +879,7 @@ fn gameplay_run_motion(
     let mut pcm = Vec::new();
     let mut events = Vec::new();
     let end = start + 500_000;
+    let mut scene_frames = 0;
     while simulation.clock.tick() < end {
         let target = (simulation.clock.tick() + budget(&simulation)).min(end);
         advance(&mut simulation, target, &frames, &resources, &mut events);
@@ -873,10 +888,17 @@ fn gameplay_run_motion(
             let receipt = tick + if motion_mode == 2 { 100_000 } else { 0 };
             motion.commit(receipt).unwrap();
             let native = simulation.visible.clone();
-            let _ = motion.render(receipt).unwrap();
+            let _ = motion.render(receipt, frames.graphics()).unwrap();
             motion.set_mode(MotionMode::Original);
-            let _ = motion.render(receipt).unwrap();
+            let _ = motion.render(receipt, frames.graphics()).unwrap();
             motion.set_mode(MotionMode::Enhanced);
+            let _ = motion.render(receipt, frames.graphics()).unwrap();
+            motion.set_mode(MotionMode::Scene);
+            scene_frames +=
+                usize::from(motion.render(receipt, frames.graphics()).unwrap().is_some());
+            if motion_mode != 5 {
+                motion.set_mode(MotionMode::Enhanced);
+            }
             #[cfg(feature = "dev-tools")]
             motion.presented(receipt, receipt, 0);
             assert_eq!(native, simulation.visible);
@@ -921,6 +943,9 @@ fn gameplay_run_motion(
         panic!("bounded gameplay returned")
     };
     assert!(runtime.game().snapshot().body > 0);
+    if simulation.motion.is_some() {
+        assert!(scene_frames > 0);
+    }
     assert!(signal.borrow().error.is_none());
     if discard_output {
         assert!(queued.stats().recoveries > 0);
@@ -957,9 +982,9 @@ fn live_motion_observation_toggle_and_delayed_receipt_preserve_execution_and_pcm
         0,
     );
     let modes: &[u8] = if cfg!(feature = "dev-tools") {
-        &[1, 2, 3, 4]
+        &[1, 2, 3, 4, 5]
     } else {
-        &[3]
+        &[3, 5]
     };
     for &receipt in modes {
         let observed = gameplay_run_motion(

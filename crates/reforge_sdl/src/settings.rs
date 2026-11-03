@@ -1071,14 +1071,14 @@ mod tests {
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
             .with_mach3_options(None)
             .with_mach3_motion(None);
-        assert_eq!(display.settings().mach3.motion, MotionMode::Enhanced);
+        assert_eq!(display.settings().mach3.motion, MotionMode::Scene);
         menu.toggle();
         menu.prepare(display.ui_metrics(), display.settings());
         menu.draft
             .as_mut()
             .unwrap()
             .edit(true, MOTION, "original".into());
-        assert_eq!(display.settings().mach3.motion, MotionMode::Enhanced);
+        assert_eq!(display.settings().mach3.motion, MotionMode::Scene);
         assert!(!path.exists());
         menu.pending = menu.draft.clone();
         let request = creator

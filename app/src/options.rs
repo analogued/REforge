@@ -367,9 +367,9 @@ const SPECS: &[Spec] = &[
     Spec {
         name: "--motion",
         scope: Scope::Game(Game::Mach3),
-        value: Value::Choice(&["enhanced", "original"]),
+        value: Value::Choice(&["scene", "enhanced", "original"]),
         dev: false,
-        description: "Select enhanced craft motion (default) or original presentation",
+        description: "Select interpolated scene motion (default), craft-only interpolation or original presentation",
     },
     Spec {
         name: "--trace-motion",
@@ -1474,7 +1474,7 @@ mod tests {
     }
     #[test]
     fn motion_selection_is_game_scoped_in_normal_builds() {
-        for mode in ["enhanced", "original"] {
+        for mode in ["scene", "enhanced", "original"] {
             let selected = prepare(args(&["--motion", mode]), Game::Mach3);
             assert_eq!(selected.args, args(&["--motion", mode]));
             assert!(selected.warnings.is_empty());

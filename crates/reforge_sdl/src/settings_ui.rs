@@ -620,11 +620,7 @@ fn display_controls(
         );
     });
     if mach3 {
-        row(ui, "Motion", MOTION, rows.state(MOTION, value), |ui| {
-            Selector::new(MOTION, MotionMode::ALL.map(|mode| Choice::new(mode, mode.label())))
-                .show(ui, &mut value.mach3.motion)
-                .on_hover_text("Enhanced smooths craft and shadow movement. Original uses the game's native presentation. Gameplay timing and collisions are unchanged.");
-        });
+        mach3_motion_controls(ui, value, rows);
     }
     section(ui, "Rendering");
     row(
@@ -1164,6 +1160,67 @@ fn section(ui: &mut egui::Ui, label: &str) {
     );
     ui.separator();
 }
+fn mach3_motion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
+    let legacy_id = ui.make_persistent_id("mach3_original_scene_motion");
+    if value.mach3.motion != MotionMode::Scene {
+        ui.data_mut(|data| data.insert_temp(legacy_id, value.mach3.motion));
+    }
+    let original_scene = value.mach3.motion == MotionMode::Scene;
+    let mut scene = original_scene;
+    row(
+        ui,
+        "Scene movement",
+        MOTION,
+        rows.state(MOTION, value),
+        |ui| {
+            Selector::new(
+                MOTION,
+                [
+                    Choice::new(true, "Interpolated"),
+                    Choice::new(false, "Original"),
+                ],
+            )
+            .show(ui, &mut scene)
+            .on_hover_text(concat!(
+                "Interpolated smooths scene movement. Original retains native scene updates ",
+                "and lets you choose player craft movement. Gameplay timing and collisions ",
+                "are unchanged.",
+            ));
+            if scene != original_scene {
+                value.mach3.motion = if scene {
+                    MotionMode::Scene
+                } else {
+                    ui.data(|data| data.get_temp(legacy_id))
+                        .unwrap_or(MotionMode::Enhanced)
+                };
+            }
+        },
+    );
+    if value.mach3.motion != MotionMode::Scene {
+        row(
+            ui,
+            "Player craft movement",
+            "player_craft_motion",
+            rows.state(MOTION, value),
+            |ui| {
+                Selector::new(
+                    "player_craft_motion",
+                    [
+                        Choice::new(MotionMode::Enhanced, "Interpolated"),
+                        Choice::new(MotionMode::Original, "Original"),
+                    ],
+                )
+                .show(ui, &mut value.mach3.motion)
+                .on_hover_text(concat!(
+                    "Interpolated smooths the player craft and its shadow. Original retains ",
+                    "native craft placement and publication rhythm.",
+                ));
+            },
+        );
+        ui.data_mut(|data| data.insert_temp(legacy_id, value.mach3.motion));
+    }
+}
+
 fn renderer_label(r: Renderer) -> &'static str {
     match r {
         Renderer::Auto => "Automatic · GPU preferred",
@@ -2148,7 +2205,7 @@ mod tests {
                         });
                     },
                 );
-                let label = text_rect(&output, "Motion");
+                let label = text_rect(&output, "Scene movement");
                 if scope == 0 || !mach3 {
                     assert!(label.is_none());
                     break;
@@ -2164,12 +2221,12 @@ mod tests {
                 }
                 assert!(label.top() > text_rect(&output, "Aspect ratio").unwrap().bottom());
                 if step < 2 {
-                    button = text_rect(&output, "Enhanced").unwrap().center();
+                    button = text_rect(&output, "Interpolated").unwrap().center();
                 }
                 if step == 5 {
                     if locked || !section_editable {
                         assert!(text_rect(&output, "Original").is_none());
-                        assert_eq!(value.mach3.motion, MotionMode::Enhanced);
+                        assert_eq!(value.mach3.motion, MotionMode::Scene);
                         break;
                     }
                     off = text_rect(&output, "Original")
@@ -2178,8 +2235,139 @@ mod tests {
                 }
             }
             if scope == 1 && mach3 && section_editable && !locked {
-                assert_eq!(value.mach3.motion, MotionMode::Original);
+                assert_eq!(value.mach3.motion, MotionMode::Enhanced);
                 assert_eq!(value.audio.enabled, !muted);
+            }
+        }
+    }
+
+    #[test]
+    fn mach3_scene_and_craft_selectors_preserve_legacy_choice_and_locks() {
+        use crate::settings_selector::{InputMode, set_mode};
+        struct Harness {
+            context: egui::Context,
+            value: RuntimeSettings,
+            cli: reforge_settings::Patch,
+            editable: bool,
+            time: f64,
+        }
+        impl Harness {
+            fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
+                self.time += 0.02;
+                self.context.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            Pos2::ZERO,
+                            Vec2::splat(900.0),
+                        )),
+                        time: Some(self.time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        crate::settings_navigation::begin_frame(ctx);
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            ui.add_enabled_ui(self.editable, |ui| {
+                                mach3_motion_controls(
+                                    ui,
+                                    &mut self.value,
+                                    RowContext {
+                                        base: &RuntimeSettings::default(),
+                                        previous: &RuntimeSettings::default(),
+                                        scope: 1,
+                                        overrides: Overrides::default(),
+                                        cli: &self.cli,
+                                    },
+                                );
+                            });
+                        });
+                    },
+                )
+            }
+            fn text(output: &egui::FullOutput, label: &str) -> Vec<egui::Rect> {
+                output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text) if text.galley.text() == label => {
+                            Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            }
+            fn focus(&mut self, row: &str, selected: &str, mode: InputMode) {
+                let output = self.frame(Vec::new());
+                let label = Self::text(&output, row)[0];
+                let point = Self::text(&output, selected)
+                    .into_iter()
+                    .find(|rect| (rect.center().y - label.center().y).abs() < 3.0)
+                    .unwrap()
+                    .center();
+                for pressed in [true, false] {
+                    self.frame(vec![
+                        egui::Event::PointerMoved(point),
+                        egui::Event::PointerButton {
+                            pos: point,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ]);
+                }
+                set_mode(&self.context, mode);
+            }
+            fn next(&mut self) -> egui::FullOutput {
+                self.frame(vec![egui::Event::Key {
+                    key: egui::Key::ArrowRight,
+                    physical_key: Some(egui::Key::ArrowRight),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }])
+            }
+        }
+        for mode in [InputMode::Keyboard, InputMode::Controller] {
+            for (locked, editable) in [(false, true), (true, true), (true, false)] {
+                let mut h = Harness {
+                    context: egui::Context::default(),
+                    value: RuntimeSettings::default(),
+                    cli: if locked {
+                        [(MOTION.into(), "original".into())].into()
+                    } else {
+                        Default::default()
+                    },
+                    editable,
+                    time: 0.0,
+                };
+                style(&h.context);
+                h.value.mach3.motion = MotionMode::Original;
+                h.frame(Vec::new());
+                h.focus("Player craft movement", "Original", mode);
+                let output = h.next();
+                if locked {
+                    assert_eq!(h.value.mach3.motion, MotionMode::Original);
+                    assert_eq!(output.shapes.iter().filter(|shape|
+                        matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == CLI_LOCK)
+                    ).count(), 2, "both rows retain CLI lock markers when inherited");
+                    h.focus("Scene movement", "Original", mode);
+                    h.next();
+                    assert_eq!(h.value.mach3.motion, MotionMode::Original);
+                    continue;
+                }
+                assert_eq!(h.value.mach3.motion, MotionMode::Enhanced);
+                h.next();
+                assert_eq!(h.value.mach3.motion, MotionMode::Original);
+                h.focus("Scene movement", "Original", mode);
+                let output = h.next();
+                assert_eq!(h.value.mach3.motion, MotionMode::Scene);
+                assert!(Harness::text(&output, "Player craft movement").is_empty());
+                h.next();
+                assert_eq!(
+                    h.value.mach3.motion,
+                    MotionMode::Original,
+                    "restore the legacy craft choice"
+                );
             }
         }
     }

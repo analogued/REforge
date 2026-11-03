@@ -471,16 +471,13 @@ impl Simulation {
                         for (tick, event) in motion_events {
                             motion.event(tick, event);
                         }
-                        if progress == GameplayProgress::Pending
-                            && runtime.game().snapshot().player.phase != 0
-                        {
-                            motion.suspend(self.clock.tick(), "damage_pending");
-                        } else if progress == GameplayProgress::Pending
-                            && matches!(self.clock.handlers()[0].offset, 0x57a4 | 0x57b8)
-                        {
-                            // A skipped/disabled sample call is not a suspension.
-                            // These installed handlers identify active sample IRQs.
-                            motion.suspend(self.clock.tick(), "blocking_sample");
+                        if progress == GameplayProgress::Pending {
+                            motion.pending_wait(
+                                self.clock.tick(),
+                                runtime.game().snapshot().player.phase != 0,
+                                // Skipped/disabled calls install no sample IRQs.
+                                matches!(self.clock.handlers()[0].offset, 0x57a4 | 0x57b8),
+                            );
                         }
                     }
                     runtime.synchronize_session(&mut self.session);
@@ -1432,7 +1429,7 @@ pub(super) fn run(
             let motion_frame = simulation
                 .motion
                 .as_ref()
-                .map(|m| m.render(motion_tick))
+                .map(|m| m.render(motion_tick, frames.graphics()))
                 .transpose()?
                 .flatten();
             let visible = motion_frame.as_ref().unwrap_or(&simulation.visible);
@@ -1444,7 +1441,6 @@ pub(super) fn run(
                 simulation.palette(),
             ))?;
             window.present_with(&texture, |canvas| menu.paint(canvas))?;
-            #[cfg(feature = "dev-tools")]
             #[cfg(feature = "dev-tools")]
             if let Some(motion) = &mut simulation.motion {
                 motion.presented(

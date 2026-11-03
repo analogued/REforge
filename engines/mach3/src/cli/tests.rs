@@ -46,7 +46,9 @@ fn motion_experiment_requires_a_path_and_is_feature_gated() {
 
 #[test]
 fn motion_is_available_in_normal_builds_and_defaults_to_saved_preferences() {
+    assert!(help().contains("--motion scene|enhanced|original"));
     for (name, mode) in [
+        ("scene", MotionMode::Scene),
         ("enhanced", MotionMode::Enhanced),
         ("original", MotionMode::Original),
     ] {

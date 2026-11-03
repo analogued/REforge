@@ -158,11 +158,8 @@ impl EnemyUpdate {
 pub(crate) struct Enemy {
     bullet: EnemySnapshot,
     crafts: [EnemySnapshot; 5],
-    #[cfg(feature = "dev-tools")]
     pub(super) births: [u64; 5],
-    #[cfg(feature = "dev-tools")]
     pub(super) bullet_birth: u64,
-    #[cfg(feature = "dev-tools")]
     pub(super) projected_births: [u64; 11],
     shadows: [EnemySnapshot; 5],
     target: [i16; 2],
@@ -186,11 +183,8 @@ impl Enemy {
         let mut state = Self {
             bullet: EnemySnapshot::new(4, 22, 14, -100),
             crafts: std::array::from_fn(|i| EnemySnapshot::new(5 + i, 0, 0, 0)),
-            #[cfg(feature = "dev-tools")]
             births: [0; 5],
-            #[cfg(feature = "dev-tools")]
             bullet_birth: 0,
-            #[cfg(feature = "dev-tools")]
             projected_births: [0; 11],
             shadows: std::array::from_fn(|i| EnemySnapshot::new(10 + i, 0, 0, 0)),
             target: [0, 0],
@@ -263,7 +257,6 @@ impl Enemy {
         }
         let mut effects = EnemyEffects::default();
         for i in 0..count.min(5) {
-            #[cfg(feature = "dev-tools")]
             {
                 self.births[i] = self.births[i].wrapping_add(1);
             }
@@ -593,7 +586,6 @@ impl Enemy {
         }
         let firing = random.next_word() & 1 != 0;
         if firing && !self.bullet.active && !matches!(craft.variant, 2..=4) {
-            #[cfg(feature = "dev-tools")]
             {
                 self.bullet_birth = self.bullet_birth.wrapping_add(1);
             }
@@ -1113,7 +1105,6 @@ impl Enemy {
         vertical_origin: i32,
         camera_height: i16,
     ) -> Result<(), Error> {
-        #[cfg(feature = "dev-tools")]
         let births: [u64; 11] = std::array::from_fn(|i| {
             if i == 0 {
                 self.bullet_birth
@@ -1127,7 +1118,6 @@ impl Enemy {
         {
             if full_projection || slot.depth < 70 {
                 slot.project(assets, vertical_origin, camera_height)?;
-                #[cfg(feature = "dev-tools")]
                 {
                     self.projected_births[slot.slot - 4] = births[slot.slot - 4];
                 }

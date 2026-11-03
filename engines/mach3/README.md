@@ -13,8 +13,10 @@ interfaces and diagnostic tools.
 Live play includes steering, shooting, encounter progression, collision responses,
 endings and retained-session restarts, with no gameplay loop cap. Samples,
 procedural sound and foreground waits share one reconstructed PIT timeline.
-Enhanced craft/shadow motion is the interactive default; Original motion remains
-selectable without changing native execution or recording/replay output.
+Interpolated scene movement is the interactive default; craft/shadow-only
+interpolation and Original presentation remain selectable without changing native
+execution or recording/replay output. Mountains retain their original artwork
+and updates.
 PC Speaker and Enhanced PCM output use that same execution. Later gameplay paths
 still need broader original-code comparisons; other platform versions and
 additional hardware modes remain outside the supported set.
@@ -91,9 +93,11 @@ preceding host-pause state.
 
 Mach 3-specific options include:
 
-- `--motion enhanced|original`: temporarily select smooth craft/shadow motion
-  (default Enhanced) or native presentation. The saved per-game Display setting
-  applies when this argument is absent.
+- `--motion scene|enhanced|original`: temporarily select interpolated scene
+  movement (default `scene`), craft/shadow-only interpolation (`enhanced`), or
+  native presentation (`original`). Existing saved values keep their meanings.
+  The saved per-game Display setting applies when this argument is absent.
+  F10 offers Scene movement and, for Original scene movement, Player craft movement.
 
 - `--video cga|mono`: select the initial native colour or monochrome display.
   F3 can still switch modes during play.
@@ -155,11 +159,29 @@ included or licensed by this repository.
 ## Visual motion presenter
 
 `motion` consumes immutable native observations. `gameplay::raster` retains the
-actual restore/draw transactions; the presenter composes complete craft/shadow
-sprites while preserving retained world fragments, CGA mask operations and
-foreground order. It neither mutates projection caches nor advances simulation.
+actual restore/draw transactions. Scene mode interpolates scene movement; legacy
+Enhanced mode composes complete craft/shadow sprites while preserving retained
+world fragments, CGA mask operations and foreground order. Original uses native
+publications. Presentation neither mutates projection caches nor advances
+simulation. Mountains keep their original artwork and updates.
 
-The forecast uses accepted steering and one reconstructed movement step, with
+The scene presenter separates intrinsic object coordinates from one shared
+camera. Player shots, straight-moving enemies, terrain and gates use their
+reconstructed movement rates; other enemies use observed full-body rates, and
+the homing projectile follows its observed target. Stationary terrain effects
+stop forecasting forward. Source timestamps determine cadence, while receipt
+delay consumes the prediction allowance. Lifetimes and projected-lifetime tags
+prevent joining reused object slots or moving an old cached image as a new actor.
+
+Scene mode composes complete original sprites and procedural gate geometry in
+native paint order, retaining two-bit CGA mask operations and discrete artwork.
+Moving terrain and gates stop their forecasts at the native retirement plane;
+deactivated gates are removed at the observed event rather than retaining a
+frozen cached drawing. A coherent first pass is required after a scene reset.
+Damage artwork retains native craft placement while the world continues to
+move; actual native waits suspend the applicable visual history.
+
+The craft forecast uses accepted steering and one reconstructed movement step, with
 measured pass/body cadence. Target motion is limited to 50 ms, 12 projected
 pixels and the native movement limits independently per axis. An analytical
 20 ms first-order follower integrates the target and its stopping times.
@@ -169,12 +191,13 @@ input latency. Banking changes artwork discretely around continuous anchors.
 Native pause freezes the visual pose. Damage, blocking samples, transitions,
 endings and new games suspend/reset the relevant history; host pause freezes its
 clock. Delayed catch-up observations are consumed in order, with obsolete output
-omitted rather than traversed rapidly. Enhanced redraws use the shared VSync and
+omitted rather than traversed rapidly. Interpolated redraws use the shared VSync and
 frame limiter. Original keeps native publications; headless exports/replay remain
 native. A long host stall can require a visible catch-up correction.
 
 `--trace-motion PATH` is an optional `dev-tools` diagnostic. Creation/write/flush
 errors warn and disable logging without affecting the presenter. It retains a
-bounded transaction/observation trace, not an image series. The historical
+bounded transaction/observation trace, including the selected motion mode and
+scene-adjusted craft anchors, not an image series. The historical
 `--motion-experiment PATH` development alias selects Enhanced and requests that
 trace. Diagnostic paths must be new; no logging is required by normal builds.

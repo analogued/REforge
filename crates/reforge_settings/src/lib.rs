@@ -368,21 +368,27 @@ pub struct Mach3Settings {
 /// Mach 3 presentation only; authoritative game updates stay unchanged.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum MotionMode {
+    /// Interpolate the moving scene while retaining native mountain updates.
     #[default]
+    Scene,
+    /// Legacy craft/shadow-only interpolation; persisted as `enhanced`.
     Enhanced,
+    /// Native placement and publication cadence.
     Original,
 }
 impl MotionMode {
-    pub const ALL: [Self; 2] = [Self::Enhanced, Self::Original];
+    pub const ALL: [Self; 3] = [Self::Scene, Self::Enhanced, Self::Original];
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Scene => "scene",
             Self::Enhanced => "enhanced",
             Self::Original => "original",
         }
     }
     pub fn label(self) -> &'static str {
         match self {
-            Self::Enhanced => "Enhanced",
+            Self::Scene => "Interpolated scene",
+            Self::Enhanced => "Interpolated craft",
             Self::Original => "Original",
         }
     }
@@ -391,9 +397,10 @@ impl std::str::FromStr for MotionMode {
     type Err = String;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
+            "scene" => Ok(Self::Scene),
             "enhanced" => Ok(Self::Enhanced),
             "original" => Ok(Self::Original),
-            _ => Err("motion must be enhanced or original".into()),
+            _ => Err("motion must be scene, enhanced or original".into()),
         }
     }
 }
@@ -1451,7 +1458,7 @@ mod tests {
     }
 
     #[test]
-    fn mach3_motion_is_game_only_persistent_and_defaults_to_enhanced() {
+    fn mach3_motion_is_game_only_persistent_and_defaults_to_scene() {
         let dir = TestDir::new();
         let path = dir.file();
         fs::write(
@@ -1460,10 +1467,7 @@ mod tests {
         )
         .unwrap();
         let mut mach = session(path.clone(), "mach-3");
-        assert_eq!(
-            mach.effective(&mach.saved).mach3.motion,
-            MotionMode::Enhanced
-        );
+        assert_eq!(mach.effective(&mach.saved).mach3.motion, MotionMode::Scene);
         assert!(
             !session(path.clone(), "alley-cat")
                 .saved
@@ -1476,10 +1480,7 @@ mod tests {
         draft.edit(true, MOTION, "original".into());
         assert!(draft.has_game_overrides(0));
         assert_eq!(section_index(MOTION), 0);
-        assert_eq!(
-            mach.effective(&mach.saved).mach3.motion,
-            MotionMode::Enhanced
-        );
+        assert_eq!(mach.effective(&mach.saved).mach3.motion, MotionMode::Scene);
         mach.commit(draft).unwrap();
         let mut loaded = session(path.clone(), "mach-3");
         assert_eq!(
@@ -1509,15 +1510,50 @@ mod tests {
         assert_eq!(reset.game_values().mach3.motion, MotionMode::Original);
         reset.reset_section(true, 0);
         assert!(!reset.has_game_overrides(0));
-        assert_eq!(reset.game_values().mach3.motion, MotionMode::Enhanced);
+        assert_eq!(reset.game_values().mach3.motion, MotionMode::Scene);
         assert_eq!(
             session(path, "alley-cat")
                 .effective(&loaded.saved)
                 .mach3
                 .motion,
-            MotionMode::Enhanced
+            MotionMode::Scene
         );
         assert!("faithful".parse::<MotionMode>().is_err());
+    }
+
+    #[test]
+    fn mach3_motion_preserves_explicit_legacy_modes_and_round_trips_scene() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        for (name, mode) in [
+            ("enhanced", MotionMode::Enhanced),
+            ("original", MotionMode::Original),
+            ("scene", MotionMode::Scene),
+        ] {
+            fs::write(
+                &path,
+                format!("[entries.mach-3.display]\nmotion='{name}'\n"),
+            )
+            .unwrap();
+            let mut loaded = session(path.clone(), "mach-3");
+            assert_eq!(loaded.effective(&loaded.saved).mach3.motion, mode);
+            assert_eq!(name.parse::<MotionMode>().unwrap(), mode);
+            assert_eq!(mode.as_str(), name);
+            // Saving another section must not migrate a deliberate legacy choice.
+            let mut draft = loaded.saved.clone();
+            draft.edit(true, DIGITIZED_SAMPLES, "false".into());
+            loaded.commit(draft).unwrap();
+            let saved = session(path.clone(), "mach-3");
+            assert_eq!(saved.saved.game.get(MOTION).map(String::as_str), Some(name));
+            assert_eq!(saved.effective(&saved.saved).mach3.motion, mode);
+            let mut reset = saved.saved.clone();
+            reset.reset_section(false, 0);
+            reset.reset_section(true, 2);
+            reset.reset_section(true, 3);
+            assert_eq!(reset.game_values().mach3.motion, mode);
+            reset.reset_section(true, 0);
+            assert_eq!(reset.game_values().mach3.motion, MotionMode::Scene);
+        }
     }
 
     #[test]

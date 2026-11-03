@@ -19,9 +19,7 @@ pub struct WeaponSnapshot {
 pub(crate) struct Weapon {
     state: WeaponSnapshot,
     near: [bool; 2],
-    #[cfg(feature = "dev-tools")]
     pub(super) births: [u64; 2],
-    #[cfg(feature = "dev-tools")]
     pub(super) projected_births: [u64; 2],
 }
 
@@ -29,9 +27,7 @@ impl Weapon {
     pub(crate) fn new(assets: &GraphicsAssets) -> Result<Self, Error> {
         let mut weapon = Self {
             near: [false; 2],
-            #[cfg(feature = "dev-tools")]
             births: [0; 2],
-            #[cfg(feature = "dev-tools")]
             projected_births: [0; 2],
             state: WeaponSnapshot {
                 counter: 4,
@@ -112,7 +108,6 @@ impl Weapon {
                     None
                 };
                 if let Some(index) = available {
-                    #[cfg(feature = "dev-tools")]
                     {
                         self.births[index] = self.births[index].wrapping_add(1);
                     }
@@ -159,7 +154,6 @@ impl Weapon {
         for (index, shot) in self.state.shots.iter_mut().enumerate() {
             if full_projection || self.near[index] {
                 shot.project(assets, vertical_origin, horizon)?;
-                #[cfg(feature = "dev-tools")]
                 {
                     self.projected_births[index] = self.births[index];
                 }

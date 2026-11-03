@@ -47,7 +47,9 @@ diagnostics and silent step/static previews. Combine it with
 `--no-default-features` when only headless tools are needed; `dev-tools` does not
 enable SDL3 by itself.
 
-Normal builds include Enhanced and Original motion selection. They exclude
+Normal builds include Scene, Enhanced (craft/shadow-only) and Original motion
+selection. Scene is the default; saved Enhanced and Original values retain their
+previous meanings. They exclude
 `--step`, `--static`, `--trace-input`, `--trace-timing` and `--trace-motion`,
 including release builds unless `dev-tools` is explicitly enabled. Check all
 four combinations above when changing tracing or windowed input. REforge's

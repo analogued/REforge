@@ -75,15 +75,22 @@ see the shared [Settings menu](../configuration.md).
 
 ## Motion
 
-Enhanced motion is the default. It smooths the craft and shadow while retaining
-native gameplay, input polling, collisions and sound timing. World objects and
-terrain keep their original updates.
+Interpolated scene movement is the default. It smooths the moving scene while
+retaining native gameplay, input polling, collisions and sound timing. Mountains
+keep their original artwork and updates.
 
-Use **F10 → Mach 3 overrides → Display → Motion** to choose **Enhanced** or
-**Original**. Enable **Override global defaults** to edit the game section.
-Apply changes motion immediately and saves the preference. Original presents
-the native craft placement and publication rhythm. `--motion enhanced|original`
-temporarily selects a mode and locks its menu control for that run.
+Use **F10 → Mach 3 overrides → Display → Scene movement** to choose
+**Interpolated** or **Original**. With Original scene movement, **Player craft
+movement** offers **Interpolated** (craft and shadow only) or **Original**
+(native craft placement and publication rhythm). Enable **Override global
+defaults** to edit the game section. Apply changes presentation immediately and
+saves the preference.
+
+`--motion scene|enhanced|original` temporarily selects a mode and locks its menu
+controls for that run. `scene` selects interpolated scene movement, `enhanced`
+retains the earlier craft/shadow-only interpolation, and `original` retains the
+native presentation. Existing saved `enhanced` and `original` choices keep their
+previous meanings.
 
 The display frame limit and VSync control presentation; they do not change game
 speed. Long host stalls can cause a visible position correction when playback

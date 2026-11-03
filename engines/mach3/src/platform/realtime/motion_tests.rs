@@ -42,7 +42,7 @@ fn catch_up(
         budgets += 1;
     }
     if let Some(m) = &mut sim.motion {
-        let _ = m.render(wanted).unwrap();
+        let _ = m.render(wanted, f.graphics()).unwrap();
         m.presented(wanted, wanted, 0);
     }
     budgets
@@ -64,14 +64,18 @@ fn reach(
     panic!("unreached motion lifecycle condition: {}", sim.status());
 }
 
-fn lifecycle(observed: bool) -> (Outcome, Vec<i16>) {
+fn lifecycle(mode: Option<MotionMode>) -> (Outcome, Vec<i16>) {
     let f = frames();
     let r = resources();
     let signal = signal(CHUNK as u32);
     let mut sim = Simulation::new(&f, signal.clone()).unwrap();
     let log = logged_initial_signal_clock(&mut sim, signal.clone());
     enter_playing(&mut sim, &f, &r);
-    let path = observed.then(|| attach(&mut sim));
+    let path = mode.map(|mode| {
+        let path = attach(&mut sim);
+        sim.motion.as_mut().unwrap().set_mode(mode);
+        path
+    });
     let mut events = Vec::new();
     let start = sim.clock.tick();
     sim.receive(start, 0x4d);
@@ -91,7 +95,7 @@ fn lifecycle(observed: bool) -> (Outcome, Vec<i16>) {
         let frozen = sim
             .motion
             .as_ref()
-            .and_then(|m| m.render(sim.clock.tick()).unwrap());
+            .and_then(|m| m.render(sim.clock.tick(), f.graphics()).unwrap());
         let tick = sim.clock.tick();
         catch_up(&mut sim, tick + 100_000, &f, &r, &mut events);
         assert!(sim.clock.tick() > tick); // PIT continues during native pause.
@@ -99,7 +103,7 @@ fn lifecycle(observed: bool) -> (Outcome, Vec<i16>) {
             frozen,
             sim.motion
                 .as_ref()
-                .and_then(|m| m.render(sim.clock.tick()).unwrap())
+                .and_then(|m| m.render(sim.clock.tick(), f.graphics()).unwrap())
         );
         sim.receive(sim.clock.tick(), if end_game { 0x3b } else { 0x39 });
         reach(&mut sim, &f, &r, &mut events, |s| {
@@ -117,7 +121,7 @@ fn lifecycle(observed: bool) -> (Outcome, Vec<i16>) {
     assert!(
         sim.motion
             .as_ref()
-            .is_none_or(|m| m.render(sim.clock.tick()).unwrap().is_none())
+            .is_none_or(|m| m.render(sim.clock.tick(), f.graphics()).unwrap().is_none())
     );
     reach(
         &mut sim,
@@ -139,7 +143,7 @@ fn lifecycle(observed: bool) -> (Outcome, Vec<i16>) {
     assert!(
         sim.motion
             .as_ref()
-            .is_none_or(|m| m.render(sim.clock.tick()).unwrap().is_none())
+            .is_none_or(|m| m.render(sim.clock.tick(), f.graphics()).unwrap().is_none())
     );
     sim.clear_input().unwrap();
     reach(
@@ -152,7 +156,7 @@ fn lifecycle(observed: bool) -> (Outcome, Vec<i16>) {
     assert!(
         sim.motion
             .as_ref()
-            .is_none_or(|m| m.render(sim.clock.tick()).unwrap().is_some())
+            .is_none_or(|m| m.render(sim.clock.tick(), f.graphics()).unwrap().is_some())
     );
     if let Some(path) = path {
         let trace = finish(&mut sim, path);
@@ -192,11 +196,13 @@ fn lifecycle(observed: bool) -> (Outcome, Vec<i16>) {
 
 #[test]
 fn native_pause_catchup_ending_and_new_game_preserve_execution_and_pcm() {
-    assert_eq!(lifecycle(false), lifecycle(true));
+    let baseline = lifecycle(None);
+    for mode in [MotionMode::Enhanced, MotionMode::Scene] {
+        assert_eq!(baseline, lifecycle(Some(mode)));
+    }
 }
 
-#[test]
-fn partial_pass_transition_falls_back_until_a_complete_first_pass() {
+fn partial_pass_transition(mode: MotionMode) {
     let f = frames();
     let r = resources();
     let mut sim = Simulation::new(&f, signal(CHUNK as u32)).unwrap();
@@ -213,6 +219,7 @@ fn partial_pass_transition_falls_back_until_a_complete_first_pass() {
         GameplayRuntime::begin(game, state, CS, 64, &sim.clock).unwrap(),
     ));
     let path = attach(&mut sim);
+    sim.motion.as_mut().unwrap().set_mode(mode);
     let mut events = Vec::new();
     reach(
         &mut sim,
@@ -233,7 +240,7 @@ fn partial_pass_transition_falls_back_until_a_complete_first_pass() {
         sim.motion
             .as_ref()
             .unwrap()
-            .render(sim.clock.tick())
+            .render(sim.clock.tick(), f.graphics())
             .unwrap()
             .is_none()
     );
@@ -257,7 +264,7 @@ fn partial_pass_transition_falls_back_until_a_complete_first_pass() {
         sim.motion
             .as_ref()
             .unwrap()
-            .render(sim.clock.tick())
+            .render(sim.clock.tick(), f.graphics())
             .unwrap()
             .is_some()
     );
@@ -275,4 +282,11 @@ fn partial_pass_transition_falls_back_until_a_complete_first_pass() {
         }
     }
     panic!("no complete first pass recovered after transition");
+}
+
+#[test]
+fn partial_pass_transition_falls_back_until_a_complete_first_pass() {
+    for mode in [MotionMode::Enhanced, MotionMode::Scene] {
+        partial_pass_transition(mode);
+    }
 }

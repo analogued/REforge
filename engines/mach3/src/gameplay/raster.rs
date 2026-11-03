@@ -159,7 +159,6 @@ impl Gameplay {
 
     /// Fresh operations from currently active records. Unlike the retained
     /// raster, this deliberately exposes no historical actor fragments.
-    #[cfg(feature = "dev-tools")]
     pub fn current_scene(&self, assets: &GraphicsAssets) -> Result<Scene, Error> {
         self.snapshot_scene(assets, true)
     }
@@ -177,7 +176,6 @@ impl Gameplay {
     /// Current and most recently projected lifetimes for sprite slots 2..=14.
     /// A newborn can retain an older lifetime's source and rectangle until the
     /// next applicable native projection. Never reinterpret that stale artwork.
-    #[cfg(feature = "dev-tools")]
     pub fn visual_epochs(&self) -> ([u64; 13], [u64; 13]) {
         let mut births = [0; 13];
         births[..2].copy_from_slice(&self.weapon.births);
@@ -190,7 +188,6 @@ impl Gameplay {
         (births, projected)
     }
 
-    #[cfg(feature = "dev-tools")]
     fn snapshot_scene(&self, assets: &GraphicsAssets, current: bool) -> Result<Scene, Error> {
         let draws = if current {
             self.world_draws()

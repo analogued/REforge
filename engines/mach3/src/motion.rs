@@ -3,6 +3,7 @@
 //! Bounded visual motion enhancement. Native execution and input stay authoritative.
 
 mod raster;
+pub mod scene;
 pub use raster::{Observation, World, compose};
 
 use std::collections::VecDeque;

@@ -107,7 +107,7 @@ impl Session {
         keyboard: &mut dyn FnMut() -> Result<Vec<Key>, Error>,
     ) -> Result<Self, Error> {
         let vm = Vm::with_interpreter(image.clone(), interpreter)?;
-        let mut text = TextOutput::new();
+        let mut text = TextOutput::with_layout(interpreter.layout);
         if let Some(controls) = interpreter.output_controls {
             text.set_pauses(vm.variable(controls.pauses)? != 0);
         }
@@ -126,7 +126,7 @@ impl Session {
             vm,
             codec,
             text,
-            input: InputEditor::new(),
+            input: InputEditor::with_layout(interpreter.layout),
             random,
             pending: None,
             active_text: None,
@@ -256,6 +256,9 @@ impl Session {
             ) => {
                 self.host_requests.pop_front();
                 self.transcript.set_enabled(false);
+                if self.vm.interpreter().transcript_cancel_zero {
+                    self.vm.write_variable(VarAddr(0xce), 0)?;
+                }
                 self.rebuild_frame();
                 self.finish_native()?;
             }
@@ -401,11 +404,12 @@ impl Session {
         for value in self.text.take_value_pushes().collect::<Vec<_>>() {
             self.vm.push_text_value(value)?;
         }
-        if let Some(letter) = self.text.take_callback() {
-            let cursor = self
-                .active_text
-                .take()
-                .ok_or_else(|| Error("callback outside resumable text".into()))?;
+        if let Some(letter) = self.text.take_callback()
+            && let Some(cursor) = self.active_text.take()
+        {
+            // The native message/object iterator dispatches callbacks. A
+            // standalone formatted token can set the same control flag but
+            // has no iterator to suspend; the next iterator resets that flag.
             self.vm
                 .begin_text_callback(cursor.argument, cursor.position, letter)?;
             self.pending = None;
@@ -429,6 +433,7 @@ impl Session {
                 Request::Message { .. }
                 | Request::ResumeText { .. }
                 | Request::Character { .. }
+                | Request::CharacterToken { .. }
                 | Request::Decimal { .. }
                 | Request::ObjectWords { .. }
                 | Request::NativeService {
@@ -563,6 +568,14 @@ impl Session {
                         self.text.raw_character(byte, self.codec.pause_prompt());
                         self.sync_pagination()?;
                     }
+                    Request::CharacterToken { byte } => {
+                        let token = [byte];
+                        self.text.native_token(
+                            if byte == 0 { &[] } else { &token },
+                            self.codec.pause_prompt(),
+                        )?;
+                        self.sync_pagination()?;
+                    }
                     Request::Decimal { value } => {
                         self.print(vec![(value as i16).to_string().into_bytes()])?
                     }
@@ -606,8 +619,38 @@ impl Session {
                     Request::NativeService {
                         service: NativeService::DrawFrame,
                     } => {
-                        let (row, column) = self.input.cursor();
-                        self.text.redraw_frame(row, column);
+                        if self.vm.interpreter().service(17) == Some(NativeService::SaveScreen)
+                            && self.vm.variable(VarAddr(0x122))? < 17
+                        {
+                            self.text.draw_rectangle()?;
+                        } else {
+                            let (row, column) = self.input.cursor();
+                            self.text.redraw_frame(row, column);
+                        }
+                        self.finish_native()?;
+                    }
+                    Request::NativeService {
+                        service: NativeService::SaveScreen | NativeService::RestoreScreen,
+                    } => {
+                        let offset = usize::from(self.vm.variable(VarAddr(0xce))?);
+                        let rectangle = self.text.screen().save_rectangle()?;
+                        if matches!(
+                            request,
+                            Request::NativeService {
+                                service: NativeService::SaveScreen
+                            }
+                        ) {
+                            self.vm.write_buffer(offset, &rectangle)?;
+                        } else {
+                            let end = offset
+                                .checked_add(rectangle.len())
+                                .ok_or_else(|| Error("screen buffer overflow".into()))?;
+                            let bytes =
+                                self.vm.state().variables.get(offset..end).ok_or_else(|| {
+                                    Error("screen buffer outside variable image".into())
+                                })?;
+                            self.text.restore_rectangle(bytes)?;
+                        }
                         self.finish_native()?;
                     }
                     Request::NativeService {
@@ -753,7 +796,7 @@ impl Session {
                 (0x11a, row as u16),
                 (0x11c, 1),
                 (0x11e, 1),
-                (0x120, 77),
+                (0x120, (self.vm.interpreter().layout.frame_right - 1) as u16),
                 (0x122, 17),
                 (0x124, 79),
                 (0x126, 24),

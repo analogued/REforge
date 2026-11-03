@@ -280,10 +280,17 @@ pub struct TextScreen {
     row: usize,
     column: usize,
     region: TextRegion,
+    layout: crate::interpreter::ScreenLayout,
 }
 
 impl Default for TextScreen {
     fn default() -> Self {
+        Self::with_layout(crate::interpreter::DOS_LAYOUT)
+    }
+}
+
+impl TextScreen {
+    pub fn with_layout(layout: crate::interpreter::ScreenLayout) -> Self {
         let mut screen = Self {
             cells: [b' ', 7].repeat(2000),
             row: 1,
@@ -291,31 +298,96 @@ impl Default for TextScreen {
             region: TextRegion {
                 left: 1,
                 top: 1,
-                right: 77,
+                right: layout.frame_right - 1,
                 bottom: 17,
                 status: 24,
             },
+            layout,
         };
         for row in [0, 18, 23] {
-            for column in 0..79 {
+            for column in 0..=layout.frame_right {
                 screen.put(row, column, 0xcd);
             }
         }
         for row in 0..24 {
-            for column in [0, 78] {
+            for column in [0, layout.frame_right] {
                 screen.put(row, column, 0xba);
             }
         }
         for (row, left, right) in [(0, 0xc9, 0xbb), (18, 0xcc, 0xb9), (23, 0xc8, 0xbc)] {
             screen.put(row, 0, left);
-            screen.put(row, 78, right);
+            screen.put(row, layout.frame_right, right);
         }
         screen.put(19, 1, 0xdb);
         screen
     }
-}
 
-impl TextScreen {
+    pub fn blank() -> Self {
+        Self {
+            cells: [b' ', 7].repeat(2000),
+            ..Self::default()
+        }
+    }
+
+    fn bordered_rectangle(&self) -> Result<(usize, usize, usize, usize), Error> {
+        let TextRegion {
+            left,
+            top,
+            right,
+            bottom,
+            ..
+        } = self.region;
+        if left == 0 || top == 0 || right >= 79 || bottom >= 24 {
+            return Err(Error(
+                "screen rectangle including border outside DOS screen".into(),
+            ));
+        }
+        Ok((left - 1, top - 1, right + 1, bottom + 1))
+    }
+
+    pub(crate) fn save_rectangle(&self) -> Result<Vec<u8>, Error> {
+        let (left, top, right, bottom) = self.bordered_rectangle()?;
+        Ok((top..=bottom)
+            .flat_map(|row| {
+                (left..=right).map(move |column| {
+                    let byte = self.cells[(row * 80 + column) * 2];
+                    if byte == 0 { b' ' } else { byte }
+                })
+            })
+            .collect())
+    }
+
+    fn restore_rectangle(&mut self, bytes: &[u8]) -> Result<usize, Error> {
+        let (left, top, right, bottom) = self.bordered_rectangle()?;
+        if bytes.len() != (right - left + 1) * (bottom - top + 1) {
+            return Err(Error("incorrect screen rectangle buffer length".into()));
+        }
+        let mut bells = 0;
+        for (row, line) in (top..=bottom).zip(bytes.chunks_exact(right - left + 1)) {
+            for (column, &byte) in (left..=right).zip(line) {
+                // Each byte is positioned anew, then written using BIOS
+                // teletype semantics. Its hardware cursor is not the story's.
+                match byte {
+                    7 => bells += 1,
+                    8 | 13 => {}
+                    10 if row < 24 => {}
+                    10 => self.scroll_physical(),
+                    _ => {
+                        self.put(row, column, byte);
+                        if row == 24 && column == 79 {
+                            self.scroll_physical();
+                        }
+                    }
+                }
+            }
+        }
+        Ok(bells)
+    }
+
+    fn scroll_physical(&mut self) {
+        self.cells.copy_within(160.., 0);
+        self.cells[24 * 160..].copy_from_slice(&[b' ', 7].repeat(80));
+    }
     fn put(&mut self, row: usize, column: usize, byte: u8) {
         if row < 25 && column < 80 {
             self.cells[(row * 80 + column) * 2] = byte;
@@ -507,6 +579,38 @@ impl TextOutput {
     pub fn new() -> Self {
         Self::default()
     }
+    pub fn with_layout(layout: crate::interpreter::ScreenLayout) -> Self {
+        Self {
+            screen: TextScreen::with_layout(layout),
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn restore_rectangle(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        self.bells += self.screen.restore_rectangle(bytes)?;
+        Ok(())
+    }
+
+    pub(crate) fn draw_rectangle(&mut self) -> Result<(), Error> {
+        let (left, top, right, bottom) = self.screen.bordered_rectangle()?;
+        for column in left + 1..right {
+            self.screen.put(top, column, 0xc4);
+            self.screen.put(bottom, column, 0xc4);
+        }
+        for row in top + 1..bottom {
+            self.screen.put(row, left, 0xb3);
+            self.screen.put(row, right, 0xb3);
+        }
+        for (row, column, byte) in [
+            (top, left, 0xda),
+            (top, right, 0xbf),
+            (bottom, left, 0xc0),
+            (bottom, right, 0xd9),
+        ] {
+            self.screen.put(row, column, byte);
+        }
+        Ok(())
+    }
     pub fn enable_callbacks(&mut self) {
         self.callbacks = true;
     }
@@ -559,10 +663,13 @@ impl TextOutput {
         Ok(())
     }
     pub(crate) fn redraw_frame(&mut self, input_row: usize, input_column: usize) {
-        let frame = TextScreen::default();
+        let frame = TextScreen::with_layout(self.screen.layout);
         for row in 0..24 {
-            for column in 0..79 {
-                if matches!(row, 0 | 18 | 23) || matches!(column, 0 | 78) {
+            for column in 0..=self.screen.layout.frame_right {
+                if matches!(row, 0 | 18 | 23)
+                    || column == 0
+                    || column == self.screen.layout.frame_right
+                {
                     self.screen
                         .put(row, column, frame.cells[(row * 80 + column) * 2]);
                 }
@@ -638,7 +745,7 @@ impl TextOutput {
         self.uppercase = false;
     }
     pub fn rebuild_frame(&mut self) {
-        self.screen = TextScreen::default();
+        self.screen = TextScreen::with_layout(self.screen.layout);
         self.line_length = 0;
     }
     pub fn clear_for_exit(&mut self) {

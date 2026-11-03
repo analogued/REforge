@@ -26,6 +26,7 @@ pub enum Game {
     Mindwheel,
     Essex,
     Brimstone,
+    Breakers,
 }
 
 impl Game {
@@ -36,6 +37,7 @@ impl Game {
             Self::Mindwheel => "mindwheel",
             Self::Essex => "essex",
             Self::Brimstone => "brimstone",
+            Self::Breakers => "breakers",
         }
     }
 
@@ -46,11 +48,15 @@ impl Game {
             Self::Mindwheel => &catalog::MINDWHEEL,
             Self::Essex => &catalog::ESSEX,
             Self::Brimstone => &catalog::BRIMSTONE,
+            Self::Breakers => &catalog::BREAKERS,
         }
     }
 
     pub const fn is_btz(self) -> bool {
-        matches!(self, Self::Mindwheel | Self::Essex | Self::Brimstone)
+        matches!(
+            self,
+            Self::Mindwheel | Self::Essex | Self::Brimstone | Self::Breakers
+        )
     }
 
     pub const fn title(self) -> &'static str {
@@ -285,7 +291,7 @@ fn detect_with(
         [candidate] => {
             let original = match candidate.release.game() {
                 Game::AlleyCat => candidate.paths[0].clone(),
-                Game::Mach3 | Game::Mindwheel | Game::Essex | Game::Brimstone => {
+                Game::Mach3 | Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers => {
                     directory.to_path_buf()
                 }
             };
@@ -895,7 +901,7 @@ mod tests {
 
     #[test]
     fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
-        assert_eq!(RELEASES.len(), 5);
+        assert_eq!(RELEASES.len(), 6);
         let mut ids = std::collections::HashSet::new();
         for release in RELEASES {
             assert!(ids.insert(release.id), "duplicate detected-release ID");
@@ -932,6 +938,18 @@ mod tests {
                 .map(|file| file.name)
                 .collect::<Vec<_>>(),
             ["ADISK.OBJ", "GO.EXE", "SIDE.TXT"]
+        );
+        let breakers = RELEASES
+            .iter()
+            .find(|release| release.game() == Game::Breakers)
+            .unwrap();
+        assert_eq!(
+            breakers
+                .files
+                .iter()
+                .map(|file| file.name)
+                .collect::<Vec<_>>(),
+            ["ADISK.OBJ", "RUN.EXE", "SIDE.TXT", "TITLE.EXE"]
         );
     }
 }

@@ -47,7 +47,8 @@ fn add_native_options(
         crate::detection::Game::Mach3 => mach3::launcher::OPTIONS,
         crate::detection::Game::Mindwheel
         | crate::detection::Game::Essex
-        | crate::detection::Game::Brimstone => btz::launcher::OPTIONS,
+        | crate::detection::Game::Brimstone
+        | crate::detection::Game::Breakers => btz::launcher::OPTIONS,
     };
     for option in options {
         if let Storage::Native { key, argument } = option.storage

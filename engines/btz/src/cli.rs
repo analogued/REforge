@@ -126,7 +126,16 @@ pub fn run_with_title(
             .unwrap_or_else(|| directory.join(name))
     };
     let data = selected("ADISK.OBJ");
-    let interpreter = selected("GO.EXE");
+    let interpreter = if files.contains_key("RUN.EXE") {
+        selected("RUN.EXE")
+    } else {
+        let go = selected("GO.EXE");
+        if crate::player::files::resolve_original(&go).is_ok() {
+            go
+        } else {
+            selected("RUN.EXE")
+        }
+    };
     let map = selected("SIDE.TXT");
     #[cfg(feature = "dev-tools")]
     let map = options.side_map.unwrap_or(map);

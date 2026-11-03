@@ -158,6 +158,23 @@ pub static BRIMSTONE_DOS: Edition = Edition {
     label: None,
     specs: &BTZ_DOS_SPECS,
 };
+pub static BREAKERS: GameMetadata = GameMetadata {
+    identity: Game::Breakers,
+    title: "Breakers",
+    genres: &["Interactive fiction"],
+    tagline: "Find your way through an alien world.",
+};
+pub static BREAKERS_DOS: Edition = Edition {
+    id: "breakers-dos",
+    game: &BREAKERS,
+    platform: Platform::Dos,
+    title: None,
+    year: Some(1986),
+    developers: &["Synapse Software"],
+    publishers: &["Brøderbund Software"],
+    label: None,
+    specs: &BTZ_DOS_SPECS,
+};
 pub static BTZ_DOS_SPECS: SpecsProfile = SpecsProfile {
     id: "btz-dos-text",
     video_features: &["80×25 text"],
@@ -328,6 +345,33 @@ pub static RELEASES: &[Release] = &[
                 name: "SIDE.TXT",
                 size: 65,
                 sha256: "12f0b71b9be8bb76619bc86057b8edbf82c22ae136843fa779b54eb329586800",
+            },
+        ],
+    },
+    Release {
+        id: "breakers-dos-acb87c72b9",
+        compatibility_id: "breakers-dos",
+        edition: &BREAKERS_DOS,
+        files: &[
+            FileRecord {
+                name: "ADISK.OBJ",
+                size: 232960,
+                sha256: "0c8fb003bedfb212b601c8bb79c816283447b39597d99dbb47ca32d53fab7ae0",
+            },
+            FileRecord {
+                name: "RUN.EXE",
+                size: 35328,
+                sha256: "4a667bcb840a72357613a04ba2b43c341b58c9a9ea08513433750930f2bd64bb",
+            },
+            FileRecord {
+                name: "SIDE.TXT",
+                size: 65,
+                sha256: "12f0b71b9be8bb76619bc86057b8edbf82c22ae136843fa779b54eb329586800",
+            },
+            FileRecord {
+                name: "TITLE.EXE",
+                size: 3584,
+                sha256: "88ff29bec4e1987ad02bd01273fef502262393d39edeed53a179064b3a994ef5",
             },
         ],
     },

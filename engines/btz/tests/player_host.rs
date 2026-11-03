@@ -400,3 +400,45 @@ fn a_transcript_hardlink_alias_does_not_truncate_original_data() {
     assert_eq!(fs::read(original).unwrap(), b"original input");
     assert_eq!(fs::read(alias).unwrap(), b"session output");
 }
+
+#[test]
+fn breakers_bookmark_replacement_requires_a_separate_explicit_answer() {
+    let directory = Directory::new();
+    let path = directory.0.join("BOOKMARK");
+    fs::write(&path, b"old bookmark").unwrap();
+    let mut files = directory.files();
+    files.confirm_bookmark_replace = true;
+    let request = HostRequest::SaveBookmark {
+        data: b"new bookmark".to_vec(),
+    };
+    assert!(
+        files
+            .handle_with_path(&request, Some(path.clone()))
+            .unwrap()
+            .is_none()
+    );
+    assert!(files.replacement_pending());
+    assert_eq!(fs::read(&path).unwrap(), b"old bookmark");
+    assert!(matches!(
+        files.handle_with_path(&request, None).unwrap(),
+        Some(HostReply::Cancelled)
+    ));
+    assert_eq!(fs::read(&path).unwrap(), b"old bookmark");
+    files.bookmark_path = Some(path.clone());
+    assert!(files.handle_with_path(&request, None).unwrap().is_none());
+    assert!(matches!(
+        files.handle_with_path(&request, Some("y".into())).unwrap(),
+        Some(HostReply::Done)
+    ));
+    assert_eq!(fs::read(&path).unwrap(), b"new bookmark");
+    let unextended = directory.0.join("NEWBOOK");
+    files.bookmark_path = None;
+    assert!(matches!(
+        files
+            .handle_with_path(&request, Some(unextended.clone()))
+            .unwrap(),
+        Some(HostReply::Done)
+    ));
+    assert_eq!(fs::read(unextended).unwrap(), b"new bookmark");
+    assert!(!directory.0.join("NEWBOOK.SAV").exists());
+}

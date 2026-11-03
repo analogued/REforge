@@ -55,6 +55,8 @@ pub struct Files {
     pub transcript_path: Option<PathBuf>,
     pub side_map_path: Option<PathBuf>,
     pub originals: Vec<PathBuf>,
+    pub confirm_bookmark_replace: bool,
+    pending_bookmark: Option<PathBuf>,
     transcript: Option<File>,
     last_error: Option<String>,
     pending_transcript_path: Option<PathBuf>,
@@ -72,6 +74,8 @@ impl Files {
             transcript_path: None,
             side_map_path: None,
             originals: Vec::new(),
+            confirm_bookmark_replace: false,
+            pending_bookmark: None,
             transcript: None,
             last_error: None,
             pending_transcript_path: None,
@@ -79,9 +83,13 @@ impl Files {
     }
     pub fn needs_input(&self, request: &HostRequest) -> bool {
         match request {
-            HostRequest::SaveBookmark { .. } | HostRequest::LoadBookmark => {
-                self.bookmark_path.is_none()
+            HostRequest::SaveBookmark { .. } => {
+                self.pending_bookmark.is_some()
+                    || self.bookmark_path.is_none()
+                    || (self.confirm_bookmark_replace
+                        && self.bookmark_path.as_ref().is_some_and(|p| p.exists()))
             }
+            HostRequest::LoadBookmark => self.bookmark_path.is_none(),
             HostRequest::TranscriptName { .. } => self.transcript_path.is_none(),
             HostRequest::MountDisk { .. } => true,
             _ => false,
@@ -104,8 +112,23 @@ impl Files {
         self.last_error.take()
     }
 
+    pub fn replacement_pending(&self) -> bool {
+        self.pending_bookmark.is_some()
+    }
+
     pub fn prompt(&self, request: &HostRequest) -> Option<String> {
+        if let Some(path) = &self.pending_bookmark {
+            return Some(format!(
+                "Replace existing bookmark {}? [y/n]: ",
+                path.display()
+            ));
+        }
         if !self.needs_input(request) {
+            return None;
+        }
+        if matches!(request, HostRequest::SaveBookmark { .. }) && self.bookmark_path.is_some() {
+            // The fixed destination is already chosen. Handling it first may
+            // produce a replacement question, never another filename prompt.
             return None;
         }
         Some(match request {
@@ -133,13 +156,19 @@ impl Files {
         request: &HostRequest,
         interactive: bool,
     ) -> Result<Option<HostReply>, Box<dyn std::error::Error>> {
-        self.handle_with_prompt(request, interactive, &mut |prompt| {
+        let mut ask = |prompt: &str| {
             print!("{prompt}");
             io::stdout().flush()?;
             let line = super::terminal::read_prompt_line()?;
             let path = line.trim_end_matches(['\r', '\n']);
             Ok((!path.is_empty()).then(|| PathBuf::from(path)))
-        })
+        };
+        loop {
+            let reply = self.handle_with_prompt(request, interactive, &mut ask)?;
+            if reply.is_some() || !interactive || self.pending_bookmark.is_none() {
+                return Ok(reply);
+            }
+        }
     }
 
     fn handle_with_prompt(
@@ -152,19 +181,46 @@ impl Files {
         Ok(Some(match request {
             HostRequest::Exit { .. } => HostReply::Done,
             HostRequest::SaveBookmark { data } => {
-                let Some(path) = self.save_path(
-                    self.bookmark_path.as_ref(),
-                    "Bookmark file to write (blank cancels): ",
-                    interactive,
-                    ask,
-                )?
-                else {
+                let replacing = self.pending_bookmark.is_some();
+                let path = if let Some(path) = self.pending_bookmark.take() {
+                    if !interactive {
+                        self.pending_bookmark = Some(path);
+                        return Ok(None);
+                    }
+                    let answer = ask(&format!(
+                        "Replace existing bookmark {}? [y/n]: ",
+                        path.display()
+                    ))?;
+                    if !answer.is_some_and(|answer| {
+                        answer
+                            .as_os_str()
+                            .as_encoded_bytes()
+                            .eq_ignore_ascii_case(b"y")
+                    }) {
+                        return Ok(Some(HostReply::Cancelled));
+                    }
+                    Some(path)
+                } else {
+                    self.save_path(
+                        self.bookmark_path.as_ref(),
+                        "Bookmark file to write (blank cancels): ",
+                        interactive,
+                        ask,
+                    )?
+                };
+                let Some(path) = path else {
                     return Ok(if interactive {
                         Some(HostReply::Cancelled)
                     } else {
                         None
                     });
                 };
+                // A second call carries the explicit replacement decision. Do
+                // not consume the filename itself as an answer or truncate yet.
+                if self.confirm_bookmark_replace && path.exists() && !replacing {
+                    self.pending_bookmark = Some(path);
+                    return Ok(None);
+                }
                 if let Err(error) = self
                     .protect_originals(&path)
                     .and_then(|()| write_bookmark(&path, data))

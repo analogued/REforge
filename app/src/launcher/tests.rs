@@ -852,11 +852,12 @@ fn btz_title_preview_is_shared_by_graphical_and_terminal_choices() {
     use std::sync::Arc;
     let fixture = Fixture::new(detection::RELEASES.len());
     let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::GalleryShelf, false);
-    for game in state
-        .games
-        .iter_mut()
-        .filter(|game| matches!(game.game_id.as_str(), "mindwheel" | "essex" | "brimstone"))
-    {
+    for game in state.games.iter_mut().filter(|game| {
+        matches!(
+            game.game_id.as_str(),
+            "mindwheel" | "essex" | "brimstone" | "breakers"
+        )
+    }) {
         game.terminal_available = true;
         let frame = Frame::new_monochrome(
             DisplayGeometry::new((2, 1), (4, 3)),
@@ -1578,7 +1579,7 @@ fn native_notification_previews() {
 }
 
 #[test]
-#[ignore = "owns SDL video; optional REFORGE_PREVIEW_ORIGINALS supplies originals for two to five games; run serially"]
+#[ignore = "owns SDL video; optional REFORGE_PREVIEW_ORIGINALS supplies originals for two to six games; run serially"]
 fn native_engine_previews() {
     use reforge_sdl::{DisplayGeometry, preview::Frame, settings::UiMetrics};
     use std::sync::Arc;
@@ -1587,7 +1588,7 @@ fn native_engine_previews() {
         .map(|v| std::env::split_paths(&v).collect::<Vec<_>>());
     if let Some(paths) = &originals {
         assert!(
-            (2..=5).contains(&paths.len()),
+            (2..=6).contains(&paths.len()),
             "Alley Cat and Mach 3 originals required; optionally append BTZ games"
         );
         let mut library = Library::new(fixture.library.clone());
@@ -1624,7 +1625,10 @@ fn native_engine_previews() {
         let start = std::time::Instant::now();
         while state.games.iter().any(|g| {
             g.previews.len()
-                != if matches!(g.game_id.as_str(), "mindwheel" | "essex" | "brimstone") {
+                != if matches!(
+                    g.game_id.as_str(),
+                    "mindwheel" | "essex" | "brimstone" | "breakers"
+                ) {
                     1
                 } else {
                     2
@@ -1649,9 +1653,8 @@ fn native_engine_previews() {
                     detection::Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
                     detection::Game::Mindwheel
                     | detection::Game::Essex
-                    | detection::Game::Brimstone => {
-                        btz::launcher::preview(&detected.files, variant)
-                    }
+                    | detection::Game::Brimstone
+                    | detection::Game::Breakers => btz::launcher::preview(&detected.files, variant),
                 }
                 .unwrap();
                 assert_eq!(source.frame.rgba(), again.rgba());

@@ -73,6 +73,7 @@ pub struct InputEditor {
     column: usize,
     ready: bool,
     paused: bool,
+    layout: crate::interpreter::ScreenLayout,
 }
 
 impl Default for InputEditor {
@@ -84,6 +85,7 @@ impl Default for InputEditor {
             column: 1,
             ready: false,
             paused: false,
+            layout: crate::interpreter::DOS_LAYOUT,
         }
     }
 }
@@ -91,6 +93,13 @@ impl Default for InputEditor {
 impl InputEditor {
     pub fn new() -> Self {
         Self::default()
+    }
+    pub fn with_layout(layout: crate::interpreter::ScreenLayout) -> Self {
+        Self {
+            row: layout.input_top,
+            layout,
+            ..Self::default()
+        }
     }
     pub fn buffer(&self) -> &[u8] {
         &self.buffer
@@ -107,7 +116,7 @@ impl InputEditor {
     /// BIOS frame initialization clears the current editor, retaining recall.
     pub fn rebuild_frame(&mut self) {
         self.buffer.clear();
-        self.row = 19;
+        self.row = self.layout.input_top;
         self.column = 1;
         self.ready = false;
         self.paused = false;
@@ -259,7 +268,7 @@ impl InputEditor {
         if self.row == 23 {
             self.row = 22;
             actions.push(InputAction::Scroll {
-                top: 19,
+                top: self.layout.input_top,
                 bottom: 22,
                 left: 1,
                 right: 77,

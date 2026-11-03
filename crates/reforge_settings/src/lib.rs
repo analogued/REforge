@@ -71,14 +71,14 @@ const ALLEYCAT_CONTROL_KEYS: &[&str] = &[
 const GRAPHICAL_RENDERER: &str = "graphical_renderer";
 /// Game identities with an attached-terminal player host.
 pub fn supports_terminal(game: &str) -> bool {
-    matches!(game, "mindwheel" | "essex" | "brimstone")
+    matches!(game, "mindwheel" | "essex" | "brimstone" | "breakers")
 }
 
 fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     let keys: &[&str] = match game {
         "mach-3" => &[DIGITIZED_SAMPLES, MOTION],
         "alley-cat" => ALLEYCAT_CONTROL_KEYS,
-        "mindwheel" | "essex" | "brimstone" => &[GRAPHICAL_RENDERER],
+        "mindwheel" | "essex" | "brimstone" | "breakers" => &[GRAPHICAL_RENDERER],
         _ => &[],
     };
     keys.iter().copied()
@@ -1384,7 +1384,7 @@ mod tests {
         assert_eq!("terminal".parse::<Renderer>().unwrap(), Renderer::Terminal);
         assert_eq!(Renderer::Terminal.as_str(), "terminal");
         assert!("terminal".parse::<Backend>().is_err());
-        for game in ["mindwheel", "essex", "brimstone"] {
+        for game in ["mindwheel", "essex", "brimstone", "breakers"] {
             let dir = TestDir::new();
             let path = dir.file();
             fs::write(

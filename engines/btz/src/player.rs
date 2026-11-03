@@ -4,6 +4,7 @@
 
 pub mod files;
 mod patches;
+pub mod presentation;
 // Raw host input is isolated here; the VM, parser and story services remain safe Rust.
 #[allow(unsafe_code)]
 pub mod terminal;
@@ -21,6 +22,7 @@ use std::{path::Path, time::Duration};
 pub struct Loaded {
     pub session: Session,
     pub files: files::Files,
+    pub presentation: Option<presentation::TitleSequence>,
 }
 
 pub fn prepare_image(mut bytes: Vec<u8>) -> Result<StoryImage, Error> {
@@ -141,6 +143,40 @@ pub fn identify_dos_interpreter(
             0x46,
             0xb7,
         ] => Some((&BRIMSTONE_DOS, BRIMSTONE_RESOURCES)),
+        [
+            0x4a,
+            0x66,
+            0x7b,
+            0xcb,
+            0x84,
+            0x0a,
+            0x72,
+            0x35,
+            0x76,
+            0x13,
+            0xa0,
+            0x4b,
+            0xa2,
+            0xb4,
+            0x3c,
+            0x34,
+            0x1b,
+            0x58,
+            0xc9,
+            0xa9,
+            0xea,
+            0x08,
+            0x51,
+            0x34,
+            0x33,
+            0x75,
+            0x09,
+            0x30,
+            0xf2,
+            0xbd,
+            0x64,
+            0xbb,
+        ] => Some((&BREAKERS_DOS, BREAKERS_RESOURCES)),
         _ => None,
     }
 }
@@ -174,9 +210,23 @@ pub fn load(data: &Path, interpreter: &Path, side_map: &Path) -> Result<Loaded, 
         session.set_service_messages(ServiceMessages::from_dos_resources(&exe, resources)?);
         session.set_side_map(SideMap::from_bytes(&std::fs::read(&side_map)?)?);
         let mut files = files::Files::new(&data)?;
-        files.originals = vec![data, interpreter, side_map.clone()];
+        files.originals = vec![data.clone(), interpreter, side_map.clone()];
         files.side_map_path = Some(side_map);
-        Ok(Loaded { session, files })
+        files.confirm_bookmark_replace = definition.confirm_bookmark_replace;
+        let presentation = if std::ptr::eq(definition, &crate::interpreter::BREAKERS_DOS) {
+            let title = files::resolve_original(&data.parent().unwrap().join("TITLE.EXE"))?;
+            let presentation =
+                presentation::TitleSequence::from_breakers_executable(&std::fs::read(&title)?)?;
+            files.originals.push(title);
+            Some(presentation)
+        } else {
+            None
+        };
+        Ok(Loaded {
+            session,
+            files,
+            presentation,
+        })
     };
     load().map_err(|error| error.to_string())
 }
@@ -220,6 +270,7 @@ pub fn run_terminal(
         let _screen = Screen;
         let origin = Instant::now();
         let mut last = Vec::new();
+        let mut title_keys = std::collections::VecDeque::new();
         loop {
             if terminal
                 .as_ref()
@@ -227,11 +278,36 @@ pub fn run_terminal(
             {
                 break;
             }
+            if let Some(screen) = loaded
+                .presentation
+                .as_ref()
+                .and_then(|sequence| sequence.frame(origin.elapsed()))
+            {
+                title_keys.extend(terminal.as_mut().unwrap().poll_batch()?);
+                if last != screen.dos_cells() {
+                    print!("\x1b[H{}", screen.unicode());
+                    io::stdout().flush()?;
+                    last = screen.dos_cells().to_vec();
+                }
+                terminal.as_mut().unwrap().wait(Duration::from_millis(20))?;
+                continue;
+            }
             loaded.session.set_bios_ticks(bios_ticks(origin.elapsed()));
             let mut submitted = loaded.session.input().line_ready();
             let event = loaded.session.advance_with_keyboard(&mut || {
                 if submitted {
                     return Ok(Vec::new());
+                }
+                if !title_keys.is_empty() {
+                    let mut keys = Vec::new();
+                    while let Some(key) = title_keys.pop_front() {
+                        keys.push(key);
+                        if key == crate::input::Key::Enter {
+                            break;
+                        }
+                    }
+                    submitted |= keys.last() == Some(&crate::input::Key::Enter);
+                    return Ok(keys);
                 }
                 let keys = terminal
                     .as_mut()

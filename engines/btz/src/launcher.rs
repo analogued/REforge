@@ -31,7 +31,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
 ];
 
 /// Change when the title recipe or native rasterization changes.
-pub const PREVIEW_REVISION: u32 = 1;
+pub const PREVIEW_REVISION: u32 = 2;
 /// Renderer choice does not change the original title screen.
 pub const PREVIEW_VARIANT: &str = "text";
 pub const PREVIEW_VARIANTS: &[&str] = &[PREVIEW_VARIANT];
@@ -51,6 +51,13 @@ pub fn preview(
             .ok_or_else(|| format!("Missing verified preview resource {name}"))?;
         std::fs::read(path).map_err(|error| error.to_string())
     };
+    if files.contains_key("TITLE.EXE") {
+        let sequence = crate::player::presentation::TitleSequence::from_breakers_executable(&read(
+            "TITLE.EXE",
+        )?)
+        .map_err(|error| error.to_string())?;
+        return title_frame(sequence.preview().dos_cells());
+    }
     let exe = read("GO.EXE")?;
     let (definition, resources) = crate::player::identify_dos_interpreter(&exe)
         .ok_or_else(|| "Unknown BTZ preview interpreter".to_owned())?;

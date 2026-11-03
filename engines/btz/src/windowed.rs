@@ -102,6 +102,7 @@ struct FilePrompt {
     label: String,
     path: String,
     focus: bool,
+    replacement: bool,
 }
 
 #[derive(Default)]
@@ -130,6 +131,7 @@ impl Overlay {
             label,
             path: String::new(),
             focus: true,
+            replacement: false,
         });
         self.retry = self.prompt.is_none().then(|| request.clone());
         self.error = Some(error);
@@ -146,6 +148,20 @@ impl Overlay {
                 .default_width(440.0)
                 .show(context, |ui| {
                     ui.label(&prompt.label);
+                    if prompt.replacement {
+                        ui.horizontal(|ui| {
+                            if Gui::control(ui.button("Replace")).clicked() {
+                                action = Some(OverlayAction::Submit(Some(PathBuf::from("y"))));
+                            }
+                            if Gui::control(ui.button("Cancel")).clicked()
+                                || back
+                                || ui.input(|input| input.key_pressed(egui::Key::Escape))
+                            {
+                                action = Some(OverlayAction::Submit(None));
+                            }
+                        });
+                        return;
+                    }
                     let field = Gui::text_edit(
                         ui.add(
                             egui::TextEdit::singleline(&mut prompt.path)
@@ -248,6 +264,16 @@ fn complete_file_request(
             }
         }
         Ok(None) => {
+            if loaded.files.replacement_pending() {
+                overlay.prompt = Some(FilePrompt {
+                    request: request.clone(),
+                    label: loaded.files.prompt(request).expect("replacement prompt"),
+                    path: String::new(),
+                    focus: true,
+                    replacement: true,
+                });
+                return Ok(());
+            }
             // Missing media cannot be acknowledged as a successful transition.
             // Leave the request pending and offer another path or window close.
             overlay.file_error(
@@ -366,7 +392,15 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                 keyboard.keys.clear();
                 gamepads.reset();
             }
-        } else if !paused {
+        } else if !paused
+            && loaded
+                .presentation
+                .as_ref()
+                .and_then(|sequence| {
+                    sequence.frame(pause.now(Instant::now()).saturating_duration_since(epoch))
+                })
+                .is_none()
+        {
             // A bounded slice only yields to SDL; it is never a lifetime limit.
             let slice = Instant::now();
             for _ in 0..4096 {
@@ -400,6 +434,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                                 label,
                                 path: String::new(),
                                 focus: true,
+                                replacement: loaded.files.replacement_pending(),
                             });
                             keyboard.keys.clear();
                             gui.reset_input();
@@ -432,7 +467,14 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
             paused || overlay.open(),
         );
         let blink_on = (epoch.elapsed().as_millis() / 500).is_multiple_of(2);
-        let cells = loaded.session.screen().dos_cells();
+        let cells = loaded
+            .presentation
+            .as_ref()
+            .and_then(|sequence| {
+                sequence.frame(pause.now(Instant::now()).saturating_duration_since(epoch))
+            })
+            .unwrap_or_else(|| loaded.session.screen())
+            .dos_cells();
         if previous_cells != cells || previous_phase != Some(blink_on) {
             let pixels = display::render(cells, blink_on)?;
             frame.update(&pixels)?;
@@ -650,6 +692,7 @@ mod tests {
             label: "Bookmark".into(),
             path: "save.dat".into(),
             focus: true,
+            replacement: false,
         });
         let mut action = None;
         for _ in 0..3 {

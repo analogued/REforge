@@ -172,7 +172,7 @@ impl MotionPresenter {
         } else {
             self.latest.as_ref().map_or(native, |o| o.native_anchors)
         };
-        if self.mode == super::MotionMode::Scene {
+        if self.mode == super::MotionMode::Reforged {
             anchors = self
                 .scene
                 .craft_anchors(seconds(tick), anchors)
@@ -322,14 +322,14 @@ impl MotionPresenter {
                         .observe(o.pose, seen, stale && Some(o.pose.id) == last);
                     self.latest = Some(*o);
                     let reason = self.tracker.sample(seen).map_or("none", |s| s.reason);
-                    if self.mode != super::MotionMode::Scene {
+                    if self.mode != super::MotionMode::Reforged {
                         self.log("observation", seen_tick, seen_tick, reason);
                     }
                 }
                 Pending::Scene(o) => {
                     let rebase = stale && Some(o.id) == last;
                     self.scene.observe(*o, seen, rebase);
-                    if self.mode == super::MotionMode::Scene {
+                    if self.mode == super::MotionMode::Reforged {
                         let reason = self.tracker.sample(seen).map_or("none", |s| s.reason);
                         self.log("observation", seen_tick, seen_tick, reason);
                     }
@@ -404,7 +404,7 @@ impl MotionPresenter {
         if !self.enhanced {
             return Ok(None);
         }
-        if self.mode == super::MotionMode::Scene {
+        if self.mode == super::MotionMode::Reforged {
             #[cfg(feature = "dev-tools")]
             let started = Instant::now();
             let result = self

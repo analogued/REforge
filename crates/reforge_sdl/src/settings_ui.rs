@@ -1163,11 +1163,11 @@ fn section(ui: &mut egui::Ui, label: &str) {
 }
 fn mach3_motion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
     let legacy_id = ui.make_persistent_id("mach3_original_scene_motion");
-    if value.mach3.motion != MotionMode::Scene {
+    if value.mach3.motion != MotionMode::Reforged {
         ui.data_mut(|data| data.insert_temp(legacy_id, value.mach3.motion));
     }
-    let original_scene = value.mach3.motion == MotionMode::Scene;
-    let mut scene = original_scene;
+    let reforged_scene = value.mach3.motion == MotionMode::Reforged;
+    let mut scene = reforged_scene;
     row(
         ui,
         "Scene movement",
@@ -1177,19 +1177,19 @@ fn mach3_motion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: R
             Selector::new(
                 MOTION,
                 [
-                    Choice::new(true, "Interpolated"),
+                    Choice::new(true, "Reforged"),
                     Choice::new(false, "Original"),
                 ],
             )
             .show(ui, &mut scene)
             .on_hover_text(concat!(
-                "Interpolated smooths scene movement. Original retains native scene updates ",
+                "Reforged smooths scene movement. Original retains native scene updates ",
                 "and lets you choose player craft movement. Gameplay timing and collisions ",
                 "are unchanged.",
             ));
-            if scene != original_scene {
+            if scene != reforged_scene {
                 value.mach3.motion = if scene {
-                    MotionMode::Scene
+                    MotionMode::Reforged
                 } else {
                     ui.data(|data| data.get_temp(legacy_id))
                         .unwrap_or(MotionMode::Enhanced)
@@ -1197,7 +1197,7 @@ fn mach3_motion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: R
             }
         },
     );
-    if value.mach3.motion != MotionMode::Scene {
+    if value.mach3.motion != MotionMode::Reforged {
         row(
             ui,
             "Player craft movement",
@@ -1207,13 +1207,13 @@ fn mach3_motion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: R
                 Selector::new(
                     "player_craft_motion",
                     [
-                        Choice::new(MotionMode::Enhanced, "Interpolated"),
+                        Choice::new(MotionMode::Enhanced, "Enhanced"),
                         Choice::new(MotionMode::Original, "Original"),
                     ],
                 )
                 .show(ui, &mut value.mach3.motion)
                 .on_hover_text(concat!(
-                    "Interpolated smooths the player craft and its shadow. Original retains ",
+                    "Enhanced smooths the player craft and its shadow. Original retains ",
                     "native craft placement and publication rhythm.",
                 ));
             },
@@ -2222,12 +2222,12 @@ mod tests {
                 }
                 assert!(label.top() > text_rect(&output, "Aspect ratio").unwrap().bottom());
                 if step < 2 {
-                    button = text_rect(&output, "Interpolated").unwrap().center();
+                    button = text_rect(&output, "Reforged").unwrap().center();
                 }
                 if step == 5 {
                     if locked || !section_editable {
                         assert!(text_rect(&output, "Original").is_none());
-                        assert_eq!(value.mach3.motion, MotionMode::Scene);
+                        assert_eq!(value.mach3.motion, MotionMode::Reforged);
                         break;
                     }
                     off = text_rect(&output, "Original")
@@ -2361,7 +2361,7 @@ mod tests {
                 assert_eq!(h.value.mach3.motion, MotionMode::Original);
                 h.focus("Scene movement", "Original", mode);
                 let output = h.next();
-                assert_eq!(h.value.mach3.motion, MotionMode::Scene);
+                assert_eq!(h.value.mach3.motion, MotionMode::Reforged);
                 assert!(Harness::text(&output, "Player craft movement").is_empty());
                 h.next();
                 assert_eq!(

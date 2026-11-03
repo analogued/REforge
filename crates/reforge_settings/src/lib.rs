@@ -370,25 +370,25 @@ pub struct Mach3Settings {
 pub enum MotionMode {
     /// Interpolate the moving scene while retaining native mountain updates.
     #[default]
-    Scene,
+    Reforged,
     /// Legacy craft/shadow-only interpolation; persisted as `enhanced`.
     Enhanced,
     /// Native placement and publication cadence.
     Original,
 }
 impl MotionMode {
-    pub const ALL: [Self; 3] = [Self::Scene, Self::Enhanced, Self::Original];
+    pub const ALL: [Self; 3] = [Self::Reforged, Self::Enhanced, Self::Original];
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Scene => "scene",
+            Self::Reforged => "reforged",
             Self::Enhanced => "enhanced",
             Self::Original => "original",
         }
     }
     pub fn label(self) -> &'static str {
         match self {
-            Self::Scene => "Interpolated scene",
-            Self::Enhanced => "Interpolated craft",
+            Self::Reforged => "Reforged scene",
+            Self::Enhanced => "Enhanced craft",
             Self::Original => "Original",
         }
     }
@@ -397,10 +397,10 @@ impl std::str::FromStr for MotionMode {
     type Err = String;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "scene" => Ok(Self::Scene),
+            "reforged" => Ok(Self::Reforged),
             "enhanced" => Ok(Self::Enhanced),
             "original" => Ok(Self::Original),
-            _ => Err("motion must be scene, enhanced or original".into()),
+            _ => Err("motion must be reforged, enhanced or original".into()),
         }
     }
 }
@@ -894,7 +894,21 @@ impl Session {
         };
         if let Some(path) = &s.path {
             match read(path) {
-                Ok(doc) => {
+                Ok(mut doc) => {
+                    if s.game_id == "mach-3"
+                        && let Some(entry) = s.entry_id.as_deref()
+                        && migrate_scene_motion(&mut doc, entry)
+                    {
+                        // Read the latest document under the ordinary save lock,
+                        // preserving concurrent edits and all unrelated settings.
+                        match edit_document(path, "settings", |latest| {
+                            migrate_scene_motion(latest, entry);
+                            Ok(latest.clone())
+                        }) {
+                            Ok(latest) => doc = latest,
+                            Err(error) => s.warning = Some(error),
+                        }
+                    }
                     s.saved = read_draft(&doc, &s.game_id, s.entry_id.as_deref(), &mut s.warning);
                 }
                 Err(e) => {
@@ -954,6 +968,26 @@ impl Session {
         Ok(())
     }
 }
+/// Canonicalize the pre-release scene name without changing motion behavior.
+fn migrate_scene_motion(doc: &mut DocumentMut, entry: &str) -> bool {
+    let Some(value) = doc
+        .get_mut("entries")
+        .and_then(|entries| entries.get_mut(entry))
+        .and_then(|entry| entry.get_mut("display"))
+        .and_then(|display| display.get_mut(MOTION))
+        .and_then(Item::as_value_mut)
+    else {
+        return false;
+    };
+    if value.as_str() != Some("scene") {
+        return false;
+    }
+    let mut replacement = toml_edit::Value::from("reforged");
+    *replacement.decor_mut() = value.decor().clone();
+    *value = replacement;
+    true
+}
+
 fn read(path: &Path) -> Result<DocumentMut, String> {
     read_document(path, "settings")
 }
@@ -995,7 +1029,7 @@ fn read_draft(
                 }
                 for key in keys().chain(game_keys(game)) {
                     if let Some(v) = table.get(section(key)).and_then(|x| x.get(key)) {
-                        let text: String = if let Some(s) = v.as_str() {
+                        let mut text: String = if let Some(s) = v.as_str() {
                             s.into()
                         } else if let Some(n) = v.as_integer() {
                             n.to_string()
@@ -1006,6 +1040,11 @@ fn read_draft(
                         } else {
                             String::new()
                         };
+                        // A failed disk migration can still use the intended
+                        // preference for this run without accepting the old CLI name.
+                        if key == MOTION && text == "scene" {
+                            text = "reforged".into();
+                        }
                         let mut validated = RuntimeSettings::default();
                         if key == GRAPHICAL_RENDERER {
                             match text.parse::<Renderer>() {
@@ -1458,7 +1497,7 @@ mod tests {
     }
 
     #[test]
-    fn mach3_motion_is_game_only_persistent_and_defaults_to_scene() {
+    fn mach3_motion_is_game_only_persistent_and_defaults_to_reforged() {
         let dir = TestDir::new();
         let path = dir.file();
         fs::write(
@@ -1467,7 +1506,10 @@ mod tests {
         )
         .unwrap();
         let mut mach = session(path.clone(), "mach-3");
-        assert_eq!(mach.effective(&mach.saved).mach3.motion, MotionMode::Scene);
+        assert_eq!(
+            mach.effective(&mach.saved).mach3.motion,
+            MotionMode::Reforged
+        );
         assert!(
             !session(path.clone(), "alley-cat")
                 .saved
@@ -1480,7 +1522,10 @@ mod tests {
         draft.edit(true, MOTION, "original".into());
         assert!(draft.has_game_overrides(0));
         assert_eq!(section_index(MOTION), 0);
-        assert_eq!(mach.effective(&mach.saved).mach3.motion, MotionMode::Scene);
+        assert_eq!(
+            mach.effective(&mach.saved).mach3.motion,
+            MotionMode::Reforged
+        );
         mach.commit(draft).unwrap();
         let mut loaded = session(path.clone(), "mach-3");
         assert_eq!(
@@ -1510,25 +1555,88 @@ mod tests {
         assert_eq!(reset.game_values().mach3.motion, MotionMode::Original);
         reset.reset_section(true, 0);
         assert!(!reset.has_game_overrides(0));
-        assert_eq!(reset.game_values().mach3.motion, MotionMode::Scene);
+        assert_eq!(reset.game_values().mach3.motion, MotionMode::Reforged);
         assert_eq!(
             session(path, "alley-cat")
                 .effective(&loaded.saved)
                 .mach3
                 .motion,
-            MotionMode::Scene
+            MotionMode::Reforged
         );
         assert!("faithful".parse::<MotionMode>().is_err());
     }
 
     #[test]
-    fn mach3_motion_preserves_explicit_legacy_modes_and_round_trips_scene() {
+    fn mach3_scene_preference_migrates_only_the_active_entry() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let original = concat!(
+            "schema_version = 2\n",
+            "[global.display]\nscale = 4\n",
+            "[entries.custom.display]\nmotion = 'scene' # keep this comment\nunknown = 7\n",
+            "[entries.other.display]\nmotion = 'scene'\n",
+        );
+        fs::write(&path, original).unwrap();
+        let loaded = Session::load(Launch {
+            game_id: "mach-3".into(),
+            entry_id: Some("custom".into()),
+            path: Some(path.clone()),
+            cli: Patch::from([(MOTION.into(), "original".into())]),
+        });
+        assert!(loaded.warning.is_none());
+        assert_eq!(
+            loaded.saved.game_values().mach3.motion,
+            MotionMode::Reforged
+        );
+        assert_eq!(
+            loaded.effective(&loaded.saved).mach3.motion,
+            MotionMode::Original
+        );
+        let migrated = fs::read_to_string(&path).unwrap();
+        assert_eq!(migrated, original.replacen("'scene'", "\"reforged\"", 1));
+        // Reloading is idempotent and never persists the command-line override.
+        let _ = Session::load(Launch {
+            game_id: "mach-3".into(),
+            entry_id: Some("custom".into()),
+            path: Some(path.clone()),
+            cli: Patch::new(),
+        });
+        assert_eq!(fs::read_to_string(path).unwrap(), migrated);
+        assert!("scene".parse::<MotionMode>().is_err());
+    }
+
+    #[test]
+    fn other_games_do_not_migrate_scene_preferences() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let original = "[entries.alley-cat.display]\nmotion = 'scene'\n";
+        fs::write(&path, original).unwrap();
+        let loaded = session(path.clone(), "alley-cat");
+        assert!(loaded.warning.is_none());
+        assert!(!loaded.saved.game.contains_key(MOTION));
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
+    fn legacy_scene_preference_remains_usable_without_disk_migration() {
+        let doc = "[entries.custom.display]\nmotion = 'scene'\n"
+            .parse::<DocumentMut>()
+            .unwrap();
+        let mut warning = None;
+        let draft = read_draft(&doc, "mach-3", Some("custom"), &mut warning);
+        assert!(warning.is_none());
+        assert_eq!(draft.game.get(MOTION).map(String::as_str), Some("reforged"));
+        assert_eq!(draft.game_values().mach3.motion, MotionMode::Reforged);
+    }
+
+    #[test]
+    fn mach3_motion_preserves_explicit_legacy_modes_and_round_trips_reforged() {
         let dir = TestDir::new();
         let path = dir.file();
         for (name, mode) in [
             ("enhanced", MotionMode::Enhanced),
             ("original", MotionMode::Original),
-            ("scene", MotionMode::Scene),
+            ("reforged", MotionMode::Reforged),
         ] {
             fs::write(
                 &path,
@@ -1552,7 +1660,7 @@ mod tests {
             reset.reset_section(true, 3);
             assert_eq!(reset.game_values().mach3.motion, mode);
             reset.reset_section(true, 0);
-            assert_eq!(reset.game_values().mach3.motion, MotionMode::Scene);
+            assert_eq!(reset.game_values().mach3.motion, MotionMode::Reforged);
         }
     }
 

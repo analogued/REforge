@@ -433,26 +433,28 @@ diagnostics retain original input polling.
 
 ## Mach 3 motion
 
-**Mach 3 overrides → Display → Scene movement** offers **Interpolated** (the
-built-in default) and **Original**. Interpolated smooths scene movement while
+**Mach 3 overrides → Display → Scene movement** offers **Reforged** (the
+built-in default) and **Original**. Reforged smooths scene movement while
 keeping the original mountain artwork and updates. Original scene movement shows
-**Player craft movement**, with **Interpolated** for craft/shadow-only smoothing
+**Player craft movement**, with **Enhanced** for craft/shadow-only smoothing
 and **Original** for native placements and publication cadence. Gameplay,
 collisions, randomness, PIT execution and audio timing are unchanged. Apply
 changes the running presentation and saves the preference; Cancel discards draft
 changes.
 
 This option is game-specific and has no global or other-game counterpart. Its
-storage is `[entries.mach-3-q8n2v5.display] motion = "scene"|"enhanced"|"original"`.
-`scene` is the built-in default, so selecting it normally removes the override.
+storage is `[entries.mach-3-q8n2v5.display] motion = "reforged"|"enhanced"|"original"`.
+`reforged` is the built-in default, so selecting it normally removes the override.
+An existing saved `scene` value is automatically renamed to `reforged` when its
+Mach 3 entry loads, preserving the selected behavior.
 Existing explicit `enhanced` values keep craft/shadow-only interpolation;
 `original` keeps native presentation. The menu remembers the last player craft
 choice while switching scene movement during a session.
 
 Check **Override global defaults** to edit the section. Resetting the game Display
-section restores interpolated scene movement on Apply; global Display resets and
+section restores Reforged scene movement on Apply; global Display resets and
 other game sections leave the motion override intact.
-`--motion scene|enhanced|original` is a temporary, locked override and does not
+`--motion reforged|enhanced|original` is a temporary, locked override and does not
 change the saved value.
 
 ## Mach 3 digitized samples

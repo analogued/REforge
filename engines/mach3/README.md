@@ -13,7 +13,7 @@ interfaces and diagnostic tools.
 Live play includes steering, shooting, encounter progression, collision responses,
 endings and retained-session restarts, with no gameplay loop cap. Samples,
 procedural sound and foreground waits share one reconstructed PIT timeline.
-Interpolated scene movement is the interactive default; craft/shadow-only
+Reforged scene movement is the interactive default; craft/shadow-only
 interpolation and Original presentation remain selectable without changing native
 execution or recording/replay output. Mountains retain their original artwork
 and updates.
@@ -93,8 +93,8 @@ preceding host-pause state.
 
 Mach 3-specific options include:
 
-- `--motion scene|enhanced|original`: temporarily select interpolated scene
-  movement (default `scene`), craft/shadow-only interpolation (`enhanced`), or
+- `--motion reforged|enhanced|original`: temporarily select Reforged scene
+  movement (default `reforged`), craft/shadow-only interpolation (`enhanced`), or
   native presentation (`original`). Existing saved values keep their meanings.
   The saved per-game Display setting applies when this argument is absent.
   F10 offers Scene movement and, for Original scene movement, Player craft movement.
@@ -159,7 +159,7 @@ included or licensed by this repository.
 ## Visual motion presenter
 
 `motion` consumes immutable native observations. `gameplay::raster` retains the
-actual restore/draw transactions. Scene mode interpolates scene movement; legacy
+actual restore/draw transactions. Reforged mode interpolates scene movement; legacy
 Enhanced mode composes complete craft/shadow sprites while preserving retained
 world fragments, CGA mask operations and foreground order. Original uses native
 publications. Presentation neither mutates projection caches nor advances
@@ -173,7 +173,7 @@ stop forecasting forward. Source timestamps determine cadence, while receipt
 delay consumes the prediction allowance. Lifetimes and projected-lifetime tags
 prevent joining reused object slots or moving an old cached image as a new actor.
 
-Scene mode composes complete original sprites and procedural gate geometry in
+Reforged mode composes complete original sprites and procedural gate geometry in
 native paint order, retaining two-bit CGA mask operations and discrete artwork.
 Moving terrain and gates stop their forecasts at the native retirement plane;
 deactivated gates are removed at the observed event rather than retaining a

@@ -21,9 +21,9 @@ Unreleased contains changes intended for the next public release.
 
 ### Mach 3
 
-- Interpolated scene movement is now the default, retaining the original
-  mountains. Original scene movement remains selectable, with interpolated or
-  original player craft movement. Gameplay timing and collisions are unchanged.
+- Reforged scene movement is now the default, retaining the original
+  mountains. Original scene movement remains selectable, with Enhanced or
+  Original player craft movement. Gameplay timing and collisions are unchanged.
 
 ### Alley Cat
 

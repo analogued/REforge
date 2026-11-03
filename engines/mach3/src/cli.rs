@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--video cga|mono] [--f3-mode press|original] [--digitized-samples on|off] [--motion scene|enhanced|original]\n\n\
+const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--video cga|mono] [--f3-mode press|original] [--digitized-samples on|off] [--motion reforged|enhanced|original]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
 F10: open settings; F10, Escape or Close returns. Scaling and fullscreen changes apply live.\n\
@@ -28,7 +28,7 @@ Arrows or S/X/B/N steer; Space or keypad5 fires. Gameplay has no loop cap.\n\
 Normal animation runs gameplay, sound and waits on one PIT timeline.\n\
 --audio-renderer speaker|enhanced-pcm: select host audio rendering (default speaker); timing is unchanged.\n\
 --digitized-samples on|off: execute recorded speech/music (default on); off retains procedural effects and skips sample waits.\n\
---motion scene|enhanced|original: interpolate scene movement (default scene), craft/shadow only (enhanced), or use original motion; gameplay and collisions are unchanged.\n\
+--motion reforged|enhanced|original: use Reforged scene movement (reforged, default), craft/shadow interpolation (enhanced), or use original motion; gameplay and collisions are unchanged.\n\
 P or Pause/Break freezes host simulation and playback. F1 retains original pause/end-game behavior; F2 toggles native sound, F3 switches color/monochrome.\n\
 --video cga|mono: initial native colour or monochrome display (default cga); F3 still toggles during play.\n\
 --f3-mode press|original: toggle F3 once per press (default press), or at every active original control poll.\n\
@@ -217,10 +217,10 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Option<(PathBuf, O
             }
             Some("--motion") => {
                 options.motion = Some(match args.next().as_deref().and_then(|v| v.to_str()) {
-                    Some("scene") => MotionMode::Scene,
+                    Some("reforged") => MotionMode::Reforged,
                     Some("original") => MotionMode::Original,
                     Some("enhanced") => MotionMode::Enhanced,
-                    _ => return Err("--motion must be scene, enhanced or original".into()),
+                    _ => return Err("--motion must be reforged, enhanced or original".into()),
                 });
             }
             #[cfg(feature = "dev-tools")]

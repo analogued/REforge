@@ -75,19 +75,19 @@ see the shared [Settings menu](../configuration.md).
 
 ## Motion
 
-Interpolated scene movement is the default. It smooths the moving scene while
+Reforged scene movement is the default. It smooths the moving scene while
 retaining native gameplay, input polling, collisions and sound timing. Mountains
 keep their original artwork and updates.
 
 Use **F10 → Mach 3 overrides → Display → Scene movement** to choose
-**Interpolated** or **Original**. With Original scene movement, **Player craft
-movement** offers **Interpolated** (craft and shadow only) or **Original**
+**Reforged** or **Original**. With Original scene movement, **Player craft
+movement** offers **Enhanced** (craft and shadow only) or **Original**
 (native craft placement and publication rhythm). Enable **Override global
 defaults** to edit the game section. Apply changes presentation immediately and
 saves the preference.
 
-`--motion scene|enhanced|original` temporarily selects a mode and locks its menu
-controls for that run. `scene` selects interpolated scene movement, `enhanced`
+`--motion reforged|enhanced|original` temporarily selects a mode and locks its menu
+controls for that run. `reforged` selects Reforged scene movement, `enhanced`
 retains the earlier craft/shadow-only interpolation, and `original` retains the
 native presentation. Existing saved `enhanced` and `original` choices keep their
 previous meanings.

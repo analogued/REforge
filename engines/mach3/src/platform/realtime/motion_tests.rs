@@ -197,7 +197,7 @@ fn lifecycle(mode: Option<MotionMode>) -> (Outcome, Vec<i16>) {
 #[test]
 fn native_pause_catchup_ending_and_new_game_preserve_execution_and_pcm() {
     let baseline = lifecycle(None);
-    for mode in [MotionMode::Enhanced, MotionMode::Scene] {
+    for mode in [MotionMode::Enhanced, MotionMode::Reforged] {
         assert_eq!(baseline, lifecycle(Some(mode)));
     }
 }
@@ -286,7 +286,7 @@ fn partial_pass_transition(mode: MotionMode) {
 
 #[test]
 fn partial_pass_transition_falls_back_until_a_complete_first_pass() {
-    for mode in [MotionMode::Enhanced, MotionMode::Scene] {
+    for mode in [MotionMode::Enhanced, MotionMode::Reforged] {
         partial_pass_transition(mode);
     }
 }

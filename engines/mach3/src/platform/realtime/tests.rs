@@ -811,7 +811,7 @@ fn gameplay_run_motion(
     let motion_path = if matches!(motion_mode, 3 | 5) {
         simulation.motion = Some(MotionPresenter::for_options(&Options {
             motion: Some(if motion_mode == 5 {
-                MotionMode::Scene
+                MotionMode::Reforged
             } else {
                 MotionMode::Enhanced
             }),
@@ -850,7 +850,7 @@ fn gameplay_run_motion(
     if matches!(motion_mode, 3 | 5) {
         simulation.motion = Some(MotionPresenter::for_options(&Options {
             motion: Some(if motion_mode == 5 {
-                MotionMode::Scene
+                MotionMode::Reforged
             } else {
                 MotionMode::Enhanced
             }),
@@ -893,7 +893,7 @@ fn gameplay_run_motion(
             let _ = motion.render(receipt, frames.graphics()).unwrap();
             motion.set_mode(MotionMode::Enhanced);
             let _ = motion.render(receipt, frames.graphics()).unwrap();
-            motion.set_mode(MotionMode::Scene);
+            motion.set_mode(MotionMode::Reforged);
             scene_frames +=
                 usize::from(motion.render(receipt, frames.graphics()).unwrap().is_some());
             if motion_mode != 5 {

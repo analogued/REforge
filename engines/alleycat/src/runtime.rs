@@ -1710,6 +1710,8 @@ pub struct Runtime {
     pub controls: Controls,
     /// Responsive host input refresh; native timing charges stay unchanged.
     pub responsive_controls: bool,
+    /// Last host sample, kept separate from helper-generated directions.
+    sampled_input: Option<(Controls, bool)>,
     costs: ReferenceCosts,
     machine: Machine,
     fence: Option<FenceEffect>,
@@ -1766,6 +1768,7 @@ impl Runtime {
             divider: OuterLoopDivider::new(0),
             controls: Controls::default(),
             responsive_controls: false,
+            sampled_input: None,
             costs,
             machine,
             fence: None,
@@ -2597,11 +2600,19 @@ impl Runtime {
                 .should_poll(self.clock.sample().bios.tick_low);
         if !resumed_fall && (control_polled || self.responsive_controls) {
             let (held, action) = sample_input(self.clock.elapsed_nanos(), alley.scene());
-            self.controls = held;
             alley.latch_action(action);
             if alley.scene() == 6 {
-                alley.latch_controls(self.controls);
+                // The milk helper owns the effective direction between input
+                // polls, including passes rejected by its BIOS tick gate.
+                // Responsive sampling must deliver host changes immediately,
+                // without repeatedly erasing an unchanged auto-approach request.
+                if control_polled || self.sampled_input != Some((held, action)) {
+                    alley.latch_controls(held);
+                }
+            } else {
+                self.controls = held;
             }
+            self.sampled_input = Some((held, action));
         }
         if control_polled {
             self.clock.advance_nanos(self.costs.control_decode);
@@ -3375,6 +3386,7 @@ impl Runtime {
             self.scene = scene;
             self.player_gate.reset();
             self.controls = Controls::default();
+            self.sampled_input = None;
             self.fence = None;
             self.mouse_pause = None;
             self.cage_falling = false;

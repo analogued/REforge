@@ -634,6 +634,120 @@ fn active_bin_contact_still_holds_the_image_and_alerts_the_dog() {
     }
 }
 
+fn milk_approach_fixture(machine: Machine, difficulty: u16) -> Alley {
+    let mut alley = Alley::synthetic();
+    alley.machine = machine;
+    set_word(&mut alley.data, 4, 6);
+    set_word(&mut alley.data, 8, difficulty);
+    // Authored bowls and a walkable surface; dogs and broom movement omitted.
+    alley.player = Player::at_alley_floor(80);
+    alley.player.y = 136;
+    alley.player.vertical_coordinate = 186;
+    alley.data[0x1029] = 136;
+    set_word(&mut alley.data, 0x11a9, 300);
+    alley.data[0x43e0] = 1;
+    alley.data[0x44c4] = 4;
+    alley.data[0x44c5] = 4;
+    set_word(&mut alley.data, 0x3260, 0x2000);
+    crate::room::initialize_broom(&mut alley.data).unwrap();
+    set_word(&mut alley.data, 0x32f2 + 6 * 2, u16::MAX);
+    for offset in (0x0fb6..0x0fc2).step_by(2) {
+        set_word(&mut alley.data, offset, 0x0c03);
+    }
+    for (slot, x) in [(0, 144), (1, 240)] {
+        alley.data[0x4499 + slot] = 144;
+        set_word(&mut alley.data, 0x4481 + slot * 2, x);
+        set_word(&mut alley.data, 0x44a5 + slot * 2, 0x410c);
+    }
+    alley
+}
+
+#[test]
+fn milk_action_approaches_and_drinks_with_either_input_mode() {
+    for machine in [Machine::Cga, Machine::Pcjr] {
+        for difficulty in 0..8 {
+            for action in [
+                crate::control_history::Key::LeftAlt,
+                crate::control_history::Key::PadAction,
+            ] {
+                let run = |responsive| {
+                    let mut alley = milk_approach_fixture(machine, difficulty);
+                    let mut keys = crate::control_history::Keys::default();
+                    keys.set(action, true);
+                    // Other inputs, including a connected controller, are neutral.
+                    let (controls, held) = keys.controls(false);
+                    let mut runtime = crate::runtime::Runtime::new(machine);
+                    runtime.responsive_controls = responsive;
+                    let mut trace = Vec::new();
+                    while runtime.clock.elapsed_nanos() < 5_000_000_000 {
+                        let event = runtime
+                            .advance_pass_with_action(&mut alley, controls, held)
+                            .unwrap();
+                        trace.push(format!("{event:?};{:?}", alley.player));
+                        if alley.data[0x44c4] == 0 {
+                            break;
+                        }
+                    }
+                    assert_eq!(
+                        alley.data[0x44c4], 0,
+                        "{machine:?}, difficulty {difficulty}, responsive {responsive}"
+                    );
+                    (trace, alley.framebuffer().bytes().to_vec())
+                };
+                let original = run(false);
+                let responsive = run(true);
+                assert_eq!(
+                    original.0.len(),
+                    responsive.0.len(),
+                    "{machine:?}, difficulty {difficulty}"
+                );
+                for (pass, (expected, actual)) in original.0.iter().zip(&responsive.0).enumerate() {
+                    assert_eq!(
+                        expected, actual,
+                        "pass {pass}, {machine:?}, difficulty {difficulty}"
+                    );
+                }
+                assert_eq!(original.1, responsive.1);
+            }
+        }
+    }
+}
+
+#[test]
+fn milk_responsive_input_changes_interrupt_auto_approach_between_ticks() {
+    for machine in [Machine::Cga, Machine::Pcjr] {
+        for (controls, action) in [
+            (Controls::default(), false),
+            (Controls { x: -1, y: 0 }, true),
+            (Controls { x: 0, y: -1 }, true),
+        ] {
+            let mut alley = milk_approach_fixture(machine, 3);
+            let mut runtime = crate::runtime::Runtime::new(machine);
+            runtime.responsive_controls = true;
+            runtime
+                .advance_pass_with_action(&mut alley, Controls::default(), true)
+                .unwrap();
+            // Start safely inside a fresh BIOS tick, accept the milk request,
+            // then change host input before either native gate opens again.
+            runtime.clock.advance_to_next_bios_tick();
+            runtime.controls_gate =
+                crate::timing::ControlsGate::new(runtime.clock.sample().bios.tick_low);
+            runtime
+                .advance_pass_with_action(&mut alley, Controls::default(), true)
+                .unwrap();
+            assert_eq!(runtime.controls, Controls { x: 1, y: 0 });
+            let milk_tick = word(&alley.data, 0x44d3);
+            let event = runtime
+                .advance_pass_with_action(&mut alley, controls, action)
+                .unwrap();
+            assert!(!event.control_polled);
+            assert_eq!(word(&alley.data, 0x44d3), milk_tick);
+            assert_eq!(alley.data[0x69a], if action { 0 } else { 16 });
+            assert_eq!(runtime.controls, controls);
+        }
+    }
+}
+
 #[test]
 fn drinking_recomposition_preserves_scenery_and_restores_the_normal_cat() {
     let mut alley = Alley::synthetic();

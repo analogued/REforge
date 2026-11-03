@@ -27,6 +27,7 @@ Unreleased contains changes intended for the next public release.
 
 - Optional button-based jumping and dropping, with controller layout templates
   and diagrams in Settings. Swimming retains full directional control.
+- Fixed twitching while approaching milk bowls with Responsive input.
 
 ### BTZ
 

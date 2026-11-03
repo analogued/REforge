@@ -223,7 +223,10 @@ pub(super) fn draw(
                         let mut override_defaults = menu.game_editing[menu.page];
                         if control(ui.checkbox(
                             &mut override_defaults,
-                            "Override global defaults · only differences are saved",
+                            canvas_text(
+                                ui,
+                                "Override global defaults · only differences are saved",
+                            ),
                         ))
                         .changed()
                         {
@@ -487,9 +490,13 @@ fn display_controls(
             "window_mode",
             rows.state("window_mode", value),
             |ui| {
-                control(ui.radio_value(&mut value.fullscreen, false, "Windowed"));
+                control(ui.radio_value(&mut value.fullscreen, false, canvas_text(ui, "Windowed")));
                 ui.add_enabled_ui(capabilities.allow_fullscreen, |ui| {
-                    control(ui.radio_value(&mut value.fullscreen, true, "Fullscreen"));
+                    control(ui.radio_value(
+                        &mut value.fullscreen,
+                        true,
+                        canvas_text(ui, "Fullscreen"),
+                    ));
                 });
             },
         );
@@ -502,7 +509,7 @@ fn display_controls(
                 let mut auto = value.scale.is_none();
                 if control(ui.add_enabled(
                     capabilities.allow_auto || auto,
-                    egui::Checkbox::new(&mut auto, "Auto"),
+                    egui::Checkbox::new(&mut auto, canvas_text(ui, "Auto")),
                 ))
                 .changed()
                 {
@@ -630,7 +637,10 @@ fn display_controls(
             },
         );
         row(ui, "VSync", "vsync", rows.state("vsync", value), |ui| {
-            control(ui.checkbox(&mut value.vsync, "Synchronise with the display"));
+            control(ui.checkbox(
+                &mut value.vsync,
+                canvas_text(ui, "Synchronise with the display"),
+            ));
         });
         row(
             ui,
@@ -853,7 +863,7 @@ fn audio_controls(
             "sound_enabled",
             rows.state("sound_enabled", value),
             |ui| {
-                control(ui.checkbox(&mut value.audio.enabled, "Enable sound"));
+                control(ui.checkbox(&mut value.audio.enabled, canvas_text(ui, "Enable sound")));
             },
         );
     });
@@ -1007,7 +1017,10 @@ fn audio_controls(
             "mute_unfocused",
             rows.state("mute_unfocused", value),
             |ui| {
-                control(ui.checkbox(&mut value.audio.mute_unfocused, "Mute when unfocused"));
+                control(ui.checkbox(
+                    &mut value.audio.mute_unfocused,
+                    canvas_text(ui, "Mute when unfocused"),
+                ));
             },
         );
     });
@@ -1127,6 +1140,17 @@ fn renderer_label(r: Renderer) -> &'static str {
         Renderer::Terminal => "Terminal",
     }
 }
+// Checkbox/radio labels sit on the canvas; only their icons use the active fill.
+// Keep their text independent of that fill's contrasting foreground, while
+// retaining row override colours and egui's normal disabled fading.
+fn canvas_text(ui: &egui::Ui, label: &str) -> egui::RichText {
+    egui::RichText::new(label).color(
+        ui.visuals()
+            .override_text_color
+            .unwrap_or(ui.visuals().widgets.inactive.fg_stroke.color),
+    )
+}
+
 fn row(
     ui: &mut egui::Ui,
     label: &str,
@@ -1221,8 +1245,18 @@ fn row_with_width(
                                 .slider_width
                                 .min(slider_track_width(child, 56.0));
                             if overridden && !locked {
-                                child.visuals_mut().override_text_color =
-                                    Some(palette.override_text);
+                                // Accent ordinary text and neutral controls without
+                                // replacing the active fill's contrasting foreground.
+                                let visuals = child.visuals_mut();
+                                visuals.override_text_color = None;
+                                for widget in [
+                                    &mut visuals.widgets.noninteractive,
+                                    &mut visuals.widgets.inactive,
+                                    &mut visuals.widgets.hovered,
+                                    &mut visuals.widgets.open,
+                                ] {
+                                    widget.fg_stroke.color = palette.override_text;
+                                }
                             }
                             crate::settings_navigation::row_controls(child, rect, |child| {
                                 child
@@ -1458,6 +1492,109 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn themed_control_text_contrasts_with_its_canvas_or_focused_fill() {
+        use crate::settings_selector::{InputMode, set_mode};
+        use crate::ui::themes::{ResolvedAppearance, ThemeId};
+
+        for theme in ThemeId::ALL {
+            for overridden in [false, true] {
+                for mode in [InputMode::Mouse, InputMode::Keyboard, InputMode::Controller] {
+                    for kind in ["checkbox", "radio", "selector", "number"] {
+                        let context = egui::Context::default();
+                        style(&context);
+                        let appearance = ResolvedAppearance::resolve(theme);
+                        appearance.theme.apply_palette(&context);
+                        set_mode(&context, mode);
+                        let palette = appearance.theme.palette;
+                        let mut response: Option<egui::Response> = None;
+                        for focused in [false, true] {
+                            // First settle layout, then request focus before the next frame.
+                            if focused {
+                                response.as_ref().unwrap().request_focus();
+                            }
+                            let output = context.run(Default::default(), |ctx| {
+                                egui::CentralPanel::default().show(ctx, |ui| {
+                                    row(
+                                        ui,
+                                        "Option",
+                                        "colour regression",
+                                        RowState {
+                                            lock_tooltip: None,
+                                            overridden,
+                                            dirty: false,
+                                            tooltip: String::new(),
+                                            saved: String::new(),
+                                        },
+                                        |ui| {
+                                            response = Some(match kind {
+                                                "checkbox" => ui.checkbox(
+                                                    &mut true,
+                                                    canvas_text(ui, "Canvas label"),
+                                                ),
+                                                "radio" => ui.radio_value(
+                                                    &mut true,
+                                                    true,
+                                                    canvas_text(ui, "Canvas label"),
+                                                ),
+                                                "selector" => Selector::new(
+                                                    "colour selector",
+                                                    [Choice::new(0, "Control value")],
+                                                )
+                                                .show(ui, &mut 0),
+                                                "number" => ui.add(egui::DragValue::new(&mut 8)),
+                                                _ => unreachable!(),
+                                            });
+                                        },
+                                    );
+                                });
+                            });
+                            let expected =
+                                if matches!(kind, "checkbox" | "radio" | "number") || !focused {
+                                    if overridden {
+                                        palette.override_text
+                                    } else {
+                                        palette.inactive.foreground
+                                    }
+                                } else {
+                                    palette.active.foreground
+                                };
+                            let label = match kind {
+                                "checkbox" | "radio" => "Canvas label",
+                                "selector" => "Control value",
+                                _ => "8",
+                            };
+                            let colours: Vec<_> = output
+                                .shapes
+                                .iter()
+                                .filter_map(|shape| match &shape.shape {
+                                    egui::Shape::Text(text) if text.galley.text() == label => {
+                                        let colour = text.galley.job.sections[0].format.color;
+                                        Some(text.override_text_color.unwrap_or(
+                                            if colour == Color32::PLACEHOLDER {
+                                                text.fallback_color
+                                            } else {
+                                                colour
+                                            },
+                                        ))
+                                    }
+                                    _ => None,
+                                })
+                                .filter(|colour| *colour != Color32::TRANSPARENT)
+                                .collect();
+                            assert_eq!(
+                                colours,
+                                [expected],
+                                "{theme:?} override={overridden} focused={focused} {kind}"
+                            );
+                            assert_eq!(response.as_ref().unwrap().has_focus(), focused);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn terminal_choice_is_explicitly_scoped_and_requires_an_attached_terminal() {

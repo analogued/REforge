@@ -1,6 +1,6 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! The DOS wordcode encoding observed in Mindwheel; no revision selector is implied.
+//! DOS wordcode decoding with definition-selected operand consumption.
 
 use crate::{Error, ProgramAddr, read_word};
 
@@ -29,11 +29,19 @@ pub struct Instruction {
 }
 
 pub fn decode(program: &[u8], address: ProgramAddr) -> Result<Instruction, Error> {
+    decode_with_rules(program, address, crate::interpreter::RETAINED_FORMS)
+}
+
+pub fn decode_with_rules(
+    program: &[u8],
+    address: ProgramAddr,
+    rules: crate::interpreter::FormRules,
+) -> Result<Instruction, Error> {
     let word = read_word(program, usize::from(address.0), "program")?;
     let opcode = ((word >> 2) & 0x3f) as u8;
     let form = ((word & 3) + ((word & 0x0800) >> 9) + ((word & 0x8000) >> 12)) as u8;
-    let arities = [1, 2, 2, 0, 3, 2, 0, 0];
-    let count = *arities
+    let count = *rules
+        .arities
         .get(usize::from(form))
         .ok_or_else(|| Error(format!("unsupported instruction form {form}")))?;
     if opcode > 0x22 {

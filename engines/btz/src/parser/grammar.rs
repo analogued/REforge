@@ -204,6 +204,9 @@ impl GrammarState {
                 index = if index == 0 { HISTORY - 1 } else { index - 1 };
             }
             self.free_match = true;
+            if vm.interpreter().reset_parser_gaps {
+                self.allow_gaps = true;
+            }
             for object in 0..=layout.max_object {
                 if !self.free_match && line.remaining == 0 {
                     break;

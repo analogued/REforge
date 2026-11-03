@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded headless execution. Requests suspend until an explicit completion.
 
-use crate::decode::{Instruction, OperandMode, decode};
+use crate::decode::{Instruction, OperandMode, decode_with_rules};
 use crate::image::StoryImage;
 use crate::interpreter::{ExtensionOpcode, Interpreter, MINDWHEEL_DOS, NativeService};
 use crate::{Error, ObjectId, ProgramAddr, VarAddr, read_word};
@@ -61,6 +61,7 @@ impl Layout {
 pub enum Request {
     PollInput,
     Character { byte: u8 },
+    CharacterToken { byte: u8 },
     ResumeText { argument: u16, position: u16 },
     Random { maximum: u16 },
     Message { id: u16 },
@@ -210,6 +211,21 @@ impl Vm {
         Ok(())
     }
 
+    pub(crate) fn write_buffer(&mut self, offset: usize, bytes: &[u8]) -> Result<(), Error> {
+        if offset < 10 {
+            return Err(Error("protected screen buffer write".into()));
+        }
+        let end = offset
+            .checked_add(bytes.len())
+            .ok_or_else(|| Error("screen buffer overflow".into()))?;
+        self.state
+            .variables
+            .get_mut(offset..end)
+            .ok_or_else(|| Error("screen buffer outside variable image".into()))?
+            .copy_from_slice(bytes);
+        Ok(())
+    }
+
     fn pop_return(&mut self) -> Result<u16, Error> {
         self.state
             .returns
@@ -277,7 +293,8 @@ impl Vm {
                 return Err(Error("complete pending request before stepping".into()));
             }
             Stage::Fetch => {
-                let instruction = decode(self.image.program(), self.state.ip)?;
+                let instruction =
+                    decode_with_rules(self.image.program(), self.state.ip, self.interpreter.forms)?;
                 self.state.ip = instruction.next;
                 for (index, operand) in instruction.operands.iter().enumerate() {
                     self.state.operands[index] = match operand.mode {
@@ -304,6 +321,11 @@ impl Vm {
         let opcode = instruction.opcode;
         let accumulator = self.accumulator();
         let predicate = |test| if test { NONE } else { 0 };
+        if (0x05..=0x0a).contains(&opcode)
+            && let Some(address) = self.interpreter.comparison_backup
+        {
+            self.write_variable(address, accumulator)?;
+        }
         match opcode {
             0x00 => {
                 let callbacks =
@@ -339,12 +361,28 @@ impl Vm {
             0x0a => self.set_accumulator(predicate(accumulator < argument)),
             0x0b => self.set_accumulator(argument),
             0x0c => self.write_variable(VarAddr(argument), accumulator)?,
-            0x0d..=0x0f => match self.interpreter.extensions[usize::from(opcode - 0x0d)] {
+            0x0d..=0x0f | 0x17 | 0x18 => match self.interpreter.extensions[if opcode <= 0x0f {
+                usize::from(opcode - 0x0d)
+            } else {
+                usize::from(opcode - 0x17) + 3
+            }] {
                 ExtensionOpcode::NoOp => {}
                 ExtensionOpcode::Character => {
                     return Ok(self.suspend(Request::Character {
                         byte: argument as u8,
                     }));
+                }
+                ExtensionOpcode::CharacterToken => {
+                    return Ok(self.suspend(Request::CharacterToken {
+                        byte: argument as u8,
+                    }));
+                }
+                ExtensionOpcode::RestoreComparison => {
+                    let address = self
+                        .interpreter
+                        .comparison_backup
+                        .ok_or_else(|| Error("missing comparison backup variable".into()))?;
+                    self.set_accumulator(self.variable(address)?);
                 }
                 ExtensionOpcode::LoadByte => {
                     let byte = *self
@@ -367,7 +405,6 @@ impl Vm {
                     *target = accumulator as u8;
                 }
             },
-            0x17 | 0x18 => {}
             0x10 => self.set_accumulator(accumulator.wrapping_add(argument)),
             0x11 => self.set_accumulator(accumulator.wrapping_sub(argument)),
             0x12 => self.set_accumulator(argument.wrapping_sub(accumulator)),
@@ -548,6 +585,10 @@ impl Vm {
     }
 
     fn resolve_form(&mut self, form: u8) -> Result<(), Error> {
+        if let Some(value) = self.interpreter.forms.constants[usize::from(form)] {
+            self.state.argument = value;
+            return Ok(());
+        }
         let [first, second, _] = self.state.operands;
         self.state.argument = match form {
             0 => first,

@@ -23,6 +23,8 @@ pub enum NativeService {
     GetCursor,
     SetCursor,
     DrawFrame,
+    SaveScreen,
+    RestoreScreen,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,7 +33,41 @@ pub enum ExtensionOpcode {
     Character,
     LoadByte,
     StoreByte,
+    RestoreComparison,
+    CharacterToken,
 }
+
+/// Operand consumption and constant arguments are independent of opcodes.
+#[derive(Clone, Copy, Debug)]
+pub struct FormRules {
+    pub arities: [usize; 8],
+    pub constants: [Option<u16>; 8],
+}
+
+pub const RETAINED_FORMS: FormRules = FormRules {
+    arities: [1, 2, 2, 0, 3, 2, 0, 0],
+    constants: [None; 8],
+};
+
+pub const CONSTANT_FORMS: FormRules = FormRules {
+    arities: [1, 2, 2, 0, 0, 2, 0, 0],
+    constants: [None, None, None, None, Some(0xffff), None, Some(0), None],
+};
+
+#[derive(Clone, Copy, Debug)]
+pub struct ScreenLayout {
+    pub frame_right: usize,
+    pub input_top: usize,
+}
+
+pub const DOS_LAYOUT: ScreenLayout = ScreenLayout {
+    frame_right: 78,
+    input_top: 19,
+};
+pub const WIDE_DOS_LAYOUT: ScreenLayout = ScreenLayout {
+    frame_right: 79,
+    input_top: 20,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextExecution {
@@ -92,7 +128,14 @@ impl SubmittedRead {
 pub struct Interpreter {
     pub name: &'static str,
     pub initial_values: &'static [(VarAddr, u16)],
-    pub extensions: [ExtensionOpcode; 3],
+    /// Slots 0d, 0e, 0f, 17 and 18 respectively.
+    pub extensions: [ExtensionOpcode; 5],
+    pub forms: FormRules,
+    pub comparison_backup: Option<VarAddr>,
+    pub layout: ScreenLayout,
+    pub reset_parser_gaps: bool,
+    pub transcript_cancel_zero: bool,
+    pub confirm_bookmark_replace: bool,
     pub services: &'static [NativeService],
     pub text: TextExecution,
     pub screen: ScreenModel,
@@ -113,7 +156,13 @@ use NativeService::*;
 pub static MINDWHEEL_DOS: Interpreter = Interpreter {
     name: "Mindwheel DOS",
     initial_values: &[],
-    extensions: [ExtensionOpcode::NoOp; 3],
+    extensions: [ExtensionOpcode::NoOp; 5],
+    forms: RETAINED_FORMS,
+    comparison_backup: None,
+    layout: DOS_LAYOUT,
+    reset_parser_gaps: false,
+    transcript_cancel_zero: false,
+    confirm_bookmark_replace: false,
     services: &[
         ReadParse,
         ParsedEnd,
@@ -157,7 +206,15 @@ pub static ESSEX_DOS: Interpreter = Interpreter {
         ExtensionOpcode::Character,
         ExtensionOpcode::LoadByte,
         ExtensionOpcode::StoreByte,
+        ExtensionOpcode::NoOp,
+        ExtensionOpcode::NoOp,
     ],
+    forms: RETAINED_FORMS,
+    comparison_backup: None,
+    layout: DOS_LAYOUT,
+    reset_parser_gaps: false,
+    transcript_cancel_zero: false,
+    confirm_bookmark_replace: false,
     services: &[
         ReadParse,
         ParsedEnd,
@@ -194,6 +251,60 @@ pub static ESSEX_DOS: Interpreter = Interpreter {
 pub static BRIMSTONE_DOS: Interpreter = Interpreter {
     name: "Brimstone DOS",
     ..ESSEX_DOS
+};
+
+pub static BREAKERS_DOS: Interpreter = Interpreter {
+    name: "Breakers DOS",
+    initial_values: &[
+        (VarAddr(0x118), 1),
+        (VarAddr(0x11a), 1),
+        (VarAddr(0x11c), 1),
+        (VarAddr(0x11e), 1),
+        (VarAddr(0x120), 78),
+        (VarAddr(0x122), 17),
+        (VarAddr(0x124), 79),
+        (VarAddr(0x126), 24),
+        (VarAddr(0x12c), 15),
+        (VarAddr(0x12e), 16),
+        (VarAddr(0x132), 18),
+        (VarAddr(0xd0), 17),
+        (VarAddr(0xd2), 19),
+    ],
+    extensions: [
+        ExtensionOpcode::NoOp,
+        ExtensionOpcode::LoadByte,
+        ExtensionOpcode::StoreByte,
+        ExtensionOpcode::RestoreComparison,
+        ExtensionOpcode::CharacterToken,
+    ],
+    forms: CONSTANT_FORMS,
+    comparison_backup: Some(VarAddr(0xec)),
+    layout: WIDE_DOS_LAYOUT,
+    reset_parser_gaps: true,
+    transcript_cancel_zero: true,
+    confirm_bookmark_replace: true,
+    services: &[
+        ReadParse,
+        ParsedEnd,
+        WaitKey,
+        Exit,
+        Save,
+        Restore,
+        EchoUnknown,
+        OpenTranscript,
+        CloseTranscript,
+        EchoInput,
+        ResetVariables,
+        ResetStacks,
+        NoOp,
+        SelectDisk,
+        GetCursor,
+        SetCursor,
+        SaveScreen,
+        DrawFrame,
+        RestoreScreen,
+    ],
+    ..BRIMSTONE_DOS
 };
 
 /// Locations of externally supplied resources. Moving a table does not change
@@ -233,4 +344,13 @@ pub const BRIMSTONE_RESOURCES: DosResources = DosResources {
     classes: 0x22,
     random_adjustment: 0x6e5,
     service_strings: [0x223, 0x18c, 0x254, 0x278],
+};
+
+pub const BREAKERS_RESOURCES: DosResources = DosResources {
+    pairs: 0x38b,
+    thirds: 0x58b,
+    pause: 0x114,
+    classes: 0x22,
+    random_adjustment: 0x73e,
+    service_strings: [0x246, 0x19b, 0x277, 0x29b],
 };

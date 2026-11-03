@@ -252,3 +252,21 @@ fn phrase_staging_reserves_a_slot_for_its_terminating_word() {
         .unwrap_err();
     assert_eq!(error.0, "grammar phrase buffer exhausted");
 }
+
+#[test]
+fn breakers_resets_gap_matching_before_an_unmatched_full_sweep() {
+    for definition in [
+        &btz::interpreter::BRIMSTONE_DOS,
+        &btz::interpreter::BREAKERS_DOS,
+    ] {
+        let (image, _) = fixture(&[one(&[20])], &[0]);
+        let mut vm = Vm::with_interpreter(image.clone(), definition).unwrap();
+        let mut state = GrammarState::new();
+        state.parse(&image, &mut vm, &[20]).unwrap();
+        assert!(!state.allow_gaps());
+        let unmatched = state.parse(&image, &mut vm, &[30]).unwrap();
+        assert_eq!(unmatched.remaining_count, 1);
+        assert_eq!(state.allow_gaps(), definition.reset_parser_gaps);
+        assert!(state.free_match());
+    }
+}

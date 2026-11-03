@@ -875,3 +875,198 @@ fn native_restore_preserves_saved_bytes_outside_normal_wordcode_write_rules() {
         }
     }
 }
+
+#[test]
+fn breakers_constant_forms_comparisons_and_recall_preserve_native_variables() {
+    use btz::interpreter::BREAKERS_DOS;
+    let code = [
+        0x082c, 0x30, 0x180, // form4 is ffff, with no operands
+        0x082e, 0x30, 0x182, // form6 is zero, with no operands
+        0x2c, 55, 0x082f, 0x30, 0x184, // form7 retains the previous argument
+        0x2c, 0x1234, 0x18, 0x1234, 0x5f, 0x30, 0x186,
+    ];
+    let mut vm = Vm::with_interpreter(image(fixture(&code, &[])), &BREAKERS_DOS).unwrap();
+    let previous_ea = vm.variable(VarAddr(0xea)).unwrap();
+    for _ in 0..11 {
+        vm.step().unwrap();
+    }
+    for (address, value) in [
+        (0x180, 0xffff),
+        (0x182, 0),
+        (0x184, 55),
+        (0x186, 0x1234),
+        (0xec, 0x1234),
+    ] {
+        assert_eq!(vm.variable(VarAddr(address)).unwrap(), value, "{address:x}");
+    }
+    assert_eq!(vm.variable(VarAddr(0xea)).unwrap(), previous_ea);
+    for opcode in 5..=10 {
+        let mut vm = Vm::with_interpreter(
+            image(fixture(&[0x2c, 123, opcode * 4, 1, 0x5f], &[])),
+            &BREAKERS_DOS,
+        )
+        .unwrap();
+        vm.step().unwrap();
+        vm.step().unwrap();
+        assert_eq!(vm.variable(VarAddr(0xec)).unwrap(), 123);
+        vm.step().unwrap();
+        assert_eq!(vm.accumulator(), 123);
+    }
+}
+
+#[test]
+fn breakers_form4_does_not_consume_the_following_instruction() {
+    let bytes: Vec<_> = [0x082cu16, 0x2c, 9, 11, 12]
+        .into_iter()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let native =
+        btz::decode::decode_with_rules(&bytes, ProgramAddr(0), btz::interpreter::CONSTANT_FORMS)
+            .unwrap();
+    assert!(native.operands.is_empty());
+    assert_eq!(native.next, ProgramAddr(2));
+    let older = btz::decode::decode(&bytes, ProgramAddr(0)).unwrap();
+    assert_eq!(older.operands.len(), 3);
+    assert_eq!(older.next, ProgramAddr(8));
+}
+
+fn wait(session: &mut Session) {
+    for _ in 0..2000 {
+        match session.advance().unwrap() {
+            SessionStep::WaitKey => return,
+            SessionStep::Unsupported(r) => panic!("{r:?}"),
+            _ => {}
+        }
+    }
+    panic!("expected a key wait");
+}
+
+#[test]
+fn breakers_character_opcode_uses_the_formatter_and_old_slot_is_empty() {
+    let mut s = session_with(
+        fixture(&[0x34, b'X' as u16, 0x60, b'q' as u16, 0x64, 3], &[]),
+        &btz::interpreter::BREAKERS_DOS,
+    );
+    wait(&mut s);
+    assert_eq!(first_row(&s), "Q");
+    assert_eq!(s.input().cursor(), (20, 1));
+    assert_eq!(s.vm().variable(VarAddr(0x120)).unwrap(), 78);
+    assert_eq!(s.screen().dos_cells()[79 * 2], 0xbb);
+    for byte in 0..=255u16 {
+        let mut vm = Vm::with_interpreter(
+            image(fixture(&[0x60, byte], &[])),
+            &btz::interpreter::BREAKERS_DOS,
+        )
+        .unwrap();
+        assert_eq!(
+            vm.step().unwrap(),
+            Step::Suspended(Request::CharacterToken { byte: byte as u8 })
+        );
+    }
+}
+
+#[test]
+fn breakers_screen_services_keep_character_buffers_inside_native_bookmarks() {
+    let mut code = Vec::new();
+    for (address, value) in [
+        (0x11c, 10),
+        (0x11e, 4),
+        (0x120, 14),
+        (0x122, 6),
+        (0x118, 10),
+        (0x11a, 4),
+    ] {
+        code.extend([0x2c, value, 0x30, address]);
+    }
+    code.extend([
+        0x64,
+        18,
+        0x64,
+        16,
+        0x60,
+        b'A' as u16,
+        0x2c,
+        0x180,
+        0x64,
+        17,
+        0x64,
+        16,
+        0x60,
+        b'B' as u16,
+        0x2c,
+        0x180,
+        0x64,
+        19,
+        0x64,
+        3,
+    ]);
+    let mut bytes = fixture(&[], &[]);
+    put(&mut bytes, 0xe8, 0x200);
+    program(&mut bytes, 0x200, &code);
+    let mut s = session_with(bytes, &btz::interpreter::BREAKERS_DOS);
+    wait(&mut s);
+    assert_eq!(s.screen().dos_cells()[(4 * 80 + 10) * 2], b'A');
+    assert_eq!(s.screen().dos_cells()[(3 * 80 + 9) * 2], 0xda);
+    assert_eq!(s.screen().dos_cells()[(7 * 80 + 15) * 2], 0xd9);
+    assert_eq!(s.vm().state().variables[0x180], 0xda);
+    assert_eq!(s.vm().state().variables[0x180 + 8], b'A');
+    assert_eq!(s.screen().upper_cursor().0, 4);
+}
+
+#[test]
+fn only_breakers_clears_accumulator_when_a_transcript_is_cancelled() {
+    for definition in [
+        &MINDWHEEL_DOS,
+        &ESSEX_DOS,
+        &BRIMSTONE_DOS,
+        &btz::interpreter::BREAKERS_DOS,
+    ] {
+        let mut s = session_with(fixture(&[0x2c, 0x1234, 0x64, 8, 0x64, 3], &[]), definition);
+        let mut cancelled = false;
+        for _ in 0..2000 {
+            match s.advance().unwrap() {
+                SessionStep::Host(HostRequest::TranscriptName { .. }) => {
+                    s.complete_host(HostReply::Cancelled).unwrap();
+                    cancelled = true;
+                }
+                SessionStep::WaitKey => break,
+                _ => {}
+            }
+        }
+        assert!(cancelled);
+        assert_eq!(
+            s.vm().accumulator(),
+            if definition.transcript_cancel_zero {
+                0
+            } else {
+                0x1234
+            }
+        );
+    }
+}
+
+#[test]
+fn standalone_character_tokens_collect_controls_without_dispatching_a_message_callback() {
+    let mut bytes = fixture(
+        &[
+            0x60,
+            b'|' as u16,
+            0x60,
+            b'a' as u16,
+            0x60,
+            b'3' as u16,
+            0x60,
+            b'|' as u16,
+            0x64,
+            3,
+        ],
+        &[],
+    );
+    program(&mut bytes, 0x100, &[0x2c, 99, 0x30, 0x180, 0, 0]);
+    let mut s = session_with(bytes, &btz::interpreter::BREAKERS_DOS);
+    wait(&mut s);
+    assert_eq!(s.vm().variable(VarAddr(0x180)).unwrap(), 0);
+    assert_eq!(s.vm().state().values, [3]);
+    assert!(s.vm().state().returns.is_empty());
+    assert_eq!(first_row(&s), "");
+}

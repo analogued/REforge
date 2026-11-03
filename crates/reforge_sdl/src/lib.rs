@@ -9,6 +9,7 @@ pub use egui;
 pub use sdl3;
 pub mod audio;
 mod controller_art;
+mod cursor;
 #[cfg(feature = "dev-tools")]
 mod fps;
 pub mod gamepad;
@@ -169,6 +170,7 @@ pub struct Window {
     presentation: Presentation,
     presentation_requested: Presentation,
     canvas: WindowCanvas,
+    cursor: cursor::AutoHide,
     events: Option<sdl3::EventPump>,
     creator: FrameCreator,
     requested: settings::RuntimeSettings,
@@ -444,6 +446,7 @@ impl Window {
             presentation,
             presentation_requested,
             canvas,
+            cursor: cursor::AutoHide::new(sdl.mouse()),
             events,
             creator,
             requested,
@@ -482,6 +485,9 @@ impl Window {
     }
 
     pub fn poll_events(&mut self) -> impl Iterator<Item = Event> + '_ {
+        let cursor = &mut self.cursor;
+        let pointer_ui = self.creator.pointer_ui.get();
+        cursor.update(self.canvas.window(), pointer_ui);
         #[cfg(feature = "dev-tools")]
         let fps = &mut self.fps;
         let window = self.canvas.window_mut();
@@ -494,6 +500,8 @@ impl Window {
             .expect("live event pump")
             .poll_iter()
             .inspect(move |event| {
+                cursor.observe(event, id);
+                cursor.update(window, pointer_ui);
                 if let Event::Window {
                     window_id,
                     win_event,
@@ -979,7 +987,10 @@ impl Window {
                 ),
             Presentation::Pixels => paint(&mut self.canvas, texture),
         })??;
+        self.creator.pointer_ui.set(false);
         overlay(&mut self.canvas)?;
+        self.cursor
+            .update(self.canvas.window(), self.creator.pointer_ui.get());
         #[cfg(feature = "dev-tools")]
         self.fps.paint(&mut self.canvas)?;
         if !self.canvas.present() {

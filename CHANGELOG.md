@@ -12,6 +12,7 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Hide the idle mouse cursor during graphical play, including fullscreen.
 - Restore the last selected library entry when reopening the launcher.
 - Consistent top-left option badges for preview images and initials fallbacks.
 - Fixed washed-out disabled launcher choices in Soft Tonal, Warm Amber and

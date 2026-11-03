@@ -633,6 +633,7 @@ impl<'a> SettingsMenu<'a> {
         if !self.open || self.generation != self.creator.generation() {
             return Ok(());
         }
+        self.creator.pointer_ui.set(true);
         let logical = canvas.logical_size();
         // Preserve automatic sizing, not just its current resolved rectangle.
         // Restoring that rectangle explicitly would pin the old logical bounds

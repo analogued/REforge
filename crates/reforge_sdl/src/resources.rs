@@ -31,6 +31,8 @@ pub struct FrameCreator {
     pub(crate) windowed_scale: Rc<Cell<u32>>,
     pub(crate) geometry: Rc<Cell<crate::DisplayGeometry>>,
     pub(crate) sampling: Rc<Cell<crate::Sampling>>,
+    // Set by the host UI painter for the current game presentation.
+    pub(crate) pointer_ui: Rc<Cell<bool>>,
     generation: Rc<Cell<usize>>,
     textures: Rc<RefCell<Vec<Weak<Slot>>>>,
 }
@@ -63,6 +65,7 @@ impl FrameCreator {
             windowed_scale: Rc::new(Cell::new(windowed_scale)),
             geometry: Rc::new(Cell::new(geometry)),
             sampling: Rc::new(Cell::new(crate::Sampling::Nearest)),
+            pointer_ui: Rc::new(Cell::new(false)),
             generation: Rc::new(Cell::new(0)),
             textures: Rc::new(RefCell::new(Vec::new())),
         }

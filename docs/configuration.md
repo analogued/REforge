@@ -21,6 +21,11 @@ does not reach gameplay.
 With Auto selected, the disabled scale slider shows the resolved windowed
 multiplier. Turning Auto off starts manual scaling at that value.
 
+During graphical play, the mouse cursor hides after two seconds without mouse
+activity, in both windowed and fullscreen modes. Moving or clicking the mouse
+shows it again. Settings and file dialogs keep it visible; leaving the game
+window or returning to the launcher restores it.
+
 The frame limiter controls presentation, independently of game simulation.
 It keeps a steady deadline schedule so ordinary polling delays do not accumulate
 as a lower average FPS. A missed full interval resets that schedule instead of

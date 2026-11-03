@@ -5,7 +5,9 @@ use btz::{
     bookmark::Bookmark,
     image::StoryImage,
     input::Key,
-    interpreter::{ESSEX_DOS, MINDWHEEL_DOS, NativeService, SubmittedRead},
+    interpreter::{
+        BRIMSTONE_DOS, BRIMSTONE_RESOURCES, ESSEX_DOS, MINDWHEEL_DOS, NativeService, SubmittedRead,
+    },
     parser::Parser,
     random::{DosRandom, RandomState},
     services::{HostReply, HostRequest},
@@ -106,6 +108,9 @@ fn codec() -> TextCodec {
     TextCodec::from_dos_executable(&exe).unwrap()
 }
 fn session(bytes: Vec<u8>) -> Session {
+    session_with(bytes, &ESSEX_DOS)
+}
+fn session_with(bytes: Vec<u8>, definition: &'static btz::interpreter::Interpreter) -> Session {
     Session::with_interpreter(
         image(bytes),
         codec(),
@@ -116,7 +121,7 @@ fn session(bytes: Vec<u8>) -> Session {
             },
             0,
         ),
-        &ESSEX_DOS,
+        definition,
     )
     .unwrap()
 }
@@ -140,6 +145,78 @@ fn native_service_slots_are_mapped_without_changing_shared_meanings() {
     assert_eq!(ESSEX_DOS.service(17), Some(NativeService::NoOp));
     assert_eq!(MINDWHEEL_DOS.service(15), None);
     assert_eq!(ESSEX_DOS.service(0), None);
+    assert_eq!(BRIMSTONE_DOS.service(7), Some(NativeService::EchoUnknown));
+    assert_eq!(BRIMSTONE_DOS.service(10), Some(NativeService::EchoInput));
+    assert_eq!(BRIMSTONE_DOS.service(18), Some(NativeService::DrawFrame));
+    assert_eq!(BRIMSTONE_DOS.service(19), None);
+}
+
+#[test]
+fn extended_bindings_execute_byte_cursor_and_cancelled_bookmark_services() {
+    let code = [
+        0x2c,
+        0x1234,
+        0x3c,
+        0x191,
+        0x38,
+        0x191,
+        0x30,
+        0x192,
+        0x2c,
+        3,
+        0x30,
+        0x118,
+        0x2c,
+        2,
+        0x30,
+        0x11a,
+        0x64,
+        16,
+        0x34,
+        b'Q' as u16,
+        0x64,
+        15,
+        0x64,
+        5,
+        0x64,
+        6,
+        0x64,
+        3,
+    ];
+    for definition in [&ESSEX_DOS, &BRIMSTONE_DOS] {
+        let mut session = session_with(fixture(&code, &[]), definition);
+        let mut requests = Vec::new();
+        let mut waited = false;
+        for _ in 0..1000 {
+            match session.advance().unwrap() {
+                SessionStep::Host(HostRequest::SaveBookmark { data }) => {
+                    let bookmark = Bookmark::decode(&data, 512).unwrap();
+                    assert_eq!(bookmark.variables[0x191], 0x34);
+                    assert_eq!(bookmark.variables[0x192], 0x34);
+                    assert_eq!(bookmark.variables[0x118], 4);
+                    assert_eq!(bookmark.variables[0x11a], 2);
+                    requests.push("save");
+                    session.complete_host(HostReply::Cancelled).unwrap();
+                }
+                SessionStep::Host(HostRequest::LoadBookmark) => {
+                    requests.push("restore");
+                    session.complete_host(HostReply::Cancelled).unwrap();
+                }
+                SessionStep::WaitKey => {
+                    assert_eq!(requests, ["save", "restore"]);
+                    waited = true;
+                    break;
+                }
+                SessionStep::Unsupported(request) => {
+                    panic!("unexpected request: {request:?}")
+                }
+                SessionStep::Host(request) => panic!("unexpected host request: {request:?}"),
+                _ => {}
+            }
+        }
+        assert_eq!(requests, ["save", "restore"]);
+        assert!(waited, "expected the native key wait");
+    }
 }
 
 #[test]
@@ -215,6 +292,7 @@ fn numeric_slot_exhaustion_and_disabled_range_fall_back_to_unknown_words() {
     for (definition, range, input, count) in [
         (&ESSEX_DOS, (10, 12), b"1 2 3\r".as_slice(), 2),
         (&ESSEX_DOS, (0xffff, 0xffff), b"1\r", 0),
+        (&BRIMSTONE_DOS, (0xffff, 0xffff), b"1\r", 0),
         (&MINDWHEEL_DOS, (10, 12), b"1\r", 0),
     ] {
         let mut bytes = fixture(&[], &[]);
@@ -455,46 +533,55 @@ fn executable_resource_offsets_are_independent_of_behavior_selection() {
         random_adjustment: 1024,
         service_strings: [1040, 1056, 1072, 1088],
     };
-    let mut exe = vec![0; 32 + 1120];
-    exe[..2].copy_from_slice(b"MZ");
-    put(&mut exe, 8, 2);
-    exe[32 + 64 + 128] = b'X';
-    exe[32 + 64 + 384] = b'Y';
-    exe[32 + 800..32 + 804].copy_from_slice(b"KEY\0");
-    exe[32 + 832..32 + 960].fill(3);
-    exe[32 + 1024..32 + 1028].copy_from_slice(&123u32.to_le_bytes());
-    for (address, text) in resources.service_strings.into_iter().zip([
-        b"printer".as_slice(),
-        b"error",
-        b"disk",
-        b"wrong",
-    ]) {
-        exe[32 + address..32 + address + text.len()].copy_from_slice(text);
+    // Both an arbitrary relocation and the third DOS layout must load their
+    // own tables, including the separately relocated printer-error message.
+    for resources in [resources, BRIMSTONE_RESOURCES] {
+        let mut exe = vec![0; 32 + 2048];
+        exe[..2].copy_from_slice(b"MZ");
+        put(&mut exe, 8, 2);
+        exe[32 + resources.pairs + 1] = b'A';
+        exe[32 + resources.pairs + 257] = b'B';
+        exe[32 + resources.pairs + 128] = b'X';
+        exe[32 + resources.pairs + 384] = b'Y';
+        exe[32 + resources.thirds + 1] = b'Z';
+        exe[32 + resources.pause..32 + resources.pause + 4].copy_from_slice(b"KEY\0");
+        exe[32 + resources.classes..32 + resources.classes + 128].fill(3);
+        exe[32 + resources.random_adjustment..32 + resources.random_adjustment + 4]
+            .copy_from_slice(&123u32.to_le_bytes());
+        for (address, text) in resources.service_strings.into_iter().zip([
+            b"printer".as_slice(),
+            b"error",
+            b"disk",
+            b"wrong",
+        ]) {
+            exe[32 + address..32 + address + text.len()].copy_from_slice(text);
+        }
+        let codec = TextCodec::from_dos_resources(&exe, resources).unwrap();
+        assert_eq!(codec.pause_prompt(), b"KEY");
+        assert_eq!(codec.input_classes(), &[3; 128]);
+        let mut bytes = fixture(&[], &[]);
+        bytes[5 * 512 + 6..5 * 512 + 9].copy_from_slice(&[128, 1, 0]);
+        assert_eq!(codec.word(&image(bytes), 2).unwrap(), b"XYABZ");
+        let messages = ServiceMessages::from_dos_resources(&exe, resources).unwrap();
+        assert_eq!(messages.printer_prompt, b"printer");
+        assert_eq!(messages.printer_error, b"error");
+        assert_eq!(messages.disk_prompt, b"disk");
+        assert_eq!(messages.wrong_disk, b"wrong");
+        let mut random = DosRandom::from_dos_resources(&exe, resources).unwrap();
+        let mut expected = DosRandom::from_state(
+            RandomState {
+                seed: 334,
+                counter: 0,
+            },
+            123,
+        );
+        assert_eq!(random.idle_step(), expected.idle_step());
+        let invalid = DosResources {
+            pairs: usize::MAX,
+            ..resources
+        };
+        assert!(TextCodec::from_dos_resources(&exe, invalid).is_err());
     }
-    let codec = TextCodec::from_dos_resources(&exe, resources).unwrap();
-    assert_eq!(codec.pause_prompt(), b"KEY");
-    assert_eq!(codec.input_classes(), &[3; 128]);
-    let mut bytes = fixture(&[], &[]);
-    bytes[5 * 512 + 6] = 128;
-    bytes[5 * 512 + 7] = 0;
-    assert_eq!(codec.word(&image(bytes), 2).unwrap(), b"XY");
-    let messages = ServiceMessages::from_dos_resources(&exe, resources).unwrap();
-    assert_eq!(messages.disk_prompt, b"disk");
-    assert_eq!(messages.printer_error, b"error");
-    let mut random = DosRandom::from_dos_resources(&exe, resources).unwrap();
-    let mut expected = DosRandom::from_state(
-        RandomState {
-            seed: 334,
-            counter: 0,
-        },
-        123,
-    );
-    assert_eq!(random.idle_step(), expected.idle_step());
-    let invalid = DosResources {
-        pairs: usize::MAX,
-        ..resources
-    };
-    assert!(TextCodec::from_dos_resources(&exe, invalid).is_err());
 }
 
 #[test]
@@ -742,7 +829,7 @@ fn display_extent_metadata_does_not_move_the_physical_pause_line() {
 
 #[test]
 fn native_restore_preserves_saved_bytes_outside_normal_wordcode_write_rules() {
-    for definition in [&MINDWHEEL_DOS, &ESSEX_DOS] {
+    for definition in [&MINDWHEEL_DOS, &ESSEX_DOS, &BRIMSTONE_DOS] {
         let image = image(fixture(&[0x64, 6, 0x64, 3], &[]));
         let mut session = Session::with_interpreter(
             image,

@@ -6,7 +6,8 @@ selects the behavior that differs between identified implementations. Executable
 resource locations live separately in `DosResources`; relocated text tables or
 prompts do not by themselves imply different VM semantics.
 
-`MINDWHEEL_DOS` and `ESSEX_DOS` are descriptive implementation names. They do not
+`MINDWHEEL_DOS`, `ESSEX_DOS` and `BRIMSTONE_DOS` are descriptive implementation
+names. They do not
 assert official version numbers. The player loader and diagnostic frontend can
 identify their executable hashes before constructing the VM. Existing `new` and
 `from_dos_executable` constructors retain the Mindwheel DOS definition and table
@@ -16,11 +17,11 @@ tests without putting file detection inside the VM.
 
 ## Shared execution and selected differences
 
-Both definitions use the same eight operand forms, address spaces, arithmetic,
+All three definitions use the same eight operand forms, address spaces, arithmetic,
 property traversal, stacks, RNG algorithm and BIOS-tick deadline rules. Differences
 are selected at the operation that needs them:
 
-| Behavior | Mindwheel DOS | Essex DOS |
+| Behavior | Mindwheel DOS | Essex / Brimstone DOS |
 | --- | --- | --- |
 | Opcodes `0x0d` / `0x0e` / `0x0f` | No operation | Print byte / load variable byte / store variable byte |
 | Property keys | Checked against the object limit | May exceed the object limit; the object remains checked |
@@ -46,7 +47,7 @@ all implementations along a single version-number comparison.
 
 The numeric-capable parser reads an exclusive range of reserved object IDs from
 the initial variable header at `0x114` and `0x116`. Equal endpoints disable the
-feature, as in the current Essex data. Decimal tokens may start with minus;
+feature, as in the current Essex and Brimstone data. Decimal tokens may start with minus;
 conversion accepts a decimal prefix and wraps at 16 bits. Values are written to
 the corresponding direct-value object slots.
 
@@ -76,7 +77,7 @@ behavior requires it.
 
 ## Extended output controls
 
-Essex exposes the story cursor through variables `0x118` (column) and `0x11a`
+Essex and Brimstone expose the story cursor through variables `0x118` (column) and `0x11a`
 (row), and its story rectangle through `0x11c`, `0x11e`, `0x120` and `0x122`
 (left, top, right, bottom). The physical display remains 80×25 cells. Reflected
 extent values at `0x124` and `0x126` do not relocate the physical pause line.
@@ -92,13 +93,21 @@ state remains intact. The bookmark byte format itself is unchanged.
 
 ## Validation boundary
 
-Mindwheel and Essex each have one catalogued DOS release. Synthetic tests cover
+Mindwheel, Essex and Brimstone each have one catalogued DOS release. Brimstone
+shares the demonstrated Essex behavior while retaining a distinct definition
+and executable resource layout. Its printer-error message moves independently
+of the other native messages.
+
+Synthetic tests cover
 numeric-range boundaries, nested callbacks, continuation frames, resource
 relocation, output controls and both submitted-read conversions. Selected
 original-executable comparisons cover title rendering, numeric parsing, callbacks,
 byte operations, property keys, cursor services, echoing, pauses and transcripts.
 The seven supplied Essex bookmarks also match native load/re-save variable state,
-screen output and serialized save bytes through the shared codec.
+screen output and serialized save bytes through the shared codec. Brimstone
+comparisons also cover the title, opening scene and native bookmark exchanges
+in both directions. Its 4,240-byte variable image gives a 4,962-byte bookmark;
+the codec reads the extent from the data rather than selecting a new format.
 
 These checks and longer gameplay runs do not establish a winning playthrough,
 complete behavioral equivalence or support for other BTZ releases. The remaining

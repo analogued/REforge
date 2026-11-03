@@ -5,8 +5,9 @@ interpreter, for [REforge](../../README.md). It executes original game wordcode
 and data through reconstructed VM, parser, text, keyboard, timing and native
 services. Story rules remain in the supplied game data.
 
-Mindwheel and Essex for DOS are supported. Brimstone and Breakers will be added
-as their game data and interpreter revisions are implemented and validated.
+Mindwheel, Essex and Brimstone: The Dream of Gawain for DOS are supported.
+Breakers will be added as its game data and interpreter revision are implemented
+and validated.
 The games share the VM and player hosts, with identified interpreter differences
 selected through immutable definitions.
 
@@ -21,8 +22,9 @@ launcher; see the [BTZ player guide](../../docs/games/btz.md) for
 controls and launch options.
 
 > [!NOTE]
-> BTZ support is experimental. One identified DOS release each of Mindwheel
-> and Essex is supported. Complete winning playthroughs have not been verified.
+> BTZ support is experimental. One identified DOS release each of Mindwheel,
+> Essex and Brimstone is supported. Complete winning playthroughs have not been
+> verified.
 > Other BTZ games, platform versions and interpreter revisions are not yet
 > supported. See [Reference and compatibility](#reference-and-compatibility)
 > for the current limits.
@@ -92,18 +94,21 @@ codec.
 - [DOS format and VM](docs/mindwheel-dos-format.md): stores, address units,
   operand forms, instruction semantics, properties and persistence formats.
 - [Interpreter definitions](docs/interpreter-definitions.md): shared behavior,
-  Essex extensions, resource layouts and compatibility boundaries.
+  Essex/Brimstone extensions, resource layouts and compatibility boundaries.
 - [DOS runtime](docs/mindwheel-dos-runtime.md): parser, text, keyboard, native
   services, timing/RNG and host behavior.
 
-The observed Mindwheel and Essex native-service tables have implementation paths. That does not imply
-complete behavioral equivalence: pause/typeahead and newline polling have
+The native services of the three supported DOS interpreters have implementation
+paths. That does not imply complete behavioral equivalence: pause/typeahead and
+newline polling have
 remaining edge cases described in the runtime reference.
 
-Both supported DOS input routines read an uninitialized stack word.
+All three supported DOS input routines read an uninitialized stack word.
 The player hosts use an explicit default-zero adapter rather than modeling the
-DOS memory/stack environment. The conversion and its use differ between the games: Mindwheel uses it in a
-discarded post-input draw; Essex also compares it with a story timeout value.
+DOS memory/stack environment. The conversion and its use differ between the
+games: Mindwheel uses it in a discarded post-input draw; Essex and Brimstone
+also compare it with a story timeout value. The full gameplay effect of those
+comparisons remains unverified.
 Later gameplay draws retain their own bounds.
 Exact DOS polling schedules and random-sequence fidelity remain unverified.
 

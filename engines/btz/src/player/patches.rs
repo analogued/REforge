@@ -4,32 +4,38 @@
 
 use sha2::{Digest, Sha256};
 
-struct Patch {
-    size: usize,
-    sha256: [u8; 32],
+struct Edit {
     offset: usize,
     before: &'static [u8],
     after: &'static [u8],
 }
 
-impl Patch {
+struct Patch<'a> {
+    size: usize,
+    sha256: [u8; 32],
+    edits: &'a [Edit],
+}
+
+impl Patch<'_> {
     fn apply(&self, bytes: &mut [u8]) -> bool {
-        if bytes.len() != self.size
-            || self.before.len() != self.after.len()
-            || Sha256::digest(&*bytes).as_slice() != self.sha256
-        {
+        if bytes.len() != self.size || Sha256::digest(&*bytes).as_slice() != self.sha256 {
             return false;
         }
-        let Some(end) = self.offset.checked_add(self.before.len()) else {
-            return false;
-        };
-        let Some(target) = bytes.get_mut(self.offset..end) else {
-            return false;
-        };
-        if target != self.before {
-            return false;
+        // Validate every edit before changing any bytes.
+        for edit in self.edits {
+            if edit.before.len() != edit.after.len() {
+                return false;
+            }
+            let Some(end) = edit.offset.checked_add(edit.before.len()) else {
+                return false;
+            };
+            if bytes.get(edit.offset..end) != Some(edit.before) {
+                return false;
+            }
         }
-        target.copy_from_slice(self.after);
+        for edit in self.edits {
+            bytes[edit.offset..edit.offset + edit.after.len()].copy_from_slice(edit.after);
+        }
         true
     }
 }
@@ -43,9 +49,11 @@ const MINDWHEEL_DOS: Patch = Patch {
         0x94, 0xfd, 0x2c, 0x9f, 0x12, 0x19, 0x63, 0x6a, 0x33, 0x4d, 0x2d, 0xb0, 0x76, 0x1d, 0xb0,
         0xb0, 0x91,
     ],
-    offset: 0x570c,
-    before: &[0x2c, 0x00, 0x00, 0x00],
-    after: &[0x08, 0x00, 0x62, 0x49],
+    edits: &[Edit {
+        offset: 0x570c,
+        before: &[0x2c, 0x00, 0x00, 0x00],
+        after: &[0x08, 0x00, 0x62, 0x49],
+    }],
 };
 
 // Identified Essex DOS OBJ only: keep the title and enter the existing
@@ -57,14 +65,40 @@ const ESSEX_DOS: Patch = Patch {
         0xae, 0xa5, 0x75, 0xd9, 0x5f, 0xbd, 0x45, 0x58, 0xc0, 0x9e, 0x09, 0x82, 0xd9, 0x2a, 0xbb,
         0x65, 0x41,
     ],
-    offset: 0xd314,
-    before: &[0x2c, 0x00, 0x00, 0x00],
-    after: &[0x08, 0x00, 0x5c, 0xc3],
+    edits: &[Edit {
+        offset: 0xd314,
+        before: &[0x2c, 0x00, 0x00, 0x00],
+        after: &[0x08, 0x00, 0x5c, 0xc3],
+    }],
+};
+
+// Identified Brimstone DOS OBJ only: retain the entry's call frame and run the
+// existing opening initialization, including its story timing setup.
+const BRIMSTONE_DOS: Patch = Patch {
+    size: 183_296,
+    sha256: [
+        0x34, 0xf6, 0xcd, 0x14, 0xb2, 0xf0, 0xd6, 0xfd, 0x1d, 0x5b, 0x8d, 0x6c, 0x99, 0x89, 0x1f,
+        0xb6, 0x03, 0xae, 0x4c, 0xf6, 0x92, 0x59, 0x9e, 0x03, 0x9c, 0x8e, 0xec, 0xff, 0x1c, 0x3b,
+        0xae, 0xf4,
+    ],
+    edits: &[
+        Edit {
+            offset: 0x648e,
+            before: &[0x04, 0x00, 0xae, 0x40],
+            after: &[0x04, 0x00, 0x52, 0x41],
+        },
+        Edit {
+            offset: 0x5380,
+            before: &[0x58, 0x00],
+            after: &[0x03, 0x00],
+        },
+    ],
 };
 
 pub(super) fn prepare_for_play(bytes: &mut [u8]) {
     MINDWHEEL_DOS.apply(bytes);
     ESSEX_DOS.apply(bytes);
+    BRIMSTONE_DOS.apply(bytes);
 }
 
 #[cfg(test)]
@@ -72,13 +106,15 @@ mod tests {
     use super::*;
     use crate::{ProgramAddr, decode::decode};
 
-    fn authored_patch(bytes: &[u8]) -> Patch {
+    fn authored_patch(bytes: &[u8]) -> Patch<'static> {
         Patch {
             size: bytes.len(),
             sha256: Sha256::digest(bytes).into(),
-            offset: 2,
-            before: &[0x2c, 0, 0, 0],
-            after: &[0x08, 0, 0x20, 0],
+            edits: &[Edit {
+                offset: 2,
+                before: &[0x2c, 0, 0, 0],
+                after: &[0x08, 0, 0x20, 0],
+            }],
         }
     }
 
@@ -121,9 +157,19 @@ mod tests {
         ] {
             let mut bytes = original;
             let mut patch = authored_patch(&original);
-            patch.offset = offset;
-            patch.before = before;
-            patch.after = after;
+            let edits = [
+                Edit {
+                    offset: 2,
+                    before: &[0x2c, 0, 0, 0],
+                    after: &[0x08, 0, 0x20, 0],
+                },
+                Edit {
+                    offset,
+                    before,
+                    after,
+                },
+            ];
+            patch.edits = &edits;
             assert!(!patch.apply(&mut bytes));
             assert_eq!(bytes, original);
         }

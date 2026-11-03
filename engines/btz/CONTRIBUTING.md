@@ -31,7 +31,7 @@ not require original game files or a desktop.
 
 ## Player frontends
 
-REforge dispatches verified Mindwheel and Essex files to `cli::run_with_files`. Windowed
+REforge dispatches verified BTZ files to the shared player entry point. Windowed
 play uses the shared SDL display and settings; `--renderer terminal` uses an
 attached terminal without initializing an SDL window. Both hosts use `Session`
 and the same player loading and file-service adapters. Graphical file prompts

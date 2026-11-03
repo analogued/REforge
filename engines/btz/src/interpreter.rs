@@ -189,6 +189,13 @@ pub static ESSEX_DOS: Interpreter = Interpreter {
     }),
 };
 
+/// This identified runtime shares the demonstrated extended semantics. Keep its
+/// identity explicit so a later verified difference can be selected locally.
+pub static BRIMSTONE_DOS: Interpreter = Interpreter {
+    name: "Brimstone DOS",
+    ..ESSEX_DOS
+};
+
 /// Locations of externally supplied resources. Moving a table does not change
 /// VM semantics, so these offsets are kept out of `Interpreter`.
 #[derive(Clone, Copy, Debug)]
@@ -217,4 +224,13 @@ pub const ESSEX_RESOURCES: DosResources = DosResources {
     classes: 0x22,
     random_adjustment: 0x6d5,
     service_strings: [0x213, 0x163, 0x244, 0x268],
+};
+
+pub const BRIMSTONE_RESOURCES: DosResources = DosResources {
+    pairs: 0x322,
+    thirds: 0x522,
+    pause: 0x105,
+    classes: 0x22,
+    random_adjustment: 0x6e5,
+    service_strings: [0x223, 0x18c, 0x254, 0x278],
 };

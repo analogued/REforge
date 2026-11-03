@@ -183,7 +183,7 @@ pub static ALLEY_CAT_DOS_SPECS: SpecsProfile = SpecsProfile {
 pub static MACH3_DOS_SPECS: SpecsProfile = SpecsProfile {
     id: "mach-3-dos",
     video_features: &["CGA colour / 640×200 monochrome"],
-    audio_features: &["PC speaker", "Enhanced PCM"],
+    audio_features: &["PC speaker"],
 };
 
 pub static ALLEY_CAT_DOS: Edition = Edition {

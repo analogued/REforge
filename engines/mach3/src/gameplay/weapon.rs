@@ -21,6 +21,8 @@ pub(crate) struct Weapon {
     near: [bool; 2],
     #[cfg(feature = "dev-tools")]
     pub(super) births: [u64; 2],
+    #[cfg(feature = "dev-tools")]
+    pub(super) projected_births: [u64; 2],
 }
 
 impl Weapon {
@@ -29,6 +31,8 @@ impl Weapon {
             near: [false; 2],
             #[cfg(feature = "dev-tools")]
             births: [0; 2],
+            #[cfg(feature = "dev-tools")]
+            projected_births: [0; 2],
             state: WeaponSnapshot {
                 counter: 4,
                 shots: std::array::from_fn(|index| EnemySnapshot {
@@ -155,6 +159,10 @@ impl Weapon {
         for (index, shot) in self.state.shots.iter_mut().enumerate() {
             if full_projection || self.near[index] {
                 shot.project(assets, vertical_origin, horizon)?;
+                #[cfg(feature = "dev-tools")]
+                {
+                    self.projected_births[index] = self.births[index];
+                }
             }
         }
         Ok(())

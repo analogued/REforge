@@ -1822,3 +1822,29 @@ fn transition_requests_tone_then_the_guarded_sample_before_departure() {
         ]
     );
 }
+
+#[cfg(feature = "dev-tools")]
+#[test]
+fn refired_projectile_keeps_old_artwork_epoch_until_projected() {
+    let assets = assets();
+    let mut enemy = Enemy::new(&assets).unwrap();
+    enemy.bullet.active = true;
+    enemy.bullet.depth = 42;
+    enemy.bullet.requested_sprite = 67;
+    enemy.project(&assets, true, 106, 0).unwrap();
+    enemy.crafts[0].active = true;
+    enemy.crafts[0].depth = 100;
+    let mut random = Random::default();
+    for _ in 0..3 {
+        random.next_word();
+    }
+    enemy.update_half_step(&mut random, [14, 0, -100]);
+    assert!(enemy.bullet.active);
+    assert_eq!(enemy.bullet_birth, 1);
+    assert_eq!(enemy.projected_births[0], 0);
+    assert_eq!(enemy.bullet.resolved_sprite, 67);
+    enemy.project(&assets, false, 106, 0).unwrap();
+    assert_eq!(enemy.projected_births[0], 0);
+    enemy.project(&assets, true, 106, 0).unwrap();
+    assert_eq!(enemy.projected_births[0], 1);
+}

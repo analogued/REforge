@@ -174,6 +174,22 @@ impl Gameplay {
         births
     }
 
+    /// Current and most recently projected lifetimes for sprite slots 2..=14.
+    /// A newborn can retain an older lifetime's source and rectangle until the
+    /// next applicable native projection. Never reinterpret that stale artwork.
+    #[cfg(feature = "dev-tools")]
+    pub fn visual_epochs(&self) -> ([u64; 13], [u64; 13]) {
+        let mut births = [0; 13];
+        births[..2].copy_from_slice(&self.weapon.births);
+        births[2] = self.enemy.bullet_birth;
+        births[3..8].copy_from_slice(&self.enemy.births);
+        births[8..13].copy_from_slice(&self.enemy.births);
+        let mut projected = [0; 13];
+        projected[..2].copy_from_slice(&self.weapon.projected_births);
+        projected[2..].copy_from_slice(&self.enemy.projected_births);
+        (births, projected)
+    }
+
     #[cfg(feature = "dev-tools")]
     fn snapshot_scene(&self, assets: &GraphicsAssets, current: bool) -> Result<Scene, Error> {
         let draws = if current {

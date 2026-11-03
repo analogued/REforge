@@ -158,6 +158,8 @@ impl EnemyUpdate {
 pub(crate) struct Enemy {
     bullet: EnemySnapshot,
     crafts: [EnemySnapshot; 5],
+    #[cfg(feature = "dev-tools")]
+    pub(super) births: [u64; 5],
     shadows: [EnemySnapshot; 5],
     target: [i16; 2],
     orbit_center: [i16; 2],
@@ -180,6 +182,8 @@ impl Enemy {
         let mut state = Self {
             bullet: EnemySnapshot::new(4, 22, 14, -100),
             crafts: std::array::from_fn(|i| EnemySnapshot::new(5 + i, 0, 0, 0)),
+            #[cfg(feature = "dev-tools")]
+            births: [0; 5],
             shadows: std::array::from_fn(|i| EnemySnapshot::new(10 + i, 0, 0, 0)),
             target: [0, 0],
             orbit_center: [0, -100],
@@ -251,6 +255,10 @@ impl Enemy {
         }
         let mut effects = EnemyEffects::default();
         for i in 0..count.min(5) {
+            #[cfg(feature = "dev-tools")]
+            {
+                self.births[i] = self.births[i].wrapping_add(1);
+            }
             let craft = &mut self.crafts[i];
             self.craft_animations[i] = None;
             craft.requested_sprite = 0;

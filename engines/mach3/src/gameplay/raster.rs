@@ -154,6 +154,33 @@ impl Gameplay {
     /// Does not resolve sources, sort records or mutate any cached drawing state.
     #[cfg(feature = "dev-tools")]
     pub fn experimental_scene(&self, assets: &GraphicsAssets) -> Result<Scene, Error> {
+        self.snapshot_scene(assets, false)
+    }
+
+    /// Fresh operations from currently active records. Unlike the retained
+    /// raster, this deliberately exposes no historical actor fragments.
+    #[cfg(feature = "dev-tools")]
+    pub fn current_scene(&self, assets: &GraphicsAssets) -> Result<Scene, Error> {
+        self.snapshot_scene(assets, true)
+    }
+
+    /// Lifetime identity for the two player shots and five primary enemies.
+    /// These diagnostic counters never feed reconstructed execution.
+    #[cfg(feature = "dev-tools")]
+    pub fn visual_births(&self) -> [u64; 7] {
+        let mut births = [0; 7];
+        births[..2].copy_from_slice(&self.weapon.births);
+        births[2..].copy_from_slice(&self.enemy.births);
+        births
+    }
+
+    #[cfg(feature = "dev-tools")]
+    fn snapshot_scene(&self, assets: &GraphicsAssets, current: bool) -> Result<Scene, Error> {
+        let draws = if current {
+            self.world_draws()
+        } else {
+            self.remembered_draws
+        };
         let background = presentation::Presentation {
             layer: self.selected_layer,
             overlay_counter: 0,
@@ -197,7 +224,7 @@ impl Gameplay {
                     color,
                     mask,
                 });
-            } else if let Some(draw) = self.remembered_draws[slot] {
+            } else if let Some(draw) = draws[slot] {
                 let sprite = &assets.sprites[draw.resolved_sprite];
                 let size = draw.rect.width_bytes * draw.rect.height;
                 layers.push(Layer {
@@ -340,6 +367,48 @@ mod tests {
         assert_eq!(&shot.mask, &[0, 255, 255, 255]);
         apply(raster, &mut replay);
         assert_eq!(native, replay);
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn current_scene_uses_active_records_and_exports_actual_lifetimes() {
+        let assets = super::super::tests::synthetic_assets();
+        let mut game = Gameplay::test_game(&assets).unwrap();
+        game.render_pass = 1;
+        game.enemy
+            .spawn_command(0x91, &mut game.random, 0, 2)
+            .unwrap();
+        let first = game.visual_births();
+        assert_eq!(&first[2..], &[1, 1, 0, 0, 0]);
+        game.enemy
+            .spawn_command(0x91, &mut game.random, 0, 1)
+            .unwrap();
+        assert_eq!(&game.visual_births()[2..], &[2, 1, 0, 0, 0]);
+        game.weapon.advance(true, [14, 0, -100]);
+        assert_eq!(&game.visual_births()[..2], &[1, 0]);
+        game.remembered_draws = game.world_draws();
+        game.weapon.deactivate(0);
+        let before = format!("{game:?}");
+        assert!(
+            game.experimental_scene(&assets)
+                .unwrap()
+                .layers
+                .iter()
+                .any(|l| l.slot == 2)
+        );
+        assert!(
+            !game
+                .current_scene(&assets)
+                .unwrap()
+                .layers
+                .iter()
+                .any(|l| l.slot == 2)
+        );
+        assert_eq!(format!("{game:?}"), before);
+        // Identical geometry after slot reuse still has a distinct lifetime.
+        game.weapon.set_counter(4);
+        game.weapon.advance(true, [14, 0, -100]);
+        assert_eq!(&game.visual_births()[..2], &[2, 0]);
     }
 
     #[cfg(feature = "dev-tools")]

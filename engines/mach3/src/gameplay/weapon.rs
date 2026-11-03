@@ -19,12 +19,16 @@ pub struct WeaponSnapshot {
 pub(crate) struct Weapon {
     state: WeaponSnapshot,
     near: [bool; 2],
+    #[cfg(feature = "dev-tools")]
+    pub(super) births: [u64; 2],
 }
 
 impl Weapon {
     pub(crate) fn new(assets: &GraphicsAssets) -> Result<Self, Error> {
         let mut weapon = Self {
             near: [false; 2],
+            #[cfg(feature = "dev-tools")]
+            births: [0; 2],
             state: WeaponSnapshot {
                 counter: 4,
                 shots: std::array::from_fn(|index| EnemySnapshot {
@@ -104,6 +108,10 @@ impl Weapon {
                     None
                 };
                 if let Some(index) = available {
+                    #[cfg(feature = "dev-tools")]
+                    {
+                        self.births[index] = self.births[index].wrapping_add(1);
+                    }
                     self.state.counter = (self.state.counter & 0xf0) + 15;
                     sound::request(
                         sound,

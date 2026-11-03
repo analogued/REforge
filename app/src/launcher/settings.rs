@@ -37,6 +37,7 @@ pub fn run(
     let creator = FrameCreator::for_ui_with_geometry(canvas, geometry);
     drop(guard);
     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+    menu.set_controller_style(pads.style());
     use reforge_settings::{SoundCategory, SoundRenderer};
     menu = match game.as_deref() {
         Some("alley-cat") => menu

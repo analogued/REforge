@@ -10,10 +10,12 @@ use crate::settings_navigation::{
 use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
-    AspectRatio, Backend, CONTROL_MODE, ControlMode, DIGITIZED_SAMPLES, FrameLimit, MOTION,
-    MotionMode, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
-    STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
+    AspectRatio, Backend, CONTROL_MODE, CONTROLLER_ACTION, CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT,
+    ControlMode, DIGITIZED_SAMPLES, FrameLimit, MOTION, MotionMode, Presentation, Renderer,
+    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy,
+    SoundCategory, SoundRenderer,
 };
+mod controller;
 const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
 // Presence is distinct from equality: explicit overrides may match global.
 #[derive(Clone, Copy, Default)]
@@ -66,7 +68,15 @@ impl RowContext<'_> {
             };
         let mut tooltip = format!(
             "{}: {}\nSaved: {}",
-            if matches!(key, DIGITIZED_SAMPLES | CONTROL_MODE | MOTION) {
+            if matches!(
+                key,
+                DIGITIZED_SAMPLES
+                    | CONTROL_MODE
+                    | MOTION
+                    | CONTROLLER_MOVEMENT
+                    | CONTROLLER_ACTION
+                    | CONTROLLER_BUTTONS
+            ) {
                 "Default"
             } else {
                 "Global"
@@ -215,6 +225,14 @@ pub(super) fn draw(
                     // Every page uses the same body. Headings and notices take
                     // space from its scroll viewport, never from the footer.
                     ui.set_height(body_height);
+                    // Floating bars expand over content unless their full width
+                    // is reserved. Keep the gutter even while the handle fades
+                    // so right-edge controls stay visible and clickable.
+                    let scroll = &mut ui.spacing_mut().scroll;
+                    if scroll.floating {
+                        scroll.floating_allocated_width =
+                            scroll.bar_inner_margin + scroll.bar_width + scroll.bar_outer_margin;
+                    }
                     ui.heading(PAGES[menu.page]);
                     if section_has_cli_locks(&cli, menu.page, menu.scope, menu.mach3_options) {
                         cli_notice(ui);
@@ -310,7 +328,13 @@ pub(super) fn draw(
                                         menu.mach3_options,
                                     );
                                 } else if menu.page == 3 {
-                                    controls_controls(ui, &mut value, rows, controls_visible);
+                                    controls_controls(
+                                        ui,
+                                        &mut value,
+                                        rows,
+                                        controls_visible,
+                                        menu.controller_style,
+                                    );
                                 }
                             });
                             crate::settings_navigation::scroll_focus(ui, first);
@@ -339,16 +363,21 @@ pub(super) fn draw(
                             (!menu.game_reset[menu.page]).then_some(&saved),
                         );
                     }
-                    if menu.page == 3
-                        && controls_visible
-                        && original.alleycat != value.alleycat
-                        && !cli.contains_key(CONTROL_MODE)
-                    {
-                        draft.edit_game(
+                    if menu.page == 3 && controls_visible {
+                        for key in [
                             CONTROL_MODE,
-                            value.get(CONTROL_MODE),
-                            (!menu.game_reset[menu.page]).then_some(&saved),
-                        );
+                            CONTROLLER_MOVEMENT,
+                            CONTROLLER_ACTION,
+                            CONTROLLER_BUTTONS,
+                        ] {
+                            if original.get(key) != value.get(key) && !cli.contains_key(key) {
+                                draft.edit_game(
+                                    key,
+                                    value.get(key),
+                                    (!menu.game_reset[menu.page]).then_some(&saved),
+                                );
+                            }
+                        }
                     }
                     let keys = SECTION_KEYS[menu.page];
                     for &key in keys {
@@ -680,7 +709,11 @@ fn controls_controls(
     value: &mut RuntimeSettings,
     rows: RowContext<'_>,
     alleycat: bool,
+    controller_style: crate::gamepad::ControllerStyle,
 ) {
+    if alleycat {
+        controller::controls(ui, value, rows, controller_style);
+    }
     section(ui, "Controller");
     row(
         ui,

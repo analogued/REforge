@@ -24,7 +24,8 @@ use crate::settings_selector::InputMode;
 
 use reforge_settings::Draft;
 pub use reforge_settings::{
-    AudioSettings, ControlMode, MotionMode, RuntimeSettings, SoundRenderer,
+    AlleyCatSettings, AudioSettings, ControlMode, ControllerButtons, ControllerMovement,
+    FaceButton, MotionMode, RuntimeSettings, SoundRenderer,
 };
 /// An engine can restrict shared choices when its implementation requires it.
 #[derive(Clone, Copy, Debug)]
@@ -107,6 +108,7 @@ pub struct SettingsMenu<'a> {
     pub(super) audio_categories: Vec<reforge_settings::SoundCategory>,
     pub(super) mach3_options: bool,
     pub(super) alleycat_options: bool,
+    pub(super) controller_style: crate::gamepad::ControllerStyle,
     pub(super) btz_terminal: Option<bool>,
     pub(super) game_editing: [bool; 4],
     pub(super) page: usize,
@@ -259,6 +261,7 @@ impl<'a> SettingsMenu<'a> {
             audio_categories: Vec::new(),
             mach3_options: false,
             alleycat_options: false,
+            controller_style: Default::default(),
             btz_terminal: None,
             game_editing: [false; 4],
             page: 0,
@@ -317,6 +320,7 @@ impl<'a> SettingsMenu<'a> {
     /// Route only events accepted by the shared active-gamepad owner. Open menu
     /// input is consumed here, including pause, and never reaches either game.
     pub fn handle_gamepad(&mut self, pad: crate::gamepad::PadEvent) -> bool {
+        self.controller_style = pad.style;
         if pad.settings {
             self.toggle();
             self.navigation
@@ -343,6 +347,12 @@ impl<'a> SettingsMenu<'a> {
             self.events.extend(events.into_iter().map(MenuEvent::Ui));
         }
         true
+    }
+
+    /// Match the explanatory diagram to the active SDL-recognized device even
+    /// when Settings is opened with the mouse before any controller input.
+    pub fn set_controller_style(&mut self, style: crate::gamepad::ControllerStyle) {
+        self.controller_style = style;
     }
 
     fn back(&mut self) {
@@ -1143,10 +1153,27 @@ mod tests {
         }
         fn click(menu: &mut SettingsMenu<'_>, name: &str) {
             draw(menu, vec![]);
-            let output = draw(menu, vec![]);
-            let pos = label(&output, name)
-                .unwrap_or_else(|| panic!("missing {name}"))
-                .center();
+            let mut target = label(&draw(menu, vec![]), name);
+            // The controller diagram can put the legacy response option below
+            // the viewport. Reach it as a player would, through content scroll.
+            for _ in 0..10 {
+                if target.is_some() {
+                    break;
+                }
+                draw(
+                    menu,
+                    vec![
+                        egui::Event::PointerMoved(Pos2::new(750.0, 400.0)),
+                        egui::Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: Vec2::new(0.0, -100.0),
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+                target = label(&draw(menu, vec![]), name);
+            }
+            let pos = target.unwrap_or_else(|| panic!("missing {name}")).center();
             for pressed in [true, false] {
                 draw(
                     menu,

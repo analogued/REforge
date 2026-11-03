@@ -2311,6 +2311,16 @@ impl Runtime {
         alley: &mut Alley,
         mut sample: impl FnMut(u128) -> (Controls, bool),
     ) -> Result<PassOutcome, String> {
+        self.advance_pass_with_scene_input(alley, |at, _scene| sample(at))
+    }
+
+    /// Host adapters can resolve scene-dependent controls at the actual input
+    /// sample, including when pending work completes a room transition first.
+    pub(crate) fn advance_pass_with_scene_input(
+        &mut self,
+        alley: &mut Alley,
+        mut sample: impl FnMut(u128, u16) -> (Controls, bool),
+    ) -> Result<PassOutcome, String> {
         alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
         let mut event = self.advance_pass_inner(alley, &mut sample)?;
         self.clock.advance_pit_ticks(alley.sound.take_busy_ticks());
@@ -2452,7 +2462,7 @@ impl Runtime {
     fn advance_pass_inner(
         &mut self,
         alley: &mut Alley,
-        sample_input: &mut impl FnMut(u128) -> (Controls, bool),
+        sample_input: &mut impl FnMut(u128, u16) -> (Controls, bool),
     ) -> Result<PassOutcome, String> {
         let start_nanos = self.clock.elapsed_nanos();
         self.synchronize_scene(alley);
@@ -2586,7 +2596,7 @@ impl Runtime {
                 .controls_gate
                 .should_poll(self.clock.sample().bios.tick_low);
         if !resumed_fall && (control_polled || self.responsive_controls) {
-            let (held, action) = sample_input(self.clock.elapsed_nanos());
+            let (held, action) = sample_input(self.clock.elapsed_nanos(), alley.scene());
             self.controls = held;
             alley.latch_action(action);
             if alley.scene() == 6 {

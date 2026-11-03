@@ -475,6 +475,7 @@ pairing and device permissions are operating-system setup; SDL reports available
 devices.
 The first available recognized controller is used, with a replacement selected
 if it disconnects. Device-open failures warn and leave keyboard play available.
+The table shows the default bindings.
 
 | Controller input   | Alley Cat                        | Mach 3          | BTZ games |
 | ------------------ | -------------------------------- | --------------- | --------- |
@@ -491,8 +492,27 @@ shoulders change focus. Terminal play uses its terminal's keyboard input.
 Alley Cat's skill question accepts Up/Down to choose among its four initial
 skills and the bottom button to confirm; another fresh press starts play after
 the instructions. Settings supports
-keyboard, mouse and controller navigation. Bindings are fixed; the right stick,
-triggers and remaining buttons are unassigned.
+keyboard, mouse and controller navigation. Menu bindings are fixed; the right
+stick and triggers are unassigned.
+
+Alley Cat's **Controls → Controller layout** offers two movement modes:
+**Directional jump** retains Up to jump and Down to drop, with one configurable
+Action button. **Button jump** keeps land movement on left/right and assigns
+Jump/Drop and Action to one of four button pairs. Hold Down before pressing Jump
+to drop; changing the stick direction during a held press does not switch that
+press between jumping and dropping. Swimming always uses all four directions.
+The diagram follows the connected controller family; without a recognized family
+it shows Xbox button positions. These templates do not change keyboard, title or
+menu controls, or Mach 3's bindings.
+
+Enable **Override global defaults** on Alley Cat's Controls page to edit the
+templates. Each movement mode remembers its button layout. Apply saves them
+under `[entries.<entry-id>.controls]` as `controller_movement` (`directional` or
+`button`), `controller_action` (a physical face-button position), and
+`controller_buttons` (a pair such as `west-jump-south-action`). They have built-in
+defaults rather than global counterparts. Restore defaults resets this entry's
+Controls section on Apply; Cancel discards unapplied changes. There are no
+corresponding command-line arguments.
 
 **Stick dead zone** is an integer percentage from 5 to 90, default 35. Set it in
 Global defaults → Controls, or check **Override global defaults** in a game's

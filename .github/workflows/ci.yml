@@ -107,11 +107,12 @@ jobs:
           cargo +stable test --locked --workspace --no-default-features --features dev-tools
           cargo +stable clippy --locked --workspace --all-targets --no-default-features --features dev-tools -- -D warnings
 
-      - name: Test launcher software rendering and modal navigation
+      - name: Test software UI rendering and navigation
         if: matrix.toolchain == 'stable'
         run: |
           cargo +stable test --locked -p reforge --features dev-tools launcher::tests::native_painter_capture_matrix_and_modal_navigation -- --exact --ignored --test-threads=1
           cargo +stable test --locked -p reforge --features dev-tools launcher::tests::btz_presentation_controls_native_painter -- --exact --ignored --test-threads=1
+          cargo +stable test --locked -p reforge_sdl settings_ui::controller::captures::native_controller_templates_and_themes -- --exact --ignored --test-threads=1
 
       - name: Check minimum supported Rust
         if: matrix.toolchain == '1.88.0'

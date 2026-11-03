@@ -3,9 +3,12 @@
 
 //! Alley Cat host input and pause overlay, using REforge's shared SDL backend.
 
+mod controller;
+
 use crate::alley::Machine;
 use crate::control_history::{HostChange, Key, Keys};
 use crate::menu::MenuKey;
+use controller::Controller;
 use reforge_sdl::gamepad::{Actions, Gamepads};
 #[cfg(test)]
 use reforge_sdl::sdl3::keyboard::Keycode;
@@ -15,7 +18,7 @@ use reforge_sdl::sdl3::{
     pixels::Color,
     render::FRect,
 };
-use reforge_sdl::settings::{SettingsMenu, VideoCapabilities};
+use reforge_sdl::settings::{ControllerMovement, SettingsMenu, VideoCapabilities};
 pub use reforge_sdl::{FrameCreator, Window as Display};
 use reforge_sdl::{FrameFormat, FrameTexture, HostShortcut, host_shortcut};
 use std::collections::HashSet;
@@ -135,6 +138,7 @@ pub struct Window<'a> {
     control_keys: Keys,
     control_changes: Vec<HostChange>,
     gamepads: Gamepads,
+    controller: Controller,
 }
 
 impl<'a> Window<'a> {
@@ -145,6 +149,7 @@ impl<'a> Window<'a> {
         height: u32,
     ) -> Result<Self, String> {
         Ok(Self {
+            controller: Controller::new(display.settings().alleycat),
             gamepads: Gamepads::new(display.settings().stick_dead_zone),
             audio: crate::sound::playback::Player::new(creator.audio_playback())?,
             display,
@@ -165,11 +170,23 @@ impl<'a> Window<'a> {
     }
 
     pub fn poll_input(&mut self) -> Input {
+        self.poll_game_input(false)
+    }
+
+    /// Gameplay and diagnostics retain raw swimming directions independently
+    /// from land bindings. Title/menu confirmation always uses the South button.
+    pub fn poll_game_input(&mut self, swimming: bool) -> Input {
         // Startup and diagnostic callers need only the latest snapshot; do not
         // accumulate history across polls which have no gameplay consumer.
         self.control_changes.clear();
         self.gamepads
             .set_dead_zone(self.display.settings().stick_dead_zone);
+        self.settings.set_controller_style(self.gamepads.style());
+        let controller_settings = self.display.settings().alleycat;
+        if self.controller.settings != controller_settings {
+            self.reset_controller();
+            self.controller.settings = controller_settings;
+        }
         let mut presses = Input::default();
         let mut settings_changed = self.settings_was_open != self.settings.is_open();
         for event in self.display.poll_events() {
@@ -223,11 +240,18 @@ impl<'a> Window<'a> {
                             presses.controller_menu_delta.saturating_add(1);
                     }
                     presses.controller_confirm |= pad.pressed.action;
-                    set_pad_keys(&mut self.control_keys, pad.actions);
+                    let mapped = self.controller.map(pad.actions, pad.faces);
+                    set_controller_keys(
+                        &mut self.control_keys,
+                        mapped,
+                        pad.actions,
+                        self.controller.settings.controller_movement,
+                    );
                 } else {
                     if settings_changed {
                         self.gamepads.reset();
                     }
+                    self.controller.reset();
                     set_pad_keys(&mut self.control_keys, Actions::default());
                 }
                 self.control_changes.push(HostChange {
@@ -237,10 +261,14 @@ impl<'a> Window<'a> {
             }
             if presses.pause_pressed {
                 self.gamepads.reset();
+                self.controller.reset();
                 set_pad_keys(&mut self.control_keys, Actions::default());
             }
         }
         self.quit |= presses.quit;
+        if settings_changed {
+            self.reset_controller();
+        }
         let held = self.display.keyboard_state();
         self.suppressed
             .retain(|scan| held.is_scancode_pressed(*scan));
@@ -260,12 +288,23 @@ impl<'a> Window<'a> {
         for (scan, key) in control_scancodes() {
             keys.set(key, held_key(scan));
         }
-        let pad = if settings_open || settings_changed {
+        let raw_pad = if settings_open || settings_changed {
             Actions::default()
         } else {
             self.gamepads.actions()
         };
-        set_pad_keys(&mut keys, pad);
+        let faces = if settings_open || settings_changed {
+            reforge_sdl::gamepad::FaceButtons::default()
+        } else {
+            self.gamepads.face_buttons()
+        };
+        let pad = self.controller.map(raw_pad, faces);
+        set_controller_keys(
+            &mut keys,
+            pad,
+            raw_pad,
+            self.controller.settings.controller_movement,
+        );
         if keys != self.control_keys {
             self.control_keys = keys;
             self.control_changes.push(HostChange {
@@ -273,12 +312,13 @@ impl<'a> Window<'a> {
                 keys,
             });
         }
+        let (controls, action) = keys.controls(swimming);
         Input {
-            up: held_key(Scancode::Up) || pad.up,
-            down: held_key(Scancode::Down) || pad.down,
-            left: held_key(Scancode::Left) || pad.left,
-            right: held_key(Scancode::Right) || pad.right,
-            alt: held_key(Scancode::LAlt) || held_key(Scancode::RAlt) || pad.action,
+            up: controls.y < 0,
+            down: controls.y > 0,
+            left: controls.x < 0,
+            right: controls.x > 0,
+            alt: action,
             quit: self.quit,
             pause_pressed: presses.pause_pressed,
             continue_pressed: presses.continue_pressed,
@@ -299,6 +339,7 @@ impl<'a> Window<'a> {
 
     pub(crate) fn reset_controller(&mut self) {
         self.gamepads.reset();
+        self.controller.reset();
         set_pad_keys(&mut self.control_keys, Actions::default());
     }
 
@@ -404,9 +445,19 @@ fn set_pad_keys(keys: &mut Keys, pad: Actions) {
         (Key::PadLeft, pad.left),
         (Key::PadRight, pad.right),
         (Key::PadAction, pad.action),
+        (Key::PadSwimUp, false),
+        (Key::PadSwimDown, false),
+        (Key::PadButtonJump, false),
     ] {
         keys.set(key, held);
     }
+}
+
+fn set_controller_keys(keys: &mut Keys, mapped: Actions, raw: Actions, mode: ControllerMovement) {
+    set_pad_keys(keys, mapped);
+    keys.set(Key::PadSwimUp, raw.up);
+    keys.set(Key::PadSwimDown, raw.down);
+    keys.set(Key::PadButtonJump, mode == ControllerMovement::Button);
 }
 
 fn control_scancodes() -> [(Scancode, Key); 6] {
@@ -538,6 +589,60 @@ mod tests {
     use super::*;
 
     #[test]
+    fn land_and_swimming_bindings_remain_independent_in_timestamped_history() {
+        use crate::control_history::ControlHistory;
+        use reforge_sdl::gamepad::FaceButtons;
+        let mut controller = Controller::default();
+        controller.settings.controller_movement = ControllerMovement::Button;
+        let raw = Actions {
+            down: true,
+            right: true,
+            ..Actions::default()
+        };
+        let mapped = controller.map(raw, FaceButtons::default());
+        let mut keys = Keys::default();
+        set_controller_keys(&mut keys, mapped, raw, ControllerMovement::Button);
+        let mut history = ControlHistory::new(keys);
+        assert_eq!(
+            history.sample(0, false).0,
+            crate::player::Controls { x: 1, y: 0 }
+        );
+        assert_eq!(
+            history.sample(0, true).0,
+            crate::player::Controls { x: 1, y: 1 }
+        );
+        let raw = Actions {
+            up: true,
+            ..Actions::default()
+        };
+        let mapped = controller.map(
+            raw,
+            FaceButtons {
+                west: true,
+                south: true,
+                ..FaceButtons::default()
+            },
+        );
+        set_controller_keys(&mut keys, mapped, raw, ControllerMovement::Button);
+        history.boundary(100, keys);
+        assert_eq!(history.sample(99, true).0.y, 1);
+        assert_eq!(
+            history.sample(100, false),
+            (crate::player::Controls { x: 0, y: -1 }, true)
+        );
+        assert_eq!(
+            history.sample(100, true),
+            (crate::player::Controls { x: 0, y: -1 }, true)
+        );
+        // Keyboard Up keeps working in button mode and after gamepad removal.
+        keys.set(Key::Up, true);
+        set_pad_keys(&mut keys, Actions::default());
+        history.boundary(200, keys);
+        assert_eq!(history.sample(200, false).0.y, -1);
+        assert_eq!(history.sample(200, true).0.y, -1);
+    }
+
+    #[test]
     fn control_events_keep_timestamps_and_release_without_repeats_or_menu_presses() {
         let event = |timestamp, scan, repeat| Event::KeyDown {
             timestamp,
@@ -571,7 +676,7 @@ mod tests {
         );
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].at_ns, 60);
-        assert_eq!(changes[0].keys.controls().0.x, 1);
+        assert_eq!(changes[0].keys.controls(false).0.x, 1);
         record_controls(
             &Event::KeyUp {
                 timestamp: 80,

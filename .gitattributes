@@ -1,2 +1,5 @@
 # Normalize detected text files to LF and keep LF on checkout on every platform.
 * text=auto eol=lf
+
+# Preserve the original Kenney license notice, including its CRLF and spacing.
+crates/reforge_sdl/assets/controller/source/kenney/NOTICE.txt -text whitespace=-blank-at-eol,cr-at-eol

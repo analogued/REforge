@@ -423,6 +423,7 @@ name = "reforge_sdl"
 version = "2026.1.0"
 dependencies = [
  "egui",
+ "png",
  "reforge_settings",
  "sdl3",
 ]

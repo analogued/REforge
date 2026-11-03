@@ -8,6 +8,7 @@
 pub use egui;
 pub use sdl3;
 pub mod audio;
+mod controller_art;
 #[cfg(feature = "dev-tools")]
 mod fps;
 pub mod gamepad;

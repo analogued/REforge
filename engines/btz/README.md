@@ -5,9 +5,7 @@ interpreter, for [REforge](../../README.md). It executes original game wordcode
 and data through reconstructed VM, parser, text, keyboard, timing and native
 services. Story rules remain in the supplied game data.
 
-Mindwheel, Essex and Brimstone: The Dream of Gawain for DOS are supported.
-Breakers will be added as its game data and interpreter revision are implemented
-and validated.
+Mindwheel, Essex, Brimstone: The Dream of Gawain and Breakers for DOS are supported.
 The games share the VM and player hosts, with identified interpreter differences
 selected through immutable definitions.
 
@@ -23,7 +21,7 @@ controls and launch options.
 
 > [!NOTE]
 > BTZ support is experimental. One identified DOS release each of Mindwheel,
-> Essex and Brimstone is supported. Complete winning playthroughs have not been
+> Essex, Brimstone and Breakers is supported. Complete winning playthroughs have not been
 > verified.
 > Other BTZ games, platform versions and interpreter revisions are not yet
 > supported. See [Reference and compatibility](#reference-and-compatibility)
@@ -31,10 +29,18 @@ controls and launch options.
 
 ## External inputs
 
-For the supported DOS games, supply the corresponding `ADISK.OBJ`, `GO.EXE` and
-`SIDE.TXT` files. `GO.EXE` supplies compression/classification tables, native
+Supply the corresponding original files together in one directory:
+
+| Games | Required files |
+| --- | --- |
+| Mindwheel, Essex, Brimstone | `ADISK.OBJ`, `GO.EXE`, `SIDE.TXT` |
+| Breakers | `ADISK.OBJ`, `RUN.EXE`, `SIDE.TXT`, `TITLE.EXE` |
+
+The interpreter executable supplies compression/classification tables, native
 messages and an RNG adjustment; its x86 code is not executed. `SIDE.TXT` supplies
-logical-disk mappings for services such as restart and bookmark restore.
+logical-disk mappings for restart and bookmark restore. Breakers also reads the
+original title artwork and credits from `TITLE.EXE`, presenting the timed title
+pages before the interpreter's title screen.
 
 No original game files, extracted vocabulary, story text or interpreter tables
 are bundled. The [format reference](docs/mindwheel-dos-format.md) identifies
@@ -94,19 +100,19 @@ codec.
 - [DOS format and VM](docs/mindwheel-dos-format.md): stores, address units,
   operand forms, instruction semantics, properties and persistence formats.
 - [Interpreter definitions](docs/interpreter-definitions.md): shared behavior,
-  Essex/Brimstone extensions, resource layouts and compatibility boundaries.
+  extensions and Breakers screen services, resource layouts and compatibility boundaries.
 - [DOS runtime](docs/mindwheel-dos-runtime.md): parser, text, keyboard, native
   services, timing/RNG and host behavior.
 
-The native services of the three supported DOS interpreters have implementation
+The native services of the four supported DOS interpreters have implementation
 paths. That does not imply complete behavioral equivalence: pause/typeahead and
 newline polling have
 remaining edge cases described in the runtime reference.
 
-All three supported DOS input routines read an uninitialized stack word.
+All four supported DOS input routines read an uninitialized stack word.
 The player hosts use an explicit default-zero adapter rather than modeling the
 DOS memory/stack environment. The conversion and its use differ between the
-games: Mindwheel uses it in a discarded post-input draw; Essex and Brimstone
+games: Mindwheel uses it in a discarded post-input draw; Essex, Brimstone and Breakers
 also compare it with a story timeout value. The full gameplay effect of those
 comparisons remains unverified.
 Later gameplay draws retain their own bounds.

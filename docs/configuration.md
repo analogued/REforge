@@ -252,7 +252,8 @@ Defaults are windowed, Auto scale, automatic GPU-preferred rendering,
 automatic backend, VSync enabled when supported, a display-refresh frame
 ceiling, and sharp pixels. Missing keys inherit: shared defaults, then
 global preferences, then entry preferences. Catalog game IDs (`alley-cat`,
-`mach-3`, `mindwheel`, `essex`, `brimstone`) identify games; entry IDs identify individual configured copies.
+`mach-3`, `mindwheel`, `essex`, `brimstone`, `breakers`) identify games; entry IDs
+identify individual configured copies.
 The example suffixes above are illustrative; use the IDs from your library.
 Explicit CLI values form the final temporary layer.
 

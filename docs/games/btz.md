@@ -1,23 +1,30 @@
 # BTZ games
 
-Play Mindwheel, Essex and Brimstone for DOS through the BTZ interpreter, with their
+Play Mindwheel, Essex, Brimstone and Breakers for DOS through the BTZ interpreter, with their
 original text layout, interactive commands and background story activity.
 
 > [!IMPORTANT]
 > REforge does not include original BTZ assets or data. You must provide
 > the original files from a supported release. See [What you need](#what-you-need).
 
-Supported games: [Mindwheel](mindwheel.md), [Essex](essex.md) and
-[Brimstone: The Dream of Gawain](brimstone.md).
+Supported games: [Mindwheel](mindwheel.md), [Essex](essex.md),
+[Brimstone: The Dream of Gawain](brimstone.md) and [Breakers](breakers.md).
 
 ## What you need
 
-Keep the corresponding **ADISK.OBJ**, **GO.EXE** and **SIDE.TXT** together in
-the game directory. ADISK.OBJ contains the story; GO.EXE supplies tables and
-native messages, and is read as data rather than executed. SIDE.TXT supplies
-logical-disk mappings used by restart and bookmark restore.
+Keep the corresponding original files together in the game directory:
 
-All three files must match the supported release's sizes and SHA-256 hashes.
+| Games | Required files |
+| --- | --- |
+| Mindwheel, Essex, Brimstone | **ADISK.OBJ**, **GO.EXE**, **SIDE.TXT** |
+| Breakers | **ADISK.OBJ**, **RUN.EXE**, **SIDE.TXT**, **TITLE.EXE** |
+
+ADISK.OBJ contains the story; the interpreter executable supplies tables and
+native messages, and is read as data rather than executed. SIDE.TXT supplies
+logical-disk mappings used by restart and bookmark restore. Breakers' TITLE.EXE
+supplies its opening artwork and credits.
+
+All required files must match the supported release's sizes and SHA-256 hashes.
 
 
 ## Start playing
@@ -36,7 +43,7 @@ reforge --original /path/to/game
 The default display is an SDL text window. Its Rendering and CRT & Colour
 settings use the same controls as the other games. The launch options offer
 **Display: Sharp pixels / Hyllian CRT** and **Window: Windowed / Fullscreen**.
-Enter dismisses the title;
+Breakers first shows timed artwork and credits. Enter dismisses the framed title;
 follow the game's prompts. **F10** opens Settings. **Ctrl+Q** or closing the
 window exits; **Pause/Break** toggles the host pause.
 

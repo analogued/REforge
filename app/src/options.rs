@@ -916,6 +916,7 @@ mod tests {
             Game::Mindwheel,
             Game::Essex,
             Game::Brimstone,
+            Game::Breakers,
         ] {
             for value in ["display", "60", "120", "unlimited"] {
                 let result = prepare(args(&["--frame-limit", value]), game);
@@ -942,6 +943,7 @@ mod tests {
             Game::Mindwheel,
             Game::Essex,
             Game::Brimstone,
+            Game::Breakers,
         ] {
             let help = help(Some(game));
             assert!(help.contains("--presentation VALUE"));
@@ -976,6 +978,7 @@ mod tests {
             Game::Mindwheel,
             Game::Essex,
             Game::Brimstone,
+            Game::Breakers,
         ] {
             for value in ["", "crt", "Hyllian", "-1"] {
                 let result = prepare(
@@ -1031,6 +1034,7 @@ mod tests {
             Game::Mindwheel,
             Game::Essex,
             Game::Brimstone,
+            Game::Breakers,
         ] {
             let defaults = prepare(args(&[]), game);
             assert!(defaults.args.is_empty());
@@ -1065,6 +1069,7 @@ mod tests {
             Game::Mindwheel,
             Game::Essex,
             Game::Brimstone,
+            Game::Breakers,
         ] {
             for value in ["0", "17", "-1", "1.5", "Auto", "", "0x", "4294967296"] {
                 for previous in [None, Some("auto"), Some("3")] {
@@ -1390,6 +1395,7 @@ mod tests {
                 Game::Mindwheel,
                 Game::Essex,
                 Game::Brimstone,
+                Game::Breakers,
             ]
             .into_iter()
             .filter(|&game| spec.scope.applies(game))

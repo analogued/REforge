@@ -14,7 +14,7 @@ controller options. Linux is the current development platform.
 | --- | --- | --- |
 | Alley Cat | Alley Cat | [Playing Alley Cat](docs/games/alleycat.md) |
 | Mach 3 | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
-| BTZ | Mindwheel, Essex, Brimstone: The Dream of Gawain | [Playing BTZ games](docs/games/btz.md) |
+| BTZ | Mindwheel, Essex, Brimstone: The Dream of Gawain, Breakers | [Playing BTZ games](docs/games/btz.md) |
 
 Each game currently supports one identified DOS release. See its guide for the
 required files and current limitations.

@@ -6,7 +6,7 @@ selects the behavior that differs between identified implementations. Executable
 resource locations live separately in `DosResources`; relocated text tables or
 prompts do not by themselves imply different VM semantics.
 
-`MINDWHEEL_DOS`, `ESSEX_DOS` and `BRIMSTONE_DOS` are descriptive implementation
+`MINDWHEEL_DOS`, `ESSEX_DOS`, `BRIMSTONE_DOS` and `BREAKERS_DOS` are descriptive implementation
 names. They do not
 assert official version numbers. The player loader and diagnostic frontend can
 identify their executable hashes before constructing the VM. Existing `new` and
@@ -17,8 +17,8 @@ tests without putting file detection inside the VM.
 
 ## Shared execution and selected differences
 
-All three definitions use the same eight operand forms, address spaces, arithmetic,
-property traversal, stacks, RNG algorithm and BIOS-tick deadline rules. Differences
+The definitions share address spaces, arithmetic, property traversal, stacks,
+RNG arithmetic and BIOS-tick deadline rules. Differences
 are selected at the operation that needs them:
 
 | Behavior | Mindwheel DOS | Essex / Brimstone DOS |
@@ -39,15 +39,48 @@ invent a DOS memory environment or change the BIOS tick rate.
 
 Numeric native-service IDs are translated through the definition's service table
 into `NativeService` operations. Session code implements those named operations.
-The common opcode executor uses a small extension table for the three changed
-slots. This permits definitions to share individual behaviors without ordering
+The common opcode executor uses a small extension table for slots `0x0d`–`0x0f`,
+`0x17` and `0x18`. This permits definitions to share individual behaviors without ordering
 all implementations along a single version-number comparison.
+
+## Breakers differences
+
+Breakers retains the extended text callbacks and byte load/store operations,
+with these additional selections:
+
+- Operand forms 0, 1, 2, 3, 5 and 7 retain their prior meanings. Form 4 consumes
+  no operands and supplies `0xffff`; form 6 consumes none and supplies zero.
+  Earlier definitions consume three operands for form 4 and retain the previous
+  argument for forms 4, 6 and 7.
+- Comparisons `0x05`–`0x0a` save the incoming accumulator in variable `0xEC`.
+  Opcode `0x17` restores that value. Opcode `0x18` prints the low argument byte
+  through the token formatter, including its case and text-control rules.
+  Opcode `0x0d` performs no operation.
+- Service 17 captures a screen rectangle, 19 restores it, and 18 draws a
+  single-line rectangle when the story bottom is less than row 17;
+  otherwise it redraws the full double-line frame. The rectangle uses variables
+  `0x11c`–`0x122` and includes the surrounding border. Its character bytes are
+  stored in the variable image at the accumulator's byte offset; attributes
+  are not stored. These bytes travel in ordinary native bookmarks.
+- The full frame ends at column 79, story text at 78, and input history begins
+  on row 20. The initial painted cursor remains on row 19. Command capacity
+  remains 76 characters. Coordinates are zero-based.
+- Before a full grammar sweep, both free matching and gap matching are enabled.
+  Object-specific flags can change them as matching proceeds. Earlier
+  definitions reset only free matching at that boundary.
+- Cancelling or failing to open a transcript clears the accumulator; a successful
+  open retains it. The player hosts ask before replacing a Breakers bookmark.
+
+Rectangle operations validate both the physical screen and variable buffer
+bounds. They preserve the logical story cursor separately from positioned
+screen writes. No x86 execution or alternative save format is needed.
 
 ## Numeric input
 
 The numeric-capable parser reads an exclusive range of reserved object IDs from
 the initial variable header at `0x114` and `0x116`. Equal endpoints disable the
-feature, as in the current Essex and Brimstone data. Decimal tokens may start with minus;
+feature, as in the current Essex and Brimstone data. Breakers reserves four IDs,
+607 through 610. Decimal tokens may start with minus;
 conversion accepts a decimal prefix and wraps at 16 bits. Values are written to
 the corresponding direct-value object slots.
 
@@ -77,7 +110,7 @@ behavior requires it.
 
 ## Extended output controls
 
-Essex and Brimstone expose the story cursor through variables `0x118` (column) and `0x11a`
+Essex, Brimstone and Breakers expose the story cursor through variables `0x118` (column) and `0x11a`
 (row), and its story rectangle through `0x11c`, `0x11e`, `0x120` and `0x122`
 (left, top, right, bottom). The physical display remains 80×25 cells. Reflected
 extent values at `0x124` and `0x126` do not relocate the physical pause line.
@@ -93,7 +126,7 @@ state remains intact. The bookmark byte format itself is unchanged.
 
 ## Validation boundary
 
-Mindwheel, Essex and Brimstone each have one catalogued DOS release. Brimstone
+Each of the four games has one catalogued DOS release. Brimstone
 shares the demonstrated Essex behavior while retaining a distinct definition
 and executable resource layout. Its printer-error message moves independently
 of the other native messages.
@@ -108,6 +141,10 @@ screen output and serialized save bytes through the shared codec. Brimstone
 comparisons also cover the title, opening scene and native bookmark exchanges
 in both directions. Its 4,240-byte variable image gives a 4,962-byte bookmark;
 the codec reads the extent from the data rather than selecting a new format.
+
+Breakers comparisons cover the changed forms, comparison backup, formatted
+character output, rectangle capture/restore, numeric input and transcript
+cancellation. Its 4,674-byte variable image gives a 5,396-byte bookmark.
 
 These checks and longer gameplay runs do not establish a winning playthrough,
 complete behavioral equivalence or support for other BTZ releases. The remaining

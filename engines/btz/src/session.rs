@@ -569,10 +569,12 @@ impl Session {
                         self.sync_pagination()?;
                     }
                     Request::CharacterToken { byte } => {
-                        if byte != 0 {
-                            self.text.native_token(&[byte], self.codec.pause_prompt())?;
-                            self.sync_pagination()?;
-                        }
+                        let token = [byte];
+                        self.text.native_token(
+                            if byte == 0 { &[] } else { &token },
+                            self.codec.pause_prompt(),
+                        )?;
+                        self.sync_pagination()?;
                     }
                     Request::Decimal { value } => {
                         self.print(vec![(value as i16).to_string().into_bytes()])?

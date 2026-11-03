@@ -1070,3 +1070,16 @@ fn standalone_character_tokens_collect_controls_without_dispatching_a_message_ca
     assert!(s.vm().state().returns.is_empty());
     assert_eq!(first_row(&s), "");
 }
+
+#[test]
+fn zero_character_token_retains_the_empty_c_strings_separator() {
+    let mut s = session_with(
+        fixture(
+            &[0x60, b'Q' as u16, 0x60, 0, 0x60, b'R' as u16, 0x64, 3],
+            &[],
+        ),
+        &btz::interpreter::BREAKERS_DOS,
+    );
+    wait(&mut s);
+    assert_eq!(first_row(&s), "Q  R");
+}

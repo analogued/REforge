@@ -5,7 +5,9 @@
 use std::{fs, io::BufWriter, path::Path};
 
 use egui::{Color32, Event, FullOutput, Modifiers, Pos2, RawInput, Rect, Vec2};
-use reforge_settings::{CONTROLLER_MOVEMENT, ControllerMovement};
+use reforge_settings::{
+    CONTROLLER_ACTION, CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, ControllerMovement,
+};
 use sdl3::{
     pixels::{Color, PixelFormat},
     render::WindowCanvas,
@@ -207,6 +209,129 @@ fn assert_diagram_readback(frame: &Frame, neutral: Color32) {
     );
 }
 
+fn button_carousel(output: &FullOutput) -> Rect {
+    output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(shape)
+                if (shape.rect.height() - 24.0).abs() < 0.01 && shape.rect.width() > 30.0 =>
+            {
+                Some(shape.rect)
+            }
+            _ => None,
+        })
+        .max_by(|a, b| a.right().total_cmp(&b.right()))
+        .expect("button carousel")
+}
+
+fn scrollbar(output: &FullOutput, button: Rect) -> Rect {
+    output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(shape)
+                if shape.rect.width() <= 12.0
+                    && shape.rect.height() > 50.0
+                    && shape.rect.right() >= button.right() - 16.0
+                    && shape.rect.right() <= button.right() + 32.0 =>
+            {
+                Some(shape.rect)
+            }
+            _ => None,
+        })
+        .max_by(|a, b| a.height().total_cmp(&b.height()))
+        .expect("settings scrollbar")
+}
+
+fn assert_arrow_clear_of_scrollbar(
+    menu: &mut SettingsMenu<'_>,
+    canvas: &mut WindowCanvas,
+    capture: Option<&Path>,
+) {
+    menu.navigation.set_mode(&menu.context, InputMode::Mouse);
+    let mut frame = render(menu, canvas, vec![]);
+    if menu
+        .draft
+        .as_ref()
+        .unwrap()
+        .game_values()
+        .alleycat
+        .controller_movement
+        == ControllerMovement::Button
+    {
+        frame = click(menu, canvas, text(&frame.output, "Button jump").0.center());
+    }
+    let style = menu.context.style().spacing.scroll;
+    for key in [CONTROLLER_ACTION, CONTROLLER_BUTTONS] {
+        let before = menu.draft.as_ref().unwrap().game_values().get(key);
+        let button = button_carousel(&frame.output);
+        let bar = scrollbar(&frame.output, button);
+        let hover = egui::pos2(bar.right() - style.bar_width * 0.5, button.center().y);
+        for _ in 0..2 {
+            frame = render(menu, canvas, vec![Event::PointerMoved(hover)]);
+        }
+        let expanded = scrollbar(&frame.output, button);
+        assert!(
+            (expanded.width() - style.bar_width).abs() < 0.01,
+            "hover must expand the real scrollbar"
+        );
+        assert!(
+            expanded.left() >= button.right() + style.bar_inner_margin - 0.01,
+            "expanded scrollbar covers the button carousel: {expanded:?}, {button:?}"
+        );
+        assert_eq!(
+            button_carousel(&frame.output),
+            button,
+            "hover must not reflow controls"
+        );
+        if let Some(directory) = capture.filter(|_| key == CONTROLLER_ACTION) {
+            write_capture(directory, "crisp-light-scrollbar-hover-225", &frame);
+        }
+        let diagram = frame.diagram;
+        // Click immediately after hovering the expanded bar, at the arrow and
+        // also near the control's edge where the old overlay stole clicks.
+        for inset in [9.0, 1.0] {
+            let previous = menu.draft.as_ref().unwrap().game_values().get(key);
+            frame = click(
+                menu,
+                canvas,
+                egui::pos2(button.right() - inset, button.center().y),
+            );
+            assert_eq!(
+                frame.diagram, diagram,
+                "arrow click must not scroll the page"
+            );
+            assert_ne!(
+                menu.draft.as_ref().unwrap().game_values().get(key),
+                previous,
+                "right-arrow click {inset} points from the edge must change {key}"
+            );
+        }
+        assert_ne!(
+            menu.draft.as_ref().unwrap().game_values().get(key),
+            before,
+            "right-arrow clicks must change {key}"
+        );
+        for _ in 0..2 {
+            frame = render(menu, canvas, vec![Event::PointerGone]);
+        }
+        assert_eq!(
+            button_carousel(&frame.output),
+            button,
+            "hiding must retain the gutter"
+        );
+        if key == CONTROLLER_ACTION {
+            frame = click(
+                menu,
+                canvas,
+                text(&frame.output, "Directional jump").0.center(),
+            );
+        }
+    }
+    click(menu, canvas, text(&frame.output, "Button jump").0.center());
+}
+
 #[test]
 #[ignore = "owns SDL video; run serially with SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software"]
 fn native_controller_templates_and_themes() {
@@ -383,6 +508,22 @@ fn native_controller_templates_and_themes() {
             text(&restored.output, "Directional jump").0,
             text(&directional.output, "Directional jump").0
         );
+        assert_arrow_clear_of_scrollbar(
+            &mut menu,
+            &mut canvas,
+            output_dir
+                .as_deref()
+                .filter(|_| theme_id == ThemeId::CrispLight && size == [860, 560]),
+        );
+        if theme_id == ThemeId::CrispLight && size == [960, 720] && density == 1.0 {
+            // Non-overlay scrollbars must leave the same controls usable too.
+            menu.context
+                .style_mut(|style| style.spacing.scroll = egui::style::ScrollStyle::solid());
+            for _ in 0..3 {
+                render(&mut menu, &mut canvas, vec![]);
+            }
+            assert_arrow_clear_of_scrollbar(&mut menu, &mut canvas, None);
+        }
         if size[1] < 600 {
             menu.navigation.set_mode(&menu.context, InputMode::Mouse);
             render(

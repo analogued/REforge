@@ -225,6 +225,14 @@ pub(super) fn draw(
                     // Every page uses the same body. Headings and notices take
                     // space from its scroll viewport, never from the footer.
                     ui.set_height(body_height);
+                    // Floating bars expand over content unless their full width
+                    // is reserved. Keep the gutter even while the handle fades
+                    // so right-edge controls stay visible and clickable.
+                    let scroll = &mut ui.spacing_mut().scroll;
+                    if scroll.floating {
+                        scroll.floating_allocated_width =
+                            scroll.bar_inner_margin + scroll.bar_width + scroll.bar_outer_margin;
+                    }
                     ui.heading(PAGES[menu.page]);
                     if section_has_cli_locks(&cli, menu.page, menu.scope, menu.mach3_options) {
                         cli_notice(ui);

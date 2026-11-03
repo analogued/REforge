@@ -280,7 +280,7 @@ impl Tracker {
             None
         };
         let delay = (seen - f.at).max(0.0);
-        let (rates, stops) = camera_forecast(f, period);
+        let (camera_rates, camera_stops) = camera_forecast(f, period);
         let values = [
             f64::from(f.state.static_lateral),
             f64::from(f.pose.horizon),
@@ -291,8 +291,8 @@ impl Tracker {
                 self.camera.map(|c| c[i]),
                 seen,
                 values[i],
-                rates[i],
-                stops[i],
+                camera_rates[i],
+                camera_stops[i],
                 delay,
                 !continuous,
             )
@@ -339,7 +339,7 @@ impl Tracker {
             history.push_back((f.at, values));
             let (rates, stop) =
                 if let Some(period) = period.filter(|_| !fresh || matches!(slot, 2 | 3)) {
-                    object_forecast(f, slot, movement, values, &history, period)
+                    object_forecast(f, slot, movement, values, &history, period, camera_rates[0])
                 } else {
                     ([0.0; 3], 0.0)
                 };
@@ -460,6 +460,7 @@ fn object_forecast(
     values: [f64; 3],
     history: &VecDeque<(f64, [f64; 3])>,
     period: f64,
+    camera_lateral_rate: f64,
 ) -> ([f64; 3], f64) {
     let world_period = period * 1.5;
     let mut rates = [0.0; 3];
@@ -483,9 +484,15 @@ fn object_forecast(
         ];
     } else if slot == 4 {
         rates = [-f64::from(f.state.speeds[0]) / world_period, 0.0, 0.0];
+        // Native execution shifts the bullet, but not its stored target, before
+        // homing. Clamp the correction from that shifted position; these rates
+        // are intrinsic, so the shared camera is still added by positions().
         for (i, rate) in rates.iter_mut().enumerate().skip(1) {
-            *rate = (f64::from(f.state.enemy_target[i - 1]) - f.objects[&slot].position[i])
-                .clamp(-80.0, 80.0)
+            let mut shifted = f.objects[&slot].position[i];
+            if i == 1 {
+                shifted += camera_lateral_rate * world_period;
+            }
+            *rate = (f64::from(f.state.enemy_target[i - 1]) - shifted).clamp(-80.0, 80.0)
                 / world_period;
         }
     } else if slot >= 15 {

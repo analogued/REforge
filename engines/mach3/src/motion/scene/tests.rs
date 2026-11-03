@@ -295,6 +295,98 @@ fn terrain_and_gate_forecasts_stop_at_player_plane_and_shots_at_depth_300() {
 }
 
 #[test]
+fn homing_at_target_cancels_held_strafe_without_lateral_wobble() {
+    for direction in [-1, 1] {
+        for delay in [0.0, 0.015, 0.08] {
+            let mut t = Tracker::default();
+            for i in 0..4 {
+                let mut f = observation(i);
+                f.pose.controls = if direction > 0 { 8 } else { 4 };
+                f.pose.velocity = [3 * direction, 0];
+                f.pose.coordinates = [14, 0, 0];
+                f.state.static_lateral = 0;
+                f.state.enemy_target = [34, -60];
+                let mut bullet = f.objects.remove(&2).unwrap();
+                bullet.position = [500.0, 34.0, -60.0];
+                bullet.movement = 253;
+                f.objects.insert(4, bullet);
+                let at = f.at;
+                t.observe(f, at + delay, false);
+            }
+            assert_ne!(t.camera.unwrap()[0].velocity, 0.0);
+            for step in 0..101 {
+                let at = 0.12 + delay + f64::from(step) / 1000.0;
+                let lateral = t.positions(at).0[&4][1];
+                assert!(
+                    (lateral - 34.0).abs() < 1e-10,
+                    "direction {direction}, delay {delay}, at {at}: {lateral}"
+                );
+            }
+            // Pass two really shifts the camera without running homing. Keep
+            // the old intrinsic segment rather than locking the bullet to target.
+            let before = t.tracks[&4].segments[1];
+            let mut f = t.frame.clone().unwrap();
+            f.at += 0.04;
+            f.pose.at = f.at;
+            f.pose.id += 1;
+            f.pose.pass = 2;
+            f.state.static_lateral = 16;
+            f.objects.get_mut(&4).unwrap().position[1] += 16.0;
+            let at = f.at + delay;
+            t.observe(f, at, false);
+            assert_eq!(t.tracks[&4].segments[1].at, before.at);
+            assert!((t.positions(at + 0.02).0[&4][1] - 34.0).abs() > 1e-6);
+        }
+    }
+}
+
+#[test]
+fn homing_forecast_clamps_after_camera_shift_in_both_directions() {
+    let mut f = observation(3);
+    let mut bullet = f.objects.remove(&2).unwrap();
+    bullet.position = [500.0, 10.0, -60.0];
+    bullet.movement = 253;
+    f.objects.insert(4, bullet);
+    let period = 0.04;
+    let world_period = period * 1.5;
+    // Camera displacement, target offset, combined lateral displacement over
+    // one mean world update. Large shifts distinguish clamping before/after
+    // camera compensation, including saturation even when already at target.
+    for (camera_step, target_offset, expected) in [
+        (0.0, 0, 0.0),
+        (48.0, 0, 0.0),
+        (-48.0, 0, 0.0),
+        (48.0, 20, 20.0),
+        (-48.0, 20, 20.0),
+        (48.0, -20, -20.0),
+        (-48.0, -20, -20.0),
+        (120.0, 0, 40.0),
+        (-120.0, 0, -40.0),
+        (48.0, 200, 128.0),
+        (-48.0, 200, 32.0),
+        (48.0, -200, -32.0),
+        (-48.0, -200, -128.0),
+    ] {
+        f.state.enemy_target = [10 + target_offset, -60];
+        let (rates, _) = object_forecast(
+            &f,
+            4,
+            253,
+            bullet.position,
+            &VecDeque::new(),
+            period,
+            camera_step / world_period,
+        );
+        assert!(
+            (camera_step + rates[1] * world_period - expected).abs() < 1e-10,
+            "camera {camera_step}, target offset {target_offset}"
+        );
+        assert_eq!(rates[0], -28.0 / world_period);
+        assert_eq!(rates[2], 0.0);
+    }
+}
+
+#[test]
 fn intrinsic_forecast_obeys_projected_travel_bound_and_homing_target() {
     let mut t = Tracker::default();
     for i in 0..4 {

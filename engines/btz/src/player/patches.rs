@@ -72,8 +72,8 @@ const ESSEX_DOS: Patch = Patch {
     }],
 };
 
-// Identified Brimstone DOS OBJ only: retain the entry's call frame and run the
-// existing opening initialization, including its story timing setup.
+// Identified Brimstone DOS OBJ only: keep the original entry and opening
+// initialization, including its story timing setup.
 const BRIMSTONE_DOS: Patch = Patch {
     size: 183_296,
     sha256: [
@@ -81,18 +81,11 @@ const BRIMSTONE_DOS: Patch = Patch {
         0xb6, 0x03, 0xae, 0x4c, 0xf6, 0x92, 0x59, 0x9e, 0x03, 0x9c, 0x8e, 0xec, 0xff, 0x1c, 0x3b,
         0xae, 0xf4,
     ],
-    edits: &[
-        Edit {
-            offset: 0x648e,
-            before: &[0x04, 0x00, 0xae, 0x40],
-            after: &[0x04, 0x00, 0x52, 0x41],
-        },
-        Edit {
-            offset: 0x5380,
-            before: &[0x58, 0x00],
-            after: &[0x03, 0x00],
-        },
-    ],
+    edits: &[Edit {
+        offset: 0x5380,
+        before: &[0x58, 0x00],
+        after: &[0x03, 0x00],
+    }],
 };
 
 pub(super) fn prepare_for_play(bytes: &mut [u8]) {

@@ -77,10 +77,14 @@ shared globally or overridden for an individual game.
 | Open / close Settings | F10 | Back/View |
 | Quit | Ctrl+Q | — |
 
-Alley Cat and Mach 3 also accept **P** to pause. In those games, the left stick
-or D-pad supplies movement, and the bottom face button performs the main action.
-BTZ uses keyboard commands; controllers navigate Settings and file dialogs.
-Game-specific controls are in the player guides.
+Alley Cat and Mach 3 also accept **P** to pause. By default, the left stick or
+D-pad supplies movement, and the bottom face button performs the main action.
+Alley Cat offers controller layout templates in Settings. BTZ uses keyboard
+commands; controllers navigate Settings and file dialogs. Game-specific controls
+are in the player guides.
+
+[BTZ games](docs/games/btz.md) support the normal SDL text display and optional
+terminal play using `--renderer terminal`.
 
 See the [settings reference](docs/configuration.md) for all options, saved-file
 locations and command-line overrides. For available launch options, run:
@@ -105,9 +109,6 @@ For source layout, validation and contribution guidance, see
 [CONTRIBUTING.md](CONTRIBUTING.md) and the technical engine documentation for
 [Alley Cat](engines/alleycat/README.md), [Mach 3](engines/mach3/README.md), and
 [BTZ](engines/btz/README.md).
-
-[BTZ games](docs/games/btz.md) support the normal SDL text display and optional
-terminal play using `--renderer terminal`.
 
 ## License
 

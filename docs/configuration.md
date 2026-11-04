@@ -3,12 +3,12 @@
 F10 opens the Compact Settings menu during graphical play in each supported game.
 The Display page offers window mode (windowed or borderless desktop fullscreen),
 window scale (Auto or ×1–×16), scaling policy, sampling, aspect ratio, renderer,
-backend, VSync and a frame limiter. CRT & Colour offers sharp pixels or Hyllian
-CRT with adjustable shader controls. Colour profiles and white points remain
-future work. Audio offers enable sound, master/category volumes, per-game sound
-renderer, output device and focus muting.
-Controls offers a shared controller stick dead zone and Alley Cat's game-specific
-input response.
+backend, VSync and a frame limiter. Mach 3 also offers scene and player craft
+movement settings. CRT & Colour offers sharp pixels or Hyllian CRT with adjustable
+shader controls. Colour profiles and white points remain future work. Audio
+offers enable sound, master/category volumes, per-game sound renderer, output
+device and focus muting. Controls offers a shared controller stick dead zone and
+Alley Cat's input response and controller layout templates, with diagrams.
 Navigate with Tab/Shift+Tab or the arrow keys; Enter/Space activates a control.
 Arrow keys adjust sliders and numeric fields. The controller's View/Back button
 opens settings, D-pad/left stick navigates, A (bottom face button) confirms,
@@ -78,11 +78,13 @@ or window mode supersedes that restoration; temporary sizing is never saved.
 
 Controls edit a draft. Apply activates and saves pending edits across both
 Global defaults and the current game's overrides, leaving the menu open.
-Cancel, Escape and F10 discard unapplied edits. Reset section clears only the
-selected global section when editing Global defaults. Restore global defaults
-clears only the current game's overrides for the selected section when editing
-that game. Display, CRT & Colour, Audio and Controls reset independently.
-Both operations remain drafts until Apply.
+Cancel, Escape and F10 discard unapplied edits. **Reset section** clears only the
+selected global section when editing Global defaults. When editing a game, the
+button is **Restore defaults** on Controls and Mach 3's Display/Audio pages, or
+**Restore global defaults** on the other pages. It clears only that game's
+overrides for the selected section: shared fields inherit global preferences,
+and game-only fields return to their built-in defaults. Display, CRT & Colour,
+Audio and Controls reset independently. Resets remain drafts until Apply.
 
 Game fields with an override in the draft use the theme accent text, including
 explicit values matching global defaults. An amber dot marks a change compared with
@@ -261,6 +263,9 @@ Explicit CLI values form the final temporary layer.
 | --- | --- |
 | window_mode | `"windowed"`, `"fullscreen"` |
 | scale | `"auto"` or integer 1–16 |
+| aspect_ratio | `"original"`, `"square"` |
+| scaling_policy | `"integer"`, `"fit"`, `"stretch"` |
+| sampling | `"nearest"`, `"linear"` |
 | renderer | `"auto"`, `"gpu"`, `"sdl"`, `"software"`; `"terminal"` for BTZ entries only |
 | backend | `"auto"`, `"vulkan"`, `"opengl"`, `"opengles2"`, `"direct3d11"`, `"direct3d12"`, `"metal"` |
 | vsync | `true`, `false` |
@@ -395,8 +400,9 @@ changes to subsequent bells and discards pending bell presentation on a change.
 
 Enable sound and Master volume operate on host output. Native sound routines,
 device counters, random behavior and the engine's timeline continue unchanged;
-Mach 3's original F2 and Alley Cat's original Ctrl+S sound controls remain independent. Focus muting sets stream
-gain to zero without pausing simulation or retaining a backlog to replay later.
+Mach 3's original F2 and Alley Cat's original Ctrl+S sound controls remain
+independent. Focus muting sets stream gain to zero without pausing simulation
+or retaining a backlog to replay later.
 Native/host/menu pauses retain their existing scheduling behavior.
 
 The device selector refreshes when Audio is opened in a new settings session and
@@ -426,11 +432,13 @@ retains the original game's input polling. Apply changes the running game and
 saves the preference; Cancel discards pending edits.
 
 This option exists only for Alley Cat, without a Global defaults or Mach 3
-counterpart. It is stored as `[entries.alley-cat-m7k4p9.controls] control_mode = "original"`;
-selecting Responsive removes that override. Check **Override global defaults**
-to edit it. Restoring section defaults removes only the Alley Cat
-Controls override on Apply; global resets leave it intact. Reference/headless
-diagnostics retain original input polling.
+counterpart. It is stored as
+`[entries.alley-cat-m7k4p9.controls] control_mode = "original"`; selecting Responsive
+removes that override. Check **Override global defaults** to edit it.
+**Restore defaults** resets this entry's whole Controls section on Apply,
+including input response, controller layouts and the stick dead zone override.
+Global resets leave game overrides intact. Reference/headless diagnostics retain
+original input polling.
 
 ## Mach 3 motion
 
@@ -467,9 +475,10 @@ Alley Cat counterpart. On this page, unchecking **Override global defaults**
 makes shared audio inherit global defaults and restores Digitized
 samples to its built-in On value. Section preference controls are grayed out
 until that checkbox is checked. A saved samples Off value counts as an Audio
-override, so the section reopens enabled. **Restore defaults** has the same reset behavior; Apply saves
-the reset and Cancel discards it. Resetting global audio leaves game overrides
-intact. Host mute remains separate from the native sample policy.
+override, so the section reopens enabled. **Restore defaults** has the same reset
+behavior; Apply saves the reset and Cancel discards it. Resetting global audio
+leaves game overrides intact. Host mute remains separate from the native sample
+policy.
 
 This is a native game option, separate from host mute, volumes and rendering.
 Off skips the original digitized playback calls and their time/input effects:
@@ -555,8 +564,9 @@ earlier polls.
 ## Activation and persistence
 
 Window scale targets the windowed drawable area with high-DPI compensation.
-Fullscreen retains aspect-correct integer fitting and remembers the windowed
-scale. Exclusive fullscreen and fractional scaling are not offered yet.
+Fullscreen uses the selected scaling policy and remembers the windowed scale.
+Integer fitting is the default; fractional fitting and stretching are also
+available. Exclusive fullscreen is not offered.
 Renderer/backend changes rebuild the native rendering window and resources while
 retaining simulation, pause/input policy and the latest CPU image. Old textures
 are invalidated before renderer teardown; game textures and the font atlas are
@@ -669,12 +679,16 @@ The current chains are:
 | --- | --- | --- | --- |
 | `alley-cat-dos-06ff7fe280` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
 | `mach-3-dos-5f6ec0fc8b` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
+| `mindwheel-dos-2f53a47931` | `mindwheel-dos` | `mindwheel` | `btz-dos-text` |
+| `essex-dos-2ba69b4250` | `essex-dos` | `essex` | `btz-dos-text` |
+| `brimstone-dos-0020ff40a4` | `brimstone-dos` | `brimstone` | `btz-dos-text` |
+| `breakers-dos-acb87c72b9` | `breakers-dos` | `breakers` | `btz-dos-text` |
 
-Both editions have platform `Platform::Dos`. Platform placement in the launcher
-is not yet defined. Edition IDs name catalog groupings; the precise commercial
-edition/version designations remain unverified. Edition, specs and compatibility
-IDs have separate namespaces. Both current detected releases use their game's
-`*-dos` compatibility ID, matching the edition/profile spelling. Sharing edition
+All current editions have platform `Platform::Dos`. Edition IDs name catalog
+groupings; the precise commercial edition/version designations remain unverified.
+Edition, specs and compatibility IDs have separate namespaces. Each current
+detected release uses its game's `*-dos` compatibility ID, matching the edition
+ID; the four BTZ editions share the `btz-dos-text` specs profile. Sharing edition
 or specs records does not establish save/configuration compatibility: each
 detected release retains its explicit compatibility group.
 
@@ -696,9 +710,7 @@ The game ID and platform form the readable prefix outside the digest.
 
 IDs are assigned in the catalog. [Authoring checks](../app/src/detection/identity.rs)
 validate normalization and reject duplicate IDs, including shortened-fingerprint
-collisions. Runtime detection uses the assigned IDs and full file hashes. No
-legacy-ID aliases or automatic migration are provided for these pre-release
-renames; local library `release_id` references are edited directly.
+collisions. Runtime detection uses the assigned IDs and full file hashes.
 
 Years are optional numbers. Credits, genres and feature summaries are separate
 lists; unknown facts use `None` or empty lists. An edition uses its game's title

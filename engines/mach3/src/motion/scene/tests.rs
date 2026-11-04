@@ -86,6 +86,25 @@ fn tracking() -> Tracker {
     t
 }
 
+fn homing_tracking(depth: f64, velocity: i16, delay: f64, target: [i16; 2]) -> Tracker {
+    let mut t = Tracker::default();
+    for i in 0..4 {
+        let mut f = observation(i);
+        f.pose.controls = if velocity > 0 { 8 } else { 4 };
+        f.pose.velocity = [velocity, 0];
+        f.pose.coordinates = [14, 0, 0];
+        f.state.static_lateral = 0;
+        f.state.enemy_target = target;
+        let mut bullet = f.objects.remove(&2).unwrap();
+        bullet.position = [depth, 34.0, -60.0];
+        bullet.movement = 253;
+        f.objects.insert(4, bullet);
+        let at = f.at;
+        t.observe(f, at + delay, false);
+    }
+    t
+}
+
 fn pixel(f: &Frame, x: usize, y: usize) -> u8 {
     (f.packed()[y * ROW_BYTES + x / 4] >> (6 - x % 4 * 2)) & 3
 }
@@ -298,21 +317,7 @@ fn terrain_and_gate_forecasts_stop_at_player_plane_and_shots_at_depth_300() {
 fn homing_at_target_cancels_held_strafe_without_lateral_wobble() {
     for direction in [-1, 1] {
         for delay in [0.0, 0.015, 0.08] {
-            let mut t = Tracker::default();
-            for i in 0..4 {
-                let mut f = observation(i);
-                f.pose.controls = if direction > 0 { 8 } else { 4 };
-                f.pose.velocity = [3 * direction, 0];
-                f.pose.coordinates = [14, 0, 0];
-                f.state.static_lateral = 0;
-                f.state.enemy_target = [34, -60];
-                let mut bullet = f.objects.remove(&2).unwrap();
-                bullet.position = [500.0, 34.0, -60.0];
-                bullet.movement = 253;
-                f.objects.insert(4, bullet);
-                let at = f.at;
-                t.observe(f, at + delay, false);
-            }
+            let mut t = homing_tracking(500.0, 3 * direction, delay, [34, -60]);
             assert_ne!(t.camera.unwrap()[0].velocity, 0.0);
             for step in 0..101 {
                 let at = 0.12 + delay + f64::from(step) / 1000.0;
@@ -341,12 +346,84 @@ fn homing_at_target_cancels_held_strafe_without_lateral_wobble() {
 }
 
 #[test]
+fn homing_cancellation_survives_either_prediction_stopping_first() {
+    for direction in [-1, 1] {
+        for (depth, camera_first) in [(20.0, false), (500.0, true)] {
+            for delay in [0.0, 0.015, 0.08] {
+                let t = homing_tracking(depth, 5 * direction, delay, [34, -60]);
+                if delay == 0.0 {
+                    let camera_stop = t.camera.unwrap()[0].stop;
+                    let bullet_stop = t.tracks[&4].segments[0].stop;
+                    assert_eq!(camera_stop < bullet_stop, camera_first);
+                    assert!((camera_stop - bullet_stop).abs() > 0.001);
+                }
+                for step in 0..201 {
+                    let at = 0.12 + delay + f64::from(step) / 1000.0;
+                    let p = t.positions(at).0[&4];
+                    assert!(
+                        (p[1] - 34.0).abs() < 1e-10,
+                        "direction {direction}, depth {depth}, delay {delay}, at {at}: {p:?}"
+                    );
+                }
+                if camera_first && delay == 0.0 {
+                    let stop = 0.12 + t.camera.unwrap()[0].stop;
+                    assert!(t.positions(stop + 0.005).0[&4][0] < t.positions(stop).0[&4][0]);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn homing_motion_continues_after_camera_stops_and_reference_changes_are_continuous() {
+    for direction in [-1, 1] {
+        let mut t = homing_tracking(500.0, 6 * direction, 0.0, [54, -40]);
+        let lateral = t.tracks[&4].segments[1];
+        assert!(lateral.stop > t.camera.unwrap()[0].stop);
+        assert!((lateral.velocity - 20.0 / 0.06).abs() < 1e-9);
+        // Unsaturated genuine homing follows its own response with the whole
+        // camera trajectory cancelled, even after that trajectory has stopped.
+        let expected = Scalar {
+            start: 34.0,
+            target: 34.0,
+            ..lateral
+        };
+        for step in 0..201 {
+            let at = 0.12 + f64::from(step) / 1000.0;
+            assert!((t.positions(at).0[&4][1] - expected.sample(at)).abs() < 1e-10);
+        }
+        for pass in [2, 3] {
+            let mut f = t.frame.clone().unwrap();
+            f.at += 0.04;
+            f.pose.at = f.at;
+            f.pose.id += 1;
+            f.pose.pass = pass;
+            f.state.static_lateral += 16;
+            f.objects.get_mut(&4).unwrap().position[1] += 10.0;
+            let at = f.at;
+            let before = t.positions(at).0[&4];
+            t.observe(f, at, false);
+            let after = t.positions(at).0[&4];
+            for i in 0..3 {
+                assert!((before[i] - after[i]).abs() < 1e-10);
+            }
+        }
+        let at = t.seen + 0.005;
+        let before = t.positions(at);
+        t.suspend(at);
+        assert_eq!(t.positions(at), before);
+        assert_eq!(t.positions(at + 10.0), before);
+    }
+}
+
+#[test]
 fn homing_forecast_clamps_after_camera_shift_in_both_directions() {
     let mut f = observation(3);
     let mut bullet = f.objects.remove(&2).unwrap();
     bullet.position = [500.0, 10.0, -60.0];
     bullet.movement = 253;
     f.objects.insert(4, bullet);
+    f.state.static_lateral = 0;
     let period = 0.04;
     let world_period = period * 1.5;
     // Camera displacement, target offset, combined lateral displacement over
@@ -368,17 +445,21 @@ fn homing_forecast_clamps_after_camera_shift_in_both_directions() {
         (-48.0, -200, -128.0),
     ] {
         f.state.enemy_target = [10 + target_offset, -60];
-        let (rates, _) = object_forecast(
+        let (rates, _, fraction) = object_forecast(
             &f,
             4,
             253,
             bullet.position,
             &VecDeque::new(),
             period,
-            camera_step / world_period,
+            Scalar {
+                velocity: camera_step / world_period,
+                stop: world_period,
+                ..Scalar::fixed(f.at, 0.0)
+            },
         );
         assert!(
-            (camera_step + rates[1] * world_period - expected).abs() < 1e-10,
+            ((1.0 - fraction) * camera_step + rates[1] * world_period - expected).abs() < 1e-10,
             "camera {camera_step}, target offset {target_offset}"
         );
         assert_eq!(rates[0], -28.0 / world_period);

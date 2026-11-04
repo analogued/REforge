@@ -169,9 +169,11 @@ The scene presenter separates intrinsic object coordinates from one shared
 camera. Player shots, straight-moving enemies, terrain and gates use their
 reconstructed movement rates; other enemies use observed full-body rates, and
 the homing projectile follows its observed target, accounting for camera
-displacement before clamping its homing correction. Stationary terrain effects
-stop forecasting forward. Source timestamps determine cadence, while receipt
-delay consumes the prediction allowance. Lifetimes and projected-lifetime tags
+displacement before clamping its homing correction. Camera compensation follows
+that camera's bounded trajectory independently of the projectile's depth and
+genuine homing forecasts. Stationary terrain effects stop forecasting forward.
+Source timestamps determine cadence, while receipt delay consumes the prediction
+allowance. Lifetimes and projected-lifetime tags
 prevent joining reused object slots or moving an old cached image as a new actor.
 
 Reforged mode composes complete original sprites and procedural gate geometry in

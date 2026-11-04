@@ -217,10 +217,34 @@ impl Scalar {
 }
 
 #[derive(Debug)]
+struct CameraCompensation {
+    trajectory: Scalar,
+    origin: f64,
+    fraction: f64,
+}
+
+impl CameraCompensation {
+    fn sample(&self, at: f64) -> f64 {
+        self.fraction * (self.trajectory.sample(at) - self.origin)
+    }
+}
+
+#[derive(Debug)]
 struct Track {
     identity: (u64, u8),
     history: VecDeque<(f64, [f64; 3])>,
     segments: [Scalar; 3],
+    compensation: Option<CameraCompensation>,
+}
+
+impl Track {
+    fn sample(&self, at: f64) -> [f64; 3] {
+        let mut position = self.segments.map(|s| s.sample(at));
+        if let Some(compensation) = &self.compensation {
+            position[1] -= compensation.sample(at);
+        }
+        position
+    }
 }
 
 #[derive(Default, Debug)]
@@ -244,6 +268,9 @@ impl Tracker {
         for t in self.tracks.values_mut() {
             for s in &mut t.segments {
                 s.freeze(seen);
+            }
+            if let Some(compensation) = &mut t.compensation {
+                compensation.trajectory.freeze(seen);
             }
         }
         self.seen = seen;
@@ -337,15 +364,29 @@ impl Tracker {
                 history.pop_front();
             }
             history.push_back((f.at, values));
-            let (rates, stop) =
+            let (rates, stop, fraction) =
                 if let Some(period) = period.filter(|_| !fresh || matches!(slot, 2 | 3)) {
-                    object_forecast(f, slot, movement, values, &history, period, camera_rates[0])
+                    object_forecast(
+                        f,
+                        slot,
+                        movement,
+                        values,
+                        &history,
+                        period,
+                        self.camera.unwrap()[0],
+                    )
                 } else {
-                    ([0.0; 3], 0.0)
+                    ([0.0; 3], 0.0, 0.0)
                 };
-            let segments = std::array::from_fn(|i| {
+            let compensation = (fraction != 0.0).then(|| CameraCompensation {
+                trajectory: self.camera.unwrap()[0],
+                origin: f64::from(f.state.static_lateral),
+                fraction,
+            });
+            let previous = old.map(|t| t.sample(seen));
+            let mut segments = std::array::from_fn(|i| {
                 Scalar::follow(
-                    old.map(|t| t.segments[i]),
+                    previous.map(|p| Scalar::fixed(seen, p[i])),
                     seen,
                     values[i],
                     rates[i],
@@ -354,12 +395,18 @@ impl Tracker {
                     fresh,
                 )
             });
+            if !fresh && let Some(compensation) = &compensation {
+                // Changing the camera reference must not jump the already
+                // displayed intrinsic position, including accumulated filter lag.
+                segments[1].start += compensation.sample(seen);
+            }
             self.tracks.insert(
                 slot,
                 Track {
                     identity,
                     history,
                     segments,
+                    compensation,
                 },
             );
         }
@@ -378,7 +425,7 @@ impl Tracker {
             .map(|(&slot, o)| {
                 let mut p = o.position;
                 if let Some(track) = self.tracks.get(&slot) {
-                    p = track.segments.map(|s| s.sample(at));
+                    p = track.sample(at);
                     p[1] += camera[0];
                 } else {
                     p[1] += camera[0] - f64::from(f.state.static_lateral);
@@ -460,10 +507,11 @@ fn object_forecast(
     values: [f64; 3],
     history: &VecDeque<(f64, [f64; 3])>,
     period: f64,
-    camera_lateral_rate: f64,
-) -> ([f64; 3], f64) {
+    camera: Scalar,
+) -> ([f64; 3], f64, f64) {
     let world_period = period * 1.5;
     let mut rates = [0.0; 3];
+    let mut compensation = 0.0;
     if history.len() == 3 {
         let elapsed = f.at - history[0].0;
         if elapsed > 0.0 {
@@ -484,16 +532,24 @@ fn object_forecast(
         ];
     } else if slot == 4 {
         rates = [-f64::from(f.state.speeds[0]) / world_period, 0.0, 0.0];
-        // Native execution shifts the bullet, but not its stored target, before
-        // homing. Clamp the correction from that shifted position; these rates
-        // are intrinsic, so the shared camera is still added by positions().
+        // Separate genuine homing from its response to the camera. Applying
+        // the clamp after the bounded camera displacement determines how much
+        // of that displacement is cancelled. Follow the very same camera curve
+        // for compensation, rather than giving it the object's stopping time.
         for (i, rate) in rates.iter_mut().enumerate().skip(1) {
-            let mut shifted = f.objects[&slot].position[i];
+            let error = f64::from(f.state.enemy_target[i - 1]) - f.objects[&slot].position[i];
+            let correction = error.clamp(-80.0, 80.0);
             if i == 1 {
-                shifted += camera_lateral_rate * world_period;
+                let displacement = camera.target + camera.velocity * camera.stop
+                    - f64::from(f.state.static_lateral);
+                compensation = if displacement == 0.0 {
+                    f64::from(error.abs() < 80.0)
+                } else {
+                    ((correction - (error - displacement).clamp(-80.0, 80.0)) / displacement)
+                        .clamp(0.0, 1.0)
+                };
             }
-            *rate = (f64::from(f.state.enemy_target[i - 1]) - shifted).clamp(-80.0, 80.0)
-                / world_period;
+            *rate = correction / world_period;
         }
     } else if slot >= 15 {
         rates = if slot >= 23 || movement == 2 {
@@ -538,5 +594,5 @@ fn object_forecast(
         }
         duration = lo;
     }
-    (rates, duration)
+    (rates, duration, compensation)
 }

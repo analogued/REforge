@@ -9,6 +9,55 @@ fn type_bytes(editor: &mut InputEditor, text: &[u8]) -> Vec<InputAction> {
 }
 
 #[test]
+fn first_typing_uses_the_painted_cursor_and_breakers_scrolls_only_later_rows() {
+    use btz::{
+        interpreter::{BREAKERS_DOS, BRIMSTONE_DOS, ESSEX_DOS, MINDWHEEL_DOS},
+        text::TextScreen,
+    };
+    for definition in [&MINDWHEEL_DOS, &ESSEX_DOS, &BRIMSTONE_DOS, &BREAKERS_DOS] {
+        let mut editor = InputEditor::with_layout(definition.layout);
+        let mut screen = TextScreen::with_layout(definition.layout);
+        for action in type_bytes(&mut editor, b"no") {
+            screen.apply_input(&action, &[]).unwrap();
+        }
+        assert_eq!(editor.cursor(), (19, 3));
+        let row = |screen: &TextScreen, y: usize| -> Vec<u8> {
+            screen.dos_cells()[y * 160..(y + 1) * 160]
+                .iter()
+                .step_by(2)
+                .copied()
+                .collect()
+        };
+        assert_eq!(&row(&screen, 19)[1..4], b"no\xdb");
+        assert_eq!(row(&screen, 20)[1], b' ');
+        for action in editor.process_key(Key::Enter) {
+            screen.apply_input(&action, &[]).unwrap();
+        }
+        assert_eq!(editor.cursor(), (20, 1));
+        assert_eq!(&row(&screen, 19)[1..4], b"no ");
+        assert_eq!(row(&screen, 20)[1], 0xdb);
+        editor.acknowledge_line().unwrap();
+        for command in [b"look\r".as_slice(), b"inventory\r", b"wait\r"] {
+            for action in type_bytes(&mut editor, command) {
+                screen.apply_input(&action, &[]).unwrap();
+            }
+            editor.acknowledge_line().unwrap();
+        }
+        assert_eq!(editor.cursor(), (22, 1));
+        if std::ptr::eq(definition, &BREAKERS_DOS) {
+            assert_eq!(&row(&screen, 19)[1..4], b"no ");
+            assert!(row(&screen, 20).windows(9).any(|s| s == b"inventory"));
+        } else {
+            assert!(row(&screen, 19).windows(4).any(|s| s == b"look"));
+        }
+        editor.rebuild_frame();
+        let screen = TextScreen::with_layout(definition.layout);
+        assert_eq!(editor.cursor(), (19, 1));
+        assert_eq!(row(&screen, 19)[1], 0xdb);
+    }
+}
+
+#[test]
 fn submitted_raw_line_preserves_case_and_waits_for_parser_acknowledgment() {
     let mut editor = InputEditor::new();
     let actions = type_bytes(&mut editor, b"HeLLo\r");

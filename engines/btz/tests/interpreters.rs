@@ -949,7 +949,7 @@ fn breakers_character_opcode_uses_the_formatter_and_old_slot_is_empty() {
     );
     wait(&mut s);
     assert_eq!(first_row(&s), "Q");
-    assert_eq!(s.input().cursor(), (20, 1));
+    assert_eq!(s.input().cursor(), (19, 1));
     assert_eq!(s.vm().variable(VarAddr(0x120)).unwrap(), 78);
     assert_eq!(s.screen().dos_cells()[79 * 2], 0xbb);
     for byte in 0..=255u16 {

@@ -65,9 +65,10 @@ with these additional selections:
   `0x11c`–`0x122` and includes the surrounding border. Its character bytes are
   stored in the variable image at the accumulator's byte offset; attributes
   are not stored. These bytes travel in ordinary native bookmarks.
-- The full frame ends at column 79, story text at 78, and input history begins
-  on row 20. The initial painted cursor remains on row 19. Command capacity
-  remains 76 characters. Coordinates are zero-based.
+- The full frame ends at column 79 and story text at 78. The editor and painted
+  cursor both start on row 19. When input history overflows, only rows 20–22
+  scroll; row 19 stays in place. Earlier definitions scroll rows 19–22.
+  Command capacity remains 76 characters. Coordinates are zero-based.
 - Before a full grammar sweep, both free matching and gap matching are enabled.
   Object-specific flags can change them as matching proceeds. Earlier
   definitions reset only free matching at that boundary.

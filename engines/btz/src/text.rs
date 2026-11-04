@@ -318,7 +318,7 @@ impl TextScreen {
             screen.put(row, 0, left);
             screen.put(row, layout.frame_right, right);
         }
-        screen.put(19, 1, 0xdb);
+        screen.put(layout.input_top, 1, 0xdb);
         screen
     }
 

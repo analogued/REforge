@@ -57,16 +57,21 @@ pub const CONSTANT_FORMS: FormRules = FormRules {
 #[derive(Clone, Copy, Debug)]
 pub struct ScreenLayout {
     pub frame_right: usize,
+    /// Initial editor row, also used by frame initialization.
     pub input_top: usize,
+    /// First row moved when command history overflows at the bottom.
+    pub input_scroll_top: usize,
 }
 
 pub const DOS_LAYOUT: ScreenLayout = ScreenLayout {
     frame_right: 78,
     input_top: 19,
+    input_scroll_top: 19,
 };
 pub const WIDE_DOS_LAYOUT: ScreenLayout = ScreenLayout {
     frame_right: 79,
-    input_top: 20,
+    input_top: 19,
+    input_scroll_top: 20,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

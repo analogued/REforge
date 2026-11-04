@@ -268,7 +268,7 @@ impl InputEditor {
         if self.row == 23 {
             self.row = 22;
             actions.push(InputAction::Scroll {
-                top: self.layout.input_top,
+                top: self.layout.input_scroll_top,
                 bottom: 22,
                 left: 1,
                 right: 77,

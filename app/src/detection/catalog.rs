@@ -284,7 +284,7 @@ pub static RELEASES: &[Release] = &[
     },
     Release {
         id: "mindwheel-dos-2f53a47931",
-        compatibility_id: "mindwheel-dos-8502-19",
+        compatibility_id: "mindwheel-dos",
         edition: &MINDWHEEL_DOS,
         files: &[
             FileRecord {

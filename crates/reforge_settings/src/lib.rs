@@ -1401,54 +1401,50 @@ mod tests {
         );
         assert!("blink".parse::<FileCursorStyle>().is_err());
         for game in ["mindwheel", "essex", "brimstone", "breakers"] {
-            let dir = TestDir::new();
-            let path = dir.file();
-            let mut settings = session(path.clone(), game);
-            let mut draft = settings.saved.clone();
-            draft.edit(false, BTZ_FILE_CURSOR, "steady-block".into());
-            assert!(!draft.global.contains_key(BTZ_FILE_CURSOR));
-            draft.edit(true, BTZ_FILE_CURSOR, "steady-block".into());
-            assert!(draft.has_game_overrides(0));
-            assert_eq!(
-                settings.effective(&settings.saved).btz.file_cursor,
-                FileCursorStyle::PulsingUnderline
-            );
-            settings.commit(draft).unwrap();
-            let mut loaded = session(path.clone(), game);
-            assert_eq!(
-                loaded.effective(&loaded.saved).btz.file_cursor,
-                FileCursorStyle::SteadyBlock
-            );
-            let mut draft = loaded.saved.clone();
-            draft.set_terminal(true);
-            loaded.commit(draft).unwrap();
-            let loaded = session(path.clone(), game);
-            assert_eq!(loaded.effective(&loaded.saved).renderer, Renderer::Terminal);
-            assert_eq!(
-                loaded.effective(&loaded.saved).btz.file_cursor,
-                FileCursorStyle::SteadyBlock
-            );
-            for other in ["alley-cat", "mach-3"] {
+            for style in [
+                FileCursorStyle::SteadyBlock,
+                FileCursorStyle::BlinkingUnderline,
+            ] {
+                let dir = TestDir::new();
+                let path = dir.file();
+                let mut settings = session(path.clone(), game);
+                let mut draft = settings.saved.clone();
+                draft.edit(false, BTZ_FILE_CURSOR, style.as_str().into());
+                assert!(!draft.global.contains_key(BTZ_FILE_CURSOR));
+                draft.edit(true, BTZ_FILE_CURSOR, style.as_str().into());
+                assert!(draft.has_game_overrides(0));
                 assert_eq!(
-                    session(path.clone(), other)
-                        .effective(&loaded.saved)
-                        .btz
-                        .file_cursor,
+                    settings.effective(&settings.saved).btz.file_cursor,
+                    FileCursorStyle::PulsingUnderline
+                );
+                settings.commit(draft).unwrap();
+                let mut loaded = session(path.clone(), game);
+                assert_eq!(loaded.effective(&loaded.saved).btz.file_cursor, style);
+                let mut draft = loaded.saved.clone();
+                draft.set_terminal(true);
+                loaded.commit(draft).unwrap();
+                let loaded = session(path.clone(), game);
+                assert_eq!(loaded.effective(&loaded.saved).renderer, Renderer::Terminal);
+                assert_eq!(loaded.effective(&loaded.saved).btz.file_cursor, style);
+                for other in ["alley-cat", "mach-3"] {
+                    assert_eq!(
+                        session(path.clone(), other)
+                            .effective(&loaded.saved)
+                            .btz
+                            .file_cursor,
+                        FileCursorStyle::PulsingUnderline
+                    );
+                }
+                let mut reset = loaded.saved.clone();
+                reset.reset_section(true, 1);
+                assert_eq!(reset.game_values().btz.file_cursor, style);
+                reset.reset_section(true, 0);
+                assert!(!reset.game.contains_key(BTZ_FILE_CURSOR));
+                assert_eq!(
+                    reset.game_values().btz.file_cursor,
                     FileCursorStyle::PulsingUnderline
                 );
             }
-            let mut reset = loaded.saved.clone();
-            reset.reset_section(true, 1);
-            assert_eq!(
-                reset.game_values().btz.file_cursor,
-                FileCursorStyle::SteadyBlock
-            );
-            reset.reset_section(true, 0);
-            assert!(!reset.game.contains_key(BTZ_FILE_CURSOR));
-            assert_eq!(
-                reset.game_values().btz.file_cursor,
-                FileCursorStyle::PulsingUnderline
-            );
         }
     }
 

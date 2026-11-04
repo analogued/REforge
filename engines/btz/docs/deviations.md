@@ -18,9 +18,16 @@ selection and clipboard shortcuts. Keyboard, mouse and controller navigation
 operate the browser independently of the story's command editor.
 
 The file-dialog cursor is selectable for each game. The default Pulsing
-underline takes its short/tall presentation from Breakers; Steady block keeps
-the underlying character readable by reversing its colours. Both choices are
-available in all four games and affect only these dialogs.
+underline takes its short/tall presentation from Breakers. Blinking underline
+uses Mindwheel, Essex and Brimstone's two-scanline cursor without a permanently
+painted underscore. Steady block keeps the underlying character readable by
+reversing its colours. All three choices are available in every game and affect
+only these dialogs.
+
+Both animated styles use eight-frame phases at a fixed 60 Hz reference, about
+133 ms per phase. This follows the CGA DOSBox-X cursor cadence, independently of
+host CPU speed and monitor refresh. The original selects scanlines 6–7 for CGA;
+other DOS video adapters can use different shapes and blink rates.
 
 Originally, Mindwheel, Essex and Brimstone replace bookmarks without asking;
 Breakers asks first. Original transcripts replace their destination without

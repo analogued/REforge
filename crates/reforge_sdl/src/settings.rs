@@ -1133,18 +1133,39 @@ mod tests {
             "steady-block"
         );
         click(&mut menu, "Steady block");
+        click(&mut menu, "Blinking underline");
+        assert_eq!(
+            menu.draft.as_ref().unwrap().game_values().btz.file_cursor,
+            FileCursorStyle::BlinkingUnderline
+        );
+        click(&mut menu, "Apply");
+        let settings = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().unwrap());
+        window.apply_settings(settings).unwrap();
+        menu.applied();
+        assert_eq!(
+            window.settings().btz.file_cursor,
+            FileCursorStyle::BlinkingUnderline
+        );
+        assert_eq!(
+            Session::load(launch.clone()).saved.game[BTZ_FILE_CURSOR],
+            "blinking-underline"
+        );
+        click(&mut menu, "Blinking underline");
         click(&mut menu, "Pulsing underline");
         menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false));
         assert_eq!(
             window.settings().btz.file_cursor,
-            FileCursorStyle::SteadyBlock
+            FileCursorStyle::BlinkingUnderline
         );
         menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, false, false));
         menu.toggle();
         menu.prepare(window.ui_metrics(), window.settings());
         assert_eq!(
             menu.draft.as_ref().unwrap().game_values().btz.file_cursor,
-            FileCursorStyle::SteadyBlock
+            FileCursorStyle::BlinkingUnderline
         );
         click(&mut menu, "Restore defaults");
         click(&mut menu, "Apply");

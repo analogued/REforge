@@ -13,7 +13,8 @@ Unreleased contains changes intended for the next public release.
 ### BTZ
 
 - Browse bookmarks and transcripts through a framed text interface, with
-  keyboard, mouse and controller navigation and overwrite confirmation.
+  keyboard, mouse and controller navigation, overwrite confirmation and
+  selectable cursor styles.
 - Fix Breakers' first input appearing one line below the visible cursor.
 - Temporarily enlarge small game windows to fit Settings and restore their size
   when it closes.

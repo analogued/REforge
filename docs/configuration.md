@@ -271,7 +271,7 @@ Explicit CLI values form the final temporary layer.
 | backend | `"auto"`, `"vulkan"`, `"opengl"`, `"opengles2"`, `"direct3d11"`, `"direct3d12"`, `"metal"` |
 | vsync | `true`, `false` |
 | frame_limit | `"display"`, `"60"`, `"120"`, `"unlimited"` |
-| file_cursor | `"pulsing-underline"` (default), `"steady-block"`; BTZ entries only |
+| file_cursor | `"pulsing-underline"` (default), `"blinking-underline"`, `"steady-block"`; BTZ entries only |
 
 BTZ's `file_cursor` belongs in `[entries.<entry-id>.display]` and cannot be set
 globally. In Settings it appears under **Text interface**, at the end of

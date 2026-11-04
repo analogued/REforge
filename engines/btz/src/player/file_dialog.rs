@@ -552,11 +552,14 @@ impl FileDialog {
         if self.confirm.is_some() || self.focus != Focus::Name {
             return None;
         }
+        // The CGA reference toggles the BIOS cursor every eight video frames.
+        // Breakers also paints an underscore, retaining one row in the off phase.
+        let raised = (elapsed.as_nanos() * 60 / (8 * 1_000_000_000)) & 1 != 0;
         let height = match self.cursor_style {
             FileCursorStyle::SteadyBlock => 8,
-            FileCursorStyle::PulsingUnderline => {
-                1 + ((elapsed.as_nanos() * 60 / (8 * 1_000_000_000)) % 2) as usize
-            }
+            FileCursorStyle::PulsingUnderline => 1 + usize::from(raised),
+            FileCursorStyle::BlinkingUnderline if raised => 2,
+            FileCursorStyle::BlinkingUnderline => return None,
         };
         Some(Cursor {
             row: 18,
@@ -963,6 +966,31 @@ pub(crate) mod tests {
         assert_eq!(name(&dialog), "CURSOR");
         let pixels = crate::display::render(&dialog.cells(), true).unwrap();
         assert!(pixels.iter().any(|v| *v != 0));
+    }
+
+    #[test]
+    fn blinking_underline_alternates_two_scanlines_with_no_cursor() {
+        let dir = Directory::new();
+        let mut dialog = FileDialog::new(Operation::Save, &dir.0, "Mindwheel", 512);
+        type_name(&mut dialog, "CURSOR");
+        let cells = dialog.cells();
+        dialog.set_cursor_style(FileCursorStyle::BlinkingUnderline);
+        let heights = [0, 100, 134, 200, 267, 400]
+            .map(|ms| dialog.cursor(Duration::from_millis(ms)).map(|c| c.height));
+        assert_eq!(heights, [None, None, Some(2), Some(2), None, Some(2)]);
+        assert!(dialog.cursor(Duration::from_nanos(133_333_333)).is_none());
+        assert_eq!(
+            dialog
+                .cursor(Duration::from_nanos(133_333_334))
+                .unwrap()
+                .height,
+            2
+        );
+        assert!(dialog.cursor(Duration::from_nanos(266_666_667)).is_none());
+        assert_eq!(name(&dialog), "CURSOR");
+        assert_eq!(dialog.cells(), cells);
+        dialog.input(Input::Tab(false));
+        assert!(dialog.cursor(Duration::from_millis(134)).is_none());
     }
 
     #[test]

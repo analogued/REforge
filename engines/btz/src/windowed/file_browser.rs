@@ -683,6 +683,28 @@ mod tests {
                 .count(),
             8
         );
+        browser
+            .dialog
+            .set_cursor_style(reforge_settings::FileCursorStyle::BlinkingUnderline);
+        let original = display::render(&browser.dialog.cells(), true).unwrap();
+        let mut hidden = original.clone();
+        paint_file_cursor(&mut hidden, browser.dialog.cursor(Duration::ZERO));
+        assert_eq!(hidden, original);
+        let mut visible = original.clone();
+        paint_file_cursor(
+            &mut visible,
+            browser.dialog.cursor(Duration::from_millis(134)),
+        );
+        assert_eq!(
+            original
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .zip(visible.as_chunks::<3>().0)
+                .filter(|(a, b)| *a != *b)
+                .count(),
+            16
+        );
         let creator = window.texture_creator();
         let mut frame = FrameTexture::new(&creator, 640, 200, FrameFormat::Rgb).unwrap();
         frame.update(&short).unwrap();

@@ -714,13 +714,18 @@ fn display_controls(
                         BTZ_FILE_CURSOR,
                         [
                             Choice::new(FileCursorStyle::PulsingUnderline, "Pulsing underline"),
+                            Choice::new(FileCursorStyle::BlinkingUnderline, "Blinking underline"),
                             Choice::new(FileCursorStyle::SteadyBlock, "Steady block"),
                         ],
                     )
                     .show(ui, &mut value.btz.file_cursor);
                 },
             );
-            ui.weak("Bookmark and transcript dialogs · the underline stays visible and alternates between two heights.");
+            ui.weak(match value.btz.file_cursor {
+                FileCursorStyle::PulsingUnderline => "Bookmark and transcript dialogs · stays visible and alternates between two heights.",
+                FileCursorStyle::BlinkingUnderline => "Bookmark and transcript dialogs · a two-pixel underline alternates with no cursor.",
+                FileCursorStyle::SteadyBlock => "Bookmark and transcript dialogs · a steady block reverses the character underneath.",
+            });
         });
     }
 }

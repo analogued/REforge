@@ -6,12 +6,14 @@
 pub enum FileCursorStyle {
     #[default]
     PulsingUnderline,
+    BlinkingUnderline,
     SteadyBlock,
 }
 impl FileCursorStyle {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::PulsingUnderline => "pulsing-underline",
+            Self::BlinkingUnderline => "blinking-underline",
             Self::SteadyBlock => "steady-block",
         }
     }
@@ -21,8 +23,11 @@ impl std::str::FromStr for FileCursorStyle {
     fn from_str(value: &str) -> Result<Self, String> {
         match value {
             "pulsing-underline" => Ok(Self::PulsingUnderline),
+            "blinking-underline" => Ok(Self::BlinkingUnderline),
             "steady-block" => Ok(Self::SteadyBlock),
-            _ => Err("file cursor must be pulsing-underline or steady-block".into()),
+            _ => Err(
+                "file cursor must be pulsing-underline, blinking-underline or steady-block".into(),
+            ),
         }
     }
 }

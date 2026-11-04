@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "alleycat"
-version = "2026.1.0"
+version = "2026.2.0"
 dependencies = [
  "reforge_audio",
  "reforge_graphics",
@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "btz"
-version = "2026.1.0"
+version = "2026.2.0"
 dependencies = [
  "libc",
  "reforge_audio",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "mach3"
-version = "2026.1.0"
+version = "2026.2.0"
 dependencies = [
  "reforge_audio",
  "reforge_sdl",
@@ -394,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "reforge"
-version = "2026.1.0"
+version = "2026.2.0"
 dependencies = [
  "alleycat",
  "btz",
@@ -409,18 +409,18 @@ dependencies = [
 
 [[package]]
 name = "reforge_audio"
-version = "2026.1.0"
+version = "2026.2.0"
 dependencies = [
  "blip_buf",
 ]
 
 [[package]]
 name = "reforge_graphics"
-version = "2026.1.0"
+version = "2026.2.0"
 
 [[package]]
 name = "reforge_sdl"
-version = "2026.1.0"
+version = "2026.2.0"
 dependencies = [
  "egui",
  "png",
@@ -430,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "reforge_settings"
-version = "2026.1.0"
+version = "2026.2.0"
 dependencies = [
  "fs2",
  "getrandom",

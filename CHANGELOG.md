@@ -5,6 +5,8 @@ Unreleased contains changes intended for the next public release.
 
 ## Unreleased
 
+## 2026.2.0 (2026-11-04)
+
 ### New games
 
 - Added experimental support for Mindwheel (DOS).

@@ -266,9 +266,11 @@ Renderer/backend changes invalidate texture residents and tear down the native
 renderer before creating its replacement. The stable `FrameCreator` coordinates
 this transition. Leases retain native renderer ownership while resident; empty
 leases cannot be rendered. `FrameTexture` retains the latest CPU image and
-reuploads it lazily. The menu recreates its font atlas for the new generation
-while preserving egui layout memory, so its position, scroll offsets and expanded
-sections survive renderer changes without a visible layout jump.
+reuploads it lazily. Settings and standalone `Gui` surfaces retain CPU copies of
+their font atlas and managed images and reupload them for the new generation
+without replacing the egui context. Layout, focus, field contents and callers'
+image handles survive renderer changes without a visible layout jump. Composed
+text input remains enabled across window replacement when it was active before.
 The GPU device is independently owned and retained by texture creators, including
 across ordinary/software rendering. Compatible GPU selections reuse it; a
 different GPU backend replaces it after old window-bound resources are released.
@@ -307,7 +309,7 @@ on every page, both game menus and five UI densities; no game inputs are require
 See the [dependency and font notices](../../THIRD_PARTY.md#bundled-fonts).
 
 `RuntimeSettings::default` supplies shared Auto/windowed defaults. Engines pass
-`VideoCapabilities` to restrict available choices when required; both current
+`VideoCapabilities` to restrict available choices when required; current
 engines permit all initial settings. These restrictions belong at the engine
 boundary rather than in the SDL painter. Unsupported changes display an error
 and keep the panel usable. The menu does not expose development-only controls.

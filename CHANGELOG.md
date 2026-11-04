@@ -5,6 +5,11 @@ Unreleased contains changes intended for the next public release.
 
 ## Unreleased
 
+### General
+
+- Keep dialogs, text and images visible after changing the graphical renderer,
+  including when a failed change restores the previous renderer.
+
 ## 2026.2.0 (2026-11-04)
 
 ### New games

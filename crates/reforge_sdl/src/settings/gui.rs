@@ -4,8 +4,9 @@
 
 use super::*;
 
-/// A host surface on one fixed renderer. It shares the settings menu's painter,
-/// texture ownership, DPI conversion and navigation without opening preferences.
+/// A host surface that survives renderer replacement. It shares the settings
+/// menu's painter, texture ownership, DPI conversion and navigation without
+/// opening preferences.
 pub struct Gui<'a> {
     surface: SettingsMenu<'a>,
     focus_overlay: bool,
@@ -107,6 +108,7 @@ impl<'a> Gui<'a> {
     }
     pub fn prepare(&mut self, metrics: UiMetrics, mut draw: impl FnMut(&egui::Context)) {
         let s = &mut self.surface;
+        s.recover_renderer();
         s.density = metrics.density();
         let mut input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -156,6 +158,162 @@ impl<'a> Gui<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renderer_recovery_retains_text_and_artwork() {
+        const NAME: &str = "settings::gui::tests::renderer_recovery_retains_text_and_artwork";
+        if std::env::var("REFORGE_GUI_RECOVERY_TEST").as_deref() != Ok(NAME) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env("REFORGE_GUI_RECOVERY_TEST", NAME)
+                .env("SDL_VIDEODRIVER", "dummy")
+                .env("SDL_AUDIODRIVER", "dummy")
+                .env("SDL_RENDER_DRIVER", "software")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        use crate::{FrameFormat, FrameTexture, Window};
+        use reforge_settings::{Backend, Renderer};
+        let _guard = reforge_settings::Launch {
+            game_id: "standalone".into(),
+            entry_id: None,
+            path: None,
+            cli: reforge_settings::Patch::from([
+                ("renderer".into(), "software".into()),
+                ("vsync".into(), "false".into()),
+            ]),
+        }
+        .install();
+        // Include a surface that has never been prepared or painted before
+        // replacement, as well as one with an atlas, artwork and queued updates.
+        for painted in [false, true] {
+            let mut display = Window::new("GUI recovery", 320, 240, Some(3)).unwrap();
+            display.start_text_input();
+            let creator = display.texture_creator();
+            let mut frame = FrameTexture::new(&creator, 320, 240, FrameFormat::Rgb).unwrap();
+            frame.update(&vec![0; 320 * 240 * 3]).unwrap();
+            let mut gui = Gui::new(&creator);
+            let mut artwork = gui.surface.context.load_texture(
+                "retained artwork",
+                egui::ColorImage::new([8, 8], Color32::GREEN),
+                egui::TextureOptions::NEAREST,
+            );
+            let mut filename = String::from("BOOKMARK.SAV");
+            let field = egui::Id::new("retained filename");
+            let artwork_id = artwork.id();
+            let draw = |ctx: &egui::Context, filename: &mut String| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE.fill(Color32::from_rgb(100, 0, 0)))
+                    .show(ctx, |ui| {
+                        ui.label(egui::RichText::new("Save bookmark").color(Color32::WHITE));
+                        Gui::text_edit(ui.add(egui::TextEdit::singleline(filename).id(field)));
+                        ui.image((artwork_id, egui::vec2(64.0, 64.0)));
+                    });
+            };
+            if painted {
+                for _ in 0..3 {
+                    gui.prepare(display.ui_metrics(), |ctx| draw(ctx, &mut filename));
+                    display
+                        .present_with(&frame, |canvas| gui.paint(canvas))
+                        .unwrap();
+                }
+                gui.surface
+                    .context
+                    .memory_mut(|memory| memory.request_focus(field));
+            }
+            artwork.set_partial(
+                [2, 2],
+                egui::ColorImage::new([2, 2], Color32::BLUE),
+                egui::TextureOptions::NEAREST,
+            );
+            if painted {
+                // An update prepared but not uploaded must survive too.
+                gui.prepare(display.ui_metrics(), |ctx| draw(ctx, &mut filename));
+            }
+            for renderer in [Renderer::Sdl, Renderer::Auto, Renderer::Gpu] {
+                let before = display.settings();
+                let generation = creator.generation();
+                let request = RuntimeSettings {
+                    renderer,
+                    backend: if renderer == Renderer::Gpu {
+                        Backend::OpenGl
+                    } else {
+                        Backend::Auto
+                    },
+                    ..before.clone()
+                };
+                let result = display.apply_settings(request);
+                if renderer == Renderer::Gpu {
+                    assert!(
+                        result.is_err(),
+                        "dummy driver must reject GPU and roll back"
+                    );
+                    assert_eq!(display.settings(), before);
+                } else {
+                    result.unwrap();
+                }
+                assert!(creator.generation() > generation);
+                assert!(
+                    display
+                        ._video
+                        .text_input()
+                        .is_active(display.canvas.window())
+                );
+                gui.prepare(display.ui_metrics(), |ctx| draw(ctx, &mut filename));
+                display
+                    .present_with(&frame, |canvas| {
+                        gui.paint(canvas)?;
+                        let image = canvas
+                            .read_pixels(None)
+                            .map_err(|e| e.to_string())?
+                            .convert_format(PixelFormat::RGB24)
+                            .map_err(|e| e.to_string())?;
+                        image.with_lock(|bytes| {
+                            for color in [[100, 0, 0], [0, 255, 0], [0, 0, 255]] {
+                                assert!(
+                                    bytes
+                                        .chunks_exact(3)
+                                        .filter(|pixel| *pixel == color)
+                                        .count()
+                                        > 20,
+                                    "missing panel/artwork/text color {color:?} after {renderer:?}"
+                                );
+                            }
+                            assert!(
+                                bytes
+                                    .chunks_exact(3)
+                                    .filter(|pixel| pixel.iter().all(|value| *value > 160))
+                                    .count()
+                                    > 20,
+                                "missing text after {renderer:?}"
+                            );
+                        });
+                        Ok(())
+                    })
+                    .unwrap();
+                assert!(
+                    gui.surface
+                        .textures
+                        .values()
+                        .all(|texture| texture.belongs_to(&creator))
+                );
+                assert_eq!(filename, "BOOKMARK.SAV");
+                if painted {
+                    assert_eq!(
+                        gui.surface.context.memory(|memory| memory.focused()),
+                        Some(field)
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     #[ignore = "owns SDL video; run serially with dummy/software"]

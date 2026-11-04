@@ -5,6 +5,7 @@
 //! Game input and clocks remain the responsibility of each engine adapter.
 
 mod gui;
+mod textures;
 pub use gui::Gui;
 
 use std::{collections::HashMap, time::Instant};
@@ -93,6 +94,7 @@ pub struct SettingsMenu<'a> {
     events: Vec<MenuEvent>,
     pub(super) navigation: crate::settings_navigation::Navigation,
     pub(super) textures: HashMap<TextureId, crate::resources::TextureLease>,
+    texture_images: textures::Images,
     pub(super) generation: usize,
     pub(super) draft: Option<Draft>,
     pub(super) pending: Option<Draft>,
@@ -246,6 +248,7 @@ impl<'a> SettingsMenu<'a> {
             events: Vec::new(),
             navigation: Default::default(),
             textures: HashMap::new(),
+            texture_images: textures::Images::default(),
             generation: creator.generation(),
             draft: None,
             pending: None,
@@ -519,19 +522,7 @@ impl<'a> SettingsMenu<'a> {
             self.events.clear();
             return None;
         }
-        if self.generation != self.creator.generation() {
-            self.textures.clear();
-            self.pending_textures = egui::TexturesDelta::default();
-            // Rebuild font textures for the new renderer without discarding
-            // measured window sizes, scroll offsets or expanded sections.
-            // A fresh layout would otherwise visibly settle over several frames.
-            let memory = self.context.memory(Clone::clone);
-            self.context = egui::Context::default();
-            self.context.memory_mut(|new| *new = memory);
-            crate::settings_ui::style(&self.context);
-            self.theme.apply_palette(&self.context);
-            self.generation = self.creator.generation();
-        }
+        self.recover_renderer();
         if self.draft.is_none() {
             self.audio_devices_loaded = false;
             let saved = self.creator.session.borrow().saved.clone();
@@ -671,6 +662,18 @@ impl<'a> SettingsMenu<'a> {
         result.and(restore)
     }
 
+    fn recover_renderer(&mut self) {
+        if self.generation != self.creator.generation() {
+            self.textures.clear();
+            let mut reload = self.texture_images.reload();
+            reload.append(std::mem::take(&mut self.pending_textures));
+            self.pending_textures = reload;
+            // Keep the context: focus, layout and caller-owned TextureHandles
+            // remain valid. Reupload both the atlas and managed artwork.
+            self.generation = self.creator.generation();
+        }
+    }
+
     fn paint_inner(&mut self, canvas: &mut WindowCanvas) -> Result<(), String> {
         // The tested SDL software triangle path accepts premultiplied blending
         // but replaces destination pixels instead of blending them. Its standard
@@ -679,6 +682,7 @@ impl<'a> SettingsMenu<'a> {
         // Retain deltas until successful upload; a temporary rendering failure
         // must not permanently lose egui's font atlas updates.
         for (id, delta) in &self.pending_textures.set {
+            self.texture_images.update(*id, delta)?;
             let size = delta.image.size();
             let pixels: Vec<u8> = match &delta.image {
                 egui::ImageData::Color(image) => image
@@ -790,6 +794,7 @@ impl<'a> SettingsMenu<'a> {
         }
         for id in self.pending_textures.free.drain(..) {
             self.textures.remove(&id);
+            self.texture_images.remove(&id);
         }
         Ok(())
     }

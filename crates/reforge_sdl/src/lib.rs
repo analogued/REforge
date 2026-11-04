@@ -648,6 +648,7 @@ impl Window {
         }
         let before = self.settings();
         self.creator.audio.apply(requested.audio.clone())?;
+        let text_input = self._video.text_input().is_active(self.canvas.window());
         // Renderer replacement swaps the Window. Keep the menu's temporary
         // geometry outside that swap, including when a request is rolled back.
         let mut settings_window = std::mem::take(&mut self.settings_window);
@@ -669,6 +670,11 @@ impl Window {
         }
         settings_window.invalidate();
         self.settings_window = settings_window;
+        // Replacing the SDL window (including rollback) loses its text-input
+        // activation. Preserve an engine/menu's existing composed-input mode.
+        if text_input && !self._video.text_input().is_active(self.canvas.window()) {
+            self.start_text_input();
+        }
         result
     }
     fn apply_settings_inner(&mut self, requested: settings::RuntimeSettings) -> Result<(), String> {

@@ -139,7 +139,12 @@ pub fn run_with_title(
     let map = selected("SIDE.TXT");
     #[cfg(feature = "dev-tools")]
     let map = options.side_map.unwrap_or(map);
-    let mut loaded = crate::player::load(&data, &interpreter, &map)?;
+    let mut loaded = crate::player::load_with_title(
+        &data,
+        &interpreter,
+        &map,
+        files.get("TITLE.EXE").map(PathBuf::as_path),
+    )?;
     if let Some(path) = options.save_dir {
         loaded.files.save_directory = std::path::absolute(path).map_err(|e| e.to_string())?;
     }

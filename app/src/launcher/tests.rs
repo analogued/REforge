@@ -13,6 +13,71 @@ use std::{
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(unix)]
+#[test]
+fn library_file_symlinks_keep_the_directory_used_for_companion_discovery() {
+    let fixture = Fixture::new(0);
+    let outside = fixture.directory.join("elsewhere");
+    std::fs::create_dir(&outside).unwrap();
+    let target = outside.join("program");
+    std::fs::write(&target, b"authored external target").unwrap();
+    let link = fixture.directory.join("start");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let release = &detection::RELEASES[0];
+    let detected = detection::Detected {
+        game: release.game(),
+        release,
+        original: link.clone(),
+        files: Default::default(),
+    };
+    let selected = library_original(&link, &detected).unwrap();
+    assert_eq!(
+        selected,
+        fixture.directory.canonicalize().unwrap().join("start")
+    );
+    assert_ne!(selected, target.canonicalize().unwrap());
+}
+
+#[test]
+fn library_round_trip_retains_an_explicit_file_and_binds_its_directory_profile() {
+    let fixture = Fixture::new(0);
+    let selected = fixture.directory.join("start.bin");
+    std::fs::write(&selected, b"authored location fixture").unwrap();
+    let release = detection::RELEASES
+        .iter()
+        .find(|release| release.game() == detection::Game::Mach3)
+        .unwrap();
+    let detected = detection::Detected {
+        game: release.game(),
+        release,
+        original: fixture.directory.clone(),
+        files: Default::default(),
+    };
+    let original = library_original(&selected, &detected).unwrap();
+    let mut library =
+        Library::new(fixture.library.clone()).with_storage(fixture.config.clone(), None);
+    let id = library
+        .add("mach-3", release.id, "Mach 3", &original)
+        .unwrap();
+    library.reload().unwrap();
+    assert_eq!(
+        library.entries[0].original,
+        selected.canonicalize().unwrap()
+    );
+    assert_eq!(
+        library.entries[0].directory,
+        fixture.directory.canonicalize().unwrap()
+    );
+    let mut launch = Launch {
+        game_id: "mach-3".into(),
+        entry_id: None,
+        path: Some(fixture.config.clone()),
+        cli: Default::default(),
+    };
+    crate::profile::bind(&mut launch, &detected, &mut Vec::new()).unwrap();
+    assert_eq!(launch.entry_id.as_deref(), Some(id.as_str()));
+}
+
 #[test]
 fn invalid_shared_fields_preserve_launcher_choices_and_cli_agreement() {
     for (game_id, key, choice) in [

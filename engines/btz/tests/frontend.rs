@@ -495,30 +495,38 @@ mod terminal_input {
     #[test]
     fn mounted_media_resolves_original_filenames_without_case_sensitivity() {
         // A same-medium drive change requests a folder, then loads its primary
-        // text stores. Both required files intentionally differ from DOS casing.
-        let fixture = input_fixture(&[0x002c, 1, 0x0064, 14, 0x0064, 4]);
-        let mapping = "0\na\n".to_owned() + &"0\nb\n".repeat(9) + "0\n";
-        let side_map = fixture.0.join("side.txt");
-        fs::write(&side_map, &mapping).unwrap();
-        let media = fixture.0.join("Additional Media");
-        fs::create_dir(&media).unwrap();
-        fs::copy(fixture.0.join("story.obj"), media.join("aDiSk.ObJ")).unwrap();
-        fs::write(media.join("sIdE.tXt"), mapping).unwrap();
-        let mut process = PtyProcess::spawn_with(&fixture, &[], |command| {
-            command.arg("--side-map").arg(&side_map);
-        });
-        assert!(
-            process.read_until(Instant::now() + Duration::from_secs(3), |bytes| {
-                contains(bytes, b"Folder containing program disk 1 (blank cancels): ")
-            }),
-            "{}",
-            process.text()
-        );
-        process
-            .master
-            .write_all(media.to_str().unwrap().as_bytes())
-            .unwrap();
-        process.master.write_all(b"\n").unwrap();
-        process.expect_successful_exit();
+        // text stores. The initial folder retains explicit renamed files;
+        // additional folders resolve the ordinary names without regard to case.
+        for initial_medium in [false, true] {
+            let fixture = input_fixture(&[0x002c, 1, 0x0064, 14, 0x0064, 4]);
+            let mapping = "0\na\n".to_owned() + &"0\nb\n".repeat(9) + "0\n";
+            let side_map = fixture.0.join("renamed-mapping");
+            fs::write(&side_map, &mapping).unwrap();
+            let media = if initial_medium {
+                fixture.0.clone()
+            } else {
+                let media = fixture.0.join("Additional Media");
+                fs::create_dir(&media).unwrap();
+                fs::copy(fixture.0.join("story.obj"), media.join("aDiSk.ObJ")).unwrap();
+                fs::write(media.join("sIdE.tXt"), mapping).unwrap();
+                media
+            };
+            let mut process = PtyProcess::spawn_with(&fixture, &[], |command| {
+                command.arg("--side-map").arg(&side_map);
+            });
+            assert!(
+                process.read_until(Instant::now() + Duration::from_secs(3), |bytes| {
+                    contains(bytes, b"Folder containing program disk 1 (blank cancels): ")
+                }),
+                "{}",
+                process.text()
+            );
+            process
+                .master
+                .write_all(media.to_str().unwrap().as_bytes())
+                .unwrap();
+            process.master.write_all(b"\n").unwrap();
+            process.expect_successful_exit();
+        }
     }
 }

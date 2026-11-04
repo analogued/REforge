@@ -13,7 +13,23 @@ pub(super) fn release_id(release: &Release) -> Result<String, String> {
     let platform = match release.edition.platform {
         Platform::Dos => "dos",
     };
-    let fingerprint = manifest_fingerprint(release.edition.platform, release.files)?;
+    let identity_files = if release.identity_files.is_empty() {
+        release.files.to_vec()
+    } else {
+        release
+            .identity_files
+            .iter()
+            .map(|name| {
+                release
+                    .files
+                    .iter()
+                    .find(|file| file.name.eq_ignore_ascii_case(name))
+                    .copied()
+                    .ok_or_else(|| format!("Unknown identity filename {name}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let fingerprint = manifest_fingerprint(release.edition.platform, &identity_files)?;
     Ok(format!(
         "{}-{platform}-{}",
         release.game().id(),
@@ -29,8 +45,8 @@ fn manifest_fingerprint(platform: Platform, files: &[FileRecord]) -> Result<Stri
         .iter()
         .map(|file| {
             let name = match platform {
-                // Match DOS detection, including exact non-ASCII bytes. Future
-                // platforms must select their own filename case semantics.
+                // Normalize canonical DOS catalog names, not physical aliases
+                // selected by detection. Future platforms choose their own rules.
                 Platform::Dos => file.name.to_ascii_lowercase(),
             };
             (name, file)
@@ -67,6 +83,40 @@ fn manifest_fingerprint(platform: Platform, files: &[FileRecord]) -> Result<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn published_identity_can_survive_expanded_verification_and_reordering() {
+        static ORIGINAL: &[FileRecord] = &[FileRecord {
+            name: "GAME",
+            size: 3,
+            sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        }];
+        static EXPANDED: &[FileRecord] = &[
+            FileRecord {
+                name: "SOUND",
+                size: 3,
+                sha256: "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282",
+            },
+            ORIGINAL[0],
+        ];
+        let original = Release {
+            files: ORIGINAL,
+            identity_files: &[],
+            ..super::super::RELEASES[0]
+        };
+        let mut expanded = Release {
+            files: EXPANDED,
+            identity_files: &["game"],
+            ..original
+        };
+        assert_eq!(release_id(&original), release_id(&expanded));
+        expanded.identity_files = &[];
+        assert_ne!(release_id(&original), release_id(&expanded));
+        expanded.identity_files = &["missing"];
+        assert!(release_id(&expanded).is_err());
+        expanded.identity_files = &["GAME", "game"];
+        assert!(release_id(&expanded).is_err());
+    }
 
     const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
     const XYZ: &str = "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282";

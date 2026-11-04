@@ -349,6 +349,12 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                 keyboard.event(&event);
             }
         }
+        // Resizing or replacing the renderer can block. Keep that time outside
+        // the story clock, and use the shared menu geometry/restoration policy.
+        if menu.is_open() && !pause.is_paused() {
+            pause.toggle(Instant::now());
+        }
+        window.prepare_settings(&mut menu);
         if was_menu && !menu.is_open() {
             window.start_text_input();
         }
@@ -358,15 +364,6 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
         let paused = manual_pause || menu.is_open() || overlay.open();
         if paused != pause.is_paused() {
             pause.toggle(Instant::now());
-        }
-        if let Some(requested) = menu.prepare(window.ui_metrics(), window.settings()) {
-            match window.apply_settings(requested) {
-                Ok(()) => {
-                    menu.applied();
-                    window.start_text_input();
-                }
-                Err(error) => menu.set_error(error),
-            }
         }
         if overlay.open() {
             let mut action = None;

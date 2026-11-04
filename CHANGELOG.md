@@ -10,6 +10,11 @@ Unreleased contains changes intended for the next public release.
 - Keep dialogs, text and images visible after changing the graphical renderer,
   including when a failed change restores the previous renderer.
 
+### BTZ
+
+- Temporarily enlarge small game windows to fit Settings and restore their size
+  when it closes.
+
 ## 2026.2.0 (2026-11-04)
 
 ### New games

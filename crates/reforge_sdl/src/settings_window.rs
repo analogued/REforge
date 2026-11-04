@@ -25,7 +25,7 @@ pub(super) struct State {
 impl Window {
     /// Prepare and apply the shared menu, temporarily growing undersized normal
     /// windows before layout. Closing restores geometry unless a new display
-    /// preference supersedes it. Both engines use this host-side entry point.
+    /// preference supersedes it. Engines use this host-side entry point.
     pub fn prepare_settings(&mut self, menu: &mut SettingsMenu<'_>) {
         let opening = menu.is_open() && menu.navigation.focus_first;
         let initial = self.ui_metrics();
@@ -274,6 +274,11 @@ mod tests {
                 );
             }
         }
+        assert_eq!(required_pixels(metrics((640, 200), 1.0)), Some((640, 470)));
+        assert_eq!(
+            required_pixels(metrics((640, 200), 2.25)),
+            Some((1418, 1058))
+        );
         assert_eq!(required_pixels(metrics((1280, 960), 2.25)), None);
         assert_eq!(
             required_pixels(metrics((960, 720), 2.25)),
@@ -374,14 +379,32 @@ mod tests {
                 display.prepare_settings(menu);
             }
         }
-        for game in ["alley-cat", "mach-3"] {
+        for game in [
+            "alley-cat",
+            "mach-3",
+            "mindwheel",
+            "essex",
+            "brimstone",
+            "breakers",
+        ] {
+            let btz = reforge_settings::supports_terminal(game);
+            let native = if btz { (640, 200) } else { (320, 240) };
+            let grown_size = (native.0.max(630), native.1.max(470));
+            let adequate_scale = if btz { 3 } else { 2 };
+            let adequate_size = (native.0 * adequate_scale, native.1 * adequate_scale);
             let mut session = Session::for_window(Some(1));
             session.game_id = game.into();
             session.saved.edit(false, "renderer", "software".into());
+            if btz {
+                session.saved.edit(false, "aspect_ratio", "square".into());
+            }
             let requested = session.effective(&session.saved);
             let mut display = Window::build(
                 "menu geometry test",
-                crate::DisplayGeometry::new((320, 200), (320, 240)),
+                crate::DisplayGeometry::new(
+                    (native.0, 200),
+                    (native.0, if btz { 480 } else { 240 }),
+                ),
                 requested,
                 crate::Presentation::Pixels,
                 true,
@@ -401,25 +424,30 @@ mod tests {
             let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
             menu = if game == "alley-cat" {
                 menu.with_alleycat_options()
+            } else if btz {
+                menu.with_btz_options(false)
             } else {
                 menu.with_mach3_options(None)
             };
             menu.toggle();
             display.prepare_settings(&mut menu);
-            assert_eq!(display.ui_metrics().drawable, (630, 470));
+            assert_eq!(display.ui_metrics().drawable, grown_size);
             assert_eq!(display.settings().scale, Some(1));
             let rect = menu
                 .context
                 .memory(|m| m.area_rect(egui::Id::new("reforge_settings")).unwrap());
             assert!(
-                (rect.center().x - 315.0).abs() < 1.0,
+                (rect.center().x - grown_size.0 as f32 / 2.0).abs() < 1.0,
                 "centre on first prepared frame: {rect:?}"
             );
             assert!(
                 (rect.center().y - 235.0).abs() < 1.0,
                 "centre on first prepared frame: {rect:?}"
             );
-            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(630.0, 470.0));
+            let screen = egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(grown_size.0 as f32, grown_size.1 as f32),
+            );
             assert!(screen.contains_rect(menu.cancel_rect.unwrap()));
             let grown = display.canvas.window().size();
             for page in 0..4 {
@@ -475,16 +503,16 @@ mod tests {
             display.prepare_settings(&mut menu);
             display
                 .apply_settings(RuntimeSettings {
-                    scale: Some(2),
+                    scale: Some(adequate_scale),
                     ..display.settings()
                 })
                 .unwrap();
             display.prepare_settings(&mut menu);
-            assert_eq!(display.settings().scale, Some(2));
-            assert_eq!(display.ui_metrics().drawable, (640, 480));
+            assert_eq!(display.settings().scale, Some(adequate_scale));
+            assert_eq!(display.ui_metrics().drawable, adequate_size);
             menu.toggle();
             display.prepare_settings(&mut menu);
-            assert_eq!(display.ui_metrics().drawable, (640, 480));
+            assert_eq!(display.ui_metrics().drawable, adequate_size);
             // A new small preference supersedes a manually sized game window.
             display.canvas.window_mut().set_size(400, 300).unwrap();
             menu.toggle();
@@ -496,21 +524,31 @@ mod tests {
                 })
                 .unwrap();
             display.prepare_settings(&mut menu);
-            assert_eq!(display.ui_metrics().drawable, (630, 470));
+            assert_eq!(display.ui_metrics().drawable, grown_size);
             menu.toggle();
             display.prepare_settings(&mut menu);
-            assert_eq!(display.ui_metrics().drawable, (320, 240));
+            assert_eq!(display.ui_metrics().drawable, native);
             // Adequate manually sized windows are not touched.
-            display.canvas.window_mut().set_size(569, 420).unwrap();
+            let manual_adequate = (native.0.max(569), 420);
+            display
+                .canvas
+                .window_mut()
+                .set_size(manual_adequate.0, manual_adequate.1)
+                .unwrap();
             menu.toggle();
             display.prepare_settings(&mut menu);
-            assert_eq!(display.ui_metrics().drawable, (569, 420));
+            assert_eq!(display.ui_metrics().drawable, manual_adequate);
             menu.toggle();
             display.prepare_settings(&mut menu);
-            assert_eq!(display.ui_metrics().drawable, (569, 420));
+            assert_eq!(display.ui_metrics().drawable, manual_adequate);
             // Fullscreen entered from a temporarily enlarged window must retain
             // the original windowed dimensions for a later return.
-            display.canvas.window_mut().set_size(320, 240).unwrap();
+            let manual_small = (native.0.max(320), 240);
+            display
+                .canvas
+                .window_mut()
+                .set_size(manual_small.0, manual_small.1)
+                .unwrap();
             menu.toggle();
             display.prepare_settings(&mut menu);
             display
@@ -520,7 +558,7 @@ mod tests {
                 })
                 .unwrap();
             display.prepare_settings(&mut menu);
-            assert_eq!(display.windowed_geometry, Some((320, 240)));
+            assert_eq!(display.windowed_geometry, Some(manual_small));
             menu.toggle();
             display.prepare_settings(&mut menu);
             display
@@ -529,16 +567,16 @@ mod tests {
                     ..display.settings()
                 })
                 .unwrap();
-            assert_eq!(display.ui_metrics().drawable, (320, 240));
+            assert_eq!(display.ui_metrics().drawable, manual_small);
             // Repeated opening/closing must neither accumulate growth nor save
             // the temporary size as the selected window scale.
             for _ in 0..12 {
                 menu.toggle();
                 display.prepare_settings(&mut menu);
-                assert_eq!(display.ui_metrics().drawable, (630, 470));
+                assert_eq!(display.ui_metrics().drawable, grown_size);
                 menu.toggle();
                 display.prepare_settings(&mut menu);
-                assert_eq!(display.ui_metrics().drawable, (320, 240));
+                assert_eq!(display.ui_metrics().drawable, manual_small);
                 assert_eq!(display.settings().scale, Some(1));
             }
         }

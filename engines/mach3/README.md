@@ -17,9 +17,10 @@ Reforged scene movement is the interactive default; craft/shadow-only
 interpolation and Original presentation remain selectable without changing native
 execution or recording/replay output. Mountains retain their original artwork
 and updates.
-PC Speaker and Enhanced PCM output use that same execution. Later gameplay paths
-still need broader original-code comparisons; other platform versions and
-additional hardware modes remain outside the supported set.
+PC Speaker and Enhanced PCM output use that same execution. Validation includes
+controlled later encounters and difficulty cases without establishing exhaustive
+gameplay coverage; other platform versions and additional hardware modes remain
+outside the supported set.
 
 ## Technical references
 
@@ -84,10 +85,11 @@ and firing are enabled by default. Startup, ending and original F1/F2/F3
 processing retain their separate input rules.
 
 The windowed frontend uses a 640×200 texture for both colour and the original
-monochrome interpretation, presenting each at 4:3. Shared window sizing,
-fullscreen, renderer/backend selection, CRT treatment and host audio settings
-are documented in [configuration](../../docs/configuration.md) and the [shared
-SDL backend](../../crates/reforge_sdl/README.md). F10 is available during
+monochrome interpretation. Original display presents both at 4:3 by default;
+Square pixels and Fill window (stretch) can change those proportions. Shared
+window sizing, fullscreen, renderer/backend selection, CRT treatment and host
+audio settings are documented in [configuration](../../docs/configuration.md) and
+the [shared SDL backend](../../crates/reforge_sdl/README.md). F10 is available during
 startup, gameplay and diagnostic previews; closing Settings restores the
 preceding host-pause state.
 

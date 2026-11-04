@@ -284,8 +284,9 @@ The `74c0` call after main-loop return is a post-game reset.
 
 The timer helper accumulates the PIT divisor twice per IRQ and increments the
 counter on carry. When hardware and stored divisors agree and interrupts are
-delivered without loss, a timer input frequency of 1,193,182 Hz gives one nominal
-counter unit is `65536 / (2 * 1193182)` seconds, approximately 27.463 ms.
+delivered without loss, one nominal counter unit takes
+`65536 / (2 * 1193182)` seconds at a timer input frequency of 1,193,182 Hz,
+approximately 27.463 ms.
 Four such units take approximately 109.851 ms, the baseline used by the silent
 nominal preview. Normal animated viewing delivers actual modeled IRQs and
 inherits the current divisor/counter/phase rather than assigning each wait a
@@ -334,7 +335,7 @@ startup timer transition make precise DOS elapsed time
 dependent on execution conditions.
 The calculation uses the IBM timer input frequency of 1,193,182 Hz, also used
 by [DOSBox-X's timer implementation](https://dosbox-x.com/doxygen/html/timer_8h_source.html).
-The windowed frontend offers an interval override and manual stepping.
+Manual stepping is available in windowed builds with `dev-tools`.
 
 The headless `mach3::timer` execution layer reconstructs these counters and
 foreground waits against the shared PIT clock. It stops at interrupt entry,
@@ -621,9 +622,24 @@ Targeted session recordings additionally exercise endings, returned intros,
 restarts and initializer inputs. The [replay interface](gameplay-recordings.md)
 describes the supported capture boundaries and explicit unsupported cases.
 
-Static inspection and synthetic tests cover additional algorithm branches,
-including paths not reached by the neutral-input diagnostic. These comparisons
-do not establish exhaustive high-difficulty gameplay, other hardware modes,
+Controlled starts additionally sample all 21 encounter scripts and difficulty
+words 0–9 across the comparison corpus, with all 50 statically reachable command
+values observed. These cases compare indexed images, palette/display mode and
+modeled state and drawing order under declared initialization and recorded input.
+They do not cover every script/difficulty combination or establish uninterrupted
+routes through every script. Changing-input stress cases also exercise damage,
+recovery, firing, slot reuse, speed changes and scene reveals; matching game-over
+prefixes are not counted as completed script routes.
+
+Checks of intentional original-bug corrections use explicitly repaired original
+working copies and are kept separate from the ordinary controlled comparisons.
+These include the falling-handler argument, high-difficulty artwork, command-delay
+overflow and patrol-population corrections. Authored regressions additionally
+exercise difficulty-word boundaries and wrap without claiming an original image
+comparison for every value.
+
+Static inspection and synthetic tests cover further algorithm branches. These
+checks do not establish exhaustive high-difficulty gameplay, other hardware modes,
 physical input latency or instruction-exact original elapsed time. Events tied
 to particular body numbers in this document refer to that diagnostic's state/input
 history, rather than timing promises for every play session. Detailed capture

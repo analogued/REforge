@@ -98,9 +98,10 @@ catches up.
 
 ## Current limits
 
-Support currently covers the verified DOS release. Later gameplay paths still
-need broader comparisons with the original, and other platform versions and
-additional hardware modes are outside the current supported set.
+Support currently covers the verified DOS release. Comparisons include controlled
+later encounters and difficulty cases, but do not exhaust every gameplay path.
+Other platform versions and additional hardware modes are outside the current
+supported set.
 
 For implementation details, diagnostic tools and sound rendering, see the
 [engine documentation](../../engines/mach3/README.md).

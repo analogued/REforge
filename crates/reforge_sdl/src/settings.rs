@@ -1028,6 +1028,145 @@ mod tests {
         assert_eq!(display.settings(), before);
     }
 
+    #[test]
+    #[ignore = "owns SDL video; run serially with dummy/software"]
+    fn btz_cursor_ui_applies_cancels_resets_and_follows_rendering() {
+        use reforge_settings::{BTZ_FILE_CURSOR, FileCursorStyle, Launch, Patch, Session};
+        fn draw(menu: &mut SettingsMenu<'_>, events: Vec<egui::Event>) -> egui::FullOutput {
+            let context = menu.context.clone();
+            let screen = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 1200.0));
+            context.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    time: Some(menu.started.elapsed().as_secs_f64()),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    crate::settings_ui::draw(menu, ctx, screen);
+                },
+            )
+        }
+        fn label(output: &egui::FullOutput, name: &str) -> egui::Rect {
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == name => {
+                        Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing label {name}"))
+        }
+        fn click(menu: &mut SettingsMenu<'_>, name: &str) {
+            draw(menu, vec![]);
+            let point = label(&draw(menu, vec![]), name).center();
+            for pressed in [true, false] {
+                draw(
+                    menu,
+                    vec![
+                        egui::Event::PointerMoved(point),
+                        egui::Event::PointerButton {
+                            pos: point,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        }
+        let path =
+            std::env::temp_dir().join(format!("reforge-btz-cursor-ui-{}.toml", std::process::id()));
+        assert!(!path.exists());
+        let launch = Launch {
+            game_id: "essex".into(),
+            entry_id: Some("essex".into()),
+            path: Some(path.clone()),
+            cli: Patch::from([
+                ("renderer".into(), "software".into()),
+                ("vsync".into(), "false".into()),
+            ]),
+        };
+        let _guard = launch.clone().install();
+        let mut window = crate::Window::new("BTZ cursor settings", 640, 480, Some(1)).unwrap();
+        let creator = window.texture_creator();
+        let mut menu =
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_btz_options(false);
+        menu.toggle();
+        menu.prepare(window.ui_metrics(), window.settings());
+        menu.scope = 1;
+        menu.game_editing[0] = true;
+        let output = draw(&mut menu, vec![]);
+        assert!(label(&output, "Text interface").top() > label(&output, "Rendering").bottom());
+        assert!(
+            label(&output, "File-dialog cursor").top() > label(&output, "Frame limit").bottom()
+        );
+        assert_eq!(
+            window.settings().btz.file_cursor,
+            FileCursorStyle::PulsingUnderline
+        );
+        click(&mut menu, "Pulsing underline");
+        click(&mut menu, "Steady block");
+        assert_eq!(
+            menu.draft.as_ref().unwrap().game_values().btz.file_cursor,
+            FileCursorStyle::SteadyBlock
+        );
+        assert_eq!(
+            window.settings().btz.file_cursor,
+            FileCursorStyle::PulsingUnderline
+        );
+        click(&mut menu, "Apply");
+        let settings = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().unwrap());
+        window.apply_settings(settings).unwrap();
+        menu.applied();
+        assert_eq!(
+            window.settings().btz.file_cursor,
+            FileCursorStyle::SteadyBlock
+        );
+        assert_eq!(
+            Session::load(launch.clone()).saved.game[BTZ_FILE_CURSOR],
+            "steady-block"
+        );
+        click(&mut menu, "Steady block");
+        click(&mut menu, "Pulsing underline");
+        menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false));
+        assert_eq!(
+            window.settings().btz.file_cursor,
+            FileCursorStyle::SteadyBlock
+        );
+        menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, false, false));
+        menu.toggle();
+        menu.prepare(window.ui_metrics(), window.settings());
+        assert_eq!(
+            menu.draft.as_ref().unwrap().game_values().btz.file_cursor,
+            FileCursorStyle::SteadyBlock
+        );
+        click(&mut menu, "Restore defaults");
+        click(&mut menu, "Apply");
+        let settings = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().unwrap());
+        window.apply_settings(settings).unwrap();
+        menu.applied();
+        assert_eq!(
+            window.settings().btz.file_cursor,
+            FileCursorStyle::PulsingUnderline
+        );
+        assert!(
+            !Session::load(launch)
+                .saved
+                .game
+                .contains_key(BTZ_FILE_CURSOR)
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
     fn key(scan: Scancode, modifiers: Mod, down: bool, repeat: bool) -> Event {
         if down {
             Event::KeyDown {

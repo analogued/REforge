@@ -16,6 +16,8 @@ mod audio;
 pub use audio::{AudioSettings, CategoryVolumes, SoundCategory, SoundRenderer};
 mod controller;
 pub use controller::{ControllerButtons, ControllerMovement, FaceButton};
+mod btz;
+pub use btz::{BtzSettings, FileCursorStyle};
 
 pub const DISPLAY_KEYS: &[&str] = &[
     "window_mode",
@@ -56,6 +58,7 @@ pub const CONTROL_KEYS: &[&str] = &[STICK_DEAD_ZONE];
 pub const SECTION_KEYS: [&[&str]; 4] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS, CONTROL_KEYS];
 pub const DIGITIZED_SAMPLES: &str = "digitized_samples";
 pub const MOTION: &str = "motion";
+pub const BTZ_FILE_CURSOR: &str = "file_cursor";
 pub const CONTROL_MODE: &str = "control_mode";
 pub const CONTROLLER_MOVEMENT: &str = "controller_movement";
 pub const CONTROLLER_ACTION: &str = "controller_action";
@@ -78,7 +81,7 @@ fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     let keys: &[&str] = match game {
         "mach-3" => &[DIGITIZED_SAMPLES, MOTION],
         "alley-cat" => ALLEYCAT_CONTROL_KEYS,
-        "mindwheel" | "essex" | "brimstone" | "breakers" => &[GRAPHICAL_RENDERER],
+        "mindwheel" | "essex" | "brimstone" | "breakers" => &[GRAPHICAL_RENDERER, BTZ_FILE_CURSOR],
         _ => &[],
     };
     keys.iter().copied()
@@ -469,6 +472,7 @@ pub struct RuntimeSettings {
     pub audio: AudioSettings,
     pub mach3: Mach3Settings,
     pub alleycat: AlleyCatSettings,
+    pub btz: BtzSettings,
     /// Percentage of each left-stick axis required to activate a direction.
     pub stick_dead_zone: u8,
 }
@@ -489,6 +493,7 @@ impl Default for RuntimeSettings {
             audio: AudioSettings::default(),
             mach3: Mach3Settings::default(),
             alleycat: AlleyCatSettings::default(),
+            btz: BtzSettings::default(),
             stick_dead_zone: 35,
         }
     }
@@ -585,6 +590,7 @@ impl RuntimeSettings {
             CONTROLLER_ACTION => self.alleycat.controller_action.as_str().into(),
             CONTROLLER_BUTTONS => self.alleycat.controller_buttons.as_str().into(),
             MOTION => self.mach3.motion.as_str().into(),
+            BTZ_FILE_CURSOR => self.btz.file_cursor.as_str().into(),
             "window_mode" => if self.fullscreen {
                 "fullscreen"
             } else {
@@ -628,6 +634,7 @@ impl RuntimeSettings {
             CONTROLLER_ACTION => self.alleycat.controller_action = value.parse()?,
             CONTROLLER_BUTTONS => self.alleycat.controller_buttons = value.parse()?,
             MOTION => self.mach3.motion = value.parse()?,
+            BTZ_FILE_CURSOR => self.btz.file_cursor = value.parse()?,
             DIGITIZED_SAMPLES => {
                 self.mach3.digitized_samples = match value {
                     "on" | "true" => true,
@@ -722,6 +729,7 @@ impl Draft {
         }
         values.mach3 = Mach3Settings::default();
         values.alleycat = AlleyCatSettings::default();
+        values.btz = BtzSettings::default();
         values
     }
     pub fn game_values(&self) -> RuntimeSettings {
@@ -781,6 +789,7 @@ impl Draft {
         if game && page == 0 {
             patch.remove(GRAPHICAL_RENDERER);
             patch.remove(MOTION);
+            patch.remove(BTZ_FILE_CURSOR);
         }
     }
     /// Native game options can share a menu page without acquiring global keys.
@@ -789,6 +798,7 @@ impl Draft {
             .iter()
             .any(|key| self.game.contains_key(*key))
             || page == 0 && self.game.contains_key(MOTION)
+            || page == 0 && self.game.contains_key(BTZ_FILE_CURSOR)
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
             || page == 3
                 && ALLEYCAT_CONTROL_KEYS
@@ -797,7 +807,8 @@ impl Draft {
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
         if !game
-            && (matches!(key, DIGITIZED_SAMPLES | MOTION) || ALLEYCAT_CONTROL_KEYS.contains(&key))
+            && (matches!(key, DIGITIZED_SAMPLES | MOTION | BTZ_FILE_CURSOR)
+                || ALLEYCAT_CONTROL_KEYS.contains(&key))
         {
             return;
         }
@@ -929,6 +940,9 @@ impl Session {
         }
         if self.game_id != "alley-cat" {
             values.alleycat = AlleyCatSettings::default();
+        }
+        if !supports_terminal(&self.game_id) {
+            values.btz = BtzSettings::default();
         }
         values
     }
@@ -1379,6 +1393,65 @@ mod tests {
             cli: Patch::new(),
         })
     }
+    #[test]
+    fn btz_cursor_is_game_scoped_persistent_and_retained_in_terminal_play() {
+        assert_eq!(
+            FileCursorStyle::default(),
+            FileCursorStyle::PulsingUnderline
+        );
+        assert!("blink".parse::<FileCursorStyle>().is_err());
+        for game in ["mindwheel", "essex", "brimstone", "breakers"] {
+            let dir = TestDir::new();
+            let path = dir.file();
+            let mut settings = session(path.clone(), game);
+            let mut draft = settings.saved.clone();
+            draft.edit(false, BTZ_FILE_CURSOR, "steady-block".into());
+            assert!(!draft.global.contains_key(BTZ_FILE_CURSOR));
+            draft.edit(true, BTZ_FILE_CURSOR, "steady-block".into());
+            assert!(draft.has_game_overrides(0));
+            assert_eq!(
+                settings.effective(&settings.saved).btz.file_cursor,
+                FileCursorStyle::PulsingUnderline
+            );
+            settings.commit(draft).unwrap();
+            let mut loaded = session(path.clone(), game);
+            assert_eq!(
+                loaded.effective(&loaded.saved).btz.file_cursor,
+                FileCursorStyle::SteadyBlock
+            );
+            let mut draft = loaded.saved.clone();
+            draft.set_terminal(true);
+            loaded.commit(draft).unwrap();
+            let loaded = session(path.clone(), game);
+            assert_eq!(loaded.effective(&loaded.saved).renderer, Renderer::Terminal);
+            assert_eq!(
+                loaded.effective(&loaded.saved).btz.file_cursor,
+                FileCursorStyle::SteadyBlock
+            );
+            for other in ["alley-cat", "mach-3"] {
+                assert_eq!(
+                    session(path.clone(), other)
+                        .effective(&loaded.saved)
+                        .btz
+                        .file_cursor,
+                    FileCursorStyle::PulsingUnderline
+                );
+            }
+            let mut reset = loaded.saved.clone();
+            reset.reset_section(true, 1);
+            assert_eq!(
+                reset.game_values().btz.file_cursor,
+                FileCursorStyle::SteadyBlock
+            );
+            reset.reset_section(true, 0);
+            assert!(!reset.game.contains_key(BTZ_FILE_CURSOR));
+            assert_eq!(
+                reset.game_values().btz.file_cursor,
+                FileCursorStyle::PulsingUnderline
+            );
+        }
+    }
+
     #[test]
     fn terminal_renderer_is_game_scoped_and_round_trips_without_changing_graphics_preferences() {
         assert_eq!("terminal".parse::<Renderer>().unwrap(), Renderer::Terminal);

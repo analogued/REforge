@@ -10,10 +10,10 @@ use crate::settings_navigation::{
 use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
-    AspectRatio, Backend, CONTROL_MODE, CONTROLLER_ACTION, CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT,
-    ControlMode, DIGITIZED_SAMPLES, FrameLimit, MOTION, MotionMode, Presentation, Renderer,
-    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy,
-    SoundCategory, SoundRenderer,
+    AspectRatio, BTZ_FILE_CURSOR, Backend, CONTROL_MODE, CONTROLLER_ACTION, CONTROLLER_BUTTONS,
+    CONTROLLER_MOVEMENT, ControlMode, DIGITIZED_SAMPLES, FileCursorStyle, FrameLimit, MOTION,
+    MotionMode, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
+    STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
 };
 mod controller;
 const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
@@ -71,6 +71,7 @@ impl RowContext<'_> {
             if matches!(
                 key,
                 DIGITIZED_SAMPLES
+                    | BTZ_FILE_CURSOR
                     | CONTROL_MODE
                     | MOTION
                     | CONTROLLER_MOVEMENT
@@ -342,6 +343,18 @@ pub(super) fn draw(
                         });
                     if menu.page == 0
                         && menu.scope == 1
+                        && menu.btz_terminal.is_some()
+                        && original.btz != value.btz
+                        && !cli.contains_key(BTZ_FILE_CURSOR)
+                    {
+                        draft.edit_game(
+                            BTZ_FILE_CURSOR,
+                            value.get(BTZ_FILE_CURSOR),
+                            (!menu.game_reset[menu.page]).then_some(&saved),
+                        );
+                    }
+                    if menu.page == 0
+                        && menu.scope == 1
                         && menu.mach3_options
                         && original.mach3.motion != value.mach3.motion
                         && !cli.contains_key(MOTION)
@@ -410,7 +423,9 @@ pub(super) fn draw(
                 crate::settings_navigation::row_controls(ui, bounds, |ui| {
                     let reset_label = if menu.scope == 0 {
                         "Reset section"
-                    } else if menu.page == 3 || ([0, 2].contains(&menu.page) && menu.mach3_options)
+                    } else if menu.page == 3
+                        || ([0, 2].contains(&menu.page) && menu.mach3_options)
+                        || (menu.page == 0 && menu.btz_terminal.is_some())
                     {
                         "Restore defaults"
                     } else {
@@ -685,6 +700,28 @@ fn display_controls(
     });
     if value.renderer == Renderer::Terminal {
         ui.weak("Terminal play uses the attached terminal. Window and CRT settings do not apply.");
+    }
+    if terminal.is_some() {
+        section(ui, "Text interface");
+        ui.add_enabled_ui(value.renderer != Renderer::Terminal, |ui| {
+            row(
+                ui,
+                "File-dialog cursor",
+                BTZ_FILE_CURSOR,
+                rows.state(BTZ_FILE_CURSOR, value),
+                |ui| {
+                    Selector::new(
+                        BTZ_FILE_CURSOR,
+                        [
+                            Choice::new(FileCursorStyle::PulsingUnderline, "Pulsing underline"),
+                            Choice::new(FileCursorStyle::SteadyBlock, "Steady block"),
+                        ],
+                    )
+                    .show(ui, &mut value.btz.file_cursor);
+                },
+            );
+            ui.weak("Bookmark and transcript dialogs · the underline stays visible and alternates between two heights.");
+        });
     }
 }
 

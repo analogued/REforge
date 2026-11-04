@@ -80,11 +80,12 @@ Controls edit a draft. Apply activates and saves pending edits across both
 Global defaults and the current game's overrides, leaving the menu open.
 Cancel, Escape and F10 discard unapplied edits. **Reset section** clears only the
 selected global section when editing Global defaults. When editing a game, the
-button is **Restore defaults** on Controls and Mach 3's Display/Audio pages, or
-**Restore global defaults** on the other pages. It clears only that game's
-overrides for the selected section: shared fields inherit global preferences,
-and game-only fields return to their built-in defaults. Display, CRT & Colour,
-Audio and Controls reset independently. Resets remain drafts until Apply.
+button is **Restore defaults** on Controls, BTZ's Display page and Mach 3's
+Display/Audio pages, or **Restore global defaults** on the other pages. It clears
+only that game's overrides for the selected section: shared fields inherit global
+preferences, and game-only fields return to their built-in defaults. Display,
+CRT & Colour, Audio and Controls reset independently. Resets remain drafts until
+Apply.
 
 Game fields with an override in the draft use the theme accent text, including
 explicit values matching global defaults. An amber dot marks a change compared with

@@ -36,7 +36,16 @@ fn paint_file_cursor(pixels: &mut [u8], cursor: Option<crate::player::file_dialo
         for y in 8 - cursor.height..8 {
             for x in 0..8 {
                 let offset = ((cursor.row * 8 + y) * display::WIDTH + cursor.column * 8 + x) * 3;
-                pixels[offset..offset + 3].copy_from_slice(&display::TEXT_PALETTE[1]);
+                // A full block reverses the character cell, as in the chooser
+                // mockup. The original-style underlines remain solid strokes.
+                let colour = if cursor.height == 8
+                    && pixels[offset..offset + 3] == display::TEXT_PALETTE[1]
+                {
+                    display::TEXT_PALETTE[0]
+                } else {
+                    display::TEXT_PALETTE[1]
+                };
+                pixels[offset..offset + 3].copy_from_slice(&colour);
             }
         }
     }
@@ -578,6 +587,46 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn steady_file_cursor_reverses_the_glyph_without_hiding_it() {
+        let mut cells = [b' ', 7].repeat(80 * 25);
+        let (row, column) = (18, 3);
+        cells[(row * 80 + column) * 2] = b'A';
+        let original = display::render(&cells, true).unwrap();
+        let mut pixels = original.clone();
+        paint_file_cursor(
+            &mut pixels,
+            Some(crate::player::file_dialog::Cursor {
+                row,
+                column,
+                height: 8,
+            }),
+        );
+        let mut glyph_pixels = 0;
+        let mut background_pixels = 0;
+        for (index, (before, after)) in original
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(pixels.as_chunks::<3>().0)
+            .enumerate()
+        {
+            let (x, y) = (index % display::WIDTH, index / display::WIDTH);
+            if (column * 8..column * 8 + 8).contains(&x) && (row * 8..row * 8 + 8).contains(&y) {
+                if *before == display::TEXT_PALETTE[1] {
+                    glyph_pixels += 1;
+                    assert_eq!(*after, display::TEXT_PALETTE[0]);
+                } else {
+                    background_pixels += 1;
+                    assert_eq!(*after, display::TEXT_PALETTE[1]);
+                }
+            } else {
+                assert_eq!(before, after);
+            }
+        }
+        assert!(glyph_pixels > 0 && background_pixels > 0);
+    }
 
     fn press(key: Keycode, modifiers: Mod) -> Event {
         Event::KeyDown {

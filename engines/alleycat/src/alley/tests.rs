@@ -1192,7 +1192,9 @@ fn lower_support_takeoff_preserves_attachment_then_release_sound() {
                         .filter(|w| w.port == 0x42)
                         .map(|w| w.value)
                         .collect::<Vec<_>>()
-                        .chunks_exact(2)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
                         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
                         .collect();
                     let expected = if !enabled {

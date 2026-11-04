@@ -98,7 +98,9 @@ pub fn preview(
     };
     let geometry = reforge_sdl::DisplayGeometry::new((width, 200), (320, 240));
     let rgba = rgb
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .flat_map(|c| [c[0], c[1], c[2], 255])
         .collect();
     if variant == "mono" {

@@ -253,13 +253,13 @@ mod tests {
                     origin: ByteOrigin::Asset,
                 });
             }
-            if usize::from(offset) == self.bytes.len() {
-                if let Some(value) = self.external {
-                    return Ok(MemoryByte {
-                        value,
-                        origin: ByteOrigin::ExternalMemory,
-                    });
-                }
+            if usize::from(offset) == self.bytes.len()
+                && let Some(value) = self.external
+            {
+                return Ok(MemoryByte {
+                    value,
+                    origin: ByteOrigin::ExternalMemory,
+                });
             }
             Err(invalid("unknown byte"))
         }

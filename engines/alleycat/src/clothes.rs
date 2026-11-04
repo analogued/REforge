@@ -166,7 +166,7 @@ pub(crate) fn advance(
     let dimensions = Dimensions(0x1028);
     let mut band = screen.read_rect(start, dimensions)?;
     let phase = usize::from(data[0x525]);
-    for (line, bytes) in band.chunks_exact_mut(80).enumerate() {
+    for (line, bytes) in band.as_chunks_mut::<80>().0.iter_mut().enumerate() {
         let edge = data[0x4d7 + phase + line * 4];
         if row == 1 {
             bytes.copy_within(1..80, 0);

@@ -111,14 +111,14 @@ impl RenderingPolicy {
                 source: Some(source),
                 ..
             } => {
-                if let Interval::Sample { playback, visit } = &mut self.interval {
-                    if source.playback == *playback && *visit != Some(source.visit) {
-                        *visit = Some(source.visit);
-                        // (value - 128) * 32 + 4096, without signed underflow.
-                        self.sample_level = i16::from(source.value) * 32;
-                        return (self.mode == AudioRenderer::EnhancedPcm)
-                            .then_some(self.sample_level);
-                    }
+                if let Interval::Sample { playback, visit } = &mut self.interval
+                    && source.playback == *playback
+                    && *visit != Some(source.visit)
+                {
+                    *visit = Some(source.visit);
+                    // (value - 128) * 32 + 4096, without signed underflow.
+                    self.sample_level = i16::from(source.value) * 32;
+                    return (self.mode == AudioRenderer::EnhancedPcm).then_some(self.sample_level);
                 }
                 None
             }

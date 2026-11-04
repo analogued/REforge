@@ -1844,15 +1844,17 @@ impl Alley {
         self.player.apply_actor_state(&self.data)?;
         // The hole animation owns the image until its final background-save.
         // The next accepted player call supplies the visible cat again.
-        if !step.started && !step.active && !step.finished {
-            if let Some((dimensions, source)) = image {
-                self.compositor.draw(
-                    &mut self.screen,
-                    pixel_offset(self.player.x, self.player.y),
-                    dimensions,
-                    &source,
-                )?;
-            }
+        if !step.started
+            && !step.active
+            && !step.finished
+            && let Some((dimensions, source)) = image
+        {
+            self.compositor.draw(
+                &mut self.screen,
+                pixel_offset(self.player.x, self.player.y),
+                dimensions,
+                &source,
+            )?;
         }
         self.compose_actors()?;
         Ok(step)

@@ -1812,14 +1812,13 @@ impl Runtime {
         airborne: bool,
         descending: bool,
     ) -> u64 {
-        if entering {
-            if let Some(nanos) = self
+        if entering
+            && let Some(nanos) = self
                 .costs
                 .entry
                 .and_then(|costs| costs.nanos(draw, waiting))
-            {
-                return nanos;
-            }
+        {
+            return nanos;
         }
         match draw {
             Draw::Keep => self.costs.player_keep,
@@ -3046,18 +3045,16 @@ impl Runtime {
                     && outcome.landed
                     && outcome.support == crate::player::Support::RoomTable
                     && alley.player.support_state == 0
+                    && let Draw::Sprite(sprite) = outcome.draw
                 {
-                    if let Draw::Sprite(sprite) = outcome.draw {
-                        let rows = sprite.dimensions >> 8;
-                        if sprite.dimensions & 255 == 3
-                            && ((12..=13).contains(&rows) || (scene == 3 && rows == 10))
-                            && alley.player.is_unclipped_airborne_sprite(sprite)
-                        {
-                            return Some(
-                                costs.landing_base[scene]
-                                    + u64::from(rows - 10) * costs.landing_row,
-                            );
-                        }
+                    let rows = sprite.dimensions >> 8;
+                    if sprite.dimensions & 255 == 3
+                        && ((12..=13).contains(&rows) || (scene == 3 && rows == 10))
+                        && alley.player.is_unclipped_airborne_sprite(sprite)
+                    {
+                        return Some(
+                            costs.landing_base[scene] + u64::from(rows - 10) * costs.landing_row,
+                        );
                     }
                 }
                 if !grounded_room_surface || outcome.landed || alley.player.support_state != 0 {

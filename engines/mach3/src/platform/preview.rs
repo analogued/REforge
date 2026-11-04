@@ -763,16 +763,16 @@ impl GamePlayback {
                     self.body_polled = true;
                     self.session.pause.poll(result.mask);
                     #[cfg(feature = "dev-tools")]
-                    if self.session.pause.state != PauseState::Running {
-                        if let Some(trace) = &mut self.trace {
-                            trace.boundary(
-                                "native_pause_phase",
-                                now,
-                                self.next_frame,
-                                &self.session,
-                                &format!("end_game_committed={}", self.quit_after_body_entry),
-                            );
-                        }
+                    if self.session.pause.state != PauseState::Running
+                        && let Some(trace) = &mut self.trace
+                    {
+                        trace.boundary(
+                            "native_pause_phase",
+                            now,
+                            self.next_frame,
+                            &self.session,
+                            &format!("end_game_committed={}", self.quit_after_body_entry),
+                        );
                     }
                 }
                 if self.session.pause.state == PauseState::Running {
@@ -827,16 +827,16 @@ impl GamePlayback {
                             .append(gameplay.take_transitions(), now, unit);
                         repaint |= self.transitions.active();
                         #[cfg(feature = "dev-tools")]
-                        if self.transitions.active() {
-                            if let Some(trace) = &mut self.trace {
-                                trace.boundary(
-                                    "transition_started",
-                                    now,
-                                    self.transitions.deadline,
-                                    &self.session,
-                                    "",
-                                );
-                            }
+                        if self.transitions.active()
+                            && let Some(trace) = &mut self.trace
+                        {
+                            trace.boundary(
+                                "transition_started",
+                                now,
+                                self.transitions.deadline,
+                                &self.session,
+                                "",
+                            );
                         }
                         if self.transitions.active() {
                             break;
@@ -869,22 +869,22 @@ impl GamePlayback {
                 self.next_frame.map(|deadline| deadline + period)
             };
             #[cfg(feature = "dev-tools")]
-            if let Some(trace) = &mut self.trace {
-                if self.ending.is_some() || !timed || self.next_frame.is_none() {
-                    trace.rebase(
-                        if self.ending.is_some() {
-                            "ending_wait"
-                        } else if self.next_frame.is_none() {
-                            "preview_finished"
-                        } else {
-                            "step_wait"
-                        },
-                        now,
-                        previous_deadline,
-                        self.next_frame,
-                        &self.session,
-                    );
-                }
+            if let Some(trace) = &mut self.trace
+                && (self.ending.is_some() || !timed || self.next_frame.is_none())
+            {
+                trace.rebase(
+                    if self.ending.is_some() {
+                        "ending_wait"
+                    } else if self.next_frame.is_none() {
+                        "preview_finished"
+                    } else {
+                        "step_wait"
+                    },
+                    now,
+                    previous_deadline,
+                    self.next_frame,
+                    &self.session,
+                );
             }
             if self.ending.is_some()
                 || gameplay.complete()
@@ -1075,11 +1075,11 @@ pub(super) fn run(
                 }
                 continue;
             }
-            if let Some(pad) = pad {
-                if game.history.accepts(time.host) {
-                    game.history
-                        .push_joystick(time.timeline, pad.actions.bits());
-                }
+            if let Some(pad) = pad
+                && game.history.accepts(time.host)
+            {
+                game.history
+                    .push_joystick(time.timeline, pad.actions.bits());
             }
             match &event {
                 Event::KeyDown {
@@ -1123,25 +1123,26 @@ pub(super) fn run(
                         .flatten(),
                 );
             }
-            if action == Action::Space && was_scene {
-                if let Some(state) = game.ending.as_mut().filter(|state| state.can_return()) {
-                    game.history.apply_until(&mut game.session, time.now);
-                    returned_intro = state.returned_intro_choice();
-                    game.session
-                        .remember_ending(&state.snapshot(), state.special_snapshots());
-                    presentation.return_to_intro();
-                    #[cfg(feature = "dev-tools")]
-                    if let Some(trace) = &mut game.trace {
-                        trace.rebase(
-                            "return_to_intro",
-                            host_pause.now(std::time::Instant::now()),
-                            game.next_frame,
-                            None,
-                            &game.session,
-                        );
-                    }
-                    game.next_frame = None;
+            if action == Action::Space
+                && was_scene
+                && let Some(state) = game.ending.as_mut().filter(|state| state.can_return())
+            {
+                game.history.apply_until(&mut game.session, time.now);
+                returned_intro = state.returned_intro_choice();
+                game.session
+                    .remember_ending(&state.snapshot(), state.special_snapshots());
+                presentation.return_to_intro();
+                #[cfg(feature = "dev-tools")]
+                if let Some(trace) = &mut game.trace {
+                    trace.rebase(
+                        "return_to_intro",
+                        host_pause.now(std::time::Instant::now()),
+                        game.next_frame,
+                        None,
+                        &game.session,
+                    );
                 }
+                game.next_frame = None;
             }
         }
         #[cfg(feature = "dev-tools")]

@@ -280,7 +280,7 @@ pub(super) fn run(
     if let Some(path) = options.ppm {
         let mut file = BufWriter::new(File::create_new(path).map_err(|error| error.to_string())?);
         write!(file, "P6\n{WIDTH} {HEIGHT}\n255\n").map_err(|error| error.to_string())?;
-        for rgba in alley.rgba().chunks_exact(4) {
+        for rgba in alley.rgba().as_chunks::<4>().0 {
             file.write_all(&rgba[..3])
                 .map_err(|error| error.to_string())?;
         }
@@ -332,7 +332,7 @@ fn splash_preview(
     if let Some(path) = options.ppm {
         let mut file = BufWriter::new(File::create_new(path).map_err(|error| error.to_string())?);
         write!(file, "P6\n{WIDTH} {HEIGHT}\n255\n").map_err(|error| error.to_string())?;
-        for rgba in splash.rgba().chunks_exact(4) {
+        for rgba in splash.rgba().as_chunks::<4>().0 {
             file.write_all(&rgba[..3])
                 .map_err(|error| error.to_string())?;
         }

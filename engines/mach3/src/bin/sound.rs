@@ -402,22 +402,22 @@ impl<P: Write, E: Write> SampleBus for DiagnosticBus<P, E> {
         if self.failure.is_some() {
             return 0;
         }
-        if let Some(read) = self.reads.front().copied() {
-            if (read.call, read.interrupt, read.port) == (self.call, self.interrupt, port) {
-                if port == 0x61
-                    && self
-                        .device
-                        .as_ref()
-                        .is_some_and(|device| device.speaker.control() & 3 != read.value & 3)
-                {
-                    self.failure = Some(invalid(
-                        "port61 context disagrees with simulated speaker-control bits",
-                    ));
-                    return 0;
-                }
-                self.reads.pop_front();
-                return read.value;
+        if let Some(read) = self.reads.front().copied()
+            && (read.call, read.interrupt, read.port) == (self.call, self.interrupt, port)
+        {
+            if port == 0x61
+                && self
+                    .device
+                    .as_ref()
+                    .is_some_and(|device| device.speaker.control() & 3 != read.value & 3)
+            {
+                self.failure = Some(invalid(
+                    "port61 context disagrees with simulated speaker-control bits",
+                ));
+                return 0;
             }
+            self.reads.pop_front();
+            return read.value;
         }
         self.failure = Some(invalid(format!(
             "missing or mismatched device read at call {}, interrupt {}, port {port:#x}",
@@ -435,27 +435,23 @@ impl<P: Write, E: Write> SampleBus for DiagnosticBus<P, E> {
             .device
             .as_mut()
             .and_then(|device| device.audio.as_mut())
+            && let Err(error) = audio.action(self.ticks, action)
         {
-            if let Err(error) = audio.action(self.ticks, action) {
+            self.failure = Some(error);
+            return;
+        }
+        if let SoundAction::Write { port, value, .. } = action
+            && let Some(device) = &mut self.device
+            && ((0x40..=0x43).contains(&port) || port == 0x61)
+        {
+            let result = device
+                .speaker
+                .write_port(port, value)
+                .map_err(|error| invalid(error.to_string()))
+                .and_then(|events| device.record(events, self.call, self.interrupt, self.order));
+            if let Err(error) = result {
                 self.failure = Some(error);
                 return;
-            }
-        }
-        if let SoundAction::Write { port, value, .. } = action {
-            if let Some(device) = &mut self.device {
-                if (0x40..=0x43).contains(&port) || port == 0x61 {
-                    let result = device
-                        .speaker
-                        .write_port(port, value)
-                        .map_err(|error| invalid(error.to_string()))
-                        .and_then(|events| {
-                            device.record(events, self.call, self.interrupt, self.order)
-                        });
-                    if let Err(error) = result {
-                        self.failure = Some(error);
-                        return;
-                    }
-                }
             }
         }
         let result = match action {

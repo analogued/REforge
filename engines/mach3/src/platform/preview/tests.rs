@@ -1118,7 +1118,7 @@ fn monochrome_uses_each_raw_bit_while_color_preserves_two_bit_pixels() {
     assert_eq!(&mono[(640 + 1) * 3..(640 + 2) * 3], &[255; 3]);
     let color = display_rgb(&frame, DisplayMode::Color, 1);
     let source = frame.rgb();
-    for (index, pixel) in source.chunks_exact(3).enumerate() {
+    for (index, pixel) in source.as_chunks::<3>().0.iter().enumerate() {
         assert_eq!(&color[index * 6..index * 6 + 3], pixel);
         assert_eq!(&color[index * 6 + 3..index * 6 + 6], pixel);
     }

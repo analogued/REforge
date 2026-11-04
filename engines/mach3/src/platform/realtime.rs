@@ -1232,13 +1232,12 @@ pub(super) fn run(
                     repeat: false,
                     ..
                 } = event
+                    && !space_held
                 {
-                    if !space_held {
-                        space_held = true;
-                        navigation_space_release = true;
-                        simulation.finish_splash(frames, &resources)?;
-                        repaint = true;
-                    }
+                    space_held = true;
+                    navigation_space_release = true;
+                    simulation.finish_splash(frames, &resources)?;
+                    repaint = true;
                 }
             } else if navigation_space_release
                 && matches!(

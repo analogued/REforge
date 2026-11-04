@@ -247,19 +247,19 @@ fn audio_rendering_rates_and_chunks_leave_gameplay_and_device_execution_identica
         .unwrap();
         let mut pcm = Vec::new();
         let game = run_observed(731, end, &mut |_, event| {
-            if let ClockEvent::Device(events) = event {
-                if let Some(edge) = events.drive {
-                    renderer
-                        .level_at(
-                            edge.tick,
-                            if edge.high { 8192 } else { 0 },
-                            &mut |samples| {
-                                pcm.extend_from_slice(samples);
-                                Ok(())
-                            },
-                        )
-                        .unwrap();
-                }
+            if let ClockEvent::Device(events) = event
+                && let Some(edge) = events.drive
+            {
+                renderer
+                    .level_at(
+                        edge.tick,
+                        if edge.high { 8192 } else { 0 },
+                        &mut |samples| {
+                            pcm.extend_from_slice(samples);
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
             }
         });
         renderer

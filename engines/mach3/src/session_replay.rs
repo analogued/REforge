@@ -579,17 +579,13 @@ pub fn replay_first_game(
         consumed += 1;
     }
     if diagnostic.is_none() {
-        if let Some(trailing) = inputs.read_next()? {
-            if trailing.game == 0 {
-                if let Some(next) = inputs.read_next()? {
-                    if next.game == 0 {
-                        diagnostic = Some(
-                            "recording contains more than one undisplayed trailing input poll"
-                                .into(),
-                        );
-                    }
-                }
-            }
+        if let Some(trailing) = inputs.read_next()?
+            && trailing.game == 0
+            && let Some(next) = inputs.read_next()?
+            && next.game == 0
+        {
+            diagnostic =
+                Some("recording contains more than one undisplayed trailing input poll".into());
         }
         if writer.seq < boundary.frames {
             diagnostic = Some(format!(
@@ -598,14 +594,13 @@ pub fn replay_first_game(
             ));
         }
     }
-    if diagnostic.is_none() {
-        if let Some(body) = recorded_end {
-            if !gameplay.complete() || gameplay.snapshot().body != body {
-                diagnostic = Some(format!(
-                    "original game ended at body {body}; native game has not ended at that boundary"
-                ));
-            }
-        }
+    if diagnostic.is_none()
+        && let Some(body) = recorded_end
+        && (!gameplay.complete() || gameplay.snapshot().body != body)
+    {
+        diagnostic = Some(format!(
+            "original game ended at body {body}; native game has not ended at that boundary"
+        ));
     }
     writer.flush()?;
     let mut status = new_file(&destination.join("replay.tsv"))?;

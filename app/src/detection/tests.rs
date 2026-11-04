@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use super::*;
+
+mod subdirectories;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
@@ -92,6 +94,7 @@ impl TestDirectory {
 
     fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
         let path = self.0.join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, bytes).unwrap();
         path
     }

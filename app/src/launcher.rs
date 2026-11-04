@@ -81,11 +81,12 @@ impl State {
     fn add(&mut self, path: &Path) -> Result<(), String> {
         let detected = detection::detect(path)?;
         let original = library_original(path, &detected)?;
-        let id = self.library.add(
+        let id = self.library.add_at(
             detected.game.id(),
             detected.release.id,
             detected.release.edition.title(),
             &original,
+            &detected.root,
         )?;
         self.selected = Some(id);
         self.refresh();
@@ -96,7 +97,8 @@ impl State {
         let entry = self.entry(&id)?;
         let detected = detect_entry(&entry, path)?;
         let original = library_original(path, &detected)?;
-        self.library.relocate(&id, detected.release.id, &original)?;
+        self.library
+            .relocate_at(&id, detected.release.id, &original, &detected.root)?;
         self.selected = Some(id);
         self.refresh();
         self.notify("Game location updated".into(), false);
@@ -144,24 +146,22 @@ impl State {
     }
 }
 fn library_original(input: &Path, detected: &Detected) -> Result<PathBuf, String> {
-    // Keep an explicit file as the anchor for subsequent verification and child
-    // launches. Normalizing it to its directory could make a mixed folder ambiguous.
-    if input.is_file() {
-        // Canonicalize the directory, keeping a file symlink in that directory:
-        // its target may live elsewhere while companions sit beside the link.
-        let parent = input
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        let name = input
-            .file_name()
-            .ok_or("Selected original has no filename")?;
-        Ok(std::fs::canonicalize(parent)
-            .map_err(|error| error.to_string())?
-            .join(name))
+    // Keep an explicit file as the anchor for later verification and launches.
+    // Normalize the root only: file and subdirectory symlinks must retain the
+    // logical layout beside the game's other catalog directories.
+    let selected = if input.is_file() {
+        input
     } else {
-        std::fs::canonicalize(&detected.original).map_err(|error| error.to_string())
-    }
+        &detected.original
+    };
+    let root = std::path::absolute(&detected.root).map_err(|error| error.to_string())?;
+    let selected = std::path::absolute(selected).map_err(|error| error.to_string())?;
+    let relative = selected
+        .strip_prefix(&root)
+        .map_err(|_| "Selected original is outside the detected game root")?;
+    Ok(std::fs::canonicalize(&root)
+        .map_err(|error| error.to_string())?
+        .join(relative))
 }
 
 fn detect_entry(entry: &Entry, path: &Path) -> Result<Detected, String> {

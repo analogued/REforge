@@ -63,8 +63,8 @@ fallback.
 Use the directories containing the required files, as described in each engine's
 player guide.
 REforge detects the game from its files; there is no separate game selector.
-Renamed files are accepted when their contents match a supported release; keep
-all required files together in the same directory.
+Renamed files are accepted when their contents match a supported release.
+REforge searches the game root and any subdirectories specified by its catalog.
 
 ## Settings and shared controls
 

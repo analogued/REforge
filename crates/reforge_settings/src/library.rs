@@ -15,6 +15,7 @@ pub struct Entry {
     pub release_id: String,
     pub title: String,
     pub original: PathBuf,
+    /// Verified game root; an explicit original file may be in a subdirectory.
     pub directory: PathBuf,
 }
 
@@ -132,10 +133,22 @@ impl Library {
         title: &str,
         original: &Path,
     ) -> Result<String, String> {
+        self.add_at(game, release, title, original, &directory(original)?)
+    }
+    /// Add an original with a separately verified game root. File anchors may
+    /// live in a catalog subdirectory while preferences belong to the root.
+    pub fn add_at(
+        &mut self,
+        game: &str,
+        release: &str,
+        title: &str,
+        original: &Path,
+        root: &Path,
+    ) -> Result<String, String> {
         self.reload()?;
         let (id, updated) = super::edit_document(&self.path, "library", |doc| {
             let mut latest = self.migrate(doc)?;
-            let location = directory(original)?;
+            let location = directory(root)?;
             if let Some(existing) = latest
                 .iter()
                 .find(|e| normalized_directory(&e.directory) == location)
@@ -179,9 +192,20 @@ impl Library {
     }
     /// Caller verifies the replacement release's compatibility before this edit.
     pub fn relocate(&mut self, id: &str, release: &str, original: &Path) -> Result<(), String> {
+        self.relocate_at(id, release, original, &directory(original)?)
+    }
+    /// Relocate an entry using the replacement's verified root and file anchor.
+    /// Caller verifies release compatibility before this edit.
+    pub fn relocate_at(
+        &mut self,
+        id: &str,
+        release: &str,
+        original: &Path,
+        root: &Path,
+    ) -> Result<(), String> {
         let updated = super::edit_document(&self.path, "library", |doc| {
             let mut latest = entries(doc)?;
-            let location = directory(original)?;
+            let location = directory(root)?;
             if latest
                 .iter()
                 .any(|e| e.entry_id != id && normalized_directory(&e.directory) == location)

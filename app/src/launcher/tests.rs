@@ -28,6 +28,7 @@ fn library_file_symlinks_keep_the_directory_used_for_companion_discovery() {
         game: release.game(),
         release,
         original: link.clone(),
+        root: fixture.directory.clone(),
         files: Default::default(),
     };
     let selected = library_original(&link, &detected).unwrap();
@@ -38,10 +39,38 @@ fn library_file_symlinks_keep_the_directory_used_for_companion_discovery() {
     assert_ne!(selected, target.canonicalize().unwrap());
 }
 
+#[cfg(unix)]
+#[test]
+fn library_subdirectory_symlinks_keep_the_verified_game_root() {
+    let fixture = Fixture::new(0);
+    let target = fixture.directory.join("external");
+    let root = fixture.directory.join("game");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::create_dir(&target).unwrap();
+    std::fs::write(target.join("rooms"), b"authored data").unwrap();
+    std::os::unix::fs::symlink(&target, root.join("DATA")).unwrap();
+    let alias = fixture.directory.join("game-alias");
+    std::os::unix::fs::symlink(&root, &alias).unwrap();
+    let selected = alias.join("DATA/rooms");
+    let release = &detection::RELEASES[0];
+    let detected = detection::Detected {
+        game: release.game(),
+        release,
+        original: selected.clone(),
+        root: alias,
+        files: Default::default(),
+    };
+    assert_eq!(
+        library_original(&selected, &detected).unwrap(),
+        root.join("DATA/rooms")
+    );
+}
+
 #[test]
 fn library_round_trip_retains_an_explicit_file_and_binds_its_directory_profile() {
     let fixture = Fixture::new(0);
-    let selected = fixture.directory.join("start.bin");
+    let selected = fixture.directory.join("DATA/start.bin");
+    std::fs::create_dir(selected.parent().unwrap()).unwrap();
     std::fs::write(&selected, b"authored location fixture").unwrap();
     let release = detection::RELEASES
         .iter()
@@ -51,13 +80,14 @@ fn library_round_trip_retains_an_explicit_file_and_binds_its_directory_profile()
         game: release.game(),
         release,
         original: fixture.directory.clone(),
+        root: fixture.directory.clone(),
         files: Default::default(),
     };
     let original = library_original(&selected, &detected).unwrap();
     let mut library =
         Library::new(fixture.library.clone()).with_storage(fixture.config.clone(), None);
     let id = library
-        .add("mach-3", release.id, "Mach 3", &original)
+        .add_at("mach-3", release.id, "Mach 3", &original, &detected.root)
         .unwrap();
     library.reload().unwrap();
     assert_eq!(
@@ -75,6 +105,25 @@ fn library_round_trip_retains_an_explicit_file_and_binds_its_directory_profile()
         cli: Default::default(),
     };
     crate::profile::bind(&mut launch, &detected, &mut Vec::new()).unwrap();
+    assert_eq!(launch.entry_id.as_deref(), Some(id.as_str()));
+    let replacement = fixture.directory.join("replacement");
+    std::fs::create_dir_all(replacement.join("DATA")).unwrap();
+    let anchor = replacement.join("DATA/moved");
+    std::fs::write(&anchor, b"authored relocated file").unwrap();
+    library
+        .relocate_at(&id, release.id, &anchor, &replacement)
+        .unwrap();
+    library.reload().unwrap();
+    assert_eq!(library.entries[0].original, anchor);
+    assert_eq!(library.entries[0].directory, replacement);
+    assert_eq!(library.entries[0].entry_id, id);
+    let relocated = detection::Detected {
+        original: replacement.clone(),
+        root: replacement,
+        ..detected
+    };
+    launch.entry_id = None;
+    crate::profile::bind(&mut launch, &relocated, &mut Vec::new()).unwrap();
     assert_eq!(launch.entry_id.as_deref(), Some(id.as_str()));
 }
 
@@ -108,6 +157,7 @@ fn invalid_shared_fields_preserve_launcher_choices_and_cli_agreement() {
             game: release.game(),
             release,
             original: entry.original.clone(),
+            root: entry.directory.clone(),
             files: Default::default(),
         };
         let mut launch = Launch {

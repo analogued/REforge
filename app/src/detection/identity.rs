@@ -10,6 +10,7 @@ const DOMAIN: &[u8] = b"reforge-detected-release-v1\0";
 const SUFFIX_LENGTH: usize = 10;
 
 pub(super) fn release_id(release: &Release) -> Result<String, String> {
+    super::search::catalog_directories(release.files)?;
     let platform = match release.edition.platform {
         Platform::Dos => "dos",
     };

@@ -18,7 +18,7 @@ pub fn bind(
         reforge_settings::library::default_saves_path(),
     );
     library.reload()?;
-    let Some(entry) = library.find_directory(&detected.original)? else {
+    let Some(entry) = library.find_directory(&detected.root)? else {
         return Ok(());
     };
     let registered = crate::detection::RELEASES
@@ -150,6 +150,7 @@ mod tests {
                 game: Game::AlleyCat,
                 release: &RELEASES[0],
                 original: temp.0.join(directory),
+                root: temp.0.join(directory),
             };
             bind(&mut launch, &detected, &mut Vec::new()).unwrap();
             assert_eq!(launch.entry_id.as_deref(), expected_id);
@@ -167,6 +168,7 @@ mod tests {
                 game: Game::AlleyCat,
                 release: &RELEASES[0],
                 original: temp.0.join("one"),
+                root: temp.0.join("one"),
             },
             &mut Vec::new(),
         )
@@ -190,6 +192,7 @@ mod tests {
             game: Game::AlleyCat,
             release: &RELEASES[0],
             original: temp.0.join("game"),
+            root: temp.0.join("game"),
         };
         let mut args = Vec::new();
         add_native_options(&config, "alley-cat-a1b2c3", &detected, &mut args).unwrap();

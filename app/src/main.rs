@@ -299,6 +299,7 @@ mod tests {
                 .find(|r| r.game() == game)
                 .unwrap(),
             original: path.into(),
+            root: path.into(),
         })
     }
     #[test]

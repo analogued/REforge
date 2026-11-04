@@ -127,19 +127,29 @@ The next launch restores that selection, including a game with missing files.
 If the entry was removed, the first remaining entry is selected instead.
 
 Detection verifies every required file by size and complete SHA-256 hash.
-Expected filenames provide the fast path: exact spelling first, then other ASCII
-case variants alphabetically. Unresolved files are sought under any name or
-extension in the same directory; wrong-size files are never hashed. Valid named
-files are reserved before filling gaps, and each required record needs a distinct
-file. Duplicate identical copies use a deterministic selection. Actual verified
-paths are passed to the engine without renaming or copying the files.
+Expected relative paths provide the fast path: exact spelling first, then other
+ASCII case variants alphabetically. Unresolved files are sought under any name
+or extension in the game root and the file-containing subdirectories named in
+that release's catalog. Files can move between those locations. Other folders
+and unlisted descendants are not searched; traversing an intermediate directory
+to reach a catalog folder does not add its files to the search. Directory names
+also accept ASCII case variations. Missing catalog folders are harmless when
+the required files are found in another permitted location.
+
+Wrong-size files are never hashed. Valid expected paths are reserved before
+filling gaps, and each required record needs a distinct file. Duplicate identical
+copies use a deterministic selection. Actual verified paths are passed to the
+engine without renaming or copying the files.
 
 Multiple matching releases remain ambiguous, including a renamed release beside
 a normally named one. Selecting a file requires that exact file to satisfy one
-of the release's records, with its siblings supplying the rest. A file whose
-contents are shared by multiple complete releases cannot distinguish them.
-Explicit file selections are retained in library entries for later launches.
-Only the selected directory is searched; subdirectories are not scanned.
+of the release's records, with the remaining files in the permitted locations.
+For a file inside a catalog subdirectory, REforge also checks the corresponding
+game root. Multiple complete roots remain ambiguous; select the intended root
+directory instead. A directory selection always defines the root and does not
+search ancestors. A file whose contents are shared by multiple complete releases
+cannot distinguish them. Explicit file selections are retained in library
+entries for later launches, while preferences remain attached to the game root.
 
 Entry IDs combine the game ID and six random lowercase letters/digits, such as
 `alley-cat-m7k4p9`. They use operating-system randomness with collision checks
@@ -709,6 +719,10 @@ The current chains are:
 | `essex-dos-2ba69b4250` | `essex-dos` | `essex` | `btz-dos-text` |
 | `brimstone-dos-0020ff40a4` | `brimstone-dos` | `brimstone` | `btz-dos-text` |
 | `breakers-dos-acb87c72b9` | `breakers-dos` | `breakers` | `btz-dos-text` |
+
+Required file records use canonical relative paths with `/` separators, such as
+`DATA/ROOMS.DAT`. Their parent directories define the permitted search locations
+for that release, alongside the game root. All current releases use root files.
 
 All current editions have platform `Platform::Dos`. Edition IDs name catalog
 groupings; the precise commercial edition/version designations remain unverified.

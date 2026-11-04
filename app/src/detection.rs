@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 mod catalog;
 #[cfg(test)]
 mod identity;
+mod search;
 #[cfg(test)]
 use catalog::{ALLEY_CAT_DOS, MACH3_DOS};
 pub use catalog::{Edition, GameMetadata, RELEASES};
@@ -66,7 +67,8 @@ impl Game {
 
 #[derive(Clone, Copy, Debug)]
 pub struct FileRecord {
-    /// Canonical catalog name and loader role; physical filenames may differ.
+    /// Canonical relative path and loader role, using `/` between directories.
+    /// Physical filenames and placement within catalog directories may differ.
     pub name: &'static str,
     pub size: u64,
     pub sha256: &'static str,
@@ -102,6 +104,8 @@ impl Release {
 pub struct Detected {
     pub game: Game,
     pub release: &'static Release,
+    /// Root used to find companions and bind library preferences.
+    pub root: PathBuf,
     /// The executable for Alley Cat, or the resource directory for other games.
     pub original: PathBuf,
     /// Actual paths selected by full verification, keyed by catalog spelling.
@@ -115,27 +119,50 @@ pub fn detect(path: &Path) -> Result<Detected, String> {
 
 struct Candidate {
     release: &'static Release,
+    root: PathBuf,
+    anchor: Option<PathBuf>,
     paths: Vec<Vec<PathBuf>>,
 }
 struct Verified {
     release: &'static Release,
+    root: PathBuf,
     paths: Vec<PathBuf>,
 }
 
 fn named(path: &Path, name: &str) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|actual| actual.eq_ignore_ascii_case(name))
+        .is_some_and(|actual| actual.eq_ignore_ascii_case(name.rsplit('/').next().unwrap_or(name)))
 }
 
-fn name_rank(path: &Path, name: &str) -> u8 {
-    if path.file_name().is_some_and(|actual| actual == name) {
+fn name_rank(root: &Path, path: &Path, name: &str) -> u8 {
+    if path == root.join(name) {
         0
-    } else if named(path, name) {
+    } else if expected_path(root, path, name) {
         1
-    } else {
+    } else if path
+        .file_name()
+        .is_some_and(|actual| actual == name.rsplit('/').next().unwrap_or(name))
+    {
         2
+    } else if named(path, name) {
+        3
+    } else {
+        4
     }
+}
+
+fn expected_path(root: &Path, path: &Path, name: &str) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    let mut actual = relative.iter();
+    name.split('/').all(|expected| {
+        actual
+            .next()
+            .and_then(|part| part.to_str())
+            .is_some_and(|part| part.eq_ignore_ascii_case(expected))
+    }) && actual.next().is_none()
 }
 
 type Hashes = HashMap<PathBuf, Result<String, String>>;
@@ -172,35 +199,26 @@ fn detect_with(
 ) -> Result<Detected, String> {
     let metadata = fs::metadata(path)
         .map_err(|error| format!("Cannot inspect original path {}: {error}", path.display()))?;
+    let absolute = std::path::absolute(path)
+        .map_err(|error| format!("Cannot resolve original path {}: {error}", path.display()))?;
     let directory = if metadata.is_dir() {
-        path
+        absolute.clone()
     } else if metadata.is_file() {
-        path.parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."))
+        absolute
+            .parent()
+            .ok_or("Selected original has no directory")?
+            .to_owned()
     } else {
         return Err(format!(
             "Original path {} must be a file or directory",
             path.display()
         ));
     };
-    let mut entries = fs::read_dir(directory)
-        .map_err(|error| {
-            format!(
-                "Cannot read original directory {}: {error}",
-                directory.display()
-            )
-        })?
-        .map(|entry| {
-            entry
-                .map(|entry| entry.path())
-                .map_err(|error| format!("Cannot read original directory entry: {error}"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    entries.sort();
+    let mut scan = search::Directories::default();
+    let entries = scan.read(&directory)?;
     let anchor = if metadata.is_file() {
-        // Use read_dir's spelling of this exact entry, including non-UTF-8 names
-        // and paths supplied without an explicit parent (foo vs ./foo).
+        // Retain the selected directory entry, including file symlinks. Only
+        // fall back to canonical spelling for case-insensitive host filesystems.
         let canonical = fs::canonicalize(path).map_err(|error| {
             format!(
                 "Cannot resolve selected original {}: {error}",
@@ -210,7 +228,7 @@ fn detect_with(
         Some(
             entries
                 .iter()
-                .find(|entry| entry.file_name() == path.file_name())
+                .find(|entry| entry.file_name() == absolute.file_name())
                 .or_else(|| {
                     entries
                         .iter()
@@ -222,82 +240,102 @@ fn detect_with(
     } else {
         None
     };
-    // Inspect metadata once, then hash only sizes relevant to a complete
-    // candidate. Directories and other nonregular entries never reach hashing.
-    let sizes: HashMap<_, _> = entries
-        .iter()
-        .map(|path| (path.clone(), size(path)))
-        .collect();
+    let mut sizes = HashMap::new();
     let mut candidates = Vec::new();
     let mut diagnostics = Vec::new();
     let mut incomplete = Vec::new();
     for release in releases {
-        if let Some(anchor) = &anchor
-            && !release
-                .files
-                .iter()
-                .any(|file| sizes[anchor].as_ref().is_ok_and(|s| *s == file.size))
-        {
-            continue;
-        }
-        let mut paths = Vec::new();
-        for file in release.files {
-            let mut matches = Vec::new();
-            for path in &entries {
-                match &sizes[path] {
-                    Ok(actual) if *actual == file.size => matches.push(path.clone()),
-                    actual if named(path, file.name) && diagnostics.len() < 12 => {
-                        diagnostics.push(match actual {
-                            Ok(actual) => format!(
-                                "{} expected {} bytes, found {actual}",
-                                path.display(),
-                                file.size
-                            ),
-                            Err(error) => error.clone(),
-                        });
-                    }
-                    _ => {}
-                }
+        let folders = search::catalog_directories(release.files)?;
+        for root in search::roots(&directory, anchor.is_some(), &folders) {
+            let entries = scan.entries(&root, &folders, &mut diagnostics);
+            let candidate_anchor = if let Some(anchor) = &anchor {
+                let Some(found) = entries.iter().find(|entry| *entry == anchor).or_else(|| {
+                    entries
+                        .iter()
+                        .find(|entry| search::same_entry(entry, anchor))
+                }) else {
+                    continue;
+                };
+                Some(found.clone())
+            } else {
+                None
+            };
+            // Cache metadata across releases, roots and shared catalog folders.
+            // Complete every candidate's size filtering before any hash reads.
+            for entry in &entries {
+                sizes.entry(entry.clone()).or_insert_with(|| size(entry));
             }
-            matches.sort_by(|a, b| {
-                name_rank(a, file.name)
-                    .cmp(&name_rank(b, file.name))
-                    .then_with(|| a.cmp(b))
-            });
-            paths.push(matches);
-        }
-        // Every catalog record requires a distinct directory entry, even when
-        // two required files happen to contain identical bytes.
-        let enough_files = release.files.iter().zip(&paths).all(|(file, matches)| {
-            matches.len()
-                >= release
+            if let Some(anchor) = &candidate_anchor
+                && !release
                     .files
                     .iter()
-                    .filter(|other| other.size == file.size)
-                    .count()
-        });
-        if enough_files {
-            candidates.push(Candidate { release, paths });
-        } else if release
-            .files
-            .iter()
-            .any(|file| entries.iter().any(|path| named(path, file.name)))
-        {
-            let missing = release
+                    .any(|file| sizes[anchor].as_ref().is_ok_and(|s| *s == file.size))
+            {
+                continue;
+            }
+            let mut paths = Vec::new();
+            for file in release.files {
+                let mut matches = Vec::new();
+                for path in &entries {
+                    match &sizes[path] {
+                        Ok(actual) if *actual == file.size => matches.push(path.clone()),
+                        actual if named(path, file.name) && diagnostics.len() < 12 => {
+                            diagnostics.push(match actual {
+                                Ok(actual) => format!(
+                                    "{} expected {} bytes, found {actual}",
+                                    path.display(),
+                                    file.size
+                                ),
+                                Err(error) => error.clone(),
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                matches.sort_by(|a, b| {
+                    name_rank(&root, a, file.name)
+                        .cmp(&name_rank(&root, b, file.name))
+                        .then_with(|| a.cmp(b))
+                });
+                paths.push(matches);
+            }
+            // Identical fingerprints still require distinct directory entries.
+            let enough_files = release.files.iter().zip(&paths).all(|(file, matches)| {
+                matches.len()
+                    >= release
+                        .files
+                        .iter()
+                        .filter(|other| other.size == file.size)
+                        .count()
+            });
+            if enough_files {
+                candidates.push(Candidate {
+                    release,
+                    root,
+                    anchor: candidate_anchor,
+                    paths,
+                });
+            } else if release
                 .files
                 .iter()
-                .filter(|file| !entries.iter().any(|path| named(path, file.name)))
-                .map(|file| file.name)
-                .collect::<Vec<_>>();
-            incomplete.push(format!(
-                "{}: missing verified files for {}",
-                release.game().title(),
-                if missing.is_empty() {
-                    "the required file set".into()
-                } else {
-                    missing.join(", ")
-                }
-            ));
+                .any(|file| entries.iter().any(|path| named(path, file.name)))
+            {
+                let missing = release
+                    .files
+                    .iter()
+                    .filter(|file| !entries.iter().any(|path| named(path, file.name)))
+                    .map(|file| file.name)
+                    .collect::<Vec<_>>();
+                incomplete.push(format!(
+                    "{}: missing verified files for {}",
+                    release.game().title(),
+                    if missing.is_empty() {
+                        "the required file set".into()
+                    } else {
+                        missing.join(", ")
+                    }
+                ));
+            }
         }
     }
 
@@ -305,14 +343,14 @@ fn detect_with(
     let mut verified = Vec::new();
     for candidate in candidates {
         let mut selected = vec![None; candidate.release.files.len()];
-        if let Some(anchor) = &anchor {
+        if let Some(anchor) = &candidate.anchor {
             let mut roles = candidate
                 .release
                 .files
                 .iter()
                 .enumerate()
                 .collect::<Vec<_>>();
-            roles.sort_by_key(|(_, file)| name_rank(anchor, file.name));
+            roles.sort_by_key(|(_, file)| name_rank(&candidate.root, anchor, file.name));
             let role = roles.into_iter().find(|(index, file)| {
                 candidate.paths[*index].contains(anchor)
                     && matches_hash(anchor, file, &mut hashes, &mut hash, &mut diagnostics)
@@ -337,10 +375,11 @@ fn detect_with(
                     continue;
                 }
                 let found = paths.iter().find(|path| {
-                    (fallback || named(path, file.name))
+                    (fallback || expected_path(&candidate.root, path, file.name))
                         && !selected
                             .iter()
-                            .any(|selected| selected.as_ref() == Some(*path))
+                            .flatten()
+                            .any(|selected| search::same_entry(selected, path))
                         && matches_hash(path, file, &mut hashes, &mut hash, &mut diagnostics)
                 });
                 if let Some(path) = found {
@@ -351,6 +390,7 @@ fn detect_with(
         if selected.iter().all(Option::is_some) {
             verified.push(Verified {
                 release: candidate.release,
+                root: candidate.root,
                 paths: selected.into_iter().map(Option::unwrap).collect(),
             });
         } else if selected.iter().any(Option::is_some) {
@@ -374,13 +414,14 @@ fn detect_with(
             let original = match candidate.release.game() {
                 Game::AlleyCat => candidate.paths[0].clone(),
                 Game::Mach3 | Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers => {
-                    directory.to_path_buf()
+                    candidate.root.clone()
                 }
             };
             Ok(Detected {
                 game: candidate.release.game(),
                 release: candidate.release,
                 original,
+                root: candidate.root.clone(),
                 files: candidate
                     .release
                     .files
@@ -401,14 +442,15 @@ fn detect_with(
             "no complete supported original file set matched",
         )),
         _ => Err(format!(
-            "Ambiguous original data in {}: matched {}; select a distinguishing original file with --original",
+            "Ambiguous original data in {}: matched {}; select a distinguishing original file or the intended game root with --original",
             directory.display(),
             verified
                 .iter()
                 .map(|candidate| format!(
-                    "{} ({})",
+                    "{} ({}) at {}",
                     candidate.release.game().title(),
-                    candidate.release.id
+                    candidate.release.id,
+                    candidate.root.display()
                 ))
                 .collect::<Vec<_>>()
                 .join(", ")

@@ -8,7 +8,10 @@ use file_browser::FileBrowser;
 use crate::{
     display,
     input::Key,
-    player::{Loaded, bios_ticks},
+    player::{
+        Loaded, bios_ticks,
+        cursor::{self, Cursor},
+    },
     services::{HostReply, HostRequest},
     session::SessionStep,
 };
@@ -31,7 +34,7 @@ use std::{
 
 pub const GEOMETRY: DisplayGeometry = DisplayGeometry::new((640, 200), (640, 480));
 
-fn paint_file_cursor(pixels: &mut [u8], cursor: Option<crate::player::file_dialog::Cursor>) {
+fn paint_cursor(pixels: &mut [u8], cursor: Option<Cursor>) {
     if let Some(cursor) = cursor {
         for y in 8 - cursor.height..8 {
             for x in 0..8 {
@@ -343,7 +346,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
     let mut manual_pause = false;
     let mut previous_cells = Vec::new();
     let mut previous_phase = None;
-    let mut previous_file_cursor = None;
+    let mut previous_cursor = None;
     let mut previous_status = "";
     loop {
         let was_menu = menu.is_open();
@@ -533,30 +536,38 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                 .set_cursor_style(window.settings().btz.file_cursor);
         }
         let browser_cells = file_browser.as_ref().map(|browser| browser.dialog.cells());
-        let file_cursor = file_browser
-            .as_ref()
-            .and_then(|browser| browser.dialog.cursor(epoch.elapsed()));
-        let cells = browser_cells.as_deref().unwrap_or_else(|| {
-            loaded
-                .presentation
-                .as_ref()
-                .and_then(|sequence| {
-                    sequence.frame(pause.now(Instant::now()).saturating_duration_since(epoch))
-                })
-                .unwrap_or_else(|| loaded.session.screen())
-                .dos_cells()
+        let title_screen = loaded.presentation.as_ref().and_then(|sequence| {
+            sequence.frame(pause.now(Instant::now()).saturating_duration_since(epoch))
         });
-        if previous_cells != cells
-            || previous_phase != Some(blink_on)
-            || previous_file_cursor != file_cursor
+        let (game_cells, game_cursor) = cursor::game_cells(
+            loaded.session.screen(),
+            loaded.session.input(),
+            window.settings().btz.file_cursor,
+            epoch.elapsed(),
+        );
+        let (cells, cursor) = if let Some(cells) = browser_cells.as_deref() {
+            (
+                cells,
+                file_browser
+                    .as_ref()
+                    .unwrap()
+                    .dialog
+                    .cursor(epoch.elapsed()),
+            )
+        } else if let Some(title_screen) = title_screen {
+            (title_screen.dos_cells(), None)
+        } else {
+            (game_cells.as_ref(), game_cursor)
+        };
+        if previous_cells != cells || previous_phase != Some(blink_on) || previous_cursor != cursor
         {
             let mut pixels = display::render(cells, blink_on)?;
-            paint_file_cursor(&mut pixels, file_cursor);
+            paint_cursor(&mut pixels, cursor);
             frame.update(&pixels)?;
             previous_cells.clear();
             previous_cells.extend_from_slice(cells);
             previous_phase = Some(blink_on);
-            previous_file_cursor = file_cursor;
+            previous_cursor = cursor;
         }
         let status = if menu.is_open() {
             "Settings"
@@ -595,15 +606,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn game_cursor_renders_each_style_without_leaving_the_native_block() {
+        use crate::{input::InputEditor, text::TextScreen};
+        use reforge_settings::FileCursorStyle;
+        let screen = TextScreen::default();
+        let input = InputEditor::new();
+        for (style, millis, rows) in [
+            (FileCursorStyle::PulsingUnderline, 0, 1),
+            (FileCursorStyle::PulsingUnderline, 134, 2),
+            (FileCursorStyle::BlinkingUnderline, 0, 0),
+            (FileCursorStyle::BlinkingUnderline, 134, 2),
+            (FileCursorStyle::SteadyBlock, 0, 8),
+        ] {
+            let (cells, cursor) =
+                cursor::game_cells(&screen, &input, style, Duration::from_millis(millis));
+            let mut pixels = display::render(&cells, true).unwrap();
+            paint_cursor(&mut pixels, cursor);
+            for y in 0..8 {
+                for x in 0..8 {
+                    let offset = ((19 * 8 + y) * display::WIDTH + 8 + x) * 3;
+                    assert_eq!(
+                        pixels[offset..offset + 3],
+                        display::TEXT_PALETTE[usize::from(y >= 8 - rows)],
+                        "{style:?} at {millis} ms, pixel ({x}, {y})"
+                    );
+                }
+            }
+        }
+        assert_eq!(screen.dos_cells()[(19 * 80 + 1) * 2], 0xdb);
+    }
+
+    #[test]
     fn steady_file_cursor_reverses_the_glyph_without_hiding_it() {
         let mut cells = [b' ', 7].repeat(80 * 25);
         let (row, column) = (18, 3);
         cells[(row * 80 + column) * 2] = b'A';
         let original = display::render(&cells, true).unwrap();
         let mut pixels = original.clone();
-        paint_file_cursor(
+        paint_cursor(
             &mut pixels,
-            Some(crate::player::file_dialog::Cursor {
+            Some(Cursor {
                 row,
                 column,
                 height: 8,

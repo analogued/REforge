@@ -521,6 +521,10 @@ mod tests {
                 .dialog
                 .input(Input::Text("retained-filename".into()));
             let before = chooser.dialog.cells();
+            assert!(
+                !String::from_utf8_lossy(&before.iter().step_by(2).copied().collect::<Vec<_>>())
+                    .contains("F10")
+            );
             let mut f10 = key(Keycode::F10, Mod::NOMOD);
             if let Event::KeyDown { scancode, .. } = &mut f10 {
                 *scancode = Some(reforge_sdl::sdl3::keyboard::Scancode::F10);
@@ -591,6 +595,12 @@ mod tests {
                 std::fs::write(&path, b"old file").unwrap();
                 assert!(chooser.dialog.input(Input::Enter).is_none());
                 let confirmation = chooser.dialog.cells();
+                assert!(
+                    !String::from_utf8_lossy(
+                        &confirmation.iter().step_by(2).copied().collect::<Vec<_>>()
+                    )
+                    .contains("F10")
+                );
                 assert_ne!(confirmation, before);
                 chooser.event_with_settings(&f10, None, &mut menu, &window);
                 assert!(menu.is_open());
@@ -670,9 +680,9 @@ mod tests {
         browser.dialog.input(Input::Tab(true));
         let cursor = browser.dialog.cursor(Duration::ZERO).unwrap();
         let mut short = display::render(&browser.dialog.cells(), true).unwrap();
-        paint_file_cursor(&mut short, Some(cursor));
+        paint_cursor(&mut short, Some(cursor));
         let mut tall = display::render(&browser.dialog.cells(), true).unwrap();
-        paint_file_cursor(&mut tall, browser.dialog.cursor(Duration::from_millis(134)));
+        paint_cursor(&mut tall, browser.dialog.cursor(Duration::from_millis(134)));
         assert_eq!(
             short
                 .as_chunks::<3>()
@@ -688,10 +698,10 @@ mod tests {
             .set_cursor_style(reforge_settings::FileCursorStyle::BlinkingUnderline);
         let original = display::render(&browser.dialog.cells(), true).unwrap();
         let mut hidden = original.clone();
-        paint_file_cursor(&mut hidden, browser.dialog.cursor(Duration::ZERO));
+        paint_cursor(&mut hidden, browser.dialog.cursor(Duration::ZERO));
         assert_eq!(hidden, original);
         let mut visible = original.clone();
-        paint_file_cursor(
+        paint_cursor(
             &mut visible,
             browser.dialog.cursor(Duration::from_millis(134)),
         );

@@ -1100,9 +1100,7 @@ mod tests {
         menu.game_editing[0] = true;
         let output = draw(&mut menu, vec![]);
         assert!(label(&output, "Text interface").top() > label(&output, "Rendering").bottom());
-        assert!(
-            label(&output, "File-dialog cursor").top() > label(&output, "Frame limit").bottom()
-        );
+        assert!(label(&output, "Cursor style").top() > label(&output, "Frame limit").bottom());
         assert_eq!(
             window.settings().btz.file_cursor,
             FileCursorStyle::PulsingUnderline

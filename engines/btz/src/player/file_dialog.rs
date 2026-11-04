@@ -9,6 +9,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use super::cursor::Cursor;
 use crate::bookmark::{Bookmark, HEADER_BYTES};
 use reforge_settings::FileCursorStyle;
 
@@ -76,13 +77,6 @@ pub(crate) enum Action {
     Choose { path: PathBuf, replace: bool },
     Cancel,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct Cursor {
-    pub row: usize,
-    pub column: usize,
-    pub height: usize,
-}
-
 #[derive(Debug)]
 struct Entry {
     path: PathBuf,
@@ -552,20 +546,12 @@ impl FileDialog {
         if self.confirm.is_some() || self.focus != Focus::Name {
             return None;
         }
-        // The CGA reference toggles the BIOS cursor every eight video frames.
-        // Breakers also paints an underscore, retaining one row in the off phase.
-        let raised = (elapsed.as_nanos() * 60 / (8 * 1_000_000_000)) & 1 != 0;
-        let height = match self.cursor_style {
-            FileCursorStyle::SteadyBlock => 8,
-            FileCursorStyle::PulsingUnderline => 1 + usize::from(raised),
-            FileCursorStyle::BlinkingUnderline if raised => 2,
-            FileCursorStyle::BlinkingUnderline => return None,
-        };
-        Some(Cursor {
-            row: 18,
-            column: LEFT + self.caret - self.visible_start(),
-            height,
-        })
+        Cursor::at(
+            18,
+            LEFT + self.caret - self.visible_start(),
+            self.cursor_style,
+            elapsed,
+        )
     }
     pub(crate) fn cells(&self) -> Vec<u8> {
         let mut screen = Screen([b' ', 7].repeat(80 * 25));
@@ -651,7 +637,7 @@ impl FileDialog {
             screen.text(
                 LEFT,
                 22,
-                "Left/Right Select   Enter Confirm   Esc Back   F10 Settings",
+                "Left/Right Select   Enter Confirm   Esc Back",
                 false,
                 0,
             );
@@ -697,13 +683,7 @@ impl FileDialog {
                 false,
                 0,
             );
-            screen.text(
-                LEFT,
-                23,
-                "PgUp/PgDn Page   Backspace Parent   F10 Settings",
-                false,
-                0,
-            );
+            screen.text(LEFT, 23, "PgUp/PgDn Page   Backspace Parent", false, 0);
         }
         screen.0
     }

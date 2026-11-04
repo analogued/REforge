@@ -33,5 +33,6 @@ impl std::str::FromStr for FileCursorStyle {
 }
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct BtzSettings {
+    /// Retain the existing preference name for command input and file dialogs.
     pub file_cursor: FileCursorStyle,
 }

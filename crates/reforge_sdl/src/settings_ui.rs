@@ -725,7 +725,7 @@ fn display_controls(
         ui.add_enabled_ui(value.renderer != Renderer::Terminal, |ui| {
             row(
                 ui,
-                "File-dialog cursor",
+                "Cursor style",
                 BTZ_FILE_CURSOR,
                 rows.state(BTZ_FILE_CURSOR, value),
                 |ui| {
@@ -741,9 +741,9 @@ fn display_controls(
                 },
             );
             ui.weak(match value.btz.file_cursor {
-                FileCursorStyle::PulsingUnderline => "Bookmark and transcript dialogs · stays visible and alternates between two heights.",
-                FileCursorStyle::BlinkingUnderline => "Bookmark and transcript dialogs · a two-pixel underline alternates with no cursor.",
-                FileCursorStyle::SteadyBlock => "Bookmark and transcript dialogs · a steady block reverses the character underneath.",
+                FileCursorStyle::PulsingUnderline => "Command input and file dialogs · stays visible and alternates between two heights.",
+                FileCursorStyle::BlinkingUnderline => "Command input and file dialogs · a two-pixel underline alternates with no cursor.",
+                FileCursorStyle::SteadyBlock => "Command input and file dialogs · a steady block reverses the character underneath.",
             });
         });
     }

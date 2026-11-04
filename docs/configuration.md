@@ -280,8 +280,9 @@ Explicit CLI values form the final temporary layer.
 
 BTZ's `file_cursor` belongs in `[entries.<entry-id>.display]` and cannot be set
 globally. In Settings it appears under **Text interface**, at the end of
-the game's Display page. It affects windowed file dialogs and is retained during
-terminal play. See the [BTZ file-dialog controls](games/btz.md#bookmarks-and-transcripts).
+the game's Display page as **Cursor style**. It affects windowed command input
+and file dialogs, and is retained during terminal play. See the
+[BTZ controls](games/btz.md#commands-and-controls).
 
 The menu offers platform choices and compiled SDL renderer drivers. Direct3D
 and Metal are not offered on Linux. A renderer change resets an unlocked,

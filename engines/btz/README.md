@@ -21,8 +21,9 @@ controls and launch options.
 
 > [!NOTE]
 > BTZ support is experimental. One identified DOS release each of Mindwheel,
-> Essex, Brimstone and Breakers is supported. Complete winning playthroughs have
-> not been verified.
+> Essex, Brimstone and Breakers is supported. A winning Breakers route has been
+> verified through automated command replay; complete live playthroughs and
+> winning routes for the other three games remain unverified.
 > Other BTZ games, platform versions and interpreter revisions are not yet
 > supported. See [Reference and compatibility](#reference-and-compatibility)
 > for the current limits.
@@ -124,7 +125,12 @@ unverified.
 Synthetic tests exercise the library and terminal host. Original-interpreter
 comparisons cover selected states, screens, bookmark bytes and transcript output,
 with observed input-return values and idle RNG counts supplied explicitly.
-They do not establish a winning playthrough or compatibility with other releases.
+An automated Breakers playthrough reaches the winning ending and includes native
+bookmark save/restore. It submits commands at exposed input waits, holds host
+ticks fixed and uses the default-zero submitted-read adapter. This verifies that
+route's story progression, without validating live frontend scheduling or an
+original DOS random sequence. Winning routes for the other three games and
+compatibility with other releases remain unverified.
 Secondary text-media support has original-code analysis and synthetic coverage,
 without an original secondary-media sample.
 

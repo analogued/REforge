@@ -30,9 +30,10 @@ All required files must match the supported release's sizes and SHA-256 hashes.
 ## Start playing
 
 > [!NOTE]
-> A complete winning playthrough has not been verified. Random events can differ
-> from a DOS run, and some pause and queued-input cases remain
-> imperfect. See the [engine compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
+> Breakers has reached its winning ending in an automated test. Complete live
+> playthroughs and winning routes for the other three games remain unverified.
+> Random events can differ from a DOS run, and some pause and queued-input cases
+> remain imperfect. See the [engine compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
 
 Add the game directory to the launcher and select **Play**, or run:
 

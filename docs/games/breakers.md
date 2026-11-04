@@ -11,7 +11,8 @@ BTZ interpreter with the original story data and background activity.
 ## Start playing
 
 > [!NOTE]
-> Support is experimental. A complete winning playthrough has not been verified.
+> Support is experimental. An automated test has reached the winning ending;
+> a complete live playthrough remains unverified.
 > Opening artwork keeps the original timing but changes pages without the DOS
 > wipe transitions.
 > See [BTZ compatibility notes](../../engines/btz/README.md#reference-and-compatibility).

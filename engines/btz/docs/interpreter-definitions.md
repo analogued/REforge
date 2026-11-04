@@ -153,6 +153,9 @@ Breakers comparisons cover the changed forms, comparison backup, formatted
 character output, rectangle capture/restore, numeric input and transcript
 cancellation. Its 4,674-byte variable image gives a 5,396-byte bookmark.
 
-These checks and longer gameplay runs do not establish a winning playthrough,
-complete behavioral equivalence or support for other BTZ releases. The remaining
-pause/input and timing-policy limits in the engine overview still apply.
+A Breakers command replay reaches the winning ending, including a native bookmark
+save/restore. It submits commands at input waits with fixed host ticks and the
+default-zero submitted-read adapter. Complete live playthroughs, winning routes
+for the other three games, behavioral equivalence and support for other releases
+remain unverified. The remaining pause/input and timing-policy limits in the
+engine overview still apply.

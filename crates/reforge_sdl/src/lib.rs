@@ -551,6 +551,50 @@ impl Window {
         self._video.text_input().stop(self.canvas.window());
     }
 
+    /// Clipboard text for an engine-owned text editor. Access stays on SDL's thread.
+    pub fn clipboard_text(&self) -> Result<String, String> {
+        self._video
+            .clipboard()
+            .clipboard_text()
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn set_clipboard_text(&self, text: &str) -> Result<(), String> {
+        self._video
+            .clipboard()
+            .set_clipboard_text(text)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Map window-coordinate mouse events into an engine framebuffer, excluding
+    /// letterbox margins and respecting the active density/aspect/scaling policy.
+    pub fn frame_point(&self, x: f32, y: f32, frame: (u32, u32)) -> Option<(f32, f32)> {
+        let (width, height, _) = self.canvas.logical_size();
+        if width == 0 || height == 0 || frame.0 == 0 || frame.1 == 0 {
+            return None;
+        }
+        let (mut px, mut py) = (0.0, 0.0);
+        // SAFETY: live main-thread renderer and two initialized writable floats.
+        if !unsafe {
+            sdl3::sys::render::SDL_RenderCoordinatesFromWindow(
+                self.canvas.raw(),
+                x,
+                y,
+                &mut px,
+                &mut py,
+            )
+        } {
+            return None;
+        }
+        if !(0.0..width as f32).contains(&px) || !(0.0..height as f32).contains(&py) {
+            return None;
+        }
+        Some((
+            px * frame.0 as f32 / width as f32,
+            py * frame.1 as f32 / height as f32,
+        ))
+    }
+
     pub fn set_title(&mut self, title: &str) -> Result<(), String> {
         if title.contains('\0') {
             return Err("window title contains a NUL byte".into());

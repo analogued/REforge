@@ -37,6 +37,11 @@ pub struct FrameCreator {
     textures: Rc<RefCell<Vec<Weak<Slot>>>>,
 }
 impl FrameCreator {
+    /// Keep the pointer visible for a host UI painted into the engine frame.
+    /// Call from the `Window::present_with` overlay callback on each UI frame.
+    pub fn show_pointer(&self) {
+        self.pointer_ui.set(true);
+    }
     /// Texture ownership for a standalone host UI, without game preferences.
     pub fn for_ui(canvas: &WindowCanvas) -> Self {
         Self::for_ui_with_geometry(canvas, crate::DisplayGeometry::new((1, 1), (1, 1)))

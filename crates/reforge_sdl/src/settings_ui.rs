@@ -722,7 +722,7 @@ fn display_controls(
     }
     if terminal.is_some() {
         section(ui, "Text interface");
-        ui.add_enabled_ui(value.renderer != Renderer::Terminal, |ui| {
+        ui.scope(|ui| {
             row(
                 ui,
                 "Cursor style",
@@ -740,11 +740,13 @@ fn display_controls(
                     .show(ui, &mut value.btz.file_cursor);
                 },
             );
-            ui.weak(match value.btz.file_cursor {
+            ui.weak(if value.renderer == Renderer::Terminal {
+                "Command input and file dialogs · Pulsing underline uses a steady underline. Blink rate and shape follow the terminal."
+            } else { match value.btz.file_cursor {
                 FileCursorStyle::PulsingUnderline => "Command input and file dialogs · stays visible and alternates between two heights.",
                 FileCursorStyle::BlinkingUnderline => "Command input and file dialogs · a two-pixel underline alternates with no cursor.",
                 FileCursorStyle::SteadyBlock => "Command input and file dialogs · a steady block reverses the character underneath.",
-            });
+            }});
         });
     }
 }

@@ -146,7 +146,7 @@ pub fn run_with_title(
     loaded.files.bookmark_path = options.bookmark;
     loaded.files.transcript_path = options.transcript;
     if options.settings.renderer == Renderer::Terminal {
-        return crate::player::run_terminal(loaded, options.settings.audio);
+        return crate::player::run_terminal_with_settings(loaded, options.settings, title);
     }
     #[cfg(feature = "sdl")]
     {

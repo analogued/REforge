@@ -1183,6 +1183,21 @@ mod tests {
                 .game
                 .contains_key(BTZ_FILE_CURSOR)
         );
+        // A terminal startup choice disables graphics, but cursor selection
+        // remains editable and is used by the terminal frontend too.
+        creator.session.borrow_mut().cli.remove("renderer");
+        menu.btz_terminal = Some(true);
+        menu.game_editing[0] = true;
+        menu.draft
+            .as_mut()
+            .unwrap()
+            .edit(true, "renderer", "terminal".into());
+        click(&mut menu, "Pulsing underline");
+        click(&mut menu, "Blinking underline");
+        assert_eq!(
+            menu.draft.as_ref().unwrap().game_values().btz.file_cursor,
+            FileCursorStyle::BlinkingUnderline
+        );
         std::fs::remove_file(path).unwrap();
     }
 

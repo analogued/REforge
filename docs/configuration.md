@@ -280,8 +280,9 @@ Explicit CLI values form the final temporary layer.
 
 BTZ's `file_cursor` belongs in `[entries.<entry-id>.display]` and cannot be set
 globally. In Settings it appears under **Text interface**, at the end of
-the game's Display page as **Cursor style**. It affects windowed command input
-and file dialogs, and is retained during terminal play. See the
+the game's Display page as **Cursor style**. It affects command input and file
+dialogs in both frontends. Terminal play uses a steady underline for Pulsing
+underline and delegates the other shapes and blink rate to the terminal. See the
 [BTZ controls](games/btz.md#commands-and-controls).
 
 The menu offers platform choices and compiled SDL renderer drivers. Direct3D

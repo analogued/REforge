@@ -11,23 +11,26 @@ timing/input fidelity questions remain in the
 ## File dialogs
 
 The original file pages show a passive directory listing followed by a typed
-filename prompt. Windowed play replaces them with a framed text browser using
-the game's bitmap font and the selected display treatment. It adds folder
+filename prompt. Both player frontends replace them with the same framed text
+browser. Windowed play uses the game's bitmap font and selected display treatment;
+terminal play uses ANSI attributes and the terminal's font. The browser adds folder
 navigation, bookmark filtering, local modification dates, caret editing,
 selection and clipboard shortcuts. Keyboard, mouse and controller navigation
 operate the browser independently of the story's command editor.
 
 Originally, Mindwheel, Essex and Brimstone replace bookmarks without asking;
 Breakers asks first. Original transcripts replace their destination without
-confirmation. Windowed play asks before replacing either kind of file in every
-game, initially selecting No. Declining returns to filename selection, or cancels
+confirmation. Both player frontends ask before replacing either kind of file in
+every game, initially selecting No. Declining returns to filename selection, or cancels
 the operation when a command-line option fixed its destination. Errors leave the
 browser available for correction and retry.
 
 The browser uses a temporary screen and stops the story clock while open.
 Settings can open above it and return to the same selection or overwrite
-question. Terminal play retains typed filename prompts and the original
-game-specific overwrite policy rather than using this browser.
+question. Terminal keyboard navigation uses the same selection and completion
+logic, with UTF-8 filename input and terminal paste. Clipboard copy/cut, mouse
+and controller input belong to the windowed adapter. Diagnostic tools retain
+typed filename prompts and the original game-specific overwrite policy.
 
 Bookmark contents retain the original format, with no automatic extension.
 Original-save compatibility is a preserved capability rather than a deviation.
@@ -36,7 +39,7 @@ for browser controls and file-selection options.
 
 ## Cursor presentation
 
-Windowed command input and file dialogs share a selectable cursor style in every
+Command input and file dialogs share a selectable cursor style in every
 game. Original command input paints a solid block at the next insertion point;
 the modern host replaces its appearance when drawing the window, preserving the
 native screen bytes and input rules.
@@ -45,10 +48,15 @@ The default Pulsing underline takes its short/tall presentation from Breakers'
 file interface. Blinking underline uses Mindwheel, Essex and Brimstone's
 two-scanline file cursor without a permanently painted underscore. Steady block
 keeps any underlying character readable by reversing its colours. The preference
-applies during windowed play; the terminal retains its existing presentation.
+applies to both frontends. Terminal play requests a native steady block or
+blinking underline using [DECSCUSR cursor controls](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html).
+Pulsing underline falls back to a native steady underline because these controls
+cannot alternate underline thickness. Terminal font, preferences and support
+determine exact shape and blink timing. The host removes the painted command
+marker from the terminal presentation copy too, retaining the native screen.
 
-Both animated styles use eight-frame phases at a fixed 60 Hz reference, about
-133 ms per phase. This follows the CGA DOSBox-X cursor cadence, independently of
+The windowed animated styles use eight-frame phases at a fixed 60 Hz reference,
+about 133 ms per phase. This follows the CGA DOSBox-X cursor cadence, independently of
 host CPU speed and monitor refresh. The original selects scanlines 6–7 for CGA;
 other DOS video adapters can use different shapes and blink rates. See
 [cursor controls](../../../docs/games/btz.md#commands-and-controls) for selection.
@@ -60,7 +68,8 @@ Both modern hosts instead start bookmark and transcript selection beside the
 selected `ADISK.OBJ`, independently of the launch directory. `--save-dir` changes
 that starting folder; explicit per-file options can select fixed destinations.
 Paths use the host filesystem, including absolute paths. Relative browser paths
-resolve from the displayed folder; terminal prompts use the starting folder.
+resolve from the displayed folder in either player frontend. Diagnostic typed
+prompts use the starting folder.
 
 Bookmark writes use a temporary file and atomic replacement instead of directly
 truncating the destination. Output selection protects active original input

@@ -10,6 +10,48 @@ use std::time::{Duration, Instant};
 
 use crate::input::Key;
 
+/// Local filesystem dates without requiring the SDL player backend.
+pub(super) fn format_local_timestamp(time: std::time::SystemTime) -> Option<String> {
+    #[cfg(unix)]
+    {
+        let nanos = match time.duration_since(std::time::UNIX_EPOCH) {
+            Ok(value) => i128::try_from(value.as_nanos()).ok()?,
+            Err(error) => -i128::try_from(error.duration().as_nanos()).ok()?,
+        };
+        let seconds: libc::time_t = nanos.div_euclid(1_000_000_000).try_into().ok()?;
+        let mut local = std::mem::MaybeUninit::<libc::tm>::uninit();
+        unsafe extern "C" {
+            fn tzset();
+        }
+        // SAFETY: valid time_t and writable tm storage; localtime_r initializes
+        // the complete result on success. Refresh the OS timezone configuration.
+        unsafe {
+            tzset();
+            if libc::localtime_r(&seconds, local.as_mut_ptr()).is_null() {
+                return None;
+            }
+            let local = local.assume_init();
+            Some(format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}",
+                local.tm_year + 1900,
+                local.tm_mon + 1,
+                local.tm_mday,
+                local.tm_hour,
+                local.tm_min
+            ))
+        }
+    }
+    #[cfg(windows)]
+    {
+        windows::format_local_timestamp(time)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = time;
+        None
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum Input {
     Idle,
@@ -60,6 +102,7 @@ pub fn read_prompt_line() -> io::Result<String> {
 
 pub struct Terminal {
     decoder: KeyboardDecoder,
+    dialog_mode: bool,
     #[cfg(unix)]
     saved: String,
     #[cfg(windows)]
@@ -83,6 +126,7 @@ impl Terminal {
                 .to_owned();
             let mut terminal = Self {
                 decoder: KeyboardDecoder::default(),
+                dialog_mode: false,
                 saved,
             };
             let result = Command::new("stty")
@@ -101,6 +145,7 @@ impl Terminal {
         {
             Ok(Self {
                 decoder: KeyboardDecoder::default(),
+                dialog_mode: false,
                 console: windows::Console::open()?,
             })
         }
@@ -143,13 +188,13 @@ impl Terminal {
         }
         #[cfg(windows)]
         {
-            let Some(byte) = self.console.read_byte()? else {
+            let Some(byte) = self.console.read_byte(self.dialog_mode)? else {
                 return Ok(false);
             };
             self.decoder.pending.push_back(byte);
             // Console KEY_EVENT_RECORDs distinguish Escape from function keys;
             // there is no ANSI prefix to wait for on this input path.
-            if byte == 27 {
+            if byte == 27 && !self.dialog_mode {
                 self.decoder.escape_since = Instant::now().checked_sub(ESCAPE_DELAY);
             }
             Ok(true)
@@ -165,9 +210,20 @@ impl Terminal {
 
     /// A keyboard poll never waits, including for the rest of an ANSI sequence.
     pub fn read(&mut self) -> io::Result<Input> {
+        self.dialog_mode = false;
         loop {
             let input = self.decoder.next(Instant::now());
             if input != Input::Idle || !self.collect_available()? {
+                return Ok(input);
+            }
+        }
+    }
+
+    pub(crate) fn read_dialog(&mut self) -> io::Result<DialogInput> {
+        self.dialog_mode = true;
+        loop {
+            let input = self.decoder.next_dialog(Instant::now());
+            if input != DialogInput::Idle || !self.collect_available()? {
                 return Ok(input);
             }
         }
@@ -259,11 +315,29 @@ impl Terminal {
 // native keyboard poll. An incomplete sequence has at most 30 ms to complete.
 const ESCAPE_DELAY: Duration = Duration::from_millis(30);
 
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum DialogInput {
+    Idle,
+    Quit,
+    Edit(super::file_dialog::Input),
+}
+
+enum Decoded {
+    Idle,
+    Quit,
+    Escape,
+    Byte(u8),
+    Sequence(Vec<u8>),
+}
+
 #[derive(Default)]
 struct KeyboardDecoder {
     pending: VecDeque<u8>,
     escape_since: Option<Instant>,
     quit: bool,
+    utf8: Vec<u8>,
+    paste: Option<Vec<u8>>,
+    skip_lf: bool,
 }
 
 impl KeyboardDecoder {
@@ -297,28 +371,28 @@ impl KeyboardDecoder {
         }
     }
 
-    fn next(&mut self, now: Instant) -> Input {
+    fn take(&mut self, now: Instant) -> Decoded {
         if self.quit {
-            return Input::Quit;
+            return Decoded::Quit;
         }
         let Some(&first) = self.pending.front() else {
-            return Input::Idle;
+            return Decoded::Idle;
         };
         if first == 27 {
             let since = *self.escape_since.get_or_insert(now);
             let expired = now.duration_since(since) >= ESCAPE_DELAY;
             if self.pending.len() == 1 {
                 if !expired {
-                    return Input::Idle;
+                    return Decoded::Idle;
                 }
                 self.pending.pop_front();
                 self.escape_since = None;
-                return Input::Key(Key::Escape);
+                return Decoded::Escape;
             }
             if !matches!(self.pending.get(1), Some(b'[' | b'O')) {
                 self.pending.pop_front();
                 self.escape_since = None;
-                return Input::Key(Key::Escape);
+                return Decoded::Escape;
             }
             let end = self
                 .pending
@@ -333,28 +407,142 @@ impl KeyboardDecoder {
             } else if expired || self.pending.len() >= 10 {
                 self.pending.len().min(10)
             } else {
-                return Input::Idle;
+                return Decoded::Idle;
             };
             let sequence: Vec<_> = self.pending.drain(..count).skip(2).collect();
             self.escape_since = None;
-            return Input::Key(match sequence.as_slice() {
+            return Decoded::Sequence(sequence);
+        }
+        self.pending.pop_front();
+        self.escape_since = None;
+        Decoded::Byte(first)
+    }
+
+    fn next(&mut self, now: Instant) -> Input {
+        match self.take_input(now) {
+            Decoded::Idle => Input::Idle,
+            Decoded::Quit => Input::Quit,
+            Decoded::Escape => Input::Key(Key::Escape),
+            Decoded::Sequence(sequence) => Input::Key(match sequence.as_slice() {
                 b"D" => Key::Backspace,
                 b"C" | b"P" | b"11~" => Key::RecallCharacter,
                 b"H" | b"1~" | b"15~" => Key::EraseLine,
                 b"F" | b"4~" | b"R" | b"13~" => Key::RecallLine,
                 _ => Key::Ignored,
-            });
+            }),
+            Decoded::Byte(byte) => match byte {
+                3 | 4 | 17 => {
+                    self.quit = true;
+                    Input::Quit
+                }
+                10 | 13 => Input::Key(Key::Enter),
+                127 => Input::Key(Key::Backspace),
+                byte => Input::Key(Key::from_dos_byte(byte)),
+            },
         }
-        self.pending.pop_front();
-        self.escape_since = None;
-        match first {
-            3 | 4 | 17 => {
-                self.quit = true;
-                Input::Quit
+    }
+
+    fn next_dialog(&mut self, now: Instant) -> DialogInput {
+        use super::file_dialog::Input as Edit;
+        loop {
+            let event = self.take_input(now);
+            if let Some(paste) = &mut self.paste {
+                match event {
+                    Decoded::Sequence(sequence) if sequence == b"201~" => {
+                        let bytes = self.paste.take().unwrap();
+                        return DialogInput::Edit(Edit::Text(
+                            String::from_utf8_lossy(&bytes).into_owned(),
+                        ));
+                    }
+                    Decoded::Byte(3 | 4 | 17) => {
+                        self.quit = true;
+                        self.paste = None;
+                        return DialogInput::Quit;
+                    }
+                    Decoded::Byte(byte) => paste.push(byte),
+                    Decoded::Escape => paste.push(27),
+                    Decoded::Sequence(sequence) => {
+                        paste.extend_from_slice(b"\x1b[");
+                        paste.extend(sequence);
+                    }
+                    Decoded::Idle => return DialogInput::Idle,
+                    Decoded::Quit => return DialogInput::Quit,
+                }
+                continue;
             }
-            10 | 13 => Input::Key(Key::Enter),
-            127 => Input::Key(Key::Backspace),
-            byte => Input::Key(Key::from_dos_byte(byte)),
+            let edit = match event {
+                Decoded::Idle => return DialogInput::Idle,
+                Decoded::Quit => return DialogInput::Quit,
+                Decoded::Escape => Edit::Escape,
+                Decoded::Sequence(sequence) => {
+                    let shift = sequence
+                        .split(|b| *b == b';')
+                        .nth(1)
+                        .is_some_and(|p| p.starts_with(b"2"));
+                    let command = *sequence.last().unwrap_or(&0);
+                    match (command, sequence.as_slice()) {
+                        (_, b"200~") => {
+                            self.paste = Some(Vec::new());
+                            continue;
+                        }
+                        (b'A', _) => Edit::Up,
+                        (b'B', _) => Edit::Down,
+                        (b'C', _) => Edit::Right(shift),
+                        (b'D', _) => Edit::Left(shift),
+                        (b'H', _) | (_, b"1~") => Edit::Home(shift),
+                        (b'F', _) | (_, b"4~") => Edit::End(shift),
+                        (_, b"3~") => Edit::Delete,
+                        (_, b"5~") => Edit::PageUp,
+                        (_, b"6~") => Edit::PageDown,
+                        (b'Z', _) => Edit::Tab(true),
+                        _ => continue,
+                    }
+                }
+                Decoded::Byte(byte) => match byte {
+                    3 | 4 | 17 => {
+                        self.quit = true;
+                        return DialogInput::Quit;
+                    }
+                    1 => Edit::SelectAll,
+                    8 | 127 => Edit::Backspace,
+                    9 => Edit::Tab(false),
+                    10 | 13 => {
+                        self.skip_lf = byte == 13;
+                        Edit::Enter
+                    }
+                    byte if byte >= 32 => {
+                        self.utf8.push(byte);
+                        match std::str::from_utf8(&self.utf8) {
+                            Ok(text) => {
+                                let edit = Edit::Text(text.into());
+                                self.utf8.clear();
+                                edit
+                            }
+                            Err(error) if error.error_len().is_none() => continue,
+                            Err(_) => {
+                                self.utf8.clear();
+                                continue;
+                            }
+                        }
+                    }
+                    _ => continue,
+                },
+            };
+            self.utf8.clear();
+            return DialogInput::Edit(edit);
+        }
+    }
+
+    fn take_input(&mut self, now: Instant) -> Decoded {
+        loop {
+            let event = self.take(now);
+            if self.skip_lf && !matches!(&event, Decoded::Idle) {
+                self.skip_lf = false;
+                if matches!(&event, Decoded::Byte(10)) {
+                    continue;
+                }
+            }
+            return event;
         }
     }
 }
@@ -389,11 +577,93 @@ fn windows_key_byte(virtual_key: u16, unicode: u16, modifiers: u32) -> Option<u8
     }
 }
 
+#[cfg(any(windows, test))]
+fn windows_dialog_bytes(key: u16, unicode: u16, modifiers: u32) -> Vec<u8> {
+    let shifted = modifiers & 0x10 != 0;
+    if modifiers & 0xc != 0 && modifiers & 3 == 0 && key == 0x41 {
+        return vec![1];
+    }
+    let sequence: &[u8] = match key {
+        0x25 if shifted => b"\x1b[1;2D",
+        0x27 if shifted => b"\x1b[1;2C",
+        0x24 if shifted => b"\x1b[1;2H",
+        0x23 if shifted => b"\x1b[1;2F",
+        0x25 => b"\x1b[D",
+        0x27 => b"\x1b[C",
+        0x26 => b"\x1b[A",
+        0x28 => b"\x1b[B",
+        0x24 => b"\x1b[H",
+        0x23 => b"\x1b[F",
+        0x21 => b"\x1b[5~",
+        0x22 => b"\x1b[6~",
+        0x2e => b"\x1b[3~",
+        0x09 if shifted => b"\x1b[Z",
+        0x10..=0x12 => b"",
+        _ => {
+            return if let Some(character) =
+                char::from_u32(u32::from(unicode)).filter(|c| *c != '\0')
+            {
+                character.to_string().into_bytes()
+            } else {
+                windows_key_byte(key, unicode, modifiers)
+                    .into_iter()
+                    .collect()
+            };
+        }
+    };
+    sequence.to_vec()
+}
+
 #[cfg(windows)]
 mod windows {
-    use std::{ffi::c_void, io, time::Duration};
+    use std::{collections::VecDeque, ffi::c_void, io, time::Duration};
 
     type Handle = *mut c_void;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct Calendar {
+        year: u16,
+        month: u16,
+        weekday: u16,
+        day: u16,
+        hour: u16,
+        minute: u16,
+        second: u16,
+        millisecond: u16,
+    }
+
+    #[repr(C)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+
+    pub(super) fn format_local_timestamp(time: std::time::SystemTime) -> Option<String> {
+        let nanos = match time.duration_since(std::time::UNIX_EPOCH) {
+            Ok(value) => i128::try_from(value.as_nanos()).ok()?,
+            Err(error) => -i128::try_from(error.duration().as_nanos()).ok()?,
+        };
+        let ticks: u64 = (nanos.div_euclid(100) + 116_444_736_000_000_000)
+            .try_into()
+            .ok()?;
+        let file = FileTime {
+            low: ticks as u32,
+            high: (ticks >> 32) as u32,
+        };
+        let (mut utc, mut local) = (Calendar::default(), Calendar::default());
+        // SAFETY: FILETIME and calendar objects have Win32 layouts; null timezone
+        // requests the OS's local timezone, including the offset for this date.
+        if unsafe { file_time_to_system_time(&file, &mut utc) } == 0
+            || unsafe { system_time_to_local(std::ptr::null(), &utc, &mut local) } == 0
+        {
+            return None;
+        }
+        Some(format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}",
+            local.year, local.month, local.day, local.hour, local.minute
+        ))
+    }
 
     #[repr(C)]
     #[derive(Clone, Copy, Default)]
@@ -422,6 +692,14 @@ mod windows {
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
+        #[link_name = "FileTimeToSystemTime"]
+        fn file_time_to_system_time(file: *const FileTime, calendar: *mut Calendar) -> i32;
+        #[link_name = "SystemTimeToTzSpecificLocalTime"]
+        fn system_time_to_local(
+            zone: *const c_void,
+            utc: *const Calendar,
+            local: *mut Calendar,
+        ) -> i32;
         #[link_name = "GetStdHandle"]
         fn get_std_handle(kind: u32) -> Handle;
         #[link_name = "GetConsoleMode"]
@@ -494,7 +772,8 @@ mod windows {
         input_mode: u32,
         output_mode: u32,
         output_cp: u32,
-        repeated: Option<(u8, u16)>,
+        pending: VecDeque<u8>,
+        high_surrogate: Option<u16>,
     }
 
     impl Console {
@@ -533,7 +812,8 @@ mod windows {
                 input_mode,
                 output_mode,
                 output_cp,
-                repeated: None,
+                pending: VecDeque::new(),
+                high_surrogate: None,
             };
             // Clear processed/line/echo, mouse/window, Quick Edit and VT input;
             // ReadConsoleInputW supplies native key records without ANSI decoding.
@@ -552,11 +832,8 @@ mod windows {
             Ok(console)
         }
 
-        pub(super) fn read_byte(&mut self) -> io::Result<Option<u8>> {
-            if let Some((byte, remaining)) = self.repeated.take() {
-                if remaining > 1 {
-                    self.repeated = Some((byte, remaining - 1));
-                }
+        pub(super) fn read_byte(&mut self, dialog: bool) -> io::Result<Option<u8>> {
+            if let Some(byte) = self.pending.pop_front() {
                 return Ok(Some(byte));
             }
             loop {
@@ -580,22 +857,56 @@ mod windows {
                 if record.event_type != 1 || record.key.down == 0 {
                     continue;
                 }
-                let Some(byte) = super::windows_key_byte(
-                    record.key.virtual_key,
-                    record.key.unicode,
-                    record.key.modifiers,
-                ) else {
-                    continue;
+                let bytes = if dialog {
+                    if (0xd800..=0xdbff).contains(&record.key.unicode) {
+                        self.high_surrogate = Some(record.key.unicode);
+                        continue;
+                    }
+                    if let Some(high) = self
+                        .high_surrogate
+                        .take()
+                        .filter(|_| (0xdc00..=0xdfff).contains(&record.key.unicode))
+                    {
+                        char::from_u32(
+                            0x10000
+                                + ((u32::from(high) - 0xd800) << 10)
+                                + u32::from(record.key.unicode)
+                                - 0xdc00,
+                        )
+                        .unwrap()
+                        .to_string()
+                        .into_bytes()
+                    } else {
+                        super::windows_dialog_bytes(
+                            record.key.virtual_key,
+                            record.key.unicode,
+                            record.key.modifiers,
+                        )
+                    }
+                } else {
+                    super::windows_key_byte(
+                        record.key.virtual_key,
+                        record.key.unicode,
+                        record.key.modifiers,
+                    )
+                    .into_iter()
+                    .collect::<Vec<_>>()
                 };
-                if record.key.repeat > 1 {
-                    self.repeated = Some((byte, record.key.repeat - 1));
+                self.pending.extend(
+                    bytes
+                        .iter()
+                        .copied()
+                        .cycle()
+                        .take(bytes.len() * usize::from(record.key.repeat.max(1))),
+                );
+                if let Some(byte) = self.pending.pop_front() {
+                    return Ok(Some(byte));
                 }
-                return Ok(Some(byte));
             }
         }
 
         pub(super) fn wait(&self, duration: Duration) -> io::Result<()> {
-            if self.repeated.is_some() {
+            if !self.pending.is_empty() {
                 return Ok(());
             }
             let milliseconds = duration.as_millis()
@@ -635,6 +946,82 @@ impl Drop for Terminal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dialog_navigation_preserves_game_aliases_and_handles_utf8_paste_and_submission() {
+        use super::super::file_dialog::Input as Edit;
+        let now = Instant::now();
+        for (sequence, expected) in [
+            (&b"\x1b[A"[..], Edit::Up),
+            (&b"\x1b[B"[..], Edit::Down),
+            (&b"\x1b[D"[..], Edit::Left(false)),
+            (&b"\x1b[C"[..], Edit::Right(false)),
+            (&b"\x1b[1;2D"[..], Edit::Left(true)),
+            (&b"\x1b[Z"[..], Edit::Tab(true)),
+            (&b"\x1b[3~"[..], Edit::Delete),
+            (&b"\x1b[5~"[..], Edit::PageUp),
+            (&b"\x1b[6~"[..], Edit::PageDown),
+            (&b"\x01"[..], Edit::SelectAll),
+        ] {
+            let mut decoder = KeyboardDecoder::default();
+            decoder.pending.extend(sequence);
+            assert_eq!(decoder.next_dialog(now), DialogInput::Edit(expected));
+        }
+        let mut decoder = KeyboardDecoder::default();
+        decoder.pending.extend(b"\x1b[D");
+        assert_eq!(decoder.next(now), Input::Key(Key::Backspace));
+        decoder.pending.extend("é".as_bytes());
+        assert_eq!(
+            decoder.next_dialog(now),
+            DialogInput::Edit(Edit::Text("é".into()))
+        );
+        decoder
+            .pending
+            .extend(b"\x1b[200~filename\twith spaces\x1b[201~");
+        assert_eq!(
+            decoder.next_dialog(now),
+            DialogInput::Edit(Edit::Text("filename\twith spaces".into()))
+        );
+        decoder.pending.extend(b"\r\nlook\r");
+        assert_eq!(decoder.next_dialog(now), DialogInput::Edit(Edit::Enter));
+        assert_eq!(decoder.next(now), Input::Key(Key::Character(b'l')));
+        for byte in b"ook" {
+            assert_eq!(decoder.next(now), Input::Key(Key::Character(*byte)));
+        }
+        assert_eq!(decoder.next(now), Input::Key(Key::Enter));
+    }
+
+    #[test]
+    fn windows_dialog_keys_retain_directions_and_unicode_without_game_remapping() {
+        assert_eq!(windows_dialog_bytes(0x26, 0, 0), b"\x1b[A");
+        assert_eq!(windows_dialog_bytes(0x25, 0, 0), b"\x1b[D");
+        assert_eq!(windows_dialog_bytes(0x25, 0, 0x10), b"\x1b[1;2D");
+        assert_eq!(windows_dialog_bytes(0x09, 9, 0x10), b"\x1b[Z");
+        assert_eq!(windows_dialog_bytes(0, 0xe9, 0), "é".as_bytes());
+        assert_eq!(windows_key_byte(0x25, 0, 0), Some(8));
+        assert_eq!(windows_dialog_bytes(0x43, 3, 4), b"\x03");
+    }
+
+    #[test]
+    fn dialog_partial_text_can_wait_or_quit_and_crlf_suppression_is_adjacent_only() {
+        use super::super::file_dialog::Input as Edit;
+        let now = Instant::now();
+        let mut decoder = KeyboardDecoder::default();
+        decoder.pending.push_back(0xc3);
+        assert_eq!(decoder.next_dialog(now), DialogInput::Idle);
+        decoder.pending.push_back(0xa9);
+        assert_eq!(
+            decoder.next_dialog(now),
+            DialogInput::Edit(Edit::Text("é".into()))
+        );
+        decoder.pending.extend(b"\r\x1b[H\n");
+        assert_eq!(decoder.next_dialog(now), DialogInput::Edit(Edit::Enter));
+        assert_eq!(decoder.next(now), Input::Key(Key::EraseLine));
+        assert_eq!(decoder.next(now), Input::Key(Key::Enter));
+        decoder.pending.extend(b"\x1b[200~unfinished\x11");
+        assert_eq!(decoder.next_dialog(now), DialogInput::Quit);
+        assert!(decoder.quit);
+    }
 
     #[test]
     fn split_ansi_sequence_survives_empty_polls() {

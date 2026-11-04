@@ -1,6 +1,6 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Filesystem and filename prompts for the development terminal host.
+//! Shared host filesystem services and diagnostic filename prompts.
 
 use crate::{
     media::TextStores,
@@ -152,8 +152,7 @@ impl Files {
     }
 
     /// The text browser resolves an absolute destination and owns its replacement
-    /// question. The ordinary terminal/fixed-file path keeps its native policy.
-    #[cfg(feature = "sdl")]
+    /// question. Diagnostic callers can still use the original typed prompts.
     pub(crate) fn handle_browser_path(
         &mut self,
         request: &HostRequest,

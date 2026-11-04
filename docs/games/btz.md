@@ -112,17 +112,20 @@ sends BEL: your terminal's settings determine whether it sounds, flashes or
 stays silent. REforge's mute controls can suppress it; terminal bell volume is
 controlled by the terminal.
 
-In windowed play, **Display → Text interface → Cursor style** selects the
-cursor for command input and file dialogs. Pulsing underline (the default)
-stays visible while alternating between two heights. Blinking underline
-alternates between a two-pixel underline and no cursor. Steady block reverses
-the colours of the character underneath. Apply saves the choice for that game.
-Terminal play retains this preference for the next windowed session.
+**Display → Text interface → Cursor style** selects the cursor for command
+input and file dialogs. In windowed play, Pulsing underline (the default)
+stays visible while alternating between two heights. Blinking underline alternates
+between a two-pixel underline and no cursor. Steady block reverses the colours
+of the character underneath. Apply saves the choice for that game.
+Terminal play uses its own underline and block shapes. Pulsing underline falls
+back to a steady underline; Blinking underline follows the terminal's blink
+rate. Exact appearance depends on your terminal and font. Choose the style in
+the launcher before starting terminal play, or edit the entry's preferences.
 
 ## Bookmarks and transcripts
 
 By default, every `BOOKMARK`, `RESUME NOVEL` and `SCRIPT` request opens a
-text file browser in windowed play, or prompts for a filename in the terminal.
+framed text file browser in both windowed and terminal play.
 `BOOKMARK` writes a bookmark; `RESUME NOVEL` reads it. No extension is appended.
 Native bookmarks contain game state, not a complete recording of the screen,
 editor, timing and random state.
@@ -136,20 +139,22 @@ The file browser starts beside the supplied `ADISK.OBJ`, independently of the
 launch directory. `--save-dir /path/to/saves` selects another starting folder;
 the directory must already exist. Filenames and relative paths resolve from the
 folder shown in the browser, including `../` paths. Absolute paths work too.
-Terminal prompts resolve relative names from the starting folder.
 
 Use Up/Down to select a file or folder and Enter to open or choose it. Tab and
 Shift+Tab move between the list, filename field, Save/Resume/Write and Cancel.
-The filename field supports caret movement, selection and clipboard shortcuts.
+The filename field supports caret movement and selection. Windowed play also
+provides clipboard shortcuts; in terminal play use your terminal's paste shortcut.
 Escape cancels; in an overwrite question it returns to filename selection,
 or cancels the operation if a launch option fixed its destination.
 Page Up/Down moves through longer lists; Backspace goes to the parent folder
-when the list has focus. Click to select, double-click to open, or use a
-controller's directions, confirm/cancel and shoulder buttons. Bookmarks are
-recognized from their contents, including files without an extension.
+when the list has focus. In windowed play, click to select, double-click to open,
+or use a controller's directions, confirm/cancel and shoulder buttons. Bookmarks
+are recognized from their contents, including files without an extension.
 
 The game pauses while the browser is open. Modification dates use your system's
-local timezone. F10 opens Settings and returns to the same file dialog when closed.
+local timezone. In windowed play, F10 opens Settings and returns to the same
+file dialog when closed. Terminal play uses keyboard navigation and needs an
+ANSI-compatible terminal at least 80 columns wide and 25 rows high.
 
 The optional `--bookmark-path file` and `--transcript-path file` launch options
 skip their respective filename prompts and use those fixed files for the whole
@@ -158,12 +163,10 @@ for `RESUME NOVEL`; `--transcript-path` supplies the destination for each new
 `SCRIPT` session. Without these options, the prompts remain available each
 time, so you can choose different files.
 
-Windowed play asks before replacing an existing bookmark or transcript in all
-four games, including fixed filenames from the launch options. The overwrite
-question initially selects No. In terminal play, Breakers asks before replacing
-a bookmark; the other three games replace it directly. Terminal transcript
-sessions replace their destination directly. A transcript session starts a new
-file rather than appending.
+Both player frontends ask before replacing an existing bookmark or transcript
+in all four games, including fixed filenames from the launch options. The overwrite
+question initially selects No. A transcript session starts a new file rather
+than appending.
 
 Relative paths supplied by these launch options resolve from the launch
 directory. Active game input files are protected from overwrite.

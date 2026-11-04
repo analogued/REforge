@@ -34,8 +34,10 @@ not require original game files or a desktop.
 REforge dispatches verified BTZ files to the shared player entry point. Windowed
 play uses the shared SDL display and settings; `--renderer terminal` uses an
 attached terminal without initializing an SDL window. Both hosts use `Session`
-and the same player loading and file-service adapters. Graphical file prompts
-are asynchronous and never read standard input.
+and the same player loading, file browser and file-service adapters. Windowed
+file prompts are asynchronous and never read standard input. Terminal file
+selection uses its raw keyboard adapter, preserving game/editor state while
+the browser suspends story time. The diagnostic frontend retains typed prompts.
 
 ## Development frontend
 

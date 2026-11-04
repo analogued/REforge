@@ -3,7 +3,7 @@
 //! SDL events and host replies for the engine's character-cell file browser.
 
 use super::*;
-use crate::player::file_dialog::{Action, FileDialog, Input, Operation};
+use crate::player::file_dialog::{Action, FileDialog, Input};
 use reforge_sdl::sdl3::mouse::{MouseButton, MouseWheelDirection};
 
 pub(super) struct FileBrowser {
@@ -34,31 +34,9 @@ impl FileBrowser {
     }
 
     pub(super) fn begin(loaded: &Loaded, request: &HostRequest, title: &str) -> Option<Self> {
-        let (operation, fixed) = match request {
-            HostRequest::SaveBookmark { .. } => {
-                (Operation::Save, loaded.files.bookmark_path.as_deref())
-            }
-            HostRequest::LoadBookmark => (Operation::Load, loaded.files.bookmark_path.as_deref()),
-            HostRequest::TranscriptName { .. } => (
-                Operation::Transcript,
-                loaded.files.transcript_path.as_deref(),
-            ),
-            _ => return None,
-        };
-        let extent = loaded.session.vm().state().variables.len();
-        let dialog = if let Some(path) = fixed {
-            // Fixed file options keep their launch-directory semantics and skip
-            // selection, but existing write destinations still need a decision.
-            if operation == Operation::Load || !path.exists() {
-                return None;
-            }
-            FileDialog::fixed(operation, path, title, extent)
-        } else {
-            FileDialog::new(operation, &loaded.files.save_directory, title, extent)
-        };
         Some(Self {
             request: request.clone(),
-            dialog,
+            dialog: crate::player::file_dialog::begin_selection(loaded, request, title)?,
             held: None,
             repeat_at: Instant::now(),
         })
@@ -193,49 +171,13 @@ impl FileBrowser {
         }
     }
 
-    /// Errors leave the original host operation outstanding, so the user can
-    /// correct a filename or choose another bookmark without losing the browser.
     pub(super) fn complete(&mut self, loaded: &mut Loaded, action: Action) -> Result<bool, String> {
-        match action {
-            Action::Cancel => {
-                loaded
-                    .session
-                    .complete_host(HostReply::Cancelled)
-                    .map_err(|e| e.to_string())?;
-                Ok(true)
-            }
-            Action::Choose { path, replace } => {
-                match loaded
-                    .files
-                    .handle_browser_path(&self.request, path, replace)
-                {
-                    Ok(Some(reply)) => {
-                        if let Some(error) = loaded.files.take_error() {
-                            self.dialog.error(error);
-                            return Ok(false);
-                        }
-                        match loaded.session.complete_host(reply) {
-                            Ok(()) => Ok(true),
-                            Err(error) if matches!(self.request, HostRequest::LoadBookmark) => {
-                                self.dialog
-                                    .error(format!("Cannot restore bookmark: {error}"));
-                                Ok(false)
-                            }
-                            Err(error) => Err(error.to_string()),
-                        }
-                    }
-                    Ok(None) => {
-                        self.dialog
-                            .error("The file operation is still waiting for a filename.".into());
-                        Ok(false)
-                    }
-                    Err(error) => {
-                        self.dialog.error(error.to_string());
-                        Ok(false)
-                    }
-                }
-            }
-        }
+        crate::player::file_dialog::complete_selection(
+            loaded,
+            &self.request,
+            &mut self.dialog,
+            action,
+        )
     }
 }
 

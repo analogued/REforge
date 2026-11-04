@@ -1011,7 +1011,7 @@ impl TextOutput {
     }
 }
 
-fn cp437(byte: u8) -> char {
+pub(crate) fn cp437(byte: u8) -> char {
     match byte {
         0 => ' ',
         1..=31 => "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼".chars().nth(usize::from(byte - 1)).unwrap(),

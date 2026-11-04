@@ -46,6 +46,10 @@ mod terminal_bell {
     };
 
     fn loaded(directory: &Directory) -> btz::player::Loaded {
+        loaded_with_program(directory, &[0x002c, 0xffff, 0x0064, 1, 0x0064, 4])
+    }
+
+    fn loaded_with_program(directory: &Directory, program: &[u16]) -> btz::player::Loaded {
         let put = |bytes: &mut [u8], offset: usize, value: u16| {
             bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
         };
@@ -74,10 +78,7 @@ mod terminal_bell {
             put(&mut bytes, 512 + offset, value);
         }
         // An unlimited input read; no submitted line or original data required.
-        for (index, word) in [0x002c, 0xffff, 0x0064, 1, 0x0064, 4]
-            .into_iter()
-            .enumerate()
-        {
+        for (index, word) in program.iter().copied().enumerate() {
             put(&mut bytes, 512 + 0x40 + index * 2, word);
         }
         let mut exe = vec![0; 32 + 0x6cb];
@@ -217,7 +218,7 @@ mod terminal_bell {
                     &mut master,
                     Instant::now() + Duration::from_secs(3),
                     &mut bytes,
-                    |b| b.windows(4).any(|w| w == b"\x1b[H\xe2")
+                    |b| b.windows(6).any(|w| w == b"\x1b[?25h")
                 ),
                 "terminal did not draw its initial frame: {}",
                 String::from_utf8_lossy(&bytes)
@@ -265,6 +266,136 @@ mod terminal_bell {
                 "{mode}: {stderr}"
             );
         }
+    }
+
+    #[test]
+    fn terminal_file_browser_retries_confirms_restores_and_keeps_closing_keys_out_of_game() {
+        const MARKER: &str = "REFORGE_BTZ_TERMINAL_BROWSER";
+        const TEST: &str = "terminal_bell::terminal_file_browser_retries_confirms_restores_and_keeps_closing_keys_out_of_game";
+        if let Some(path) = std::env::var_os(MARKER) {
+            let directory = std::mem::ManuallyDrop::new(Directory(path.into()));
+            let mut game = loaded_with_program(
+                &directory,
+                &[0x64, 5, 0x64, 6, 0x2c, 0xffff, 0x64, 1, 0x64, 4],
+            );
+            let data = loop {
+                if let btz::session::SessionStep::Host(HostRequest::SaveBookmark { data }) =
+                    game.session.advance().unwrap()
+                {
+                    break data;
+                }
+            };
+            fs::write(directory.0.join("EXISTING"), &data).unwrap();
+            fs::write(directory.0.join("expected.bin"), &data).unwrap();
+            btz::player::run_terminal_with_settings(
+                game,
+                reforge_settings::RuntimeSettings {
+                    btz: reforge_settings::BtzSettings {
+                        file_cursor: reforge_settings::FileCursorStyle::SteadyBlock,
+                    },
+                    ..Default::default()
+                },
+                "Mindwheel",
+            )
+            .unwrap();
+            return;
+        }
+        let directory = Directory::new();
+        let (mut master, mut slave) = (-1, -1);
+        // SAFETY: valid descriptor outputs; null optional termios/size defaults.
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                )
+            },
+            0
+        );
+        // SAFETY: openpty transferred ownership of two distinct descriptors.
+        let (mut master, slave) = unsafe { (File::from_raw_fd(master), File::from_raw_fd(slave)) };
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--nocapture", "--test-threads=1"])
+            .env(MARKER, &directory.0)
+            .stdin(slave.try_clone().unwrap())
+            .stdout(slave.try_clone().unwrap())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        drop(slave);
+        let mut child = Process(child);
+        let mut bytes = Vec::new();
+        let expect = |master: &mut File, bytes: &mut Vec<u8>, text: &str| {
+            assert!(
+                receive(
+                    master,
+                    Instant::now() + Duration::from_secs(3),
+                    bytes,
+                    |b| b.windows(text.len()).any(|w| w == text.as_bytes())
+                ),
+                "missing {text:?}: {}",
+                String::from_utf8_lossy(&bytes[bytes.len().saturating_sub(4000)..])
+            );
+        };
+        expect(&mut master, &mut bytes, "Name this saved novel:");
+        assert!(String::from_utf8_lossy(&bytes).contains("\x1b[?2004h"));
+        bytes.clear();
+        master.write_all(b"\r").unwrap();
+        expect(&mut master, &mut bytes, "Replace existing version?");
+        bytes.clear();
+        master.write_all(b"\r").unwrap(); // No is the default.
+        expect(&mut master, &mut bytes, "Filename:");
+        let expected = fs::read(directory.0.join("expected.bin")).unwrap();
+        assert_eq!(fs::read(directory.0.join("EXISTING")).unwrap(), expected);
+        bytes.clear();
+        master.write_all(b"\x01missing/file\r").unwrap();
+        expect(
+            &mut master,
+            &mut bytes,
+            "The destination directory does not exist.",
+        );
+        bytes.clear();
+        master.write_all(b"\x01SAVEX\x1b[D\x1b[3~1\r").unwrap();
+        expect(
+            &mut master,
+            &mut bytes,
+            "Which version do you want to resume?",
+        );
+        assert_eq!(fs::read(directory.0.join("SAVE1")).unwrap(), expected);
+        bytes.clear();
+        master.write_all(b"\t\x01SAVE1\r\n").unwrap();
+        expect(&mut master, &mut bytes, "\x1b[?2004l");
+        receive(
+            &mut master,
+            Instant::now() + Duration::from_millis(150),
+            &mut bytes,
+            |_| false,
+        );
+        assert!(
+            child.0.try_wait().unwrap().is_none(),
+            "dialog Enter leaked into the game read"
+        );
+        assert!(String::from_utf8_lossy(&bytes).contains("\x1b[2 q"));
+        master.write_all(b"\x11").unwrap();
+        let until = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(status) = child.0.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            assert!(Instant::now() < until, "terminal browser did not exit");
+            receive(
+                &mut master,
+                Instant::now() + Duration::from_millis(10),
+                &mut bytes,
+                |_| false,
+            );
+        }
+        assert!(String::from_utf8_lossy(&bytes).contains("\x1b[0 q"));
+        assert_eq!(fs::read(directory.0.join("EXISTING")).unwrap(), expected);
     }
 }
 

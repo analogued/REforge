@@ -16,7 +16,8 @@ Unreleased contains changes intended for the next public release.
 
 - Browse bookmarks and transcripts through a framed text interface, with
   keyboard, mouse and controller navigation, overwrite confirmation and
-  selectable cursor styles shared with command input.
+  selectable cursor styles shared with command input. Terminal play shares the
+  browser's keyboard navigation and uses native terminal cursor shapes.
 - Fix Breakers' first input appearing one line below the visible cursor.
 - Temporarily enlarge small game windows to fit Settings and restore their size
   when it closes.

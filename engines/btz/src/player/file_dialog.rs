@@ -6,12 +6,95 @@ use std::{
     fs::{self, File},
     io::Read,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 
+use super::Loaded;
+#[cfg(any(feature = "sdl", test))]
 use super::cursor::Cursor;
-use crate::bookmark::{Bookmark, HEADER_BYTES};
+use crate::{
+    bookmark::{Bookmark, HEADER_BYTES},
+    services::{HostReply, HostRequest},
+};
+#[cfg(any(feature = "sdl", test))]
 use reforge_settings::FileCursorStyle;
+#[cfg(any(feature = "sdl", test))]
+use std::time::Duration;
+
+pub(crate) fn begin_selection(
+    loaded: &Loaded,
+    request: &HostRequest,
+    title: &str,
+) -> Option<FileDialog> {
+    let (operation, fixed) = match request {
+        HostRequest::SaveBookmark { .. } => {
+            (Operation::Save, loaded.files.bookmark_path.as_deref())
+        }
+        HostRequest::LoadBookmark => (Operation::Load, loaded.files.bookmark_path.as_deref()),
+        HostRequest::TranscriptName { .. } => (
+            Operation::Transcript,
+            loaded.files.transcript_path.as_deref(),
+        ),
+        _ => return None,
+    };
+    let extent = loaded.session.vm().state().variables.len();
+    let dialog = if let Some(path) = fixed {
+        // Fixed file options keep their launch-directory semantics and skip
+        // selection, but existing write destinations still need a decision.
+        if operation == Operation::Load || !path.exists() {
+            return None;
+        }
+        FileDialog::fixed(operation, path, title, extent)
+    } else {
+        FileDialog::new(operation, &loaded.files.save_directory, title, extent)
+    };
+    Some(dialog)
+}
+
+/// Errors leave the original host operation outstanding, so the user can
+/// correct a filename or choose another bookmark without losing the browser.
+pub(crate) fn complete_selection(
+    loaded: &mut Loaded,
+    request: &HostRequest,
+    dialog: &mut FileDialog,
+    action: Action,
+) -> Result<bool, String> {
+    match action {
+        Action::Cancel => {
+            loaded
+                .session
+                .complete_host(HostReply::Cancelled)
+                .map_err(|e| e.to_string())?;
+            Ok(true)
+        }
+        Action::Choose { path, replace } => {
+            match loaded.files.handle_browser_path(request, path, replace) {
+                Ok(Some(reply)) => {
+                    if let Some(error) = loaded.files.take_error() {
+                        dialog.error(error);
+                        return Ok(false);
+                    }
+                    match loaded.session.complete_host(reply) {
+                        Ok(()) => Ok(true),
+                        Err(error) if matches!(request, HostRequest::LoadBookmark) => {
+                            dialog.error(format!("Cannot restore bookmark: {error}"));
+                            Ok(false)
+                        }
+                        Err(error) => Err(error.to_string()),
+                    }
+                }
+                Ok(None) => {
+                    dialog.error("The file operation is still waiting for a filename.".into());
+                    Ok(false)
+                }
+                Err(error) => {
+                    dialog.error(error.to_string());
+                    Ok(false)
+                }
+            }
+        }
+    }
+}
 
 const ROWS: usize = 6;
 const LEFT: usize = 3;
@@ -103,6 +186,7 @@ pub(crate) struct FileDialog {
     fixed: bool,
     notice: String,
     expected_bytes: usize,
+    #[cfg(any(feature = "sdl", test))]
     cursor_style: FileCursorStyle,
 }
 
@@ -130,6 +214,7 @@ impl FileDialog {
             fixed: false,
             notice: String::new(),
             expected_bytes,
+            #[cfg(any(feature = "sdl", test))]
             cursor_style: FileCursorStyle::PulsingUnderline,
         };
         dialog.scan();
@@ -255,6 +340,7 @@ impl FileDialog {
             .filter(|a| *a != self.caret)
             .map(|a| a.min(self.caret)..a.max(self.caret))
     }
+    #[cfg(any(feature = "sdl", test))]
     pub(crate) fn selected_text(&self) -> Option<String> {
         (self.focus == Focus::Name)
             .then(|| {
@@ -263,6 +349,7 @@ impl FileDialog {
             })
             .flatten()
     }
+    #[cfg(feature = "sdl")]
     pub(crate) fn editing_name(&self) -> bool {
         self.focus == Focus::Name && self.confirm.is_none()
     }
@@ -494,6 +581,7 @@ impl FileDialog {
         }
     }
 
+    #[cfg(any(feature = "sdl", test))]
     pub(crate) fn click(&mut self, column: usize, row: usize, double: bool) -> Option<Action> {
         if self.confirm.is_some() {
             if row == 20 {
@@ -530,6 +618,7 @@ impl FileDialog {
         }
         None
     }
+    #[cfg(feature = "sdl")]
     pub(crate) fn scroll(&mut self, lines: i32) {
         if self.confirm.is_none() {
             self.focus = Focus::List;
@@ -539,19 +628,18 @@ impl FileDialog {
     fn visible_start(&self) -> usize {
         self.caret.saturating_sub(WIDTH - 2)
     }
+    #[cfg(any(feature = "sdl", test))]
     pub(crate) fn set_cursor_style(&mut self, style: FileCursorStyle) {
         self.cursor_style = style;
     }
+    pub(crate) fn cursor_position(&self) -> Option<(usize, usize)> {
+        (self.confirm.is_none() && self.focus == Focus::Name)
+            .then(|| (18, LEFT + self.caret - self.visible_start()))
+    }
+    #[cfg(any(feature = "sdl", test))]
     pub(crate) fn cursor(&self, elapsed: Duration) -> Option<Cursor> {
-        if self.confirm.is_some() || self.focus != Focus::Name {
-            return None;
-        }
-        Cursor::at(
-            18,
-            LEFT + self.caret - self.visible_start(),
-            self.cursor_style,
-            elapsed,
-        )
+        let (row, column) = self.cursor_position()?;
+        Cursor::at(row, column, self.cursor_style, elapsed)
     }
     pub(crate) fn cells(&self) -> Vec<u8> {
         let mut screen = Screen([b' ', 7].repeat(80 * 25));
@@ -743,7 +831,7 @@ impl Screen {
     }
 }
 fn date(time: SystemTime) -> String {
-    reforge_sdl::format_local_timestamp(time).unwrap_or_default()
+    super::terminal::format_local_timestamp(time).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -944,8 +1032,11 @@ pub(crate) mod tests {
         assert_eq!(dialog.cursor(Duration::ZERO).unwrap().height, 8);
         assert_eq!(dialog.cursor(Duration::from_secs(1)).unwrap().height, 8);
         assert_eq!(name(&dialog), "CURSOR");
-        let pixels = crate::display::render(&dialog.cells(), true).unwrap();
-        assert!(pixels.iter().any(|v| *v != 0));
+        #[cfg(feature = "sdl")]
+        {
+            let pixels = crate::display::render(&dialog.cells(), true).unwrap();
+            assert!(pixels.iter().any(|v| *v != 0));
+        }
     }
 
     #[test]

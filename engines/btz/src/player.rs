@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Player loading and host adapters shared by windowed and terminal play.
 
-#[cfg(feature = "sdl")]
 pub(crate) mod cursor;
-#[cfg(feature = "sdl")]
 pub(crate) mod file_dialog;
 pub mod files;
 mod patches;
@@ -12,6 +10,7 @@ pub mod presentation;
 // Raw host input is isolated here; the VM, parser and story services remain safe Rust.
 #[allow(unsafe_code)]
 pub mod terminal;
+mod terminal_screen;
 
 use crate::{
     Error,
@@ -251,9 +250,21 @@ pub fn terminal_available() -> bool {
     std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
-pub fn run_terminal(
+pub fn run_terminal(loaded: Loaded, audio: reforge_settings::AudioSettings) -> Result<(), String> {
+    run_terminal_with_settings(
+        loaded,
+        reforge_settings::RuntimeSettings {
+            audio,
+            ..Default::default()
+        },
+        "BTZ",
+    )
+}
+
+pub fn run_terminal_with_settings(
     mut loaded: Loaded,
-    audio: reforge_settings::AudioSettings,
+    settings: reforge_settings::RuntimeSettings,
+    title: &str,
 ) -> Result<(), String> {
     use crate::session::SessionStep;
     use std::io::{self, Write};
@@ -266,14 +277,15 @@ pub fn run_terminal(
         struct Screen;
         impl Drop for Screen {
             fn drop(&mut self) {
-                print!("\x1b[?25h\x1b[?1049l");
+                print!("\x1b[?2004l\x1b[0 q\x1b[0m\x1b[?25h\x1b[?1049l");
                 let _ = io::stdout().flush();
             }
         }
         print!("\x1b[?1049h\x1b[?25l");
         let _screen = Screen;
         let origin = Instant::now();
-        let mut last = Vec::new();
+        let mut view = terminal_screen::Screen::default();
+        let mut paused = Duration::ZERO;
         let mut title_keys = std::collections::VecDeque::new();
         loop {
             if terminal
@@ -285,18 +297,21 @@ pub fn run_terminal(
             if let Some(screen) = loaded
                 .presentation
                 .as_ref()
-                .and_then(|sequence| sequence.frame(origin.elapsed()))
+                .and_then(|sequence| sequence.frame(origin.elapsed().saturating_sub(paused)))
             {
                 title_keys.extend(terminal.as_mut().unwrap().poll_batch()?);
-                if last != screen.dos_cells() {
-                    print!("\x1b[H{}", screen.unicode());
-                    io::stdout().flush()?;
-                    last = screen.dos_cells().to_vec();
-                }
+                view.draw(
+                    &mut io::stdout(),
+                    screen.dos_cells(),
+                    None,
+                    settings.btz.file_cursor,
+                )?;
                 terminal.as_mut().unwrap().wait(Duration::from_millis(20))?;
                 continue;
             }
-            loaded.session.set_bios_ticks(bios_ticks(origin.elapsed()));
+            loaded
+                .session
+                .set_bios_ticks(bios_ticks(origin.elapsed().saturating_sub(paused)));
             let mut submitted = loaded.session.input().line_ready();
             let event = loaded.session.advance_with_keyboard(&mut || {
                 if submitted {
@@ -321,19 +336,29 @@ pub fn run_terminal(
                 submitted |= keys.last() == Some(&crate::input::Key::Enter);
                 Ok(keys)
             })?;
-            if last != loaded.session.screen().dos_cells() {
-                print!("\x1b[H{}", loaded.session.screen().unicode());
-                io::stdout().flush()?;
-                last = loaded.session.screen().dos_cells().to_vec();
-            }
-            write_bells(&mut io::stdout(), loaded.session.take_bells(), &audio)?;
+            let (cells, marker) = cursor::game_cells(
+                loaded.session.screen(),
+                loaded.session.input(),
+                reforge_settings::FileCursorStyle::SteadyBlock,
+                Duration::ZERO,
+            );
+            view.draw(
+                &mut io::stdout(),
+                &cells,
+                marker.map(|c| (c.row, c.column)),
+                settings.btz.file_cursor,
+            )?;
+            write_bells(
+                &mut io::stdout(),
+                loaded.session.take_bells(),
+                &settings.audio,
+            )?;
             match event {
                 SessionStep::ReadLine { .. } => {
                     if !loaded.session.input().line_ready() {
-                        terminal
-                            .as_mut()
-                            .unwrap()
-                            .wait(until_next_bios_tick(origin.elapsed()))?;
+                        terminal.as_mut().unwrap().wait(until_next_bios_tick(
+                            origin.elapsed().saturating_sub(paused),
+                        ))?;
                     }
                 }
                 SessionStep::WaitKey => {
@@ -345,16 +370,62 @@ pub fn run_terminal(
                     }
                 }
                 SessionStep::Host(request) => {
+                    if let Some(mut dialog) = file_dialog::begin_selection(&loaded, &request, title)
+                    {
+                        let started = Instant::now();
+                        print!("\x1b[?2004h");
+                        let mut quit = false;
+                        loop {
+                            view.draw(
+                                &mut io::stdout(),
+                                &dialog.cells(),
+                                dialog.cursor_position(),
+                                settings.btz.file_cursor,
+                            )?;
+                            terminal
+                                .as_mut()
+                                .unwrap()
+                                .wait(Duration::from_millis(100))?;
+                            match terminal.as_mut().unwrap().read_dialog()? {
+                                terminal::DialogInput::Idle => (),
+                                terminal::DialogInput::Quit => {
+                                    quit = true;
+                                    break;
+                                }
+                                terminal::DialogInput::Edit(input) => {
+                                    if let Some(action) = dialog.input(input)
+                                        && file_dialog::complete_selection(
+                                            &mut loaded,
+                                            &request,
+                                            &mut dialog,
+                                            action,
+                                        )?
+                                    {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        print!("\x1b[?2004l");
+                        paused += started.elapsed();
+                        view.invalidate();
+                        if quit {
+                            break;
+                        }
+                        continue;
+                    }
                     let prompting = loaded.files.needs_input(&request);
+                    let started = Instant::now();
                     if prompting {
-                        print!("\x1b[25;1H\x1b[K");
+                        print!("\x1b[0m\x1b[0 q\x1b[?25h\x1b[25;1H\x1b[K");
                         io::stdout().flush()?;
                         drop(terminal.take());
                     }
                     let result = loaded.files.handle(&request, true);
                     if prompting {
                         terminal = Some(terminal::Terminal::open()?);
-                        last.clear();
+                        paused += started.elapsed();
+                        view.invalidate();
                     }
                     let reply = match result {
                         Ok(reply) => reply,

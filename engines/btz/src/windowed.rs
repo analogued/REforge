@@ -364,10 +364,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
             }
             if let Some(browser) = &mut file_browser {
                 if file_action.is_none() {
-                    file_action = pad.and_then(|pad| browser.pad(pad));
-                    if file_action.is_none() {
-                        file_action = browser.event(&event, &window);
-                    }
+                    file_action = browser.event_with_settings(&event, pad, &mut menu, &window);
                 }
                 // All keys in this SDL batch belong to the modal UI, including
                 // text events following the Enter/Space that closes it.
@@ -397,7 +394,9 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
             keyboard.keys.clear();
             gamepads.reset();
         }
-        if let Some(browser) = &mut file_browser {
+        if let Some(browser) = &mut file_browser
+            && !menu.is_open()
+        {
             browser.tick();
         }
         // Resizing or replacing the renderer can block. Keep that time outside
@@ -528,6 +527,11 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
             paused || overlay.open() || file_browser.is_some(),
         );
         let blink_on = (epoch.elapsed().as_millis() / 500).is_multiple_of(2);
+        if let Some(browser) = &mut file_browser {
+            browser
+                .dialog
+                .set_cursor_style(window.settings().btz.file_cursor);
+        }
         let browser_cells = file_browser.as_ref().map(|browser| browser.dialog.cells());
         let file_cursor = file_browser
             .as_ref()
@@ -554,10 +558,10 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
             previous_phase = Some(blink_on);
             previous_file_cursor = file_cursor;
         }
-        let status = if overlay.open() || file_browser.is_some() {
-            "Game files"
-        } else if menu.is_open() {
+        let status = if menu.is_open() {
             "Settings"
+        } else if overlay.open() || file_browser.is_some() {
+            "Game files"
         } else if manual_pause {
             "Paused · Pause to resume"
         } else {
@@ -569,7 +573,9 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
         }
         if window.presentation_due() {
             window.present_with(&frame, |canvas| {
-                if file_browser.is_some() {
+                if menu.is_open() {
+                    menu.paint(canvas)
+                } else if file_browser.is_some() {
                     creator.show_pointer();
                     Ok(())
                 } else if overlay.open() {

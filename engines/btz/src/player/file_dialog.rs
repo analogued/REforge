@@ -6,10 +6,11 @@ use std::{
     fs::{self, File},
     io::Read,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime},
 };
 
 use crate::bookmark::{Bookmark, HEADER_BYTES};
+use reforge_settings::FileCursorStyle;
 
 const ROWS: usize = 6;
 const LEFT: usize = 3;
@@ -52,11 +53,6 @@ enum Focus {
     Accept,
     Cancel,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum CursorStyle {
-    Breakers,
-    Steady,
-}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Input {
     Up,
@@ -74,7 +70,6 @@ pub(crate) enum Input {
     Escape,
     SelectAll,
     Text(String),
-    ToggleCursor,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Action {
@@ -114,7 +109,7 @@ pub(crate) struct FileDialog {
     fixed: bool,
     notice: String,
     expected_bytes: usize,
-    cursor_style: CursorStyle,
+    cursor_style: FileCursorStyle,
 }
 
 impl FileDialog {
@@ -141,7 +136,7 @@ impl FileDialog {
             fixed: false,
             notice: String::new(),
             expected_bytes,
-            cursor_style: CursorStyle::Breakers,
+            cursor_style: FileCursorStyle::PulsingUnderline,
         };
         dialog.scan();
         if let Some(index) = dialog.entries.iter().position(|entry| !entry.directory) {
@@ -368,13 +363,6 @@ impl FileDialog {
     }
 
     pub(crate) fn input(&mut self, input: Input) -> Option<Action> {
-        if input == Input::ToggleCursor {
-            self.cursor_style = match self.cursor_style {
-                CursorStyle::Breakers => CursorStyle::Steady,
-                CursorStyle::Steady => CursorStyle::Breakers,
-            };
-            return None;
-        }
         if self.confirm.is_some() {
             match input {
                 Input::Tab(_) | Input::Left(_) | Input::Right(_) => self.yes = !self.yes,
@@ -557,13 +545,16 @@ impl FileDialog {
     fn visible_start(&self) -> usize {
         self.caret.saturating_sub(WIDTH - 2)
     }
+    pub(crate) fn set_cursor_style(&mut self, style: FileCursorStyle) {
+        self.cursor_style = style;
+    }
     pub(crate) fn cursor(&self, elapsed: Duration) -> Option<Cursor> {
         if self.confirm.is_some() || self.focus != Focus::Name {
             return None;
         }
         let height = match self.cursor_style {
-            CursorStyle::Steady => 8,
-            CursorStyle::Breakers => {
+            FileCursorStyle::SteadyBlock => 8,
+            FileCursorStyle::PulsingUnderline => {
                 1 + ((elapsed.as_nanos() * 60 / (8 * 1_000_000_000)) % 2) as usize
             }
         };
@@ -589,7 +580,7 @@ impl FileDialog {
             0,
         );
         screen.text(LEFT + 2, 8, "Name", false, 0);
-        screen.text(51, 8, "Modified (UTC)", false, 0);
+        screen.text(51, 8, "Modified", false, 0);
         for (offset, entry) in self.entries.iter().skip(self.top).take(ROWS).enumerate() {
             let selected = self.selected == self.top + offset
                 && self.focus == Focus::List
@@ -657,7 +648,7 @@ impl FileDialog {
             screen.text(
                 LEFT,
                 22,
-                "Left/Right Select   Enter Confirm   Esc Back",
+                "Left/Right Select   Enter Confirm   Esc Back   F10 Settings",
                 false,
                 0,
             );
@@ -706,13 +697,7 @@ impl FileDialog {
             screen.text(
                 LEFT,
                 23,
-                &format!(
-                    "PgUp/PgDn Page  Backspace Parent  F2 Cursor: {}",
-                    match self.cursor_style {
-                        CursorStyle::Breakers => "Breakers",
-                        CursorStyle::Steady => "Steady block",
-                    }
-                ),
+                "PgUp/PgDn Page   Backspace Parent   F10 Settings",
                 false,
                 0,
             );
@@ -775,58 +760,14 @@ impl Screen {
     }
 }
 fn date(time: SystemTime) -> String {
-    let Ok(elapsed) = time.duration_since(UNIX_EPOCH) else {
-        return String::new();
-    };
-    let seconds = elapsed.as_secs();
-    let mut days = seconds / 86400;
-    let mut year = 1970;
-    if days > 2_932_896 {
-        return String::new();
-    }
-    loop {
-        let count = if leap(year) { 366 } else { 365 };
-        if days < count {
-            break;
-        }
-        days -= count;
-        year += 1;
-    }
-    let months = [
-        31,
-        if leap(year) { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    let mut month = 0;
-    while days >= months[month] {
-        days -= months[month];
-        month += 1;
-    }
-    format!(
-        "{year:04}-{:02}-{:02} {:02}:{:02}",
-        month + 1,
-        days + 1,
-        seconds % 86400 / 3600,
-        seconds % 3600 / 60
-    )
-}
-fn leap(year: u64) -> bool {
-    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
+    reforge_sdl::format_local_timestamp(time).unwrap_or_default()
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::UNIX_EPOCH;
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     pub(crate) struct Directory(pub PathBuf);
     impl Directory {
@@ -1016,7 +957,7 @@ pub(crate) mod tests {
             .into();
         assert_eq!(heights, [1, 1, 2, 2, 1]);
         type_name(&mut dialog, "CURSOR");
-        dialog.input(Input::ToggleCursor);
+        dialog.set_cursor_style(FileCursorStyle::SteadyBlock);
         assert_eq!(dialog.cursor(Duration::ZERO).unwrap().height, 8);
         assert_eq!(dialog.cursor(Duration::from_secs(1)).unwrap().height, 8);
         assert_eq!(name(&dialog), "CURSOR");
@@ -1065,13 +1006,38 @@ pub(crate) mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn utc_dates_cover_epoch_leap_year_and_pre_epoch() {
-        assert_eq!(date(UNIX_EPOCH), "1970-01-01 00:00");
+    fn local_dates_follow_timezone_and_daylight_saving() {
+        const NAME: &str =
+            "player::file_dialog::tests::local_dates_follow_timezone_and_daylight_saving";
+        if std::env::var("REFORGE_BTZ_LOCAL_DATE").as_deref() != Ok("child") {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env("REFORGE_BTZ_LOCAL_DATE", "child")
+                .env("TZ", "EST5EDT,M3.2.0,M11.1.0")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        assert_eq!(date(UNIX_EPOCH), "1969-12-31 19:00");
         assert_eq!(
-            date(UNIX_EPOCH + Duration::from_secs(951_782_400)),
-            "2000-02-29 00:00"
+            date(UNIX_EPOCH - Duration::from_secs(1)),
+            "1969-12-31 18:59"
         );
-        assert_eq!(date(UNIX_EPOCH - Duration::from_secs(1)), "");
+        assert_eq!(
+            date(UNIX_EPOCH + Duration::from_secs(1_704_110_400)),
+            "2024-01-01 07:00"
+        );
+        assert_eq!(
+            date(UNIX_EPOCH + Duration::from_secs(1_719_835_200)),
+            "2024-07-01 08:00"
+        );
     }
 }

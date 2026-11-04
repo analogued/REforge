@@ -14,6 +14,25 @@ pub(super) struct FileBrowser {
 }
 
 impl FileBrowser {
+    /// Settings owns input above a suspended chooser. Consume the closing event
+    /// as well, so Escape cannot also cancel the underlying file operation.
+    pub(super) fn event_with_settings(
+        &mut self,
+        event: &Event,
+        pad: Option<PadEvent>,
+        menu: &mut SettingsMenu<'_>,
+        window: &Window,
+    ) -> Option<Action> {
+        let was_open = menu.is_open();
+        let pad_consumed = pad.is_some_and(|pad| menu.handle_gamepad(pad));
+        if menu.handle_event(event) || pad_consumed || was_open || menu.is_open() {
+            self.held = None;
+            return None;
+        }
+        pad.and_then(|pad| self.pad(pad))
+            .or_else(|| self.event(event, window))
+    }
+
     pub(super) fn begin(loaded: &Loaded, request: &HostRequest, title: &str) -> Option<Self> {
         let (operation, fixed) = match request {
             HostRequest::SaveBookmark { .. } => {
@@ -51,7 +70,6 @@ impl FileBrowser {
             Event::KeyDown {
                 keycode: Some(key),
                 keymod,
-                repeat,
                 ..
             } => {
                 if keymod.intersects(Mod::LALTMOD | Mod::RALTMOD) {
@@ -99,7 +117,6 @@ impl FileBrowser {
                     Keycode::Tab => Input::Tab(select),
                     Keycode::Escape => Input::Escape,
                     Keycode::Return | Keycode::KpEnter | Keycode::Return2 => Input::Enter,
-                    Keycode::F2 if !repeat => Input::ToggleCursor,
                     _ => return None,
                 };
                 self.dialog.input(input)
@@ -316,7 +333,9 @@ mod tests {
         let random = loaded.session.random_state();
         browser.dialog.input(Input::Text("first-save".into()));
         browser.dialog.cells();
-        browser.dialog.input(Input::ToggleCursor);
+        browser
+            .dialog
+            .set_cursor_style(reforge_settings::FileCursorStyle::SteadyBlock);
         assert_eq!(loaded.session.screen().dos_cells(), screen);
         assert_eq!(loaded.session.vm().state().variables, variables);
         assert_eq!(loaded.session.vm().state().ip, ip);
@@ -484,6 +503,104 @@ mod tests {
         let dir = Directory::new();
         let mut loaded = loaded(&dir);
         let request = host(&mut loaded);
+        let creator = window.texture_creator();
+        let mut menu =
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_btz_options(false);
+        for operation in [
+            request.clone(),
+            HostRequest::LoadBookmark,
+            HostRequest::TranscriptName {
+                prompt: Vec::new(),
+                max_bytes: 28,
+            },
+        ] {
+            let mut chooser = FileBrowser::begin(&loaded, &operation, "Mindwheel").unwrap();
+            chooser.dialog.click(3, 18, false);
+            chooser.dialog.input(Input::SelectAll);
+            chooser
+                .dialog
+                .input(Input::Text("retained-filename".into()));
+            let before = chooser.dialog.cells();
+            let mut f10 = key(Keycode::F10, Mod::NOMOD);
+            if let Event::KeyDown { scancode, .. } = &mut f10 {
+                *scancode = Some(reforge_sdl::sdl3::keyboard::Scancode::F10);
+            }
+            assert!(
+                chooser
+                    .event_with_settings(&f10, None, &mut menu, &window)
+                    .is_none()
+            );
+            assert!(menu.is_open());
+            window.prepare_settings(&mut menu);
+            assert!(
+                chooser
+                    .event_with_settings(
+                        &Event::TextInput {
+                            timestamp: 0,
+                            window_id: 0,
+                            text: "menu-only".into()
+                        },
+                        None,
+                        &mut menu,
+                        &window
+                    )
+                    .is_none()
+            );
+            let mut escape = key(Keycode::Escape, Mod::NOMOD);
+            if let Event::KeyDown { scancode, .. } = &mut escape {
+                *scancode = Some(reforge_sdl::sdl3::keyboard::Scancode::Escape);
+            }
+            assert!(
+                chooser
+                    .event_with_settings(&escape, None, &mut menu, &window)
+                    .is_none()
+            );
+            assert!(!menu.is_open());
+            chooser.event_with_settings(
+                &Event::KeyUp {
+                    timestamp: 0,
+                    window_id: 0,
+                    which: 0,
+                    raw: 0,
+                    scancode: Some(reforge_sdl::sdl3::keyboard::Scancode::Escape),
+                    keycode: Some(Keycode::Escape),
+                    keymod: Mod::NOMOD,
+                    repeat: false,
+                },
+                None,
+                &mut menu,
+                &window,
+            );
+            assert_eq!(chooser.dialog.cells(), before);
+            assert_eq!(host(&mut loaded), request);
+            assert!(
+                chooser
+                    .event_with_settings(&f10, None, &mut menu, &window)
+                    .is_none()
+            );
+            assert!(menu.is_open());
+            assert!(
+                chooser
+                    .event_with_settings(&f10, None, &mut menu, &window)
+                    .is_none()
+            );
+            assert!(!menu.is_open());
+            assert_eq!(chooser.dialog.cells(), before);
+            if !matches!(operation, HostRequest::LoadBookmark) {
+                let path = dir.0.join("retained-filename");
+                std::fs::write(&path, b"old file").unwrap();
+                assert!(chooser.dialog.input(Input::Enter).is_none());
+                let confirmation = chooser.dialog.cells();
+                assert_ne!(confirmation, before);
+                chooser.event_with_settings(&f10, None, &mut menu, &window);
+                assert!(menu.is_open());
+                chooser.event_with_settings(&f10, None, &mut menu, &window);
+                assert!(!menu.is_open());
+                assert_eq!(chooser.dialog.cells(), confirmation);
+                assert_eq!(std::fs::read(&path).unwrap(), b"old file");
+                std::fs::remove_file(path).unwrap();
+            }
+        }
         let mut browser = FileBrowser::begin(&loaded, &request, "Mindwheel").unwrap();
         let metrics = window.ui_metrics();
         let cancel = Event::MouseButtonDown {

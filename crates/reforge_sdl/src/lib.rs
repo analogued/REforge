@@ -27,6 +27,8 @@ mod settings_software;
 mod settings_ui;
 pub mod ui;
 pub use input::{EventClockSample, HostPause, HostShortcut, event_clock_sample, host_shortcut};
+mod datetime;
+pub use datetime::format_local_timestamp;
 use reforge_settings::Session;
 pub use resources::FrameCreator;
 use std::cell::{Cell, RefCell};

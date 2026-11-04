@@ -135,9 +135,13 @@ when the list has focus. Click to select, double-click to open, or use a
 controller's directions, confirm/cancel and shoulder buttons. Bookmarks are
 recognized from their contents, including files without an extension.
 
-The game pauses while the browser is open. Its filename cursor stays visible,
-alternating between a thin and slightly taller underline. F2 switches to a steady
-block for comparison; this choice lasts only while that browser is open.
+The game pauses while the browser is open. Modification dates use your system's
+local timezone. F10 opens Settings and returns to the same file dialog when closed.
+Under the game's Display overrides, the final Text interface section selects
+the file-dialog cursor: Pulsing underline (the default) stays visible while
+alternating between two heights; Steady block reverses the colours of the
+character underneath. Apply saves the choice for that game. Terminal play retains
+this preference for the next windowed session.
 
 The optional `--bookmark-path file` and `--transcript-path file` launch options
 skip their respective filename prompts and use those fixed files for the whole

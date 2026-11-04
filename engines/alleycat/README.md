@@ -282,7 +282,8 @@ new garments, update landing supports, and carry an attached cat. Their original
 call countdown, BIOS-tick and retrace gates control motion; scrolling pauses when
 the cat is airborne in the relevant row. Releasing a cat at a clothesline edge
 starts a fall without losing a life. The renderer composes complete scenery and
-cat images rather than simulating partially updated display memory.
+cat images rather than simulating partially updated display memory; see the
+[composition policy](docs/deviations.md#scene-and-sprite-composition).
 
 The bin cat emerges from randomly selected bins and pushes a supported player
 off on contact. It also alerts the alley dog. The dog enters from a screen edge,

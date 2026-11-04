@@ -95,6 +95,16 @@ This policy applies only to pairing frames. Other presentation drawing costs,
 including the shared large cat's approach animation, retain their measured
 allowances. The older DOSBox timing profile retains its byte-based drawing costs.
 
+## Scene and sprite composition
+
+The original draws into display memory in stages and restores saved sprite
+backgrounds. REforge constructs complete destination scenery before presenting
+it and composes the current scenery, player and actor layers without reproducing
+stale saved-background fragments or intermediate CGA-bank/tile writes. This is
+a deliberate presentation choice to avoid incidental drawing artifacts. The
+stepped transition wipes remain visible; see the
+[timing reference](timing.md#ordinary-room-scoring-presentation) for their schedule.
+
 ## Pause controls
 
 The original pauses on Esc and resumes on any key press. The recreation toggles
@@ -105,6 +115,12 @@ change pause state. Ctrl+Q and the window close button quit, including while
 paused. Ctrl+Q follows the Q letter in the current keyboard layout.
 There is currently no development override for the original any-key
 resume behavior.
+
+Pause also freezes the complete virtual clock, including PIT and retrace phases.
+The original restores the BIOS tick count on resume without restoring those
+hardware phases. REforge excludes the paused interval from host pacing, so
+resuming does not catch up that elapsed time. See the
+[host pacing and pause details](timing.md#blocking-effects-and-diagnostic-modes).
 
 ## Startup and keyboard menu
 

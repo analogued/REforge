@@ -5,6 +5,9 @@ challenges, and reach the female cat in the Hearts stage. REforge includes all
 five ordinary rooms, the underwater section and the Hearts bonus scene, with
 PC Speaker music and effects.
 
+Ordinary movement has more consistent pacing across rooms, and selected
+animations play more smoothly.
+
 > [!IMPORTANT]
 > REforge does not include original Alley Cat assets or data. You must provide
 > the original files from a supported release. See [What you need](#what-you-need)
@@ -66,14 +69,13 @@ jump physics. To use the original polling behavior, open
 **Override global defaults** to edit, then Apply.
 
 **CGA or PCjr graphics:** CGA is the default. Add `--machine pcjr` to select
-PCjr graphics and the original mode-specific timing rules. In the fishbowl,
-PCjr changes fish and eel cadence near the surface and adds a wait to the cat's
-movement there, so the pace can vary as the cat swims up or down. Both modes
-currently use PC Speaker sound.
+PCjr graphics. The modes also retain their original pacing differences;
+underwater play can feel more variable in PCjr. Both modes currently use
+PC Speaker sound.
 
 **Starting skill:** use the menu, or add `--difficulty 0`, `1`, `2` or `3` for
-Kitten through Alley Cat. The command line also accepts the later progression
-levels `4` through `7`.
+Kitten through Alley Cat. The command line also lets you start directly at the
+later progression levels `4` through `7`.
 
 **Startup seed:** normal launches choose a timer-derived seed, printed in the
 terminal. Add `--seed 0xfa59` (or another value from 2 through 65535) to repeat a
@@ -89,8 +91,8 @@ independent of the menu's host mute and volume controls.
 
 Only the supported DOS executable is accepted. The original movement and landing
 quirks are retained, so a difficult jump is not automatically an input fault.
-Hardware timing is reconstructed and adjusted in selected places; exact behavior
-on every historical machine is not guaranteed.
+Hardware timing is reconstructed; exact behavior on every historical machine
+is not guaranteed.
 
 For implementation details and the intentional changes, see the
 [engine documentation](../../engines/alleycat/README.md) and

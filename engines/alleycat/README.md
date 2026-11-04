@@ -103,8 +103,8 @@ below the question. Press another key to start. These choices select initial
 internal difficulties 0 through 3; progression can reach 7.
 Ctrl+Q or window close quits during startup as well. F10 opens the shared
 settings panel during startup, play or the later title. Window mode/scale,
-renderer/backend, VSync, CRT treatment and audio controls are activated and saved with Apply; Cancel, Escape
-or F10 discards pending edits.
+renderer/backend, VSync, CRT treatment and audio controls are activated and saved
+with Apply; Cancel, Escape or F10 discards pending edits.
 The panel pauses animation and gameplay, then restores the previous pause state.
 Its keys do not dismiss native questions or reach gameplay; keys held on closing
 must be released before they control the game. The REforge app saves global and
@@ -146,12 +146,15 @@ attributed adaptation of the same glyphs from
 [`reforge_graphics`](../../crates/reforge_graphics/README.md), including in
 headless builds.
 
-`--machine pcjr` selects the PCjr palette and player countdown; the default is
-`cga`. Both modes use the same packed 320×200, four-colour framebuffer. Pixels
-have a 5:6 width-to-height ratio and are displayed at 4:3, with nearest-neighbor
-sampling by default. The engine declares both its native 320×200 grid and
-320×240 display base to the shared renderer/menu. Settings can instead select
-Square pixels (8:5); the preference changes presentation only.
+`--machine pcjr` selects PCjr graphics and mode-specific timing rules; the default
+is `cga`. These include the player countdown and height-dependent fishbowl pacing:
+near the surface, fish and eels have more update opportunities while the cat's
+movement adds a retrace wait and counted delay. Both modes use the same packed
+320×200, four-colour framebuffer. Pixels have a 5:6 width-to-height ratio and are
+displayed at 4:3, with nearest-neighbor sampling by default. The engine declares
+both its native 320×200 grid and 320×240 display base to the shared renderer/menu.
+Settings can instead select Square pixels (8:5); the preference changes
+presentation only.
 `--presentation hyllian` enables the shared Hyllian CRT
 shader; `--presentation pixels` selects the default discrete pixels. Shader
 unavailability warns and falls back to pixels. Presentation selection is ignored
@@ -161,8 +164,9 @@ The default `--scale auto` opens a compact normal window at the largest integer
 display multiple that fits the compositor's maximum client area, accounting for
 panels and decorations. It briefly measures that area through maximization before
 restoring the final window; unavailable maximization falls back to scale 4.
-With the default Original display ratio, `--scale N`, from 1 through 16, selects an initial drawable target of
-`320*N` × `240*N` pixels. Use `--scale 3` for 960×720 or `--scale 4` for 1280×960.
+With the default Original display ratio, `--scale N`, from 1 through 16, selects
+an initial drawable target of `320*N` × `240*N` pixels. Use `--scale 3` for 960×720
+or `--scale 4` for 1280×960.
 The default Integer fit uses whole multiples of the selected display area inside
 the granted window. Shared settings also offer fractional fitting or Stretch,
 and Nearest or Linear sampling for Sharp pixels. Stretch fills the window and
@@ -409,14 +413,16 @@ The menu preserves that state, including native sound-toggle changes. Explicit
 manual restarts retain the chosen startup seed and reset room history;
 direct development scene starts bypass the title. The later game-over title
 carries the previous run's random state into its animation and next run.
-Windowed execution uses a virtual BIOS/PIT
-clock, two-tick control
-polling, the original 32/16-call player countdown, and a retrace gate for idle
-movement. Measured alley costs use a stock 4.77 MHz 8088 XT reference captured
-with MartyPC. The same practical baseline serves both display modes, preserving
-the native PCjr countdown/count branches. Comparable ordinary movement actions
-share normalized costs; support searches and floor-mark drawing do not slow
-them down. Other loop costs are fitted approximations, and unmeasured work
+Windowed execution uses a virtual BIOS/PIT clock and the original 32/16-call
+player countdown. Responsive input is the interactive default and samples
+direction and action requests on each ordinary pass; Original input uses the
+modeled two-BIOS-tick control poll. Both preserve the movement gates: idle
+movement requires retrace, and underwater movement requires it even while moving.
+Measured alley costs use a stock 4.77 MHz 8088 XT reference captured with MartyPC.
+The same practical baseline serves both display modes, preserving the native
+PCjr countdown/count branches. Comparable ordinary movement actions share
+normalized costs; support searches and floor-mark drawing do not slow them down.
+Other loop costs are fitted approximations, and unmeasured work
 retains provisional costs from the earlier DOSBox profile. Whole-game
 original-PC timing fidelity is not established.
 Rendering refresh does not determine game ticks. See
@@ -443,8 +449,9 @@ Without `--steps`, a script runs for its row count; additional requested updates
 use neutral controls.
 
 Add `--timed` to execute virtual loop attempts, input polls and rejected player
-calls without wall-clock waits. Timed headless runs stop early at game over. Script rows still select held directions by
-accepted-update index; they are not timestamped hardware input recordings.
+calls without wall-clock waits. Timed headless runs stop early at game over.
+Script rows still select held directions by accepted-update index; they are not
+timestamped hardware input recordings.
 `--trace-timing /path/to/timing.csv` records guest times, BIOS/PIT samples,
 retrace, polling, acceptance, actor-divider events, scene changes and blocking waits.
 It also records post-pass ordinary-room history, random state, difficulty and pending

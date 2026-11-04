@@ -66,7 +66,10 @@ jump physics. To use the original polling behavior, open
 **Override global defaults** to edit, then Apply.
 
 **CGA or PCjr graphics:** CGA is the default. Add `--machine pcjr` to select
-the PCjr palette. Both modes currently use PC Speaker sound.
+PCjr graphics and the original mode-specific timing rules. In the fishbowl,
+PCjr changes fish and eel cadence near the surface and adds a wait to the cat's
+movement there, so the pace can vary as the cat swims up or down. Both modes
+currently use PC Speaker sound.
 
 **Starting skill:** use the menu, or add `--difficulty 0`, `1`, `2` or `3` for
 Kitten through Alley Cat. The command line also accepts the later progression

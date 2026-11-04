@@ -2,7 +2,7 @@
 name = "alleycat"
 version.workspace = true
 edition = "2024"
-rust-version = "1.87"
+rust-version = "1.88"
 publish = false
 license.workspace = true
 description = "Alley Cat reconstruction for modern desktop systems"

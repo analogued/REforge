@@ -121,9 +121,10 @@ An active window advances one packed row per accepted step and holds at phase
 animation. Entry (`1b05`) requires a descending cat, no forced-fall latch,
 player Y below 96, and phase 5 through 24. The caller dispatches entry after
 the remaining actor batch, including any blocking mouse knockdown. Projectile
-launching during the phase-15 hold consumes the original shared random draws. The original one-tick hold at
-difficulty 6 is corrected to 18 ticks by default; development builds can
-restore it with `--original-window-timing`. See [deliberate deviations](deviations.md).
+launching during the phase-15 hold consumes the original shared random draws.
+The original one-tick hold at difficulty 6 is corrected to 18 ticks by default;
+development builds can restore it with `--original-window-timing`.
+See [deliberate deviations](deviations.md).
 
 New fence support at Y96 records the accepted BIOS tick at `0556`. Continued
 support preserves it; leaving and landing again starts a new interval. After
@@ -222,9 +223,9 @@ hearts attempts leave it unchanged: birdcage → hearts failure → birdcage →
 hearts failure still leaves two birdcage selections in history, so the next
 ordinary selection must differ. Direct `--scene` previews bypass selection and
 do not enter that history.
-Success preserves the pending-bonus flag; the next eligible window selects scene
-7 without
-advancing the selector's random state or ordinary candidate history.
+Success preserves the pending-bonus flag; the next eligible window selects
+scene 7 without advancing the selector's random state or ordinary candidate
+history.
 
 Room tones emit ordered speaker writes. A pending tone expires once per
 distinct tick rather than catching up skipped ticks. Initial and continuation
@@ -417,17 +418,19 @@ stages, without additional random draws from the presentation helpers.
 
 The original sets scene zero before presentation. The recreation's scene
 diagnostic retains the completed room number until the alley has been
-initialized; a dedicated completion state blocks all room work meanwhile. With `dev-tools`,
-`--scene completion` starts this sequence directly for testing. The pending bonus flag survives alley
-return and selects the hearts scene at the next eligible window entry.
+initialized; a dedicated completion state blocks all room work meanwhile.
+With `dev-tools`, `--scene completion` starts this sequence directly for testing.
+The pending bonus flag survives alley return and selects the hearts scene at
+the next eligible window entry.
 
 ### Milk room schedule
 
 Scene 6 runs controls, pending-tone expiration, drinking (`4943`), sleeping-dog
 attention (`47d6`), ordinary player movement, then the broom while alive or
-shared ground-dog pursuit while dying, before checking success, failure or exit. Its twelve bowls and seeded sleeping-dog placement use
-external tables. Drinking rejects unchanged BIOS ticks, selects the closest
-unfinished bowl on the exact matching level, and favors the lower slot on ties.
+shared ground-dog pursuit while dying, before checking success, failure or exit.
+Its twelve bowls and seeded sleeping-dog placement use external tables. Drinking
+rejects unchanged BIOS ticks, selects the closest unfinished bowl on the exact
+matching level, and favors the lower slot on ties.
 The original SUB/NOT distance calculation is retained. Alignment replaces the
 latched horizontal request; successful drinking advances an eight-bit phase by
 48, consuming milk only when that addition carries. Emptying the final bowl
@@ -460,11 +463,12 @@ lead to hearts.
 
 Scene 7 runs controls, pending-tone expiration, common player movement, arrows
 (`6106`), automatic pickup (`2f66`), Alt-key placement (`2e60`) and cats (`4c10`),
-then tests success/exit. Action is latched by the same two-tick input poll as
-directions. These calls bypass the alley's actor divider. Arrows and pickup
-reject unchanged BIOS ticks; the cat scheduler commits its tick only at indices
-1, 4 and 0, allowing the other cats within a group to run in that same tick.
-
+then tests success/exit. With Original input, action is latched by the same
+two-BIOS-tick input poll as directions; the interactive default, Responsive,
+refreshes both on each ordinary pass. These calls bypass the alley's actor
+divider. Arrows and pickup reject unchanged BIOS ticks; the cat scheduler commits
+its tick only at indices 1, 4 and 0, allowing the other cats within a group to run
+in that same tick.
 
 The stock-XT profile prices these four native calls by their executed paths,
 rather than a shared room gate and generic drawing increment. Equal-tick returns,
@@ -1058,10 +1062,11 @@ work, endpoint player-background work and optional broom drawing/restoration.
 The 120-byte broom restoration reuses its measured shared allowance; transfer
 broom drawing has its own increment, excluding the movement decisions in `3150`.
 Hidden-broom start measures 5.267 ms and dog-suppressed broom start 2.248 ms,
-checking that optional work is counted once. Measured inactive, same-tick, cooldown, collected-slot and broom-blocked returns
-use the quiet costs below. Other contacts and active paths retain their existing
-gate. These are selected native-muted paths, not complete difficulty-specific
-room loops or exhaustive random-retry timing.
+checking that optional work is counted once. Measured inactive, same-tick,
+cooldown, collected-slot and broom-blocked returns use the quiet costs below.
+Other contacts and active paths retain their existing gate. These are selected
+native-muted paths, not complete difficulty-specific room loops or exhaustive
+random-retry timing.
 
 Milk drinking (`4943`) measures about 0.010 ms during pursuit, 0.097 ms for a
 rejected tick, 0.160 ms for released action, 0.398 ms for a bowl-height miss and
@@ -1152,11 +1157,12 @@ body also redraws the player after contacts, as the native caller does. Final-fi
 success and immune/sinking eel contacts retain native ordering and reactivation.
 Lethal eel-contact work has separate bounded measurements. A single-slot active
 miss costs about 0.107 ms, versus 0.145–0.146 ms for a lethal decision. Its
-0.0386 ms increment is retained only for unsupported diagnostic combinations. The opaque failure-image
-copy (`3506..3538`) costs about 1.526 ms across eight sampled positions, including
-its coordinate clamps. Movement, player drawing, the scanned contacts and this
-image are charged before sampling the thirteen-tick effect's baseline. The
-post-contact player redraw is not charged before a lethal wait.
+0.0386 ms increment is retained only for unsupported diagnostic combinations.
+The opaque failure-image copy (`3506..3538`) costs about 1.526 ms across eight
+sampled positions, including its coordinate clamps. Movement, player drawing,
+the scanned contacts and this image are charged before sampling the thirteen-tick
+effect's baseline. The post-contact player redraw is not charged before a lethal
+wait.
 
 A lethal scan records how many slots it visited and actively tested. Complete
 prefix captures (`34a0` to `3506`) cover lethal slots 12, 16 and 23 with varying
@@ -1336,7 +1342,8 @@ interrupt phase can change individual durations. The appended caller's relocated
 CALLs and final RET also limit instruction-level equivalence. Initialization
 currently samples supplied BIOS time rather than reproducing each internal
 timer-read position. Full scenery construction and initial startup work remain
-separate; these small setup charges neither add bulk construction waits nor expose partial CGA-bank writes.
+separate; these small setup charges neither add bulk construction waits nor
+expose partial CGA-bank writes.
 
 ### Failure presentation execution costs
 
@@ -1360,8 +1367,9 @@ whole durations depend on PIT entry phase and do not replace the original
 28-step message reveal or four-tick dog frame gate. Each message wait starts
 after drawing; the final return retains its last drawing baseline. Complete
 failure playback and surrounding transition costs remain outside these helper
-fits. Life/message rotation uses the separate bookkeeping allowance below. The older DOSBox profile retains generic
-byte-based pricing, now including previously uncounted dog header/detail bytes.
+fits. Life/message rotation uses the separate bookkeeping allowance below.
+The older DOSBox profile retains generic byte-based pricing, now including
+previously uncounted dog header/detail bytes.
 
 ### Blocking effects and diagnostic modes
 

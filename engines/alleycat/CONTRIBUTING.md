@@ -3,7 +3,7 @@
 Follow [REforge's contributing guide](../../CONTRIBUTING.md) for formatting,
 commit conventions, licensing and shared validation. The `alleycat` engine is a
 package in the combined Cargo workspace and uses its root `Cargo.lock`. Rust
-1.87 or newer is required. Keep game-specific file formats, gameplay, timing,
+1.88 or newer is required. Keep game-specific file formats, gameplay, timing,
 randomness and input behavior within this crate. Preserve imported code
 attribution and license notices; see the shared
 [dependency notices](../../THIRD_PARTY.md).

@@ -8,6 +8,8 @@ use crate::{
     gameplay::{Steering, raster::Layer},
 };
 
+mod composition;
+
 fn assets() -> GraphicsAssets {
     GraphicsAssets {
         primary: vec![0x1b; 28_960],

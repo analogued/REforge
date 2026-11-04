@@ -30,6 +30,14 @@ Shared presentation tests (`cargo test --locked -p reforge_sdl`) use offscreen
 surfaces and require no desktop display. Tests must use authored synthetic data
 and must not import original game files, extracted assets or private captures.
 
+`cargo test --locked -p mach3 --no-default-features whole_scene` runs the
+authored whole-scene compositor fixtures. An independent per-pixel painter uses
+explicit screen positions and drawing order to check overlapping actors, gate
+geometry, partial-pass artwork, viewport edges, banking, damage and slot reuse.
+It compares every pixel in memory and reports at most twelve differing pixels
+per failed frame; it creates no image files. These checks validate composition
+of synthetic observations, not original-data fidelity or live delivery quality.
+
 ## Build features and tools
 
 The default `sdl` feature enables windowed playback and requires SDL3 development

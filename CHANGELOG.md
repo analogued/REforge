@@ -7,6 +7,8 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Fix launcher filtering, retain valid launch choices when another preference is invalid, and use the saved global controller dead zone for launcher navigation.
+- Identify temporary game settings for unregistered launches and disable next-launch-only edits that cannot be saved.
 - Keep dialogs, text and images visible after changing the graphical renderer,
   including when a failed change restores the previous renderer.
 

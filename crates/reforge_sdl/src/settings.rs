@@ -1294,15 +1294,135 @@ mod tests {
 
     #[test]
     #[ignore = "owns SDL video; run serially with dummy/software"]
-    fn alleycat_controls_scope_draft_and_live_apply() {
-        use reforge_settings::{CONTROL_MODE, ControlMode, Launch, Patch, Session};
-        fn draw(menu: &mut SettingsMenu<'_>, events: Vec<egui::Event>) -> egui::FullOutput {
+    fn temporary_settings_explain_storage_and_disable_startup_only_edits() {
+        use reforge_settings::{Launch, Patch};
+        fn draw(menu: &mut SettingsMenu<'_>) -> egui::FullOutput {
             let context = menu.context.clone();
             let screen = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 800.0));
             context.run(
                 egui::RawInput {
                     screen_rect: Some(screen),
-                    time: Some(menu.started.elapsed().as_secs_f64()),
+                    ..Default::default()
+                },
+                |ctx| {
+                    crate::settings_ui::draw(menu, ctx, screen);
+                },
+            )
+        }
+        fn label(output: &egui::FullOutput, name: &str) -> Option<egui::Rect> {
+            output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == name => {
+                    Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+                }
+                _ => None,
+            })
+        }
+        for (index, registered, configured) in
+            [(0, true, true), (1, false, true), (2, false, false)]
+        {
+            let path = std::env::temp_dir().join(format!(
+                "reforge-storage-ui-{}-{index}.toml",
+                std::process::id()
+            ));
+            assert!(!path.exists());
+            let _guard = Launch {
+                game_id: "mach-3".into(),
+                entry_id: registered.then(|| "copy".into()),
+                path: configured.then(|| path.clone()),
+                cli: Patch::from([
+                    ("renderer".into(), "software".into()),
+                    ("vsync".into(), "false".into()),
+                ]),
+            }
+            .install();
+            let display = crate::Window::new("settings storage", 320, 240, Some(4)).unwrap();
+            let creator = display.texture_creator();
+            let mut menu =
+                SettingsMenu::new(&creator, VideoCapabilities::default()).with_mach3_options(None);
+            menu.toggle();
+            menu.prepare(display.ui_metrics(), display.settings());
+            menu.scope = 1;
+            menu.page = 2;
+            menu.game_editing[2] = true;
+            draw(&mut menu);
+            let output = draw(&mut menu);
+            let checkbox = if registered {
+                "Override global defaults · only differences are saved"
+            } else {
+                "Override global defaults · this run only"
+            };
+            assert!(label(&output, checkbox).is_some());
+            let sample = label(&output, "On").unwrap().center();
+            // Try to open the sample selector: temporary runs must not offer
+            // next-launch edits that cannot survive to the next launch.
+            for pressed in [true, false] {
+                let context = menu.context.clone();
+                let _ = context.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            Pos2::ZERO,
+                            Vec2::new(1000.0, 800.0),
+                        )),
+                        events: vec![
+                            egui::Event::PointerMoved(sample),
+                            egui::Event::PointerButton {
+                                pos: sample,
+                                button: egui::PointerButton::Primary,
+                                pressed,
+                                modifiers: egui::Modifiers::NONE,
+                            },
+                        ],
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        crate::settings_ui::draw(&mut menu, ctx, ctx.screen_rect());
+                    },
+                );
+            }
+            let output = draw(&mut menu);
+            assert_eq!(label(&output, "Off").is_some(), registered);
+            assert_eq!(
+                label(
+                    &output,
+                    "Digitized samples requires saved game settings; it applies on next launch."
+                )
+                .is_some(),
+                !registered
+            );
+            assert!(!path.exists());
+        }
+        let _guard = Launch {
+            game_id: "breakers".into(),
+            entry_id: None,
+            path: None,
+            cli: Patch::from([("renderer".into(), "software".into())]),
+        }
+        .install();
+        let display = crate::Window::new("Breakers scope", 640, 480, Some(1)).unwrap();
+        let creator = display.texture_creator();
+        let mut menu =
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_btz_options(false);
+        menu.toggle();
+        menu.prepare(display.ui_metrics(), display.settings());
+        draw(&mut menu);
+        assert!(label(&draw(&mut menu), "Breakers overrides").is_some());
+    }
+
+    #[test]
+    #[ignore = "owns SDL video; run serially with dummy/software"]
+    fn alleycat_controls_scope_draft_and_live_apply() {
+        use reforge_settings::{CONTROL_MODE, ControlMode, Launch, Patch, Session};
+        fn draw(menu: &mut SettingsMenu<'_>, events: Vec<egui::Event>) -> egui::FullOutput {
+            let context = menu.context.clone();
+            let screen = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 800.0));
+            let time = context.input(|input| input.time) + 0.05;
+            // Keep subsequent production prepare calls on the same clock.
+            menu.started = Instant::now() - std::time::Duration::from_secs_f64(time);
+            context.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    // Advance a fixed UI clock so wheel smoothing is independent of CPU speed.
+                    time: Some(time),
                     events,
                     ..Default::default()
                 },
@@ -1321,7 +1441,15 @@ mod tests {
         }
         fn click(menu: &mut SettingsMenu<'_>, name: &str) {
             draw(menu, vec![]);
-            let mut target = label(&draw(menu, vec![]), name);
+            let visible = |output: &egui::FullOutput| {
+                label(output, name).filter(|rect| {
+                    output.shapes.iter().any(|shape| {
+                    matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == name)
+                        && shape.clip_rect.contains(rect.center())
+                })
+                })
+            };
+            let mut target = visible(&draw(menu, vec![]));
             // The controller diagram can put the legacy response option below
             // the viewport. Reach it as a player would, through content scroll.
             for _ in 0..10 {
@@ -1339,7 +1467,10 @@ mod tests {
                         },
                     ],
                 );
-                target = label(&draw(menu, vec![]), name);
+                for _ in 0..4 {
+                    draw(menu, vec![]);
+                }
+                target = visible(&draw(menu, vec![]));
             }
             let pos = target.unwrap_or_else(|| panic!("missing {name}")).center();
             for pressed in [true, false] {
@@ -1357,8 +1488,14 @@ mod tests {
                 );
             }
         }
-        let path =
-            std::env::temp_dir().join(format!("reforge-controls-ui-{}.toml", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "reforge-controls-ui-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         assert!(!path.exists());
         let launch = Launch {
             game_id: "alley-cat".into(),

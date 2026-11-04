@@ -78,6 +78,11 @@ or window mode supersedes that restoration; temporary sizing is never saved.
 
 Controls edit a draft. Apply activates and saves pending edits across both
 Global defaults and the current game's overrides, leaving the menu open.
+For an unregistered game launched with `--original`, game overrides apply only
+to the current run; add the game to the launcher library to retain them. Global
+defaults still save normally. With `--no-config`, all edits are temporary.
+Next-launch-only settings such as Mach 3's Digitized samples require a registered
+game with configuration enabled and are disabled otherwise.
 Cancel, Escape and F10 discard unapplied edits. **Reset section** clears only the
 selected global section when editing Global defaults. When editing a game, the
 button is **Restore defaults** on Controls, BTZ's Display page and Mach 3's
@@ -290,8 +295,8 @@ to select GPU/Vulkan.
 `--renderer auto|gpu|sdl|software|terminal`, `--backend <name>`, `--vsync on|off`,
 `--frame-limit display|60|120|unlimited` and `--presentation pixels|hyllian` override
 only this run. Those controls are disabled in both editing scopes. Each scope
-shows its saved/draft value, with a separate line identifying the active CLI
-value. Apply never copies CLI values into the file.
+shows the active CLI value in the locked control. Apply never copies CLI values
+into the file; the saved preferences remain available on the next ordinary run.
 
 Terminal is a BTZ-only startup renderer. It uses the process's attached
 input/output terminal and does not open a terminal application or an SDL game
@@ -494,6 +499,9 @@ Score samples. Procedural effects and the independent native F2 switch remain.
 The chosen value persists across new games and returned intros in the same run.
 Apply saves it for the **next application launch**; it never interrupts playback
 or changes the running game's sample policy. Cancel discards pending edits.
+Without a library entry, or with `--no-config`, this control is disabled because
+the choice cannot be retained for the next launch. The CLI override below can
+still choose the sample policy for the current run.
 
 `--digitized-samples on|off` temporarily overrides the preference and locks its
 menu control for that run, without saving the override. It applies only to
@@ -552,6 +560,8 @@ Global defaults → Controls, or check **Override global defaults** in a game's
 Controls page to override it. TOML uses `[global.controls] stick_dead_zone = 35` and
 `[entries.<entry-id>.controls] stick_dead_zone = 35`. Apply activates and saves the
 value; Cancel discards edits. There is no corresponding command-line option.
+Launcher navigation uses the global value, including after Apply; per-game
+overrides affect that game's controls.
 
 Each left-stick axis activates a digital direction at that displacement and
 releases below five sevenths of that threshold (approximately 25% at the default

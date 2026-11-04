@@ -61,10 +61,13 @@ pub fn draw(
             ui.add_space(10.0);
 
             if state.games.len() >= 5 {
-                ui.add(
-                    egui::TextEdit::singleline(&mut state.filter_query)
-                        .hint_text("Filter…")
-                        .desired_width(f32::INFINITY),
+                Gui::text_edit(
+                    ui.add(
+                        egui::TextEdit::singleline(&mut state.filter_query)
+                            .id(egui::Id::new("launcher_filter"))
+                            .hint_text("Filter…")
+                            .desired_width(f32::INFINITY),
+                    ),
                 );
                 ui.add_space(6.0);
             }

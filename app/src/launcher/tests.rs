@@ -14,6 +14,185 @@ use std::{
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn invalid_shared_fields_preserve_launcher_choices_and_cli_agreement() {
+    for (game_id, key, choice) in [
+        ("mach-3", "video", "mono"),
+        ("alley-cat", "machine", "pcjr"),
+    ] {
+        let fixture = Fixture::new(detection::RELEASES.len());
+        let mut library = Library::new(fixture.library.clone());
+        library.reload().unwrap();
+        let entry = library
+            .entries
+            .iter()
+            .find(|e| e.game_id == game_id)
+            .unwrap();
+        std::fs::write(&fixture.config, format!(
+            "schema_version = 2\n[global.controls]\nstick_dead_zone = 60\n[entries.{}.display]\nscale = 99\nwindow_mode = \"fullscreen\"\n[entries.{}.launcher]\n{key} = {choice:?}\n",
+            entry.entry_id, entry.entry_id,
+        )).unwrap();
+        let game = model::GameEntry::from_entry(entry, fixture.config.clone(), false);
+        assert!(game.error.is_some());
+        assert_eq!(game.option_values()["Window"], "Fullscreen");
+        assert_eq!(global_dead_zone(&fixture.config), 60);
+        let release = detection::RELEASES
+            .iter()
+            .find(|r| r.id == entry.release_id)
+            .unwrap();
+        let detected = detection::Detected {
+            game: release.game(),
+            release,
+            original: entry.original.clone(),
+            files: Default::default(),
+        };
+        let mut launch = Launch {
+            game_id: game_id.into(),
+            entry_id: None,
+            path: Some(fixture.config.clone()),
+            cli: Default::default(),
+        };
+        let mut args = Vec::new();
+        crate::profile::bind(&mut launch, &detected, &mut args).unwrap();
+        assert_eq!(
+            game.native_arguments()
+                .iter()
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>(),
+            args
+        );
+        assert!(args.contains(&choice.into()));
+        // A complete read failure must not turn UI fallback values into CLI pins.
+        std::fs::write(&fixture.config, "invalid = [").unwrap();
+        let broken = model::GameEntry::from_entry(entry, fixture.config.clone(), false);
+        assert!(broken.error.is_some());
+        assert!(broken.native_arguments().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&fixture.config).unwrap(),
+            "invalid = ["
+        );
+    }
+}
+
+#[test]
+fn launcher_dead_zone_tracks_global_edits_independently_of_game_overrides() {
+    let fixture = Fixture::new(0);
+    assert_eq!(global_dead_zone(&fixture.config), 35);
+    for value in [60, 15] {
+        std::fs::write(&fixture.config, format!(
+            "schema_version = 2\n[global.controls]\nstick_dead_zone = {value}\n[entries.test.controls]\nstick_dead_zone = 80\n"
+        )).unwrap();
+        assert_eq!(global_dead_zone(&fixture.config), value);
+    }
+}
+
+#[test]
+fn migration_write_warning_preserves_resolved_launcher_preferences() {
+    let fixture = Fixture::new(detection::RELEASES.len());
+    let mut library = Library::new(fixture.library.clone());
+    library.reload().unwrap();
+    let entry = library
+        .entries
+        .iter()
+        .find(|entry| entry.game_id == "mach-3")
+        .unwrap();
+    let original = format!(
+        "schema_version = 2\n[entries.{}.display]\nmotion = \"scene\"\nwindow_mode = \"fullscreen\"\n[entries.{}.launcher]\nvideo = \"mono\"\n",
+        entry.entry_id, entry.entry_id
+    );
+    std::fs::write(&fixture.config, &original).unwrap();
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(fixture.config.with_extension("lock"))
+        .unwrap();
+    fs2::FileExt::try_lock_exclusive(&lock).unwrap();
+    let game = model::GameEntry::from_entry(entry, fixture.config.clone(), false);
+    assert!(game.error.as_ref().unwrap().contains("busy"));
+    assert_eq!(game.option_values()["Window"], "Fullscreen");
+    assert_eq!(game.native_arguments(), ["--video", "mono"]);
+    assert_eq!(std::fs::read_to_string(&fixture.config).unwrap(), original);
+    drop(lock);
+    let recovered = model::GameEntry::from_entry(entry, fixture.config.clone(), false);
+    assert!(recovered.error.is_none());
+    assert_eq!(recovered.native_arguments(), game.native_arguments());
+}
+
+#[test]
+#[ignore = "owns SDL video; run serially with dummy/software"]
+fn filter_activates_native_text_input_and_preserves_caret_navigation() {
+    let fixture = Fixture::new(5);
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+    let sdl = sdl3::init().unwrap();
+    let video = sdl.video().unwrap();
+    let canvas = canvas(&video).unwrap();
+    let creator = FrameCreator::for_ui(&canvas);
+    let mut gui = Gui::new(&creator);
+    let mut context = Context::default();
+    let mut frame = |gui: &mut Gui<'_>, state: &mut State| {
+        gui.prepare(Gui::metrics(&canvas).unwrap(), |ctx| {
+            context = ctx.clone();
+            state.draw(ctx, false);
+        });
+        text_input(&canvas, gui.wants_text_input());
+    };
+    // Native activation is checked before any synthetic TextInput is injected.
+    for _ in 0..4 {
+        frame(&mut gui, &mut state);
+    }
+    assert!(!video.text_input().is_active(canvas.window()));
+    drop(frame);
+    context.memory_mut(|memory| memory.request_focus(egui::Id::new("launcher_filter")));
+    let frame = |gui: &mut Gui<'_>, state: &mut State| {
+        gui.prepare(Gui::metrics(&canvas).unwrap(), |ctx| {
+            state.draw(ctx, false);
+        });
+        text_input(&canvas, gui.wants_text_input());
+    };
+    frame(&mut gui, &mut state);
+    assert!(video.text_input().is_active(canvas.window()));
+    gui.handle_event(&Event::TextInput {
+        timestamp: 0,
+        window_id: canvas.window().id(),
+        text: "Cat".into(),
+    });
+    frame(&mut gui, &mut state);
+    assert_eq!(state.filter_query, "Cat");
+    gui.handle_event(&native_key(Keycode::Left));
+    frame(&mut gui, &mut state);
+    gui.handle_event(&Event::TextInput {
+        timestamp: 0,
+        window_id: canvas.window().id(),
+        text: "é".into(),
+    });
+    frame(&mut gui, &mut state);
+    assert_eq!(state.filter_query, "Caét");
+    state.layout = LayoutVariant::GalleryShelf;
+    frame(&mut gui, &mut state);
+    assert!(!video.text_input().is_active(canvas.window()));
+    state.layout = LayoutVariant::SplitInspector;
+    frame(&mut gui, &mut state);
+    context.memory_mut(|memory| memory.request_focus(egui::Id::new("launcher_filter")));
+    frame(&mut gui, &mut state);
+    assert!(video.text_input().is_active(canvas.window()));
+    text_input(&canvas, false); // Child/dialog handoff.
+    assert!(!video.text_input().is_active(canvas.window()));
+    gui.reset_input();
+    frame(&mut gui, &mut state);
+    context.memory_mut(|memory| memory.request_focus(egui::Id::new("launcher_filter")));
+    frame(&mut gui, &mut state);
+    assert!(video.text_input().is_active(canvas.window()));
+    gui.handle_event(&Event::Window {
+        timestamp: 0,
+        window_id: canvas.window().id(),
+        win_event: WindowEvent::FocusLost,
+    });
+    frame(&mut gui, &mut state);
+    assert!(!video.text_input().is_active(canvas.window()));
+}
+
+#[test]
 fn long_library_titles_elide_without_changing_rows_or_hiding_actions() {
     let fixture = Fixture::new(2);
     let titles = [

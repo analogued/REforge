@@ -99,6 +99,7 @@ pub struct GameEntry {
     pub options: &'static [OptionDefinition],
     pub terminal_available: bool,
     pub error: Option<String>,
+    native_preferences_loaded: bool,
     config: PathBuf,
 }
 impl GameEntry {
@@ -143,6 +144,7 @@ impl GameEntry {
             options,
             terminal_available: std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
             error: None,
+            native_preferences_loaded: false,
             config,
         };
         if let Err(e) = result.refresh_preferences() {
@@ -261,6 +263,9 @@ impl GameEntry {
             .unwrap_or(&[])
     }
     pub fn native_arguments(&self) -> Vec<String> {
+        if !self.native_preferences_loaded {
+            return Vec::new();
+        }
         let values = self.option_values();
         let mut args = Vec::new();
         for o in self.options {
@@ -283,10 +288,19 @@ impl GameEntry {
             path: Some(self.config.clone()),
             cli: Default::default(),
         });
-        if let Some(warning) = session.warning {
-            return Err(warning);
-        }
-        let native = reforge_settings::launcher::native_options(&self.config, &self.entry_id)?;
+        let mut warning = session.warning;
+        let native = match reforge_settings::launcher::native_options(&self.config, &self.entry_id)
+        {
+            Ok(native) => {
+                self.native_preferences_loaded = true;
+                native
+            }
+            Err(error) => {
+                self.native_preferences_loaded = false;
+                warning = Some(error);
+                BTreeMap::new()
+            }
+        };
         let global = session.saved.global_values();
         let mut p = Preferences::default();
         for o in self.options {
@@ -327,7 +341,7 @@ impl GameEntry {
             }
         }
         self.preferences = p;
-        Ok(())
+        warning.map_or(Ok(()), Err)
     }
     pub fn save_option(&mut self, field: &'static str, value: &'static str) {
         if !self.choice_enabled(field, value) {

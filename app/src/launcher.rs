@@ -28,6 +28,29 @@ use std::{
 };
 use widgets::UiAction;
 
+fn global_dead_zone(config: &Path) -> u8 {
+    reforge_settings::Session::load(reforge_settings::Launch {
+        game_id: "standalone".into(),
+        entry_id: None,
+        path: Some(config.to_owned()),
+        cli: Default::default(),
+    })
+    .saved
+    .global_values()
+    .stick_dead_zone
+}
+
+fn text_input(canvas: &WindowCanvas, enabled: bool) {
+    let keyboard = canvas.window().subsystem().text_input();
+    if enabled != keyboard.is_active(canvas.window()) {
+        if enabled {
+            keyboard.start(canvas.window());
+        } else {
+            keyboard.stop(canvas.window());
+        }
+    }
+}
+
 fn check_terminal_launch(
     renderer: reforge_settings::Renderer,
     terminal_available: bool,
@@ -250,7 +273,7 @@ pub fn run() -> Result<(), String> {
     let mut gui = Gui::new(&creator);
     gui.set_focus_overlay(false);
     let mut events = sdl.event_pump().map_err(|e| e.to_string())?;
-    let mut pads = Gamepads::new(35);
+    let mut pads = Gamepads::new(global_dead_zone(&state.config));
     let mut picker: Option<(UiAction, mpsc::Receiver<FolderResult>)> = None;
     let mut child: Option<Child> = None;
     let mut visible = false;
@@ -341,6 +364,7 @@ pub fn run() -> Result<(), String> {
         gui.prepare(Gui::metrics(&canvas)?, |ctx| {
             action = state.draw(ctx, picker.is_some());
         });
+        text_input(&canvas, picker.is_none() && gui.wants_text_input());
         let bg = catalog::ResolvedAppearance::resolve(state.effective_theme())
             .theme
             .palette
@@ -353,10 +377,11 @@ pub fn run() -> Result<(), String> {
             canvas.window_mut().show();
             visible = true;
         }
-        if state.settings_open
-            && settings::run(&mut canvas, &mut gui, &mut events, &mut pads, &mut state)?
-        {
-            return state.save_on_close();
+        if state.settings_open {
+            text_input(&canvas, false);
+            if settings::run(&mut canvas, &mut gui, &mut events, &mut pads, &mut state)? {
+                return state.save_on_close();
+            }
         }
         if let Some(action) = action {
             if state.preview_open {
@@ -364,6 +389,7 @@ pub fn run() -> Result<(), String> {
             }
             let result = match action {
                 UiAction::Add | UiAction::Locate(_) => {
+                    text_input(&canvas, false);
                     let initial = if let UiAction::Locate(ref id) = action {
                         state
                             .games
@@ -419,6 +445,7 @@ pub fn run() -> Result<(), String> {
                         .stderr(Stdio::inherit())
                         .spawn()
                         .map_err(|e| format!("Cannot start game: {e}"))?;
+                    text_input(&canvas, false);
                     canvas.window_mut().hide();
                     gui.reset_input();
                     child = Some(process);

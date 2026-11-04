@@ -82,6 +82,7 @@ pub fn run(
         let metrics = Gui::metrics(canvas)?;
         if menu.prepare(metrics, Default::default()).is_some() {
             menu.applied();
+            pads.set_dead_zone(global_dead_zone(&state.config));
         }
         gui.prepare(metrics, |ctx| layouts::draw(ctx, state));
         let bg = catalog::ResolvedAppearance::resolve(state.saved_theme)
@@ -99,6 +100,8 @@ pub fn run(
     }
     state.settings_open = false;
     state.refresh();
+    pads.set_dead_zone(global_dead_zone(&state.config));
+    text_input(canvas, false);
     gui.reset_input();
     Ok(false)
 }

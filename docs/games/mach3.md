@@ -60,8 +60,9 @@ defaults** to edit, then Apply. The default is PC Speaker.
 **Digitized samples:** setting this to Off on the same page skips recorded
 speech/music in the intro, pre-game, completion and Game Over/High Score sequences
 while retaining procedural effects. Skipping these sequences also removes their
-playback time. The preference applies on the next application launch. To silence
-a category without skipping its sequence, use the Music or Speech volume instead.
+playback time. Add the game to the launcher library to save this choice for the
+next launch. To silence a category without skipping its sequence, use the Music
+or Speech volume instead.
 As an original-game easter egg, bare `S` aliases `--digitized-samples off` for
 that run.
 

@@ -930,6 +930,15 @@ impl Session {
         }
         s
     }
+    /// Global edits have a durable destination when configuration is enabled.
+    pub fn has_global_storage(&self) -> bool {
+        self.path.is_some()
+    }
+    /// Per-copy edits require both configuration and a registered library entry.
+    /// Unregistered CLI launches retain game edits only in this session.
+    pub fn has_game_storage(&self) -> bool {
+        self.has_global_storage() && self.entry_id.is_some()
+    }
     pub fn effective(&self, draft: &Draft) -> RuntimeSettings {
         let mut values = overlay(draft.game_values(), &self.cli);
         if !supports_terminal(&self.game_id) && values.renderer == Renderer::Terminal {
@@ -1365,6 +1374,42 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
+    #[test]
+    fn persistence_destinations_match_registered_unregistered_and_no_config_runs() {
+        let dir = TestDir::new();
+        for (name, registered, configured) in [
+            ("registered", true, true),
+            ("unregistered", false, true),
+            ("no-config", true, false),
+            ("temporary", false, false),
+        ] {
+            let path = dir.0.join(format!("{name}.toml"));
+            let launch = Launch {
+                game_id: "mach-3".into(),
+                entry_id: registered.then(|| "test-copy".into()),
+                path: configured.then(|| path.clone()),
+                cli: Patch::new(),
+            };
+            let mut session = Session::load(launch.clone());
+            assert_eq!(session.has_global_storage(), configured);
+            assert_eq!(session.has_game_storage(), configured && registered);
+            let mut draft = session.saved.clone();
+            draft.global.insert("master_volume".into(), "75".into());
+            draft.game.insert(MOTION.into(), "original".into());
+            session.commit(draft).unwrap();
+            assert_eq!(session.saved.game[MOTION], "original");
+            let reloaded = Session::load(launch);
+            assert_eq!(
+                reloaded.saved.global.contains_key("master_volume"),
+                configured
+            );
+            assert_eq!(
+                reloaded.saved.game.contains_key(MOTION),
+                configured && registered
+            );
+            assert_eq!(path.exists(), configured);
+        }
+    }
     struct TestDir(PathBuf);
     impl TestDir {
         fn new() -> Self {

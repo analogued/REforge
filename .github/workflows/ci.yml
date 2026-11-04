@@ -112,6 +112,9 @@ jobs:
         run: |
           cargo +stable test --locked -p reforge --features dev-tools launcher::tests::native_painter_capture_matrix_and_modal_navigation -- --exact --ignored --test-threads=1
           cargo +stable test --locked -p reforge --features dev-tools launcher::tests::btz_presentation_controls_native_painter -- --exact --ignored --test-threads=1
+          cargo +stable test --locked -p reforge --features dev-tools launcher::tests::filter_activates_native_text_input_and_preserves_caret_navigation -- --exact --ignored --test-threads=1
+          cargo +stable test --locked -p reforge_sdl settings::tests::temporary_settings_explain_storage_and_disable_startup_only_edits -- --exact --ignored --test-threads=1
+          cargo +stable test --locked -p reforge_sdl settings::tests::alleycat_controls_scope_draft_and_live_apply -- --exact --ignored --test-threads=1
           cargo +stable test --locked -p reforge_sdl settings_ui::controller::captures::native_controller_templates_and_themes -- --exact --ignored --test-threads=1
 
       - name: Check minimum supported Rust

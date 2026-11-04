@@ -10,6 +10,7 @@ use super::*;
 pub struct Gui<'a> {
     surface: SettingsMenu<'a>,
     focus_overlay: bool,
+    text_input: bool,
 }
 impl<'a> Gui<'a> {
     pub fn new(creator: &'a FrameCreator) -> Self {
@@ -18,6 +19,7 @@ impl<'a> Gui<'a> {
         Self {
             surface,
             focus_overlay: true,
+            text_input: false,
         }
     }
     /// Disable the additional rectangular focus outline when the screen's
@@ -83,6 +85,7 @@ impl<'a> Gui<'a> {
     }
     /// Returning from a native dialog/game must not replay hidden-window input.
     pub fn reset_input(&mut self) {
+        self.text_input = false;
         let s = &mut self.surface;
         s.events.clear();
         s.modifiers = Default::default();
@@ -105,6 +108,11 @@ impl<'a> Gui<'a> {
             response,
             crate::settings_navigation::Kind::TextEdit,
         )
+    }
+    /// Whether a focused text editor needs native composed text events.
+    /// Hosts must suspend text input while a child window or dialog owns input.
+    pub fn wants_text_input(&self) -> bool {
+        self.text_input
     }
     pub fn prepare(&mut self, metrics: UiMetrics, mut draw: impl FnMut(&egui::Context)) {
         let s = &mut self.surface;
@@ -146,6 +154,7 @@ impl<'a> Gui<'a> {
                 crate::settings_navigation::paint_focus(context);
             }
         });
+        self.text_input = s.focused && output.platform_output.ime.is_some();
         s.pending_textures.append(output.textures_delta);
         s.density = output.pixels_per_point;
         s.jobs = s.context.tessellate(output.shapes, output.pixels_per_point);

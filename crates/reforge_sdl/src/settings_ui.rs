@@ -134,6 +134,8 @@ pub(super) fn draw(
     let cli = session.cli.clone();
     let game = session.game_id.clone();
     let warning = session.warning.clone();
+    let global_storage = session.has_global_storage();
+    let game_storage = session.has_game_storage();
     drop(session);
     let draft = menu.draft.as_mut().expect("open draft");
     let windowed_scale = menu.creator.windowed_scale.get();
@@ -172,6 +174,7 @@ pub(super) fn draw(
                                     "mindwheel" => "Mindwheel",
                                     "essex" => "Essex",
                                     "brimstone" => "Brimstone",
+                                    "breakers" => "Breakers",
                                     _ => "Game",
                                 }
                             ),
@@ -245,7 +248,11 @@ pub(super) fn draw(
                             &mut override_defaults,
                             canvas_text(
                                 ui,
-                                "Override global defaults · only differences are saved",
+                                if game_storage {
+                                    "Override global defaults · only differences are saved"
+                                } else {
+                                    "Override global defaults · this run only"
+                                },
                             ),
                         ))
                         .changed()
@@ -257,7 +264,11 @@ pub(super) fn draw(
                             }
                         }
                     } else {
-                        ui.weak("Shared defaults · individual games can override these values");
+                        ui.weak(if global_storage {
+                            "Shared defaults · individual games can override these values"
+                        } else {
+                            "Temporary defaults · configuration is disabled"
+                        });
                     }
                     ui.add_space(8.0);
                     let overrides = Overrides {
@@ -298,6 +309,13 @@ pub(super) fn draw(
                         .auto_shrink([false, false])
                         .show_viewport(ui, |ui, viewport| {
                             ui.set_width(viewport.width());
+                            if menu.scope == 1 && !game_storage {
+                                ui.weak(if global_storage {
+                                    "Temporary game settings · add this game to the launcher library to retain them."
+                                } else {
+                                    "Temporary game settings · configuration is disabled."
+                                });
+                            }
                             let first = crate::settings_navigation::scroll_start(ui.ctx());
                             ui.add_enabled_ui(enabled || menu.page == 2, |ui| {
                                 if menu.page == 0 {
@@ -328,6 +346,7 @@ pub(super) fn draw(
                                         &menu.audio_categories,
                                         enabled,
                                         menu.mach3_options,
+                                        game_storage,
                                     );
                                 } else if menu.page == 3 {
                                     controls_controls(
@@ -921,6 +940,7 @@ fn audio_controls(
     categories: &[SoundCategory],
     section_editable: bool,
     mach3_options: bool,
+    game_storage: bool,
 ) {
     let scope = rows.scope;
     let available = !renderers.is_empty();
@@ -1034,7 +1054,7 @@ fn audio_controls(
     // The native option shares Audio's override/reset control, but its default
     // is built in rather than inherited from a global digitized-samples value.
     if scope == 1 && mach3_options {
-        ui.add_enabled_ui(section_editable, |ui| {
+        ui.add_enabled_ui(section_editable && game_storage, |ui| {
             row(
                 ui,
                 "Digitized samples",
@@ -1050,6 +1070,9 @@ fn audio_controls(
                 },
             );
         });
+        if !game_storage {
+            ui.weak("Digitized samples requires saved game settings; it applies on next launch.");
+        }
     }
     ui.add_enabled_ui(output_enabled, |ui| {
         row(
@@ -2123,6 +2146,7 @@ mod tests {
                                 &SoundCategory::ALL,
                                 section_editable,
                                 mach3,
+                                true,
                             );
                         });
                     },

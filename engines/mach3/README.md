@@ -24,6 +24,8 @@ outside the supported set.
 
 ## Technical references
 
+- [Deliberate deviations](docs/deviations.md): original bug corrections,
+  presentation changes and control conveniences.
 - [DOS startup](docs/dos-startup.md): unpacking, address conventions, initialization
   and the original sample-disable argument.
 - [CGA graphics](docs/cga-graphics.md): asset layouts, palette, composition and
@@ -113,6 +115,7 @@ Mach 3-specific options include:
   preference. Off skips native sample calls and their timing/input effects;
   host mute and category levels leave those calls intact. See
   [sample-disable behavior](docs/dos-startup.md#original-sample-disable-argument).
+  Bare `S` also selects Off, preserving the original command-line easter egg.
 
 `--step` and `--static` require `dev-tools` in addition to the default `sdl`
 feature, for either the standalone executable or REforge. `--step` advances

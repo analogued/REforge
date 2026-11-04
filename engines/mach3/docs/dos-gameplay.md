@@ -2,6 +2,7 @@
 
 This describes verified original behavior and its Rust implementation.
 Code and data addresses follow [DOS startup](dos-startup.md).
+Intentional differences are indexed in [deliberate deviations](deviations.md).
 
 ## Update order
 

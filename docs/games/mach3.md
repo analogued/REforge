@@ -24,7 +24,7 @@ After [building REforge](../../README.md#getting-started), run from the reposito
 ./target/release/reforge --original /path/to/mach3
 ```
 
-Space skips the splash and starts from the intro. Release it between presses.
+Press Space on the intro screen to start.
 During intro audio, the start request waits for the current playback sequence
 to reach its next input check, so it may not take effect immediately.
 
@@ -57,18 +57,16 @@ for the original speaker treatment, or **Enhanced PCM** for full sample values
 while keeping the synthesized procedural effects. Check **Override global
 defaults** to edit, then Apply. The default is PC Speaker.
 
-**Digitized samples:** setting this to Off on the same page reproduces the
-original DOS game's behaviour when launched with the `S` command-line argument.
-It skips recorded speech/music in the intro, pre-game, completion and Game
-Over/High Score sequences while retaining procedural effects. The native playback
-calls and their timing/input effects are skipped, and the preference applies on
-the next application launch. REforge also accepts `S` as an alias for
-`--digitized-samples off`, a temporary override for that run. To silence a category
-without skipping its sequence, use the Music or Speech volume instead.
+**Digitized samples:** setting this to Off on the same page skips recorded
+speech/music in the intro, pre-game, completion and Game Over/High Score sequences
+while retaining procedural effects. Skipping these sequences also removes their
+playback time. The preference applies on the next application launch. To silence
+a category without skipping its sequence, use the Music or Speech volume instead.
+As an original-game easter egg, bare `S` aliases `--digitized-samples off` for
+that run.
 
 **Colour / monochrome:** choose the initial display in the launcher's Video
-options, or use `--video cga|mono`. F3 switches once per press during play;
-release it before switching again. Both modes work with optional CRT presentation.
+options, or use `--video cga|mono`. Both modes work with optional CRT presentation.
 
 For fullscreen, scaling, CRT presentation, audio levels and controller settings,
 see the shared [Settings menu](../configuration.md).
@@ -105,3 +103,5 @@ supported set.
 
 For implementation details, diagnostic tools and sound rendering, see the
 [engine documentation](../../engines/mach3/README.md).
+Intentional changes are catalogued in the
+[deviations reference](../../engines/mach3/docs/deviations.md).

@@ -126,13 +126,20 @@ selected entry ID as `selected_entry` under `[launcher]` in `config.toml`.
 The next launch restores that selection, including a game with missing files.
 If the entry was removed, the first remaining entry is selected instead.
 
-Detection checks required filenames, then sizes, then complete SHA-256 hashes.
-Names match without regard to ASCII case. When several spellings exist, it tries
-the catalog's exact spelling first, then the other spellings alphabetically;
-wrong-size files are skipped before hashing. The first matching file for each
-required record is passed to the engine. Multiple matching releases still require
-disambiguation. Selecting a file restricts candidates by its name, while its
-siblings supply the other required files. Only the selected directory is searched.
+Detection verifies every required file by size and complete SHA-256 hash.
+Expected filenames provide the fast path: exact spelling first, then other ASCII
+case variants alphabetically. Unresolved files are sought under any name or
+extension in the same directory; wrong-size files are never hashed. Valid named
+files are reserved before filling gaps, and each required record needs a distinct
+file. Duplicate identical copies use a deterministic selection. Actual verified
+paths are passed to the engine without renaming or copying the files.
+
+Multiple matching releases remain ambiguous, including a renamed release beside
+a normally named one. Selecting a file requires that exact file to satisfy one
+of the release's records, with its siblings supplying the rest. A file whose
+contents are shared by multiple complete releases cannot distinguish them.
+Explicit file selections are retained in library entries for later launches.
+Only the selected directory is searched; subdirectories are not scanned.
 
 Entry IDs combine the game ID and six random lowercase letters/digits, such as
 `alley-cat-m7k4p9`. They use operating-system randomness with collision checks
@@ -711,10 +718,15 @@ or specs records does not establish save/configuration compatibility: each
 detected release retains its explicit compatibility group.
 
 Detected-release IDs use `<game-id>-<platform>-<10 hex digits>`. The suffix is
-derived from the complete catalogued required-file manifest. DOS filenames use
-ASCII case-insensitive normalization, matching detection; non-ASCII characters
-remain exact. File-list order and hexadecimal SHA-256 letter casing do not affect
-the identity. Other platforms must select their own filename case semantics.
+derived from a stable catalogued identity manifest, normally all required files.
+An existing release can retain its original identity-file selection when required
+verification expands: Mach 3 retains its original seven identity files while all
+eighteen playback files are verified. DOS filenames use
+ASCII case-insensitive normalization of the canonical catalog names; non-ASCII
+characters remain exact. Physical aliases found during detection do not enter
+this fingerprint, so renaming files does not change the detected-release ID.
+File-list order and hexadecimal SHA-256 letter casing do not affect the identity.
+Other platforms must select their own catalog filename case semantics.
 Original file contents remain byte-exact and are verified with the full SHA-256.
 Absolute installation paths and editorial/edition/specs metadata are excluded.
 

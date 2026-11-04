@@ -7,6 +7,7 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Recognize renamed original game files by their verified contents, regardless of filename or extension.
 - Fix launcher filtering, retain valid launch choices when another preference is invalid, and use the saved global controller dead zone for launcher navigation.
 - Identify temporary game settings for unregistered launches and disable next-launch-only edits that cannot be saved.
 - Keep dialogs, text and images visible after changing the graphical renderer,

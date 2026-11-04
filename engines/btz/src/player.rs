@@ -186,6 +186,17 @@ pub fn identify_dos_interpreter(
 }
 
 pub fn load(data: &Path, interpreter: &Path, side_map: &Path) -> Result<Loaded, String> {
+    load_with_title(data, interpreter, side_map, None)
+}
+
+/// Load with an optional exact title-art path selected by the release detector.
+/// Standalone callers can retain ordinary TITLE.EXE lookup through `load`.
+pub fn load_with_title(
+    data: &Path,
+    interpreter: &Path,
+    side_map: &Path,
+    title: Option<&Path>,
+) -> Result<Loaded, String> {
     let load = || -> Result<Loaded, Box<dyn std::error::Error>> {
         let resolve = |path: &Path| {
             if path.is_file() {
@@ -218,7 +229,10 @@ pub fn load(data: &Path, interpreter: &Path, side_map: &Path) -> Result<Loaded, 
         files.side_map_path = Some(side_map);
         files.confirm_bookmark_replace = definition.confirm_bookmark_replace;
         let presentation = if std::ptr::eq(definition, &crate::interpreter::BREAKERS_DOS) {
-            let title = files::resolve_original(&data.parent().unwrap().join("TITLE.EXE"))?;
+            let title = match title {
+                Some(path) => resolve(path)?,
+                None => files::resolve_original(&data.parent().unwrap().join("TITLE.EXE"))?,
+            };
             let presentation =
                 presentation::TitleSequence::from_breakers_executable(&std::fs::read(&title)?)?;
             files.originals.push(title);

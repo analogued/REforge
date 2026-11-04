@@ -43,6 +43,11 @@ logical-disk mappings for restart and bookmark restore. Breakers also reads the
 original title artwork and credits from `TITLE.EXE`, presenting the timed title
 pages before the interpreter's title screen.
 
+REforge's detector can also recognize renamed copies of these files by their
+full fingerprints and passes the selected paths to the player, including title
+artwork. Standalone title lookup and additional-media folders outside the initial
+game directory retain ordinary DOS filename lookup.
+
 No original game files, extracted vocabulary, story text or interpreter tables
 are bundled. The [format reference](docs/mindwheel-dos-format.md) identifies
 the supported Mindwheel release and its layout. Its format and runtime rules

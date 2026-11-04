@@ -234,6 +234,8 @@ pub static RELEASES: &[Release] = &[
         id: "alley-cat-dos-06ff7fe280",
         compatibility_id: "alley-cat-dos",
         edition: &ALLEY_CAT_DOS,
+        #[cfg(test)]
+        identity_files: &[],
         files: &[FileRecord {
             name: "CAT.EXE",
             size: 55_067,
@@ -244,6 +246,17 @@ pub static RELEASES: &[Release] = &[
         id: "mach-3-dos-5f6ec0fc8b",
         compatibility_id: "mach-3-dos",
         edition: &MACH3_DOS,
+        // Retain the published identity while verifying all playback resources.
+        #[cfg(test)]
+        identity_files: &[
+            "MACH3.EXE",
+            "DATA1",
+            "DATA2",
+            "DATA3",
+            "DATA4",
+            "DATA5",
+            "DATA6",
+        ],
         files: &[
             FileRecord {
                 name: "MACH3.EXE",
@@ -280,12 +293,69 @@ pub static RELEASES: &[Release] = &[
                 size: 16_384,
                 sha256: "4b44015ccb5eb001d03670ad5fa46879912625f54a236d44e38556de8efbb2ce",
             },
+            FileRecord {
+                name: "DATA7",
+                size: 11_872,
+                sha256: "88b521976ab9d47a67f2d371da7028594968305e34e9f061a6e6a52a7f3afd9d",
+            },
+            FileRecord {
+                name: "DATA8",
+                size: 9_723,
+                sha256: "68b3bfb36bc85b8c567ee68ff98d0edc61de95ec0070456c6832b26ee7163976",
+            },
+            FileRecord {
+                name: "DATA9",
+                size: 10_874,
+                sha256: "bdaff248f4b33cf1da700c0db6dde9116b5a1d0344c83b760e0ab2a5a0b2c31a",
+            },
+            FileRecord {
+                name: "DATAA",
+                size: 19_690,
+                sha256: "979b8318e180d96774352d3e22cc4dc8ba10ec0e943dcc40a10362ba695a7924",
+            },
+            FileRecord {
+                name: "DATAB",
+                size: 15_500,
+                sha256: "5ef430757ba03d01d1f101be1f4c1975c50653f1a5d8980c724f0af47aa601f7",
+            },
+            FileRecord {
+                name: "DATAC",
+                size: 8_700,
+                sha256: "33cc28ee9d3517f0a97de663b0cfd66ffbeb51165bec6a6c0aefac005e18efec",
+            },
+            FileRecord {
+                name: "DATAD",
+                size: 34_458,
+                sha256: "14fba165214fff3399d43e4ca8a88fcfeeb489ad7184db22d522ba324559a252",
+            },
+            FileRecord {
+                name: "DATAE",
+                size: 8_700,
+                sha256: "9a47f6c72e76658a64dbdf7c03d7b7f171307cf390d4c0a305e59f9e9697d2f8",
+            },
+            FileRecord {
+                name: "DATAF",
+                size: 8_664,
+                sha256: "916208d62c199735000dfd07d67b8a0742aa6726b32c220987994b235705aa4f",
+            },
+            FileRecord {
+                name: "DATAG",
+                size: 8_802,
+                sha256: "586c17f80e4d015e91e91830ae17ae0510d2c71a9e8f4745d80d0a22b0ac615b",
+            },
+            FileRecord {
+                name: "DATAH",
+                size: 8_927,
+                sha256: "b383c090a7cbccb08394f5f403eb77cc0e541d2996eea6d5485844e16e6bf00d",
+            },
         ],
     },
     Release {
         id: "mindwheel-dos-2f53a47931",
         compatibility_id: "mindwheel-dos",
         edition: &MINDWHEEL_DOS,
+        #[cfg(test)]
+        identity_files: &[],
         files: &[
             FileRecord {
                 name: "ADISK.OBJ",
@@ -308,6 +378,8 @@ pub static RELEASES: &[Release] = &[
         id: "essex-dos-2ba69b4250",
         compatibility_id: "essex-dos",
         edition: &ESSEX_DOS,
+        #[cfg(test)]
+        identity_files: &[],
         files: &[
             FileRecord {
                 name: "ADISK.OBJ",
@@ -330,6 +402,8 @@ pub static RELEASES: &[Release] = &[
         id: "brimstone-dos-0020ff40a4",
         compatibility_id: "brimstone-dos",
         edition: &BRIMSTONE_DOS,
+        #[cfg(test)]
+        identity_files: &[],
         files: &[
             FileRecord {
                 name: "ADISK.OBJ",
@@ -352,6 +426,8 @@ pub static RELEASES: &[Release] = &[
         id: "breakers-dos-acb87c72b9",
         compatibility_id: "breakers-dos",
         edition: &BREAKERS_DOS,
+        #[cfg(test)]
+        identity_files: &[],
         files: &[
             FileRecord {
                 name: "ADISK.OBJ",
@@ -432,6 +508,8 @@ mod tests {
         let original = &RELEASES[0];
         let mut another = Release {
             id: "synthetic-other-executable",
+            #[cfg(test)]
+            identity_files: &[],
             files: &[],
             ..*original
         };

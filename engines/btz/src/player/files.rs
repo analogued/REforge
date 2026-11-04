@@ -56,6 +56,7 @@ pub struct Files {
     pub side_map_path: Option<PathBuf>,
     pub originals: Vec<PathBuf>,
     pub confirm_bookmark_replace: bool,
+    primary_data: PathBuf,
     pending_bookmark: Option<PathBuf>,
     transcript: Option<File>,
     last_error: Option<String>,
@@ -70,6 +71,7 @@ impl Files {
             .to_path_buf();
         Ok(Self {
             save_directory,
+            primary_data: game_data,
             bookmark_path: None,
             transcript_path: None,
             side_map_path: None,
@@ -368,8 +370,26 @@ impl Files {
                 else {
                     return Ok(None);
                 };
-                let data_path = resolve_original(&directory.join("ADISK.OBJ"))?;
-                let map_path = resolve_original(&directory.join("SIDE.TXT"))?;
+                // Returning to the initially loaded medium must retain its
+                // selected filenames. Other media still use native DOS lookup.
+                let initial_medium = *physical_disk == 1
+                    && directory.canonicalize().is_ok_and(|directory| {
+                        self.primary_data.parent().is_some_and(|parent| {
+                            parent
+                                .canonicalize()
+                                .is_ok_and(|parent| parent == directory)
+                        })
+                    });
+                let data_path = if initial_medium {
+                    self.primary_data.clone()
+                } else {
+                    resolve_original(&directory.join("ADISK.OBJ"))?
+                };
+                let map_path = if initial_medium && let Some(path) = &self.side_map_path {
+                    path.clone()
+                } else {
+                    resolve_original(&directory.join("SIDE.TXT"))?
+                };
                 let bytes = fs::read(&data_path)?;
                 let stores = if *physical_disk == 1 {
                     TextStores::from_primary_dos_obj(bytes)?

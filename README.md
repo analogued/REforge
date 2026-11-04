@@ -73,12 +73,14 @@ shared globally or overridden for an individual game.
 
 | Action | Keyboard | Gamepad |
 | --- | --- | --- |
-| Pause / resume | P or Pause/Break | Start/Menu |
+| Pause / resume | Pause/Break | Start/Menu (Alley Cat, Mach 3) |
 | Open / close Settings | F10 | Back/View |
 | Quit | Ctrl+Q | — |
 
-Game-specific controls are in the player guides. The left stick or D-pad supplies
-movement, and the bottom face button performs the game's main action.
+Alley Cat and Mach 3 also accept **P** to pause. In those games, the left stick
+or D-pad supplies movement, and the bottom face button performs the main action.
+BTZ uses keyboard commands; controllers navigate Settings and file dialogs.
+Game-specific controls are in the player guides.
 
 See the [settings reference](docs/configuration.md) for all options, saved-file
 locations and command-line overrides. For available launch options, run:

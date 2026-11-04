@@ -21,8 +21,8 @@ controls and launch options.
 
 > [!NOTE]
 > BTZ support is experimental. One identified DOS release each of Mindwheel,
-> Essex, Brimstone and Breakers is supported. Complete winning playthroughs have not been
-> verified.
+> Essex, Brimstone and Breakers is supported. Complete winning playthroughs have
+> not been verified.
 > Other BTZ games, platform versions and interpreter revisions are not yet
 > supported. See [Reference and compatibility](#reference-and-compatibility)
 > for the current limits.
@@ -100,23 +100,25 @@ codec.
 - [DOS format and VM](docs/mindwheel-dos-format.md): stores, address units,
   operand forms, instruction semantics, properties and persistence formats.
 - [Interpreter definitions](docs/interpreter-definitions.md): shared behavior,
-  extensions and Breakers screen services, resource layouts and compatibility boundaries.
+  extensions and Breakers screen services, resource layouts and compatibility
+  boundaries.
 - [DOS runtime](docs/mindwheel-dos-runtime.md): parser, text, keyboard, native
   services, timing/RNG and host behavior.
 
 The native services of the four supported DOS interpreters have implementation
 paths. That does not imply complete behavioral equivalence: pause/typeahead and
-newline polling have
-remaining edge cases described in the runtime reference.
+newline polling have remaining edge cases described in the runtime reference.
+Breakers' opening artwork retains the original page timing but uses immediate
+page changes in place of the DOS wipe transitions.
 
 All four supported DOS input routines read an uninitialized stack word.
 The player hosts use an explicit default-zero adapter rather than modeling the
 DOS memory/stack environment. The conversion and its use differ between the
-games: Mindwheel uses it in a discarded post-input draw; Essex, Brimstone and Breakers
-also compare it with a story timeout value. The full gameplay effect of those
-comparisons remains unverified.
-Later gameplay draws retain their own bounds.
-Exact DOS polling schedules and random-sequence fidelity remain unverified.
+games: Mindwheel uses it in a discarded post-input draw; Essex, Brimstone and
+Breakers also compare it with a story timeout value. The full gameplay effect of
+those comparisons remains unverified. Later gameplay draws retain their own
+bounds. Exact DOS polling schedules and random-sequence fidelity remain
+unverified.
 
 Synthetic tests exercise the library and terminal host. Original-interpreter
 comparisons cover selected states, screens, bookmark bytes and transcript output,

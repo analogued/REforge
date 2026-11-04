@@ -8,11 +8,13 @@ BTZ interpreter with the original story data and background activity.
 > **SIDE.TXT** and **TITLE.EXE** from a supported DOS release together in the
 > game directory. Detection verifies all four files by size and SHA-256 hash.
 
+## Start playing
+
 > [!NOTE]
 > Support is experimental. A complete winning playthrough has not been verified.
+> Opening artwork keeps the original timing but changes pages without the DOS
+> wipe transitions.
 > See [BTZ compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
-
-## Start playing
 
 Add the game directory to the launcher and select **Play**, or run:
 

@@ -9,11 +9,11 @@ activity.
 > and **SIDE.TXT** from a supported DOS release together in the game directory.
 > Detection verifies all three files against their sizes and SHA-256 hashes.
 
+## Start playing
+
 > [!NOTE]
 > Support is experimental. A complete winning playthrough has not been verified.
 > See [BTZ compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
-
-## Start playing
 
 Add the game directory to the launcher and select **Play**, or run:
 

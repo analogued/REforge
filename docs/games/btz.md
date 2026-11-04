@@ -1,7 +1,8 @@
 # BTZ games
 
-Play Mindwheel, Essex, Brimstone and Breakers for DOS through the BTZ interpreter, with their
-original text layout, interactive commands and background story activity.
+Play Mindwheel, Essex, Brimstone and Breakers for DOS through the BTZ interpreter,
+with their original text layout, interactive commands and background story
+activity.
 
 > [!IMPORTANT]
 > REforge does not include original BTZ assets or data. You must provide
@@ -26,19 +27,18 @@ supplies its opening artwork and credits.
 
 All required files must match the supported release's sizes and SHA-256 hashes.
 
-
 ## Start playing
+
+> [!NOTE]
+> A complete winning playthrough has not been verified. Random events can differ
+> from a DOS run, and some pause and queued-input cases remain
+> imperfect. See the [engine compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
 
 Add the game directory to the launcher and select **Play**, or run:
 
 ```sh
 reforge --original /path/to/game
 ```
-
-> [!NOTE]
-> A complete winning playthrough has not been verified. Random events can differ
-> from a DOS run, and some pause and queued-input cases remain
-> imperfect. See the [engine compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
 
 The default display is an SDL text window. Its Rendering and CRT & Colour
 settings use the same controls as the other games. The launch options offer
@@ -99,7 +99,7 @@ recalls its next character.
 
 Ctrl-S or Escape pauses the game. Enter dismisses an ordinary display pause
 without submitting an empty command. Some pause and queued-input edge cases
-remain; see the runtime reference.
+remain; see the [runtime reference](../../engines/btz/docs/mindwheel-dos-runtime.md#compatibility-boundaries).
 
 **Ctrl+G** rings the keyboard bell. Windowed play uses a PC-speaker tone and
 respects the sound, master volume and Sound effects controls. Terminal play
@@ -123,16 +123,19 @@ into the game. `UNSCRIPT` closes it.
 Relative prompted names resolve beside the supplied `ADISK.OBJ`, independently
 of the launch directory. `--save-dir /path/to/saves` selects another base; it
 does not skip filename prompts. The directory must already exist. Absolute
-prompted filenames choose their own location. Existing destination files are
-replaced.
+prompted filenames choose their own location.
 
 The optional `--bookmark-path file` and `--transcript-path file` launch options
 skip their respective filename prompts and use those fixed files for the whole
-run. With `--bookmark-path`, each `BOOKMARK` replaces the same save and
-`RESUME NOVEL` reads it. With `--transcript-path`, each new `SCRIPT` session
-starts that file afresh, replacing its previous contents rather than appending.
-There is no overwrite confirmation. Without these options, the prompts remain
-available each time, so you can choose different files.
+run. `--bookmark-path` supplies the destination for `BOOKMARK` and the source
+for `RESUME NOVEL`; `--transcript-path` supplies the destination for each new
+`SCRIPT` session. Without these options, the prompts remain available each
+time, so you can choose different files.
+
+Breakers asks before replacing an existing bookmark, including when its filename
+comes from `--bookmark-path`. Mindwheel, Essex and Brimstone replace existing
+bookmarks without confirmation. In all four games, a new transcript session
+replaces its existing destination without confirmation, rather than appending.
 
 Relative paths supplied by these launch options resolve from the launch
 directory. Active game input files are protected from overwrite.

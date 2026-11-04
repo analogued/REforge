@@ -67,6 +67,7 @@ data. These are the current implementation boundaries:
 | [`bookmark`](src/bookmark.rs), [`services`](src/services.rs) | Native bookmark codec, transcript buffering, disk mappings and host request/reply types |
 | [`session`](src/session.rs) | VM plus native-service lifecycle, parser, editor, text and host interactions |
 | [`player`](src/player.rs), [`cli`](src/cli.rs) | Shared player loading, file operations, terminal and normal application entry point |
+| [`file_dialog`](src/player/file_dialog.rs) | Windowed file browsing, path editing, replacement decisions and temporary character-screen presentation |
 | [`windowed`](src/windowed.rs), [`display`](src/display/mod.rs) | SDL event loop, windowed prompts and character-screen rasterization |
 | [`launcher`](src/launcher.rs) | Presentation choices and title-screen previews generated from the supplied data |
 | [`sound`](src/sound.rs) | BIOS bell presentation through the shared speaker, synthesis and SDL audio facilities |

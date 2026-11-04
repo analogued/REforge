@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Player loading and host adapters shared by windowed and terminal play.
 
+#[cfg(feature = "sdl")]
+pub(crate) mod file_dialog;
 pub mod files;
 mod patches;
 pub mod presentation;

@@ -148,7 +148,32 @@ impl Files {
         path: Option<PathBuf>,
     ) -> Result<Option<HostReply>, Box<dyn std::error::Error>> {
         let mut chosen = path;
-        self.handle_with_prompt(request, true, &mut |_| Ok(chosen.take()))
+        self.handle_with_prompt(request, true, &mut |_| Ok(chosen.take()), false)
+    }
+
+    /// The text browser resolves an absolute destination and owns its replacement
+    /// question. The ordinary terminal/fixed-file path keeps its native policy.
+    #[cfg(feature = "sdl")]
+    pub(crate) fn handle_browser_path(
+        &mut self,
+        request: &HostRequest,
+        path: PathBuf,
+        replace: bool,
+    ) -> Result<Option<HostReply>, Box<dyn std::error::Error>> {
+        if matches!(
+            request,
+            HostRequest::SaveBookmark { .. } | HostRequest::TranscriptName { .. }
+        ) && path.exists()
+            && !replace
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "The destination now exists. Select it again to confirm replacement.",
+            )
+            .into());
+        }
+        let mut chosen = Some(path);
+        self.handle_with_prompt(request, true, &mut |_| Ok(chosen.take()), true)
     }
 
     pub fn handle(
@@ -164,7 +189,7 @@ impl Files {
             Ok((!path.is_empty()).then(|| PathBuf::from(path)))
         };
         loop {
-            let reply = self.handle_with_prompt(request, interactive, &mut ask)?;
+            let reply = self.handle_with_prompt(request, interactive, &mut ask, false)?;
             if reply.is_some() || !interactive || self.pending_bookmark.is_none() {
                 return Ok(reply);
             }
@@ -176,6 +201,7 @@ impl Files {
         request: &HostRequest,
         interactive: bool,
         ask: &mut dyn FnMut(&str) -> io::Result<Option<PathBuf>>,
+        replacement_confirmed: bool,
     ) -> Result<Option<HostReply>, Box<dyn std::error::Error>> {
         self.last_error = None;
         Ok(Some(match request {
@@ -217,7 +243,11 @@ impl Files {
                 };
                 // A second call carries the explicit replacement decision. Do
                 // not consume the filename itself as an answer or truncate yet.
-                if self.confirm_bookmark_replace && path.exists() && !replacing {
+                if self.confirm_bookmark_replace
+                    && path.exists()
+                    && !replacing
+                    && !replacement_confirmed
+                {
                     self.pending_bookmark = Some(path);
                     return Ok(None);
                 }

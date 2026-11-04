@@ -264,13 +264,15 @@ replaces stores 2, 3 and 4, retaining program store 0 and grammar store 1.
 The secondary-media path is implemented with checked bounds; compatibility with
 original secondary media remains unverified.
 
-Both player hosts resolve prompted relative bookmark and transcript names
-beside the supplied `ADISK.OBJ`. `--save-dir directory` overrides that base for
-both writing and resuming bookmarks and for transcripts. An absolute prompted
-name keeps its chosen location. Explicit `--bookmark-path` and `--transcript-path`
-arguments override prompt selection; relative command-line file paths resolve
-from the launch directory. Bookmark writes use atomic replacement, and active
-original input paths are protected from output selection.
+Both player hosts start bookmark and transcript selection beside the supplied
+`ADISK.OBJ`. `--save-dir directory` overrides that starting directory for both
+writing and resuming bookmarks and for transcripts. The windowed browser resolves
+relative paths from its currently displayed folder; terminal prompts use the
+starting directory. An absolute name keeps its chosen location. Explicit
+`--bookmark-path` and `--transcript-path` arguments override prompt selection;
+relative command-line file paths resolve from the launch directory. Bookmark
+writes use atomic replacement, and active original input paths are protected
+from output selection.
 
 ## Transcript behavior
 

@@ -12,6 +12,8 @@ Unreleased contains changes intended for the next public release.
 
 ### BTZ
 
+- Browse bookmarks and transcripts through a framed text interface, with
+  keyboard, mouse and controller navigation and overwrite confirmation.
 - Temporarily enlarge small game windows to fit Settings and restore their size
   when it closes.
 

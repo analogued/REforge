@@ -109,21 +109,35 @@ controlled by the terminal.
 
 ## Bookmarks and transcripts
 
-By default, every `BOOKMARK`, `RESUME NOVEL` and `SCRIPT` request prompts for a
-filename or path, in a windowed dialog or in the terminal. `BOOKMARK` writes a
-bookmark; `RESUME NOVEL` reads it. No extension is appended. Native bookmarks
-contain game state, not a complete recording of the screen, editor, timing and
-random state.
+By default, every `BOOKMARK`, `RESUME NOVEL` and `SCRIPT` request opens a
+text file browser in windowed play, or prompts for a filename in the terminal.
+`BOOKMARK` writes a bookmark; `RESUME NOVEL` reads it. No extension is appended.
+Native bookmarks contain game state, not a complete recording of the screen,
+editor, timing and random state.
 
 `SCRIPT` prompts for a transcript filename. It records printed game text,
 including submitted command echoes and background messages while active.
 It is a text transcript, not a keystroke recording or command file to load
 into the game. `UNSCRIPT` closes it.
 
-Relative prompted names resolve beside the supplied `ADISK.OBJ`, independently
-of the launch directory. `--save-dir /path/to/saves` selects another base; it
-does not skip filename prompts. The directory must already exist. Absolute
-prompted filenames choose their own location.
+The file browser starts beside the supplied `ADISK.OBJ`, independently of the
+launch directory. `--save-dir /path/to/saves` selects another starting folder;
+the directory must already exist. Filenames and relative paths resolve from the
+folder shown in the browser, including `../` paths. Absolute paths work too.
+Terminal prompts resolve relative names from the starting folder.
+
+Use Up/Down to select a file or folder and Enter to open or choose it. Tab and
+Shift+Tab move between the list, filename field, Save/Resume/Write and Cancel.
+The filename field supports caret movement, selection and clipboard shortcuts.
+Escape cancels; in an overwrite question it returns to filename selection.
+Page Up/Down moves through longer lists; Backspace goes to the parent folder
+when the list has focus. Click to select, double-click to open, or use a
+controller's directions, confirm/cancel and shoulder buttons. Bookmarks are
+recognized from their contents, including files without an extension.
+
+The game pauses while the browser is open. Its filename cursor stays visible,
+alternating between a thin and slightly taller underline. F2 switches to a steady
+block for comparison; this choice lasts only while that browser is open.
 
 The optional `--bookmark-path file` and `--transcript-path file` launch options
 skip their respective filename prompts and use those fixed files for the whole
@@ -132,10 +146,12 @@ for `RESUME NOVEL`; `--transcript-path` supplies the destination for each new
 `SCRIPT` session. Without these options, the prompts remain available each
 time, so you can choose different files.
 
-Breakers asks before replacing an existing bookmark, including when its filename
-comes from `--bookmark-path`. Mindwheel, Essex and Brimstone replace existing
-bookmarks without confirmation. In all four games, a new transcript session
-replaces its existing destination without confirmation, rather than appending.
+Windowed play asks before replacing an existing bookmark or transcript in all
+four games, including fixed filenames from the launch options. The overwrite
+question initially selects No. In terminal play, Breakers asks before replacing
+a bookmark; the other three games replace it directly. Terminal transcript
+sessions replace their destination directly. A transcript session starts a new
+file rather than appending.
 
 Relative paths supplied by these launch options resolve from the launch
 directory. Active game input files are protected from overwrite.

@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! SDL host for the same character screen, editor and native services as terminal play.
 
+mod file_browser;
+use file_browser::FileBrowser;
+
 use crate::{
     display,
     input::Key,
@@ -27,6 +30,17 @@ use std::{
 };
 
 pub const GEOMETRY: DisplayGeometry = DisplayGeometry::new((640, 200), (640, 480));
+
+fn paint_file_cursor(pixels: &mut [u8], cursor: Option<crate::player::file_dialog::Cursor>) {
+    if let Some(cursor) = cursor {
+        for y in 8 - cursor.height..8 {
+            for x in 0..8 {
+                let offset = ((cursor.row * 8 + y) * display::WIDTH + cursor.column * 8 + x) * 3;
+                pixels[offset..offset + 3].copy_from_slice(&display::TEXT_PALETTE[1]);
+            }
+        }
+    }
+}
 
 /// The queue retains text after Enter for the next original keyboard poll.
 #[derive(Default)]
@@ -312,6 +326,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
         .with_audio_categories(&[reforge_settings::SoundCategory::Effects]);
     let mut gui = Gui::new(&creator);
     let mut overlay = Overlay::default();
+    let mut file_browser: Option<FileBrowser> = None;
     let mut keyboard = Keyboard::default();
     let mut gamepads = Gamepads::new(window.settings().stick_dead_zone);
     let epoch = Instant::now();
@@ -319,11 +334,13 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
     let mut manual_pause = false;
     let mut previous_cells = Vec::new();
     let mut previous_phase = None;
+    let mut previous_file_cursor = None;
     let mut previous_status = "";
     loop {
         let was_menu = menu.is_open();
+        let mut file_action = None;
         gamepads.set_dead_zone(window.settings().stick_dead_zone);
-        for event in window.poll_events() {
+        for event in window.poll_events().collect::<Vec<_>>() {
             let pad = gamepads.handle(&event);
             if matches!(
                 event,
@@ -335,6 +352,17 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
             ) || host_shortcut(&event) == Some(HostShortcut::Quit)
             {
                 return Ok(());
+            }
+            if let Some(browser) = &mut file_browser {
+                if file_action.is_none() {
+                    file_action = pad.and_then(|pad| browser.pad(pad));
+                    if file_action.is_none() {
+                        file_action = browser.event(&event, &window);
+                    }
+                }
+                // All keys in this SDL batch belong to the modal UI, including
+                // text events following the Enter/Space that closes it.
+                continue;
             }
             let pad_consumed =
                 pad.is_some_and(|pad| route_gamepad(pad, &mut menu, &mut gui, &mut overlay));
@@ -349,6 +377,20 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                 keyboard.event(&event);
             }
         }
+        if let Some(action) = file_action {
+            if file_browser
+                .as_mut()
+                .unwrap()
+                .complete(&mut loaded, action)?
+            {
+                file_browser = None;
+            }
+            keyboard.keys.clear();
+            gamepads.reset();
+        }
+        if let Some(browser) = &mut file_browser {
+            browser.tick();
+        }
         // Resizing or replacing the renderer can block. Keep that time outside
         // the story clock, and use the shared menu geometry/restoration policy.
         if menu.is_open() && !pause.is_paused() {
@@ -361,7 +403,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
         if was_menu != menu.is_open() {
             gamepads.reset();
         }
-        let paused = manual_pause || menu.is_open() || overlay.open();
+        let paused = manual_pause || menu.is_open() || overlay.open() || file_browser.is_some();
         if paused != pause.is_paused() {
             pause.toggle(Instant::now());
         }
@@ -425,7 +467,20 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                     }
                     SessionStep::ReadLine { .. } if !loaded.session.input().line_ready() => break,
                     SessionStep::Host(request) => {
-                        if let Some(label) = loaded.files.prompt(&request) {
+                        if matches!(
+                            request,
+                            HostRequest::SaveBookmark { .. }
+                                | HostRequest::LoadBookmark
+                                | HostRequest::TranscriptName { .. }
+                        ) && !pause.is_paused()
+                        {
+                            pause.toggle(Instant::now());
+                        }
+                        if let Some(browser) = FileBrowser::begin(&loaded, &request, title) {
+                            file_browser = Some(browser);
+                            keyboard.keys.clear();
+                            gamepads.reset();
+                        } else if let Some(label) = loaded.files.prompt(&request) {
                             overlay.prompt = Some(FilePrompt {
                                 request,
                                 label,
@@ -439,7 +494,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                         } else {
                             complete_file_request(&mut loaded, &request, None, &mut overlay)?;
                         }
-                        if overlay.open() {
+                        if overlay.open() || file_browser.is_some() {
                             break;
                         }
                     }
@@ -455,31 +510,42 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
             }
         }
         // Begin the modal pause before presentation can block on VSync.
-        if overlay.open() && !pause.is_paused() {
+        if (overlay.open() || file_browser.is_some()) && !pause.is_paused() {
             pause.toggle(Instant::now());
         }
         audio.service(
             loaded.session.take_bells(),
             pause.now(Instant::now()).saturating_duration_since(epoch),
-            paused || overlay.open(),
+            paused || overlay.open() || file_browser.is_some(),
         );
         let blink_on = (epoch.elapsed().as_millis() / 500).is_multiple_of(2);
-        let cells = loaded
-            .presentation
+        let browser_cells = file_browser.as_ref().map(|browser| browser.dialog.cells());
+        let file_cursor = file_browser
             .as_ref()
-            .and_then(|sequence| {
-                sequence.frame(pause.now(Instant::now()).saturating_duration_since(epoch))
-            })
-            .unwrap_or_else(|| loaded.session.screen())
-            .dos_cells();
-        if previous_cells != cells || previous_phase != Some(blink_on) {
-            let pixels = display::render(cells, blink_on)?;
+            .and_then(|browser| browser.dialog.cursor(epoch.elapsed()));
+        let cells = browser_cells.as_deref().unwrap_or_else(|| {
+            loaded
+                .presentation
+                .as_ref()
+                .and_then(|sequence| {
+                    sequence.frame(pause.now(Instant::now()).saturating_duration_since(epoch))
+                })
+                .unwrap_or_else(|| loaded.session.screen())
+                .dos_cells()
+        });
+        if previous_cells != cells
+            || previous_phase != Some(blink_on)
+            || previous_file_cursor != file_cursor
+        {
+            let mut pixels = display::render(cells, blink_on)?;
+            paint_file_cursor(&mut pixels, file_cursor);
             frame.update(&pixels)?;
             previous_cells.clear();
             previous_cells.extend_from_slice(cells);
             previous_phase = Some(blink_on);
+            previous_file_cursor = file_cursor;
         }
-        let status = if overlay.open() {
+        let status = if overlay.open() || file_browser.is_some() {
             "Game files"
         } else if menu.is_open() {
             "Settings"
@@ -494,7 +560,10 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
         }
         if window.presentation_due() {
             window.present_with(&frame, |canvas| {
-                if overlay.open() {
+                if file_browser.is_some() {
+                    creator.show_pointer();
+                    Ok(())
+                } else if overlay.open() {
                     gui.paint(canvas)
                 } else {
                     menu.paint(canvas)

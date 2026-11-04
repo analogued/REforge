@@ -4,6 +4,11 @@
 - Keep `docs/` focused on maintained implementation and reference documentation
   useful to users and contributors. Add documentation only when an actual need
   arises; an empty `docs/` is fine. Do not create a preset collection of documents.
+- Document intentional deviations, including original bug/quirk corrections, and
+  user-facing features according to
+  [Features and deviations](CONTRIBUTING.md#features-and-deviations). Changes that
+  are both features and deviations need both kinds of documentation; keep their
+  audience and level of detail appropriate.
 - Keep discussions, brainstorming, speculative designs, experiments, internal
   audits, retrospectives, session logs, and planning notes outside the source
   repository. Do not move them to another tracked directory to avoid this rule.

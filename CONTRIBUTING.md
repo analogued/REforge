@@ -19,6 +19,35 @@ Keep broad formatting changes separate from functional changes. Preserve
 third-party style and notices. Do not reformat generated files or fixtures whose
 exact contents matter.
 
+## Features and deviations
+
+Document intentional departures from original game behavior or presentation in
+the engine's deviations documentation, including corrections to original bugs
+and changes to quirks. Keep these records current when behavior changes. Use a
+format and level of detail appropriate to the engine; no fixed entry template
+is required.
+
+Features and deviations describe different aspects of a change. Features describe
+player capabilities or improvements; deviations describe differences from the
+original. Their documentation can overlap:
+
+- A feature that is also a deviation belongs in both the user-facing guide and
+  deviations documentation. BTZ's save/load menu and Mach 3's interpolation are
+  examples.
+- A feature that retains original behavior or compatibility needs feature
+  documentation. BTZ's compatibility with original save files is an example;
+  that compatibility is not itself a deviation.
+- Original bug corrections and changed quirks each deserve a brief mention in
+  deviations documentation. They usually need little space in user guides; a
+  short collective summary can be enough when there are many. An unusually
+  significant correction may also warrant coverage as a feature.
+
+User-facing descriptions should explain the experience and how to use relevant
+options. Deviations documentation can explain the original and changed behavior
+more technically. Cross-link related descriptions where useful. Record known
+reconstruction bugs, missing features and unresolved fidelity questions in
+compatibility or limitations documentation.
+
 ## Commit messages
 
 Start the description after any scope prefix with an imperative verb and

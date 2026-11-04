@@ -271,6 +271,12 @@ Explicit CLI values form the final temporary layer.
 | backend | `"auto"`, `"vulkan"`, `"opengl"`, `"opengles2"`, `"direct3d11"`, `"direct3d12"`, `"metal"` |
 | vsync | `true`, `false` |
 | frame_limit | `"display"`, `"60"`, `"120"`, `"unlimited"` |
+| file_cursor | `"pulsing-underline"` (default), `"steady-block"`; BTZ entries only |
+
+BTZ's `file_cursor` belongs in `[entries.<entry-id>.display]` and cannot be set
+globally. In Settings it appears under **Text interface**, at the end of
+the game's Display page. It affects windowed file dialogs and is retained during
+terminal play. See the [BTZ file-dialog controls](games/btz.md#bookmarks-and-transcripts).
 
 The menu offers platform choices and compiled SDL renderer drivers. Direct3D
 and Metal are not offered on Linux. A renderer change resets an unlocked,

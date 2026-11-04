@@ -11,6 +11,9 @@ activity.
 Supported games: [Mindwheel](mindwheel.md), [Essex](essex.md),
 [Brimstone: The Dream of Gawain](brimstone.md) and [Breakers](breakers.md).
 
+For differences from the DOS interface, see the
+[deliberate deviations](../../engines/btz/docs/deviations.md).
+
 ## What you need
 
 Keep the corresponding original files together in the game directory:
@@ -47,6 +50,7 @@ settings use the same controls as the other games. The launch options offer
 Breakers first shows timed artwork and credits. Enter dismisses the framed title;
 follow the game's prompts. **F10** opens Settings. **Ctrl+Q** or closing the
 window exits; **Pause/Break** toggles the host pause.
+Settings and host pause stop story activity until you return to play.
 
 To play directly in an existing terminal:
 
@@ -130,7 +134,8 @@ Terminal prompts resolve relative names from the starting folder.
 Use Up/Down to select a file or folder and Enter to open or choose it. Tab and
 Shift+Tab move between the list, filename field, Save/Resume/Write and Cancel.
 The filename field supports caret movement, selection and clipboard shortcuts.
-Escape cancels; in an overwrite question it returns to filename selection.
+Escape cancels; in an overwrite question it returns to filename selection,
+or cancels the operation if a launch option fixed its destination.
 Page Up/Down moves through longer lists; Backspace goes to the parent folder
 when the list has focus. Click to select, double-click to open, or use a
 controller's directions, confirm/cancel and shoulder buttons. Bookmarks are

@@ -73,7 +73,9 @@ with these additional selections:
   Object-specific flags can change them as matching proceeds. Earlier
   definitions reset only free matching at that boundary.
 - Cancelling or failing to open a transcript clears the accumulator; a successful
-  open retains it. The player hosts ask before replacing a Breakers bookmark.
+  open retains it. The original Breakers file interface asks before replacing a
+  bookmark; the earlier three do not. Modern host confirmation policy is
+  documented under [file dialogs](deviations.md#file-dialogs).
 
 Rectangle operations validate both the physical screen and variable buffer
 bounds. They preserve the logical story cursor separately from positioned

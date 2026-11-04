@@ -99,6 +99,8 @@ codec.
 
 ## Reference and compatibility
 
+- [Deliberate deviations](docs/deviations.md): file dialogs, filesystem policy,
+  host controls and presentation adaptations compared with DOS.
 - [DOS format and VM](docs/mindwheel-dos-format.md): stores, address units,
   operand forms, instruction semantics, properties and persistence formats.
 - [Interpreter definitions](docs/interpreter-definitions.md): shared behavior,

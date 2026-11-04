@@ -8,6 +8,8 @@ BTZ crate. It covers execution around the wordcode VM: input, parsing, text,
 native services, persistence and timing. Binary layouts and address spaces are
 specified separately in [Mindwheel DOS formats](mindwheel-dos-format.md).
 See the [engine overview](../README.md) for supported use and build entry points.
+Intentional changes to host interfaces and presentation are recorded in
+[deliberate deviations](deviations.md).
 
 The story program and its rules come from externally supplied `ADISK.OBJ` data.
 `GO.EXE` supplies this release's tables, native strings and RNG adjustment;

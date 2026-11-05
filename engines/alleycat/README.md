@@ -102,7 +102,7 @@ dismiss it. The following menu omits the original joystick question. Select
 K (Kitten), H (House Cat), T (Tomcat), or A (Alley Cat); the controls then appear
 below the question. Press another key to start. These choices select initial
 internal difficulties 0 through 3; progression can reach 7.
-Ctrl+Q or window close quits during startup as well. F10 opens the shared
+Ctrl+Q or window close quits during startup as well. Esc or F10 opens the shared
 settings panel during startup, play or the later title. Window mode/scale,
 renderer/backend, VSync, CRT treatment and audio controls are activated and saved
 with Apply; Cancel, Escape or F10 discards pending edits.
@@ -112,7 +112,7 @@ must be released before they control the game. The REforge app saves global and
 game-specific preferences; [configuration](../../docs/configuration.md) explains
 locations, inheritance and temporary CLI overrides.
 
-Use the arrow keys to move and jump. Esc, P and Pause/Break toggle pause;
+Use the arrow keys to move and jump. P and Pause/Break toggle pause;
 other keys, including arrows, leave it paused. Pause shortcuts are ignored while
 Alt, Ctrl or Super is held, and held-key repeats do not toggle pause. Losing or
 regaining window focus does not change the pause state. Ctrl+Q or closing the

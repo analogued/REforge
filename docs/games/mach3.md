@@ -37,8 +37,8 @@ to reach its next input check, so it may not take effect immediately.
 | Pause / resume | P or Pause/Break |
 | Toggle the original game's sound switch | F2 |
 | Switch colour / monochrome display | F3 |
-| Settings | F10 |
-| Quit | Ctrl+Q or Esc |
+| Settings | Esc or F10 |
+| Quit | Ctrl+Q |
 
 On a gamepad, use the left stick or D-pad to steer and the bottom face button
 to fire or advance title screens. Start/Menu pauses; Back/View opens Settings.

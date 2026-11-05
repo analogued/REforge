@@ -21,7 +21,7 @@ fn screen_status(screen: Screen) -> &'static str {
     match screen {
         Screen::Splash => "Splash (Space to advance)",
         Screen::Intro => "Intro (Space to advance)",
-        Screen::InitialScene => "Initial scene (Esc to close)",
+        Screen::InitialScene => "Initial scene (Esc for Settings)",
     }
 }
 
@@ -61,10 +61,6 @@ fn event_action(presentation: &mut Presentation, event: Event, host_paused: bool
         Event::Quit { .. }
         | Event::Window {
             win_event: WindowEvent::CloseRequested,
-            ..
-        }
-        | Event::KeyDown {
-            keycode: Some(Keycode::Escape),
             ..
         } => return Action::Close,
         Event::KeyDown {
@@ -995,7 +991,7 @@ pub(super) fn run(
             let time = EventTime::sample(&event, clock, &host_pause, received);
             repaint |= matches!(event, Event::Window { .. });
             let was_scene = presentation.screen() == Screen::InitialScene;
-            // Quit remains global; Escape closes settings before it can quit.
+            // Quit remains global; Settings consumes Escape before game input.
             let pad_consumed = pad.is_some_and(|pad| menu.handle_gamepad(pad));
             let menu_consumed = !host_quit(&event) && (menu.handle_event(&event) || pad_consumed);
             if menu_pause.update(menu.is_open(), &mut host_pause, received) {
@@ -1237,15 +1233,15 @@ pub(super) fn run(
             } else if shown != Screen::InitialScene {
                 screen_status(shown)
             } else if game.ending.as_ref().is_some_and(Ending::can_return) {
-                "Game Over / High Score (Space to return, Esc to close)"
+                "Game Over / High Score (Space to return, Esc for Settings)"
             } else if game.ending.is_some() {
-                "Game Over / High Score (Esc to close)"
+                "Game Over / High Score (Esc for Settings)"
             } else if game.gameplay.as_ref().is_some_and(Gameplay::complete) {
-                "Preview complete (Esc to close)"
+                "Preview complete (Esc for Settings)"
             } else if options.playback == Playback::Step {
-                "Gameplay preview (Enter to step, F1 to pause, Esc to close)"
+                "Gameplay preview (Enter to step, F1 to pause, Esc for Settings)"
             } else {
-                "Gameplay preview (F1 to pause, Esc to close)"
+                "Gameplay preview (F1 to pause, Esc for Settings)"
             };
             window.set_title(&game_title(GAME_NAME, Some(status)))?;
             window.present_with(&texture, |canvas| menu.paint(canvas))?;

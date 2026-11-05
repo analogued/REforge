@@ -49,7 +49,7 @@ The default display is an SDL text window. Its Rendering and CRT & Colour
 settings use the same controls as the other games. The launch options offer
 **Display: Sharp pixels / Hyllian CRT** and **Window: Windowed / Fullscreen**.
 Breakers first shows timed artwork and credits. Enter dismisses the framed title;
-follow the game's prompts. **F10** opens Settings. **Ctrl+Q** or closing the
+follow the game's prompts. **Esc** or **F10** opens Settings. **Ctrl+Q** or closing the
 window exits; **Pause/Break** toggles the host pause.
 Settings and host pause stop story activity until you return to play.
 
@@ -103,7 +103,7 @@ spaces.
 Home/F5 erases the current line. End/F3 recalls the previous line, and Right/F1
 recalls its next character.
 
-Ctrl-S or Escape pauses the game. Enter dismisses an ordinary display pause
+Ctrl-S pauses the game; terminal play also accepts Escape. Enter dismisses an ordinary display pause
 without submitting an empty command. Some pause and queued-input edge cases
 remain; see the [runtime reference](../../engines/btz/docs/mindwheel-dos-runtime.md#compatibility-boundaries).
 

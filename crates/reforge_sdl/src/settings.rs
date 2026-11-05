@@ -374,6 +374,16 @@ impl<'a> SettingsMenu<'a> {
     /// Route host quit/window events first. The menu consumes gameplay input
     /// while open, and consumes both edges of its own F10/Escape shortcuts.
     pub fn handle_event(&mut self, event: &Event) -> bool {
+        self.handle_event_inner(event, true)
+    }
+
+    /// A modal dialog keeps Escape for cancel/back while Settings is closed.
+    /// F10 can still open Settings above it; closing Settings consumes both edges.
+    pub fn handle_dialog_event(&mut self, event: &Event) -> bool {
+        self.handle_event_inner(event, false)
+    }
+
+    fn handle_event_inner(&mut self, event: &Event, open_on_escape: bool) -> bool {
         if matches!(
             event,
             Event::AudioDeviceAdded { .. } | Event::AudioDeviceRemoved { .. }
@@ -419,16 +429,32 @@ impl<'a> SettingsMenu<'a> {
         ) {
             return true;
         }
-        if matches!(
-            event,
-            Event::KeyDown {
-                scancode: Some(Scancode::Escape),
-                ..
-            }
-        ) && (self.open || self.escape_held)
+        if let Event::KeyDown {
+            scancode: Some(Scancode::Escape),
+            repeat,
+            keymod,
+            window_id,
+            ..
+        } = event
+            && (self.open || self.escape_held || open_on_escape)
         {
-            if !self.escape_held {
-                self.back();
+            if keymod.intersects(
+                Mod::LCTRLMOD
+                    | Mod::RCTRLMOD
+                    | Mod::LALTMOD
+                    | Mod::RALTMOD
+                    | Mod::LGUIMOD
+                    | Mod::RGUIMOD,
+            ) {
+                return self.open;
+            }
+            if !repeat && !self.escape_held {
+                if self.open {
+                    self.back();
+                } else {
+                    self.toggle();
+                    start_text_input(*window_id);
+                }
             }
             self.escape_held = true;
             return true;
@@ -2685,7 +2711,31 @@ mod tests {
             raw: 0,
         };
         assert!(menu.handle_event(&release));
-        assert!(!menu.handle_event(&escape));
+        // A repeat arriving without its original press must not reopen Settings.
+        assert!(menu.handle_event(&escape));
+        assert!(!menu.is_open());
+        assert!(menu.handle_event(&release));
+        if let Event::KeyDown { repeat, .. } = &mut escape {
+            *repeat = false;
+        }
+        let mut modified_escape = escape.clone();
+        for modifier in [Mod::LALTMOD, Mod::LCTRLMOD, Mod::LGUIMOD] {
+            if let Event::KeyDown { keymod, .. } = &mut modified_escape {
+                *keymod = modifier;
+            }
+            assert!(!menu.handle_event(&modified_escape));
+            assert!(!menu.is_open());
+        }
+        assert!(!menu.handle_dialog_event(&escape));
+        assert!(!menu.is_open());
+        assert!(menu.handle_event(&escape));
+        assert!(menu.is_open());
+        assert!(menu.handle_event(&escape));
+        assert!(menu.is_open());
+        assert!(menu.handle_event(&release));
+        assert!(menu.handle_event(&escape));
+        assert!(!menu.is_open());
+        assert!(menu.handle_event(&release));
     }
 
     #[test]

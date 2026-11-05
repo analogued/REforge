@@ -107,11 +107,13 @@ stepped transition wipes remain visible; see the
 
 ## Pause controls
 
-The original pauses on Esc and resumes on any key press. The recreation toggles
-pause only with Esc, P, or Pause/Break. Other keys, repeated key events, and
-Alt/Ctrl/Super combinations leave pause unchanged, allowing Alt+Tab without
-resuming play. Arrow keys do not resume. Losing or regaining focus does not
-change pause state. Ctrl+Q and the window close button quit, including while
+The original pauses on Esc and resumes on any key press. In graphical play,
+Esc opens Settings, which pauses gameplay until the menu closes. F10 remains
+an alternative. The recreation toggles dedicated pause only with P or Pause/Break.
+Other keys, repeated key events, and Alt/Ctrl/Super combinations leave pause
+unchanged, allowing Alt+Tab without resuming play. Arrow keys do not resume.
+Losing or regaining focus does not change pause state. Ctrl+Q and the window
+close button quit, including while
 paused. Ctrl+Q follows the Q letter in the current keyboard layout.
 There is currently no development override for the original any-key
 resume behavior.

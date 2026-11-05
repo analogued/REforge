@@ -91,7 +91,7 @@ monochrome interpretation. Original display presents both at 4:3 by default;
 Square pixels and Fill window (stretch) can change those proportions. Shared
 window sizing, fullscreen, renderer/backend selection, CRT treatment and host
 audio settings are documented in [configuration](../../docs/configuration.md) and
-the [shared SDL backend](../../crates/reforge_sdl/README.md). F10 is available during
+the [shared SDL backend](../../crates/reforge_sdl/README.md). Esc or F10 is available during
 startup, gameplay and diagnostic previews; closing Settings restores the
 preceding host-pause state.
 

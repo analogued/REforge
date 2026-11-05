@@ -68,7 +68,7 @@ REforge searches the game root and any subdirectories specified by its catalog.
 
 ## Settings and shared controls
 
-Press **F10** to open Settings. Choose windowed or fullscreen play, adjust scaling,
+Press **Esc** or **F10** to open Settings. Choose windowed or fullscreen play, adjust scaling,
 try CRT presentation, or change audio levels and your controller's stick dead zone.
 **Apply** activates and saves edits; **Cancel** discards them. Preferences can be
 shared globally or overridden for an individual game.
@@ -76,7 +76,7 @@ shared globally or overridden for an individual game.
 | Action | Keyboard | Gamepad |
 | --- | --- | --- |
 | Pause / resume | Pause/Break | Start/Menu (Alley Cat, Mach 3) |
-| Open / close Settings | F10 | Back/View |
+| Open / close Settings | Esc or F10 | Back/View |
 | Quit | Ctrl+Q | — |
 
 Alley Cat and Mach 3 also accept **P** to pause. By default, the left stick or

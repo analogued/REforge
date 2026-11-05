@@ -40,9 +40,9 @@ Usage: reforge --original /path/to/CAT.EXE [options]
   --seed N                Explicit startup seed 2..65535, decimal or 0xHEX (default: timer-derived play)
   --help                  Show this help
 
-Window controls: arrows to move/jump; Esc, P or Pause/Break to toggle pause.
+Window controls: arrows to move/jump; P or Pause/Break to toggle pause.
 Press a key to leave the animated splash, then select K/H/T/A in the skill menu.
-F10 opens settings; Escape or F10 closes them.
+Escape or F10 opens settings; Escape or F10 closes them.
 Ctrl+Q or closing the window quits.
 Ctrl+R restarts; Ctrl+M returns to the skill menu.
 After the last life, the animated title returns; press a key to play again at the selected skill.

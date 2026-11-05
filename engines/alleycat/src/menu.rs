@@ -125,7 +125,7 @@ impl Menu {
             .map(|index| Line::external(data, index))
             .collect::<Result<Vec<_>, _>>()?;
         // Keep the native Ctrl-S sound instruction; describe host pause keys.
-        controls[4].text = b"   Esc / P / Pause toggles paws mode.".to_vec();
+        controls[4].text = b"      P / Pause toggles paws mode.".to_vec();
         let mut framebuffer = Framebuffer::default();
         for line in &questions {
             line.draw(&mut framebuffer)?;

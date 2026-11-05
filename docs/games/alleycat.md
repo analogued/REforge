@@ -38,11 +38,11 @@ You can also choose with the arrow keys and Enter, or a gamepad.
 | --- | --- |
 | Move, jump and swim | Arrow keys |
 | Contextual action | Alt |
-| Pause / resume | Esc, P or Pause/Break |
+| Pause / resume | P or Pause/Break |
 | Start a new run | Ctrl+R |
 | Return to skill selection | Ctrl+M |
 | Toggle the original game's sound switch | Ctrl+S |
-| Settings | F10 |
+| Settings | Esc or F10 |
 | Quit | Ctrl+Q |
 
 Alt lets you travel between paired cheese-room holes, drink from milk bowls,

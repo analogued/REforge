@@ -222,7 +222,8 @@ primitives with that theme. Ordinary egui widgets receive the same palette.
 
 ## Settings menu
 
-F10 opens the Compact Display, CRT & Colour, Audio and Controls pages in either engine.
+Esc or F10 opens the Compact Display, CRT & Colour, Audio and Controls pages in each engine.
+Modal dialogs retain Escape for cancel/back; F10 can open Settings above them.
 Controls offers a shared stick dead zone, with Alley Cat's additional input-response
 choice under its game overrides.
 Selectors switch live between dropdowns for mouse input and horizontal carousels

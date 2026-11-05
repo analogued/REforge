@@ -25,6 +25,17 @@ fn global_shortcuts_do_not_change_native_pause_or_advance_while_host_paused() {
         Action::Continue
     );
     assert_eq!(presentation.screen(), Screen::Splash);
+    // Escape belongs to Settings, never to the game's quit action.
+    for paused in [false, true] {
+        assert_eq!(
+            event_action(
+                &mut presentation,
+                event(Scancode::Escape, Keycode::Escape, Mod::NOMOD, false),
+                paused,
+            ),
+            Action::Continue
+        );
+    }
     let mut session = SessionState::default();
     for (scan, key) in [(Scancode::Pause, Keycode::Pause), (Scancode::P, Keycode::P)] {
         let pause = event(scan, key, Mod::NOMOD, false);

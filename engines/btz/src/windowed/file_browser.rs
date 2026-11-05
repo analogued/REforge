@@ -25,7 +25,7 @@ impl FileBrowser {
     ) -> Option<Action> {
         let was_open = menu.is_open();
         let pad_consumed = pad.is_some_and(|pad| menu.handle_gamepad(pad));
-        if menu.handle_event(event) || pad_consumed || was_open || menu.is_open() {
+        if menu.handle_dialog_event(event) || pad_consumed || was_open || menu.is_open() {
             self.held = None;
             return None;
         }
@@ -551,7 +551,21 @@ mod tests {
                 assert_eq!(chooser.dialog.cells(), confirmation);
                 assert_eq!(std::fs::read(&path).unwrap(), b"old file");
                 std::fs::remove_file(path).unwrap();
+                assert!(
+                    chooser
+                        .event_with_settings(&escape, None, &mut menu, &window)
+                        .is_none()
+                );
+                assert!(!menu.is_open());
+                assert_eq!(chooser.dialog.cells(), before);
             }
+            // With Settings closed, Escape cancels the chooser rather than
+            // reopening Settings. The earlier close/release must not leak here.
+            assert_eq!(
+                chooser.event_with_settings(&escape, None, &mut menu, &window),
+                Some(Action::Cancel)
+            );
+            assert!(!menu.is_open());
         }
         let mut browser = FileBrowser::begin(&loaded, &request, "Mindwheel").unwrap();
         let metrics = window.ui_metrics();

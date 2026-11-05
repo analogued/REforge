@@ -18,8 +18,8 @@ use std::{
 
 const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--video cga|mono] [--f3-mode press|original] [--digitized-samples on|off] [--motion reforged|enhanced|original]\n\n\
 --original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
-Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q, Escape or window close: exit.\n\
-F10: open settings; F10, Escape or Close returns. Scaling and fullscreen changes apply live.\n\
+Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q or window close: exit.\n\
+Escape or F10: open settings; F10, Escape or Close returns. Scaling and fullscreen changes apply live.\n\
 Default drawable scale: auto (fit the usable display); CGA pixels are displayed at 4:3.\n\
 --presentation pixels|hyllian: nearest pixels (default) or the shared Hyllian CRT shader; unavailable shaders warn and fall back to pixels.\n\
 Gameplay continues until game over, then displays Game Over and High Score.\n\

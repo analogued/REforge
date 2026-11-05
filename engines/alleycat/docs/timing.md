@@ -1470,9 +1470,11 @@ BIOS `INT 10/AH=0e`, using the BIOS ROM font rather than glyphs in CAT.EXE.
 Its saved CGA rectangle covers source pixels `(40,88)` through `(295,103)`;
 the two text rows start at `(40,88)` and `(40,96)`, in palette color two.
 
-The recreation toggles pause on fresh Esc, P or Pause/Break presses, with no
+The recreation toggles dedicated pause on fresh P or Pause/Break presses, with no
 Alt/Ctrl/Super modifiers. Other keys and focus changes leave the pause state
-unchanged. This default usability exception keeps desktop shortcuts such as
+unchanged. Esc opens Settings instead, using the separate settings-pause path
+and restoring the prior pause state on close. This default usability exception
+keeps desktop shortcuts such as
 Alt+Tab from resuming the game. SDL auto-repeat events are ignored to avoid
 resuming while a pause key remains held. The host runner stops all guest work
 while paused and removes elapsed host time from its pacing budget. It preserves

@@ -1027,9 +1027,9 @@ impl Simulation {
             Phase::Playing(runtime) if runtime.state().pause.state != PauseState::Running => {
                 "Paused (release keys, then F1 to end game or another key to resume)"
             }
-            Phase::Playing(_) => "Playing (F1 to pause, Esc to close)",
+            Phase::Playing(_) => "Playing (F1 to pause, Esc for Settings)",
             Phase::Ending { ending, .. } if ending.can_return() => {
-                "Game Over / High Score (Space to return, Esc to close)"
+                "Game Over / High Score (Space to return, Esc for Settings)"
             }
             Phase::Ending { .. } => "Game Over / High Score",
         }
@@ -1139,16 +1139,7 @@ pub(super) fn run(
                 EventTime::sample(&event, reforge_sdl::event_clock_sample(), &pause, received);
             let pad_consumed = pad.is_some_and(|pad| menu.handle_gamepad(pad));
             let menu_consumed = !host_quit(&event) && (menu.handle_event(&event) || pad_consumed);
-            if host_quit(&event)
-                || (!menu_consumed
-                    && matches!(
-                        event,
-                        Event::KeyDown {
-                            keycode: Some(Keycode::Escape),
-                            ..
-                        }
-                    ))
-            {
+            if host_quit(&event) {
                 #[cfg(feature = "dev-tools")]
                 {
                     if let Some(motion) = &mut simulation.motion {

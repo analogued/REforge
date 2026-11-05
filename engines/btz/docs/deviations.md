@@ -85,11 +85,13 @@ for the service and path-resolution rules.
 
 ## Host controls and presentation
 
-Windowed play adds F10 Settings, Pause/Break host pause, and Ctrl+Q or window
+Windowed play adds Esc/F10 Settings, Pause/Break host pause, and Ctrl+Q or window
 close to exit. Settings, file dialogs and host pause suspend story execution and
 exclude their elapsed time from the story clock, so resuming does not catch up
-that interval. These controls are separate from the original Ctrl-S/Escape
-keyboard pause and story commands such as `PAUSE NOVEL`.
+that interval. Esc is reserved for Settings during graphical gameplay and for
+cancel/back inside dialogs. Ctrl-S retains the original keyboard pause; terminal
+play also retains Escape for that pause. Host controls remain separate from
+story commands such as `PAUSE NOVEL`.
 
 SDL presentation adds window sizing, fullscreen and optional CRT treatment.
 The alternative terminal frontend uses the attached terminal's glyphs and

@@ -119,7 +119,7 @@ impl PauseOverlay {
             return Err("pause text contains a NUL byte".into());
         }
         Ok(Self {
-            lines: [title.into(), " Esc / P / Pause to continue...  ".into()],
+            lines: [title.into(), "     P / Pause to continue...    ".into()],
             color: machine.colors()[2],
         })
     }
@@ -566,7 +566,7 @@ impl Input {
                     _ => MenuKey::Other,
                 });
             }
-            self.pause_pressed |= matches!(scancode, Scancode::Escape | Scancode::P);
+            self.pause_pressed |= scancode == Scancode::P;
         }
     }
     #[cfg(test)]
@@ -722,12 +722,12 @@ mod tests {
         let running = clock.sample(start + Duration::from_millis(10), Input::default());
         assert_eq!(running.elapsed, Duration::from_millis(10));
         let mut press = Input::default();
-        press.record_press(Scancode::Escape, 0, false);
+        press.record_press(Scancode::P, 0, false);
         let entered = clock.sample(start + Duration::from_millis(20), press);
         assert!(entered.paused && entered.changed);
         assert_eq!(entered.elapsed, Duration::ZERO);
         let mut repeated = Input::default();
-        repeated.record_press(Scancode::Escape, 0, true);
+        repeated.record_press(Scancode::P, 0, true);
         let held = clock.sample(start + Duration::from_secs(30), repeated);
         assert!(held.paused && !held.changed);
         assert_eq!(held.elapsed, Duration::ZERO);
@@ -861,7 +861,7 @@ mod tests {
 
     #[test]
     fn all_pause_keys_can_resume_without_immediately_repausing() {
-        for scancode in [Scancode::Escape, Scancode::P, Scancode::Pause] {
+        for scancode in [Scancode::P, Scancode::Pause] {
             let now = Instant::now();
             let mut clock = PauseClock::new(now);
             let mut press = Input::default();
@@ -880,6 +880,7 @@ mod tests {
     #[test]
     fn movement_and_desktop_shortcuts_do_not_change_pause_state() {
         let mut ignored = vec![
+            (Scancode::Escape, 0), // Settings owns Escape.
             (Scancode::Up, 0),
             (Scancode::Down, 0),
             (Scancode::Left, 0),
@@ -901,7 +902,7 @@ mod tests {
             input.record_press(key, modifier, false);
             assert!(!clock.sample(start, input).changed);
             let mut pause = Input::default();
-            pause.record_press(Scancode::Escape, 0, false);
+            pause.record_press(Scancode::P, 0, false);
             assert!(clock.sample(start, pause).paused);
             let ignored = clock.sample(start + Duration::from_secs(1), input);
             assert!(ignored.paused && !ignored.changed);

@@ -5,7 +5,7 @@
 use reforge_settings::{Renderer, RuntimeSettings, Session};
 use std::{collections::BTreeMap, ffi::OsString, path::PathBuf};
 
-const HELP: &str = "Usage: reforge --original <game-directory> [--renderer auto|gpu|sdl|software|terminal]\n\nBTZ games use the normal windowed text display by default.\n--renderer terminal plays in the terminal already attached to the process.\nBOOKMARK and RESUME NOVEL save/load; SCRIPT and UNSCRIPT control transcripts.\n--save-dir directory sets the base for prompted filenames (default: game data directory).\n--bookmark-path file and --transcript-path file select fixed destinations.\nEnter begins play; Ctrl+Q exits. Escape and Ctrl-S retain game pause controls.";
+const HELP: &str = "Usage: reforge --original <game-directory> [--renderer auto|gpu|sdl|software|terminal]\n\nBTZ games use the normal windowed text display by default.\n--renderer terminal plays in the terminal already attached to the process.\nBOOKMARK and RESUME NOVEL save/load; SCRIPT and UNSCRIPT control transcripts.\n--save-dir directory sets the base for prompted filenames (default: game data directory).\n--bookmark-path file and --transcript-path file select fixed destinations.\nEnter begins play; Ctrl+Q exits. Escape or F10 opens Settings in graphical play. Ctrl-S pauses the game; terminal play also accepts Escape.";
 
 struct Options {
     original: PathBuf,

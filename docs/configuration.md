@@ -1,6 +1,8 @@
 # Host preferences
 
-F10 opens the Compact Settings menu during graphical play in each supported game.
+Esc or F10 opens the Compact Settings menu during graphical play in each supported
+game. Inside a dialog or file browser, Esc cancels or goes back; F10 can still open
+Settings.
 The Display page offers window mode (windowed or borderless desktop fullscreen),
 window scale (Auto or ×1–×16), scaling policy, sampling, aspect ratio, renderer,
 backend, VSync and a frame limiter. Mach 3 also offers scene and player craft

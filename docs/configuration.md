@@ -183,7 +183,7 @@ schema_version = 2
 [[entries]]
 entry_id = "alley-cat-m7k4p9"
 game_id = "alley-cat"
-release_id = "alley-cat-dos-06ff7fe280"
+release_id = "alley-cat-dos-7b92bb401f"
 title = "Alley Cat"
 directory = "/Games/AlleyCat"
 original = "/Games/AlleyCat/CAT.EXE"
@@ -718,7 +718,7 @@ The catalog has four linked record types:
 | `GameMetadata` | Typed game identity, canonical title, genres and tagline. |
 | `Edition` | Internal edition ID, game reference, platform, optional title replacement, year, developers, publishers, optional display label and specs profile reference. |
 | `SpecsProfile` | Internal profile ID and video/audio feature lists. |
-| `Release` | Existing detected-release ID, edition reference, compatibility group, and filename/size/BLAKE3 verification records with SHA-256 identity metadata. |
+| `Release` | Assigned detected-release ID, edition reference, compatibility group and filename/size/BLAKE3 fingerprints. |
 
 Multiple detected distributions can reference one edition, for example when
 only an executable changes. Separate editions can reference the same game and
@@ -731,12 +731,12 @@ The current chains are:
 
 | Detected release ID | Edition ID | Game ID | Specs profile ID |
 | --- | --- | --- | --- |
-| `alley-cat-dos-06ff7fe280` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
-| `mach-3-dos-5f6ec0fc8b` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
-| `mindwheel-dos-2f53a47931` | `mindwheel-dos` | `mindwheel` | `btz-dos-text` |
-| `essex-dos-2ba69b4250` | `essex-dos` | `essex` | `btz-dos-text` |
-| `brimstone-dos-0020ff40a4` | `brimstone-dos` | `brimstone` | `btz-dos-text` |
-| `breakers-dos-acb87c72b9` | `breakers-dos` | `breakers` | `btz-dos-text` |
+| `alley-cat-dos-7b92bb401f` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
+| `mach-3-dos-3d1f0c95f9` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
+| `mindwheel-dos-057c9533e4` | `mindwheel-dos` | `mindwheel` | `btz-dos-text` |
+| `essex-dos-226e565be2` | `essex-dos` | `essex` | `btz-dos-text` |
+| `brimstone-dos-d3bec28797` | `brimstone-dos` | `brimstone` | `btz-dos-text` |
+| `breakers-dos-d5569f4b23` | `breakers-dos` | `breakers` | `btz-dos-text` |
 
 Required file records use canonical relative paths with `/` separators, such as
 `DATA/ROOMS.DAT`. Their parent directories define the permitted search locations
@@ -752,28 +752,31 @@ detected release retains its explicit compatibility group.
 
 Detected-release IDs use `<game-id>-<platform>-<10 hex digits>`. The suffix is
 derived from a stable catalogued identity manifest, normally all required files.
-An existing release can retain its original identity-file selection when required
-verification expands: Mach 3 retains its original seven identity files while all
-eighteen playback files are verified. DOS filenames use
+All current version-two identity manifests include every required file. An
+existing release can retain its original identity-file selection when verification
+expands, without changing its assigned identity. DOS filenames use
 ASCII case-insensitive normalization of the canonical catalog names; non-ASCII
 characters remain exact. Physical aliases found during detection do not enter
 this fingerprint, so renaming files does not change the detected-release ID.
-File-list order and hexadecimal SHA-256 letter casing do not affect the identity.
+File-list order and hexadecimal BLAKE3 letter casing do not affect the identity.
 Other platforms must select their own catalog filename case semantics.
 Original file contents remain byte-exact and are verified with the full BLAKE3 hash.
 Absolute installation paths and editorial/edition/specs metadata are excluded.
 
-SHA-256 file fingerprints remain catalog metadata for stable release and preview
-identities. Record both hashes from the same original bytes; normal detection
-reads game files only for BLAKE3 verification. Changing the verification algorithm
-requires no migration of library entries, preferences, saves or cached previews.
+Old SHA-256-derived release IDs are translated to their BLAKE3 replacements
+when the library is read. Only known, game-specific aliases are applied. The
+update uses the library lock and preserves entry IDs, order, titles, original
+paths and unrelated fields; preferences and saves remain attached to the same
+entries. Missing originals do not prevent this metadata migration. A busy or
+read-only library uses translated IDs in memory, reports the failed write and
+retries on a later read. Unknown releases remain unknown.
 
-The version-one fingerprint encoding is fixed: the ASCII marker
-`reforge-detected-release-v1` followed by a NUL byte, the file count as an unsigned
+The version-two fingerprint encoding is fixed: the ASCII marker
+`reforge-detected-release-v2` followed by a NUL byte, the file count as an unsigned
 64-bit little-endian integer, then records sorted by normalized UTF-8 filename.
 Each record contains its filename byte length as the same integer type, filename
-bytes, file size as the same integer type, and 64 lowercase ASCII SHA-256 hex
-characters. Hash this encoding with SHA-256 and take the first ten hex digits.
+bytes, file size as the same integer type, and 64 lowercase ASCII BLAKE3 hex
+characters. Hash this encoding with BLAKE3 and take the first ten hex digits.
 The game ID and platform form the readable prefix outside the digest.
 
 IDs are assigned in the catalog. [Authoring checks](../app/src/detection/identity.rs)
@@ -825,9 +828,14 @@ and colour model are cached together in PNG files under:
 - macOS: `~/Library/Caches/REforge/previews`.
 - Windows: `%LOCALAPPDATA%/REforge/Cache/previews`.
 
-The cache identifies the release's complete SHA-256 catalog manifest, visual
-variant and engine preview recipe revision. This metadata key remains stable
-when file verification switches to BLAKE3. Separate library entries can share those
+Version-three cache keys use BLAKE3 over the release's complete BLAKE3 catalog
+manifest, assigned release ID, visual variant and engine preview recipe revision.
+Known version-two keys are retained as aliases for the matching complete new
+keys. Valid legacy PNGs are moved under the cache lock without checking originals
+or regenerating images. A failed move leaves the old image usable and retries
+on a later load. Corrupt images are not migrated; a valid current image takes
+precedence and its obsolete alias is removed. Changed manifests or recipes do
+not reuse these aliases. Separate library entries can share those
 source images. Valid cached images load without checking or opening original
 game files, including when those originals are unavailable. Only missing or
 corrupt variants are regenerated. For generation, the worker reuses the recent

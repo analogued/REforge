@@ -19,10 +19,19 @@ pub struct Entry {
     pub directory: PathBuf,
 }
 
+/// Catalog-owned aliases map each retired release directly to its current ID.
+#[derive(Clone, Copy, Debug)]
+pub struct ReleaseAlias {
+    pub game_id: &'static str,
+    pub old_release_id: &'static str,
+    pub new_release_id: &'static str,
+}
+
 pub struct Library {
     path: PathBuf,
     config: PathBuf,
     saves: Option<PathBuf>,
+    release_aliases: &'static [ReleaseAlias],
     pub entries: Vec<Entry>,
     pub warning: Option<String>,
 }
@@ -33,6 +42,7 @@ impl Library {
             path,
             config,
             saves: default_saves_path(),
+            release_aliases: &[],
             entries: Vec::new(),
             warning: None,
         }
@@ -42,22 +52,51 @@ impl Library {
         self.saves = saves;
         self
     }
+    pub fn with_release_aliases(mut self, aliases: &'static [ReleaseAlias]) -> Self {
+        self.release_aliases = aliases;
+        self
+    }
+    fn translate_releases(&self, entries: &mut [Entry]) -> bool {
+        let mut changed = false;
+        for entry in entries {
+            if let Some(alias) = self.release_aliases.iter().find(|alias| {
+                alias.game_id == entry.game_id
+                    && alias.old_release_id == entry.release_id
+                    && alias.old_release_id != alias.new_release_id
+            }) {
+                entry.release_id = alias.new_release_id.into();
+                changed = true;
+            }
+        }
+        changed
+    }
     pub fn reload(&mut self) -> Result<(), String> {
         let doc = super::read_document(&self.path, "library")?;
-        let updated = if legacy(&doc) {
-            super::edit_document(&self.path, "library", |doc| self.migrate(doc))?
-        } else {
-            entries(&doc)?
-        };
+        let mut updated = entries(&doc)?;
+        let mut warning = None;
+        if legacy(&doc) {
+            updated = super::edit_document(&self.path, "library", |doc| self.migrate(doc))?;
+        } else if self.translate_releases(&mut updated) {
+            match super::edit_document(&self.path, "library", |doc| self.migrate(doc)) {
+                Ok(latest) => updated = latest,
+                // Known aliases remain usable when a read-only/busy library
+                // cannot be updated. A later read retries the atomic migration.
+                Err(error) => warning = Some(format!("Cannot save updated release IDs: {error}")),
+            }
+        }
         // Library identities are committed first. If copying old preferences fails,
         // retrying uses the same IDs and never generates a second profile.
-        self.warning = migrate_preferences(&self.config, &updated).err();
+        self.warning = match (warning, migrate_preferences(&self.config, &updated).err()) {
+            (Some(a), Some(b)) => Some(format!("{a}\n{b}")),
+            (a, b) => a.or(b),
+        };
         self.entries = updated;
         Ok(())
     }
     fn migrate(&self, doc: &mut DocumentMut) -> Result<Vec<Entry>, String> {
         let mut latest = entries(doc)?;
-        if legacy(doc) {
+        let old_schema = legacy(doc);
+        if old_schema {
             for index in 0..latest.len() {
                 let old = latest[index].entry_id.clone();
                 let id = self.generate_id(&latest[index].game_id, &latest)?;
@@ -81,7 +120,30 @@ impl Library {
                 .unwrap_or(Item::ArrayOfTables(ArrayOfTables::new()));
             doc["entries"] = games;
             doc.remove("next_id");
+        }
+        let translated = self.translate_releases(&mut latest);
+        if old_schema {
             store(doc, &latest)?;
+        } else if translated {
+            for (table, entry) in doc["entries"]
+                .as_array_of_tables_mut()
+                .expect("validated")
+                .iter_mut()
+                .zip(&latest)
+            {
+                if table["release_id"].as_str() != Some(entry.release_id.as_str()) {
+                    let decor = table["release_id"]
+                        .as_value()
+                        .expect("validated")
+                        .decor()
+                        .clone();
+                    table["release_id"] = value(&entry.release_id);
+                    *table["release_id"]
+                        .as_value_mut()
+                        .expect("validated")
+                        .decor_mut() = decor;
+                }
+            }
         }
         Ok(latest)
     }
@@ -179,7 +241,7 @@ impl Library {
     }
     pub fn remove(&mut self, id: &str) -> Result<(), String> {
         let updated = super::edit_document(&self.path, "library", |doc| {
-            let mut latest = entries(doc)?;
+            let mut latest = self.migrate(doc)?;
             latest.retain(|e| e.entry_id != id);
             // Remove preferences first. Failure preserves the library entry; an
             // interrupted removal can leave an entry with defaults, never reused saves.
@@ -204,7 +266,7 @@ impl Library {
         root: &Path,
     ) -> Result<(), String> {
         let updated = super::edit_document(&self.path, "library", |doc| {
-            let mut latest = entries(doc)?;
+            let mut latest = self.migrate(doc)?;
             let location = directory(root)?;
             if latest
                 .iter()
@@ -530,6 +592,7 @@ fn store(doc: &mut DocumentMut, entries: &[Entry]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    mod migrations;
     use std::{
         fs,
         sync::atomic::{AtomicU64, Ordering},

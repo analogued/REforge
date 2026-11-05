@@ -19,7 +19,6 @@ alleycat = { path = "../engines/alleycat", default-features = false }
 mach3 = { path = "../engines/mach3", default-features = false }
 btz = { path = "../engines/btz", default-features = false, features = ["frontend"] }
 getrandom = { version = "=0.3.4", optional = true }
-sha2 = { version = "=0.11.0", default-features = false }
 unicode-segmentation = { version = "=1.12.0", optional = true }
 
 png = { version = "=0.17.16", optional = true }

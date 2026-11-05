@@ -27,14 +27,10 @@ fn compatibility_is_explicit_and_never_crosses_game_identity() {
     assert!(!other.compatible_with(&other));
 }
 
-const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
-const DEF: &str = "cb8379ac2098aa165029e3938a51da0bcecfc008fd6795f401178647f96c5b34";
-const DAT: &str = "947d5a35ff2fe522fda5b431af955e3b27955ebc18c9e3684b07b51ae112461f";
-const XYZ: &str = "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282";
-const B3_ABC: &str = "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85";
-const B3_DEF: &str = "a96fc3234af09bfdd8572dbf779fbf5e3e5dc9c1f2d5aa236d8ed0aa2a1ea323";
-const B3_DAT: &str = "5abc20c80d2681bed0c7564a5065f692305d47b80e23ab85b296ac8832617084";
-const B3_XYZ: &str = "f006b5ee4890b66656cf6c23998e25196a163644665dc9d4b47da1fca3037023";
+const ABC: &str = "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85";
+const DEF: &str = "a96fc3234af09bfdd8572dbf779fbf5e3e5dc9c1f2d5aa236d8ed0aa2a1ea323";
+const DAT: &str = "5abc20c80d2681bed0c7564a5065f692305d47b80e23ab85b296ac8832617084";
+const XYZ: &str = "f006b5ee4890b66656cf6c23998e25196a163644665dc9d4b47da1fca3037023";
 static SYNTHETIC: &[Release] = &[
     Release {
         id: "synthetic-cat-a",
@@ -44,8 +40,8 @@ static SYNTHETIC: &[Release] = &[
         files: &[FileRecord {
             name: "CAT.EXE",
             size: 3,
-            sha256: ABC,
-            blake3: B3_ABC,
+
+            blake3: ABC,
         }],
     },
     Release {
@@ -56,8 +52,8 @@ static SYNTHETIC: &[Release] = &[
         files: &[FileRecord {
             name: "CAT.EXE",
             size: 3,
-            sha256: DEF,
-            blake3: B3_DEF,
+
+            blake3: DEF,
         }],
     },
     Release {
@@ -69,14 +65,14 @@ static SYNTHETIC: &[Release] = &[
             FileRecord {
                 name: "MACH3.EXE",
                 size: 3,
-                sha256: XYZ,
-                blake3: B3_XYZ,
+
+                blake3: XYZ,
             },
             FileRecord {
                 name: "DATA1",
                 size: 3,
-                sha256: DAT,
-                blake3: B3_DAT,
+
+                blake3: DAT,
             },
         ],
     },
@@ -124,20 +120,20 @@ fn btz_games_require_distinct_files_for_all_three_records() {
         FileRecord {
             name: "ADISK.OBJ",
             size: 3,
-            sha256: ABC,
-            blake3: B3_ABC,
+
+            blake3: ABC,
         },
         FileRecord {
             name: "GO.EXE",
             size: 3,
-            sha256: XYZ,
-            blake3: B3_XYZ,
+
+            blake3: XYZ,
         },
         FileRecord {
             name: "SIDE.TXT",
             size: 3,
-            sha256: ABC,
-            blake3: B3_ABC,
+
+            blake3: ABC,
         },
     ];
     static CANDIDATES: &[Release] = &[
@@ -496,8 +492,8 @@ fn matching_multiple_release_records_is_ambiguous() {
             files: &[FileRecord {
                 name: "CAT.EXE",
                 size: 3,
-                sha256: ABC,
-                blake3: B3_ABC,
+
+                blake3: ABC,
             }],
         },
         Release {
@@ -508,8 +504,8 @@ fn matching_multiple_release_records_is_ambiguous() {
             files: &[FileRecord {
                 name: "CAT.EXE",
                 size: 3,
-                sha256: ABC,
-                blake3: B3_ABC,
+
+                blake3: ABC,
             }],
         },
     ];
@@ -568,11 +564,9 @@ fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
         assert!(!release.game().id().is_empty());
         for file in release.files {
             assert!(file.size > 0);
-            for fingerprint in [file.sha256, file.blake3] {
-                assert_eq!(fingerprint.len(), 64);
-                assert!(fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()));
-                assert_eq!(fingerprint, fingerprint.to_ascii_lowercase());
-            }
+            assert_eq!(file.blake3.len(), 64);
+            assert!(file.blake3.bytes().all(|byte| byte.is_ascii_hexdigit()));
+            assert_eq!(file.blake3, file.blake3.to_ascii_lowercase());
             assert_eq!(
                 release
                     .files
@@ -588,7 +582,7 @@ fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
         .find(|release| release.game() == Game::Mach3)
         .unwrap();
     assert_eq!(mach.files.len(), 18);
-    assert_eq!(mach.identity_files.len(), 7);
+    assert!(mach.identity_files.is_empty());
     let mindwheel = RELEASES
         .iter()
         .find(|release| release.game() == Game::Mindwheel)
@@ -616,27 +610,19 @@ fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
 }
 
 #[test]
-fn file_verification_uses_blake3_without_a_sha256_fallback() {
-    static BLAKE3_ONLY: &[Release] = &[Release {
+fn file_verification_rejects_an_incorrect_blake3_fingerprint() {
+    static WRONG: &[Release] = &[Release {
         files: &[FileRecord {
-            // Deliberately different legacy metadata: runtime hashes BLAKE3 only.
-            sha256: DEF,
-            ..SYNTHETIC[0].files[0]
-        }],
-        ..SYNTHETIC[0]
-    }];
-    static SHA256_ONLY: &[Release] = &[Release {
-        files: &[FileRecord {
-            blake3: B3_DEF,
+            blake3: DEF,
             ..SYNTHETIC[0].files[0]
         }],
         ..SYNTHETIC[0]
     }];
     let directory = TestDirectory::new();
     let original = directory.write("CAT.EXE", b"abc");
-    assert!(detect_with(&original, BLAKE3_ONLY, file_size, hash_file).is_ok());
+    assert!(directory.detect(&original).is_ok());
     assert!(
-        detect_with(&original, SHA256_ONLY, file_size, hash_file)
+        detect_with(&original, WRONG, file_size, hash_file)
             .unwrap_err()
             .contains("BLAKE3 mismatch")
     );
@@ -773,14 +759,14 @@ fn identical_required_contents_still_need_distinct_files_and_preserve_named_role
             FileRecord {
                 name: "A",
                 size: 3,
-                sha256: ABC,
-                blake3: B3_ABC,
+
+                blake3: ABC,
             },
             FileRecord {
                 name: "B",
                 size: 3,
-                sha256: ABC,
-                blake3: B3_ABC,
+
+                blake3: ABC,
             },
         ],
     }];
@@ -828,14 +814,14 @@ fn stable_identity_selection_never_exempts_other_required_files_from_verificatio
             FileRecord {
                 name: "MACH3.EXE",
                 size: 3,
-                sha256: ABC,
-                blake3: B3_ABC,
+
+                blake3: ABC,
             },
             FileRecord {
                 name: "SOUND",
                 size: 3,
-                sha256: XYZ,
-                blake3: B3_XYZ,
+
+                blake3: XYZ,
             },
         ],
     }];

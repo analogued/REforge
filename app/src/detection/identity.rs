@@ -2,12 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Catalog authoring/validation only. Runtime detection uses the assigned IDs
 //! and verifies the original files against their full BLAKE3 fingerprints.
-//! SHA-256 metadata keeps the version-one identity encoding stable.
 
 use super::{FileRecord, Release, catalog::Platform};
-use sha2::{Digest, Sha256};
 
-const DOMAIN: &[u8] = b"reforge-detected-release-v1\0";
+const DOMAIN: &[u8] = b"reforge-detected-release-v2\0";
 const SUFFIX_LENGTH: usize = 10;
 
 pub(super) fn release_id(release: &Release) -> Result<String, String> {
@@ -58,28 +56,24 @@ fn manifest_fingerprint(platform: Platform, files: &[FileRecord]) -> Result<Stri
     if records.windows(2).any(|pair| pair[0].0 == pair[1].0) {
         return Err("Duplicate required filename after platform normalization".into());
     }
-    let mut digest = Sha256::new();
+    let mut digest = blake3::Hasher::new();
     digest.update(DOMAIN);
-    digest.update((records.len() as u64).to_le_bytes());
+    digest.update(&(records.len() as u64).to_le_bytes());
     for (name, file) in records {
         if name.is_empty() {
             return Err("A required filename cannot be empty".into());
         }
-        if file.sha256.len() != 64 || !file.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(format!("Invalid SHA-256 for {}", file.name));
+        if file.blake3.len() != 64 || !file.blake3.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("Invalid BLAKE3 for {}", file.name));
         }
         // Explicit byte lengths and little-endian integers make the encoding
         // unambiguous and independent of the host architecture/locale.
-        digest.update((name.len() as u64).to_le_bytes());
+        digest.update(&(name.len() as u64).to_le_bytes());
         digest.update(name.as_bytes());
-        digest.update(file.size.to_le_bytes());
-        digest.update(file.sha256.to_ascii_lowercase().as_bytes());
+        digest.update(&file.size.to_le_bytes());
+        digest.update(file.blake3.to_ascii_lowercase().as_bytes());
     }
-    Ok(digest
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(digest.finalize().to_hex().to_string())
 }
 
 #[cfg(test)]
@@ -91,14 +85,14 @@ mod tests {
         static ORIGINAL: &[FileRecord] = &[FileRecord {
             name: "GAME",
             size: 3,
-            sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+
             blake3: "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
         }];
         static EXPANDED: &[FileRecord] = &[
             FileRecord {
                 name: "SOUND",
                 size: 3,
-                sha256: "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282",
+
                 blake3: "f006b5ee4890b66656cf6c23998e25196a163644665dc9d4b47da1fca3037023",
             },
             ORIGINAL[0],
@@ -122,15 +116,10 @@ mod tests {
         assert!(release_id(&expanded).is_err());
     }
 
-    const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
-    const XYZ: &str = "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282";
-    fn file(name: &'static str, size: u64, sha256: &'static str) -> FileRecord {
-        FileRecord {
-            name,
-            size,
-            sha256,
-            blake3: "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
-        }
+    const ABC: &str = "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85";
+    const XYZ: &str = "f006b5ee4890b66656cf6c23998e25196a163644665dc9d4b47da1fca3037023";
+    fn file(name: &'static str, size: u64, blake3: &'static str) -> FileRecord {
+        FileRecord { name, size, blake3 }
     }
     fn fingerprint(files: &[FileRecord]) -> String {
         manifest_fingerprint(Platform::Dos, files).unwrap()
@@ -170,7 +159,7 @@ mod tests {
             fingerprint(&[file(
                 "game.exe",
                 3,
-                "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+                "6437B3AC38465133FFB63B75273A8DB548C558465D79DB03FD359C6CD5BD9D85"
             )])
         );
         assert_ne!(
@@ -216,12 +205,12 @@ mod tests {
     }
 
     #[test]
-    fn changing_the_runtime_fingerprint_keeps_version_one_identity() {
+    fn changing_the_runtime_fingerprint_changes_version_two_identity() {
         let base = file("GAME.EXE", 3, ABC);
         let changed = FileRecord {
-            blake3: "another-verification-fingerprint",
+            blake3: XYZ,
             ..base
         };
-        assert_eq!(fingerprint(&[base]), fingerprint(&[changed]));
+        assert_ne!(fingerprint(&[base]), fingerprint(&[changed]));
     }
 }

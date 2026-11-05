@@ -545,10 +545,12 @@ impl State {
             ),
         };
         let mut s = Self {
-            library: Library::new(path).with_storage(
-                config.clone(),
-                reforge_settings::library::default_saves_path(),
-            ),
+            library: Library::new(path)
+                .with_release_aliases(detection::migration::RELEASES)
+                .with_storage(
+                    config.clone(),
+                    reforge_settings::library::default_saves_path(),
+                ),
             config,
             layout,
             saved_theme: theme,

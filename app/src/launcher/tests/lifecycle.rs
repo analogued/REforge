@@ -11,19 +11,19 @@ static ORIGINALS: &[detection::Release] = &[detection::Release {
         detection::FileRecord {
             name: "GAME.EXE",
             size: 3,
-            sha256: "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282",
+
             blake3: "f006b5ee4890b66656cf6c23998e25196a163644665dc9d4b47da1fca3037023",
         },
         detection::FileRecord {
             name: "DATA/ROOMS",
             size: 3,
-            sha256: "947d5a35ff2fe522fda5b431af955e3b27955ebc18c9e3684b07b51ae112461f",
+
             blake3: "5abc20c80d2681bed0c7564a5065f692305d47b80e23ab85b296ac8832617084",
         },
         detection::FileRecord {
             name: "AUDIO/MUSIC",
             size: 3,
-            sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+
             blake3: "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
         },
     ],
@@ -125,6 +125,36 @@ fn write_records(fixture: &Fixture, records: &[Entry]) {
             entry.original.to_str().unwrap(), entry.directory.to_str().unwrap()));
     }
     std::fs::write(&fixture.library, text).unwrap();
+}
+
+#[test]
+fn translating_an_old_release_id_keeps_live_state_without_reverification() {
+    let fixture = Fixture::new(0);
+    let trace = Trace::default();
+    let root = install(&fixture, "copy");
+    let mut state = boot(&fixture, &trace);
+    add(&mut state, &root, &trace);
+    let receipt = state.games[0].preview_verification.clone().unwrap();
+    let mut entries = state.library.entries.clone();
+    let alias = crate::detection::migration::RELEASES
+        .iter()
+        .find(|alias| alias.game_id == "mach-3")
+        .unwrap();
+    entries[0].release_id = alias.old_release_id.into();
+    write_records(&fixture, &entries);
+    trace.reset();
+    state.refresh_with(|entry| trace.verify(entry));
+    trace.assert_work(0, 0, 0);
+    assert_eq!(state.games[0].release_id, alias.new_release_id);
+    assert!(Arc::ptr_eq(
+        state.games[0].preview_verification.as_ref().unwrap(),
+        &receipt
+    ));
+    assert!(
+        !std::fs::read_to_string(&fixture.library)
+            .unwrap()
+            .contains(alias.old_release_id)
+    );
 }
 
 #[test]

@@ -4,6 +4,7 @@ use super::*;
 use crate::launcher::model::EntryStatus;
 
 mod caching;
+mod migration;
 mod scheduling;
 #[test]
 fn cache_roundtrips_geometry_rejects_corruption_and_replaces_stale_data() {
@@ -194,8 +195,8 @@ fn worker_completes_without_ui_polling_while_another_process_runs() {
 }
 #[test]
 fn generator_and_job_panics_do_not_stop_later_work() {
-    assert!(cached_frame(None, || panic!("synthetic variant failure")).is_err());
-    assert!(cached_frame(None, || Ok(frame())).is_ok());
+    assert!(cached_frame(None, &[], || panic!("synthetic variant failure")).is_err());
+    assert!(cached_frame(None, &[], || Ok(frame())).is_ok());
     let manager = Manager::with_generator(None, |request, _| {
         if request.identity.entry == "broken" {
             panic!("synthetic job failure");
@@ -239,7 +240,7 @@ fn killed_generation_reuses_completed_variant_and_restarts_only_incomplete_work(
             .all(|e| !owned_temporary(&e.unwrap().file_name().to_string_lossy()))
     );
     assert!(directory.0.join("unrelated.tmp").exists());
-    let completed = cached_frame(Some(&first), || {
+    let completed = cached_frame(Some(&first), &[], || {
         panic!("completed variant must not regenerate")
     })
     .unwrap();
@@ -247,7 +248,7 @@ fn killed_generation_reuses_completed_variant_and_restarts_only_incomplete_work(
     assert_eq!(fs::read(&first).unwrap(), before);
     let mut regenerated = 0;
     let second = directory.0.join("second.png");
-    cached_frame(Some(&second), || {
+    cached_frame(Some(&second), &[], || {
         regenerated += 1;
         Ok(frame())
     })
@@ -258,7 +259,7 @@ fn killed_generation_reuses_completed_variant_and_restarts_only_incomplete_work(
     let bytes = fs::read(&second).unwrap();
     fs::write(&second, &bytes[..bytes.len() - 12]).unwrap();
     assert!(load(&second).is_err());
-    cached_frame(Some(&second), || {
+    cached_frame(Some(&second), &[], || {
         regenerated += 1;
         Ok(frame())
     })
@@ -327,47 +328,47 @@ fn completed_work_is_not_queued_again_after_gameplay_refreshes_the_model() {
 }
 
 #[test]
-fn verification_migration_keeps_existing_preview_cache_keys() {
+fn blake3_cache_keys_match_the_migration_catalog() {
     for (id, variant, expected) in [
         (
-            "alley-cat-dos-06ff7fe280",
+            "alley-cat-dos-7b92bb401f",
             "cga",
-            "09d2dd43ea1da1f76c61bb2090639831fe3edde8fdcd744b7f8a310dd2994c31",
+            "8fafb859f49fb1d4f413c98e0f6385b1245df94ea58d70cfc11c6873cb97ea50",
         ),
         (
-            "alley-cat-dos-06ff7fe280",
+            "alley-cat-dos-7b92bb401f",
             "pcjr",
-            "5e4094eea5650f575eb9c5499ff59dcb62a7f4a5aa7fdfb9111697e1282dc4db",
+            "0fea2a89192fed28a45b79ecf4037c21f882be6b245df140e993ec361871be1b",
         ),
         (
-            "mach-3-dos-5f6ec0fc8b",
+            "mach-3-dos-3d1f0c95f9",
             "cga",
-            "14b37c16f15003365116411f980295d88365a9494ee3224865b9ac41a14970e5",
+            "498002753aab0d55ea785f60a031b1f5864e43d4d55b8c341a93edcaec18f749",
         ),
         (
-            "mach-3-dos-5f6ec0fc8b",
+            "mach-3-dos-3d1f0c95f9",
             "mono",
-            "4fb64c076851c836f5b2364dc87280fae8d8d24aaab35898961d8e4904dbe385",
+            "64843ebe82584b41f43a11905ede1b5dca90758d748e4f5504e21c2054313ad3",
         ),
         (
-            "mindwheel-dos-2f53a47931",
+            "mindwheel-dos-057c9533e4",
             "text",
-            "753c86b0b10f0da5431eee52851a4fb7fd80cbc414a31d053ee739e9f01f0078",
+            "2ba86830d34364eef6948a8fe0dc198fef10dc50a8f8e3817c30515661f9a33b",
         ),
         (
-            "essex-dos-2ba69b4250",
+            "essex-dos-226e565be2",
             "text",
-            "b52b8bbadf4db2f97c5a6715dd8a65cdf539e2b7391a56038eeb63141b46f842",
+            "3e15cd5fde27137fa1e7ffff693da8233c2ea82e4a4d39948010e1fb0f231eea",
         ),
         (
-            "brimstone-dos-0020ff40a4",
+            "brimstone-dos-d3bec28797",
             "text",
-            "a3c9af6daf79589b6d5f549df68d235d19aa532689ca2b01ce6d66fd0c1ea418",
+            "10c8636834f281c2e4ff3712df93ae4a279be51bdfcc8ae0badf09cfe58a9277",
         ),
         (
-            "breakers-dos-acb87c72b9",
+            "breakers-dos-d5569f4b23",
             "text",
-            "09481a94571c5dc818df90d2cdf7b1bc74fc227b34c9c90db15cb7e6f41b45e3",
+            "b3def47f58106a486b47d5075ebefde65e4bc451b7c4ccdb24cf8b48b86edefe",
         ),
     ] {
         let release = detection::RELEASES

@@ -13,6 +13,7 @@ use std::{
 mod catalog;
 #[cfg(test)]
 mod identity;
+pub(crate) mod migration;
 mod search;
 #[cfg(feature = "sdl")]
 pub(crate) mod verification;
@@ -71,9 +72,6 @@ pub struct FileRecord {
     /// Physical filenames and placement within catalog directories may differ.
     pub name: &'static str,
     pub size: u64,
-    /// Stable identity/cache metadata; runtime file verification uses BLAKE3.
-    #[cfg_attr(not(feature = "sdl"), allow(dead_code))]
-    pub sha256: &'static str,
     pub blake3: &'static str,
 }
 

@@ -13,11 +13,16 @@ pub fn bind(
     let Some(config) = launch.path.as_ref() else {
         return Ok(());
     };
-    let mut library = Library::new(config.with_file_name("library.toml")).with_storage(
-        config.clone(),
-        reforge_settings::library::default_saves_path(),
-    );
+    let mut library = Library::new(config.with_file_name("library.toml"))
+        .with_release_aliases(crate::detection::migration::RELEASES)
+        .with_storage(
+            config.clone(),
+            reforge_settings::library::default_saves_path(),
+        );
     library.reload()?;
+    if let Some(warning) = &library.warning {
+        eprintln!("REforge: {warning}");
+    }
     let Some(entry) = library.find_directory(&detected.root)? else {
         return Ok(());
     };
@@ -100,6 +105,35 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+    #[test]
+    fn old_release_ids_bind_to_the_existing_profile_and_are_saved_as_current() {
+        let temp = Temp::new();
+        let config = temp.0.join("config.toml");
+        let alias = crate::detection::migration::RELEASES[0];
+        let mut old = Library::new(temp.0.join("library.toml")).with_storage(config.clone(), None);
+        let root = temp.0.join("originals");
+        let id = old
+            .add(alias.game_id, alias.old_release_id, "My copy", &root)
+            .unwrap();
+        let mut launch = Launch {
+            game_id: alias.game_id.into(),
+            entry_id: None,
+            path: Some(config),
+            cli: Patch::new(),
+        };
+        let detected = Detected {
+            game: Game::AlleyCat,
+            release: &RELEASES[0],
+            root: root.clone(),
+            original: root,
+            files: Default::default(),
+        };
+        bind(&mut launch, &detected, &mut Vec::new()).unwrap();
+        assert_eq!(launch.entry_id.as_deref(), Some(id.as_str()));
+        old.reload().unwrap();
+        assert_eq!(old.entries[0].release_id, alias.new_release_id);
+        assert_eq!(old.entries[0].title, "My copy");
     }
     #[test]
     fn directory_binding_is_per_copy_and_never_creates_an_unregistered_entry() {

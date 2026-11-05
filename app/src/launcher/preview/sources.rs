@@ -4,7 +4,6 @@
 use super::super::model::GameEntry;
 use crate::detection::{self, Detected, Game, Release, verification::Verification};
 use reforge_sdl::{AspectRatio, DisplayGeometry, preview::Frame};
-use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashSet},
     fs::{self, File, OpenOptions},
@@ -139,24 +138,22 @@ fn revision(game: Game) -> u32 {
     }
 }
 fn cache_id(release: &Release, variant: &str) -> String {
-    let mut hash = Sha256::new();
+    let mut hash = blake3::Hasher::new();
     // Version includes the PNG geometry/colour contract; engines version their scene recipes.
-    hash.update(format!(
-        "reforge-preview-v2\0{}\0{}\0{}\0{}\0",
-        release.game().id(),
-        release.id,
-        revision(release.game()),
-        variant
-    ));
-    // Retain the existing SHA-256 metadata contract across verification-algorithm
-    // changes so valid cached images do not need regeneration.
+    hash.update(
+        format!(
+            "reforge-preview-v3\0{}\0{}\0{}\0{}\0",
+            release.game().id(),
+            release.id,
+            revision(release.game()),
+            variant
+        )
+        .as_bytes(),
+    );
     for file in release.files {
-        hash.update(format!("{}\0{}\0{}\0", file.name, file.size, file.sha256));
+        hash.update(format!("{}\0{}\0{}\0", file.name, file.size, file.blake3).as_bytes());
     }
-    hash.finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    hash.finalize().to_hex().to_string()
 }
 fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source> {
     generate_with(
@@ -212,7 +209,12 @@ fn generate_with(
     for variant in ordered {
         let id = cache_id(release, variant);
         let path = cache.map(|root| root.join(format!("{id}.png")));
-        let frame = match cached_frame(path.as_deref(), || {
+        let legacy = detection::migration::PREVIEWS
+            .iter()
+            .filter(|(current, _)| *current == id)
+            .filter_map(|(_, old)| cache.map(|root| root.join(format!("{old}.png"))))
+            .collect::<Vec<_>>();
+        let frame = match cached_frame(path.as_deref(), &legacy, || {
             let detected = originals.get_or_insert_with(|| {
                 if !request.identity.allow_generation {
                     return Err("Original files are unavailable for preview generation".into());
@@ -257,9 +259,25 @@ fn generate_with(
 /// Restart only the missing/corrupt image, not an entire game's preview batch.
 fn cached_frame(
     path: Option<&Path>,
+    legacy: &[PathBuf],
     generate: impl FnOnce() -> Result<Frame, String>,
 ) -> Result<Frame, String> {
     if let Some(frame) = path.and_then(|path| load(path).ok()) {
+        remove_legacy_previews(path.expect("loaded current image"), legacy);
+        return Ok(frame);
+    }
+    if let Some((old, frame)) = legacy
+        .iter()
+        .find_map(|old| load(old).ok().map(|frame| (old, frame)))
+    {
+        if let Some(path) = path {
+            match fs::rename(old, path) {
+                Ok(()) => remove_legacy_previews(path, legacy),
+                // Keep the validated legacy image usable when migration cannot
+                // be persisted. Originals need not be available for this fallback.
+                Err(error) => eprintln!("REforge: cannot migrate preview cache: {error}"),
+            }
+        }
         return Ok(frame);
     }
     let frame = catch_unwind(AssertUnwindSafe(generate))
@@ -270,6 +288,16 @@ fn cached_frame(
         eprintln!("REforge: cannot cache preview: {error}");
     }
     Ok(frame)
+}
+
+fn remove_legacy_previews(current: &Path, legacy: &[PathBuf]) {
+    for old in legacy.iter().filter(|old| old.as_path() != current) {
+        if let Err(error) = fs::remove_file(old)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            eprintln!("REforge: cannot remove migrated preview cache: {error}");
+        }
+    }
 }
 
 struct CacheSession {

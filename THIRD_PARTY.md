@@ -23,7 +23,6 @@ MIT is selected where it is offered.
 | [png](https://crates.io/crates/png/0.17.16) | 0.17.16 | Application preview cache and shared SDL controller artwork | [MIT](LICENSES/MIT.txt) |
 | [unicode-segmentation](https://crates.io/crates/unicode-segmentation/1.12.0) | 1.12.0 | Application: Unicode-aware Symbolic initials | [MIT](LICENSES/MIT.txt) |
 | [blake3](https://crates.io/crates/blake3/1.8.7) | 1.8.7 | Application, Alley Cat and BTZ: original-file verification and release-specific loading guards | [CC0-1.0](LICENSES/CC0-1.0.txt) |
-| [sha2](https://crates.io/crates/sha2/0.11.0) | 0.11.0 | Application: stable catalog identities and preview cache keys | [MIT](LICENSES/MIT.txt) |
 | [sdl3](https://crates.io/crates/sdl3/0.20.0) | 0.20.0 | Shared SDL: window, input, rendering and audio APIs | [MIT](LICENSES/MIT.txt) |
 | [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | Shared SDL: settings and launcher interfaces, with default fonts | [MIT](LICENSES/MIT.txt); font terms below |
 | [blip_buf](https://crates.io/crates/blip_buf/0.2.1) | 0.2.1 | Shared audio: optional band-limited speaker renderer | [MIT](LICENSES/MIT.txt) |
@@ -39,9 +38,6 @@ Copyright notices, transcribed from the corresponding upstream license files:
 
 - **png:** Copyright (c) 2015 nwin.
 - **unicode-segmentation:** Copyright (c) 2015 The Rust Project Developers.
-- **sha2:** Copyright (c) 2016-2026 The RustCrypto Project Developers;
-  Copyright (c) 2016 Artyom Pavlov; Copyright (c) 2009-2013 Mozilla Foundation;
-  Copyright (c) 2006-2009 Graydon Hoare.
 - **sdl3:** Copyright (c) 2013 Mozilla Foundation.
 - **egui**, including its `ecolor`, `emath`, `epaint` and default-font crate code:
   Copyright (c) 2018-2021 Emil Ernerfeldt <emil.ernerfeldt@gmail.com>.

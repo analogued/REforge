@@ -1,6 +1,9 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::launcher::model::EntryStatus;
+
+mod caching;
 #[test]
 fn cache_roundtrips_geometry_rejects_corruption_and_replaces_stale_data() {
     let dir = std::env::temp_dir().join(format!("reforge-preview-cache-{}", std::process::id()));
@@ -84,10 +87,14 @@ fn frame() -> Frame {
 }
 fn request(entry: &str) -> Request {
     Request {
-        entry: entry.into(),
-        release: "synthetic".into(),
-        original: PathBuf::from("synthetic"),
-        preferred: "cga".into(),
+        identity: Identity {
+            entry: entry.into(),
+            release: "synthetic".into(),
+            original: PathBuf::from("synthetic"),
+            preferred: "cga".into(),
+            allow_generation: true,
+        },
+        verification: None,
     }
 }
 fn sources(id: &str) -> BTreeMap<String, Source> {
@@ -165,7 +172,7 @@ fn worker_completes_without_ui_polling_while_another_process_runs() {
         resume
             .recv_timeout(std::time::Duration::from_secs(5))
             .unwrap();
-        sources(&request.entry)
+        sources(&request.identity.entry)
     });
     manager.send.send(request("parallel")).unwrap();
     waiting
@@ -186,10 +193,10 @@ fn generator_and_job_panics_do_not_stop_later_work() {
     assert!(cached_frame(None, || panic!("synthetic variant failure")).is_err());
     assert!(cached_frame(None, || Ok(frame())).is_ok());
     let manager = Manager::with_generator(None, |request, _| {
-        if request.entry == "broken" {
+        if request.identity.entry == "broken" {
             panic!("synthetic job failure");
         }
-        sources(&request.entry)
+        sources(&request.identity.entry)
     });
     manager.send.send(request("broken")).unwrap();
     manager.send.send(request("next")).unwrap();
@@ -285,12 +292,16 @@ fn completed_work_is_not_queued_again_after_gameplay_refreshes_the_model() {
     let mut manager =
         Manager::with_generator(None, |_, _| panic!("completed work was queued again"));
     let request = Request {
-        entry: entry.entry_id,
-        release: entry.release_id,
-        original: entry.original,
-        preferred: game.preview_variant().into(),
+        identity: Identity {
+            entry: entry.entry_id,
+            release: entry.release_id,
+            original: entry.original,
+            preferred: game.preview_variant().into(),
+            allow_generation: true,
+        },
+        verification: None,
     };
-    manager.pending.insert(request.clone());
+    manager.pending.insert(request.identity.clone());
     // A completed reply is buffered while the launcher is hidden. Returning
     // from the game rebuilds a model whose old in-flight flag is now false.
     let (send, receive) = mpsc::channel();

@@ -16,6 +16,8 @@ mod catalog;
 #[cfg(test)]
 mod identity;
 mod search;
+#[cfg(feature = "sdl")]
+pub(crate) mod verification;
 #[cfg(test)]
 use catalog::{ALLEY_CAT_DOS, MACH3_DOS};
 pub use catalog::{Edition, GameMetadata, RELEASES};
@@ -100,7 +102,7 @@ impl Release {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Detected {
     pub game: Game,
     pub release: &'static Release,

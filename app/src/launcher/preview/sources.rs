@@ -1,8 +1,8 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Background engine preview generation; drawing never opens original/cache files.
-use super::super::model::{EntryStatus, GameEntry};
-use crate::detection::{self, Game, Release};
+use super::super::model::GameEntry;
+use crate::detection::{self, Detected, Game, Release, verification::Verification};
 use reforge_sdl::{AspectRatio, DisplayGeometry, preview::Frame};
 use sha2::{Digest, Sha256};
 use std::{
@@ -24,11 +24,17 @@ pub(in crate::launcher) struct Source {
     pub frame: Arc<Frame>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Request {
+struct Identity {
     entry: String,
     release: String,
     original: PathBuf,
     preferred: String,
+    allow_generation: bool,
+}
+#[derive(Clone, Debug)]
+struct Request {
+    identity: Identity,
+    verification: Option<Arc<Verification>>,
 }
 struct Reply {
     request: Request,
@@ -37,7 +43,7 @@ struct Reply {
 pub(in crate::launcher) struct Manager {
     send: mpsc::Sender<Request>,
     receive: mpsc::Receiver<Reply>,
-    pending: HashSet<Request>,
+    pending: HashSet<Identity>,
 }
 impl Manager {
     pub fn new(cache: Option<PathBuf>) -> Self {
@@ -57,7 +63,7 @@ impl Manager {
                 let frames =
                     catch_unwind(AssertUnwindSafe(|| generate(&request, cache.as_deref())))
                         .unwrap_or_else(|_| {
-                            eprintln!("REforge: preview job failed for {}", request.entry);
+                            eprintln!("REforge: preview job failed for {}", request.identity.entry);
                             BTreeMap::new()
                         });
                 if done.send(Reply { request, frames }).is_err() {
@@ -73,29 +79,32 @@ impl Manager {
     }
     pub fn poll(&mut self, games: &mut [GameEntry]) {
         while let Ok(reply) = self.receive.try_recv() {
-            self.pending.remove(&reply.request);
+            self.pending.remove(&reply.request.identity);
             if let Some(game) = games.iter_mut().find(|g| {
-                g.entry_id == reply.request.entry
-                    && g.release_id == reply.request.release
-                    && g.original == reply.request.original
-                    && g.status == EntryStatus::Verified
+                g.entry_id == reply.request.identity.entry
+                    && g.release_id == reply.request.identity.release
+                    && g.original == reply.request.identity.original
             }) {
-                game.previews = reply.frames;
+                game.previews.extend(reply.frames);
                 game.preview_attempted = true;
             }
         }
         for game in games {
-            if game.preview_attempted || game.status.is_missing() {
+            if game.preview_attempted || game.edition.is_none() {
                 continue;
             }
             game.preview_attempted = true;
             let request = Request {
-                entry: game.entry_id.clone(),
-                release: game.release_id.clone(),
-                original: game.original.clone(),
-                preferred: game.preview_variant().into(),
+                identity: Identity {
+                    entry: game.entry_id.clone(),
+                    release: game.release_id.clone(),
+                    original: game.original.clone(),
+                    preferred: game.preview_variant().into(),
+                    allow_generation: !game.status.is_missing(),
+                },
+                verification: game.preview_verification.take(),
             };
-            if self.pending.insert(request.clone()) && self.send.send(request).is_err() {
+            if self.pending.insert(request.identity.clone()) && self.send.send(request).is_err() {
                 break;
             }
         }
@@ -129,6 +138,26 @@ fn cache_id(release: &Release, variant: &str) -> String {
         .collect()
 }
 fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source> {
+    generate_with(
+        request,
+        cache,
+        detection::detect,
+        |detected, variant| match detected.game {
+            Game::AlleyCat => alleycat::launcher::preview(&detected.original, variant),
+            Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
+            Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers => {
+                btz::launcher::preview(&detected.files, variant)
+            }
+        },
+    )
+}
+
+fn generate_with(
+    request: &Request,
+    cache: Option<&Path>,
+    mut detect: impl FnMut(&Path) -> Result<Detected, String>,
+    mut render: impl FnMut(&Detected, &str) -> Result<Frame, String>,
+) -> BTreeMap<String, Source> {
     // This lock is used only by preview workers, never by the launched game.
     // A crashed process releases it automatically. Only its next owner may
     // clean abandoned staging files, so another launcher's writer is safe.
@@ -141,7 +170,10 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
     });
     let cache = cache_guard.as_ref().map(|session| session.root.as_path());
     let mut output = BTreeMap::new();
-    let Some(release) = detection::RELEASES.iter().find(|r| r.id == request.release) else {
+    let Some(release) = detection::RELEASES
+        .iter()
+        .find(|r| r.id == request.identity.release)
+    else {
         return output;
     };
     let variants = match release.game() {
@@ -151,30 +183,41 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
             btz::launcher::PREVIEW_VARIANTS
         }
     };
-    // The entry was verified on the main thread. Reverify before decoding originals
-    // so source replacement while a queued job waits cannot poison a release cache.
-    let detected = match detection::detect(&request.original) {
-        Ok(d) if d.release.id == request.release => d,
-        _ => return output,
-    };
+    // Resolve originals lazily, once per job, only if a cached variant cannot
+    // be decoded. Keep already loaded variants even when generation is impossible.
+    let mut originals: Option<Result<Detected, String>> = None;
     let mut ordered = variants.to_vec();
-    ordered.sort_by_key(|v| *v != request.preferred);
+    ordered.sort_by_key(|v| *v != request.identity.preferred);
     for variant in ordered {
         let id = cache_id(release, variant);
         let path = cache.map(|root| root.join(format!("{id}.png")));
-        let frame = match cached_frame(path.as_deref(), || match release.game() {
-            Game::AlleyCat => alleycat::launcher::preview(&detected.original, variant),
-            Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
-            Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers => {
-                btz::launcher::preview(&detected.files, variant)
-            }
+        let frame = match cached_frame(path.as_deref(), || {
+            let detected = originals.get_or_insert_with(|| {
+                if !request.identity.allow_generation {
+                    return Err("Original files are unavailable for preview generation".into());
+                }
+                if let Some(verified) = request.verification.as_ref().and_then(|verification| {
+                    verification.current_for(&request.identity.original, &request.identity.release)
+                }) {
+                    return Ok(verified.clone());
+                }
+                let detected = detect(&request.identity.original)?;
+                if detected.release.id != request.identity.release {
+                    return Err("Original files changed release before preview generation".into());
+                }
+                Ok(detected)
+            });
+            render(detected.as_ref().map_err(Clone::clone)?, variant)
         }) {
             Ok(frame) => frame,
             Err(error) => {
-                eprintln!(
-                    "REforge: preview unavailable for {} ({variant}): {error}",
-                    release.edition.title()
-                );
+                // Missing originals are an ordinary cached-only request.
+                if request.identity.allow_generation {
+                    eprintln!(
+                        "REforge: preview unavailable for {} ({variant}): {error}",
+                        release.edition.title()
+                    );
+                }
                 continue;
             }
         };

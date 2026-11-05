@@ -792,17 +792,17 @@ metadata is read through the catalog links and is not duplicated in user
 configuration. Metadata edits leave native preview cache identities unchanged.
 The local development `project.toml` inventories are not runtime catalog inputs.
 
-After verification, the launcher loads or generates static engine scene previews
-in a background worker. It warms the available visual variants (CGA/PCjr for
-Alley Cat, colour/monochrome for Mach 3). Mach 3 uses its first splash screen.
-Alley Cat uses its intro, advanced with fixed seed `0xcafe` and the normal virtual
-startup loop until the cat sits on the fence with the SynSoft footer visible.
-BTZ uses the game's original title screen, with the loading label, continue
-prompt and input cursor removed from the preview copy. Its single monochrome
-image is shared by graphical and terminal launch choices. Preview generation
-has no effect on the player's startup seed or session. Native RGBA pixels,
-engine-supplied display geometry and colour model are cached together in PNG
-files under:
+The launcher loads cached static engine scene previews in a background worker
+and generates missing or corrupt images from verified originals. It warms the
+available visual variants (CGA/PCjr for Alley Cat, colour/monochrome for Mach
+3). Mach 3 uses its first splash screen. Alley Cat uses its intro, advanced
+with fixed seed `0xcafe` and the normal virtual startup loop until the cat sits
+on the fence with the SynSoft footer visible. BTZ uses the game's original
+title screen, with the loading label, continue prompt and input cursor removed
+from the preview copy. Its single monochrome image is shared by graphical and
+terminal launch choices. Preview generation has no effect on the player's
+startup seed or session. Native RGBA pixels, engine-supplied display geometry
+and colour model are cached together in PNG files under:
 
 - Linux: `$XDG_CACHE_HOME/reforge/previews`, or `~/.cache/reforge/previews`.
 - macOS: `~/Library/Caches/REforge/previews`.
@@ -810,17 +810,25 @@ files under:
 
 The cache identifies the release's complete detection fingerprints, visual variant
 and engine preview recipe revision. Separate library entries can share those
-source images. Each completed PNG is a checkpoint, published only after its
-write finishes. Preview work continues independently while a launched game runs.
-After a launcher crash or an interrupted close, restart reuses valid completed
-variants and regenerates missing or corrupt ones; an unfinished image starts over.
+source images. Valid cached images load without checking or opening original
+game files, including when those originals are unavailable. Only missing or
+corrupt variants are regenerated. For generation, the worker reuses the recent
+library verification if file sizes and modification times still match; otherwise
+it verifies the originals once for the job. Valid cached variants remain usable
+if another variant cannot be generated. Library status verification is separate.
+
+Each completed PNG is a checkpoint, published only after its write finishes.
+Preview work continues independently while a launched game runs. After a
+launcher crash or an interrupted close, restart reuses valid completed variants
+and regenerates missing or corrupt ones; an unfinished image starts over.
 Workers serialize cache access across launcher instances and remove abandoned
-staging files under that lock. Preview errors and Rust panics leave the launcher
-usable and do not stop later queued games. No queue/progress manifest is needed.
-Deleting the cache is safe; verified entries regenerate it. Missing
-originals, unsupported providers and preview errors retain Symbolic placeholders.
-Their initials use the first letters/numbers of the first two Unicode words, or
-the first two characters of one word, uppercased; empty/non-text names use `?`.
+staging files under that lock. Preview errors and Rust panics leave the
+launcher usable and do not stop later queued games. No queue/progress manifest
+is needed. Deleting the cache is safe; verified entries regenerate it. When a
+usable cached image is unavailable, missing originals, unsupported providers
+and preview errors retain Symbolic placeholders. Their initials use the first
+letters/numbers of the first two Unicode words, or the first two characters of
+one word, uppercased; empty/non-text names use `?`.
 
 Native images are fitted to the preview cell using their intended display aspect.
 Each axis uses Catmull–Rom bicubic filtering when shrinking and pixel coverage

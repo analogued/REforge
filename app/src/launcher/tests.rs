@@ -14,6 +14,31 @@ use std::{
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn library_refresh_retains_cached_previews_when_originals_become_unavailable() {
+    let fixture = Fixture::new(1);
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+    let image = reforge_sdl::preview::Frame::new(
+        reforge_sdl::DisplayGeometry::new((2, 1), (4, 3)),
+        vec![255; 8],
+    )
+    .unwrap();
+    state.games[0].previews.insert(
+        "cga".into(),
+        preview::sources::Source {
+            id: "cached-source".into(),
+            frame: std::sync::Arc::new(image),
+        },
+    );
+    state.games[0].preview_attempted = true;
+    // The fixture's missing originals are noticed by the normal full refresh.
+    state.refresh();
+    assert!(state.games[0].status.is_missing());
+    assert_eq!(state.games[0].previews["cga"].id, "cached-source");
+    assert!(state.games[0].preview_attempted);
+    assert!(state.games[0].preview_verification.is_none());
+}
+
+#[test]
 fn play_performs_full_verification_even_when_the_library_status_is_verified() {
     let fixture = Fixture::new(1);
     let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);

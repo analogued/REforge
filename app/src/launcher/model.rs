@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Library-backed launcher state. Painting never opens files or starts games.
 use super::{catalog::ThemeId, widgets::UiAction};
-use crate::detection::{self, Game};
+use crate::detection::{self, Game, verification::Verification};
 use reforge_sdl::launcher::{OptionDefinition, Storage};
 use reforge_settings::{
     Launch, Session,
@@ -12,6 +12,7 @@ use std::{
     collections::BTreeMap,
     io::IsTerminal,
     path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -93,6 +94,7 @@ pub struct GameEntry {
     pub release_id: String,
     pub previews: BTreeMap<String, super::preview::sources::Source>,
     pub preview_attempted: bool,
+    pub preview_verification: Option<Arc<Verification>>,
     preview_option: &'static str,
     pub status: EntryStatus,
     pub preferences: Preferences,
@@ -116,13 +118,18 @@ impl GameEntry {
             }
             None => &[],
         };
-        let status = if verify {
+        let (status, preview_verification) = if verify {
             match super::verify_entry(entry) {
-                Ok(_) => EntryStatus::Verified,
-                Err(error) => EntryStatus::Missing(bounded_diagnostic(&error)),
+                Ok(detected) => (
+                    EntryStatus::Verified,
+                    Verification::capture(&entry.original, detected)
+                        .ok()
+                        .map(Arc::new),
+                ),
+                Err(error) => (EntryStatus::Missing(bounded_diagnostic(&error)), None),
             }
         } else {
-            EntryStatus::Verified
+            (EntryStatus::Verified, None)
         };
         let mut result = Self {
             entry_id: entry.entry_id.clone(),
@@ -134,6 +141,7 @@ impl GameEntry {
             release_id: entry.release_id.clone(),
             previews: BTreeMap::new(),
             preview_attempted: false,
+            preview_verification,
             preview_option: match release.map(|r| r.game()) {
                 Some(Game::AlleyCat) => alleycat::launcher::PREVIEW_OPTION,
                 Some(Game::Mach3) => mach3::launcher::PREVIEW_OPTION,
@@ -492,17 +500,17 @@ impl State {
                     .iter()
                     .map(|e| {
                         let mut game = GameEntry::from_entry(e, self.config.clone(), true);
-                        if !game.status.is_missing()
-                            && let Some(previous) = self.games.iter().find(|old| {
-                                old.entry_id == game.entry_id
-                                    && old.release_id == game.release_id
-                                    && old.original == game.original
-                                    && !old.status.is_missing()
-                            })
-                        {
+                        if let Some(previous) = self.games.iter().find(|old| {
+                            old.entry_id == game.entry_id
+                                && old.release_id == game.release_id
+                                && old.original == game.original
+                        }) {
                             game.previews = previous.previews.clone();
                             game.preview_attempted =
                                 previous.preview_attempted && !previous.previews.is_empty();
+                            if game.preview_attempted {
+                                game.preview_verification = None;
+                            }
                         }
                         game
                     })

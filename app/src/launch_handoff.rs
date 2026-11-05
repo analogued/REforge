@@ -5,7 +5,7 @@
 //! inherited for terminal games. This is neither a persistent verification cache
 //! nor a command-line option: ordinary CLI launches still run the detector.
 
-use crate::detection::{self, Detected, Game};
+use crate::detection::{self, Detected, Game, verification::stamp};
 use std::{
     collections::BTreeMap,
     ffi::OsStr,
@@ -13,7 +13,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, UNIX_EPOCH},
 };
 
 const ENVIRONMENT: &str = "REFORGE_VERIFIED_LAUNCH";
@@ -221,17 +221,6 @@ fn decode(bytes: &[u8], original: &Path) -> Result<Detected, String> {
         original: selected,
         files,
     })
-}
-
-fn stamp(path: &Path) -> Result<(u64, SystemTime), String> {
-    let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
-    if !metadata.is_file() {
-        return Err("Original is no longer a regular file".into());
-    }
-    Ok((
-        metadata.len(),
-        metadata.modified().map_err(|error| error.to_string())?,
-    ))
 }
 
 fn integer(bytes: &mut Vec<u8>, value: u64) {

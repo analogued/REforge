@@ -815,7 +815,9 @@ game files, including when those originals are unavailable. Only missing or
 corrupt variants are regenerated. For generation, the worker reuses the recent
 library verification if file sizes and modification times still match; otherwise
 it verifies the originals once for the job. Valid cached variants remain usable
-if another variant cannot be generated. Library status verification is separate.
+if another variant cannot be generated. Successful verification after originals
+recover allows missing variants to be retried without discarding good images.
+Library status verification is separate.
 
 Each completed PNG is a checkpoint, published only after its write finishes.
 Preview work continues independently while a launched game runs. After a

@@ -287,3 +287,63 @@ fn partial_worker_replies_preserve_valid_images_already_in_memory() {
     assert_eq!(game.previews["cga"].id, "valid-in-memory");
     assert!(game.preview_attempted);
 }
+
+#[test]
+fn recovery_retries_partial_previews_once_even_with_a_late_cached_only_reply() {
+    let directory = TestDirectory::new();
+    let mut old_request = preview_request(&directory.0);
+    old_request.identity.allow_generation = false;
+    let release = &detection::RELEASES[0];
+    let entry = reforge_settings::library::Entry {
+        entry_id: old_request.identity.entry.clone(),
+        game_id: release.game().id().into(),
+        release_id: release.id.into(),
+        title: release.edition.title().into(),
+        original: old_request.identity.original.clone(),
+        directory: directory.0.clone(),
+    };
+    let mut game = GameEntry::from_entry(&entry, directory.0.join("config.toml"), false);
+    game.previews = sources("retained-cga");
+    game.preview_attempted = true;
+    assert!(!game.previews_complete());
+    // Simulate the successful verification result at the recovery boundary.
+    game.retry_incomplete_previews();
+    let (queued, receive_job) = mpsc::channel();
+    let mut manager = Manager::with_generator(None, move |request, _| {
+        assert!(request.identity.allow_generation);
+        queued.send(()).unwrap();
+        BTreeMap::from([(
+            "pcjr".into(),
+            Source {
+                id: "repaired-pcjr".into(),
+                frame: Arc::new(frame()),
+            },
+        )])
+    });
+    let (send, receive) = mpsc::channel();
+    manager.receive = receive;
+    send.send(Reply {
+        request: old_request,
+        frames: sources("retained-cga"),
+    })
+    .unwrap();
+    manager.poll(std::slice::from_mut(&mut game));
+    receive_job
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(game.previews["cga"].id, "retained-cga");
+    // The late reply and repeated frames must not queue additional work.
+    for _ in 0..5 {
+        manager.poll(std::slice::from_mut(&mut game));
+    }
+    assert!(receive_job.try_recv().is_err());
+    game.previews.insert(
+        "pcjr".into(),
+        Source {
+            id: "complete".into(),
+            frame: Arc::new(frame()),
+        },
+    );
+    game.retry_incomplete_previews();
+    assert!(game.preview_attempted);
+}

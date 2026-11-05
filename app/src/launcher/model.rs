@@ -160,6 +160,24 @@ impl GameEntry {
         }
         result
     }
+    pub fn previews_complete(&self) -> bool {
+        let variants = match self.edition.map(|edition| edition.game.identity) {
+            Some(Game::AlleyCat) => alleycat::launcher::PREVIEW_VARIANTS,
+            Some(Game::Mach3) => mach3::launcher::PREVIEW_VARIANTS,
+            Some(Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers) => {
+                btz::launcher::PREVIEW_VARIANTS
+            }
+            None => return false,
+        };
+        variants
+            .iter()
+            .all(|variant| self.previews.contains_key(*variant))
+    }
+    pub fn retry_incomplete_previews(&mut self) {
+        if !self.previews_complete() {
+            self.preview_attempted = false;
+        }
+    }
     pub fn tagline(&self) -> &'static str {
         self.edition
             .map_or("Original files unavailable", |edition| edition.game.tagline)
@@ -508,6 +526,9 @@ impl State {
                             game.previews = previous.previews.clone();
                             game.preview_attempted =
                                 previous.preview_attempted && !previous.previews.is_empty();
+                            if previous.status.is_missing() && !game.status.is_missing() {
+                                game.retry_incomplete_previews();
+                            }
                             if game.preview_attempted {
                                 game.preview_verification = None;
                             }

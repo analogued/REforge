@@ -87,6 +87,11 @@ impl Manager {
             }) {
                 game.previews.extend(reply.frames);
                 game.preview_attempted = true;
+                // A cached-only job queued before recovery must not suppress
+                // generation now that the originals have been verified again.
+                if !reply.request.identity.allow_generation && !game.status.is_missing() {
+                    game.retry_incomplete_previews();
+                }
             }
         }
         for game in games {

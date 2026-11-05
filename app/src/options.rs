@@ -716,7 +716,7 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
 
 pub fn help(game: Option<Game>) -> String {
     let mut text = String::from(
-        "REforge\n\nUsage: reforge\n       reforge --original <file-or-directory> [options]\n       reforge --help\n       reforge --list\n       reforge --version\n\nWithout arguments, open the launcher and saved game library.\nDetection verifies sizes and SHA-256 hashes; renamed original files are accepted.\nInvalid, unavailable and other-game options are warned about and ignored.\nOriginal data is required and is never included.\n\nCommon options:\n",
+        "REforge\n\nUsage: reforge\n       reforge --original <file-or-directory> [options]\n       reforge --help\n       reforge --list\n       reforge --version\n\nWithout arguments, open the launcher and saved game library.\nDetection verifies sizes and BLAKE3 hashes; renamed original files are accepted.\nInvalid, unavailable and other-game options are warned about and ignored.\nOriginal data is required and is never included.\n\nCommon options:\n",
     );
     for owner in [None, game]
         .into_iter()

@@ -4,11 +4,12 @@
 //! External assets from the supported executable, never bundled with the program.
 
 use crate::framebuffer::{Dimensions, Framebuffer};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 
 pub const EXECUTABLE_SHA256: &str =
     "4979c8867826e08881d1d4bec95c95d6bc1ac70fd21050ccdb4f733a50d7bfdd";
+pub const EXECUTABLE_BLAKE3: &str =
+    "8b6c0f5151075e596296675648eb75b4527e228f74aff1b5db2403f03ff84cf2";
 pub const DATA_LENGTH: usize = 0x7130;
 
 pub struct Assets {
@@ -23,11 +24,10 @@ impl Assets {
     }
 
     pub fn from_executable(bytes: &[u8]) -> Result<Self, String> {
-        let digest = Sha256::digest(bytes);
-        let actual: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-        if bytes.len() != 55_067 || actual != EXECUTABLE_SHA256 {
+        let actual = blake3::hash(bytes).to_hex();
+        if bytes.len() != 55_067 || actual.as_str() != EXECUTABLE_BLAKE3 {
             return Err(format!(
-                "Unsupported executable assets: SHA-256 {actual}; expected {EXECUTABLE_SHA256}"
+                "Unsupported executable assets: BLAKE3 {actual}; expected {EXECUTABLE_BLAKE3}"
             ));
         }
         Ok(Self {
@@ -295,7 +295,7 @@ mod tests {
             .err()
             .unwrap();
         assert!(error.contains("Unsupported executable"));
-        assert!(error.contains(EXECUTABLE_SHA256));
+        assert!(error.contains(EXECUTABLE_BLAKE3));
     }
 
     #[test]

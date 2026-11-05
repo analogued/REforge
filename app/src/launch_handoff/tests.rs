@@ -145,6 +145,9 @@ fn missing_malformed_mismatched_and_consumed_tickets_cannot_skip_verification() 
     let fixture = Fixture::new(&detection::RELEASES[0]);
     let ticket = Ticket::new(&fixture.original, &fixture.detected).unwrap();
     let bytes = fs::read(&ticket.path).unwrap();
+    let mut legacy = bytes.clone();
+    legacy[..MAGIC.len()].copy_from_slice(b"reforge-verified-launch-v1\0");
+    assert!(decode(&legacy, &fixture.original).is_err());
     for length in [0, MAGIC.len() - 1, MAGIC.len(), bytes.len() - 1] {
         assert!(decode(&bytes[..length], &fixture.original).is_err());
     }
@@ -152,7 +155,7 @@ fn missing_malformed_mismatched_and_consumed_tickets_cannot_skip_verification() 
     extra.push(0);
     assert!(decode(&extra, &fixture.original).is_err());
     let mut other_catalog = bytes.clone();
-    let hash = fixture.detected.release.files[0].sha256.as_bytes();
+    let hash = fixture.detected.release.files[0].blake3.as_bytes();
     let index = other_catalog
         .windows(hash.len())
         .position(|window| window == hash)

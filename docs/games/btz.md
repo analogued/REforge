@@ -28,7 +28,7 @@ native messages, and is read as data rather than executed. SIDE.TXT supplies
 logical-disk mappings used by restart and bookmark restore. Breakers' TITLE.EXE
 supplies its opening artwork and credits.
 
-All required files must match the supported release's sizes and SHA-256 hashes.
+All required files must match the supported release's sizes and BLAKE3 hashes.
 Their names may differ; REforge identifies renamed files by their contents.
 
 ## Start playing

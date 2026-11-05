@@ -16,13 +16,14 @@ build output rather than manually maintained repository files.
 
 ## Direct Cargo dependencies
 
-MIT is selected where an alternative is offered.
+MIT is selected where it is offered.
 
 | Component | Version | Used by / purpose | Selected license |
 | --- | --- | --- | --- |
 | [png](https://crates.io/crates/png/0.17.16) | 0.17.16 | Application preview cache and shared SDL controller artwork | [MIT](LICENSES/MIT.txt) |
 | [unicode-segmentation](https://crates.io/crates/unicode-segmentation/1.12.0) | 1.12.0 | Application: Unicode-aware Symbolic initials | [MIT](LICENSES/MIT.txt) |
-| [sha2](https://crates.io/crates/sha2/0.11.0) | 0.11.0 | Application, Alley Cat and BTZ: original-file verification | [MIT](LICENSES/MIT.txt) |
+| [blake3](https://crates.io/crates/blake3/1.8.7) | 1.8.7 | Application, Alley Cat and BTZ: original-file verification and release-specific loading guards | [CC0-1.0](LICENSES/CC0-1.0.txt) |
+| [sha2](https://crates.io/crates/sha2/0.11.0) | 0.11.0 | Application: stable catalog identities and preview cache keys | [MIT](LICENSES/MIT.txt) |
 | [sdl3](https://crates.io/crates/sdl3/0.20.0) | 0.20.0 | Shared SDL: window, input, rendering and audio APIs | [MIT](LICENSES/MIT.txt) |
 | [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | Shared SDL: settings and launcher interfaces, with default fonts | [MIT](LICENSES/MIT.txt); font terms below |
 | [blip_buf](https://crates.io/crates/blip_buf/0.2.1) | 0.2.1 | Shared audio: optional band-limited speaker renderer | [MIT](LICENSES/MIT.txt) |
@@ -30,6 +31,9 @@ MIT is selected where an alternative is offered.
 | [getrandom](https://crates.io/crates/getrandom/0.3.4) | 0.3.4 | Shared settings and application: operating-system randomness for library IDs and launch handoff names | [MIT](LICENSES/MIT.txt) |
 | [libc](https://crates.io/crates/libc/0.2.190) | 0.2.190 | BTZ terminal frontend: terminal readiness polling | [MIT](LICENSES/MIT.txt) |
 | [fs2](https://crates.io/crates/fs2/0.4.3) | 0.4.3 | Shared settings and launcher preview cache: file locking | [MIT](LICENSES/MIT.txt) |
+
+BLAKE3 uses the CC0 public-domain dedication offered in its upstream
+`LICENSE_CC0`; that license option is selected here.
 
 Copyright notices, transcribed from the corresponding upstream license files:
 

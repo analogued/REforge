@@ -6,7 +6,7 @@ BTZ interpreter with the original story data and background activity.
 > [!IMPORTANT]
 > REforge does not include original game data. Keep **ADISK.OBJ**, **RUN.EXE**,
 > **SIDE.TXT** and **TITLE.EXE** from a supported DOS release together in the
-> game directory. Detection verifies all four files by size and SHA-256 hash.
+> game directory. Detection verifies all four files by size and BLAKE3 hash.
 
 ## Start playing
 

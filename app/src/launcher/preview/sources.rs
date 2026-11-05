@@ -148,6 +148,8 @@ fn cache_id(release: &Release, variant: &str) -> String {
         revision(release.game()),
         variant
     ));
+    // Retain the existing SHA-256 metadata contract across verification-algorithm
+    // changes so valid cached images do not need regeneration.
     for file in release.files {
         hash.update(format!("{}\0{}\0{}\0", file.name, file.size, file.sha256));
     }

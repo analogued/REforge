@@ -71,6 +71,7 @@ than an unverified historical release name:
 
 ```text
 Size:    55067 bytes
+BLAKE3:  8b6c0f5151075e596296675648eb75b4527e228f74aff1b5db2403f03ff84cf2
 SHA-256: 4979c8867826e08881d1d4bec95c95d6bc1ac70fd21050ccdb4f733a50d7bfdd
 ```
 
@@ -85,7 +86,7 @@ See the [application README](../../README.md) for the combined build and
 Install Rust 1.88 or newer with Cargo, and an SDL3 development package providing
 the native `SDL3` library. The [shared window backend](../../crates/reforge_sdl/README.md)
 uses the `sdl3` Rust wrapper; SDL image/font/mixer extensions are not required.
-Cargo fetches `sha2` and its locked dependencies for executable verification.
+Cargo fetches `blake3` and its locked dependencies for executable verification.
 
 From the combined repository root:
 

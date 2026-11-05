@@ -325,3 +325,55 @@ fn completed_work_is_not_queued_again_after_gameplay_refreshes_the_model() {
     assert_eq!(game.previews["cga"].id, "completed");
     assert!(manager.pending.is_empty());
 }
+
+#[test]
+fn verification_migration_keeps_existing_preview_cache_keys() {
+    for (id, variant, expected) in [
+        (
+            "alley-cat-dos-06ff7fe280",
+            "cga",
+            "09d2dd43ea1da1f76c61bb2090639831fe3edde8fdcd744b7f8a310dd2994c31",
+        ),
+        (
+            "alley-cat-dos-06ff7fe280",
+            "pcjr",
+            "5e4094eea5650f575eb9c5499ff59dcb62a7f4a5aa7fdfb9111697e1282dc4db",
+        ),
+        (
+            "mach-3-dos-5f6ec0fc8b",
+            "cga",
+            "14b37c16f15003365116411f980295d88365a9494ee3224865b9ac41a14970e5",
+        ),
+        (
+            "mach-3-dos-5f6ec0fc8b",
+            "mono",
+            "4fb64c076851c836f5b2364dc87280fae8d8d24aaab35898961d8e4904dbe385",
+        ),
+        (
+            "mindwheel-dos-2f53a47931",
+            "text",
+            "753c86b0b10f0da5431eee52851a4fb7fd80cbc414a31d053ee739e9f01f0078",
+        ),
+        (
+            "essex-dos-2ba69b4250",
+            "text",
+            "b52b8bbadf4db2f97c5a6715dd8a65cdf539e2b7391a56038eeb63141b46f842",
+        ),
+        (
+            "brimstone-dos-0020ff40a4",
+            "text",
+            "a3c9af6daf79589b6d5f549df68d235d19aa532689ca2b01ce6d66fd0c1ea418",
+        ),
+        (
+            "breakers-dos-acb87c72b9",
+            "text",
+            "09481a94571c5dc818df90d2cdf7b1bc74fc227b34c9c90db15cb7e6f41b45e3",
+        ),
+    ] {
+        let release = detection::RELEASES
+            .iter()
+            .find(|release| release.id == id)
+            .unwrap();
+        assert_eq!(cache_id(release, variant), expected);
+    }
+}

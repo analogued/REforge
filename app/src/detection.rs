@@ -10,8 +10,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use sha2::{Digest, Sha256};
-
 mod catalog;
 #[cfg(test)]
 mod identity;
@@ -73,7 +71,10 @@ pub struct FileRecord {
     /// Physical filenames and placement within catalog directories may differ.
     pub name: &'static str,
     pub size: u64,
+    /// Stable identity/cache metadata; runtime file verification uses BLAKE3.
+    #[cfg_attr(not(feature = "sdl"), allow(dead_code))]
     pub sha256: &'static str,
+    pub blake3: &'static str,
 }
 
 #[derive(Debug)]
@@ -178,13 +179,13 @@ fn matches_hash(
 ) -> bool {
     let actual = hashes.entry(path.to_owned()).or_insert_with(|| hash(path));
     match actual {
-        Ok(actual) if actual == file.sha256 => true,
+        Ok(actual) if actual == file.blake3 => true,
         result => {
             // Unrelated same-size files are normal during content searches.
             // Explain failures of expected names without flooding the error.
             if named(path, file.name) && diagnostics.len() < 12 {
                 diagnostics.push(match result {
-                    Ok(_) => format!("{} SHA-256 mismatch", path.display()),
+                    Ok(_) => format!("{} BLAKE3 mismatch", path.display()),
                     Err(error) => error.clone(),
                 });
             }
@@ -479,7 +480,7 @@ fn file_size(path: &Path) -> Result<u64, String> {
 fn hash_file(path: &Path) -> Result<String, String> {
     let mut file = File::open(path)
         .map_err(|error| format!("Cannot open original file {}: {error}", path.display()))?;
-    let mut digest = Sha256::new();
+    let mut digest = blake3::Hasher::new();
     let mut buffer = [0; 64 * 1024];
     loop {
         let length = file
@@ -490,11 +491,7 @@ fn hash_file(path: &Path) -> Result<String, String> {
         }
         digest.update(&buffer[..length]);
     }
-    Ok(digest
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+    Ok(digest.finalize().to_hex().to_string())
 }
 
 #[cfg(test)]

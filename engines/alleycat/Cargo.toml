@@ -14,7 +14,7 @@ dev-tools = ["dep:reforge_audio", "reforge_audio/blip", "reforge_sdl?/dev-tools"
 
 [dependencies]
 reforge_graphics = { path = "../../crates/reforge_graphics" }
-sha2 = { version = "=0.11.0", default-features = false }
+blake3 = { version = "=1.8.7" }
 reforge_audio = { path = "../../crates/reforge_audio", optional = true }
 reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
 

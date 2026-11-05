@@ -1,7 +1,8 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Catalog authoring/validation only. Runtime detection uses the assigned IDs
-//! and verifies the original files against their full SHA-256 fingerprints.
+//! and verifies the original files against their full BLAKE3 fingerprints.
+//! SHA-256 metadata keeps the version-one identity encoding stable.
 
 use super::{FileRecord, Release, catalog::Platform};
 use sha2::{Digest, Sha256};
@@ -91,12 +92,14 @@ mod tests {
             name: "GAME",
             size: 3,
             sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            blake3: "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
         }];
         static EXPANDED: &[FileRecord] = &[
             FileRecord {
                 name: "SOUND",
                 size: 3,
                 sha256: "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282",
+                blake3: "f006b5ee4890b66656cf6c23998e25196a163644665dc9d4b47da1fca3037023",
             },
             ORIGINAL[0],
         ];
@@ -122,7 +125,12 @@ mod tests {
     const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
     const XYZ: &str = "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282";
     fn file(name: &'static str, size: u64, sha256: &'static str) -> FileRecord {
-        FileRecord { name, size, sha256 }
+        FileRecord {
+            name,
+            size,
+            sha256,
+            blake3: "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
+        }
     }
     fn fingerprint(files: &[FileRecord]) -> String {
         manifest_fingerprint(Platform::Dos, files).unwrap()
@@ -205,5 +213,15 @@ mod tests {
             ..*base
         };
         assert_eq!(release_id(base), release_id(&other));
+    }
+
+    #[test]
+    fn changing_the_runtime_fingerprint_keeps_version_one_identity() {
+        let base = file("GAME.EXE", 3, ABC);
+        let changed = FileRecord {
+            blake3: "another-verification-fingerprint",
+            ..base
+        };
+        assert_eq!(fingerprint(&[base]), fingerprint(&[changed]));
     }
 }

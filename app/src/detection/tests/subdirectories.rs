@@ -13,16 +13,19 @@ static STRUCTURED: &[Release] = &[Release {
             name: "GAME.EXE",
             size: 3,
             sha256: XYZ,
+            blake3: B3_XYZ,
         },
         FileRecord {
             name: "DATA/ROOMS.DAT",
             size: 3,
             sha256: DAT,
+            blake3: B3_DAT,
         },
         FileRecord {
             name: "AUDIO/MUSIC.DAT",
             size: 3,
             sha256: ABC,
+            blake3: B3_ABC,
         },
     ],
 }];
@@ -85,6 +88,7 @@ fn nested_directory_components_and_file_anchors_ignore_ascii_case() {
                 name: "AUDIO/DISC1/MUSIC.DAT",
                 size: 3,
                 sha256: ABC,
+                blake3: B3_ABC,
             },
         ],
         ..STRUCTURED[0]
@@ -144,6 +148,7 @@ fn another_releases_directories_cannot_broaden_the_search() {
                 name: "OTHER/FILE",
                 size: 3,
                 sha256: DEF,
+                blake3: B3_DEF,
             }],
             ..STRUCTURED[0]
         },
@@ -163,11 +168,13 @@ fn expected_full_paths_are_reserved_before_same_basename_or_renamed_copies() {
                 name: "DATA/SHARED",
                 size: 3,
                 sha256: ABC,
+                blake3: B3_ABC,
             },
             FileRecord {
                 name: "AUDIO/SHARED",
                 size: 3,
                 sha256: ABC,
+                blake3: B3_ABC,
             },
         ],
         ..STRUCTURED[0]
@@ -238,6 +245,7 @@ fn malformed_catalog_paths_cannot_escape_the_root() {
             name,
             size: 3,
             sha256: ABC,
+            blake3: B3_ABC,
         }];
         assert!(search::catalog_directories(&files).is_err(), "{name:?}");
     }
@@ -303,11 +311,13 @@ fn directory_aliases_cannot_count_one_file_as_two_required_records() {
                 name: "DATA/ONE",
                 size: 3,
                 sha256: ABC,
+                blake3: B3_ABC,
             },
             FileRecord {
                 name: "AUDIO/TWO",
                 size: 3,
                 sha256: ABC,
+                blake3: B3_ABC,
             },
         ],
         ..STRUCTURED[0]

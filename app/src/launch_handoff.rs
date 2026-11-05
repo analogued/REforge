@@ -17,7 +17,7 @@ use std::{
 };
 
 const ENVIRONMENT: &str = "REFORGE_VERIFIED_LAUNCH";
-const MAGIC: &[u8] = b"reforge-verified-launch-v1\0";
+const MAGIC: &[u8] = b"reforge-verified-launch-v2\0";
 const MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 pub(crate) struct Ticket {
@@ -133,7 +133,7 @@ fn encode(original: &Path, detected: &Detected) -> Result<Vec<u8>, String> {
     path_field(&mut bytes, &detected.original)?;
     for file in detected.release.files {
         field(&mut bytes, file.name.as_bytes());
-        field(&mut bytes, file.sha256.as_bytes());
+        field(&mut bytes, file.blake3.as_bytes());
         let path = detected
             .files
             .get(file.name)
@@ -180,7 +180,7 @@ fn decode(bytes: &[u8], original: &Path) -> Result<Detected, String> {
     let selected = reader.path()?;
     let mut files = BTreeMap::new();
     for file in release.files {
-        if reader.field()? != file.name.as_bytes() || reader.field()? != file.sha256.as_bytes() {
+        if reader.field()? != file.name.as_bytes() || reader.field()? != file.blake3.as_bytes() {
             return Err("Launch ticket does not match the file catalog".into());
         }
         let path = reader.path()?;

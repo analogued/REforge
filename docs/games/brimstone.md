@@ -7,7 +7,7 @@ activity.
 > [!IMPORTANT]
 > REforge does not include original game data. Keep **ADISK.OBJ**, **GO.EXE**
 > and **SIDE.TXT** from a supported DOS release together in the game directory.
-> Detection verifies all three files against their sizes and SHA-256 hashes.
+> Detection verifies all three files against their sizes and BLAKE3 hashes.
 
 ## Start playing
 

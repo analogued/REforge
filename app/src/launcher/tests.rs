@@ -66,7 +66,7 @@ fn play_performs_full_verification_even_when_the_library_status_is_verified() {
         .unwrap();
     assert_eq!(state.games[0].status, EntryStatus::Verified);
     let error = state.prepare_play(entry.entry_id).unwrap_err();
-    assert!(error.contains("SHA-256 mismatch"), "{error}");
+    assert!(error.contains("BLAKE3 mismatch"), "{error}");
     assert!(state.games[0].status.is_missing());
 }
 

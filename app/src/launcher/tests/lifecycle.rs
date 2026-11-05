@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use super::*;
-use sha2::{Digest, Sha256};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 // A test catalog uses real detection with authored bytes, while retaining the
@@ -13,16 +12,19 @@ static ORIGINALS: &[detection::Release] = &[detection::Release {
             name: "GAME.EXE",
             size: 3,
             sha256: "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282",
+            blake3: "f006b5ee4890b66656cf6c23998e25196a163644665dc9d4b47da1fca3037023",
         },
         detection::FileRecord {
             name: "DATA/ROOMS",
             size: 3,
             sha256: "947d5a35ff2fe522fda5b431af955e3b27955ebc18c9e3684b07b51ae112461f",
+            blake3: "5abc20c80d2681bed0c7564a5065f692305d47b80e23ab85b296ac8832617084",
         },
         detection::FileRecord {
             name: "AUDIO/MUSIC",
             size: 3,
             sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            blake3: "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
         },
     ],
     identity_files: &[],
@@ -55,10 +57,7 @@ impl Trace {
                 let mut counts = self.0.borrow_mut();
                 counts.hashes.push(path.to_owned());
                 counts.bytes += bytes.len();
-                Ok(Sha256::digest(bytes)
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect())
+                Ok(blake3::hash(&bytes).to_hex().to_string())
             },
         )
     }

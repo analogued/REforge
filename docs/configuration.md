@@ -138,7 +138,7 @@ that files cannot have changed since then. Play always performs a fresh full
 check, and a failed check updates that entry without scanning the other games.
 Use Locate Files to recheck an unavailable installation after restoring its files.
 
-Detection verifies every required file by size and complete SHA-256 hash.
+Detection verifies every required file by size and complete BLAKE3 hash.
 Expected relative paths provide the fast path: exact spelling first, then other
 ASCII case variants alphabetically. Unresolved files are sought under any name
 or extension in the game root and the file-containing subdirectories named in
@@ -718,7 +718,7 @@ The catalog has four linked record types:
 | `GameMetadata` | Typed game identity, canonical title, genres and tagline. |
 | `Edition` | Internal edition ID, game reference, platform, optional title replacement, year, developers, publishers, optional display label and specs profile reference. |
 | `SpecsProfile` | Internal profile ID and video/audio feature lists. |
-| `Release` | Existing detected-release ID, edition reference, compatibility group and filename/size/SHA-256 fingerprints. |
+| `Release` | Existing detected-release ID, edition reference, compatibility group, and filename/size/BLAKE3 verification records with SHA-256 identity metadata. |
 
 Multiple detected distributions can reference one edition, for example when
 only an executable changes. Separate editions can reference the same game and
@@ -760,8 +760,13 @@ characters remain exact. Physical aliases found during detection do not enter
 this fingerprint, so renaming files does not change the detected-release ID.
 File-list order and hexadecimal SHA-256 letter casing do not affect the identity.
 Other platforms must select their own catalog filename case semantics.
-Original file contents remain byte-exact and are verified with the full SHA-256.
+Original file contents remain byte-exact and are verified with the full BLAKE3 hash.
 Absolute installation paths and editorial/edition/specs metadata are excluded.
+
+SHA-256 file fingerprints remain catalog metadata for stable release and preview
+identities. Record both hashes from the same original bytes; normal detection
+reads game files only for BLAKE3 verification. Changing the verification algorithm
+requires no migration of library entries, preferences, saves or cached previews.
 
 The version-one fingerprint encoding is fixed: the ASCII marker
 `reforge-detected-release-v1` followed by a NUL byte, the file count as an unsigned
@@ -820,8 +825,9 @@ and colour model are cached together in PNG files under:
 - macOS: `~/Library/Caches/REforge/previews`.
 - Windows: `%LOCALAPPDATA%/REforge/Cache/previews`.
 
-The cache identifies the release's complete detection fingerprints, visual variant
-and engine preview recipe revision. Separate library entries can share those
+The cache identifies the release's complete SHA-256 catalog manifest, visual
+variant and engine preview recipe revision. This metadata key remains stable
+when file verification switches to BLAKE3. Separate library entries can share those
 source images. Valid cached images load without checking or opening original
 game files, including when those originals are unavailable. Only missing or
 corrupt variants are regenerated. For generation, the worker reuses the recent

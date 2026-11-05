@@ -12,7 +12,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     io::IsTerminal,
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -83,6 +83,17 @@ impl Preferences {
         )
     }
 }
+// Requests can outlive a model, including relocation away and back or removal
+// followed by reinsertion of the same saved ID. Never reuse an attempt token.
+fn next_preview_generation() -> u64 {
+    static NEXT: Mutex<u64> = Mutex::new(0);
+    let mut next = NEXT.lock().expect("preview attempt counter poisoned");
+    *next = next
+        .checked_add(1)
+        .expect("preview attempt counter exhausted");
+    *next
+}
+
 #[derive(Clone, Debug)]
 pub struct GameEntry {
     pub entry_id: String,
@@ -131,7 +142,7 @@ impl GameEntry {
             release_id: entry.release_id.clone(),
             previews: BTreeMap::new(),
             preview_attempted: false,
-            preview_generation: 0,
+            preview_generation: next_preview_generation(),
             preview_verification: None,
             preview_option: match release.map(|r| r.game()) {
                 Some(Game::AlleyCat) => alleycat::launcher::PREVIEW_OPTION,
@@ -191,7 +202,7 @@ impl GameEntry {
     }
     pub fn retry_incomplete_previews(&mut self) {
         if !self.previews_complete() {
-            self.preview_generation = self.preview_generation.wrapping_add(1);
+            self.preview_generation = next_preview_generation();
             self.preview_attempted = false;
         }
     }

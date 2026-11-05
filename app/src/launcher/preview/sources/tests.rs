@@ -4,6 +4,7 @@ use super::*;
 use crate::launcher::model::EntryStatus;
 
 mod caching;
+mod scheduling;
 #[test]
 fn cache_roundtrips_geometry_rejects_corruption_and_replaces_stale_data() {
     let dir = std::env::temp_dir().join(format!("reforge-preview-cache-{}", std::process::id()));
@@ -304,7 +305,7 @@ fn completed_work_is_not_queued_again_after_gameplay_refreshes_the_model() {
             original: entry.original,
             preferred: game.preview_variant().into(),
             allow_generation: true,
-            generation: 0,
+            generation: game.preview_generation,
         },
         verification: None,
     };

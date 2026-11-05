@@ -141,6 +141,9 @@ launch directory. `--save-dir /path/to/saves` selects another starting folder;
 the directory must already exist. Filenames and relative paths resolve from the
 folder shown in the browser, including `../` paths. Absolute paths work too.
 
+BOOKMARK and SCRIPT open with an empty filename field, ready to type a new
+name. RESUME NOVEL starts in the file list when matching bookmarks are available.
+
 Use Up/Down to select a file or folder and Enter to open or choose it. Tab and
 Shift+Tab move between the list, filename field, Save/Resume/Write and Cancel.
 The filename field supports caret movement and selection. Windowed play also

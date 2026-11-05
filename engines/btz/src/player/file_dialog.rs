@@ -208,7 +208,7 @@ impl FileDialog {
             caret: 0,
             anchor: None,
             selected_path: None,
-            focus: Focus::List,
+            focus: Focus::Name,
             confirm: None,
             yes: false,
             fixed: false,
@@ -218,10 +218,11 @@ impl FileDialog {
             cursor_style: FileCursorStyle::PulsingUnderline,
         };
         dialog.scan();
-        if let Some(index) = dialog.entries.iter().position(|entry| !entry.directory) {
+        if operation == Operation::Load
+            && let Some(index) = dialog.entries.iter().position(|entry| !entry.directory)
+        {
             dialog.select(index);
-        } else {
-            dialog.focus = Focus::Name;
+            dialog.focus = Focus::List;
         }
         dialog
     }
@@ -960,6 +961,8 @@ pub(crate) mod tests {
         dir.bookmark("EXISTING", 512);
         for title in ["Mindwheel", "Essex", "Brimstone", "Breakers"] {
             let mut dialog = FileDialog::new(Operation::Save, &dir.0, title, 512);
+            assert!(name(&dialog).is_empty());
+            dialog.input(Input::Text("EXISTING".into()));
             assert_eq!(dialog.input(Input::Enter), None);
             assert!(dialog.confirm.is_some());
             assert!(!dialog.yes);
@@ -981,7 +984,8 @@ pub(crate) mod tests {
             FileDialog::fixed(Operation::Save, &dir.0.join("EXISTING"), "Mindwheel", 512);
         assert_eq!(fixed.input(Input::Text("n".into())), Some(Action::Cancel));
         let mut script = FileDialog::new(Operation::Transcript, &dir.0, "Breakers", 512);
-        type_name(&mut script, "EXISTING");
+        assert!(name(&script).is_empty());
+        script.input(Input::Text("EXISTING".into()));
         script.input(Input::Enter);
         assert!(script.confirm.is_some());
         script.input(Input::Escape);

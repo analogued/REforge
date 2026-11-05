@@ -25,6 +25,8 @@ every game, initially selecting No. Declining returns to filename selection, or 
 the operation when a command-line option fixed its destination. Errors leave the
 browser available for correction and retry.
 
+Save and transcript selection start in an empty filename field; resume starts
+in the file list when matching bookmarks are available.
 The browser uses a temporary screen and stops the story clock while open.
 Settings can open above it and return to the same selection or overwrite
 question. Terminal keyboard navigation uses the same selection and completion

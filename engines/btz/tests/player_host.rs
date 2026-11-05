@@ -343,7 +343,7 @@ mod terminal_bell {
         expect(&mut master, &mut bytes, "Name this saved novel:");
         assert!(String::from_utf8_lossy(&bytes).contains("\x1b[?2004h"));
         bytes.clear();
-        master.write_all(b"\r").unwrap();
+        master.write_all(b"EXISTING\r").unwrap();
         expect(&mut master, &mut bytes, "Replace existing version?");
         bytes.clear();
         master.write_all(b"\r").unwrap(); // No is the default.

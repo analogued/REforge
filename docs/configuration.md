@@ -126,6 +126,18 @@ selected entry ID as `selected_entry` under `[launcher]` in `config.toml`.
 The next launch restores that selection, including a game with missing files.
 If the entry was removed, the first remaining entry is selected instead.
 
+The launcher fully verifies all entries at startup. Add and Relocate verify the
+selected inputs and reuse that result when it matches the saved installation.
+If duplicate Add retains a different original-file anchor, that saved anchor is
+checked separately. Library, settings and game-return updates retain unchanged
+entries without rehashing their originals; new or changed installation records
+are verified. Title and order edits do not require content verification.
+
+The displayed verification status records the last check, rather than proving
+that files cannot have changed since then. Play always performs a fresh full
+check, and a failed check updates that entry without scanning the other games.
+Use Locate Files to recheck an unavailable installation after restoring its files.
+
 Detection verifies every required file by size and complete SHA-256 hash.
 Expected relative paths provide the fast path: exact spelling first, then other
 ASCII case variants alphabetically. Unresolved files are sought under any name

@@ -89,10 +89,13 @@ fn request(entry: &str) -> Request {
     Request {
         identity: Identity {
             entry: entry.into(),
+            game: "alley-cat".into(),
+            directory: PathBuf::from("synthetic"),
             release: "synthetic".into(),
             original: PathBuf::from("synthetic"),
             preferred: "cga".into(),
             allow_generation: true,
+            generation: 0,
         },
         verification: None,
     }
@@ -288,16 +291,20 @@ fn completed_work_is_not_queued_again_after_gameplay_refreshes_the_model() {
         original: directory.0.join("original"),
         directory: directory.0.clone(),
     };
-    let mut game = GameEntry::from_entry(&entry, directory.0.join("config.toml"), false);
+    let mut game =
+        crate::launcher::tests::loaded_game_entry(&entry, directory.0.join("config.toml"), false);
     let mut manager =
         Manager::with_generator(None, |_, _| panic!("completed work was queued again"));
     let request = Request {
         identity: Identity {
             entry: entry.entry_id,
+            game: entry.game_id,
+            directory: entry.directory,
             release: entry.release_id,
             original: entry.original,
             preferred: game.preview_variant().into(),
             allow_generation: true,
+            generation: 0,
         },
         verification: None,
     };

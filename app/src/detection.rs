@@ -193,7 +193,7 @@ fn matches_hash(
     }
 }
 
-fn detect_with(
+pub(crate) fn detect_with(
     path: &Path,
     releases: &'static [Release],
     mut size: impl FnMut(&Path) -> Result<u64, String>,

@@ -26,10 +26,13 @@ pub(in crate::launcher) struct Source {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Identity {
     entry: String,
+    game: String,
+    directory: PathBuf,
     release: String,
     original: PathBuf,
     preferred: String,
     allow_generation: bool,
+    generation: u64,
 }
 #[derive(Clone, Debug)]
 struct Request {
@@ -82,19 +85,27 @@ impl Manager {
             self.pending.remove(&reply.request.identity);
             if let Some(game) = games.iter_mut().find(|g| {
                 g.entry_id == reply.request.identity.entry
+                    && g.game_id == reply.request.identity.game
+                    && g.directory == reply.request.identity.directory
                     && g.release_id == reply.request.identity.release
                     && g.original == reply.request.identity.original
             }) {
                 game.previews.extend(reply.frames);
-                game.preview_attempted = true;
-                // A cached-only job queued before recovery must not suppress
-                // generation now that the originals have been verified again.
-                if !reply.request.identity.allow_generation && !game.status.is_missing() {
-                    game.retry_incomplete_previews();
+                if game.previews_complete() {
+                    game.preview_attempted = true;
+                } else if reply.request.identity.generation == game.preview_generation {
+                    game.preview_attempted = true;
+                    // A cached-only job must not suppress generation after recovery.
+                    if !reply.request.identity.allow_generation && !game.status.is_missing() {
+                        game.retry_incomplete_previews();
+                    }
                 }
             }
         }
         for game in games {
+            if game.previews_complete() {
+                game.preview_attempted = true;
+            }
             if game.preview_attempted || game.edition.is_none() {
                 continue;
             }
@@ -102,10 +113,13 @@ impl Manager {
             let request = Request {
                 identity: Identity {
                     entry: game.entry_id.clone(),
+                    game: game.game_id.clone(),
+                    directory: game.directory.clone(),
                     release: game.release_id.clone(),
                     original: game.original.clone(),
                     preferred: game.preview_variant().into(),
                     allow_generation: !game.status.is_missing(),
+                    generation: game.preview_generation,
                 },
                 verification: game.preview_verification.take(),
             };

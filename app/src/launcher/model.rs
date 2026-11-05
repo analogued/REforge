@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Library-backed launcher state. Painting never opens files or starts games.
 use super::{catalog::ThemeId, widgets::UiAction};
-use crate::detection::{self, Game, verification::Verification};
+use crate::detection::{self, Detected, Game, verification::Verification};
 use reforge_sdl::launcher::{OptionDefinition, Storage};
 use reforge_settings::{
     Launch, Session,
     library::{Entry, Library},
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     io::IsTerminal,
     path::PathBuf,
     sync::Arc,
@@ -90,10 +90,12 @@ pub struct GameEntry {
     pub edition: Option<&'static detection::Edition>,
     pub original_path: String,
     pub original: PathBuf,
+    pub directory: PathBuf,
     pub game_id: String,
     pub release_id: String,
     pub previews: BTreeMap<String, super::preview::sources::Source>,
     pub preview_attempted: bool,
+    pub preview_generation: u64,
     pub preview_verification: Option<Arc<Verification>>,
     preview_option: &'static str,
     pub status: EntryStatus,
@@ -105,7 +107,7 @@ pub struct GameEntry {
     config: PathBuf,
 }
 impl GameEntry {
-    pub fn from_entry(entry: &Entry, config: PathBuf, verify: bool) -> Self {
+    pub fn from_entry(entry: &Entry, config: PathBuf) -> Self {
         let release = detection::RELEASES
             .iter()
             .find(|r| r.id == entry.release_id && r.game().id() == entry.game_id);
@@ -118,47 +120,61 @@ impl GameEntry {
             }
             None => &[],
         };
-        let (status, preview_verification) = if verify {
-            match super::verify_entry(entry) {
-                Ok(detected) => (
-                    EntryStatus::Verified,
-                    Verification::capture(&entry.original, detected)
-                        .ok()
-                        .map(Arc::new),
-                ),
-                Err(error) => (EntryStatus::Missing(bounded_diagnostic(&error)), None),
-            }
-        } else {
-            (EntryStatus::Verified, None)
-        };
-        let mut result = Self {
+        Self {
             entry_id: entry.entry_id.clone(),
             title: entry.title.clone(),
             edition,
             original_path: entry.original.display().to_string(),
             original: entry.original.clone(),
+            directory: entry.directory.clone(),
             game_id: entry.game_id.clone(),
             release_id: entry.release_id.clone(),
             previews: BTreeMap::new(),
             preview_attempted: false,
-            preview_verification,
+            preview_generation: 0,
+            preview_verification: None,
             preview_option: match release.map(|r| r.game()) {
                 Some(Game::AlleyCat) => alleycat::launcher::PREVIEW_OPTION,
                 Some(Game::Mach3) => mach3::launcher::PREVIEW_OPTION,
                 Some(Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers) | None => "",
             },
-            status,
+            status: EntryStatus::Missing("Original files have not been verified".into()),
             preferences: Preferences::from_options(options),
             options,
             terminal_available: std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
             error: None,
             native_preferences_loaded: false,
             config,
-        };
-        if let Err(e) = result.refresh_preferences() {
-            result.error = Some(e);
         }
-        result
+    }
+    pub fn matches_installation(&self, entry: &Entry) -> bool {
+        self.entry_id == entry.entry_id
+            && self.game_id == entry.game_id
+            && self.release_id == entry.release_id
+            && self.original == entry.original
+            && self.directory == entry.directory
+    }
+    pub fn apply_verification(&mut self, result: &Result<Detected, String>) {
+        match result {
+            Ok(detected) => {
+                self.status = EntryStatus::Verified;
+                self.retry_incomplete_previews();
+                self.preview_verification = if self.previews_complete() {
+                    None
+                } else {
+                    Verification::capture(&self.original, detected.clone())
+                        .ok()
+                        .map(Arc::new)
+                };
+            }
+            Err(error) => {
+                self.status = EntryStatus::Missing(bounded_diagnostic(error));
+                self.preview_verification = None;
+            }
+        }
+    }
+    pub fn reload_preferences(&mut self) {
+        self.error = self.refresh_preferences().err();
     }
     pub fn previews_complete(&self) -> bool {
         let variants = match self.edition.map(|edition| edition.game.identity) {
@@ -175,6 +191,7 @@ impl GameEntry {
     }
     pub fn retry_incomplete_previews(&mut self) {
         if !self.previews_complete() {
+            self.preview_generation = self.preview_generation.wrapping_add(1);
             self.preview_attempted = false;
         }
     }
@@ -465,8 +482,42 @@ pub struct State {
     pub notice: Option<(String, bool)>,
     pub notice_started: Instant,
 }
+pub(super) struct VerificationUpdate {
+    pub entry: Entry,
+    pub result: Result<Detected, String>,
+}
+impl VerificationUpdate {
+    pub fn success(id: String, original: PathBuf, detected: Detected) -> Result<Self, String> {
+        let entry = Entry {
+            entry_id: id,
+            game_id: detected.game.id().into(),
+            release_id: detected.release.id.into(),
+            title: detected.release.edition.title().into(),
+            original,
+            directory: reforge_settings::library::directory(&detected.root)?,
+        };
+        Ok(Self {
+            entry,
+            result: Ok(detected),
+        })
+    }
+}
+fn same_installation(a: &Entry, b: &Entry) -> bool {
+    a.entry_id == b.entry_id
+        && a.game_id == b.game_id
+        && a.release_id == b.release_id
+        && a.original == b.original
+        && a.directory == b.directory
+}
 impl State {
     pub fn new(path: PathBuf, config: PathBuf) -> Self {
+        Self::new_with(path, config, super::verify_entry)
+    }
+    pub(super) fn new_with(
+        path: PathBuf,
+        config: PathBuf,
+        verify: impl FnMut(&Entry) -> Result<Detected, String>,
+    ) -> Self {
         let pref = reforge_settings::launcher::load(&config);
         let (theme, layout, selected, error) = match pref {
             Ok(p) => (
@@ -506,48 +557,89 @@ impl State {
             notice: error,
             notice_started: Instant::now(),
         };
-        s.refresh();
+        s.refresh_with(verify);
         s
     }
     pub fn refresh(&mut self) {
+        self.refresh_with(super::verify_entry);
+    }
+    pub(super) fn refresh_with(&mut self, verify: impl FnMut(&Entry) -> Result<Detected, String>) {
         match self.library.reload() {
-            Ok(()) => {
-                self.games = self
-                    .library
-                    .entries
-                    .iter()
-                    .map(|e| {
-                        let mut game = GameEntry::from_entry(e, self.config.clone(), true);
-                        if let Some(previous) = self.games.iter().find(|old| {
-                            old.entry_id == game.entry_id
-                                && old.release_id == game.release_id
-                                && old.original == game.original
-                        }) {
-                            game.previews = previous.previews.clone();
-                            game.preview_attempted =
-                                previous.preview_attempted && !previous.previews.is_empty();
-                            if previous.status.is_missing() && !game.status.is_missing() {
-                                game.retry_incomplete_previews();
-                            }
-                            if game.preview_attempted {
-                                game.preview_verification = None;
-                            }
-                        }
-                        game
-                    })
-                    .collect();
-                if let Some(warning) = self.library.warning.clone() {
-                    self.notify(warning, true);
-                }
-                if !self
-                    .games
-                    .iter()
-                    .any(|g| self.selected.as_deref() == Some(g.entry_id.as_str()))
-                {
-                    self.selected = self.games.first().map(|g| g.entry_id.clone());
-                }
+            Ok(()) => self.reconcile_with(None, verify),
+            Err(error) => {
+                self.reload_preferences();
+                self.notify(error, true);
+                return;
             }
-            Err(e) => self.notify(e, true),
+        }
+        self.reload_preferences();
+    }
+    pub fn reload_preferences(&mut self) {
+        for game in &mut self.games {
+            game.reload_preferences();
+        }
+    }
+    pub(super) fn reconcile_with(
+        &mut self,
+        mut update: Option<VerificationUpdate>,
+        mut verify: impl FnMut(&Entry) -> Result<Detected, String>,
+    ) {
+        // Mutations already contain the latest committed records. Move retained
+        // models by entry ID; title/order edits do not change an installation.
+        let mut previous = std::mem::take(&mut self.games)
+            .into_iter()
+            .map(|game| (game.entry_id.clone(), game))
+            .collect::<HashMap<_, _>>();
+        self.games = self
+            .library
+            .entries
+            .iter()
+            .map(|entry| {
+                let old = previous.remove(&entry.entry_id);
+                let unchanged = old
+                    .as_ref()
+                    .is_some_and(|game| game.matches_installation(entry));
+                let mut game = if unchanged {
+                    old.unwrap()
+                } else {
+                    GameEntry::from_entry(entry, self.config.clone())
+                };
+                game.title = entry.title.clone();
+                if update
+                    .as_ref()
+                    .is_some_and(|update| update.entry.entry_id == entry.entry_id)
+                {
+                    let update = update.take().unwrap();
+                    if same_installation(&update.entry, entry) {
+                        game.apply_verification(&update.result);
+                    } else {
+                        // Duplicate Add may retain an older, different file anchor.
+                        game.apply_verification(&verify(entry));
+                    }
+                } else if !unchanged {
+                    game.apply_verification(&verify(entry));
+                }
+                game
+            })
+            .collect();
+        if let Some(warning) = self.library.warning.clone() {
+            self.notify(warning, true);
+        }
+        if !self
+            .games
+            .iter()
+            .any(|game| self.selected.as_deref() == Some(game.entry_id.as_str()))
+        {
+            self.selected = self.games.first().map(|game| game.entry_id.clone());
+        }
+    }
+    pub(super) fn apply_verification(&mut self, entry: &Entry, result: &Result<Detected, String>) {
+        if let Some(game) = self
+            .games
+            .iter_mut()
+            .find(|game| game.matches_installation(entry))
+        {
+            game.apply_verification(result);
         }
     }
     pub fn effective_theme(&self) -> ThemeId {
@@ -627,10 +719,17 @@ impl State {
         }
     }
     pub fn confirm_remove(&mut self) {
+        self.confirm_remove_with(super::verify_entry);
+    }
+    pub(super) fn confirm_remove_with(
+        &mut self,
+        verify: impl FnMut(&Entry) -> Result<Detected, String>,
+    ) {
         if let Some(id) = self.pending_remove.take() {
             match self.library.remove(&id) {
                 Ok(()) => {
-                    self.refresh();
+                    self.reconcile_with(None, verify);
+                    self.reload_preferences();
                     self.notify(
                         "Game removed from the library. Original files remain on disk.".into(),
                         false,

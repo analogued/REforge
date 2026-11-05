@@ -7,7 +7,7 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
-- Reduce redundant original-file hashing on library launches and preview generation; load valid cached previews without reading originals.
+- Reduce redundant original-file hashing during library updates, game launches and preview generation; load valid cached previews without reading originals.
 - Recognize renamed original game files by their verified contents, regardless of filename or extension, within the game root and catalog-defined subdirectories.
 - Fix launcher filtering, retain valid launch choices when another preference is invalid, and use the saved global controller dead zone for launcher navigation.
 - Identify temporary game settings for unregistered launches and disable next-launch-only edits that cannot be saved.

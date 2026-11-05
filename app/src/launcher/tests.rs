@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Production UI regressions use authored library records, never original data.
 use super::*;
+
+mod lifecycle;
 use model::EntryStatus;
 use reforge_sdl::egui::{Context, Pos2, RawInput, Rect, Vec2};
 use reforge_sdl::ui::themes::{ResolvedAppearance, ThemeId};
@@ -10,6 +12,17 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+pub(super) fn loaded_game_entry(entry: &Entry, config: PathBuf, verify: bool) -> model::GameEntry {
+    let mut game = model::GameEntry::from_entry(entry, config);
+    if verify {
+        game.apply_verification(&verify_entry(entry));
+    } else {
+        game.status = EntryStatus::Verified;
+    }
+    game.reload_preferences();
+    game
+}
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
@@ -30,7 +43,8 @@ fn library_refresh_retains_cached_previews_when_originals_become_unavailable() {
         },
     );
     state.games[0].preview_attempted = true;
-    // The fixture's missing originals are noticed by the normal full refresh.
+    let entry = state.library.entries[0].clone();
+    state.prepare_play(entry.entry_id).unwrap_err();
     state.refresh();
     assert!(state.games[0].status.is_missing());
     assert_eq!(state.games[0].previews["cga"].id, "cached-source");
@@ -188,7 +202,7 @@ fn invalid_shared_fields_preserve_launcher_choices_and_cli_agreement() {
             "schema_version = 2\n[global.controls]\nstick_dead_zone = 60\n[entries.{}.display]\nscale = 99\nwindow_mode = \"fullscreen\"\n[entries.{}.launcher]\n{key} = {choice:?}\n",
             entry.entry_id, entry.entry_id,
         )).unwrap();
-        let game = model::GameEntry::from_entry(entry, fixture.config.clone(), false);
+        let game = loaded_game_entry(entry, fixture.config.clone(), false);
         assert!(game.error.is_some());
         assert_eq!(game.option_values()["Window"], "Fullscreen");
         assert_eq!(global_dead_zone(&fixture.config), 60);
@@ -221,7 +235,7 @@ fn invalid_shared_fields_preserve_launcher_choices_and_cli_agreement() {
         assert!(args.contains(&choice.into()));
         // A complete read failure must not turn UI fallback values into CLI pins.
         std::fs::write(&fixture.config, "invalid = [").unwrap();
-        let broken = model::GameEntry::from_entry(entry, fixture.config.clone(), false);
+        let broken = loaded_game_entry(entry, fixture.config.clone(), false);
         assert!(broken.error.is_some());
         assert!(broken.native_arguments().is_empty());
         assert_eq!(
@@ -266,13 +280,13 @@ fn migration_write_warning_preserves_resolved_launcher_preferences() {
         .open(fixture.config.with_extension("lock"))
         .unwrap();
     fs2::FileExt::try_lock_exclusive(&lock).unwrap();
-    let game = model::GameEntry::from_entry(entry, fixture.config.clone(), false);
+    let game = loaded_game_entry(entry, fixture.config.clone(), false);
     assert!(game.error.as_ref().unwrap().contains("busy"));
     assert_eq!(game.option_values()["Window"], "Fullscreen");
     assert_eq!(game.native_arguments(), ["--video", "mono"]);
     assert_eq!(std::fs::read_to_string(&fixture.config).unwrap(), original);
     drop(lock);
-    let recovered = model::GameEntry::from_entry(entry, fixture.config.clone(), false);
+    let recovered = loaded_game_entry(entry, fixture.config.clone(), false);
     assert!(recovered.error.is_none());
     assert_eq!(recovered.native_arguments(), game.native_arguments());
 }
@@ -908,7 +922,7 @@ fn unavailable_catalog_release_keeps_the_entry_title_without_fake_edition_data()
     let mut entry = state.library.entries[0].clone();
     entry.title = "My installed copy".into();
     entry.release_id = "synthetic-unavailable-release".into();
-    let game = model::GameEntry::from_entry(&entry, fixture.config.clone(), true);
+    let game = loaded_game_entry(&entry, fixture.config.clone(), true);
     assert!(game.edition.is_none());
     assert_eq!(game.title, "My installed copy");
     assert!(game.status.is_missing());
@@ -1771,7 +1785,7 @@ fn duplicate_game_copies_keep_independent_quick_options_and_display_titles() {
     );
     let mut renamed = state.library.entries[0].clone();
     renamed.title = "Alley Cat — PCjr copy".into();
-    let entry = model::GameEntry::from_entry(&renamed, fixture.config.clone(), false);
+    let entry = loaded_game_entry(&renamed, fixture.config.clone(), false);
     assert_eq!(entry.title, "Alley Cat — PCjr copy");
     assert_eq!(entry.entry_id, state.games[0].entry_id);
     assert_eq!(entry.option_values()["Machine"], "IBM PCjr");

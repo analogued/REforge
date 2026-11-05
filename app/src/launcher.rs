@@ -12,7 +12,7 @@ use crate::{
     detection::{self, Detected},
     launch_handoff,
 };
-use model::{LayoutVariant, State};
+use model::{LayoutVariant, State, VerificationUpdate};
 use reforge_sdl::{
     FrameCreator, egui, gamepad::Gamepads, sdl3, settings::Gui, ui::themes as catalog,
 };
@@ -88,7 +88,15 @@ impl State {
             .ok_or_else(|| "Game is no longer in the library".into())
     }
     fn add(&mut self, path: &Path) -> Result<(), String> {
-        let detected = detection::detect(path)?;
+        self.add_with(path, detection::detect, verify_entry)
+    }
+    fn add_with(
+        &mut self,
+        path: &Path,
+        detect: impl FnOnce(&Path) -> Result<Detected, String>,
+        verify: impl FnMut(&Entry) -> Result<Detected, String>,
+    ) -> Result<(), String> {
+        let detected = detect(path)?;
         let original = library_original(path, &detected)?;
         let id = self.library.add_at(
             detected.game.id(),
@@ -97,31 +105,48 @@ impl State {
             &original,
             &detected.root,
         )?;
+        let title = detected.release.edition.title();
+        let update = VerificationUpdate::success(id.clone(), original, detected)?;
         self.selected = Some(id);
-        self.refresh();
-        self.notify(format!("{} added", detected.release.edition.title()), false);
+        self.reconcile_with(Some(update), verify);
+        self.reload_preferences();
+        self.notify(format!("{title} added"), false);
         Ok(())
     }
     fn relocate(&mut self, id: String, path: &Path) -> Result<(), String> {
+        self.relocate_with(id, path, detection::detect, verify_entry)
+    }
+    fn relocate_with(
+        &mut self,
+        id: String,
+        path: &Path,
+        detect: impl FnOnce(&Path) -> Result<Detected, String>,
+        verify: impl FnMut(&Entry) -> Result<Detected, String>,
+    ) -> Result<(), String> {
         let entry = self.entry(&id)?;
-        let detected = detect_entry(&entry, path)?;
+        let detected = detect_entry_with(&entry, path, detect)?;
         let original = library_original(path, &detected)?;
         self.library
             .relocate_at(&id, detected.release.id, &original, &detected.root)?;
+        let update = VerificationUpdate::success(id.clone(), original, detected)?;
         self.selected = Some(id);
-        self.refresh();
+        self.reconcile_with(Some(update), verify);
+        self.reload_preferences();
         self.notify("Game location updated".into(), false);
         Ok(())
     }
     fn prepare_play(&mut self, id: String) -> Result<(PathBuf, Detected), String> {
+        self.prepare_play_with(id, verify_entry)
+    }
+    fn prepare_play_with(
+        &mut self,
+        id: String,
+        verify: impl FnOnce(&Entry) -> Result<Detected, String>,
+    ) -> Result<(PathBuf, Detected), String> {
         let entry = self.entry(&id)?;
-        match verify_entry(&entry) {
-            Ok(detected) => Ok((entry.original, detected)),
-            Err(error) => {
-                self.refresh();
-                Err(error)
-            }
-        }
+        let result = verify(&entry);
+        self.apply_verification(&entry, &result);
+        result.map(|detected| (entry.original, detected))
     }
     fn shortcut(&mut self, key: Option<Keycode>, mods: Mod, repeat: bool) -> bool {
         if repeat {
@@ -175,8 +200,12 @@ fn library_original(input: &Path, detected: &Detected) -> Result<PathBuf, String
         .join(relative))
 }
 
-fn detect_entry(entry: &Entry, path: &Path) -> Result<Detected, String> {
-    let detected = detection::detect(path)?;
+fn detect_entry_with(
+    entry: &Entry,
+    path: &Path,
+    detect: impl FnOnce(&Path) -> Result<Detected, String>,
+) -> Result<Detected, String> {
+    let detected = detect(path)?;
     let previous = detection::RELEASES
         .iter()
         .find(|r| r.id == entry.release_id && r.game().id() == entry.game_id);
@@ -189,9 +218,20 @@ fn detect_entry(entry: &Entry, path: &Path) -> Result<Detected, String> {
     Ok(detected)
 }
 fn verify_entry(entry: &Entry) -> Result<Detected, String> {
-    let detected = detect_entry(entry, &entry.original)?;
+    verify_entry_with(entry, detection::detect)
+}
+fn verify_entry_with(
+    entry: &Entry,
+    detect: impl FnOnce(&Path) -> Result<Detected, String>,
+) -> Result<Detected, String> {
+    let detected = detect_entry_with(entry, &entry.original, detect)?;
     if detected.release.id != entry.release_id {
         return Err("Game files changed release; use Relocate to verify the replacement".into());
+    }
+    if reforge_settings::library::directory(&detected.root)?
+        != reforge_settings::library::directory(&entry.directory)?
+    {
+        return Err("Game root changed; use Relocate to verify the replacement".into());
     }
     Ok(detected)
 }

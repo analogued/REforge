@@ -8,7 +8,10 @@ mod settings;
 mod switchers;
 mod symbolic;
 mod widgets;
-use crate::detection::{self, Detected};
+use crate::{
+    detection::{self, Detected},
+    launch_handoff,
+};
 use model::{LayoutVariant, State};
 use reforge_sdl::{
     FrameCreator, egui, gamepad::Gamepads, sdl3, settings::Gui, ui::themes as catalog,
@@ -27,6 +30,12 @@ use std::{
     time::Duration,
 };
 use widgets::UiAction;
+
+struct LaunchedGame {
+    process: Child,
+    // Remove an unconsumed ticket after startup failure or early child exit.
+    _ticket: Option<launch_handoff::Ticket>,
+}
 
 fn global_dead_zone(config: &Path) -> u8 {
     reforge_settings::Session::load(reforge_settings::Launch {
@@ -104,13 +113,15 @@ impl State {
         self.notify("Game location updated".into(), false);
         Ok(())
     }
-    fn play_path(&mut self, id: String) -> Result<PathBuf, String> {
+    fn prepare_play(&mut self, id: String) -> Result<(PathBuf, Detected), String> {
         let entry = self.entry(&id)?;
-        if let Err(e) = verify_entry(&entry) {
-            self.refresh();
-            return Err(e);
+        match verify_entry(&entry) {
+            Ok(detected) => Ok((entry.original, detected)),
+            Err(error) => {
+                self.refresh();
+                Err(error)
+            }
         }
-        Ok(entry.original)
     }
     fn shortcut(&mut self, key: Option<Keycode>, mods: Mod, repeat: bool) -> bool {
         if repeat {
@@ -296,7 +307,7 @@ pub fn run() -> Result<(), String> {
     let mut events = sdl.event_pump().map_err(|e| e.to_string())?;
     let mut pads = Gamepads::new(global_dead_zone(&state.config));
     let mut picker: Option<(UiAction, mpsc::Receiver<FolderResult>)> = None;
-    let mut child: Option<Child> = None;
+    let mut child: Option<LaunchedGame> = None;
     let mut visible = false;
     let mut previews = preview::sources::Manager::new(preview::sources::default_cache_path());
     loop {
@@ -336,7 +347,7 @@ pub fn run() -> Result<(), String> {
             }
         }
         if let Some(game) = child.as_mut() {
-            if let Some(status) = game.try_wait().map_err(|e| e.to_string())? {
+            if let Some(status) = game.process.try_wait().map_err(|e| e.to_string())? {
                 child = None;
                 if !status.success() {
                     state.notify(
@@ -432,7 +443,7 @@ pub fn run() -> Result<(), String> {
                     Ok(())
                 }
                 UiAction::Play(id) => (|| {
-                    let original = state.play_path(id.clone())?;
+                    let (original, detected) = state.prepare_play(id.clone())?;
                     let entry = state
                         .games
                         .iter()
@@ -455,7 +466,17 @@ pub fn run() -> Result<(), String> {
                         .map(|g| g.native_arguments())
                         .unwrap_or_default();
                     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-                    let process = Command::new(exe)
+                    let ticket = match launch_handoff::Ticket::new(&original, &detected) {
+                        Ok(ticket) => Some(ticket),
+                        Err(error) => {
+                            eprintln!(
+                                "REforge: launch handoff unavailable ({error}); child will verify original files"
+                            );
+                            None
+                        }
+                    };
+                    let mut command = Command::new(exe);
+                    command
                         .arg("--original")
                         .arg(original)
                         .arg("--config")
@@ -463,13 +484,21 @@ pub fn run() -> Result<(), String> {
                         .args(args)
                         .stdin(Stdio::inherit())
                         .stdout(Stdio::inherit())
-                        .stderr(Stdio::inherit())
+                        .stderr(Stdio::inherit());
+                    launch_handoff::clear(&mut command);
+                    if let Some(ticket) = &ticket {
+                        ticket.attach(&mut command);
+                    }
+                    let process = command
                         .spawn()
-                        .map_err(|e| format!("Cannot start game: {e}"))?;
+                        .map_err(|error| format!("Cannot start game: {error}"))?;
                     text_input(&canvas, false);
                     canvas.window_mut().hide();
                     gui.reset_input();
-                    child = Some(process);
+                    child = Some(LaunchedGame {
+                        process,
+                        _ticket: ticket,
+                    });
                     Ok(())
                 })(),
             };

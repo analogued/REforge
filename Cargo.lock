@@ -399,6 +399,7 @@ dependencies = [
  "alleycat",
  "btz",
  "fs2",
+ "getrandom",
  "mach3",
  "png",
  "reforge_sdl",

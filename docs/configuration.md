@@ -141,6 +141,12 @@ filling gaps, and each required record needs a distinct file. Duplicate identica
 copies use a deterministic selection. Actual verified paths are passed to the
 engine without renaming or copying the files.
 
+Launching from the library performs full verification when Play is pressed.
+The game process reuses that result through a one-use handoff containing the
+release and resolved file paths. It checks file sizes and modification times
+before accepting the handoff; an unavailable or invalid handoff falls back to
+full verification. Direct command-line launches perform full verification.
+
 Multiple matching releases remain ambiguous, including a renamed release beside
 a normally named one. Selecting a file requires that exact file to satisfy one
 of the release's records, with the remaining files in the permitted locations.

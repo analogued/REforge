@@ -3,6 +3,8 @@
 
 mod detection;
 #[cfg(feature = "sdl")]
+mod launch_handoff;
+#[cfg(feature = "sdl")]
 mod launcher;
 mod options;
 mod profile;
@@ -215,7 +217,7 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
     warn(&input.warnings);
     let mut input = input;
     input.warnings.clear();
-    let plan = plan(input, detection::detect)?;
+    let plan = plan(input, detect_for_launch)?;
     eprintln!(
         "REforge: detected {} ({})",
         plan.detected.game.title(),
@@ -266,6 +268,17 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
                 Err("Mach 3 windowed play requires the sdl feature".into())
             }
         }
+    }
+}
+
+fn detect_for_launch(path: &Path) -> Result<Detected, String> {
+    #[cfg(feature = "sdl")]
+    {
+        launch_handoff::detect(path)
+    }
+    #[cfg(not(feature = "sdl"))]
+    {
+        detection::detect(path)
     }
 }
 

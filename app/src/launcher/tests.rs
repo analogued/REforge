@@ -13,6 +13,24 @@ use std::{
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
+#[test]
+fn play_performs_full_verification_even_when_the_library_status_is_verified() {
+    let fixture = Fixture::new(1);
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+    let entry = state.library.entries[0].clone();
+    let file = detection::RELEASES[0].files[0];
+    std::fs::create_dir(&entry.original).unwrap();
+    // Correct filename and size, but authored bytes with an incorrect hash.
+    std::fs::File::create(entry.original.join(file.name))
+        .unwrap()
+        .set_len(file.size)
+        .unwrap();
+    assert_eq!(state.games[0].status, EntryStatus::Verified);
+    let error = state.prepare_play(entry.entry_id).unwrap_err();
+    assert!(error.contains("SHA-256 mismatch"), "{error}");
+    assert!(state.games[0].status.is_missing());
+}
+
 #[cfg(unix)]
 #[test]
 fn library_file_symlinks_keep_the_directory_used_for_companion_discovery() {

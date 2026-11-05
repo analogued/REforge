@@ -1,5 +1,12 @@
 # DOS startup and address conventions
 
+The supported DOS programs contain the same initialized game image in two
+executable packagings: a 43,008-byte reverse-RLE executable and a 23,929-byte
+PKLITE-wrapped executable. Both use the same 17 external DATA files. The PKLITE
+wrapper expands to the same reverse-RLE load image, excluding a reference-only
+final padding byte; their complete initialized and relocated images match.
+Both catalog distributions share compatibility ID `mach-3-dos`.
+
 The DOS program starts through a self-unpacking loader. Its initialized expanded
 image is `0x12b30` bytes (76,592 bytes), with 132 internal segment relocations.
 The loader restores the stack and transfers control to relative `0000:0000`.
@@ -14,6 +21,25 @@ must not be interpreted as if its segment words were still relative.
 Addresses below are hexadecimal offsets in the expanded program's code segment,
 relative to `L`. The initial runtime data segment is `L + 095a`, and the restored
 stack is `L + 14fd:0080`.
+
+## PKLITE wrapper loading
+
+The Rust loader recognizes the inspected PKLITE 1.15 large-model wrapper
+(`210f` version/flags, 128-byte outer MZ header). It decodes the interleaved
+16-bit control words, literal bytes and variable-length back-references without
+executing the decompressor. Control bits are consumed least-significant first;
+the next control word is fetched immediately after the sixteenth bit, before
+any following literal or reference byte. Overlapping references repeat their
+newly written bytes.
+
+An extended-length byte of `fe` normalizes segmented addresses without producing
+bytes or resetting the control stream; `ff` terminates expansion. The loader
+checks the resulting length against the saved original MZ header, requires the
+original's zero DOS relocations, and verifies the trailer's SS:SP and CS:IP.
+Output allocation, input accesses and reference ranges are bounded. Unknown
+wrapper layouts and malformed/truncated inputs are rejected. The ordinary
+reverse-RLE decoder then produces the same address-independent program image.
+This is support for the verified wrapper, not a general PKLITE implementation.
 
 ## Initialization path
 

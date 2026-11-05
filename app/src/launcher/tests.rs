@@ -601,6 +601,11 @@ struct Fixture {
 }
 impl Fixture {
     fn new(count: usize) -> Self {
+        Self::for_releases(
+            (0..count).map(|index| &detection::RELEASES[index % detection::RELEASES.len()]),
+        )
+    }
+    fn for_releases(releases: impl IntoIterator<Item = &'static detection::Release>) -> Self {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -617,8 +622,7 @@ impl Fixture {
             directory,
         };
         let mut library = Library::new(fixture.library.clone());
-        for index in 0..count {
-            let release = &detection::RELEASES[index % detection::RELEASES.len()];
+        for (index, release) in releases.into_iter().enumerate() {
             // Deliberately nonexistent originals exercise real Missing recovery.
             library
                 .add(
@@ -1030,17 +1034,19 @@ fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
 
 #[test]
 fn all_engines_quick_options_fit_the_minimum_logical_window() {
-    let fixture = Fixture::new(detection::RELEASES.len());
-    for theme in ThemeId::ALL {
-        for layout in LayoutVariant::ALL {
-            for index in 0..detection::RELEASES.len() {
+    // Isolate option geometry from the number of catalogue distributions: a
+    // programmatically selected offscreen row has not been scrolled into view.
+    for (index, release) in detection::RELEASES.iter().enumerate() {
+        let fixture = Fixture::for_releases([release]);
+        for theme in ThemeId::ALL {
+            for layout in LayoutVariant::ALL {
                 let mut h = Harness::new(&fixture, theme, layout, true);
                 h.size = Vec2::new(630.0, 470.0);
-                h.state.selected = Some(h.state.games[index].entry_id.clone());
+                h.state.selected = Some(h.state.games[0].entry_id.clone());
                 h.state.options_open = true;
                 let output = h.settle();
                 let screen = Rect::from_min_size(Pos2::ZERO, h.size);
-                for option in h.state.games[index].options {
+                for option in h.state.games[0].options {
                     for choice in option.choices {
                         let label = if layout == LayoutVariant::SplitInspector {
                             choice.label

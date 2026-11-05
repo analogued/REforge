@@ -12,7 +12,21 @@ fn all_legacy_images_migrate_without_originals_and_are_not_regenerated() {
             Game::Mach3 => mach3::launcher::PREVIEW_VARIANTS,
             _ => btz::launcher::PREVIEW_VARIANTS,
         };
-        for variant in variants {
+        // New distributions need not have any pre-BLAKE3 preview aliases.
+        let variants: Vec<_> = variants
+            .iter()
+            .copied()
+            .filter(|variant| {
+                let current = cache_id(release, variant);
+                detection::migration::PREVIEWS
+                    .iter()
+                    .any(|(key, _)| *key == current)
+            })
+            .collect();
+        if variants.is_empty() {
+            continue;
+        }
+        for variant in &variants {
             let current = cache_id(release, variant);
             for (_, old) in detection::migration::PREVIEWS
                 .iter()
@@ -44,7 +58,7 @@ fn all_legacy_images_migrate_without_originals_and_are_not_regenerated() {
             );
             assert_eq!(result.len(), variants.len());
         }
-        for variant in variants {
+        for variant in &variants {
             let current = cache_id(release, variant);
             assert!(load(&directory.0.join(format!("{current}.png"))).is_ok());
             for (_, old) in detection::migration::PREVIEWS

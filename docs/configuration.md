@@ -735,6 +735,7 @@ The current chains are:
 | --- | --- | --- | --- |
 | `alley-cat-dos-7b92bb401f` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
 | `mach-3-dos-3d1f0c95f9` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
+| `mach-3-dos-564352e19f` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
 | `mindwheel-dos-057c9533e4` | `mindwheel-dos` | `mindwheel` | `btz-dos-text` |
 | `essex-dos-226e565be2` | `essex-dos` | `essex` | `btz-dos-text` |
 | `brimstone-dos-d3bec28797` | `brimstone-dos` | `brimstone` | `btz-dos-text` |

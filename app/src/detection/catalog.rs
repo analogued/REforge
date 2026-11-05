@@ -226,6 +226,123 @@ pub static MACH3_DOS: Edition = Edition {
     specs: &MACH3_DOS_SPECS,
 };
 
+// Both executable packagings expand to the same program and use these same
+// external resources. Keep each distribution's complete verification manifest.
+const MACH3_DATA_FILES: [FileRecord; 17] = [
+    FileRecord {
+        name: "DATA1",
+        size: 16_384,
+
+        blake3: "aec159c7e7942e4ad57047d92aa2ddbaea64c898f76dd7265e1abff16d88f3ba",
+    },
+    FileRecord {
+        name: "DATA2",
+        size: 28_960,
+
+        blake3: "7a0a8d67855bcda56384bd4ea18c92a35d302ea2a8a2c9bf5691b8353fe9ab44",
+    },
+    FileRecord {
+        name: "DATA3",
+        size: 16_000,
+
+        blake3: "3acee17ded55afccbea75d458ad8ec1fcc2d8d03244052db8caedd51be01576b",
+    },
+    FileRecord {
+        name: "DATA4",
+        size: 25_704,
+
+        blake3: "38b303f55bf076cc2118483f782cce4516378586f168211d0c54b2559f1fb260",
+    },
+    FileRecord {
+        name: "DATA5",
+        size: 25_704,
+
+        blake3: "668bad553bb947b8d5be1e0e3653574197e606911d898199ebc04e43c06df8e1",
+    },
+    FileRecord {
+        name: "DATA6",
+        size: 16_384,
+
+        blake3: "0fedddf4a90f96b4abbf049618d13c24cfb323f92d060e73e4293777b3e2c72b",
+    },
+    FileRecord {
+        name: "DATA7",
+        size: 11_872,
+
+        blake3: "cf2e9a8fc84770206b7e269edbf47a7679442d0e4388a2614a2c428752afcb6e",
+    },
+    FileRecord {
+        name: "DATA8",
+        size: 9_723,
+
+        blake3: "b601c1c491a1433d9ac86e6c76c6285223c7d383af84989e88d29225c85c3adf",
+    },
+    FileRecord {
+        name: "DATA9",
+        size: 10_874,
+
+        blake3: "b5c94cbe9cec91f03cce4f93ee1ab94437c77e03d66c4950667ca5f06b5a1132",
+    },
+    FileRecord {
+        name: "DATAA",
+        size: 19_690,
+
+        blake3: "82e54ad4fda7019226d9d9c6d117773d594207c3354c4a938618477aedfb8d45",
+    },
+    FileRecord {
+        name: "DATAB",
+        size: 15_500,
+
+        blake3: "7b4dfac8d1f5d76fa47f4b885cbb6658282e859b9e45732a093818fa7c59e771",
+    },
+    FileRecord {
+        name: "DATAC",
+        size: 8_700,
+
+        blake3: "cebec6155b621780bb5e187ef1a6f901ae8958c3535f431067bc082fdd6ba0c4",
+    },
+    FileRecord {
+        name: "DATAD",
+        size: 34_458,
+
+        blake3: "170af134372197d306ee2bf03cd07a67a3744ce54c21d291a5d488a5ae591309",
+    },
+    FileRecord {
+        name: "DATAE",
+        size: 8_700,
+
+        blake3: "b3165eaa7b890afc277838e88b27b12835ec573424d4d417e310cce8e4fa54f0",
+    },
+    FileRecord {
+        name: "DATAF",
+        size: 8_664,
+
+        blake3: "d8274e09437bcab97400c6736abf472c87af22d01be57f7fd114db9e3dbbfbbb",
+    },
+    FileRecord {
+        name: "DATAG",
+        size: 8_802,
+
+        blake3: "989dce0c45fbf05b00d5c71ebcc3e03d0a17a43efa05df906759cc7eb23f0b09",
+    },
+    FileRecord {
+        name: "DATAH",
+        size: 8_927,
+
+        blake3: "21ea06799ffafa57e890c51b7cb8724b86f92d8f51f19edb850d3e38dbf3abcf",
+    },
+];
+
+const fn mach3_files(executable: FileRecord) -> [FileRecord; 18] {
+    let mut files = [executable; 18];
+    let mut index = 0;
+    while index < MACH3_DATA_FILES.len() {
+        files[index + 1] = MACH3_DATA_FILES[index];
+        index += 1;
+    }
+    files
+}
+
 // These fingerprints identify the verified inputs used by the engines. Their
 // historical commercial release/version identities remain unknown. Only files
 // needed by the current implementations are required; unrelated extras are fine.
@@ -249,116 +366,11 @@ pub static RELEASES: &[Release] = &[
         edition: &MACH3_DOS,
         #[cfg(test)]
         identity_files: &[],
-        files: &[
-            FileRecord {
-                name: "MACH3.EXE",
-                size: 43_008,
-
-                blake3: "4d91473bd4444c22a44f51fc2a2e5d13206d06ad74a5f8c31438e7edf35efb4c",
-            },
-            FileRecord {
-                name: "DATA1",
-                size: 16_384,
-
-                blake3: "aec159c7e7942e4ad57047d92aa2ddbaea64c898f76dd7265e1abff16d88f3ba",
-            },
-            FileRecord {
-                name: "DATA2",
-                size: 28_960,
-
-                blake3: "7a0a8d67855bcda56384bd4ea18c92a35d302ea2a8a2c9bf5691b8353fe9ab44",
-            },
-            FileRecord {
-                name: "DATA3",
-                size: 16_000,
-
-                blake3: "3acee17ded55afccbea75d458ad8ec1fcc2d8d03244052db8caedd51be01576b",
-            },
-            FileRecord {
-                name: "DATA4",
-                size: 25_704,
-
-                blake3: "38b303f55bf076cc2118483f782cce4516378586f168211d0c54b2559f1fb260",
-            },
-            FileRecord {
-                name: "DATA5",
-                size: 25_704,
-
-                blake3: "668bad553bb947b8d5be1e0e3653574197e606911d898199ebc04e43c06df8e1",
-            },
-            FileRecord {
-                name: "DATA6",
-                size: 16_384,
-
-                blake3: "0fedddf4a90f96b4abbf049618d13c24cfb323f92d060e73e4293777b3e2c72b",
-            },
-            FileRecord {
-                name: "DATA7",
-                size: 11_872,
-
-                blake3: "cf2e9a8fc84770206b7e269edbf47a7679442d0e4388a2614a2c428752afcb6e",
-            },
-            FileRecord {
-                name: "DATA8",
-                size: 9_723,
-
-                blake3: "b601c1c491a1433d9ac86e6c76c6285223c7d383af84989e88d29225c85c3adf",
-            },
-            FileRecord {
-                name: "DATA9",
-                size: 10_874,
-
-                blake3: "b5c94cbe9cec91f03cce4f93ee1ab94437c77e03d66c4950667ca5f06b5a1132",
-            },
-            FileRecord {
-                name: "DATAA",
-                size: 19_690,
-
-                blake3: "82e54ad4fda7019226d9d9c6d117773d594207c3354c4a938618477aedfb8d45",
-            },
-            FileRecord {
-                name: "DATAB",
-                size: 15_500,
-
-                blake3: "7b4dfac8d1f5d76fa47f4b885cbb6658282e859b9e45732a093818fa7c59e771",
-            },
-            FileRecord {
-                name: "DATAC",
-                size: 8_700,
-
-                blake3: "cebec6155b621780bb5e187ef1a6f901ae8958c3535f431067bc082fdd6ba0c4",
-            },
-            FileRecord {
-                name: "DATAD",
-                size: 34_458,
-
-                blake3: "170af134372197d306ee2bf03cd07a67a3744ce54c21d291a5d488a5ae591309",
-            },
-            FileRecord {
-                name: "DATAE",
-                size: 8_700,
-
-                blake3: "b3165eaa7b890afc277838e88b27b12835ec573424d4d417e310cce8e4fa54f0",
-            },
-            FileRecord {
-                name: "DATAF",
-                size: 8_664,
-
-                blake3: "d8274e09437bcab97400c6736abf472c87af22d01be57f7fd114db9e3dbbfbbb",
-            },
-            FileRecord {
-                name: "DATAG",
-                size: 8_802,
-
-                blake3: "989dce0c45fbf05b00d5c71ebcc3e03d0a17a43efa05df906759cc7eb23f0b09",
-            },
-            FileRecord {
-                name: "DATAH",
-                size: 8_927,
-
-                blake3: "21ea06799ffafa57e890c51b7cb8724b86f92d8f51f19edb850d3e38dbf3abcf",
-            },
-        ],
+        files: &mach3_files(FileRecord {
+            name: "MACH3.EXE",
+            size: 43_008,
+            blake3: "4d91473bd4444c22a44f51fc2a2e5d13206d06ad74a5f8c31438e7edf35efb4c",
+        }),
     },
     Release {
         id: "mindwheel-dos-057c9533e4",
@@ -474,12 +486,49 @@ pub static RELEASES: &[Release] = &[
             },
         ],
     },
+    Release {
+        id: "mach-3-dos-564352e19f",
+        compatibility_id: "mach-3-dos",
+        edition: &MACH3_DOS,
+        #[cfg(test)]
+        identity_files: &[],
+        files: &mach3_files(FileRecord {
+            name: "MACH3.EXE",
+            size: 23_929,
+            blake3: "bb0a6af8c371c234385875c23e7c4936965119f2778b8d4ed8940c28543f95ae",
+        }),
+    },
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn mach3_packagings_share_resources_edition_and_compatibility() {
+        let versions: Vec<_> = RELEASES
+            .iter()
+            .filter(|r| r.game() == super::super::Game::Mach3)
+            .collect();
+        assert_eq!(versions.len(), 2);
+        let (reference, packed) = (versions[0], versions[1]);
+        assert_ne!(reference.id, packed.id);
+        assert!(reference.compatible_with(packed));
+        assert!(packed.compatible_with(reference));
+        assert_eq!(packed.compatibility_id, "mach-3-dos");
+        assert!(std::ptr::eq(reference.edition, packed.edition));
+        assert_eq!(reference.files.len(), 18);
+        assert_eq!(packed.files.len(), 18);
+        assert_ne!(reference.files[0].blake3, packed.files[0].blake3);
+        assert_eq!(packed.files[0].size, 23_929);
+        for (left, right) in reference.files[1..].iter().zip(&packed.files[1..]) {
+            assert_eq!(
+                (left.name, left.size, left.blake3),
+                (right.name, right.size, right.blake3)
+            );
+        }
+    }
 
     #[test]
     fn edition_lines_handle_multiple_credits_and_absent_facts() {

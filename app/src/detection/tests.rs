@@ -556,7 +556,10 @@ fn hash_cache_is_scoped_to_one_detection_call() {
 
 #[test]
 fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
-    assert_eq!(RELEASES.len(), 6);
+    assert_eq!(RELEASES.len(), 7);
+    let games: std::collections::HashSet<_> =
+        RELEASES.iter().map(|release| release.game().id()).collect();
+    assert_eq!(games.len(), 6);
     let mut ids = std::collections::HashSet::new();
     for release in RELEASES {
         assert!(ids.insert(release.id), "duplicate detected-release ID");

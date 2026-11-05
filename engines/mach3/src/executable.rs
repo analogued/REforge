@@ -1,6 +1,8 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Load and expand the externally supplied DOS executable's reverse-RLE image.
+//! Load and expand the external DOS program, including its supported PKLITE wrapper.
+
+mod pklite;
 
 use crate::Error;
 use std::path::Path;
@@ -21,9 +23,17 @@ fn word(data: &[u8], offset: usize) -> Result<u16, Error> {
     Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
-/// Expand the reverse-RLE load image without executing or relocating DOS code.
+/// Decode the supported wrappers without executing or relocating DOS code.
 /// Source and destination bounds are checked for every record.
 pub fn expand_program(raw: &[u8]) -> Result<Vec<u8>, Error> {
+    if pklite::recognizes(raw) {
+        expand_reverse_rle(&pklite::unpack(raw)?)
+    } else {
+        expand_reverse_rle(raw)
+    }
+}
+
+fn expand_reverse_rle(raw: &[u8]) -> Result<Vec<u8>, Error> {
     if word(raw, 0)? != 0x5a4d || word(raw, 6)? != 0 || word(raw, 20)? != 16 {
         return Err(Error::InvalidData("unsupported DOS program loader".into()));
     }
@@ -145,6 +155,16 @@ mod tests {
         expected.extend([0xbb; 16]);
         expected.extend([0xcc; 16]);
         assert_eq!(expand_program(&program()).unwrap(), expected);
+    }
+
+    #[test]
+    fn pklite_then_reverse_rle_matches_the_unwrapped_program() {
+        let raw = program();
+        let packed = pklite::tests::literals(&raw);
+        assert_eq!(
+            expand_program(&packed).unwrap(),
+            expand_program(&raw).unwrap()
+        );
     }
 
     #[test]

@@ -15,6 +15,11 @@ Unreleased contains changes intended for the next public release.
 - Keep dialogs, text and images visible after changing the graphical renderer,
   including when a failed change restores the previous renderer.
 
+### Mach 3
+
+- Recognize and load the verified PKLITE-compressed DOS distribution, with the
+  same gameplay and settings compatibility as the existing DOS release.
+
 ### BTZ
 
 - Browse bookmarks and transcripts through a framed text interface, with

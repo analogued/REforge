@@ -629,10 +629,20 @@ fn file_verification_rejects_an_incorrect_blake3_fingerprint() {
 }
 
 #[test]
-fn streamed_blake3_covers_the_whole_file_across_buffer_boundaries() {
+fn streamed_and_parallel_blake3_cover_the_whole_file_and_tail() {
     let directory = TestDirectory::new();
-    for length in [0, 64 * 1024 - 1, 64 * 1024, 64 * 1024 + 1, 150_003] {
-        let bytes = (0..length)
+    for length in [
+        0,
+        64 * 1024 - 1,
+        64 * 1024,
+        64 * 1024 + 1,
+        150_003,
+        PARALLEL_HASH_MIN as usize - 1,
+        PARALLEL_HASH_MIN as usize,
+        PARALLEL_HASH_MIN as usize + 1,
+        4 * 1024 * 1024 + 17,
+    ] {
+        let mut bytes = (0..length)
             .map(|index| (index % 251) as u8)
             .collect::<Vec<_>>();
         let original = directory.write("authored.bin", &bytes);
@@ -640,6 +650,14 @@ fn streamed_blake3_covers_the_whole_file_across_buffer_boundaries() {
             hash_file(&original).unwrap(),
             blake3::hash(&bytes).to_hex().as_str()
         );
+        if let Some(last) = bytes.last_mut() {
+            *last ^= 0xff;
+            fs::write(&original, &bytes).unwrap();
+            assert_eq!(
+                hash_file(&original).unwrap(),
+                blake3::hash(&bytes).to_hex().as_str()
+            );
+        }
     }
 }
 

@@ -6,7 +6,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fs::{self, File},
-    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -475,20 +474,25 @@ fn file_size(path: &Path) -> Result<u64, String> {
     Ok(metadata.len())
 }
 
+// Keep small originals on the streaming path; parallel work is useful only
+// with enough input to amortize mapping and thread-pool overhead.
+const PARALLEL_HASH_MIN: u64 = 1024 * 1024;
+
 fn hash_file(path: &Path) -> Result<String, String> {
     let mut file = File::open(path)
         .map_err(|error| format!("Cannot open original file {}: {error}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("Cannot inspect original file {}: {error}", path.display()))?;
     let mut digest = blake3::Hasher::new();
-    let mut buffer = [0; 64 * 1024];
-    loop {
-        let length = file
-            .read(&mut buffer)
-            .map_err(|error| format!("Cannot read original file {}: {error}", path.display()))?;
-        if length == 0 {
-            break;
-        }
-        digest.update(&buffer[..length]);
+    if metadata.is_file() && metadata.len() >= PARALLEL_HASH_MIN {
+        // BLAKE3 falls back to ordinary reads when mapping is unavailable,
+        // including files too large for the target's address space.
+        digest.update_mmap_rayon(path)
+    } else {
+        digest.update_reader(&mut file)
     }
+    .map_err(|error| format!("Cannot read original file {}: {error}", path.display()))?;
     Ok(digest.finalize().to_hex().to_string())
 }
 

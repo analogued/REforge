@@ -22,7 +22,7 @@ MIT is selected where it is offered.
 | --- | --- | --- | --- |
 | [png](https://crates.io/crates/png/0.17.16) | 0.17.16 | Application preview cache and shared SDL controller artwork | [MIT](LICENSES/MIT.txt) |
 | [unicode-segmentation](https://crates.io/crates/unicode-segmentation/1.12.0) | 1.12.0 | Application: Unicode-aware Symbolic initials | [MIT](LICENSES/MIT.txt) |
-| [blake3](https://crates.io/crates/blake3/1.8.7) | 1.8.7 | Application, Alley Cat and BTZ: original-file verification and release-specific loading guards | [CC0-1.0](LICENSES/CC0-1.0.txt) |
+| [blake3](https://crates.io/crates/blake3/1.8.7) | 1.8.7 | Application, Alley Cat and BTZ: original-file verification and release-specific loading guards; application enables parallel memory-mapped hashing | [CC0-1.0](LICENSES/CC0-1.0.txt) |
 | [sdl3](https://crates.io/crates/sdl3/0.20.0) | 0.20.0 | Shared SDL: window, input, rendering and audio APIs | [MIT](LICENSES/MIT.txt) |
 | [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | Shared SDL: settings and launcher interfaces, with default fonts | [MIT](LICENSES/MIT.txt); font terms below |
 | [blip_buf](https://crates.io/crates/blip_buf/0.2.1) | 0.2.1 | Shared audio: optional band-limited speaker renderer | [MIT](LICENSES/MIT.txt) |

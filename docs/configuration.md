@@ -763,6 +763,13 @@ Other platforms must select their own catalog filename case semantics.
 Original file contents remain byte-exact and are verified with the full BLAKE3 hash.
 Absolute installation paths and editorial/edition/specs metadata are excluded.
 
+Files smaller than 1 MiB use single-threaded streaming verification. Regular
+files of at least 1 MiB use BLAKE3's memory-mapped Rayon implementation, with a
+thread pool sized for the available CPUs. If mapping is unavailable, BLAKE3 falls
+back to ordinary reads. Both paths produce identical hashes and accept the same
+originals. Original files must remain unchanged during verification; modifying
+or truncating a mapped file can terminate the process.
+
 Old SHA-256-derived release IDs are translated to their BLAKE3 replacements
 when the library is read. Only known, game-specific aliases are applied. The
 update uses the library lock and preserves entry IDs, order, titles, original

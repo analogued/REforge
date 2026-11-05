@@ -962,8 +962,8 @@ fn all_themes_layouts_and_library_states_keep_actions_usable_at_supported_sizes(
                             );
                         } else {
                             labels.push("Remove");
+                            labels.push("Relocate…");
                             labels.push(if *verified { "Play" } else { "Locate Files…" });
-                            assert_eq!(texts(&output).contains(&"Relocate…"), *verified);
                             assert!(!texts(&output).contains(&"Locate…"));
                         }
                         let screen = Rect::from_min_size(Pos2::ZERO, size);

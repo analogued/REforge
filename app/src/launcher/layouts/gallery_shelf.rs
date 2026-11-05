@@ -92,10 +92,9 @@ pub fn draw(
                     if quiet_text_button(ui, ap, "Remove").activated() {
                         action = Some(UiAction::Remove(snapshot.entry_id.clone()));
                     }
-                    if !snapshot.status.is_missing()
-                        && quiet_text_button(ui, ap, "Relocate…")
-                            .on_hover_text("Choose the new location of this game’s original files")
-                            .activated()
+                    if quiet_text_button(ui, ap, "Relocate…")
+                        .on_hover_text("Choose the new location of this game’s original files")
+                        .activated()
                     {
                         action = Some(UiAction::Locate(snapshot.entry_id.clone()));
                     }

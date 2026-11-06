@@ -1,11 +1,12 @@
 # DOS startup and address conventions
 
-The supported DOS programs contain the same initialized game image in two
-executable packagings: a 43,008-byte reverse-RLE executable and a 23,929-byte
-PKLITE-wrapped executable. Both use the same 17 external DATA files. The PKLITE
-wrapper expands to the same reverse-RLE load image, excluding a reference-only
-final padding byte; their complete initialized and relocated images match.
-Both catalog distributions share compatibility ID `mach-3-dos`.
+The supported DOS distributions include a 43,008-byte reverse-RLE executable,
+a 23,929-byte PKLITE-wrapped executable, and a 43,007-byte main overlay. All
+three use the same 17 external DATA files and share compatibility ID
+`mach-3-dos`. The PKLITE wrapper expands to the reference reverse-RLE image,
+excluding its final padding byte; those two complete initialized and relocated
+images match. The main overlay differs in nine protection/error-path code bytes;
+its full data segment and decoded sound programs match the reference.
 
 The DOS program starts through a self-unpacking loader. Its initialized expanded
 image is `0x12b30` bytes (76,592 bytes), with 132 internal segment relocations.
@@ -40,6 +41,25 @@ Output allocation, input accesses and reference ranges are bounded. Unknown
 wrapper layouts and malformed/truncated inputs are rejected. The ordinary
 reverse-RLE decoder then produces the same address-independent program image.
 This is support for the verified wrapper, not a general PKLITE implementation.
+
+## Main overlay selection
+
+In the overlay distribution, the 891-byte `MACH3.EXE` is a DOS launcher,
+`MACH3.OV1` supplies nineteen synthetic disk sectors for protection reads, and
+`MACH3.OV2` contains the actual game program. The reference replaces a startup
+protection-result branch with a forced valid marker and changes the resource
+error routine's entry to `ret`. All other initialized program bytes match.
+The Rust implementation reads the program data from OV2 and does not execute
+those DOS protection/error paths; only OV2 and the 17 DATA files are required.
+
+For named standalone assets, program discovery prefers `MACH3.OV2` when present
+and otherwise uses `MACH3.EXE`, case-insensitively. The ignored launcher and OV1
+are not opened. Duplicate names for the chosen role and corrupt images fail.
+REforge supplies the detector-selected canonical EXE or OV2 role and its exact
+physical path, including renamed files. That explicit selection takes precedence
+over named discovery; missing/corrupt selected files never fall back to another
+program image in the directory. The same program loader serves live playback
+and headless diagnostic commands.
 
 ## Initialization path
 

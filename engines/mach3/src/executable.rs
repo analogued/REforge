@@ -5,7 +5,10 @@
 mod pklite;
 
 use crate::Error;
-use std::path::Path;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 pub const DATA_SEGMENT_OFFSET: usize = 0x95a0;
 
@@ -106,24 +109,58 @@ fn expand_reverse_rle(raw: &[u8]) -> Result<Vec<u8>, Error> {
     Ok(result)
 }
 
-/// Find MACH3.EXE case-insensitively in the configured external asset directory.
+/// Load the named standalone program image, preferring MACH3.OV2 when present.
+/// The overlay distribution's small MACH3.EXE launcher and OV1 are not read.
 pub fn load_program(directory: &Path) -> Result<Vec<u8>, Error> {
-    let matches = std::fs::read_dir(directory)?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.eq_ignore_ascii_case("MACH3.EXE"))
+    load_program_with_files(directory, &BTreeMap::new())
+}
+
+/// Use an explicit detector-selected EXE/OV2 path without filename fallback.
+/// Other resource overrides do not change standalone program discovery.
+pub fn load_program_with_files(
+    directory: &Path,
+    files: &BTreeMap<&str, PathBuf>,
+) -> Result<Vec<u8>, Error> {
+    let selected: Vec<_> = files
+        .iter()
+        .filter(|(name, _)| {
+            name.eq_ignore_ascii_case("MACH3.EXE") || name.eq_ignore_ascii_case("MACH3.OV2")
         })
-        .collect::<Vec<_>>();
-    if matches.len() != 1 {
-        return Err(Error::InvalidData(
-            "expected one MACH3.EXE in the asset directory".into(),
-        ));
+        .collect();
+    match selected.as_slice() {
+        [(_, path)] => return expand_program(&std::fs::read(path)?),
+        [] => {}
+        _ => {
+            return Err(Error::InvalidData(
+                "ambiguous verified program files".into(),
+            ));
+        }
     }
-    expand_program(&std::fs::read(&matches[0])?)
+    let entries = std::fs::read_dir(directory)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()?;
+    for name in ["MACH3.OV2", "MACH3.EXE"] {
+        let matches: Vec<_> = entries
+            .iter()
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|actual| actual.eq_ignore_ascii_case(name))
+            })
+            .collect();
+        match matches.as_slice() {
+            [path] => return expand_program(&std::fs::read(path)?),
+            [] => {}
+            _ => {
+                return Err(Error::InvalidData(format!(
+                    "expected one {name} in the asset directory"
+                )));
+            }
+        }
+    }
+    Err(Error::InvalidData(
+        "expected MACH3.EXE or MACH3.OV2 in the asset directory".into(),
+    ))
 }
 
 #[cfg(test)]
@@ -146,6 +183,116 @@ mod tests {
         stub[14..16].copy_from_slice(&0x4252_u16.to_le_bytes());
         raw.extend(stub);
         raw
+    }
+
+    struct TestDirectory(PathBuf);
+    impl TestDirectory {
+        fn new() -> Self {
+            use std::{
+                sync::atomic::{AtomicU64, Ordering},
+                time::{SystemTime, UNIX_EPOCH},
+            };
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "mach3-program-{}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
+            let path = self.0.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        }
+    }
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn standalone_overlay_needs_no_launcher_or_protection_file() {
+        let directory = TestDirectory::new();
+        let raw = program();
+        let expected = expand_program(&raw).unwrap();
+        directory.write("mach3.ov2", &raw);
+        assert_eq!(load_program(&directory.0).unwrap(), expected);
+        // Ignored files are not opened, even if a launcher name is a directory.
+        std::fs::create_dir(directory.0.join("MACH3.EXE")).unwrap();
+        assert_eq!(load_program(&directory.0).unwrap(), expected);
+        std::fs::remove_dir(directory.0.join("MACH3.EXE")).unwrap();
+        directory.write("MACH3.EXE", b"authored DOS launcher placeholder");
+        directory.write("MACH3.OV1", b"unused protection data");
+        assert_eq!(load_program(&directory.0).unwrap(), expected);
+        directory.write("MACH3.OV2", &raw);
+        // Case-insensitive filesystems overwrite the existing spelling.
+        let overlay_names = std::fs::read_dir(&directory.0)
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_str()
+                    .unwrap()
+                    .eq_ignore_ascii_case("MACH3.OV2")
+            })
+            .count();
+        if overlay_names > 1 {
+            assert!(load_program(&directory.0).is_err());
+        } else {
+            assert_eq!(load_program(&directory.0).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn verified_program_roles_use_the_exact_selected_path_and_never_fall_back() {
+        let directory = TestDirectory::new();
+        let raw = program();
+        let expected = expand_program(&raw).unwrap();
+        let mut other = raw.clone();
+        other[32] = 0x99;
+        let other_expected = expand_program(&other).unwrap();
+        let exe = directory.write("MACH3.EXE", &raw);
+        directory.write("MACH3.OV2", &other);
+        let renamed = directory.write("renamed-program.bin", &raw);
+        for role in ["mach3.ov2", "MACH3.EXE"] {
+            let files = BTreeMap::from([(role, renamed.clone())]);
+            assert_eq!(
+                load_program_with_files(&directory.0, &files).unwrap(),
+                expected
+            );
+        }
+        let files = BTreeMap::from([("MACH3.EXE", exe)]);
+        assert_eq!(
+            load_program_with_files(&directory.0, &files).unwrap(),
+            expected
+        );
+        assert_eq!(load_program(&directory.0).unwrap(), other_expected);
+        let files = BTreeMap::from([("DATA1", directory.0.join("irrelevant"))]);
+        assert_eq!(
+            load_program_with_files(&directory.0, &files).unwrap(),
+            other_expected
+        );
+        let files = BTreeMap::from([("MACH3.OV2", renamed.clone())]);
+        directory.write("renamed-program.bin", b"corrupt selected program");
+        assert!(load_program_with_files(&directory.0, &files).is_err());
+        std::fs::remove_file(&renamed).unwrap();
+        assert!(load_program_with_files(&directory.0, &files).is_err());
+        let files = BTreeMap::from([
+            ("MACH3.EXE", directory.0.join("MACH3.EXE")),
+            ("MACH3.OV2", directory.0.join("MACH3.OV2")),
+        ]);
+        assert!(load_program_with_files(&directory.0, &files).is_err());
+        directory.write("MACH3.OV2", b"corrupt overlay");
+        assert!(load_program(&directory.0).is_err());
     }
 
     #[test]

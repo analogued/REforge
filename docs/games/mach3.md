@@ -11,12 +11,16 @@ original PC Speaker presentation and an alternative Enhanced PCM audio renderer.
 
 ## What you need
 
-Supply the original DOS game directory, keeping **MACH3.EXE** and **DATA1**
-through **DATAH** together. Use the complete resource set for normal play,
-including the sound files. Two verified DOS distributions are supported: one
-with a 43,008-byte executable and an equivalent PKLITE-compressed version with
-a 23,929-byte executable. Both provide the same game and share settings
-compatibility. Other releases and platform versions are not automatically compatible.
+Supply the original DOS game directory, keeping **DATA1** through **DATAH**
+together with its main program image: **MACH3.EXE**, or **MACH3.OV2** for the
+overlay-based distribution. Use the complete resource set for normal play,
+including the sound files. The overlay distribution's small launcher EXE and
+OV1 protection file are not required by REforge.
+
+Three verified DOS distributions are supported: the 43,008-byte executable,
+its 23,929-byte PKLITE-compressed equivalent, and the 43,007-byte main overlay.
+They provide the same game and share settings compatibility. Other releases and
+platform versions are not automatically compatible.
 
 ## Start playing
 

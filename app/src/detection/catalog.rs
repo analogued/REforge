@@ -498,6 +498,18 @@ pub static RELEASES: &[Release] = &[
             blake3: "bb0a6af8c371c234385875c23e7c4936965119f2778b8d4ed8940c28543f95ae",
         }),
     },
+    Release {
+        id: "mach-3-dos-549ea638df",
+        compatibility_id: "mach-3-dos",
+        edition: &MACH3_DOS,
+        #[cfg(test)]
+        identity_files: &[],
+        files: &mach3_files(FileRecord {
+            name: "MACH3.OV2",
+            size: 43_007,
+            blake3: "ec269441b8183e81913c253d098ec18686cc844604144e5c3071efd3d0d277cb",
+        }),
+    },
 ];
 
 #[cfg(test)]
@@ -511,7 +523,7 @@ mod tests {
             .iter()
             .filter(|r| r.game() == super::super::Game::Mach3)
             .collect();
-        assert_eq!(versions.len(), 2);
+        assert_eq!(versions.len(), 3);
         let (reference, packed) = (versions[0], versions[1]);
         assert_ne!(reference.id, packed.id);
         assert!(reference.compatible_with(packed));
@@ -522,11 +534,27 @@ mod tests {
         assert_eq!(packed.files.len(), 18);
         assert_ne!(reference.files[0].blake3, packed.files[0].blake3);
         assert_eq!(packed.files[0].size, 23_929);
-        for (left, right) in reference.files[1..].iter().zip(&packed.files[1..]) {
-            assert_eq!(
-                (left.name, left.size, left.blake3),
-                (right.name, right.size, right.blake3)
-            );
+        let overlay = versions[2];
+        assert_eq!(overlay.files[0].name, "MACH3.OV2");
+        assert_eq!(overlay.files[0].size, 43_007);
+        assert!(
+            !overlay
+                .files
+                .iter()
+                .any(|file| matches!(file.name, "MACH3.EXE" | "MACH3.OV1"))
+        );
+        for distribution in &versions[1..] {
+            assert_ne!(reference.id, distribution.id);
+            assert!(reference.compatible_with(distribution));
+            assert!(distribution.compatible_with(reference));
+            assert!(std::ptr::eq(reference.edition, distribution.edition));
+            assert_eq!(distribution.files.len(), 18);
+            for (left, right) in reference.files[1..].iter().zip(&distribution.files[1..]) {
+                assert_eq!(
+                    (left.name, left.size, left.blake3),
+                    (right.name, right.size, right.blake3)
+                );
+            }
         }
     }
 

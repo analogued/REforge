@@ -17,7 +17,7 @@ use std::{
 };
 
 const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--video cga|mono] [--f3-mode press|original] [--digitized-samples on|off] [--motion reforged|enhanced|original]\n\n\
---original: directory containing MACH3.EXE and DATA1 through DATAH for normal animated playback.\n\
+--original: directory containing MACH3.EXE or MACH3.OV2, plus DATA1 through DATAH for normal animated playback.\n\
 Space: advance splash; intro skip waits for the current sample/group and tail. Ctrl+Q or window close: exit.\n\
 Escape or F10: open settings; F10, Escape or Close returns. Scaling and fullscreen changes apply live.\n\
 Default drawable scale: auto (fit the usable display); CGA pixels are displayed at 4:3.\n\
@@ -38,7 +38,7 @@ fn help() -> String {
     #[cfg(feature = "dev-tools")]
     {
         format!(
-            "{HELP}\nF9 [dev-tools]: toggle the presentation FPS indicator (hidden by default).\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping and need MACH3.EXE and DATA1 through DATA6.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file.\n--trace-motion PATH [dev-tools]: optional motion diagnostics; failures disable logging only.\n--motion-experiment PATH [dev-tools]: compatibility alias for --motion enhanced --trace-motion PATH."
+            "{HELP}\nF9 [dev-tools]: toggle the presentation FPS indicator (hidden by default).\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping and need MACH3.EXE or MACH3.OV2 and DATA1 through DATA6.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file.\n--trace-motion PATH [dev-tools]: optional motion diagnostics; failures disable logging only.\n--motion-experiment PATH [dev-tools]: compatibility alias for --motion enhanced --trace-motion PATH."
         )
     }
     #[cfg(not(feature = "dev-tools"))]
@@ -67,8 +67,8 @@ pub fn run_with_files(
     };
     let mut read = |name: &str| read_selected(&directory, files, name);
     let frames = StartupFrames::load_with(&mut read).map_err(|error| error.to_string())?;
-    let program = crate::executable::expand_program(&read("MACH3.EXE").map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    let program =
+        crate::executable::load_program_with_files(&directory, files).map_err(|e| e.to_string())?;
     let rules = crate::gameplay::ScriptRules::from_data_segment(
         crate::executable::data_segment(&program).map_err(|error| error.to_string())?,
     )

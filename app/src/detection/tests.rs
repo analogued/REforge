@@ -115,6 +115,56 @@ impl Drop for TestDirectory {
 }
 
 #[test]
+fn overlay_catalog_detects_without_unused_launcher_or_protection_data() {
+    let release = RELEASES
+        .iter()
+        .find(|release| release.files.iter().any(|file| file.name == "MACH3.OV2"))
+        .unwrap();
+    let directory = TestDirectory::new();
+    for file in release.files {
+        directory.write(file.name, b"authored detector fixture");
+    }
+    // Exercise the production catalog's routing with synthetic I/O metadata;
+    // these authored files deliberately do not contain any original game bytes.
+    let record = |path: &Path| {
+        release
+            .files
+            .iter()
+            .find(|file| path.file_name().unwrap() == file.name)
+    };
+    let size = |path: &Path| Ok(record(path).map_or(3, |file| file.size));
+    let hash = |path: &Path| {
+        record(path)
+            .map(|file| file.blake3.to_string())
+            .ok_or_else(|| "unused file must not be hashed".to_string())
+    };
+    for path in [&directory.0, &directory.0.join("MACH3.OV2")] {
+        let detected = detect_with(path, RELEASES, size, hash).unwrap();
+        assert_eq!(detected.release.id, release.id);
+        assert_eq!(detected.files.len(), 18);
+        assert!(detected.files.contains_key("MACH3.OV2"));
+        assert!(!detected.files.contains_key("MACH3.EXE"));
+    }
+    directory.write("MACH3.EXE", b"bad");
+    directory.write("MACH3.OV1", b"bad");
+    assert_eq!(
+        detect_with(&directory.0, RELEASES, size, hash)
+            .unwrap()
+            .release
+            .id,
+        release.id
+    );
+    let bad_hash = |path: &Path| {
+        if path.file_name().unwrap() == "MACH3.OV2" {
+            Ok("0".repeat(64))
+        } else {
+            hash(path)
+        }
+    };
+    assert!(detect_with(&directory.0, RELEASES, size, bad_hash).is_err());
+}
+
+#[test]
 fn btz_games_require_distinct_files_for_all_three_records() {
     static FILES: &[FileRecord] = &[
         FileRecord {
@@ -556,7 +606,7 @@ fn hash_cache_is_scoped_to_one_detection_call() {
 
 #[test]
 fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
-    assert_eq!(RELEASES.len(), 7);
+    assert_eq!(RELEASES.len(), 8);
     let games: std::collections::HashSet<_> =
         RELEASES.iter().map(|release| release.game().id()).collect();
     assert_eq!(games.len(), 6);

@@ -144,23 +144,12 @@ folder shown in the browser, including `../` paths. Absolute paths work too.
 BOOKMARK and SCRIPT open with an empty filename field, ready to type a new
 name. RESUME NOVEL starts in the file list when matching bookmarks are available.
 
-Use Up/Down to select a file or folder and Enter to open or choose it. Tab and
-Shift+Tab move between the list, filename field, Save/Resume/Write and Cancel.
-The filename field supports caret movement and selection. Windowed play also
-provides clipboard shortcuts; in terminal play use your terminal's paste shortcut.
-Escape cancels; in an overwrite question it returns to filename selection,
-or cancels the operation if a launch option fixed its destination.
-Page Up/Down moves through longer lists; Backspace goes to the parent folder
-when the list has focus. In windowed play, click to select, double-click to open,
-or use a controller's directions, confirm/cancel and shoulder buttons. Bookmarks
-are recognized from their contents, including files without an extension.
+Choose a file with Up/Down and Enter, or enter a name in the filename field.
+Tab/Shift+Tab switches controls; Escape cancels. Page Up/Down scrolls the list,
+and Backspace goes up a folder when the list has focus.
 
-In windowed play, hovered rows and buttons brighten without changing the
-filename or keyboard focus. Buttons respond when released over the same button;
-release outside to cancel a press. The pointer stays an arrow over files and
-buttons and becomes an I-beam over the underlined filename field. A chosen file
-remains marked when you move to the filename field or actions; editing the name
-clears that mark.
+Windowed play also supports mouse and controller navigation. In terminal play,
+use your terminal's paste shortcut.
 
 The game pauses while the browser is open. Modification dates use your system's
 local timezone. In windowed play, F10 opens Settings and returns to the same

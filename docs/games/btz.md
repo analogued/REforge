@@ -155,6 +155,13 @@ when the list has focus. In windowed play, click to select, double-click to open
 or use a controller's directions, confirm/cancel and shoulder buttons. Bookmarks
 are recognized from their contents, including files without an extension.
 
+In windowed play, hovered rows and buttons brighten without changing the
+filename or keyboard focus. Buttons respond when released over the same button;
+release outside to cancel a press. The pointer stays an arrow over files and
+buttons and becomes an I-beam over the underlined filename field. A chosen file
+remains marked when you move to the filename field or actions; editing the name
+clears that mark.
+
 The game pauses while the browser is open. Modification dates use your system's
 local timezone. In windowed play, F10 opens Settings and returns to the same
 file dialog when closed. Terminal play uses keyboard navigation and needs an

@@ -4,7 +4,44 @@
 
 use super::*;
 use crate::player::file_dialog::{Action, FileDialog, Input};
-use reforge_sdl::sdl3::mouse::{MouseButton, MouseWheelDirection};
+use reforge_sdl::sdl3::mouse::{
+    Cursor as MouseCursor, MouseButton, MouseWheelDirection, SystemCursor,
+};
+
+/// Native pointer shapes are host resources, separate from the text cursor.
+pub(super) struct Pointers {
+    arrow: Option<MouseCursor>,
+    text: Option<MouseCursor>,
+}
+
+impl Pointers {
+    pub(super) fn new() -> Self {
+        let arrow = MouseCursor::from_system(SystemCursor::Arrow).ok();
+        // Do not install a text shape unless we can restore the arrow.
+        let text = arrow
+            .as_ref()
+            .and_then(|_| MouseCursor::from_system(SystemCursor::IBeam).ok());
+        Self { arrow, text }
+    }
+
+    pub(super) fn update(&self, text: bool) {
+        // Some video drivers (including SDL's dummy driver) have no system
+        // cursors. The menus remain usable with the platform's default pointer.
+        if let Some(cursor) = if text {
+            self.text.as_ref().or(self.arrow.as_ref())
+        } else {
+            self.arrow.as_ref()
+        } {
+            cursor.set();
+        }
+    }
+}
+
+impl Drop for Pointers {
+    fn drop(&mut self) {
+        self.update(false);
+    }
+}
 
 pub(super) struct FileBrowser {
     request: HostRequest,
@@ -27,6 +64,7 @@ impl FileBrowser {
         let pad_consumed = pad.is_some_and(|pad| menu.handle_gamepad(pad));
         if menu.handle_dialog_event(event) || pad_consumed || was_open || menu.is_open() {
             self.held = None;
+            self.dialog.clear_pointer();
             return None;
         }
         pad.and_then(|pad| self.pad(pad))
@@ -99,16 +137,28 @@ impl FileBrowser {
                 };
                 self.dialog.input(input)
             }
+            Event::MouseMotion { x, y, .. } => {
+                self.dialog.pointer_move(Self::point(window, *x, *y));
+                None
+            }
             Event::MouseButtonDown {
+                mouse_btn: MouseButton::Left,
+                x,
+                y,
+                ..
+            } => {
+                self.dialog.pointer_down(Self::point(window, *x, *y));
+                None
+            }
+            Event::MouseButtonUp {
                 mouse_btn: MouseButton::Left,
                 x,
                 y,
                 clicks,
                 ..
-            } => window.frame_point(*x, *y, (640, 200)).and_then(|(x, y)| {
-                self.dialog
-                    .click(x as usize / 8, y as usize / 8, *clicks >= 2)
-            }),
+            } => self
+                .dialog
+                .pointer_up(Self::point(window, *x, *y), *clicks >= 2),
             Event::MouseWheel { y, direction, .. } => {
                 let lines = (*y * 3.0) as i32;
                 self.dialog
@@ -120,14 +170,33 @@ impl FileBrowser {
                 None
             }
             Event::Window {
-                win_event: WindowEvent::FocusLost,
+                win_event:
+                    WindowEvent::FocusLost
+                    | WindowEvent::MouseLeave
+                    | WindowEvent::Resized(..)
+                    | WindowEvent::PixelSizeChanged(..),
                 ..
             } => {
                 self.held = None;
+                self.dialog.clear_pointer();
                 None
             }
             _ => None,
         }
+    }
+
+    fn point(window: &Window, x: f32, y: f32) -> Option<(usize, usize)> {
+        window
+            .frame_point(x, y, (640, 200))
+            .map(|(x, y)| (x as usize / 8, y as usize / 8))
+    }
+
+    pub(super) fn refresh_pointer(&mut self, window: &Window) {
+        self.dialog.pointer_move(
+            window
+                .mouse_position()
+                .and_then(|(x, y)| Self::point(window, x, y)),
+        );
     }
 
     pub(super) fn pad(&mut self, pad: PadEvent) -> Option<Action> {
@@ -578,7 +647,39 @@ mod tests {
             x: 20.5 / 80.0 * metrics.window.0 as f32,
             y: 20.5 / 25.0 * metrics.window.1 as f32,
         };
-        assert_eq!(browser.event(&cancel, &window), Some(Action::Cancel));
+        assert_eq!(browser.event(&cancel, &window), None);
+        let release = Event::MouseButtonUp {
+            timestamp: 0,
+            window_id: 0,
+            which: 0,
+            mouse_btn: MouseButton::Left,
+            clicks: 1,
+            x: 20.5 / 80.0 * metrics.window.0 as f32,
+            y: 20.5 / 25.0 * metrics.window.1 as f32,
+        };
+        // Leaving the button while held cancels its feedback and activation.
+        let mut outside = release.clone();
+        if let Event::MouseButtonUp { x, y, .. } = &mut outside {
+            *x = 0.0;
+            *y = 0.0;
+        }
+        assert_eq!(browser.event(&outside, &window), None);
+        assert_eq!(browser.event(&release, &window), None);
+        browser.event(&cancel, &window);
+        let mut settings_key = key(Keycode::F10, Mod::NOMOD);
+        if let Event::KeyDown { scancode, .. } = &mut settings_key {
+            *scancode = Some(reforge_sdl::sdl3::keyboard::Scancode::F10);
+        }
+        browser.event_with_settings(&settings_key, None, &mut menu, &window);
+        assert!(menu.is_open());
+        browser.event_with_settings(&settings_key, None, &mut menu, &window);
+        assert!(!menu.is_open());
+        assert_eq!(browser.event(&release, &window), None);
+        browser.event(&cancel, &window);
+        assert_eq!(browser.event(&release, &window), Some(Action::Cancel));
+        let pointers = Pointers::new();
+        pointers.update(true);
+        pointers.update(false);
         browser.event(
             &Event::TextInput {
                 timestamp: 0,

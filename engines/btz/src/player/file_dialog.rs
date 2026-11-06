@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Host file selection on a temporary DOS text screen. No story/editor state lives here.
 
+mod pointer;
+use pointer::{Pointer, Target};
+
 use std::{
     fs::{self, File},
     io::Read,
@@ -181,6 +184,7 @@ pub(crate) struct FileDialog {
     // Preserve the actual OS filename even when it cannot be represented by UTF-8.
     selected_path: Option<PathBuf>,
     focus: Focus,
+    pointer: Pointer,
     confirm: Option<PathBuf>,
     yes: bool,
     fixed: bool,
@@ -209,6 +213,7 @@ impl FileDialog {
             anchor: None,
             selected_path: None,
             focus: Focus::Name,
+            pointer: Pointer::default(),
             confirm: None,
             yes: false,
             fixed: false,
@@ -326,6 +331,7 @@ impl FileDialog {
     fn navigate(&mut self, path: PathBuf) {
         match path.canonicalize() {
             Ok(directory) if directory.is_dir() => {
+                self.clear_pointer();
                 self.directory = directory;
                 self.notice.clear();
                 self.scan();
@@ -374,6 +380,7 @@ impl FileDialog {
         self.caret = position.min(self.name.len());
     }
     pub(crate) fn error(&mut self, message: String) {
+        self.clear_pointer();
         self.notice = message;
         self.confirm = None;
         self.focus = Focus::Name;
@@ -430,6 +437,7 @@ impl FileDialog {
             }
         }
         if path.exists() {
+            self.clear_pointer();
             self.confirm = Some(path);
             self.yes = false;
             return None;
@@ -445,6 +453,7 @@ impl FileDialog {
     }
 
     pub(crate) fn input(&mut self, input: Input) -> Option<Action> {
+        self.pointer.pressed = None;
         if self.confirm.is_some() {
             match input {
                 Input::Tab(_) | Input::Left(_) | Input::Right(_) => self.yes = !self.yes,
@@ -572,6 +581,7 @@ impl FileDialog {
         None
     }
     fn decline(&mut self) -> Option<Action> {
+        self.clear_pointer();
         self.confirm = None;
         self.yes = false;
         if self.fixed {
@@ -582,45 +592,9 @@ impl FileDialog {
         }
     }
 
-    #[cfg(any(feature = "sdl", test))]
-    pub(crate) fn click(&mut self, column: usize, row: usize, double: bool) -> Option<Action> {
-        if self.confirm.is_some() {
-            if row == 20 {
-                if (LEFT..LEFT + 16).contains(&column) {
-                    self.yes = true;
-                    return self.input(Input::Enter);
-                }
-                if (LEFT + 19..LEFT + WIDTH).contains(&column) {
-                    return self.decline();
-                }
-            }
-        } else if (9..9 + ROWS).contains(&row) && (LEFT..LEFT + WIDTH).contains(&column) {
-            let index = self.top + row - 9;
-            if index < self.entries.len() {
-                self.focus = Focus::List;
-                self.select(index);
-                if double {
-                    return self.submit();
-                }
-            }
-        } else if row == 18 && (LEFT..LEFT + WIDTH).contains(&column) {
-            self.focus = Focus::Name;
-            self.anchor = None;
-            self.caret = (self.visible_start() + column - LEFT).min(self.name.len());
-        } else if row == 20 {
-            let accept = self.operation.accept().len();
-            if (LEFT..LEFT + accept).contains(&column) {
-                self.focus = Focus::Accept;
-                return self.submit();
-            }
-            if (LEFT + accept + 3..LEFT + accept + 13).contains(&column) {
-                return Some(Action::Cancel);
-            }
-        }
-        None
-    }
     #[cfg(feature = "sdl")]
     pub(crate) fn scroll(&mut self, lines: i32) {
+        self.pointer.pressed = None;
         if self.confirm.is_none() {
             self.focus = Focus::List;
             self.select(self.selected.saturating_add_signed(lines as isize));
@@ -660,10 +634,10 @@ impl FileDialog {
         screen.text(LEFT + 2, 8, "Name", false, 0);
         screen.text(51, 8, "Modified", false, 0);
         for (offset, entry) in self.entries.iter().skip(self.top).take(ROWS).enumerate() {
-            let selected = self.selected == self.top + offset
-                && self.focus == Focus::List
-                && self.confirm.is_none();
-            let prefix = if selected { "> " } else { "  " };
+            let index = self.top + offset;
+            let selected =
+                self.selected == index && self.focus == Focus::List && self.confirm.is_none();
+            let prefix = if self.marked(index) { "> " } else { "  " };
             let label = if entry.directory {
                 format!("{prefix}[{}]", entry.name)
             } else {
@@ -681,6 +655,9 @@ impl FileDialog {
                 selected,
                 0,
             );
+            if self.hovered(Target::Entry(index)) && !selected {
+                screen.attribute(LEFT, 9 + offset, WIDTH, 15);
+            }
         }
         if self.entries.len() > ROWS {
             screen.text(
@@ -711,18 +688,6 @@ impl FileDialog {
                 0,
             );
             screen.text(LEFT, 18, "Replace existing version? [y/n]", false, 0);
-            screen.text(LEFT, 20, "[ Yes, replace ]", self.yes, 0);
-            screen.text(
-                LEFT + 19,
-                20,
-                if self.fixed {
-                    "[ No, cancel ]"
-                } else {
-                    "[ No, choose another ]"
-                },
-                !self.yes,
-                0,
-            );
             screen.text(
                 LEFT,
                 22,
@@ -742,6 +707,9 @@ impl FileDialog {
                 screen.text(LEFT, 15 + row, &line.iter().collect::<String>(), false, 0);
             }
             screen.text(LEFT, 17, "Filename:", false, 0);
+            if self.hovered(Target::Name) {
+                screen.attribute(LEFT, 17, "Filename:".len(), 15);
+            }
             let start = self.visible_start();
             let selection = self.selection();
             for (column, &character) in self.name.iter().skip(start).take(WIDTH).enumerate() {
@@ -756,15 +724,6 @@ impl FileDialog {
                     0,
                 );
             }
-            let action = self.operation.accept();
-            screen.text(LEFT, 20, action, self.focus == Focus::Accept, 0);
-            screen.text(
-                LEFT + action.len() + 3,
-                20,
-                "[ Cancel ]",
-                self.focus == Focus::Cancel,
-                0,
-            );
             screen.text(
                 LEFT,
                 22,
@@ -773,6 +732,9 @@ impl FileDialog {
                 0,
             );
             screen.text(LEFT, 23, "PgUp/PgDn Page   Backspace Parent", false, 0);
+        }
+        for (target, column, label, focus) in self.buttons() {
+            self.button(&mut screen, column, label, target, focus);
         }
         screen.0
     }
@@ -802,6 +764,11 @@ fn shorten(text: &str, width: usize) -> String {
 }
 struct Screen(Vec<u8>);
 impl Screen {
+    fn attribute(&mut self, column: usize, row: usize, width: usize, attribute: u8) {
+        for column in column..(column + width).min(78) {
+            self.0[(row * 80 + column) * 2 + 1] = attribute;
+        }
+    }
     fn text(&mut self, column: usize, row: usize, text: &str, inverse: bool, width: usize) {
         let attr = if inverse { 0x70 } else { 7 };
         for col in column..(column + width).min(78) {
@@ -913,6 +880,133 @@ pub(crate) mod tests {
             dialog.input(Input::Enter),
             Some(Action::Choose { replace: false, .. })
         ));
+    }
+
+    #[test]
+    fn hover_does_not_edit_and_pointer_release_respects_focus_and_modal_boundaries() {
+        let dir = Directory::new();
+        dir.bookmark("EXISTING", 512);
+        for operation in [Operation::Save, Operation::Load, Operation::Transcript] {
+            let mut dialog = FileDialog::new(operation, &dir.0, "Mindwheel", 512);
+            let index = dialog
+                .entries
+                .iter()
+                .position(|entry| entry.name == "EXISTING")
+                .unwrap();
+            let point = Some((LEFT + 2, 9 + index));
+            let before = (
+                name(&dialog),
+                dialog.caret,
+                dialog.focus,
+                dialog.selected_path.clone(),
+            );
+            dialog.pointer_move(point);
+            assert_eq!(
+                (
+                    name(&dialog),
+                    dialog.caret,
+                    dialog.focus,
+                    dialog.selected_path.clone()
+                ),
+                before
+            );
+            dialog.pointer_down(point);
+            assert_eq!(dialog.pointer_up(point, false), None);
+            assert_eq!(name(&dialog), "EXISTING");
+            dialog.input(Input::Tab(false));
+            assert_eq!(dialog.focus, Focus::Name);
+            assert!(dialog.marked(index));
+            dialog.pointer_down(Some((LEFT, 20)));
+            assert_eq!(dialog.focus, Focus::Name);
+            assert_eq!(dialog.pointer_up(None, false), None);
+            assert!(dialog.confirm.is_none());
+            dialog.pointer_down(Some((LEFT, 20)));
+            dialog.input(Input::SelectAll);
+            assert_eq!(dialog.pointer_up(Some((LEFT, 20)), false), None);
+            dialog.pointer_move(Some((LEFT + 10, 18)));
+            assert!(dialog.text_pointer());
+            dialog.pointer_down(Some((LEFT + 2, 18)));
+            assert_eq!(dialog.pointer_up(Some((LEFT + 2, 18)), true), None);
+            assert_eq!(dialog.caret, 2);
+            dialog.input(Input::SelectAll);
+            dialog.input(Input::Text("NEW".into()));
+            assert_eq!(name(&dialog), "NEW");
+            assert!(!dialog.marked(index));
+            dialog.pointer_move(None);
+            assert!(!dialog.text_pointer());
+        }
+        let mut dialog = FileDialog::new(Operation::Save, &dir.0, "Breakers", 512);
+        dialog.input(Input::Text("EXISTING".into()));
+        dialog.pointer_down(Some((LEFT, 20)));
+        assert_eq!(dialog.pointer_up(Some((LEFT, 20)), false), None);
+        assert!(dialog.confirm.is_some());
+        assert!(!dialog.yes);
+        dialog.pointer_down(Some((LEFT, 20)));
+        assert_eq!(dialog.pointer_up(Some((LEFT, 20)), true), None);
+        assert!(dialog.confirm.is_some());
+        assert!(!dialog.yes);
+        dialog.pointer_move(Some((LEFT, 20)));
+        assert!(!dialog.yes, "hover must not select Yes");
+        dialog.pointer_down(Some((LEFT, 20)));
+        dialog.clear_pointer();
+        assert_eq!(dialog.pointer_up(Some((LEFT, 20)), false), None);
+        assert!(dialog.confirm.is_some());
+        dialog.pointer_move(Some((LEFT + "[ Yes, replace ]".len(), 20)));
+        assert!(dialog.pointer_state().hover.is_none());
+        dialog.pointer_down(Some((LEFT, 20)));
+        assert_eq!(
+            dialog.pointer_up(Some((LEFT, 20)), false),
+            Some(Action::Choose {
+                path: dir.0.join("EXISTING"),
+                replace: true,
+            })
+        );
+    }
+
+    #[cfg(feature = "sdl")]
+    #[test]
+    fn mouse_feedback_brightens_without_button_underlines_and_marks_chosen_files() {
+        let dir = Directory::new();
+        dir.bookmark("EXISTING", 512);
+        let mut dialog = FileDialog::new(Operation::Save, &dir.0, "Essex", 512);
+        let render = |dialog: &FileDialog| {
+            let mut pixels = crate::display::render(&dialog.cells(), true).unwrap();
+            dialog.paint_feedback(&mut pixels);
+            pixels
+        };
+        let pixel = |pixels: &[u8], x: usize, y: usize| {
+            pixels[(y * 640 + x) * 3..(y * 640 + x) * 3 + 3].to_vec()
+        };
+        assert_eq!(pixel(&render(&dialog), 60 * 8, 151), [170; 3]);
+        dialog.pointer_move(Some((LEFT, 20)));
+        let hovered = render(&dialog);
+        assert_eq!(pixel(&hovered, LEFT * 8, 167), [0; 3]);
+        assert!(
+            hovered[160 * 640 * 3..168 * 640 * 3]
+                .as_chunks::<3>()
+                .0
+                .contains(&[255; 3])
+        );
+        dialog.pointer_down(Some((LEFT, 20)));
+        assert_eq!(pixel(&render(&dialog), LEFT * 8, 160), [255; 3]);
+        assert_eq!(dialog.pointer_up(None, false), None);
+        dialog.pointer_move(Some((LEFT, 18)));
+        assert_eq!(pixel(&render(&dialog), 60 * 8, 151), [255; 3]);
+        let index = dialog
+            .entries
+            .iter()
+            .position(|entry| entry.name == "EXISTING")
+            .unwrap();
+        let row = 9 + index;
+        dialog.pointer_move(Some((LEFT, row)));
+        assert_eq!(pixel(&render(&dialog), 75 * 8, row * 8), [34; 3]);
+        dialog.click(LEFT, row, false);
+        dialog.input(Input::Tab(false));
+        dialog.pointer_move(None);
+        assert_eq!(pixel(&render(&dialog), 75 * 8, row * 8), [51; 3]);
+        assert_eq!(dialog.cells()[(row * 80 + LEFT) * 2], b'>');
+        dialog.input(Input::Text("X".into()));
+        assert_eq!(pixel(&render(&dialog), 75 * 8, row * 8), [0; 3]);
     }
 
     #[test]

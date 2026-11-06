@@ -543,6 +543,16 @@ impl Window {
             .keyboard_state()
     }
 
+    /// Current pointer position in window coordinates, only while this window
+    /// owns mouse focus. Project it with `frame_point` for engine hit testing.
+    pub fn mouse_position(&self) -> Option<(f32, f32)> {
+        if !self.canvas.window().has_mouse_focus() {
+            return None;
+        }
+        let state = self.events.as_ref().expect("live event pump").mouse_state();
+        Some((state.x(), state.y()))
+    }
+
     /// Enable composed text events for an engine's typed input.
     pub fn start_text_input(&self) {
         self._video.text_input().start(self.canvas.window());

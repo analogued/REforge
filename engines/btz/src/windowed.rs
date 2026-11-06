@@ -337,6 +337,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
         .with_audio_renderers(&[reforge_settings::SoundRenderer::Speaker])
         .with_audio_categories(&[reforge_settings::SoundCategory::Effects]);
     let mut gui = Gui::new(&creator);
+    let pointers = file_browser::Pointers::new();
     let mut overlay = Overlay::default();
     let mut file_browser: Option<FileBrowser> = None;
     let mut keyboard = Keyboard::default();
@@ -347,6 +348,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
     let mut previous_cells = Vec::new();
     let mut previous_phase = None;
     let mut previous_cursor = None;
+    let mut previous_pointer = None;
     let mut previous_status = "";
     loop {
         let was_menu = menu.is_open();
@@ -408,6 +410,17 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
             pause.toggle(Instant::now());
         }
         window.prepare_settings(&mut menu);
+        if let Some(browser) = &mut file_browser
+            && !menu.is_open()
+        {
+            browser.refresh_pointer(&window);
+        }
+        pointers.update(
+            !menu.is_open()
+                && file_browser
+                    .as_ref()
+                    .is_some_and(|browser| browser.dialog.text_pointer()),
+        );
         if was_menu && !menu.is_open() {
             window.start_text_input();
         }
@@ -536,6 +549,9 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                 .set_cursor_style(window.settings().btz.file_cursor);
         }
         let browser_cells = file_browser.as_ref().map(|browser| browser.dialog.cells());
+        let pointer = file_browser
+            .as_ref()
+            .map(|browser| browser.dialog.pointer_state());
         let title_screen = loaded.presentation.as_ref().and_then(|sequence| {
             sequence.frame(pause.now(Instant::now()).saturating_duration_since(epoch))
         });
@@ -559,15 +575,22 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
         } else {
             (game_cells.as_ref(), game_cursor)
         };
-        if previous_cells != cells || previous_phase != Some(blink_on) || previous_cursor != cursor
+        if previous_cells != cells
+            || previous_phase != Some(blink_on)
+            || previous_cursor != cursor
+            || previous_pointer != pointer
         {
             let mut pixels = display::render(cells, blink_on)?;
+            if let Some(browser) = &file_browser {
+                browser.dialog.paint_feedback(&mut pixels);
+            }
             paint_cursor(&mut pixels, cursor);
             frame.update(&pixels)?;
             previous_cells.clear();
             previous_cells.extend_from_slice(cells);
             previous_phase = Some(blink_on);
             previous_cursor = cursor;
+            previous_pointer = pointer;
         }
         let status = if menu.is_open() {
             "Settings"

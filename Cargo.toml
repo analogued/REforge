@@ -4,5 +4,5 @@ default-members = ["app"]
 resolver = "3"
 
 [workspace.package]
-version = "2026.2.1"
+version = "2026.3.0-dev"
 license = "GPL-3.0-or-later"

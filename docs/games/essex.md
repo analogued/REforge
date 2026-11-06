@@ -11,7 +11,8 @@ interpreter with the original story data, text layout and background activity.
 ## Start playing
 
 > [!NOTE]
-> Support is experimental. A complete winning playthrough has not been verified.
+> Support is experimental. An automated test has reached the winning ending;
+> a complete live playthrough remains unverified.
 > See [BTZ compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
 
 Add the game directory to the launcher and select **Play**, or run:

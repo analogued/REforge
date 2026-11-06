@@ -348,7 +348,8 @@ The original interpreter's diagnostic pause/recovery and unsafe corruption on
 such faults are not reproduced. Existing logical-state construction is not a
 full suspended-session checkpoint API. Broader gameplay progression, original
 secondary media and other BTZ releases still require separate validation.
-A complete winning playthrough of Mindwheel has not been verified. Selected
-state, screen, bookmark and transcript comparisons use explicitly supplied native
-input-return and idle-RNG observations; they do not establish complete live
-scheduling equivalence.
+An automated Mindwheel command replay reaches the winning ending and includes
+native bookmark save/restore, with immediate input and fixed host ticks. A complete
+live playthrough remains unverified. Selected state, screen, bookmark and
+transcript comparisons use explicitly supplied native input-return and idle-RNG
+observations; they do not establish complete live scheduling equivalence.

@@ -34,8 +34,9 @@ Their names may differ; REforge identifies renamed files by their contents.
 ## Start playing
 
 > [!NOTE]
-> Breakers has reached its winning ending in an automated test. Complete live
-> playthroughs and winning routes for the other three games remain unverified.
+> Mindwheel, Essex and Breakers have reached their winning endings in automated
+> tests. Complete live playthroughs and a winning Brimstone route remain
+> unverified.
 > Random events can differ from a DOS run, and some pause and queued-input cases
 > remain imperfect. See the [engine compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
 

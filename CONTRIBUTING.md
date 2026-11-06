@@ -90,6 +90,10 @@ only sections that have entries. Summarize the effect for users rather than
 copying commit subjects. Under New games, use one "Added support for" entry per
 game, including the platform where relevant.
 
+Wrap `CHANGELOG.md` source lines at roughly 80 columns, indenting continued list
+items by two spaces. The single-line bullet formatting used for GitHub release
+notes does not apply to this file.
+
 Describe the difference from the last public release, not each development step.
 Consolidate related work into a few meaningful entries. Routine refactoring,
 tests and documentation formatting generally do not need changelog entries.

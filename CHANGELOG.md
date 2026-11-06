@@ -5,6 +5,8 @@ Unreleased contains changes intended for the next public release.
 
 ## Unreleased
 
+## 2026.2.1 (2026-11-06)
+
 ### General
 
 - Speed up original-file verification with BLAKE3 and reduce redundant checks

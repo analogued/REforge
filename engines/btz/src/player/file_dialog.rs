@@ -925,6 +925,10 @@ pub(crate) mod tests {
             assert_eq!(dialog.pointer_up(Some((LEFT, 20)), false), None);
             dialog.pointer_move(Some((LEFT + 10, 18)));
             assert!(dialog.text_pointer());
+            dialog.pointer_down(Some((LEFT - 1, 18)));
+            assert_eq!(dialog.pointer_up(Some((LEFT - 1, 18)), false), None);
+            assert_eq!(dialog.caret, 0);
+            assert!(dialog.text_pointer());
             dialog.pointer_down(Some((LEFT + 2, 18)));
             assert_eq!(dialog.pointer_up(Some((LEFT + 2, 18)), true), None);
             assert_eq!(dialog.caret, 2);
@@ -977,7 +981,8 @@ pub(crate) mod tests {
         let pixel = |pixels: &[u8], x: usize, y: usize| {
             pixels[(y * 640 + x) * 3..(y * 640 + x) * 3 + 3].to_vec()
         };
-        assert_eq!(pixel(&render(&dialog), 60 * 8, 151), [85; 3]);
+        assert_eq!(pixel(&render(&dialog), 60 * 8, 151), [0; 3]);
+        assert_eq!(pixel(&render(&dialog), LEFT * 8 - 4, 144), [170; 3]);
         dialog.pointer_move(Some((LEFT, 20)));
         let hovered = render(&dialog);
         assert_eq!(pixel(&hovered, LEFT * 8, 167), [0; 3]);
@@ -991,7 +996,8 @@ pub(crate) mod tests {
         assert_eq!(pixel(&render(&dialog), LEFT * 8, 160), [255; 3]);
         assert_eq!(dialog.pointer_up(None, false), None);
         dialog.pointer_move(Some((LEFT, 18)));
-        assert_eq!(pixel(&render(&dialog), 60 * 8, 151), [255; 3]);
+        assert_eq!(pixel(&render(&dialog), 60 * 8, 151), [0; 3]);
+        assert_eq!(pixel(&render(&dialog), LEFT * 8 - 4, 144), [255; 3]);
         let index = dialog
             .entries
             .iter()

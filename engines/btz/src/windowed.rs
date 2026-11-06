@@ -629,7 +629,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn file_underlines_leave_both_pulsing_cursor_phases_visible() {
+    fn file_field_corners_leave_both_pulsing_cursor_phases_visible() {
         use crate::player::file_dialog::{FileDialog, Operation, tests::Directory};
         let directory = Directory::new();
         let mut dialog = FileDialog::new(Operation::Save, &directory.0, "Breakers", 512);

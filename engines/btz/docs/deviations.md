@@ -18,9 +18,10 @@ navigation, bookmark filtering, local modification dates, caret editing,
 selection and clipboard shortcuts. Keyboard, mouse and controller navigation
 operate the browser independently of the story's command editor.
 
-The windowed browser adds monochrome hover and pressed-button feedback, an
-underlined filename field and native arrow/I-beam pointers. Hover never changes
-keyboard focus, the filename or the selected overwrite answer. Button activation
+The windowed browser adds monochrome hover and pressed-button feedback,
+small corner brackets around the filename field, and native arrow/I-beam
+pointers. Hover never changes keyboard focus, the filename or the selected
+overwrite answer. Button activation
 requires a press and release on the same control; leaving the window, opening
 Settings or losing focus cancels a held press. Selected files remain marked
 after focus moves to another control, until the filename is edited.

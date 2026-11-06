@@ -103,6 +103,9 @@ impl FileDialog {
         if self.confirm.is_some() {
             return None;
         }
+        if row == 18 && (LEFT - 1..LEFT + WIDTH + 1).contains(&column) {
+            return Some(Target::Name);
+        }
         if !(LEFT..LEFT + WIDTH).contains(&column) {
             return None;
         }
@@ -111,7 +114,6 @@ impl FileDialog {
                 let index = self.top + row - 9;
                 (index < self.entries.len()).then_some(Target::Entry(index))
             }
-            18 => Some(Target::Name),
             _ => None,
         }
     }
@@ -173,7 +175,8 @@ impl FileDialog {
             Target::Name => {
                 self.focus = Focus::Name;
                 self.anchor = None;
-                self.caret = (self.visible_start() + column - LEFT).min(self.name.len());
+                self.caret =
+                    (self.visible_start() + column.saturating_sub(LEFT)).min(self.name.len());
                 None
             }
             Target::Accept => {
@@ -209,20 +212,25 @@ impl FileDialog {
             }
         }
         if self.confirm.is_none() {
-            let shade = if self.hovered(Target::Name) { 255 } else { 85 };
-            let selection = self.selection();
-            for x in LEFT * 8..(LEFT + WIDTH) * 8 {
-                let column = self.visible_start() + x / 8 - LEFT;
-                if self.focus == Focus::Name
-                    && selection
-                        .as_ref()
-                        .is_some_and(|range| range.contains(&column))
-                {
-                    continue;
-                }
-                let pixel = &mut pixels[151 * STRIDE + x * 3..151 * STRIDE + x * 3 + 3];
-                if pixel == [0, 0, 0] {
-                    pixel.fill(shade);
+            let shade = if self.hovered(Target::Name) {
+                255
+            } else if self.focus == Focus::Name {
+                170
+            } else {
+                85
+            };
+            let (left, right, top, bottom) = (LEFT * 8 - 4, (LEFT + WIDTH) * 8 + 3, 144, 151);
+            // Four short corners sit outside the text and insertion cursor.
+            for x in [left, right] {
+                for y in [top, bottom] {
+                    for offset in 0..3 {
+                        let horizontal = if x == left { x + offset } else { x - offset };
+                        let vertical = if y == top { y + offset } else { y - offset };
+                        pixels[y * STRIDE + horizontal * 3..y * STRIDE + horizontal * 3 + 3]
+                            .fill(shade);
+                        pixels[vertical * STRIDE + x * 3..vertical * STRIDE + x * 3 + 3]
+                            .fill(shade);
+                    }
                 }
             }
         }

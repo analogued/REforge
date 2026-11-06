@@ -17,9 +17,7 @@ Unreleased contains changes intended for the next public release.
 
 ### Mach 3
 
-- Recognize and load the verified PKLITE-compressed and overlay-based DOS
-  distributions, sharing gameplay and settings compatibility with the existing
-  release. The overlay distribution needs only MACH3.OV2 and its DATA files.
+- Added support for two additional DOS variants.
 
 ### BTZ
 

@@ -629,6 +629,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn file_underlines_leave_both_pulsing_cursor_phases_visible() {
+        use crate::player::file_dialog::{FileDialog, Operation, tests::Directory};
+        let directory = Directory::new();
+        let mut dialog = FileDialog::new(Operation::Save, &directory.0, "Breakers", 512);
+        for hover in [None, Some((3, 18))] {
+            dialog.pointer_move(hover);
+            for (millis, changed) in [(0, 8), (134, 16)] {
+                let mut pixels = display::render(&dialog.cells(), true).unwrap();
+                dialog.paint_feedback(&mut pixels);
+                let before = pixels.clone();
+                paint_cursor(&mut pixels, dialog.cursor(Duration::from_millis(millis)));
+                assert_eq!(
+                    before
+                        .as_chunks::<3>()
+                        .0
+                        .iter()
+                        .zip(pixels.as_chunks::<3>().0)
+                        .filter(|(before, after)| before != after)
+                        .count(),
+                    changed
+                );
+            }
+        }
+    }
+
+    #[test]
     fn game_cursor_renders_each_style_without_leaving_the_native_block() {
         use crate::{input::InputEditor, text::TextScreen};
         use reforge_settings::FileCursorStyle;

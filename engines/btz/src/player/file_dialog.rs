@@ -977,7 +977,7 @@ pub(crate) mod tests {
         let pixel = |pixels: &[u8], x: usize, y: usize| {
             pixels[(y * 640 + x) * 3..(y * 640 + x) * 3 + 3].to_vec()
         };
-        assert_eq!(pixel(&render(&dialog), 60 * 8, 151), [170; 3]);
+        assert_eq!(pixel(&render(&dialog), 60 * 8, 151), [85; 3]);
         dialog.pointer_move(Some((LEFT, 20)));
         let hovered = render(&dialog);
         assert_eq!(pixel(&hovered, LEFT * 8, 167), [0; 3]);

@@ -209,13 +209,7 @@ impl FileDialog {
             }
         }
         if self.confirm.is_none() {
-            let shade = if self.hovered(Target::Name) {
-                255
-            } else if self.focus == Focus::Name {
-                170
-            } else {
-                85
-            };
+            let shade = if self.hovered(Target::Name) { 255 } else { 85 };
             let selection = self.selection();
             for x in LEFT * 8..(LEFT + WIDTH) * 8 {
                 let column = self.visible_start() + x / 8 - LEFT;

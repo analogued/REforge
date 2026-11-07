@@ -45,8 +45,9 @@ pages before the interpreter's title screen.
 
 REforge's detector can also recognize renamed copies of these files by their
 full fingerprints and passes the selected paths to the player, including title
-artwork. Standalone title lookup and additional-media folders outside the initial
-game directory retain ordinary DOS filename lookup.
+artwork. Player and preview loading read exactly those selected paths.
+Additional-media folders outside the initial game directory retain ordinary
+DOS filename lookup.
 
 No original game files, extracted vocabulary, story text or interpreter tables
 are bundled. The [format reference](docs/mindwheel-dos-format.md) identifies
@@ -78,7 +79,7 @@ data. These are the current implementation boundaries:
 | [`windowed`](src/windowed.rs), [`display`](src/display/mod.rs) | SDL event loop, windowed prompts and character-screen rasterization |
 | [`launcher`](src/launcher.rs) | Presentation choices and title-screen previews generated from the supplied data |
 | [`sound`](src/sound.rs) | BIOS bell presentation through the shared speaker, synthesis and SDL audio facilities |
-| [`btz-core`](src/bin/core.rs) | Raw VM trace, snapshots and key replays behind `dev-tools` |
+| [`btz-core`](../../app/src/bin/btz-core.rs) | Raw VM trace, snapshots and key replays behind `dev-tools` |
 
 The ASCII bitmap font comes from the shared, SDL-independent
 [`reforge_graphics`](../../crates/reforge_graphics/README.md) crate. Character-screen
@@ -90,10 +91,11 @@ same text rasterizer as gameplay, without advancing the story or opening a host.
 
 [Interpreter definitions](docs/interpreter-definitions.md) describe the shared
 execution model and the verified differences between DOS implementations.
-The application passes its already detected game identity to player and preview
-loading. BTZ selects the matching rules and resource layout from that identity;
-file fingerprint verification stays in application detection. Standalone
-diagnostic identification is available with `dev-tools`.
+The application passes its selected DOS loading profile and resolved file map to
+player and preview loading. BTZ uses that profile's rules and resource layout;
+file identification and fingerprint verification stay in application detection,
+including interpreter-supported diagnostic runs. Raw research probes can use
+explicit inputs and profiles without maintaining a second release catalog.
 
 `Session` is the integrated execution interface. It accepts explicit clock and
 keyboard input and yields events or `HostRequest` operations. The host completes

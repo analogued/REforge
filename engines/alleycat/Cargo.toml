@@ -6,6 +6,7 @@ rust-version = "1.88"
 publish = false
 license.workspace = true
 description = "Alley Cat reconstruction for modern desktop systems"
+autobins = false
 
 [features]
 default = ["sdl"]
@@ -14,7 +15,7 @@ dev-tools = ["dep:reforge_audio", "reforge_audio/blip", "reforge_sdl?/dev-tools"
 
 [dependencies]
 reforge_graphics = { path = "../../crates/reforge_graphics" }
-blake3 = { version = "=1.8.7" }
+reforge_inputs = { path = "../../crates/reforge_inputs" }
 reforge_audio = { path = "../../crates/reforge_audio", optional = true }
 reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
 
@@ -23,7 +24,3 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"
-
-[[bin]]
-name = "alley-cat"
-path = "src/main.rs"

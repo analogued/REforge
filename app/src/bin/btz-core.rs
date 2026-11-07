@@ -9,6 +9,7 @@ mod terminal;
 
 use std::collections::VecDeque;
 use std::io::{self, IsTerminal, Write};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use btz::image::StoryImage;
@@ -22,41 +23,49 @@ use btz::vm::{Step, Vm};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     if args.next().as_deref() != Some("--original") {
-        return Err("Usage: btz-core --original <ADISK.OBJ> [--interpreter <GO.EXE>] [--side-map <SIDE.TXT>] [--snapshot | --input <DOS-key-file>] [--save-dir <directory>] [--bookmark-path <file>] [--transcript-path <file>] [--screen-dump <file>] [--trace] [--unlimited | VM-step-limit]".into());
+        return Err("Usage: btz-core --original <ADISK.OBJ> [--interpreter <GO.EXE>] [--raw-profile <profile>] [--side-map <SIDE.TXT>] [--snapshot | --input <DOS-key-file>] [--save-dir <directory>] [--bookmark-path <file>] [--transcript-path <file>] [--screen-dump <file>] [--trace] [--unlimited | VM-step-limit]".into());
     }
-    let path = host::resolve_original(std::path::Path::new(
-        &args.next().ok_or("missing original data path")?,
-    ))?;
+    let path = PathBuf::from(args.next().ok_or("missing original data path")?);
     let mut interpreter = None;
+    let mut raw_profile = None;
     let mut screen_dump = None;
     let mut input_file = None;
     let mut snapshot = false;
     let mut trace = false;
     let mut limit = None;
     let mut unlimited = false;
-    let mut files = host::Files::new(&path)?;
+    let mut save_directory = None;
+    let mut bookmark_path = None;
+    let mut transcript_path = None;
+    let mut side_map_path = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--interpreter" => interpreter = Some(args.next().ok_or("missing interpreter path")?),
+            "--interpreter" => {
+                interpreter = Some(PathBuf::from(
+                    args.next().ok_or("missing interpreter path")?,
+                ))
+            }
+            "--raw-profile" => {
+                raw_profile = Some(raw_release(&args.next().ok_or("missing raw profile")?)?);
+            }
             "--screen-dump" => screen_dump = Some(args.next().ok_or("missing screen dump path")?),
             "--input" => input_file = Some(args.next().ok_or("missing key replay path")?),
             "--snapshot" => snapshot = true,
             "--trace" => trace = true,
             "--unlimited" => unlimited = true,
             "--save-dir" => {
-                files.save_directory =
-                    std::path::absolute(args.next().ok_or("missing save directory")?)?;
+                save_directory = Some(std::path::absolute(
+                    args.next().ok_or("missing save directory")?,
+                )?);
             }
             "--bookmark-path" => {
-                files.bookmark_path = Some(args.next().ok_or("missing bookmark path")?.into())
+                bookmark_path = Some(args.next().ok_or("missing bookmark path")?.into())
             }
             "--transcript-path" => {
-                files.transcript_path = Some(args.next().ok_or("missing transcript path")?.into())
+                transcript_path = Some(args.next().ok_or("missing transcript path")?.into())
             }
             "--side-map" => {
-                files.side_map_path = Some(host::resolve_original(std::path::Path::new(
-                    &args.next().ok_or("missing side map path")?,
-                ))?)
+                side_map_path = Some(PathBuf::from(args.next().ok_or("missing side map path")?));
             }
             _ if limit.is_none() => limit = Some(arg.parse::<usize>()?),
             _ => return Err("unexpected argument".into()),
@@ -68,12 +77,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if unlimited && limit.is_some() {
         return Err("--unlimited cannot be combined with a VM-step limit".into());
     }
+    let selected = resolve_inputs(
+        &path,
+        interpreter.as_deref(),
+        side_map_path.as_deref(),
+        raw_profile,
+        reforge::detection::detect,
+    )?;
+    let path = selected.data;
+    let interpreter = selected.interpreter;
+    let release = selected.release;
+    let mut files = host::Files::new(&path)?;
+    if let Some(directory) = save_directory {
+        files.save_directory = directory;
+    }
+    files.bookmark_path = bookmark_path;
+    files.transcript_path = transcript_path;
+    files.side_map_path = selected.side_map;
     files.originals.push(path.clone());
     let bytes = std::fs::read(path)?;
-    let image = if interpreter.is_some() {
-        btz::player::prepare_diagnostic_image(bytes)?
-    } else {
-        StoryImage::from_dos_obj(bytes)?
+    let image = match release {
+        Some(release) => btz::player::prepare_image(release, bytes)?,
+        None => StoryImage::from_dos_obj(bytes)?,
     };
     let Some(interpreter) = interpreter else {
         if input_file.is_some() || screen_dump.is_some() || snapshot || unlimited {
@@ -81,7 +106,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return trace_core(image, limit.unwrap_or(100_000));
     };
-    let interpreter = host::resolve_original(std::path::Path::new(&interpreter))?;
     files.originals.push(interpreter.clone());
     let exe = std::fs::read(interpreter)?;
     let mut replay: Option<VecDeque<u8>> =
@@ -92,10 +116,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
     let clock_origin = Instant::now();
-    let (definition, resources) = btz::player::identify_dos_interpreter(&exe).unwrap_or((
-        &btz::interpreter::MINDWHEEL_DOS,
-        btz::interpreter::MINDWHEEL_RESOURCES,
-    ));
+    let (definition, resources) = release
+        .expect("interpreter inputs have a loading profile")
+        .interpreter();
     let codec = TextCodec::from_dos_resources(&exe, resources)?;
     let random = DosRandom::from_dos_resources(&exe, resources)?;
     let mut session = if let Some(terminal) = &mut terminal {
@@ -354,4 +377,299 @@ fn trace_core(image: StoryImage, limit: usize) -> Result<(), Box<dyn std::error:
     }
     eprintln!("instruction budget exhausted");
     Ok(())
+}
+
+// Explicit format selection is only for raw, unregistered parser experiments.
+// Ordinary diagnostic sessions use the application detector above.
+fn raw_release(value: &str) -> Result<btz::player::DosRelease, String> {
+    use btz::player::DosRelease;
+    match value {
+        "mindwheel" => Ok(DosRelease::Mindwheel),
+        "essex" => Ok(DosRelease::Essex),
+        "brimstone" => Ok(DosRelease::Brimstone),
+        "breakers" => Ok(DosRelease::Breakers),
+        _ => Err(format!("Unknown raw interpreter profile: {value}")),
+    }
+}
+
+struct InputContext {
+    data: PathBuf,
+    interpreter: Option<PathBuf>,
+    side_map: Option<PathBuf>,
+    release: Option<btz::player::DosRelease>,
+}
+
+/// Normal diagnostic sessions share application identification. Only explicit
+/// raw probes resolve their own input filenames without release verification.
+fn resolve_inputs(
+    original: &Path,
+    interpreter: Option<&Path>,
+    side_map: Option<&Path>,
+    raw_profile: Option<btz::player::DosRelease>,
+    detect: impl FnOnce(&Path) -> Result<reforge::detection::Detected, String>,
+) -> Result<InputContext, Box<dyn std::error::Error>> {
+    if raw_profile.is_some() && interpreter.is_none() {
+        return Err("--raw-profile requires --interpreter for an explicit parser probe".into());
+    }
+    if raw_profile.is_some() || interpreter.is_none() {
+        return Ok(InputContext {
+            data: host::resolve_original(original)?,
+            interpreter: interpreter.map(host::resolve_original).transpose()?,
+            side_map: side_map.map(host::resolve_original).transpose()?,
+            release: raw_profile,
+        });
+    }
+    let detected = detect(original)?;
+    let reforge::detection::Engine::Btz(release) = detected.game.engine() else {
+        return Err("btz-core requires a supported BTZ installation".into());
+    };
+    let inputs = detected.inputs();
+    let interpreter_name = if release == btz::player::DosRelease::Breakers {
+        "RUN.EXE"
+    } else {
+        "GO.EXE"
+    };
+    let selected_interpreter = inputs.path(interpreter_name)?;
+    if !matches_selected(interpreter.unwrap(), selected_interpreter)? {
+        return Err(format!("Diagnostic input does not match detected {interpreter_name}").into());
+    }
+    Ok(InputContext {
+        data: inputs.path("ADISK.OBJ")?.to_path_buf(),
+        interpreter: Some(selected_interpreter.to_path_buf()),
+        side_map: Some(match side_map {
+            // An explicitly supplied diagnostic override keeps its existing
+            // semantics; only the default comes from the verified file map.
+            Some(path) => host::resolve_original(path)?,
+            None => inputs.path("SIDE.TXT")?.to_path_buf(),
+        }),
+        release: Some(release),
+    })
+}
+
+/// Accept the selected file or a missing case spelling of that same role.
+/// Never discover another filename or substitute a different existing file.
+fn matches_selected(given: &Path, selected: &Path) -> io::Result<bool> {
+    let selected_canonical = std::fs::canonicalize(selected)?;
+    match std::fs::canonicalize(given) {
+        Ok(path) => Ok(path == selected_canonical),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            // A dangling symlink is an existing, different explicit input.
+            if std::fs::symlink_metadata(given).is_ok() {
+                return Ok(false);
+            }
+            let Some(given_name) = given.file_name() else {
+                return Ok(false);
+            };
+            let Some(selected_name) = selected.file_name() else {
+                return Ok(false);
+            };
+            if !given_name
+                .as_encoded_bytes()
+                .eq_ignore_ascii_case(selected_name.as_encoded_bytes())
+            {
+                return Ok(false);
+            }
+            let parent = |path: &Path| {
+                path.parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                    .unwrap_or_else(|| Path::new("."))
+                    .to_path_buf()
+            };
+            Ok(std::fs::canonicalize(parent(given))? == std::fs::canonicalize(parent(selected))?)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+    use btz::player::DosRelease;
+    use reforge::detection::{Detected, Game, RELEASES};
+    use std::{
+        cell::Cell,
+        collections::BTreeMap,
+        fs,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let directory = std::env::temp_dir().join(format!(
+                "btz-input-context-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&directory).unwrap();
+            fs::create_dir(directory.join("logical")).unwrap();
+            for name in ["ADISK.OBJ", "GO.EXE", "SIDE.TXT"] {
+                fs::write(directory.join(name), name).unwrap();
+            }
+            Self(directory)
+        }
+
+        fn selected(&self, name: &str) -> PathBuf {
+            self.0.join("logical").join("..").join(name)
+        }
+
+        fn detected(&self) -> Detected {
+            Detected {
+                game: Game::Mindwheel,
+                release: RELEASES
+                    .iter()
+                    .find(|release| release.game() == Game::Mindwheel)
+                    .unwrap(),
+                root: self.0.clone(),
+                original: self.0.clone(),
+                files: BTreeMap::from([
+                    ("ADISK.OBJ", self.selected("ADISK.OBJ")),
+                    ("GO.EXE", self.selected("GO.EXE")),
+                    ("SIDE.TXT", self.selected("SIDE.TXT")),
+                ]),
+            }
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn ordinary_diagnostics_keep_selected_paths_despite_filename_collisions() {
+        let fixture = Fixture::new();
+        fs::write(fixture.0.join("adisk.obj"), b"unselected story").unwrap();
+        fs::write(fixture.0.join("go.exe"), b"unselected interpreter").unwrap();
+        if fs::read(fixture.0.join("ADISK.OBJ")).unwrap() != b"ADISK.OBJ" {
+            // A case-insensitive filesystem cannot hold distinct candidates.
+            return;
+        }
+        let called = Cell::new(false);
+        let context = resolve_inputs(
+            &fixture.0,
+            Some(&fixture.0.join("GO.EXE")),
+            None,
+            None,
+            |anchor| {
+                assert_eq!(anchor, fixture.0);
+                called.set(true);
+                Ok(fixture.detected())
+            },
+        )
+        .unwrap();
+        assert!(called.get());
+        assert_eq!(context.data, fixture.selected("ADISK.OBJ"));
+        assert_eq!(context.interpreter, Some(fixture.selected("GO.EXE")));
+        assert_eq!(context.side_map, Some(fixture.selected("SIDE.TXT")));
+        assert_eq!(context.release, Some(DosRelease::Mindwheel));
+        assert_eq!(fs::read(&context.data).unwrap(), b"ADISK.OBJ");
+        assert_eq!(
+            host::Files::new(&context.data).unwrap().save_directory,
+            std::path::absolute(context.data.parent().unwrap()).unwrap()
+        );
+    }
+
+    #[test]
+    fn ordinary_diagnostics_accept_only_selected_interpreter_or_its_missing_case_spelling() {
+        let fixture = Fixture::new();
+        let case_spelling = fixture.0.join("gO.eXe");
+        let context = resolve_inputs(
+            &fixture.0.join("ADISK.OBJ"),
+            Some(&case_spelling),
+            None,
+            None,
+            |_| Ok(fixture.detected()),
+        )
+        .unwrap();
+        assert_eq!(context.interpreter, Some(fixture.selected("GO.EXE")));
+        let other_directory = fixture.0.join("elsewhere");
+        fs::create_dir(&other_directory).unwrap();
+        for path in [fixture.0.join("other.exe"), other_directory.join("GO.EXE")] {
+            fs::write(&path, b"unselected").unwrap();
+            assert!(
+                resolve_inputs(&fixture.0, Some(&path), None, None, |_| Ok(
+                    fixture.detected()
+                ))
+                .is_err()
+            );
+        }
+        fs::write(&case_spelling, b"unselected").unwrap();
+        // A case-insensitive filesystem may have overwritten the selected file.
+        if fs::read(fixture.0.join("GO.EXE")).unwrap() != b"unselected" {
+            assert!(
+                resolve_inputs(&fixture.0, Some(&case_spelling), None, None, |_| Ok(
+                    fixture.detected()
+                ))
+                .is_err()
+            );
+        }
+        assert!(
+            !matches_selected(&other_directory.join("go.exe"), &fixture.selected("GO.EXE"))
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn ordinary_diagnostic_rejection_happens_before_resource_parsing() {
+        let fixture = Fixture::new();
+        let error = resolve_inputs(
+            &fixture.0,
+            Some(&fixture.0.join("missing.exe")),
+            None,
+            None,
+            |_| Err("detector rejected inputs".into()),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.to_string(), "detector rejected inputs");
+    }
+
+    #[test]
+    fn explicit_research_profile_and_raw_vm_probe_do_not_call_detection() {
+        let fixture = Fixture::new();
+        let data = fixture.0.join("adisk.obj");
+        let interpreter = fixture.0.join("go.exe");
+        let context = resolve_inputs(
+            &data,
+            Some(&interpreter),
+            None,
+            Some(DosRelease::Essex),
+            |_| panic!("raw profile must not detect releases"),
+        )
+        .unwrap();
+        assert_eq!(context.release, Some(DosRelease::Essex));
+        assert_eq!(context.data, fixture.0.join("ADISK.OBJ"));
+        let context = resolve_inputs(&data, None, None, None, |_| {
+            panic!("raw VM probe must not detect releases")
+        })
+        .unwrap();
+        assert!(context.release.is_none());
+        assert!(context.interpreter.is_none());
+        assert!(
+            resolve_inputs(&data, None, None, Some(DosRelease::Essex), |_| panic!(
+                "invalid raw options must not detect releases"
+            ))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn explicit_diagnostic_media_override_keeps_its_existing_meaning() {
+        let fixture = Fixture::new();
+        let custom = fixture.0.join("custom.map");
+        fs::write(&custom, b"authored media map").unwrap();
+        let context = resolve_inputs(
+            &fixture.0,
+            Some(&fixture.0.join("GO.EXE")),
+            Some(&custom),
+            None,
+            |_| Ok(fixture.detected()),
+        )
+        .unwrap();
+        assert_eq!(context.side_map, Some(custom));
+        assert_eq!(context.data, fixture.selected("ADISK.OBJ"));
+    }
 }

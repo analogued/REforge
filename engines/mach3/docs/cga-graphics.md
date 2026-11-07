@@ -190,8 +190,7 @@ It implements the verified initial scene only. The alternate background is
 decoded; gameplay selects both bases and draws procedural gates and goal panels.
 
 `StartupFrames` also decodes `data1` and `data6` using the CGA bank layout.
-The standalone `mach-3` executable presents those frames and the initial scene through
-SDL3. Normal animated playback uses the timed splash and reconstructed
+REforge presents those frames and the initial scene through SDL3. Normal animated playback uses the timed splash and reconstructed
 audio-dependent intro control flow described above, then runs the [gameplay
 simulation](dos-gameplay.md#rust-gameplay-simulation) through game over and
 restart. Silent step/static diagnostic previews retain manual Space

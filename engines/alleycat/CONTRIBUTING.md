@@ -36,9 +36,13 @@ The default `sdl` feature enables windowed playback and requires SDL3 developmen
 and runtime libraries. Use `--no-default-features` to build without SDL3.
 Headless diagnostic runs also require `--features dev-tools`.
 
-With `sdl` enabled, `alleycat::cli::run` provides windowed playback for REforge and
-the standalone `alley-cat` executable. Build both the library and standalone
-executable with `cargo build --locked -p alleycat`.
+With `sdl` enabled, `alleycat::cli::run` provides windowed playback for REforge.
+Use `reforge --original <file-or-directory>` for normal play and diagnostic
+launches so the application identifies and verifies the release first. The
+engine and its preview adapter consume the application's `ResolvedFiles` rather
+than discovering files or maintaining their own release fingerprints. Low-level
+asset parsers retain format and bounds checks for explicitly supplied research
+inputs; those checks do not identify a supported release.
 
 The opt-in `dev-tools` feature enables diagnostic CLI options. Normal builds
 exclude these options, including release builds unless `dev-tools` is explicitly

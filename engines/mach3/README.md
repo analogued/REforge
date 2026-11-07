@@ -55,8 +55,11 @@ stepping; its scheduler is separate from live execution and the host-audio
 adapter. The library exposes headless continuations independently of host
 audio output.
 
-With the `sdl` feature, `mach3::cli::run(args)` accepts `OsString` arguments
-excluding the executable name, allowing REforge to dispatch the same interface.
+With the `sdl` feature, `mach3::cli::run(args, files)` accepts `OsString`
+arguments excluding the executable name and a `reforge_inputs::ResolvedFiles`
+map from REforge's detector. Playback and launcher previews read those exact
+paths without discovering substitute files. The engine checks resource formats
+and bounds; application detection owns supported-release verification.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for feature combinations and validation.
 Run the commands below from the combined repository root. Once dependencies are
 cached, they also accept `--offline`; configured Cargo output directories apply.
@@ -80,11 +83,11 @@ The animated simulation is separate from this initial-scene exporter.
 
 ## Windowed playback and previews
 
-Windowed playback requires SDL3 development/runtime libraries. The `sdl` feature
-is enabled by default; run the standalone `mach-3` executable with:
+Windowed playback requires SDL3 development/runtime libraries. REforge enables
+SDL by default and identifies the supplied files before invoking the engine:
 
 ```sh
-cargo run --locked -p mach3 --bin mach-3 -- --original /path/to/assets
+cargo run --locked -p reforge -- --original /path/to/assets
 ```
 
 Normal animation needs `MACH3.EXE` and `DATA1` through `DATAH`. Steering
@@ -122,11 +125,11 @@ Mach 3-specific options include:
   [sample-disable behavior](docs/dos-startup.md#original-sample-disable-argument).
   Bare `S` also selects Off, preserving the original command-line easter egg.
 
-`--step` and `--static` require `dev-tools` in addition to the default `sdl`
-feature, for either the standalone executable or REforge. `--step` advances
+`--step` and `--static` require REforge's `dev-tools` feature in addition to
+the default `sdl` feature. `--step` advances
 one body or title step per fresh Enter press; `--static` retains the initial
-scene. These previews use a fixed nominal period, are silent and need only
-`MACH3.EXE` and `DATA1` through `DATA6`. Fresh Space presses advance startup;
+scene. These previews use a fixed nominal period and are silent. REforge still
+verifies the complete required release before dispatching a preview. Fresh Space presses advance startup;
 Space remains Fire during manual gameplay. They do not reproduce the live PIT
 scheduler's elapsed times.
 

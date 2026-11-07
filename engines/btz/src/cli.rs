@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Player entry point; diagnostic replay remains in the development binary.
 
+use crate::player::DosRelease;
+use reforge_inputs::ResolvedFiles;
 use reforge_settings::{Renderer, RuntimeSettings, Session};
-use std::{collections::BTreeMap, ffi::OsString, path::PathBuf};
+use std::{ffi::OsString, path::PathBuf};
 
 const HELP: &str = "Usage: reforge --original <game-directory> [--renderer auto|gpu|sdl|software|terminal]\n\nBTZ games use the normal windowed text display by default.\n--renderer terminal plays in the terminal already attached to the process.\nBOOKMARK and RESUME NOVEL save/load; SCRIPT and UNSCRIPT control transcripts.\n--save-dir directory sets the base for prompted filenames (default: game data directory).\n--bookmark-path file and --transcript-path file select fixed destinations.\nEnter begins play; Ctrl+Q exits. Escape or F10 opens Settings in graphical play. Ctrl-S pauses the game; terminal play also accepts Escape.";
 
@@ -16,10 +18,6 @@ struct Options {
     transcript: Option<PathBuf>,
     settings: RuntimeSettings,
     warning: Option<String>,
-}
-
-pub fn run(args: impl Iterator<Item = OsString>, game_id: &str) -> Result<(), String> {
-    run_with_files(args, &BTreeMap::new(), game_id)
 }
 
 pub fn validate_arguments(args: impl Iterator<Item = OsString>) -> Result<(), String> {
@@ -83,18 +81,11 @@ fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Options>, String
     Ok(Some(options))
 }
 
-pub fn run_with_files(
+/// Run with the application-selected files and loading profile.
+pub fn run(
     args: impl Iterator<Item = OsString>,
-    files: &BTreeMap<&str, PathBuf>,
-    game_id: &str,
-) -> Result<(), String> {
-    run_with_title(args, files, game_id, "BTZ")
-}
-
-pub fn run_with_title(
-    args: impl Iterator<Item = OsString>,
-    files: &BTreeMap<&str, PathBuf>,
-    game_id: &str,
+    inputs: &ResolvedFiles,
+    release: DosRelease,
     title: &str,
 ) -> Result<(), String> {
     let Some(options) = parse(args)? else {
@@ -103,8 +94,6 @@ pub fn run_with_title(
         println!("--side-map file [dev-tools] supplies an alternate SIDE.TXT.");
         return Ok(());
     };
-    let release = crate::player::DosRelease::from_game_id(game_id)
-        .ok_or_else(|| format!("Unsupported BTZ game: {game_id}"))?;
     if options.settings.renderer == Renderer::Terminal {
         if let Some(warning) = &options.warning {
             eprintln!("REforge: {warning}");
@@ -113,38 +102,11 @@ pub fn run_with_title(
             return Err("Terminal rendering requires an attached input/output terminal. Start reforge --original <game> --renderer terminal from a terminal.".into());
         }
     }
-    let directory = if options.original.is_dir() {
-        options.original.clone()
-    } else {
-        options
-            .original
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."))
-            .to_path_buf()
-    };
-    let selected = |name: &str| {
-        files
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case(name))
-            .map(|(_, path)| path.clone())
-            .unwrap_or_else(|| directory.join(name))
-    };
-    let data = selected("ADISK.OBJ");
-    let interpreter = selected(if release == crate::player::DosRelease::Breakers {
-        "RUN.EXE"
-    } else {
-        "GO.EXE"
-    });
-    let map = selected("SIDE.TXT");
     #[cfg(feature = "dev-tools")]
-    let map = options.side_map.unwrap_or(map);
-    let mut loaded = crate::player::load_with_title(
-        release,
-        &data,
-        &interpreter,
-        &map,
-        files.get("TITLE.EXE").map(PathBuf::as_path),
-    )?;
+    let side_map = options.side_map.as_deref();
+    #[cfg(not(feature = "dev-tools"))]
+    let side_map = None;
+    let mut loaded = crate::player::load_with_side_map(release, inputs, side_map)?;
     if let Some(path) = options.save_dir {
         loaded.files.save_directory = std::path::absolute(path).map_err(|e| e.to_string())?;
     }

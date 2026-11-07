@@ -6,10 +6,6 @@
 use crate::framebuffer::{Dimensions, Framebuffer};
 use std::path::Path;
 
-pub const EXECUTABLE_SHA256: &str =
-    "4979c8867826e08881d1d4bec95c95d6bc1ac70fd21050ccdb4f733a50d7bfdd";
-pub const EXECUTABLE_BLAKE3: &str =
-    "8b6c0f5151075e596296675648eb75b4527e228f74aff1b5db2403f03ff84cf2";
 pub const DATA_LENGTH: usize = 0x7130;
 
 pub struct Assets {
@@ -23,15 +19,17 @@ impl Assets {
         Self::from_executable(&bytes)
     }
 
+    /// Parse the supported DOS layout. Release identification belongs to the
+    /// application; direct research callers supply their explicitly chosen input.
     pub fn from_executable(bytes: &[u8]) -> Result<Self, String> {
-        let actual = blake3::hash(bytes).to_hex();
-        if bytes.len() != 55_067 || actual.as_str() != EXECUTABLE_BLAKE3 {
-            return Err(format!(
-                "Unsupported executable assets: BLAKE3 {actual}; expected {EXECUTABLE_BLAKE3}"
-            ));
+        if bytes.get(..2) != Some(b"MZ") || bytes.get(8..10) != Some(&0x20u16.to_le_bytes()) {
+            return Err("Executable assets require an MZ image with a 0x200-byte header".into());
         }
+        let data = bytes
+            .get(0x0300..0x0300 + DATA_LENGTH)
+            .ok_or("Executable assets have a truncated game-data block")?;
         Ok(Self {
-            data: bytes[0x0300..0x7430].to_vec(),
+            data: data.to_vec(),
         })
     }
 
@@ -290,12 +288,24 @@ mod tests {
     }
 
     #[test]
-    fn unrecognized_external_executable_is_rejected() {
-        let error = Assets::from_executable(b"MZ authored synthetic input")
-            .err()
-            .unwrap();
-        assert!(error.contains("Unsupported executable"));
-        assert!(error.contains(EXECUTABLE_BLAKE3));
+    fn executable_parser_checks_layout_and_data_bounds() {
+        let mut bytes = vec![0x5a; 0x7430 + 16];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[8..10].copy_from_slice(&0x20u16.to_le_bytes());
+        let assets = Assets::from_executable(&bytes).unwrap();
+        assert_eq!(assets.data(), &bytes[0x300..0x7430]);
+        // Structural parsing accepts authored fixtures without a release hash.
+        bytes[0x300] ^= 0xff;
+        assert_eq!(Assets::from_executable(&bytes).unwrap().data()[0], 0xa5);
+
+        for length in [0, 1, 2, 9, 0x300, 0x742f] {
+            assert!(Assets::from_executable(&bytes[..length]).is_err());
+        }
+        bytes[8..10].copy_from_slice(&0x10u16.to_le_bytes());
+        assert!(Assets::from_executable(&bytes).is_err());
+        bytes[8..10].copy_from_slice(&0x20u16.to_le_bytes());
+        bytes[0] = b'N';
+        assert!(Assets::from_executable(&bytes).is_err());
     }
 
     #[test]

@@ -192,12 +192,54 @@ fn short_expanded_program_reports_an_error_instead_of_panicking() {
     assert!(!directory.0.join("output").exists());
     #[cfg(feature = "sdl")]
     {
-        let result = Command::new(env!("CARGO_BIN_EXE_mach-3"))
-            .args(["--static", "--original"])
-            .arg(&directory.0)
-            .output()
-            .unwrap();
-        assert_eq!(result.status.code(), Some(1), "{result:?}");
-        assert!(String::from_utf8_lossy(&result.stderr).contains("truncated program data segment"));
+        let files = reforge_inputs::ResolvedFiles::new(
+            [
+                "DATA1",
+                "DATA2",
+                "DATA3",
+                "DATA4",
+                "DATA5",
+                "DATA6",
+                "MACH3.EXE",
+            ]
+            .into_iter()
+            .map(|name| (name, directory.0.join(name))),
+        );
+        let result = mach3::cli::run(
+            [
+                "--static".into(),
+                "--original".into(),
+                directory.0.clone().into_os_string(),
+            ]
+            .into_iter(),
+            &files,
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .contains("truncated program data segment")
+        );
     }
+}
+
+#[cfg(feature = "sdl")]
+#[test]
+fn player_does_not_substitute_conventional_files_for_missing_selected_resources() {
+    let directory = TestDirectory::new();
+    fs::write(directory.0.join("DATA1"), vec![0; 0x4000]).unwrap();
+    fs::write(directory.0.join("DATA6"), vec![0; 0x4000]).unwrap();
+    let selected = directory.0.join("renamed-screen.bin");
+    fs::write(&selected, vec![0; 0x4000]).unwrap();
+    let run = |files: &reforge_inputs::ResolvedFiles| {
+        mach3::cli::run(
+            ["--original".into(), directory.0.clone().into_os_string()].into_iter(),
+            files,
+        )
+    };
+    let files = reforge_inputs::ResolvedFiles::new([("DATA1", selected.clone())]);
+    assert!(run(&files).unwrap_err().contains("DATA6"));
+    fs::remove_file(selected).unwrap();
+    // The conventional DATA1 is intact, but it must not replace the deleted
+    // selected file, even though both files had the same valid screen format.
+    assert!(run(&files).is_err());
 }

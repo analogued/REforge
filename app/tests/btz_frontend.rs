@@ -65,6 +65,7 @@ impl Fixture {
         Command::new(env!("CARGO_BIN_EXE_btz-core"))
             .arg("--original")
             .arg(self.0.join("story.obj"))
+            .args(["--raw-profile", "mindwheel"])
             .arg("--interpreter")
             .arg(self.0.join("interpreter.exe"))
             .arg("--input")
@@ -129,6 +130,8 @@ fn original_inputs_accept_upper_lower_and_mixed_case_filenames() {
             .args([
                 "--original",
                 "adisk.obj",
+                "--raw-profile",
+                "mindwheel",
                 "--interpreter",
                 "Go.exe",
                 "--side-map",
@@ -207,9 +210,9 @@ mod terminal_input {
         ) -> Self {
             let mut master = -1;
             let mut slave = -1;
-            // SAFETY: both descriptor outputs point to writable integers. Null
-            // optional arguments request the platform's default terminal mode.
             assert_eq!(
+                // SAFETY: both outputs point to writable integers. Null optional
+                // arguments request the platform's default terminal mode.
                 unsafe {
                     libc::openpty(
                         &mut master,
@@ -226,12 +229,15 @@ mod terminal_input {
             // SAFETY: openpty returned two distinct owned descriptors, each
             // transferred to exactly one File and subsequently closed by Drop.
             let mut master = unsafe { File::from_raw_fd(master) };
+            // SAFETY: the second distinct descriptor is still owned here and
+            // transferred once into File, independently of the master above.
             let slave = unsafe { File::from_raw_fd(slave) };
             master.write_all(queued).unwrap();
             let mut command = Command::new(env!("CARGO_BIN_EXE_btz-core"));
             command
                 .arg("--original")
                 .arg(fixture.0.join("story.obj"))
+                .args(["--raw-profile", "mindwheel"])
                 .arg("--interpreter")
                 .arg(fixture.0.join("interpreter.exe"))
                 .arg("--trace");

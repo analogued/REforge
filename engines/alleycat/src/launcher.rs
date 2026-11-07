@@ -54,7 +54,7 @@ pub const PREVIEW_VARIANTS: &[&str] = &["cga", "pcjr"];
 /// Run a private, deterministic intro until the cat naturally sits on the
 /// fence with the SynSoft footer. No host time, player session or sprite edits.
 pub fn preview(
-    original: &std::path::Path,
+    files: &reforge_inputs::ResolvedFiles,
     variant: &str,
 ) -> Result<reforge_sdl::preview::Frame, String> {
     let machine = match variant {
@@ -62,7 +62,8 @@ pub fn preview(
         "pcjr" => Machine::Pcjr,
         _ => return Err("Unknown preview machine".into()),
     };
-    let assets = crate::assets::Assets::load(original)?;
+    let assets =
+        crate::assets::Assets::load(files.path("CAT.EXE").map_err(|error| error.to_string())?)?;
     let mut data = assets.runtime_data();
     crate::assets::set_word(&mut data, 0x2ae5, 0xcafe);
     let mut splash = crate::splash::Splash::new(&data, machine)?;

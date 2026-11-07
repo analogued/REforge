@@ -16,16 +16,6 @@ pub enum DosRelease {
 }
 
 impl DosRelease {
-    pub fn from_game_id(game_id: &str) -> Option<Self> {
-        match game_id {
-            "mindwheel" => Some(Self::Mindwheel),
-            "essex" => Some(Self::Essex),
-            "brimstone" => Some(Self::Brimstone),
-            "breakers" => Some(Self::Breakers),
-            _ => None,
-        }
-    }
-
     pub fn interpreter(self) -> (&'static Interpreter, DosResources) {
         match self {
             Self::Mindwheel => (

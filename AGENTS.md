@@ -41,6 +41,13 @@
   when adding options. Invalid, unavailable and other-game options warn and are
   ignored; essential original-data failures remain errors. Do not add required
   command-line game selectors or use private originals as test fixtures.
+- Application detection owns release identification and content verification for
+  graphical and command-line play. Pass its resolved resource roles through
+  `reforge_inputs::ResolvedFiles`, together with any typed engine loading profile,
+  to playback and preview loaders. Engines must not maintain fingerprint tables,
+  re-identify releases or discover substitutes for selected resources. Retain
+  structural parsing and bounds checks. Explicit raw-format research probes are
+  separate from normal player entry points; do not give them another catalog.
 - Keep supporting game/engine-specific RE scripts and capture profiles outside
   this source repository in configured private storage by default. Distinguish
   maintained tools intended for future investigations from helpers bounded to

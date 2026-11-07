@@ -50,14 +50,24 @@ impl Fixture {
         fixture
     }
 
+    fn inputs(&self, release: DosRelease) -> reforge_inputs::ResolvedFiles {
+        reforge_inputs::ResolvedFiles::new([
+            ("ADISK.OBJ", self.data.clone()),
+            (
+                if release == DosRelease::Breakers {
+                    "RUN.EXE"
+                } else {
+                    "GO.EXE"
+                },
+                self.interpreter.clone(),
+            ),
+            ("SIDE.TXT", self.side_map.clone()),
+            ("TITLE.EXE", self.title.clone()),
+        ])
+    }
+
     fn load(&self, release: DosRelease) -> Result<Loaded, String> {
-        btz::player::load_with_title(
-            release,
-            &self.data,
-            &self.interpreter,
-            &self.side_map,
-            Some(&self.title),
-        )
+        btz::player::load(release, &self.inputs(release))
     }
 }
 
@@ -140,24 +150,38 @@ fn title() -> Vec<u8> {
 
 #[test]
 fn supplied_game_selects_its_resources_and_instruction_rules_without_recognition() {
-    for (id, resources, label, expected_byte, expected_form6) in [
-        ("mindwheel", MINDWHEEL_RESOURCES, *b"MW", 0x1234, 0x55aa),
-        ("essex", ESSEX_RESOURCES, *b"EX", 0x34, 0x55aa),
-        ("brimstone", BRIMSTONE_RESOURCES, *b"BR", 0x34, 0x55aa),
-        ("breakers", BREAKERS_RESOURCES, *b"BK", 0x34, 0),
+    for (release, resources, label, expected_byte, expected_form6) in [
+        (
+            DosRelease::Mindwheel,
+            MINDWHEEL_RESOURCES,
+            *b"MW",
+            0x1234,
+            0x55aa,
+        ),
+        (DosRelease::Essex, ESSEX_RESOURCES, *b"EX", 0x34, 0x55aa),
+        (
+            DosRelease::Brimstone,
+            BRIMSTONE_RESOURCES,
+            *b"BR",
+            0x34,
+            0x55aa,
+        ),
+        (DosRelease::Breakers, BREAKERS_RESOURCES, *b"BK", 0x34, 0),
     ] {
         let fixture = Fixture::new(resources, &label);
         let original_story = fs::read(&fixture.data).unwrap();
-        let release = DosRelease::from_game_id(id).unwrap();
         let mut loaded = fixture.load(release).unwrap();
-        assert_eq!(loaded.presentation.is_some(), id == "breakers");
+        assert_eq!(
+            loaded.presentation.is_some(),
+            release == DosRelease::Breakers
+        );
         assert!(
             loaded
                 .session
                 .screen()
                 .unicode()
                 .contains(std::str::from_utf8(&label).unwrap()),
-            "wrong title compression table for {id}"
+            "wrong title compression table for {release:?}"
         );
         let mut waiting = false;
         for _ in 0..1000 {
@@ -166,16 +190,16 @@ fn supplied_game_selects_its_resources_and_instruction_rules_without_recognition
                 break;
             }
         }
-        assert!(waiting, "did not reach the authored wait in {id}");
+        assert!(waiting, "did not reach the authored wait in {release:?}");
         assert_eq!(
             loaded.session.vm().variable(VarAddr(0x192)).unwrap(),
             expected_byte,
-            "byte operation definition for {id}"
+            "byte operation definition for {release:?}"
         );
         assert_eq!(
             loaded.session.vm().variable(VarAddr(0x194)).unwrap(),
             expected_form6,
-            "operand form definition for {id}"
+            "operand form definition for {release:?}"
         );
         assert!(
             loaded
@@ -186,7 +210,7 @@ fn supplied_game_selects_its_resources_and_instruction_rules_without_recognition
                 .last()
                 .unwrap()
                 .contains(std::str::from_utf8(&label).unwrap()),
-            "wrong key-wait prompt offset for {id}"
+            "wrong key-wait prompt offset for {release:?}"
         );
         assert_eq!(fs::read(&fixture.data).unwrap(), original_story);
     }
@@ -195,14 +219,16 @@ fn supplied_game_selects_its_resources_and_instruction_rules_without_recognition
 #[test]
 fn detected_game_controls_title_requirements_instead_of_executable_names() {
     let fixture = Fixture::new(BREAKERS_RESOURCES, b"BK");
-    let missing = btz::player::load(
-        DosRelease::Breakers,
-        &fixture.data,
-        &fixture.interpreter,
-        &fixture.side_map,
-    )
-    .err()
-    .expect("Breakers must require its title resource");
+    // A title file exists, but the app did not select it. Do not discover it.
+    fs::copy(&fixture.title, fixture.directory.join("TITLE.EXE")).unwrap();
+    let incomplete = reforge_inputs::ResolvedFiles::new([
+        ("ADISK.OBJ", fixture.data.clone()),
+        ("RUN.EXE", fixture.interpreter.clone()),
+        ("SIDE.TXT", fixture.side_map.clone()),
+    ]);
+    let missing = btz::player::load(DosRelease::Breakers, &incomplete)
+        .err()
+        .expect("Breakers must require its title resource");
     assert!(missing.contains("TITLE.EXE"), "{missing}");
     assert!(
         fixture
@@ -224,17 +250,38 @@ fn detected_game_controls_title_requirements_instead_of_executable_names() {
 }
 
 #[test]
-fn unknown_reported_game_is_rejected_without_falling_back_to_mindwheel() {
-    assert!(DosRelease::from_game_id("").is_none());
+fn player_does_not_discover_resources_missing_from_the_resolved_input_set() {
     let fixture = Fixture::new(MINDWHEEL_RESOURCES, b"MW");
+    // Conventional resources beside the supplied launch path are not authority.
+    fs::copy(&fixture.data, fixture.directory.join("ADISK.OBJ")).unwrap();
     let error = btz::cli::run(
         [
             OsString::from("--original"),
             fixture.directory.as_os_str().to_owned(),
         ]
         .into_iter(),
-        "unlisted-btz-game",
+        &reforge_inputs::ResolvedFiles::default(),
+        DosRelease::Mindwheel,
+        "Mindwheel",
     )
     .unwrap_err();
-    assert!(error.contains("unlisted-btz-game"), "{error}");
+    assert!(error.contains("ADISK.OBJ"), "{error}");
+}
+
+#[test]
+fn explicit_side_map_override_preserves_other_selected_resources() {
+    let fixture = Fixture::new(MINDWHEEL_RESOURCES, b"MW");
+    let override_path = fixture.directory.join("alternate map");
+    fs::copy(&fixture.side_map, &override_path).unwrap();
+    fs::write(&fixture.side_map, b"invalid map").unwrap();
+    assert!(fixture.load(DosRelease::Mindwheel).is_err());
+    let loaded = btz::player::load_with_side_map(
+        DosRelease::Mindwheel,
+        &fixture.inputs(DosRelease::Mindwheel),
+        Some(&override_path),
+    )
+    .unwrap();
+    assert_eq!(loaded.files.side_map_path, Some(override_path));
+    assert!(loaded.files.originals.contains(&fixture.data));
+    assert!(loaded.files.originals.contains(&fixture.interpreter));
 }

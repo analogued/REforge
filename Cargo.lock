@@ -40,9 +40,9 @@ dependencies = [
 name = "alleycat"
 version = "2026.3.0-dev"
 dependencies = [
- "blake3",
  "reforge_audio",
  "reforge_graphics",
+ "reforge_inputs",
  "reforge_sdl",
 ]
 
@@ -89,10 +89,10 @@ checksum = "52e1842dbecf7006b0745567084d53b2f90cd1a826083c41ddc01bd2a4e467e6"
 name = "btz"
 version = "2026.3.0-dev"
 dependencies = [
- "blake3",
  "libc",
  "reforge_audio",
  "reforge_graphics",
+ "reforge_inputs",
  "reforge_sdl",
  "reforge_settings",
 ]
@@ -302,6 +302,7 @@ name = "mach3"
 version = "2026.3.0-dev"
 dependencies = [
  "reforge_audio",
+ "reforge_inputs",
  "reforge_sdl",
 ]
 
@@ -451,8 +452,10 @@ dependencies = [
  "btz",
  "fs2",
  "getrandom",
+ "libc",
  "mach3",
  "png",
+ "reforge_inputs",
  "reforge_sdl",
  "reforge_settings",
  "unicode-segmentation",
@@ -467,6 +470,10 @@ dependencies = [
 
 [[package]]
 name = "reforge_graphics"
+version = "2026.3.0-dev"
+
+[[package]]
+name = "reforge_inputs"
 version = "2026.3.0-dev"
 
 [[package]]

@@ -39,21 +39,14 @@ pub const PREVIEW_VARIANTS: &[&str] = &[PREVIEW_VARIANT];
 /// Decode the original title without advancing wordcode or opening a player host.
 /// Read exactly the detector-selected resources; previews never write game files.
 pub fn preview(
-    files: &std::collections::BTreeMap<&str, std::path::PathBuf>,
-    game_id: &str,
+    files: &reforge_inputs::ResolvedFiles,
+    release: crate::player::DosRelease,
     variant: &str,
 ) -> Result<reforge_sdl::preview::Frame, String> {
     if variant != PREVIEW_VARIANT {
         return Err("Unknown BTZ preview variant".into());
     }
-    let release = crate::player::DosRelease::from_game_id(game_id)
-        .ok_or_else(|| format!("Unsupported BTZ game: {game_id}"))?;
-    let read = |name| {
-        let path = files
-            .get(name)
-            .ok_or_else(|| format!("Missing verified preview resource {name}"))?;
-        std::fs::read(path).map_err(|error| error.to_string())
-    };
+    let read = |name| files.read(name).map_err(|error| error.to_string());
     if release == crate::player::DosRelease::Breakers {
         let sequence = crate::player::presentation::TitleSequence::from_breakers_executable(&read(
             "TITLE.EXE",
@@ -167,14 +160,19 @@ mod tests {
 
     #[test]
     fn preview_requires_a_known_variant_and_explicit_verified_resources() {
-        let files = std::collections::BTreeMap::new();
+        let files = reforge_inputs::ResolvedFiles::default();
         assert_eq!(
-            preview(&files, "mindwheel", "unknown").unwrap_err(),
+            preview(&files, crate::player::DosRelease::Mindwheel, "unknown").unwrap_err(),
             "Unknown BTZ preview variant"
         );
         assert_eq!(
-            preview(&files, "mindwheel", PREVIEW_VARIANT).unwrap_err(),
-            "Missing verified preview resource GO.EXE"
+            preview(
+                &files,
+                crate::player::DosRelease::Mindwheel,
+                PREVIEW_VARIANT
+            )
+            .unwrap_err(),
+            files.path("GO.EXE").unwrap_err().to_string()
         );
     }
 }

@@ -3,15 +3,11 @@
 //! Player loading and host adapters shared by windowed and terminal play.
 
 pub(crate) mod cursor;
-#[cfg(feature = "dev-tools")]
-mod diagnostic;
 pub(crate) mod file_dialog;
 pub mod files;
 mod patches;
 mod release;
 
-#[cfg(feature = "dev-tools")]
-pub use diagnostic::{identify_dos_interpreter, prepare_image as prepare_diagnostic_image};
 pub use release::DosRelease;
 pub mod presentation;
 // Raw host input is isolated here; the VM, parser and story services remain safe Rust.
@@ -40,38 +36,31 @@ pub fn prepare_image(release: DosRelease, mut bytes: Vec<u8>) -> Result<StoryIma
     StoryImage::from_dos_obj(bytes)
 }
 
-/// Load inputs already verified by the application for the selected DOS release.
-pub fn load(
-    release: DosRelease,
-    data: &Path,
-    interpreter: &Path,
-    side_map: &Path,
-) -> Result<Loaded, String> {
-    load_with_title(release, data, interpreter, side_map, None)
+/// Load exactly the files selected by application detection for this profile.
+/// Format parsing remains checked, but this loader does not identify releases.
+pub fn load(release: DosRelease, inputs: &reforge_inputs::ResolvedFiles) -> Result<Loaded, String> {
+    load_with_side_map(release, inputs, None)
 }
 
-/// Load with an optional exact title-art path selected by the release detector.
-/// Standalone callers can retain ordinary TITLE.EXE lookup through `load`.
-pub fn load_with_title(
+/// Use an explicit diagnostic media-map override without changing other inputs.
+pub fn load_with_side_map(
     release: DosRelease,
-    data: &Path,
-    interpreter: &Path,
-    side_map: &Path,
-    title: Option<&Path>,
+    inputs: &reforge_inputs::ResolvedFiles,
+    side_map: Option<&Path>,
 ) -> Result<Loaded, String> {
     let load = || -> Result<Loaded, Box<dyn std::error::Error>> {
-        let resolve = |path: &Path| {
-            if path.is_file() {
-                Ok(path.to_path_buf())
-            } else {
-                files::resolve_original(path)
-            }
+        let data = inputs.path("ADISK.OBJ")?;
+        let interpreter = inputs.path(if release == DosRelease::Breakers {
+            "RUN.EXE"
+        } else {
+            "GO.EXE"
+        })?;
+        let side_map = match side_map {
+            Some(path) => path,
+            None => inputs.path("SIDE.TXT")?,
         };
-        let data = resolve(data)?;
-        let interpreter = resolve(interpreter)?;
-        let side_map = resolve(side_map)?;
-        let image = prepare_image(release, std::fs::read(&data)?)?;
-        let exe = std::fs::read(&interpreter)?;
+        let image = prepare_image(release, std::fs::read(data)?)?;
+        let exe = std::fs::read(interpreter)?;
         let (definition, resources) = release.interpreter();
         let mut session = Session::with_interpreter(
             image,
@@ -80,19 +69,20 @@ pub fn load_with_title(
             definition,
         )?;
         session.set_service_messages(ServiceMessages::from_dos_resources(&exe, resources)?);
-        session.set_side_map(SideMap::from_bytes(&std::fs::read(&side_map)?)?);
-        let mut files = files::Files::new(&data)?;
-        files.originals = vec![data.clone(), interpreter, side_map.clone()];
-        files.side_map_path = Some(side_map);
+        session.set_side_map(SideMap::from_bytes(&std::fs::read(side_map)?)?);
+        let mut files = files::Files::new(data)?;
+        files.originals = vec![
+            data.to_path_buf(),
+            interpreter.to_path_buf(),
+            side_map.to_path_buf(),
+        ];
+        files.side_map_path = Some(side_map.to_path_buf());
         files.confirm_bookmark_replace = definition.confirm_bookmark_replace;
         let presentation = if release == DosRelease::Breakers {
-            let title = match title {
-                Some(path) => resolve(path)?,
-                None => files::resolve_original(&data.parent().unwrap().join("TITLE.EXE"))?,
-            };
+            let title = inputs.path("TITLE.EXE")?;
             let presentation =
-                presentation::TitleSequence::from_breakers_executable(&std::fs::read(&title)?)?;
-            files.originals.push(title);
+                presentation::TitleSequence::from_breakers_executable(&std::fs::read(title)?)?;
+            files.originals.push(title.to_path_buf());
             Some(presentation)
         } else {
             None

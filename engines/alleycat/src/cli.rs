@@ -94,7 +94,6 @@ enum StartScene {
 }
 
 struct Options {
-    original: PathBuf,
     machine: Machine,
     scale: Option<u32>,
     #[cfg(feature = "sdl")]
@@ -156,7 +155,6 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
     let mut original = None;
     let mut presentation = None;
     let mut result = Options {
-        original: PathBuf::new(),
         machine: Machine::Cga,
         scale: None,
         #[cfg(feature = "sdl")]
@@ -272,7 +270,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
             _ => return Err(format!("Unknown option: {option}")),
         }
     }
-    result.original = original.ok_or("Supply --original /path/to/CAT.EXE")?;
+    original.ok_or("Supply --original /path/to/CAT.EXE")?;
     if result.scale.is_some_and(|scale| !(1..=16).contains(&scale)) {
         return Err("Scale must be auto or an integer between 1 and 16".into());
     }
@@ -332,14 +330,19 @@ pub fn validate_arguments(args: impl IntoIterator<Item = String>) -> Result<(), 
     parse_options(args).map(|_| ())
 }
 
-/// Run Alley Cat with arguments supplied by the application or legacy binary.
-pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
+/// Run with the application's resolved inputs. Argument paths never replace
+/// the file selection already made by its detector.
+pub fn run(
+    args: impl IntoIterator<Item = String>,
+    files: &reforge_inputs::ResolvedFiles,
+) -> Result<(), String> {
     let Some(options) = parse_options(args)? else {
         return Ok(());
     };
     let seed = seed::resolve(&options)?;
     eprintln!("Alley Cat: startup seed 0x{seed:04x}");
-    let assets = crate::assets::Assets::load(&options.original)?;
+    let assets =
+        crate::assets::Assets::load(files.path("CAT.EXE").map_err(|error| error.to_string())?)?;
     #[cfg(any(feature = "sdl", feature = "dev-tools"))]
     let startup = {
         #[cfg(feature = "dev-tools")]

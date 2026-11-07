@@ -13,6 +13,7 @@ sdl = ["dep:reforge_sdl", "reforge_audio/blip"]
 dev-tools = ["reforge_audio/blip", "reforge_sdl?/dev-tools"]
 
 [dependencies]
+reforge_inputs = { path = "../../crates/reforge_inputs" }
 reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
 reforge_audio = { path = "../../crates/reforge_audio" }
 
@@ -20,11 +21,6 @@ reforge_audio = { path = "../../crates/reforge_audio" }
 name = "mach3-frame"
 path = "src/main.rs"
 required-features = ["dev-tools"]
-
-[[bin]]
-name = "mach-3"
-path = "src/bin/mach-3.rs"
-required-features = ["sdl"]
 
 [[bin]]
 name = "mach3-opening"

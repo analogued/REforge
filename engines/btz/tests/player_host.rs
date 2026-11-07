@@ -89,9 +89,11 @@ mod terminal_bell {
         fs::write(directory.0.join("SIDE.TXT"), "0\na\n".repeat(10) + "0\n").unwrap();
         btz::player::load(
             btz::player::DosRelease::Mindwheel,
-            &directory.0.join("ADISK.OBJ"),
-            &directory.0.join("GO.EXE"),
-            &directory.0.join("SIDE.TXT"),
+            &reforge_inputs::ResolvedFiles::new([
+                ("ADISK.OBJ", directory.0.join("ADISK.OBJ")),
+                ("GO.EXE", directory.0.join("GO.EXE")),
+                ("SIDE.TXT", directory.0.join("SIDE.TXT")),
+            ]),
         )
         .unwrap()
     }
@@ -170,7 +172,13 @@ mod terminal_bell {
                         "terminal".into(),
                     ]
                     .into_iter(),
-                    "mindwheel",
+                    &reforge_inputs::ResolvedFiles::new([
+                        ("ADISK.OBJ", directory.0.join("ADISK.OBJ")),
+                        ("GO.EXE", directory.0.join("GO.EXE")),
+                        ("SIDE.TXT", directory.0.join("SIDE.TXT")),
+                    ]),
+                    btz::player::DosRelease::Mindwheel,
+                    "Mindwheel",
                 )
                 .unwrap();
                 assert_eq!(fs::read(path).unwrap(), original);

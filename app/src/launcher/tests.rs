@@ -2003,16 +2003,12 @@ fn native_engine_previews() {
         for game in &state.games {
             let detected = detection::detect(&game.original).unwrap();
             for (variant, source) in &game.previews {
-                let again = match detected.game {
-                    detection::Game::AlleyCat => {
-                        alleycat::launcher::preview(&detected.original, variant)
-                    }
-                    detection::Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
-                    detection::Game::Mindwheel
-                    | detection::Game::Essex
-                    | detection::Game::Brimstone
-                    | detection::Game::Breakers => {
-                        btz::launcher::preview(&detected.files, detected.game.id(), variant)
+                let inputs = detected.inputs();
+                let again = match detected.game.engine() {
+                    detection::Engine::AlleyCat => alleycat::launcher::preview(&inputs, variant),
+                    detection::Engine::Mach3 => mach3::launcher::preview(&inputs, variant),
+                    detection::Engine::Btz(release) => {
+                        btz::launcher::preview(&inputs, release, variant)
                     }
                 }
                 .unwrap();

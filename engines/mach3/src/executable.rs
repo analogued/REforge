@@ -5,10 +5,8 @@
 mod pklite;
 
 use crate::Error;
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-};
+use reforge_inputs::ResolvedFiles;
+use std::path::Path;
 
 pub const DATA_SEGMENT_OFFSET: usize = 0x95a0;
 
@@ -109,33 +107,25 @@ fn expand_reverse_rle(raw: &[u8]) -> Result<Vec<u8>, Error> {
     Ok(result)
 }
 
-/// Load the named standalone program image, preferring MACH3.OV2 when present.
-/// The overlay distribution's small MACH3.EXE launcher and OV1 are not read.
-pub fn load_program(directory: &Path) -> Result<Vec<u8>, Error> {
-    load_program_with_files(directory, &BTreeMap::new())
+/// Read a program using only its application-selected resource role.
+/// Missing, ambiguous, corrupt or removed selections are errors; this function
+/// never searches the installation directory for a replacement.
+pub fn load_program_with_files(files: &ResolvedFiles) -> Result<Vec<u8>, Error> {
+    let exe = files.path("MACH3.EXE").ok();
+    let overlay = files.path("MACH3.OV2").ok();
+    match (exe, overlay) {
+        (Some(path), None) | (None, Some(path)) => expand_program(&std::fs::read(path)?),
+        (None, None) => Err(Error::InvalidData("missing selected program file".into())),
+        (Some(_), Some(_)) => Err(Error::InvalidData(
+            "ambiguous selected program files".into(),
+        )),
+    }
 }
 
-/// Use an explicit detector-selected EXE/OV2 path without filename fallback.
-/// Other resource overrides do not change standalone program discovery.
-pub fn load_program_with_files(
-    directory: &Path,
-    files: &BTreeMap<&str, PathBuf>,
-) -> Result<Vec<u8>, Error> {
-    let selected: Vec<_> = files
-        .iter()
-        .filter(|(name, _)| {
-            name.eq_ignore_ascii_case("MACH3.EXE") || name.eq_ignore_ascii_case("MACH3.OV2")
-        })
-        .collect();
-    match selected.as_slice() {
-        [(_, path)] => return expand_program(&std::fs::read(path)?),
-        [] => {}
-        _ => {
-            return Err(Error::InvalidData(
-                "ambiguous verified program files".into(),
-            ));
-        }
-    }
+/// Load explicitly supplied diagnostic resources by their conventional names,
+/// preferring MACH3.OV2 when present. This parses data without identifying a
+/// supported release; normal play uses `load_program_with_files` instead.
+pub fn load_program(directory: &Path) -> Result<Vec<u8>, Error> {
     let entries = std::fs::read_dir(directory)?
         .map(|entry| entry.map(|entry| entry.path()))
         .collect::<Result<Vec<_>, _>>()?;
@@ -166,6 +156,7 @@ pub fn load_program_with_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn program() -> Vec<u8> {
         let mut raw = vec![0; 32];
@@ -263,34 +254,25 @@ mod tests {
         let exe = directory.write("MACH3.EXE", &raw);
         directory.write("MACH3.OV2", &other);
         let renamed = directory.write("renamed-program.bin", &raw);
-        for role in ["mach3.ov2", "MACH3.EXE"] {
-            let files = BTreeMap::from([(role, renamed.clone())]);
-            assert_eq!(
-                load_program_with_files(&directory.0, &files).unwrap(),
-                expected
-            );
+        for role in ["MACH3.OV2", "MACH3.EXE"] {
+            let files = ResolvedFiles::new([(role, renamed.clone())]);
+            assert_eq!(load_program_with_files(&files).unwrap(), expected);
         }
-        let files = BTreeMap::from([("MACH3.EXE", exe)]);
-        assert_eq!(
-            load_program_with_files(&directory.0, &files).unwrap(),
-            expected
-        );
+        let files = ResolvedFiles::new([("MACH3.EXE", exe)]);
+        assert_eq!(load_program_with_files(&files).unwrap(), expected);
         assert_eq!(load_program(&directory.0).unwrap(), other_expected);
-        let files = BTreeMap::from([("DATA1", directory.0.join("irrelevant"))]);
-        assert_eq!(
-            load_program_with_files(&directory.0, &files).unwrap(),
-            other_expected
-        );
-        let files = BTreeMap::from([("MACH3.OV2", renamed.clone())]);
+        let files = ResolvedFiles::new([("DATA1", directory.0.join("irrelevant"))]);
+        assert!(load_program_with_files(&files).is_err());
+        let files = ResolvedFiles::new([("MACH3.OV2", renamed.clone())]);
         directory.write("renamed-program.bin", b"corrupt selected program");
-        assert!(load_program_with_files(&directory.0, &files).is_err());
+        assert!(load_program_with_files(&files).is_err());
         std::fs::remove_file(&renamed).unwrap();
-        assert!(load_program_with_files(&directory.0, &files).is_err());
-        let files = BTreeMap::from([
+        assert!(load_program_with_files(&files).is_err());
+        let files = ResolvedFiles::new([
             ("MACH3.EXE", directory.0.join("MACH3.EXE")),
             ("MACH3.OV2", directory.0.join("MACH3.OV2")),
         ]);
-        assert!(load_program_with_files(&directory.0, &files).is_err());
+        assert!(load_program_with_files(&files).is_err());
         directory.write("MACH3.OV2", b"corrupt overlay");
         assert!(load_program(&directory.0).is_err());
     }

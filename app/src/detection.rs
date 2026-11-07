@@ -30,7 +30,27 @@ pub enum Game {
     Breakers,
 }
 
+/// Loading behavior selected by application identification, not by engine hashes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Engine {
+    AlleyCat,
+    Mach3,
+    Btz(btz::player::DosRelease),
+}
+
 impl Game {
+    pub const fn engine(self) -> Engine {
+        use btz::player::DosRelease;
+        match self {
+            Self::AlleyCat => Engine::AlleyCat,
+            Self::Mach3 => Engine::Mach3,
+            Self::Mindwheel => Engine::Btz(DosRelease::Mindwheel),
+            Self::Essex => Engine::Btz(DosRelease::Essex),
+            Self::Brimstone => Engine::Btz(DosRelease::Brimstone),
+            Self::Breakers => Engine::Btz(DosRelease::Breakers),
+        }
+    }
+
     pub const fn id(self) -> &'static str {
         match self {
             Self::AlleyCat => "alley-cat",
@@ -54,10 +74,7 @@ impl Game {
     }
 
     pub const fn is_btz(self) -> bool {
-        matches!(
-            self,
-            Self::Mindwheel | Self::Essex | Self::Brimstone | Self::Breakers
-        )
+        matches!(self.engine(), Engine::Btz(_))
     }
 
     pub const fn title(self) -> &'static str {
@@ -109,8 +126,15 @@ pub struct Detected {
     /// The executable for Alley Cat, or the resource directory for other games.
     pub original: PathBuf,
     /// Actual paths selected by full verification, keyed by catalog spelling.
-    #[cfg_attr(not(feature = "sdl"), allow(dead_code))]
     pub files: BTreeMap<&'static str, PathBuf>,
+}
+
+impl Detected {
+    pub fn inputs(&self) -> reforge_inputs::ResolvedFiles {
+        reforge_inputs::ResolvedFiles::new(
+            self.files.iter().map(|(&name, path)| (name, path.clone())),
+        )
+    }
 }
 
 pub fn detect(path: &Path) -> Result<Detected, String> {

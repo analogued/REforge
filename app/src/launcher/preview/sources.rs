@@ -156,18 +156,14 @@ fn cache_id(release: &Release, variant: &str) -> String {
     hash.finalize().to_hex().to_string()
 }
 fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source> {
-    generate_with(
-        request,
-        cache,
-        detection::detect,
-        |detected, variant| match detected.game {
-            Game::AlleyCat => alleycat::launcher::preview(&detected.original, variant),
-            Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
-            Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers => {
-                btz::launcher::preview(&detected.files, detected.game.id(), variant)
-            }
-        },
-    )
+    generate_with(request, cache, detection::detect, |detected, variant| {
+        let inputs = detected.inputs();
+        match detected.game.engine() {
+            detection::Engine::AlleyCat => alleycat::launcher::preview(&inputs, variant),
+            detection::Engine::Mach3 => mach3::launcher::preview(&inputs, variant),
+            detection::Engine::Btz(release) => btz::launcher::preview(&inputs, release, variant),
+        }
+    })
 }
 
 fn generate_with(

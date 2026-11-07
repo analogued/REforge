@@ -52,14 +52,17 @@ error routine's entry to `ret`. All other initialized program bytes match.
 The Rust implementation reads the program data from OV2 and does not execute
 those DOS protection/error paths; only OV2 and the 17 DATA files are required.
 
-For named standalone assets, program discovery prefers `MACH3.OV2` when present
-and otherwise uses `MACH3.EXE`, case-insensitively. The ignored launcher and OV1
-are not opened. Duplicate names for the chosen role and corrupt images fail.
 REforge supplies the detector-selected canonical EXE or OV2 role and its exact
-physical path, including renamed files. That explicit selection takes precedence
-over named discovery; missing/corrupt selected files never fall back to another
-program image in the directory. The same program loader serves live playback
-and headless diagnostic commands.
+physical path, including renamed files. Live playback reads only that selection;
+missing, ambiguous or corrupt selected files never fall back to another program
+image in the directory.
+
+Explicit headless diagnostic loaders can instead discover conventionally named
+assets, preferring `MACH3.OV2` when present and otherwise using `MACH3.EXE`,
+case-insensitively. The ignored launcher and OV1 are not opened. Duplicate names
+for the chosen role and corrupt images fail. This is format parsing, without
+identifying or verifying a supported release. Both paths share the same program
+decoder.
 
 ## Initialization path
 

@@ -151,6 +151,27 @@ that license before adoption, retaining their original terms and attribution.
 
 ## Validation
 
+### Original-file loading
+
+The application owns the release catalog, identification and full-file content
+verification. Normal graphical and command-line play both go through
+`reforge --original <file-or-directory>`. Preview generation uses the same
+detected resources, reusing eligible recent verification where available.
+
+Pass the detector's selected canonical-role-to-actual-path map to engines using
+`reforge_inputs::ResolvedFiles`. The application also selects any typed loading
+profile required by the engine. Engines must read those exact paths, including
+renamed files and logical symlinks, without searching for replacement resources
+or maintaining release fingerprints. Missing or malformed resources remain errors;
+format, layout and bounds checks still belong in the parsers.
+
+Low-level parsers and explicitly selected raw-format research probes may operate
+on unregistered inputs and synthetic data. They do not identify a supported
+release or provide a second normal-player launch route. A `ResolvedFiles` value
+is a loading contract, not a cryptographic proof or persistent verification cache.
+
+### Checks
+
 GitHub Actions runs Linux checks on pushes and pull requests to `main`, and can
 also be started manually. It checks formatting, workspace tests and Clippy with
 normal, headless and development feature combinations, selected software-rendered

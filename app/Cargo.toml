@@ -6,6 +6,7 @@ rust-version = "1.88"
 publish = false
 license.workspace = true
 description = "REforge game reconstructions for modern desktop systems"
+default-run = "reforge"
 
 [features]
 default = ["sdl"]
@@ -13,6 +14,7 @@ sdl = ["alleycat/sdl", "mach3/sdl", "btz/sdl", "dep:reforge_sdl", "dep:unicode-s
 dev-tools = ["alleycat/dev-tools", "mach3/dev-tools", "btz/dev-tools"]
 
 [dependencies]
+reforge_inputs = { path = "../crates/reforge_inputs" }
 reforge_settings = { path = "../crates/reforge_settings" }
 reforge_sdl = { path = "../crates/reforge_sdl", optional = true }
 alleycat = { path = "../engines/alleycat", default-features = false }
@@ -27,3 +29,11 @@ blake3 = { version = "=1.8.7", features = ["rayon", "mmap"] }
 
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2.190"
+
+[[bin]]
+name = "btz-core"
+path = "src/bin/btz-core.rs"
+required-features = ["dev-tools"]

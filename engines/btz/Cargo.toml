@@ -8,21 +8,16 @@ license.workspace = true
 description = "Reconstructed BTZ interpreter core"
 
 [features]
-frontend = ["dep:libc", "dep:reforge_settings"]
+frontend = ["dep:libc", "dep:reforge_settings", "dep:reforge_inputs"]
 sdl = ["frontend", "dep:reforge_sdl", "dep:reforge_audio", "dep:reforge_graphics"]
-dev-tools = ["frontend", "dep:blake3", "reforge_sdl?/dev-tools"]
+dev-tools = ["frontend", "reforge_sdl?/dev-tools"]
 
 [dependencies]
 reforge_graphics = { path = "../../crates/reforge_graphics", optional = true }
-blake3 = { version = "=1.8.7", optional = true }
+reforge_inputs = { path = "../../crates/reforge_inputs", optional = true }
 reforge_settings = { path = "../../crates/reforge_settings", optional = true }
 reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
 reforge_audio = { path = "../../crates/reforge_audio", features = ["blip"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2.190", optional = true }
-
-[[bin]]
-name = "btz-core"
-path = "src/bin/core.rs"
-required-features = ["dev-tools"]

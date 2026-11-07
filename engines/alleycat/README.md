@@ -79,8 +79,10 @@ BLAKE3:  8b6c0f5151075e596296675648eb75b4527e228f74aff1b5db2403f03ff84cf2
 SHA-256: 4979c8867826e08881d1d4bec95c95d6bc1ac70fd21050ccdb4f733a50d7bfdd
 ```
 
-The loader opens the file read-only and rejects other versions. Keep original
-files and any generated captures outside this repository.
+REforge's application detector verifies the release and supplies its selected
+file to the engine. The engine reads it without repeating the fingerprint check,
+while retaining format and bounds checks. Keep original files and any generated
+captures outside this repository.
 
 ## Build and run
 
@@ -90,7 +92,8 @@ See the [application README](../../README.md) for the combined build and
 Install Rust 1.88 or newer with Cargo, and an SDL3 development package providing
 the native `SDL3` library. The [shared window backend](../../crates/reforge_sdl/README.md)
 uses the `sdl3` Rust wrapper; SDL image/font/mixer extensions are not required.
-Cargo fetches `blake3` and its locked dependencies for executable verification.
+The application handles executable verification before engine startup, including
+when launched directly from the command line without the graphical launcher.
 
 From the combined repository root:
 

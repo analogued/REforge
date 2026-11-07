@@ -77,16 +77,12 @@ pub const PREVIEW_VARIANTS: &[&str] = &["cga", "mono"];
 /// Read exactly the detector-selected files, including case-colliding names.
 /// This static scene neither starts gameplay nor opens audio or a window.
 pub fn preview(
-    files: &std::collections::BTreeMap<&str, std::path::PathBuf>,
+    files: &reforge_inputs::ResolvedFiles,
     variant: &str,
 ) -> Result<reforge_sdl::preview::Frame, String> {
-    let frames = crate::startup::StartupFrames::load_with(|name| {
-        let path = files.get(name).ok_or_else(|| {
-            crate::Error::InvalidData(format!("Missing verified preview resource {name}"))
-        })?;
-        std::fs::read(path).map_err(crate::Error::Io)
-    })
-    .map_err(|e| e.to_string())?;
+    let frames =
+        crate::startup::StartupFrames::load_with(|name| files.read(name).map_err(crate::Error::Io))
+            .map_err(|e| e.to_string())?;
     let frame = frames.frame(crate::startup::Screen::Splash);
     let (width, rgb) = match variant {
         "cga" => (320, frame.rgb()),

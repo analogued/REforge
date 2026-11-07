@@ -10,11 +10,8 @@ use crate::{
     sound::render::AudioRenderer,
     startup::StartupFrames,
 };
-use std::{
-    collections::BTreeMap,
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use reforge_inputs::ResolvedFiles;
+use std::{ffi::OsString, path::PathBuf};
 
 const HELP: &str = "Usage: reforge --original <assets-directory> [--scale auto|1..16] [--presentation pixels|hyllian] [--audio-renderer speaker|enhanced-pcm] [--video cga|mono] [--f3-mode press|original] [--digitized-samples on|off] [--motion reforged|enhanced|original]\n\n\
 --original: directory containing MACH3.EXE or MACH3.OV2, plus DATA1 through DATAH for normal animated playback.\n\
@@ -38,7 +35,7 @@ fn help() -> String {
     #[cfg(feature = "dev-tools")]
     {
         format!(
-            "{HELP}\nF9 [dev-tools]: toggle the presentation FPS indicator (hidden by default).\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping and need MACH3.EXE or MACH3.OV2 and DATA1 through DATA6.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file.\n--trace-motion PATH [dev-tools]: optional motion diagnostics; failures disable logging only.\n--motion-experiment PATH [dev-tools]: compatibility alias for --motion enhanced --trace-motion PATH."
+            "{HELP}\nF9 [dev-tools]: toggle the presentation FPS indicator (hidden by default).\n--step [dev-tools]: fresh Enter presses advance one body or title step.\n--static [dev-tools]: show initial scene only.\nThese previews use silent nominal stepping; REforge still verifies the complete required release.\n--trace-input PATH [dev-tools]: write input diagnostic trace to a new file.\n--trace-timing PATH [dev-tools]: write host execution and scheduling spans to a new file.\n--trace-motion PATH [dev-tools]: optional motion diagnostics; failures disable logging only.\n--motion-experiment PATH [dev-tools]: compatibility alias for --motion enhanced --trace-motion PATH."
         )
     }
     #[cfg(not(feature = "dev-tools"))]
@@ -47,28 +44,17 @@ fn help() -> String {
     }
 }
 
-/// Run the Mach 3 windowed frontend with arguments excluding the executable name.
-///
-/// The `sdl` feature provides this entry point for REforge and the standalone
-/// `mach-3` binary.
-pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
-    run_with_files(args, &BTreeMap::new())
-}
-
-/// Run using the physical files selected by REforge's release detector.
-/// Unlisted resources retain the standalone loader's ordinary resolution.
-pub fn run_with_files(
-    args: impl Iterator<Item = OsString>,
-    files: &BTreeMap<&str, PathBuf>,
-) -> Result<(), String> {
-    let Some((directory, options)) = parse_args(args)? else {
+/// Run with the exact original-file paths selected by the application detector.
+/// Arguments exclude the executable name; original-file discovery and release
+/// verification belong to REforge, including command-line launches.
+pub fn run(args: impl Iterator<Item = OsString>, files: &ResolvedFiles) -> Result<(), String> {
+    let Some((_directory, options)) = parse_args(args)? else {
         println!("{}", help());
         return Ok(());
     };
-    let mut read = |name: &str| read_selected(&directory, files, name);
+    let mut read = |name: &str| files.read(name).map_err(crate::Error::Io);
     let frames = StartupFrames::load_with(&mut read).map_err(|error| error.to_string())?;
-    let program =
-        crate::executable::load_program_with_files(&directory, files).map_err(|e| e.to_string())?;
+    let program = crate::executable::load_program_with_files(files).map_err(|e| e.to_string())?;
     let rules = crate::gameplay::ScriptRules::from_data_segment(
         crate::executable::data_segment(&program).map_err(|error| error.to_string())?,
     )
@@ -82,21 +68,6 @@ pub fn run_with_files(
     let procedural =
         crate::sound::ProceduralProgram::from_expanded(&program).map_err(|e| e.to_string())?;
     crate::platform::run_live(&frames, options, rules, samples, intro, procedural)
-}
-
-fn read_selected(
-    directory: &Path,
-    files: &BTreeMap<&str, PathBuf>,
-    name: &str,
-) -> Result<Vec<u8>, crate::Error> {
-    if let Some((_, path)) = files
-        .iter()
-        .find(|(catalog_name, _)| catalog_name.eq_ignore_ascii_case(name))
-    {
-        std::fs::read(path).map_err(crate::Error::Io)
-    } else {
-        crate::assets::read_resource(directory, name)
-    }
 }
 
 /// Validate the windowed argument contract without loading original data or SDL.

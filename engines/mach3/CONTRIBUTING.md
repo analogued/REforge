@@ -60,9 +60,11 @@ The default `sdl` feature enables windowed playback and requires SDL3 developmen
 and runtime libraries. Use `--no-default-features` to build without SDL3.
 Headless diagnostic runs also require `--features dev-tools`.
 
-With `sdl` enabled, `mach3::cli::run` provides windowed playback for REforge and
-the standalone `mach-3` executable. Build both the library and standalone
-executable with `cargo build --locked -p mach3`.
+With `sdl` enabled, `mach3::cli::run` provides windowed playback from the
+application's resolved input files. Build the player with
+`cargo build --locked -p reforge`; normal play, including command-line launches,
+always passes through REforge's release detector. The engine retains structural
+format checks but does not identify releases or search for replacement inputs.
 
 Add `--features dev-tools` to build the frame renderer, opening exporter, replay
 tool and sound exporter, and enable their CLI integration tests and offline

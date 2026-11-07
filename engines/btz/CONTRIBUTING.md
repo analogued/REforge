@@ -22,7 +22,8 @@ Keep raw evidence and investigation history outside the source repository.
 
 The core library has no default third-party dependencies. The `frontend` feature
 adds player loading and terminal support; `sdl` adds windowed presentation through
-the shared SDL crate. `dev-tools` enables the diagnostic binary and probes.
+the shared SDL crate. `dev-tools` enables diagnostic facilities; the application package owns the
+`btz-core` diagnostic binary.
 
 ```sh
 cargo build --locked -p btz
@@ -42,11 +43,13 @@ not require original game files or a desktop.
 
 ## Player frontends
 
-REforge dispatches verified BTZ files and the existing detected game ID to the
-shared player entry point. BTZ maps that ID to its known DOS loading profile;
-it does not repeat application file hashing or infer a profile from filenames.
-Library loading accepts an explicit `player::DosRelease`. The standalone
-diagnostic frontend retains its own fingerprint identification under `dev-tools`.
+REforge identifies and verifies the release, then passes a shared
+`reforge_inputs::ResolvedFiles` and an explicit `player::DosRelease` to player
+and preview loading. BTZ reads exactly those selected paths and uses the supplied
+profile's interpreter rules and resource layout. It retains format and bounds
+checks without hashing files again, guessing profiles or discovering replacement
+files. Research callers can construct resolved inputs explicitly; doing so is
+not release verification.
 Windowed play uses the shared SDL display and settings; `--renderer terminal` uses an
 attached terminal without initializing an SDL window. Both hosts use `Session`
 and the same player loading, file browser and file-service adapters. Windowed
@@ -59,17 +62,21 @@ the browser suspends story time. The diagnostic frontend retains typed prompts.
 Supply the original inputs explicitly:
 
 ```sh
-cargo run --locked -p btz --features dev-tools --bin btz-core -- \
+cargo run --locked -p reforge --features dev-tools --bin btz-core -- \
   --original /path/to/ADISK.OBJ --interpreter /path/to/GO.EXE \
   --side-map /path/to/SIDE.TXT
 ```
 
-The diagnostic terminal adapter supports Unix and Windows consoles. This binary
-is separate from REforge's application game detection interface. Without
-`--interpreter`, it operates as a raw VM trace probe rather than a playable session.
+The diagnostic terminal adapter supports Unix and Windows consoles. With an
+interpreter supplied, the application detector verifies and selects the supported
+release before creating a session. For authored fixtures or unregistered research
+inputs, `--raw-profile` explicitly selects a known loading profile without release
+verification. Without `--interpreter`, the binary operates as a raw VM trace probe
+rather than a playable session.
 
 | Option | Meaning |
 | --- | --- |
+| `--raw-profile name` | Select explicit interpreter rules for unverified research inputs |
 | `--snapshot` | Stop at the first input/key wait |
 | `--input file` | Replay DOS key bytes: CR submits, LF is ignored, and each batch ends at CR |
 | `--save-dir directory` | Base for relative prompted bookmark/transcript names; defaults beside the supplied game data |

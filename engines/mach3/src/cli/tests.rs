@@ -92,8 +92,8 @@ fn motion_is_available_in_normal_builds_and_defaults_to_saved_preferences() {
 
 #[test]
 fn verified_file_choices_override_case_collisions_without_silent_fallback() {
+    use reforge_inputs::ResolvedFiles;
     use std::{
-        collections::BTreeMap,
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -115,24 +115,18 @@ fn verified_file_choices_override_case_collisions_without_silent_fallback() {
     ] {
         fs::write(directory.join(name), content).unwrap();
     }
-    let files = BTreeMap::from([
-        ("mach3.exe", directory.join("mach3.exe")),
+    let files = ResolvedFiles::new([
+        ("MACH3.EXE", directory.join("mach3.exe")),
         ("DATA1", directory.join("data1")),
     ]);
+    assert_eq!(files.read("MACH3.EXE").unwrap(), b"chosen program");
+    assert_eq!(files.read("DATA1").unwrap(), b"chosen image");
     assert_eq!(
-        super::read_selected(&directory, &files, "MACH3.EXE").unwrap(),
-        b"chosen program"
-    );
-    assert_eq!(
-        super::read_selected(&directory, &files, "DATA1").unwrap(),
-        b"chosen image"
-    );
-    assert_eq!(
-        super::read_selected(&directory, &files, "DATA7").unwrap(),
-        b"unlisted sample"
+        files.read("DATA7").unwrap_err().kind(),
+        std::io::ErrorKind::NotFound
     );
     fs::remove_file(directory.join("data1")).unwrap();
-    assert!(super::read_selected(&directory, &files, "DATA1").is_err());
+    assert!(files.read("DATA1").is_err());
     fs::remove_dir_all(&directory).unwrap();
 }
 

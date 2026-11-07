@@ -767,6 +767,15 @@ Other platforms must select their own catalog filename case semantics.
 Original file contents remain byte-exact and are verified with the full BLAKE3 hash.
 Absolute installation paths and editorial/edition/specs metadata are excluded.
 
+Identification and full-file verification belong to the application for both
+GUI and direct command-line launches. Engines receive the resolved resource map
+through `reforge_inputs::ResolvedFiles` and any app-selected loading profile.
+Playback and preview loaders use these exact paths without release fingerprinting
+or substitute-file discovery. Parsers still validate layouts and bounds; a
+resolved map does not guarantee that files cannot change after verification.
+Explicit raw-format diagnostic probes remain available for research and
+synthetic data, separately from supported-game detection.
+
 Files smaller than 1 MiB use single-threaded streaming verification. Regular
 files of at least 1 MiB use BLAKE3's memory-mapped Rayon implementation, with a
 thread pool sized for the available CPUs. If mapping is unavailable, BLAKE3 falls

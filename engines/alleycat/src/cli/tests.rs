@@ -7,6 +7,26 @@ use super::diagnostics::{TIMING_HEADER, timing_row};
 use super::frontend::{CATCH_UP_MAX_PASSES, catch_up_batch};
 use super::*;
 
+#[test]
+fn playback_uses_resolved_inputs_instead_of_argument_paths() {
+    let path = std::env::temp_dir().join(format!(
+        "reforge-alleycat-resolved-input-{}.exe",
+        std::process::id()
+    ));
+    std::fs::write(&path, b"authored malformed executable").unwrap();
+    let files = reforge_inputs::ResolvedFiles::new([("CAT.EXE", path.clone())]);
+    let args = ["--original", "unused-argument-path.exe", "--seed", "2"];
+    let result = run(args.map(String::from), &files);
+    std::fs::remove_file(path).unwrap();
+    assert!(result.unwrap_err().contains("MZ image"));
+
+    let result = run(
+        args.map(String::from),
+        &reforge_inputs::ResolvedFiles::default(),
+    );
+    assert!(result.unwrap_err().contains("CAT.EXE"));
+}
+
 #[cfg(feature = "sdl")]
 #[test]
 fn title_sound_toggles_remain_valid_after_committed_drawing_work() {
@@ -327,7 +347,6 @@ fn player_options_remain_available() {
     ])
     .unwrap()
     .unwrap();
-    assert_eq!(options.original, PathBuf::from("example.exe"));
     assert_eq!(options.machine, Machine::Pcjr);
     assert_eq!((options.scale, options.difficulty), (Some(3), 7));
     assert!(options.difficulty_selected);

@@ -13,11 +13,12 @@ prompts do not by themselves imply different VM semantics.
 
 `MINDWHEEL_DOS`, `ESSEX_DOS`, `BRIMSTONE_DOS` and `BREAKERS_DOS` are descriptive
 implementation names. They do not assert official version numbers. The
-application verifies the required files and passes its existing detected game ID
-to BTZ. The player and preview loaders select the corresponding `DosRelease`
-profile, which supplies the interpreter definition and resource layout, without
-hashing those files again. The standalone diagnostic frontend retains executable
-fingerprint lookup under `dev-tools`.
+application verifies the required files and selects the corresponding
+`DosRelease` profile. Player and preview loaders receive that profile and the
+resolved file map, which supply the interpreter definition, resource layout and
+exact resource paths without hashing or identifying files again. The application's
+diagnostic frontend uses the same detector for supported original inputs; raw
+research probes require an explicit profile.
 
 Existing `new` and `from_dos_executable` constructors retain the Mindwheel DOS
 definition and table layout. Explicit `with_interpreter`,

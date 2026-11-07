@@ -1,9 +1,8 @@
 # Native timing diagnostics
 
 Build with `dev-tools` and the default `sdl` feature, then supply
-`--trace-timing /path/to/new-timing.tsv` to the standalone `mach-3` executable
-or REforge. The normal standalone executable rejects this option; normal
-REforge builds warn and ignore it. It can run alongside `--trace-input` using
+`--trace-timing /path/to/new-timing.tsv` to REforge. Normal REforge builds
+warn and ignore this option. It can run alongside `--trace-input` using
 a separate destination. Files are created exclusively, never truncated; write
 and flush errors stop the run.
 

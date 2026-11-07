@@ -102,10 +102,8 @@ Apply.
 Game fields with an override in the draft use the theme accent text, including
 explicit values matching global defaults. An amber dot marks a change compared with
 saved preferences, including removal of an old override.
-A saved Machine choice unavailable for the current original files is retained
-but inactive. Settings shows the available default without override colouring
-and explains the fallback. Other edits preserve that choice for compatible
-inputs; resetting Display removes it.
+Older Alley Cat `machine = "tandy"` selections migrate to explicit `pcjr`
+selections; they keep their override status even when matching the input default.
 Hover labels/dots for global or saved values. No override badges or individual
 reset buttons are displayed. Checking **Override global defaults**
 enables game editing without copying the global section. The checkbox explains
@@ -441,7 +439,7 @@ devices and focus defaults can be edited globally even from a silent game.
 
 Mach 3's normal timed playback supports PC speaker and Enhanced PCM; Game default
 selects its original speaker renderer. Development-only step/static previews remain
-silent. Alley Cat supports PC Speaker playback and restored PCjr/Tandy
+silent. Alley Cat supports PC Speaker playback and full-build PCjr
 three-voice title music, with Music and Effects categories; its uniform-step diagnostic
 runner remains silent. Engines declare supported Music, Speech and Sound effects groups;
 unsupported game groups remain visible but disabled. Global category defaults
@@ -491,16 +489,20 @@ Audio buffering uses the existing latency policy, and output remains mono.
 ## Alley Cat machine
 
 **Alley Cat overrides → Display → Machine** exposes the same choices as the
-launcher: CGA and PCjr for the original DOS input, plus Tandy for restored inputs.
-The original input defaults to CGA; restored inputs default to Tandy. Enable
-**Override global defaults**, select the machine and Apply. There is no global
-machine preference.
+launcher: CGA and PCjr. The original DOS conversion and PC booter default to CGA;
+restored DOS inputs default to PCjr, preserving their enhanced presentation.
+Enable **Override global defaults**, select the machine and Apply. There is no
+global machine preference.
 
 This is a startup choice: changing it in-game saves the next launch's selection
 without changing the running game's graphics, sound or timing. It uses the
 existing `[entries.<entry-id>.launcher].machine` value, so launcher and Settings
 edits stay synchronized. Display's **Restore defaults** removes the pin and
 returns to the input-specific default. Cancel discards pending edits.
+
+The old Tandy choice was equivalent to PCjr and is no longer shown separately.
+Saved `tandy` values migrate to explicit `pcjr` selections, and `--machine tandy`
+remains a compatibility alias for `--machine pcjr`.
 
 An explicit `--machine` argument is temporary and locks the selector for that
 run. A saved launcher selection remains editable. Next-launch edits require a
@@ -769,6 +771,7 @@ The current chains are:
 | `alley-cat-dos-7b92bb401f` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
 | `alley-cat-dos-17b9603eee` | `alley-cat-dos-nrs-tandy` | `alley-cat` | `alley-cat-dos-restored` |
 | `alley-cat-dos-bc3e9d804a` | `alley-cat-dos-nrs-patch` | `alley-cat` | `alley-cat-dos-restored` |
+| `alley-cat-pc-booter-56647cbe98` | `alley-cat-pc-booter` | `alley-cat` | `alley-cat-pc-booter` |
 | `mach-3-dos-3d1f0c95f9` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
 | `mach-3-dos-564352e19f` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
 | `mach-3-dos-549ea638df` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
@@ -781,12 +784,14 @@ Required file records use canonical relative paths with `/` separators, such as
 `DATA/ROOMS.DAT`. Their parent directories define the permitted search locations
 for that release, alongside the game root. All current releases use root files.
 
-All current editions have platform `Platform::Dos`. Edition IDs name catalog
-groupings; the precise commercial edition/version designations remain unverified.
+Editions use `Platform::Dos` or, for the supported Alley Cat floppy image,
+`Platform::PcBooter`. Edition IDs name catalog groupings; the precise commercial
+edition/version designations remain unverified.
 Edition, specs and compatibility IDs have separate namespaces. Each current
 detected release uses its game's `*-dos` compatibility ID. Restored Alley Cat
-editions have distinct edition IDs but retain `alley-cat-dos` compatibility;
-the four BTZ editions share the `btz-dos-text` specs profile. Sharing edition
+editions and the PC booter have distinct edition IDs but retain
+`alley-cat-dos` compatibility; the four BTZ editions share the `btz-dos-text`
+specs profile. Sharing edition
 or specs records does not establish save/configuration compatibility: each
 detected release retains its explicit compatibility group.
 
@@ -794,8 +799,8 @@ Detected-release IDs use `<game-id>-<platform>-<10 hex digits>`. The suffix is
 derived from a stable catalogued identity manifest, normally all required files.
 All current version-two identity manifests include every required file. An
 existing release can retain its original identity-file selection when verification
-expands, without changing its assigned identity. DOS filenames use
-ASCII case-insensitive normalization of the canonical catalog names; non-ASCII
+expands, without changing its assigned identity. DOS and PC booter catalog roles
+use ASCII case-insensitive normalization of the canonical names; non-ASCII
 characters remain exact. Physical aliases found during detection do not enter
 this fingerprint, so renaming files does not change the detected-release ID.
 File-list order and hexadecimal BLAKE3 letter casing do not affect the identity.
@@ -870,8 +875,8 @@ The local development `project.toml` inventories are not runtime catalog inputs.
 
 The launcher loads cached static engine scene previews in a background worker
 and generates missing or corrupt images from verified originals. It warms the
-available visual variants (CGA/PCjr and, for restored inputs, Tandy for Alley Cat, colour/monochrome for Mach
-3). Mach 3 uses its first splash screen. Alley Cat uses its intro, advanced
+available visual variants (CGA/PCjr for Alley Cat, colour/monochrome for Mach 3).
+Mach 3 uses its first splash screen. Alley Cat uses its intro, advanced
 with fixed seed `0xcafe` and the normal virtual startup loop until the cat sits
 on the fence with the SynSoft footer visible. BTZ uses the game's original
 title screen, with the loading label, continue prompt and input cursor removed

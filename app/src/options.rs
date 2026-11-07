@@ -199,9 +199,9 @@ const SPECS: &[Spec] = &[
     Spec {
         name: "--machine",
         scope: Scope::Game(Game::AlleyCat),
-        value: Value::Choice(&["cga", "pcjr", "tandy"]),
+        value: Value::Choice(&["cga", "pcjr"]),
         dev: false,
-        description: "Hardware path: cga, pcjr or restored-input tandy (default cga; restored inputs tandy)",
+        description: "Hardware path: cga or pcjr (default cga; restored DOS inputs pcjr; legacy tandy alias accepted)",
     },
     Spec {
         name: "--difficulty",
@@ -440,6 +440,9 @@ fn validate(spec: &Spec, value: OsString, game: Game) -> Result<OsString, String
         return Ok(value);
     }
     let text = value.to_str().ok_or("value must be UTF-8")?;
+    if spec.name == "--machine" && game == Game::AlleyCat && text == "tandy" {
+        return Ok("pcjr".into());
+    }
     if spec.name == "--renderer" && text == "terminal" && game.is_btz() {
         return Ok(value);
     }
@@ -624,23 +627,14 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
     }
 }
 
-#[cfg(test)]
-pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared {
-    prepare_with_engine(args, game, None)
-}
-
 pub fn prepare_for_detected(
     args: impl IntoIterator<Item = OsString>,
     detected: &crate::detection::Detected,
 ) -> Prepared {
-    prepare_with_engine(args, detected.game, Some(detected.engine()))
+    prepare(args, detected.game)
 }
 
-fn prepare_with_engine(
-    args: impl IntoIterator<Item = OsString>,
-    game: Game,
-    engine: Option<crate::detection::Engine>,
-) -> Prepared {
+pub(super) fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared {
     let mut args = args.into_iter().peekable();
     let mut entries = Vec::new();
     let mut warnings = Vec::new();
@@ -705,22 +699,10 @@ fn prepare_with_engine(
             };
             match validate(spec, value, game) {
                 Ok(value) => {
-                    if spec.name == "--machine"
-                        && value == "tandy"
-                        && matches!(
-                            engine,
-                            Some(crate::detection::Engine::AlleyCat(
-                                alleycat::assets::InputFormat::Cat
-                            ))
-                        )
-                    {
-                        warnings.push("--machine tandy requires restored Alley Cat inputs; ignored (previous value or default retained)".into());
-                    } else {
-                        entries.push(Entry {
-                            spec,
-                            value: Some(value),
-                        });
-                    }
+                    entries.push(Entry {
+                        spec,
+                        value: Some(value),
+                    });
                 }
                 Err(error) => warnings.push(format!(
                     "{}: {error}; ignored (previous value or default retained)",

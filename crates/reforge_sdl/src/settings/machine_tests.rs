@@ -19,13 +19,6 @@ const PCJR: Choice = Choice {
     badge: None,
     palette: None,
 };
-const TANDY: Choice = Choice {
-    value: "tandy",
-    label: "Tandy",
-    short_label: "Tandy",
-    badge: None,
-    palette: None,
-};
 const LEGACY: OptionDefinition = OptionDefinition {
     label: "Machine",
     choices: &[CGA, PCJR],
@@ -36,8 +29,7 @@ const LEGACY: OptionDefinition = OptionDefinition {
     },
 };
 const RESTORED: OptionDefinition = OptionDefinition {
-    choices: &[CGA, PCJR, TANDY],
-    default: "tandy",
+    default: "pcjr",
     ..LEGACY
 };
 
@@ -160,18 +152,18 @@ fn machine_choices_share_launcher_storage_and_apply_cancel_reset() {
         );
         menu.scope = 1;
         menu.game_editing[0] = true;
-        let selected = if machines.default == "tandy" {
-            "Tandy"
+        let (selected, away, away_value) = if machines.default == "pcjr" {
+            ("IBM PCjr", "IBM CGA", "cga")
         } else {
-            "IBM CGA"
+            ("IBM CGA", "IBM PCjr", "pcjr")
         };
         click(&mut menu, selected);
+        assert!(label(&draw(&mut menu, vec![]), "Tandy").is_none());
+        click(&mut menu, away);
         assert_eq!(
-            label(&draw(&mut menu, vec![]), "Tandy").is_some(),
-            machines.default == "tandy"
+            menu.draft.as_ref().unwrap().game[ALLEYCAT_MACHINE],
+            away_value
         );
-        click(&mut menu, "IBM PCjr");
-        assert_eq!(menu.draft.as_ref().unwrap().game[ALLEYCAT_MACHINE], "pcjr");
         assert!(!path.exists(), "draft must not save before Apply");
         menu.toggle(); // Cancel/close discards this draft.
         menu.toggle();
@@ -187,7 +179,7 @@ fn machine_choices_share_launcher_storage_and_apply_cancel_reset() {
                 .contains_key(ALLEYCAT_MACHINE)
         );
         click(&mut menu, selected);
-        click(&mut menu, "IBM PCjr");
+        click(&mut menu, away);
         click(&mut menu, "Apply");
         let request = creator
             .session
@@ -197,7 +189,7 @@ fn machine_choices_share_launcher_storage_and_apply_cancel_reset() {
         menu.applied();
         assert_eq!(
             reforge_settings::launcher::native_options(&path, "copy").unwrap()[ALLEYCAT_MACHINE],
-            "pcjr"
+            away_value
         );
         click(&mut menu, "Restore defaults");
         click(&mut menu, "Apply");
@@ -223,7 +215,7 @@ fn machine_round_trip_restores_saved_override_presence() {
         return;
     }
     for machines in [&LEGACY, &RESTORED] {
-        for pin in [None, Some(machines.default), Some("pcjr")] {
+        for pin in [None, Some("cga"), Some("pcjr")] {
             let path = std::env::temp_dir().join(format!(
                 "reforge-machine-round-trip-{}-{}.toml",
                 std::process::id(),
@@ -262,11 +254,7 @@ fn machine_round_trip_restores_saved_override_presence() {
             menu.scope = 1;
             menu.game_editing[0] = true;
             let initial = pin.unwrap_or(machines.default);
-            let away = if initial == "pcjr" {
-                machines.default
-            } else {
-                "pcjr"
-            };
+            let away = if initial == "pcjr" { "cga" } else { "pcjr" };
             let title = |value| {
                 machines
                     .choices
@@ -339,7 +327,7 @@ fn machine_selector_locks_cli_overrides_and_disables_unsavable_runs() {
         menu.prepare(display.ui_metrics(), display.settings());
         menu.scope = 1;
         menu.game_editing[0] = true;
-        click(&mut menu, if explicit { "IBM PCjr" } else { "Tandy" });
+        click(&mut menu, "IBM PCjr");
         let output = draw(&mut menu, vec![]);
         assert!(
             label(&output, "IBM CGA").is_none(),
@@ -359,141 +347,128 @@ fn machine_selector_locks_cli_overrides_and_disables_unsavable_runs() {
 }
 
 #[test]
-fn unavailable_machine_pin_is_dormant_and_survives_unrelated_apply() {
+fn legacy_machine_alias_migrates_and_keeps_explicit_override() {
     if !dummy_video(
-        "settings::machine_tests::unavailable_machine_pin_is_dormant_and_survives_unrelated_apply",
+        "settings::machine_tests::legacy_machine_alias_migrates_and_keeps_explicit_override",
     ) {
         return;
     }
-    for other_override in [false, true] {
-        let path = std::env::temp_dir().join(format!(
-            "reforge-machine-dormant-{}-{other_override}-{}.toml",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        reforge_settings::launcher::save_native_option(
-            &path,
-            "copy",
-            ALLEYCAT_MACHINE,
-            Some("tandy"),
-        )
-        .unwrap();
-        if other_override {
-            let mut session = reforge_settings::Session::load(Launch {
+    for machines in [&LEGACY, &RESTORED] {
+        for pin in ["tandy", "pcjr"] {
+            let path = std::env::temp_dir().join(format!(
+                "reforge-machine-alias-{}-{pin}-{}.toml",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            reforge_settings::launcher::save_native_option(
+                &path,
+                "copy",
+                ALLEYCAT_MACHINE,
+                Some(pin),
+            )
+            .unwrap();
+            let _guard = Launch {
                 game_id: "alley-cat".into(),
                 entry_id: Some("copy".into()),
                 path: Some(path.clone()),
-                cli: Default::default(),
-            });
-            let mut draft = session.saved.clone();
-            draft.edit(true, "window_mode", "fullscreen".into());
-            session.commit(draft).unwrap();
-        }
-        let before = std::fs::read(&path).unwrap();
-        let _guard = Launch {
-            game_id: "alley-cat".into(),
-            entry_id: Some("copy".into()),
-            path: Some(path.clone()),
-            cli: Patch::from([
-                ("renderer".into(), "software".into()),
-                ("vsync".into(), "false".into()),
-            ]),
-        }
-        .install();
-        let display = crate::Window::new("dormant machine", 320, 240, Some(3)).unwrap();
-        let creator = display.texture_creator();
-        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
-            .with_alleycat_options()
-            .with_alleycat_machines(&LEGACY);
-        menu.toggle();
-        menu.prepare(display.ui_metrics(), display.settings());
-        menu.scope = 1;
-        assert_eq!(menu.game_editing[0], other_override);
-        // Enable editing to check the inherited row's normal text colour,
-        // independently of the section's disabled/dimmed appearance.
-        menu.game_editing[0] = true;
-        draw(&mut menu, vec![]);
-        let output = draw(&mut menu, vec![]);
-        assert_eq!(
-            menu.draft.as_ref().unwrap(),
-            &creator.session.borrow().saved
-        );
-        for shown in ["Machine", "IBM CGA"] {
-            let text = output
-                .shapes
-                .iter()
-                .find_map(|shape| match &shape.shape {
-                    egui::Shape::Text(text) if text.galley.text() == shown => Some(text),
-                    _ => None,
-                })
-                .unwrap();
-            assert_ne!(
-                text.override_text_color
-                    .unwrap_or(text.galley.job.sections[0].format.color),
-                crate::ui::current_palette(&menu.context).override_text,
-                "unavailable pin must not accent {shown} as an active override"
+                cli: Patch::from([
+                    ("renderer".into(), "software".into()),
+                    ("vsync".into(), "false".into()),
+                ]),
+            }
+            .install();
+            let display = crate::Window::new("machine alias", 320, 240, Some(3)).unwrap();
+            let creator = display.texture_creator();
+            let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+                .with_alleycat_options()
+                .with_alleycat_machines(machines);
+            menu.toggle();
+            menu.prepare(display.ui_metrics(), display.settings());
+            menu.scope = 1;
+            assert!(menu.game_editing[0]);
+            draw(&mut menu, vec![]);
+            let output = draw(&mut menu, vec![]);
+            assert_eq!(
+                menu.draft.as_ref().unwrap(),
+                &creator.session.borrow().saved
             );
+            assert_eq!(menu.draft.as_ref().unwrap().game[ALLEYCAT_MACHINE], "pcjr");
+            for shown in ["Machine", "IBM PCjr"] {
+                let text = output
+                    .shapes
+                    .iter()
+                    .rev() // The row follows the section heading with the same label.
+                    .find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text) if text.galley.text() == shown => Some(text),
+                        _ => None,
+                    })
+                    .unwrap();
+                let color = text.override_text_color.unwrap_or_else(|| {
+                    let color = text.galley.job.sections[0].format.color;
+                    if color == egui::Color32::PLACEHOLDER {
+                        text.fallback_color
+                    } else {
+                        color
+                    }
+                });
+                assert_eq!(
+                    color,
+                    crate::ui::current_palette(&menu.context).override_text,
+                    "explicit {pin} pin must accent {shown}"
+                );
+            }
+            assert!(label(&output, "No pending changes").is_some());
+            assert_eq!(
+                reforge_settings::launcher::native_options(&path, "copy").unwrap()
+                    [ALLEYCAT_MACHINE],
+                "pcjr"
+            );
+            let saved = menu.draft.clone();
+            click(&mut menu, "IBM PCjr");
+            click(&mut menu, "IBM CGA");
+            click(&mut menu, "IBM CGA");
+            click(&mut menu, "IBM PCjr");
+            assert_eq!(menu.draft, saved, "round trip preserves the explicit pin");
+            assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());
+            menu.draft
+                .as_mut()
+                .unwrap()
+                .edit(true, "master_volume", "60".into());
+            menu.pending = menu.draft.clone();
+            menu.applied();
+            assert!(menu.error.is_none());
+            assert_eq!(
+                reforge_settings::launcher::native_options(&path, "copy").unwrap()
+                    [ALLEYCAT_MACHINE],
+                "pcjr"
+            );
+            click(&mut menu, "Restore defaults");
+            assert!(
+                !menu
+                    .draft
+                    .as_ref()
+                    .unwrap()
+                    .game
+                    .contains_key(ALLEYCAT_MACHINE)
+            );
+            assert_eq!(
+                reforge_settings::launcher::native_options(&path, "copy").unwrap()
+                    [ALLEYCAT_MACHINE],
+                "pcjr",
+                "reset is pending until Apply"
+            );
+            click(&mut menu, "Apply");
+            menu.applied();
+            assert!(menu.error.is_none());
+            assert!(
+                !reforge_settings::launcher::native_options(&path, "copy")
+                    .unwrap()
+                    .contains_key(ALLEYCAT_MACHINE)
+            );
+            std::fs::remove_file(path).unwrap();
         }
-        assert!(label(&output, "IBM CGA").is_some());
-        assert!(label(&output, "Saved machine 'tandy' is unavailable for these files; using IBM CGA. The saved choice is retained until replaced or reset.").is_some());
-        assert!(label(&output, "No pending changes").is_some());
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        let saved = menu.draft.clone();
-        click(&mut menu, "IBM CGA");
-        click(&mut menu, "IBM PCjr");
-        click(&mut menu, "IBM PCjr");
-        click(&mut menu, "IBM CGA");
-        assert_eq!(
-            menu.draft, saved,
-            "returning to the fallback preserves the dormant saved pin"
-        );
-        assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());
-        menu.draft
-            .as_mut()
-            .unwrap()
-            .edit(true, "master_volume", "60".into());
-        menu.pending = menu.draft.clone();
-        menu.applied();
-        assert!(menu.error.is_none());
-        assert_eq!(
-            reforge_settings::launcher::native_options(&path, "copy").unwrap()[ALLEYCAT_MACHINE],
-            "tandy"
-        );
-        drop(menu);
-        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
-            .with_alleycat_options()
-            .with_alleycat_machines(&RESTORED);
-        menu.toggle();
-        menu.prepare(display.ui_metrics(), display.settings());
-        menu.scope = 1;
-        assert!(menu.game_editing[0]);
-        assert!(label(&draw(&mut menu, vec![]), "Tandy").is_some());
-        assert_eq!(menu.draft.as_ref().unwrap().game[ALLEYCAT_MACHINE], "tandy");
-        click(&mut menu, "Restore defaults");
-        assert!(
-            !menu
-                .draft
-                .as_ref()
-                .unwrap()
-                .game
-                .contains_key(ALLEYCAT_MACHINE)
-        );
-        assert_eq!(
-            reforge_settings::launcher::native_options(&path, "copy").unwrap()[ALLEYCAT_MACHINE],
-            "tandy",
-            "reset is pending until Apply"
-        );
-        click(&mut menu, "Apply");
-        menu.applied();
-        assert!(menu.error.is_none());
-        assert!(
-            !reforge_settings::launcher::native_options(&path, "copy")
-                .unwrap()
-                .contains_key(ALLEYCAT_MACHINE)
-        );
-        std::fs::remove_file(path).unwrap();
     }
 }

@@ -12,6 +12,7 @@ pub(super) fn release_id(release: &Release) -> Result<String, String> {
     super::search::catalog_directories(release.files)?;
     let platform = match release.edition.platform {
         Platform::Dos => "dos",
+        Platform::PcBooter => "pc-booter",
     };
     let identity_files = if release.identity_files.is_empty() {
         release.files.to_vec()
@@ -45,9 +46,9 @@ fn manifest_fingerprint(platform: Platform, files: &[FileRecord]) -> Result<Stri
         .iter()
         .map(|file| {
             let name = match platform {
-                // Normalize canonical DOS catalog names, not physical aliases
-                // selected by detection. Future platforms choose their own rules.
-                Platform::Dos => file.name.to_ascii_lowercase(),
+                // Normalize canonical catalog roles, not physical aliases
+                // selected by detection. Both use case-insensitive role names.
+                Platform::Dos | Platform::PcBooter => file.name.to_ascii_lowercase(),
             };
             (name, file)
         })
@@ -130,6 +131,53 @@ mod tests {
         let first = fingerprint(&[file("CAT.EXE", 3, ABC), file("Data.Bin", 4, XYZ)]);
         let second = fingerprint(&[file("DATA.bin", 4, XYZ), file("cat.exe", 3, ABC)]);
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn pc_booter_roles_are_case_insensitive_and_platform_separates_release_ids() {
+        static PC_BOOTER: super::super::Edition = super::super::Edition {
+            platform: Platform::PcBooter,
+            ..*super::super::RELEASES[0].edition
+        };
+        static FILES: &[FileRecord] = &[FileRecord {
+            name: "disk1.img",
+            size: 3,
+            blake3: ABC,
+        }];
+        let first = manifest_fingerprint(
+            Platform::PcBooter,
+            &[file("disk1.img", 3, ABC), file("Other.IMG", 4, XYZ)],
+        );
+        let reordered = manifest_fingerprint(
+            Platform::PcBooter,
+            &[file("OTHER.img", 4, XYZ), file("DISK1.IMG", 3, ABC)],
+        );
+        assert_eq!(first, reordered);
+        assert!(first.is_ok());
+        assert!(
+            manifest_fingerprint(
+                Platform::PcBooter,
+                &[file("disk1.img", 3, ABC), file("DISK1.IMG", 3, ABC)]
+            )
+            .is_err()
+        );
+        let dos = Release {
+            files: FILES,
+            identity_files: &[],
+            ..super::super::RELEASES[0]
+        };
+        let booter = Release {
+            edition: &PC_BOOTER,
+            ..dos
+        };
+        let dos_id = release_id(&dos).unwrap();
+        let booter_id = release_id(&booter).unwrap();
+        assert!(dos_id.starts_with("alley-cat-dos-"));
+        assert!(booter_id.starts_with("alley-cat-pc-booter-"));
+        assert_ne!(dos_id, booter_id);
+        // Platform separation is in the ID prefix; preserve the published
+        // manifest encoding and its suffixes for all existing DOS releases.
+        assert_eq!(dos_id.rsplit('-').next(), booter_id.rsplit('-').next());
     }
 
     #[test]

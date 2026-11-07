@@ -38,21 +38,10 @@ pub const OPTIONS: &[OptionDefinition] = &[
     WINDOW,
 ];
 
-/// Restored inputs retain the original PCjr path and add the Tandy adapter.
+/// Restored DOS inputs keep their enhanced presentation as the default.
 pub const RESTORED_OPTIONS: &[OptionDefinition] = &[
     OptionDefinition {
-        choices: &[
-            OPTIONS[0].choices[0],
-            OPTIONS[0].choices[1],
-            Choice {
-                value: "tandy",
-                label: "Tandy",
-                short_label: "Tandy",
-                badge: Some("Tandy"),
-                palette: Some(&PCJR),
-            },
-        ],
-        default: "tandy",
+        default: "pcjr",
         ..OPTIONS[0]
     },
     DISPLAY,
@@ -61,16 +50,13 @@ pub const RESTORED_OPTIONS: &[OptionDefinition] = &[
 
 pub fn options(format: InputFormat) -> &'static [OptionDefinition] {
     match format {
-        InputFormat::Cat => OPTIONS,
+        InputFormat::Cat | InputFormat::PcBooter => OPTIONS,
         InputFormat::Tandy | InputFormat::CatWithPatch => RESTORED_OPTIONS,
     }
 }
 
-pub fn preview_variants(format: InputFormat) -> &'static [&'static str] {
-    match format {
-        InputFormat::Cat => PREVIEW_VARIANTS,
-        InputFormat::Tandy | InputFormat::CatWithPatch => &["cga", "pcjr", "tandy"],
-    }
+pub fn preview_variants(_format: InputFormat) -> &'static [&'static str] {
+    PREVIEW_VARIANTS
 }
 
 /// Native dimensions for Settings' aspect labels, independent of Symbolic art.
@@ -96,7 +82,6 @@ pub fn preview(
     let machine = match variant {
         "cga" => Machine::Cga,
         "pcjr" => Machine::Pcjr,
-        "tandy" if format != InputFormat::Cat => Machine::Tandy,
         _ => return Err("Unknown preview machine".into()),
     };
     let assets = crate::assets::Assets::from_files(files, format)?;
@@ -136,7 +121,7 @@ mod tests {
 
     #[test]
     fn machine_modes_share_native_and_display_geometry() {
-        for mode in ["cga", "pcjr", "tandy"] {
+        for mode in ["cga", "pcjr"] {
             let native = std::collections::BTreeMap::from([("machine".into(), mode.into())]);
             let geometry = geometry(&native);
             assert_eq!(geometry.ratio(reforge_sdl::AspectRatio::Original), (4, 3));
@@ -145,15 +130,18 @@ mod tests {
     }
 
     #[test]
-    fn restored_inputs_offer_three_modes_and_default_to_tandy() {
+    fn inputs_offer_two_modes_with_profile_specific_defaults() {
         for format in [InputFormat::Tandy, InputFormat::CatWithPatch] {
-            assert_eq!(options(format)[0].default, "tandy");
+            assert_eq!(options(format)[0].default, "pcjr");
             let choices: Vec<_> = options(format)[0].choices.iter().map(|c| c.value).collect();
             assert_eq!(choices, preview_variants(format));
-            assert_eq!(choices, ["cga", "pcjr", "tandy"]);
+            assert_eq!(choices, ["cga", "pcjr"]);
         }
-        assert_eq!(options(InputFormat::Cat)[0].default, "cga");
-        assert_eq!(preview_variants(InputFormat::Cat), ["cga", "pcjr"]);
+        for format in [InputFormat::Cat, InputFormat::PcBooter] {
+            assert_eq!(options(format)[0].default, "cga");
+            assert_eq!(preview_variants(format), ["cga", "pcjr"]);
+            assert_eq!(options(format)[0].choices.len(), 2);
+        }
     }
 
     #[test]

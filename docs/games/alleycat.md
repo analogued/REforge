@@ -3,8 +3,8 @@
 Climb the alley's bins and clotheslines, enter windows to tackle the room
 challenges, and reach the female cat in the Hearts stage. REforge includes all
 five ordinary rooms, the underwater section and the Hearts bonus scene, with
-PC Speaker music and effects, plus restored three-voice intro music with
-supported patched inputs.
+PC Speaker music and effects, plus three-voice PCjr intro music with the
+supported booter and restored DOS inputs.
 
 Ordinary movement has more consistent pacing across rooms, and selected
 animations play more smoothly.
@@ -17,11 +17,12 @@ animations play more smoothly.
 ## What you need
 
 Supply the supported DOS **CAT.EXE**, the NewRisingSun-patched
-**TANDYCAT.EXE**, or **CAT.EXE** together with its **791CE265.DIF** patch.
-For the last option, keep both files in the selected game directory. REforge
-applies the patch in memory; your files stay unchanged. No patch or game data
-is bundled. Other EXE, COM, booter and platform versions are not interchangeable;
-see the [supported input details](../../engines/alleycat/README.md#original-game-required).
+**TANDYCAT.EXE**, **CAT.EXE** together with its **791CE265.DIF** patch, or the
+supported PC Booter **disk1.img**.
+For the EXE-plus-patch option, keep both files in the selected game directory.
+REforge applies the patch or decodes the floppy image in memory; your files stay
+unchanged. No patch or game data is bundled. Other executable and disk-image
+variants are not interchangeable; see the [supported input details](../../engines/alleycat/README.md#original-game-required).
 
 ## Start playing
 
@@ -31,7 +32,7 @@ After [building REforge](../../README.md#getting-started), run from the reposito
 ./target/release/reforge --original /path/to/alley-cat
 ```
 
-You can also point `--original` directly to `CAT.EXE` or `TANDYCAT.EXE`.
+You can also point `--original` directly to `CAT.EXE`, `TANDYCAT.EXE` or `disk1.img`.
 If a directory contains both executables, select the one you want explicitly.
 Press a key to leave the animated title, choose a skill, then press another key
 at the instructions to start. K/H/T/A select Kitten, House Cat, Tomcat or Alley Cat.
@@ -73,16 +74,18 @@ jump physics. To use the original polling behavior, open
 **F10 → Alley Cat overrides → Controls → Input response**. Check
 **Override global defaults** to edit, then Apply.
 
-**Machine:** the original input offers CGA (the default) and PCjr.
-The restored inputs also offer Tandy and default to it. Choose in the launcher
+**Machine:** the original DOS conversion and PC booter offer CGA (the default)
+and PCjr. The restored DOS inputs default to PCjr. Choose in the launcher
 or under **Settings → Alley Cat overrides → Display → Machine**. Enable
 **Override global defaults**, choose the machine and Apply. Settings and the
 launcher share this choice; during play it applies on the next launch. You can
-also use `--machine cga`, `pcjr` or `tandy`. The modes retain their original pacing
-differences; underwater play can feel more variable in PCjr and Tandy.
-With restored inputs, PCjr and Tandy play the three-voice intro melody;
-CGA keeps the PC Speaker version. Gameplay effects remain PC Speaker. Restored
-inputs also use white menu and pause text.
+also use `--machine cga` or `--machine pcjr`. The old `tandy` spelling remains an
+alias for PCjr, and saved Tandy choices migrate automatically. The modes retain
+their original pacing differences; underwater play can feel more variable in PCjr.
+PCjr plays the three-voice intro melody with booter or restored DOS inputs.
+CGA keeps the PC Speaker version, and gameplay effects remain PC Speaker. Booter and restored DOS inputs use white
+menu and pause text. The booter's TV/external-speaker question is replaced by the
+Machine choice; selecting PCjr enables its enhanced intro music automatically.
 
 **Starting skill:** use the menu, or add `--difficulty 0`, `1`, `2` or `3` for
 Kitten through Alley Cat. The command line also lets you start directly at the
@@ -100,8 +103,8 @@ independent of the menu's host mute and volume controls.
 
 ## Current limits
 
-Only the supported DOS inputs are accepted. The original movement and landing
-quirks are retained, so a difficult jump is not automatically an input fault.
+Only the listed DOS inputs and verified PC Booter image are accepted. The
+original movement and landing quirks are retained, so a difficult jump is not automatically an input fault.
 Hardware timing is reconstructed; exact behavior on every historical machine
 is not guaranteed.
 

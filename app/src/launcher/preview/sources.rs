@@ -205,11 +205,25 @@ fn generate_with(
     for variant in ordered {
         let id = cache_id(release, variant);
         let path = cache.map(|root| root.join(format!("{id}.png")));
-        let legacy = detection::migration::PREVIEWS
+        let mut legacy = detection::migration::PREVIEWS
             .iter()
             .filter(|(current, _)| *current == id)
             .filter_map(|(_, old)| cache.map(|root| root.join(format!("{old}.png"))))
             .collect::<Vec<_>>();
+        if variant == "pcjr"
+            && matches!(
+                release.engine(),
+                detection::Engine::AlleyCat(
+                    alleycat::assets::InputFormat::Tandy
+                        | alleycat::assets::InputFormat::CatWithPatch
+                )
+            )
+            && let Some(root) = cache
+        {
+            // Tandy was the same native presentation as PCjr. Its cached
+            // image remains usable without originals after merging the choice.
+            legacy.push(root.join(format!("{}.png", cache_id(release, "tandy"))));
+        }
         let frame = match cached_frame(path.as_deref(), &legacy, || {
             let detected = originals.get_or_insert_with(|| {
                 if !request.identity.allow_generation {

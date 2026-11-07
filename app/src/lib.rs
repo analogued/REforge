@@ -309,7 +309,7 @@ mod tests {
         })
     }
     #[test]
-    fn restored_machine_choice_is_release_specific_and_warns_on_legacy_inputs() {
+    fn legacy_tandy_machine_alias_resolves_to_pcjr_for_all_alleycat_inputs() {
         let input = || {
             extract(args(&[
                 "--original",
@@ -322,15 +322,18 @@ mod tests {
         };
         let legacy = plan(input(), synthetic_detect).unwrap();
         assert_eq!(legacy.args, args(&["--machine", "pcjr"]));
-        assert_eq!(legacy.warnings.len(), 1);
-        assert!(legacy.warnings[0].contains("requires restored Alley Cat inputs"));
-        for release in detection::RELEASES.iter().filter(|release| matches!(release.engine(), detection::Engine::AlleyCat(format) if format != alleycat::assets::InputFormat::Cat)) {
+        assert!(legacy.warnings.is_empty());
+        for release in detection::RELEASES
+            .iter()
+            .filter(|release| matches!(release.engine(), detection::Engine::AlleyCat(_)))
+        {
             let restored = plan(input(), |path| {
                 let mut detected = synthetic_detect(path)?;
                 detected.release = release;
                 Ok(detected)
-            }).unwrap();
-            assert_eq!(restored.args, args(&["--machine", "tandy"]));
+            })
+            .unwrap();
+            assert_eq!(restored.args, args(&["--machine", "pcjr"]));
             assert!(restored.warnings.is_empty());
         }
     }

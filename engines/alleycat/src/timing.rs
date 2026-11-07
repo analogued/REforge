@@ -308,7 +308,7 @@ impl PlayerGate {
         let ax = if bios.tick_low != self.last_tick {
             let reload = match machine {
                 Machine::Cga => 32,
-                Machine::Pcjr | Machine::Tandy => 16,
+                Machine::Pcjr => 16,
             };
             self.countdown = reload;
             reload

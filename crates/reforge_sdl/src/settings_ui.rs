@@ -383,15 +383,7 @@ pub(super) fn draw(
                         if selection == machines.default
                             && saved_machine != Some(&selection)
                         {
-                            if let Some(dormant) = saved_machine.filter(|saved| {
-                                !machines.choices.iter().any(|choice| choice.value == saved.as_str())
-                            }) {
-                                // Undoing an edit to the fallback also restores
-                                // an unavailable saved choice, unless reset.
-                                draft.game.insert(ALLEYCAT_MACHINE.into(), dormant.clone());
-                            } else {
-                                draft.game.remove(ALLEYCAT_MACHINE);
-                            }
+                            draft.game.remove(ALLEYCAT_MACHINE);
                         } else {
                             draft.edit_game(ALLEYCAT_MACHINE, selection, original_pin);
                         }
@@ -623,39 +615,13 @@ fn alleycat_machine_controls(
 ) {
     section(ui, "Machine");
     // Absence inherits the input profile's default, not a global machine.
-    let mut selected = value
-        .alleycat
-        .machine
-        .filter(|machine| {
-            machines
-                .choices
-                .iter()
-                .any(|choice| choice.value == machine.as_str())
-        })
-        .unwrap_or_else(|| {
-            machines
-                .default
-                .parse::<AlleyCatMachine>()
-                .expect("engine machine default")
-        });
-    let dormant = rows
-        .overrides
-        .current(ALLEYCAT_MACHINE)
-        .filter(|saved| !machines.choices.iter().any(|choice| choice.value == *saved));
-    let mut state = rows.state(ALLEYCAT_MACHINE, value);
-    let unavailable = dormant.map(|saved| {
-        format!("Saved machine '{saved}' is unavailable for these files; using {}. The saved choice is retained until replaced or reset.",
-            machines.choices.iter().find(|choice| choice.value == selected.as_str())
-                .expect("selected engine machine").label)
+    let mut selected = value.alleycat.machine.unwrap_or_else(|| {
+        machines
+            .default
+            .parse::<AlleyCatMachine>()
+            .expect("engine machine default")
     });
-    if let Some(message) = &unavailable {
-        state.overridden = false;
-        state.tooltip = if let Some(reason) = &state.lock_tooltip {
-            format!("{reason}\n\n{message}")
-        } else {
-            message.clone()
-        };
-    }
+    let state = rows.state(ALLEYCAT_MACHINE, value);
     ui.add_enabled_ui(game_storage, |ui| {
         row(ui, "Machine", ALLEYCAT_MACHINE, state, |ui| {
             let previous = selected;
@@ -677,9 +643,6 @@ fn alleycat_machine_controls(
             }
         });
     });
-    if let Some(message) = unavailable {
-        ui.weak(message);
-    }
     ui.weak(if game_storage {
         "Applies on next launch."
     } else {

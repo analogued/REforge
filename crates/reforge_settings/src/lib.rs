@@ -449,19 +449,17 @@ impl std::str::FromStr for ControlMode {
         }
     }
 }
-/// Stored Alley Cat startup choices; availability/default depend on the inputs.
+/// Stored Alley Cat startup choices.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AlleyCatMachine {
     Cga,
     Pcjr,
-    Tandy,
 }
 impl AlleyCatMachine {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Cga => "cga",
             Self::Pcjr => "pcjr",
-            Self::Tandy => "tandy",
         }
     }
 }
@@ -470,9 +468,8 @@ impl std::str::FromStr for AlleyCatMachine {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "cga" => Ok(Self::Cga),
-            "pcjr" => Ok(Self::Pcjr),
-            "tandy" => Ok(Self::Tandy),
-            _ => Err("Alley Cat machine must be cga, pcjr or tandy".into()),
+            "pcjr" | "tandy" => Ok(Self::Pcjr),
+            _ => Err("Alley Cat machine must be cga or pcjr".into()),
         }
     }
 }
@@ -971,14 +968,13 @@ impl Session {
         if let Some(path) = &s.path {
             match read(path) {
                 Ok(mut doc) => {
-                    if s.game_id == "mach-3"
-                        && let Some(entry) = s.entry_id.as_deref()
-                        && migrate_scene_motion(&mut doc, entry)
+                    if let Some(entry) = s.entry_id.as_deref()
+                        && migrate_legacy_settings(&mut doc, &s.game_id, entry)
                     {
                         // Read the latest document under the ordinary save lock,
                         // preserving concurrent edits and all unrelated settings.
                         match edit_document(path, "settings", |latest| {
-                            migrate_scene_motion(latest, entry);
+                            migrate_legacy_settings(latest, &s.game_id, entry);
                             Ok(latest.clone())
                         }) {
                             Ok(latest) => doc = latest,
@@ -1056,21 +1052,26 @@ impl Session {
         Ok(())
     }
 }
-/// Canonicalize the pre-release scene name without changing motion behavior.
-fn migrate_scene_motion(doc: &mut DocumentMut, entry: &str) -> bool {
+/// Canonicalize legacy preferences without changing their behavior or presence.
+fn migrate_legacy_settings(doc: &mut DocumentMut, game: &str, entry: &str) -> bool {
+    let (section, key, old, canonical) = match game {
+        "mach-3" => ("display", MOTION, "scene", "reforged"),
+        "alley-cat" => ("launcher", ALLEYCAT_MACHINE, "tandy", "pcjr"),
+        _ => return false,
+    };
     let Some(value) = doc
         .get_mut("entries")
         .and_then(|entries| entries.get_mut(entry))
-        .and_then(|entry| entry.get_mut("display"))
-        .and_then(|display| display.get_mut(MOTION))
+        .and_then(|entry| entry.get_mut(section))
+        .and_then(|section| section.get_mut(key))
         .and_then(Item::as_value_mut)
     else {
         return false;
     };
-    if value.as_str() != Some("scene") {
+    if value.as_str() != Some(old) {
         return false;
     }
-    let mut replacement = toml_edit::Value::from("reforged");
+    let mut replacement = toml_edit::Value::from(canonical);
     *replacement.decor_mut() = value.decor().clone();
     *value = replacement;
     true
@@ -2074,6 +2075,115 @@ control_mode = "original"
     }
 
     #[test]
+    fn alleycat_machine_alias_migrates_only_the_active_entry() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let original = concat!(
+            "schema_version = 2\n",
+            "[global.launcher]\nmachine = 'tandy'\n",
+            "[entries.custom.launcher]\nmachine = 'tandy' # keep this comment\nunknown = 7\n",
+            "[entries.other.launcher]\nmachine = 'tandy'\n",
+            "[entries.mach-3.launcher]\nmachine = 'tandy'\n",
+        );
+        fs::write(&path, original).unwrap();
+        let launch = Launch {
+            game_id: "alley-cat".into(),
+            entry_id: Some("custom".into()),
+            path: Some(path.clone()),
+            cli: Patch::from([(ALLEYCAT_MACHINE.into(), "cga".into())]),
+        };
+        let loaded = Session::load(launch.clone());
+        assert!(loaded.warning.is_none());
+        assert_eq!(loaded.saved.game[ALLEYCAT_MACHINE], "pcjr");
+        assert!(loaded.saved.has_game_overrides(0));
+        assert_eq!(
+            loaded.saved.game_values().alleycat.machine,
+            Some(AlleyCatMachine::Pcjr)
+        );
+        assert_eq!(
+            loaded.effective(&loaded.saved).alleycat.machine,
+            Some(AlleyCatMachine::Cga)
+        );
+        let migrated = fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            migrated,
+            original.replace(
+                "machine = 'tandy' # keep this comment",
+                "machine = \"pcjr\" # keep this comment"
+            )
+        );
+        let reloaded = Session::load(launch);
+        assert_eq!(reloaded.saved, loaded.saved);
+        assert_eq!(fs::read_to_string(path).unwrap(), migrated);
+        assert_eq!(
+            "tandy".parse::<AlleyCatMachine>().unwrap(),
+            AlleyCatMachine::Pcjr
+        );
+        assert_eq!(AlleyCatMachine::Pcjr.as_str(), "pcjr");
+    }
+
+    #[test]
+    fn other_games_and_unregistered_launches_do_not_migrate_machine_aliases() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let original = "[entries.custom.launcher]\nmachine = 'tandy'\n";
+        fs::write(&path, original).unwrap();
+        for (game, entry) in [
+            ("mach-3", Some("custom")),
+            ("mindwheel", Some("custom")),
+            ("alley-cat", None),
+        ] {
+            let loaded = Session::load(Launch {
+                game_id: game.into(),
+                entry_id: entry.map(str::to_owned),
+                path: Some(path.clone()),
+                cli: Patch::new(),
+            });
+            assert!(loaded.warning.is_none());
+            assert!(!loaded.saved.game.contains_key(ALLEYCAT_MACHINE));
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        }
+    }
+
+    #[test]
+    fn machine_alias_remains_explicit_when_disk_migration_fails() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let original = "[entries.alley-cat.launcher]\nmachine = 'tandy' # retained\n";
+        fs::write(&path, original).unwrap();
+        let lock_path = path.with_extension("lock");
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&lock_path)
+            .unwrap();
+        fs2::FileExt::try_lock_exclusive(&lock).unwrap();
+        let loaded = session(path.clone(), "alley-cat");
+        assert!(loaded.warning.as_ref().unwrap().contains("busy"));
+        assert_eq!(loaded.saved.game[ALLEYCAT_MACHINE], "pcjr");
+        assert!(loaded.saved.has_game_overrides(0));
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        drop(lock);
+        // An inaccessible lock destination exercises other persistence errors too.
+        fs::remove_file(&lock_path).unwrap();
+        fs::create_dir(&lock_path).unwrap();
+        let loaded = session(path.clone(), "alley-cat");
+        assert!(loaded.warning.is_some());
+        assert_eq!(loaded.saved.game[ALLEYCAT_MACHINE], "pcjr");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        fs::remove_dir(lock_path).unwrap();
+        let loaded = session(path.clone(), "alley-cat");
+        assert!(loaded.warning.is_none());
+        assert_eq!(loaded.saved.game[ALLEYCAT_MACHINE], "pcjr");
+        assert_eq!(
+            fs::read_to_string(path).unwrap(),
+            original.replace("'tandy'", "\"pcjr\"")
+        );
+    }
+
+    #[test]
     fn alleycat_machine_shares_launcher_pins_and_resets_to_input_default() {
         let dir = TestDir::new();
         let path = dir.file();
@@ -2088,11 +2198,11 @@ control_mode = "original"
         assert!(current.saved.has_game_overrides(0));
         assert_eq!(section_index(ALLEYCAT_MACHINE), 0);
         let mut draft = current.saved.clone();
-        draft.edit_game(ALLEYCAT_MACHINE, "tandy".into(), Some(&current.saved));
+        draft.edit_game(ALLEYCAT_MACHINE, "cga".into(), Some(&current.saved));
         current.commit(draft).unwrap();
         assert_eq!(
             launcher::native_options(&path, "alley-cat").unwrap()["machine"],
-            "tandy"
+            "cga"
         );
         let mut current = session(path.clone(), "alley-cat");
         let mut draft = current.saved.clone();
@@ -2153,7 +2263,10 @@ control_mode = "original"
         let mut value = RuntimeSettings::default();
         for mode in ["cga", "pcjr", "tandy", "default"] {
             value.set(ALLEYCAT_MACHINE, mode).unwrap();
-            assert_eq!(value.get(ALLEYCAT_MACHINE), mode);
+            assert_eq!(
+                value.get(ALLEYCAT_MACHINE),
+                if mode == "tandy" { "pcjr" } else { mode }
+            );
         }
         for invalid in ["", "other", "CGA"] {
             assert!(value.set(ALLEYCAT_MACHINE, invalid).is_err());

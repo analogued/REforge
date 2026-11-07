@@ -85,7 +85,7 @@ impl Sound {
             self.mute_psg();
         }
     }
-    /// Select external restored music only for PCjr/Tandy playback. Legacy/CGA
+    /// Select external full-build music only for PCjr playback. Legacy/CGA
     /// callers leave this unset and retain the original speaker program.
     pub fn set_psg_music(&mut self, music: Option<Arc<psg::Music>>) {
         self.psg_music = music;

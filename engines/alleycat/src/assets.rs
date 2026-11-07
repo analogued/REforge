@@ -1,11 +1,12 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! External assets from the supported executable, never bundled with the program.
+//! External game assets from application-selected resources, never bundled.
 
 use crate::framebuffer::{Dimensions, Framebuffer};
 use std::path::Path;
 
+mod booter;
 mod patch;
 mod restored;
 
@@ -17,6 +18,17 @@ pub enum InputFormat {
     Cat,
     Tandy,
     CatWithPatch,
+    PcBooter,
+}
+
+impl InputFormat {
+    /// Match each input's previous default; the old Tandy choice is now PCjr.
+    pub const fn default_machine(self) -> crate::alley::Machine {
+        match self {
+            Self::Cat | Self::PcBooter => crate::alley::Machine::Cga,
+            Self::Tandy | Self::CatWithPatch => crate::alley::Machine::Pcjr,
+        }
+    }
 }
 
 pub struct Assets {
@@ -33,7 +45,7 @@ impl Assets {
         let read = |role| {
             files
                 .read(role)
-                .map_err(|error| format!("Cannot read executable resource {role}: {error}"))
+                .map_err(|error| format!("Cannot read asset resource {role}: {error}"))
         };
         let mut assets = match format {
             InputFormat::Cat => Self::from_executable(&read("CAT.EXE")?),
@@ -43,6 +55,7 @@ impl Assets {
                 let patched = patch::apply(&executable, &read("791CE265.DIF")?)?;
                 Self::from_restored_executable(&patched)
             }
+            InputFormat::PcBooter => Self::from_booter_image(&read("disk1.img")?),
         }?;
         assets.format = format;
         Ok(assets)
@@ -77,10 +90,20 @@ impl Assets {
         let restored = bytes
             .get(0x6940..0x6940 + restored::DATA_LENGTH)
             .ok_or("Restored executable has a truncated game-data block")?;
+        Self::from_full_data(restored, InputFormat::Tandy)
+    }
+
+    fn from_booter_image(bytes: &[u8]) -> Result<Self, String> {
+        let loaded = booter::decode(bytes)?;
+        let data = &loaded[booter::DATA_OFFSET..booter::DATA_OFFSET + restored::DATA_LENGTH];
+        Self::from_full_data(data, InputFormat::PcBooter)
+    }
+
+    fn from_full_data(restored: &[u8], format: InputFormat) -> Result<Self, String> {
         Ok(Self {
             data: restored::normalize(restored)?,
             restored: Some(restored.to_vec()),
-            format: InputFormat::Tandy,
+            format,
         })
     }
 
@@ -350,6 +373,15 @@ pub fn initialize_alley(data: &mut [u8], screen: &mut Framebuffer) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn machine_defaults_preserve_conversion_booter_and_restored_presentation() {
+        use crate::alley::Machine;
+        assert_eq!(InputFormat::Cat.default_machine(), Machine::Cga);
+        assert_eq!(InputFormat::PcBooter.default_machine(), Machine::Cga);
+        assert_eq!(InputFormat::Tandy.default_machine(), Machine::Pcjr);
+        assert_eq!(InputFormat::CatWithPatch.default_machine(), Machine::Pcjr);
+    }
 
     #[test]
     fn random_state_uses_xor_feedback_before_rotation() {

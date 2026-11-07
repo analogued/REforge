@@ -27,10 +27,10 @@ its clock divisor. Reviewed sound paths separately program PIT channel 2.
 The PIT read at `2e10` seeds the shared random state; it is not evidence of a
 CPU-speed benchmark.
 
-### Restored PCjr/Tandy title timer
+### Full-build PCjr title timer
 
-With restored inputs, the PCjr and Tandy title programs PIT channel zero to
-`0xcfff` (53,247) instead of 65,536. REforge selects that divisor in the title's
+With booter or restored DOS inputs in PCjr mode, the title programs PIT channel
+zero to `0xcfff` (53,247) instead of 65,536. REforge selects that divisor in the title's
 virtual BIOS clock, including while the native sound flag is off. Re-enabling
 native sound reinitializes the score and counter phase, retaining the BIOS
 tick count. The initial

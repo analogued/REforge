@@ -57,7 +57,18 @@ fn add_native_options(
             && !args.iter().any(|arg| arg == argument)
             && let Some(value) = saved
                 .get(key)
-                .filter(|value| option.choices.iter().any(|c| c.value == value.as_str()))
+                .map(String::as_str)
+                .map(|value| {
+                    if detected.game == crate::detection::Game::AlleyCat
+                        && key == reforge_settings::ALLEYCAT_MACHINE
+                        && value == "tandy"
+                    {
+                        "pcjr"
+                    } else {
+                        value
+                    }
+                })
+                .filter(|value| option.choices.iter().any(|c| c.value == *value))
         {
             args.extend([argument.into(), value.into()]);
         }
@@ -211,13 +222,6 @@ mod tests {
     fn native_pins_are_used_but_explicit_arguments_win() {
         let temp = Temp::new();
         let config = temp.0.join("config.toml");
-        reforge_settings::launcher::save_native_option(
-            &config,
-            "alley-cat-a1b2c3",
-            "machine",
-            Some("pcjr"),
-        )
-        .unwrap();
         let detected = Detected {
             files: Default::default(),
             game: Game::AlleyCat,
@@ -225,11 +229,20 @@ mod tests {
             original: temp.0.join("game"),
             root: temp.0.join("game"),
         };
-        let mut args = Vec::new();
-        add_native_options(&config, "alley-cat-a1b2c3", &detected, &mut args).unwrap();
-        assert_eq!(args, [OsString::from("--machine"), OsString::from("pcjr")]);
-        let mut args = vec![OsString::from("--machine"), OsString::from("cga")];
-        add_native_options(&config, "alley-cat-a1b2c3", &detected, &mut args).unwrap();
-        assert_eq!(args, [OsString::from("--machine"), OsString::from("cga")]);
+        for pin in ["pcjr", "tandy"] {
+            reforge_settings::launcher::save_native_option(
+                &config,
+                "alley-cat-a1b2c3",
+                "machine",
+                Some(pin),
+            )
+            .unwrap();
+            let mut args = Vec::new();
+            add_native_options(&config, "alley-cat-a1b2c3", &detected, &mut args).unwrap();
+            assert_eq!(args, [OsString::from("--machine"), OsString::from("pcjr")]);
+            let mut args = vec![OsString::from("--machine"), OsString::from("cga")];
+            add_native_options(&config, "alley-cat-a1b2c3", &detected, &mut args).unwrap();
+            assert_eq!(args, [OsString::from("--machine"), OsString::from("cga")]);
+        }
     }
 }

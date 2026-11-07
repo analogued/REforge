@@ -107,8 +107,8 @@ PCjr/Tandy audio or timing measurements.
 
 A separately examined 184,320-byte disk image has BLAKE3
 `f6f0fe51a58b2c32995427fd8f3af2b1df27f3f4b8033a4a2b55946e3a90c900`.
-This is a research input, not an additional supported release. Its loader and
-disk-check bypasses prevent treating it as proven unmodified commercial media;
+REforge supports this specific image through a raw-sector loader. Its loader
+and disk-check bypasses prevent treating it as proven unmodified commercial media;
 its historical release identity and the authors of those changes remain unknown.
 
 The image uses 40 cylinders, one head and nine 512-byte sectors per track. Its
@@ -142,8 +142,10 @@ segment. This establishes resource identity, not full gameplay or physical
 hardware equivalence. The Tandy DOS adapter is absent from the matching program.
 
 The final 9,424 loaded bytes contain duplicate code and data fragments rather
-than zero padding. Their origin and reachability remain unresolved; the DOS
-program's endpoint alone is insufficient justification for discarding them.
+than zero padding. Their origin and reachability remain unresolved. REforge
+retains the complete 64-KiB payload through decoding, then reads the verified
+full-build data segment; it does not execute any of the loaded code. No generic
+filesystem, controller emulation or additional image-library dependency is needed.
 
 ## Packed display memory
 

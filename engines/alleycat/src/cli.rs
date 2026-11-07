@@ -33,7 +33,8 @@ const HELP: &str = "Alley Cat — game reconstruction
 
 Usage: reforge --original /path/to/CAT.EXE [options]
 
-  --machine cga|pcjr|tandy Hardware path (default: cga, or tandy for restored inputs)
+  --machine cga|pcjr      Hardware path (default: cga; pcjr for restored DOS inputs)
+                         Legacy tandy spelling is an alias for pcjr.
   --scale auto|1..16       Initial drawable pixel multiplier (default: auto)
   --presentation pixels|hyllian  Window presentation (default: pixels; unavailable shader falls back)
   --difficulty N          Initial difficulty 0..7; skips the skill question
@@ -204,9 +205,8 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
             "--machine" => {
                 result.machine = match value()?.as_str() {
                     "cga" => Machine::Cga,
-                    "pcjr" => Machine::Pcjr,
-                    "tandy" => Machine::Tandy,
-                    _ => return Err("Machine must be cga, pcjr or tandy".into()),
+                    "pcjr" | "tandy" => Machine::Pcjr,
+                    _ => return Err("Machine must be cga or pcjr".into()),
                 };
                 result.machine_selected = true;
             }
@@ -344,8 +344,8 @@ pub fn run(
     let Some(mut options) = parse_options(args)? else {
         return Ok(());
     };
-    if !options.machine_selected && format != crate::assets::InputFormat::Cat {
-        options.machine = Machine::Tandy;
+    if !options.machine_selected {
+        options.machine = format.default_machine();
     }
     let seed = seed::resolve(&options)?;
     eprintln!("Alley Cat: startup seed 0x{seed:04x}");

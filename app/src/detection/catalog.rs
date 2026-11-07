@@ -30,6 +30,7 @@ pub struct SpecsProfile {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Platform {
     Dos,
+    PcBooter,
 }
 
 /// Publication/edition facts shared by one or more detected distributions.
@@ -225,7 +226,7 @@ pub static ALLEY_CAT_DOS: Edition = Edition {
 /// edition. Both supported forms use the same restored game/audio resources.
 pub static ALLEY_CAT_RESTORED_SPECS: SpecsProfile = SpecsProfile {
     id: "alley-cat-dos-restored",
-    video_features: &["320×200", "CGA / PCjr / Tandy"],
+    video_features: &["320×200", "CGA / PCjr"],
     audio_features: &["PC speaker / three-voice PSG"],
 };
 pub static ALLEY_CAT_TANDY: Edition = Edition {
@@ -239,6 +240,21 @@ pub static ALLEY_CAT_WITH_PATCH: Edition = Edition {
     id: "alley-cat-dos-nrs-patch",
     engine: Engine::AlleyCat(alleycat::assets::InputFormat::CatWithPatch),
     ..ALLEY_CAT_TANDY
+};
+pub static ALLEY_CAT_PC_BOOTER_SPECS: SpecsProfile = SpecsProfile {
+    id: "alley-cat-pc-booter",
+    video_features: &["320×200", "CGA / PCjr"],
+    audio_features: &["PC speaker / three-voice PSG (PCjr)"],
+};
+/// The verified image is catalogued by its container format. Its modified disk
+/// checks do not establish that it is an unmodified commercial release.
+pub static ALLEY_CAT_PC_BOOTER: Edition = Edition {
+    id: "alley-cat-pc-booter",
+    engine: Engine::AlleyCat(alleycat::assets::InputFormat::PcBooter),
+    platform: Platform::PcBooter,
+    label: Some("PC Booter"),
+    specs: &ALLEY_CAT_PC_BOOTER_SPECS,
+    ..ALLEY_CAT_DOS
 };
 
 pub static MACH3_DOS: Edition = Edition {
@@ -569,6 +585,18 @@ pub static RELEASES: &[Release] = &[
             },
         ],
     },
+    Release {
+        id: "alley-cat-pc-booter-56647cbe98",
+        compatibility_id: "alley-cat-dos",
+        edition: &ALLEY_CAT_PC_BOOTER,
+        #[cfg(test)]
+        identity_files: &[],
+        files: &[FileRecord {
+            name: "disk1.img",
+            size: 184_320,
+            blake3: "f6f0fe51a58b2c32995427fd8f3af2b1df27f3f4b8033a4a2b55946e3a90c900",
+        }],
+    },
 ];
 
 #[cfg(test)]
@@ -583,12 +611,16 @@ mod tests {
             .iter()
             .filter(|release| release.game() == Game::AlleyCat)
             .collect::<Vec<_>>();
-        assert_eq!(releases.len(), 3);
+        assert_eq!(releases.len(), 4);
         assert_eq!(releases[0].engine(), Engine::AlleyCat(InputFormat::Cat));
         assert_eq!(releases[1].engine(), Engine::AlleyCat(InputFormat::Tandy));
         assert_eq!(
             releases[2].engine(),
             Engine::AlleyCat(InputFormat::CatWithPatch)
+        );
+        assert_eq!(
+            releases[3].engine(),
+            Engine::AlleyCat(InputFormat::PcBooter)
         );
         assert_eq!(releases[1].files[0].name, "TANDYCAT.EXE");
         assert_eq!(releases[2].files[0].name, "CAT.EXE");
@@ -606,6 +638,45 @@ mod tests {
             releases[2].edition.specs
         ));
         assert_eq!(releases[0].id, "alley-cat-dos-7b92bb401f");
+        assert_eq!(releases[1].id, "alley-cat-dos-17b9603eee");
+        assert_eq!(releases[2].id, "alley-cat-dos-bc3e9d804a");
+    }
+
+    #[test]
+    fn pc_booter_has_a_distinct_platform_edition_and_native_specs() {
+        let release = RELEASES
+            .iter()
+            .find(|release| release.edition.platform == Platform::PcBooter)
+            .unwrap();
+        assert_eq!(release.id, "alley-cat-pc-booter-56647cbe98");
+        assert_eq!(release.compatibility_id, "alley-cat-dos");
+        assert!(release.compatible_with(&RELEASES[0]));
+        assert_eq!(release.files.len(), 1);
+        assert_eq!(release.files[0].name, "disk1.img");
+        assert_eq!(release.files[0].size, 184_320);
+        assert_eq!(
+            release.files[0].blake3,
+            "f6f0fe51a58b2c32995427fd8f3af2b1df27f3f4b8033a4a2b55946e3a90c900"
+        );
+        let edition = release.edition;
+        assert!(std::ptr::eq(edition.game, &ALLEY_CAT));
+        assert_ne!(edition.id, ALLEY_CAT_DOS.id);
+        assert_ne!(edition.id, ALLEY_CAT_TANDY.id);
+        assert_ne!(edition.id, ALLEY_CAT_WITH_PATCH.id);
+        assert_eq!(edition.label, Some("PC Booter"));
+        assert_eq!(edition.year, Some(1984));
+        assert_eq!(edition.developers, &["Synapse Software"]);
+        assert_eq!(edition.publishers, &["IBM"]);
+        assert!(!std::ptr::eq(edition.specs, ALLEY_CAT_TANDY.specs));
+        assert_eq!(edition.specs.video_features, &["320×200", "CGA / PCjr"]);
+        assert_eq!(
+            edition.specs.audio_features,
+            &["PC speaker / three-voice PSG (PCjr)"]
+        );
+        assert_eq!(
+            edition.features_line(),
+            "320×200 · CGA / PCjr · PC speaker / three-voice PSG (PCjr)"
+        );
     }
 
     #[test]

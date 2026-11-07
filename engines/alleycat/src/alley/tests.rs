@@ -339,7 +339,7 @@ fn initial_title_fixture(machine: Machine, watched_ticks: u16) -> crate::splash:
 
 #[test]
 fn restored_title_configuration_survives_first_game_and_game_over() {
-    let mut splash = crate::splash::Splash::new(&initial_title_data(), Machine::Tandy).unwrap();
+    let mut splash = crate::splash::Splash::new(&initial_title_data(), Machine::Pcjr).unwrap();
     splash.text_color = 3;
     splash.input_format = crate::assets::InputFormat::Tandy;
     splash.set_title_music(Some(crate::sound::psg::synthetic_music()), 0);

@@ -3,14 +3,14 @@
 A Rust reconstruction of **Alley Cat** for modern desktop systems, initially
 targeting Linux. It includes the alley, all five ordinary rooms, the underwater
 section and the hearts bonus scene, with actors, damage, progression and
-PC Speaker music and effects, with restored three-voice intro music for
-supported patched inputs. Original hardware timing remains approximate;
-the [timing reference](docs/timing.md) describes the model and its limits,
+PC Speaker music and effects, with three-voice PCjr intro music for the
+supported booter and restored DOS inputs. Original hardware timing remains
+approximate; the [timing reference](docs/timing.md) describes the model and its limits,
 including the deferred physical PCjr timing comparison.
 Alley Cat is the `alleycat` engine crate in **REforge**.
 
 The [original-engine reference](docs/original-engine.md) preserves recovered DOS
-format and hardware details for historical study and reconstruction, including
+and PC booter format and hardware details for historical study and reconstruction, including
 mechanisms that REforge replaces with host facilities.
 
 > [!IMPORTANT]
@@ -53,9 +53,9 @@ F10 → Audio controls host enable, Master/Music/Effects levels, output device
 and focus muting. Master defaults to 80%; these levels are independent of the
 system mixer. Host mute does not skip native sound logic, random draws or waits.
 Ctrl+S separately toggles the original sound flag, including its gameplay effects.
-Restored PCjr and Tandy inputs use an SN76489-compatible three-tone renderer
-for the title melody. Its note and duration tables are read from your supplied
-files. CGA retains the speaker title, and gameplay effects remain on the speaker.
+The booter and restored DOS inputs in PCjr mode use an SN76489-compatible
+three-tone renderer for the title melody. Its note and duration tables are read
+from your supplied files. CGA retains the speaker title, and gameplay effects remain on the speaker.
 The restored title uses its original channel-zero divisor of `0xcfff`; gameplay
 returns to the ordinary BIOS timer rate. Uniform `--step-hz` diagnostic play remains
 silent. Headless logic still executes the native sound-state work.
@@ -71,7 +71,7 @@ timing limitations.
 
 The program requires one of these verified external input sets. It reads
 embedded sprites, scenery, animation and music tables; Rust implements the
-reconstructed behavior without executing the DOS program. Original data and
+reconstructed behavior without executing the original program. Original data and
 patches are not included in this repository or embedded in builds.
 
 | Input set | Required files | Size in bytes |
@@ -79,6 +79,14 @@ patches are not included in this repository or embedded in builds.
 | DOS conversion | `CAT.EXE` | 55,067 |
 | NewRisingSun-patched DOS conversion | `TANDYCAT.EXE` | 56,881 |
 | DOS conversion plus restoration patch | `CAT.EXE`, `791CE265.DIF` | 55,067; 6,704 |
+| PC Booter raw floppy image | `disk1.img` | 184,320 |
+
+The booter is the specifically identified 180 KiB raw image, not any file with
+an IMG extension. REforge reads and decodes its sectors in memory, leaving the
+image untouched. It shares the full game-data layout, three-voice PCjr title
+music and white menu/pause text with the restored DOS inputs. Its modified disk
+checks do not establish that it is pristine commercial media. Other floppy-image
+formats are not supported by this loader.
 
 The commercial edition of the DOS conversion remains unverified. The two
 restored forms are equivalent inputs for REforge: the second patch that builds
@@ -95,13 +103,14 @@ The application's BLAKE3 fingerprints are:
 CAT.EXE      8b6c0f5151075e596296675648eb75b4527e228f74aff1b5db2403f03ff84cf2
 TANDYCAT.EXE 1e162b41fd7516ed6063c33a9431ef2df268ca0720e25d2c34918ba084063bc9
 791CE265.DIF 8b4a0b641691d33b146f00806bf5fc77a91a769b684388f7ce7ed0826922758b
+disk1.img   f6f0fe51a58b2c32995427fd8f3af2b1df27f3f4b8033a4a2b55946e3a90c900
 ```
 
 REforge's application detector verifies the input set and supplies its selected
 files and loading profile to the engine. The engine does not repeat fingerprint
 checks or discover replacement files; format and bounds checks remain.
 A verified CAT-plus-DIF set takes precedence over CAT alone. A directory with
-both independent executables is ambiguous; select the intended executable with
+independent matching input sets is ambiguous; select the intended file with
 `--original`. Keep originals and generated captures outside this repository.
 
 ## Build and run
@@ -112,20 +121,21 @@ See the [application README](../../README.md) for the combined build and
 Install Rust 1.88 or newer with Cargo, and an SDL3 development package providing
 the native `SDL3` library. The [shared window backend](../../crates/reforge_sdl/README.md)
 uses the `sdl3` Rust wrapper; SDL image/font/mixer extensions are not required.
-The application handles executable verification before engine startup, including
+The application handles original-file verification before engine startup, including
 when launched directly from the command line without the graphical launcher.
 
 From the combined repository root:
 
 ```sh
 cargo run --locked -p reforge --release -- --original /path/to/CAT.EXE
+cargo run --locked -p reforge --release -- --original /path/to/disk1.img
 ```
 
 Launch starts with the original animated splash: a cat enters and walks along
 the fence, and the copyright artwork alternates between SynSoft and IBM.
 Press a key to continue, or wait for the original first-entry timeout of about
 47 seconds with the unpatched input, or 38 seconds with the restored
-PCjr/Tandy title. Desktop shortcuts, modifier keys alone and held-key repeats do not
+PCjr title. Desktop shortcuts, modifier keys alone and held-key repeats do not
 dismiss it. The following menu omits the original joystick question. Select
 K (Kitten), H (House Cat), T (Tomcat), or A (Alley Cat); the controls then appear
 below the question. Press another key to start. These choices select initial
@@ -168,7 +178,7 @@ In the hearts scene, gifts are picked up automatically on contact; hold Alt
 to place a carried gift near the cat's current position.
 
 Pause preserves the game state and virtual clock without catching up on resume.
-The overlay reads the original pause title from the executable and uses the
+The overlay reads the original pause title from the supplied game data and uses the
 original placement and palette color, with an updated hint for the toggle keys.
 Its lettering uses SDL's built-in 8×8 font. Scoring and menu text use an
 attributed adaptation of the same glyphs from
@@ -176,14 +186,17 @@ attributed adaptation of the same glyphs from
 headless builds.
 
 `--machine pcjr` selects PCjr graphics and mode-specific timing rules. The
-unpatched input defaults to `cga`. Restored inputs additionally accept
-`--machine tandy`, which is their default. The same choice is available in the
+DOS conversion and PC booter default to `cga`; restored DOS inputs default to
+`pcjr`. The old `--machine tandy` spelling remains an alias for `pcjr`, and stored
+Tandy choices migrate to explicit PCjr overrides. In PCjr mode the booter uses
+its full-build text colours and three-voice intro music automatically; there is
+no TV/external-speaker question. The same choice is available in the
 launcher and under F10 → Alley Cat overrides → Display → Machine. Enable
 Override global defaults and Apply to save it for the next launch; the running
 game keeps its current machine. An explicit `--machine` override locks this
 control for that run. Unregistered/configuration-disabled runs cannot save a
-next-launch selection. Restored inputs use white menu and
-pause text instead of the conversion's color-two text. PCjr and Tandy retain
+next-launch selection. Booter and restored DOS inputs use white menu and pause
+text instead of the conversion's color-two text. PCjr retains
 the player countdown and height-dependent fishbowl pacing:
 near the surface, fish and eels have more update opportunities while the cat's
 movement adds a retrace wait and counted delay. All modes use the same packed

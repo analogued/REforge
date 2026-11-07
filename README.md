@@ -1,6 +1,6 @@
 # REforge
 
-Play classic DOS games on a modern desktop, using your original game files.
+Play classic PC games on a modern desktop, using your original game files.
 REforge recreates their behavior natively, with modern display, audio and
 controller options. Linux is the current development platform.
 
@@ -16,8 +16,8 @@ controller options. Linux is the current development platform.
 | Mach 3 | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
 | BTZ | Mindwheel, Essex, Brimstone: The Dream of Gawain, Breakers | [Playing BTZ games](docs/games/btz.md) |
 
-Each game currently supports one identified DOS release. See its guide for the
-required files and current limitations.
+Supported inputs include verified DOS distributions and Alley Cat’s PC Booter
+image. See each guide for the required files and current limitations.
 
 ## Features
 

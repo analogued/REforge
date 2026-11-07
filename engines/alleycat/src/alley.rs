@@ -19,7 +19,6 @@ pub enum Machine {
     #[default]
     Cga,
     Pcjr,
-    Tandy,
 }
 
 impl Machine {
@@ -28,13 +27,13 @@ impl Machine {
     pub(crate) const fn rgb_colors(self) -> [[u8; 3]; 4] {
         match self {
             Self::Cga => [[0, 0, 0], [0, 170, 170], [170, 0, 170], [170, 170, 170]],
-            Self::Pcjr | Self::Tandy => [[0, 0, 0], [85, 255, 85], [85, 85, 255], [255, 255, 255]],
+            Self::Pcjr => [[0, 0, 0], [85, 255, 85], [85, 85, 255], [255, 255, 255]],
         }
     }
 
     /// PCjr software branches also serve the restored Tandy adapter.
     pub(crate) const fn is_pcjr(self) -> bool {
-        matches!(self, Self::Pcjr | Self::Tandy)
+        matches!(self, Self::Pcjr)
     }
 
     pub(crate) fn colors(self) -> [[u8; 4]; 4] {

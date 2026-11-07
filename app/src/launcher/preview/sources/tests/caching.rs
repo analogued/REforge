@@ -63,17 +63,16 @@ fn complete_cache_loads_without_detecting_or_rendering_even_when_originals_are_a
 }
 
 #[test]
-fn restored_editions_generate_and_cache_all_three_machine_variants() {
-    for release in detection::RELEASES.iter().filter(|release| {
-        matches!(
-            release.engine(),
-            detection::Engine::AlleyCat(format) if format != alleycat::assets::InputFormat::Cat
-        )
-    }) {
+fn alleycat_editions_generate_and_cache_available_machine_variants() {
+    for release in detection::RELEASES
+        .iter()
+        .filter(|release| matches!(release.engine(), detection::Engine::AlleyCat(_)))
+    {
         let directory = TestDirectory::new();
         let mut request = preview_request(&directory.0);
         request.identity.release = release.id.into();
-        request.identity.preferred = "tandy".into();
+        let expected = vec!["pcjr", "cga"];
+        request.identity.preferred = expected[0].into();
         let mut detections = 0;
         let mut rendered = Vec::new();
         let found = generate_with(
@@ -96,16 +95,16 @@ fn restored_editions_generate_and_cache_all_three_machine_variants() {
             },
         );
         assert_eq!(detections, 1);
-        assert_eq!(rendered, ["tandy", "cga", "pcjr"]);
-        assert_eq!(found.len(), 3);
+        assert_eq!(rendered, expected);
+        assert_eq!(found.len(), expected.len());
         request.identity.allow_generation = false;
         let cached = generate_with(
             &request,
             Some(&directory.0),
-            |_| panic!("cached restored previews must not verify originals"),
-            |_, _| panic!("cached restored previews must not be regenerated"),
+            |_| panic!("cached Alley Cat previews must not verify originals"),
+            |_, _| panic!("cached Alley Cat previews must not be regenerated"),
         );
-        assert_eq!(cached.len(), 3);
+        assert_eq!(cached.len(), expected.len());
     }
 }
 

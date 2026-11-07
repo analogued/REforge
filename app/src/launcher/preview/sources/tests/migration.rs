@@ -182,3 +182,48 @@ fn corrupt_legacy_images_are_not_migrated_and_manifest_changes_have_no_alias() {
             .any(|(new, _)| *new == key)
     );
 }
+
+#[test]
+fn former_tandy_preview_becomes_pcjr_without_originals() {
+    for release in detection::RELEASES.iter().filter(|release| {
+        matches!(
+            release.engine(),
+            detection::Engine::AlleyCat(
+                alleycat::assets::InputFormat::Tandy | alleycat::assets::InputFormat::CatWithPatch
+            )
+        )
+    }) {
+        let directory = TestDirectory::new();
+        let old = directory
+            .0
+            .join(format!("{}.png", cache_id(release, "tandy")));
+        let current = directory
+            .0
+            .join(format!("{}.png", cache_id(release, "pcjr")));
+        store(&old, &frame()).unwrap();
+        let request = Request {
+            identity: Identity {
+                entry: "missing-originals".into(),
+                game: release.game().id().into(),
+                release: release.id.into(),
+                directory: directory.0.clone(),
+                original: directory.0.join("missing"),
+                preferred: "pcjr".into(),
+                allow_generation: false,
+                generation: 0,
+            },
+            verification: None,
+        };
+        let found = generate_with(
+            &request,
+            Some(&directory.0),
+            |_| panic!("alias migration must not verify originals"),
+            |_, _| panic!("alias migration must not render"),
+        );
+        assert_eq!(found.len(), 1);
+        assert_eq!(found["pcjr"].id, cache_id(release, "pcjr"));
+        assert!(current.exists());
+        assert!(!old.exists());
+        assert!(!found.contains_key("tandy"));
+    }
+}

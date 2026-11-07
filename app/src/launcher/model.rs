@@ -401,7 +401,16 @@ impl GameEntry {
                 }
                 Storage::Native { key, .. } => {
                     p.native.push(o.label);
-                    (o.default.into(), native.get(key).map(String::as_str))
+                    let saved = if self.game_id == "alley-cat"
+                        && key == reforge_settings::ALLEYCAT_MACHINE
+                    {
+                        // Session resolves old spellings even when migration
+                        // cannot be persisted to a read-only or busy document.
+                        session.saved.game.get(key).map(String::as_str)
+                    } else {
+                        native.get(key).map(String::as_str)
+                    };
+                    (o.default.into(), saved)
                 }
             };
             let choice = o

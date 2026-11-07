@@ -148,16 +148,20 @@ directly, without replaying the splash. An explicit `--difficulty` skips the ski
 question and shows controls with a separate key-to-start wait. Menu waits ignore
 desktop shortcuts, modifier keys alone and held-key repeats.
 
-## Restored executable integration
+## Full-build input integration
 
-Both supported restored input forms use the same native Rust gameplay and
-coordinate contracts as the DOS conversion. The loader translates full-build
-asset pointers and retains the conversion's completion-image row convention and
+The supported booter and both restored DOS input forms use the same native Rust
+gameplay and coordinate contracts as the DOS conversion. The loader translates
+full-build asset pointers and retains the conversion's completion-image row convention and
 menu placement, rather than reproducing those small full-build layout changes.
-The external full-build score remains separate and supplies PCjr/Tandy title
+The external full-build score remains separate and supplies PCjr title
 music. DOS interrupt hooks, hardware detection and the external-speaker question
-are replaced by the Machine choice; no DOS adapter code executes. The restored
-title's distinct timer rate and native sound-toggle sequencing remain.
+are replaced by the Machine choice; no DOS adapter code executes. The booter is
+read and decoded in memory without running its BIOS loader or disk-check path.
+The restored title's distinct timer rate and native sound-toggle sequencing remain. The former
+separate Tandy selection used the same native presentation as PCjr; it is now a
+compatibility alias rather than another machine mode. The two NRS input variants
+retain their catalog label independently of the machine choice.
 
 ## Startup seed and original bad-state guard
 

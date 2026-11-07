@@ -277,7 +277,7 @@ impl Menu {
 mod tests {
     #[test]
     fn restored_text_uses_color_three_in_questions_and_controls() {
-        for machine in [Machine::Cga, Machine::Pcjr, Machine::Tandy] {
+        for machine in [Machine::Cga, Machine::Pcjr] {
             let mut restored = Menu::with_text_color(&synthetic_data(), machine, None, 3).unwrap();
             let legacy = Menu::new(&synthetic_data(), machine).unwrap();
             assert!(restored.framebuffer.indices().contains(&3));

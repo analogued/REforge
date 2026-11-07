@@ -43,7 +43,6 @@ fn title_sound_toggles_remain_valid_after_committed_drawing_work() {
         (Machine::Cga, false),
         (Machine::Pcjr, false),
         (Machine::Pcjr, true),
-        (Machine::Tandy, true),
     ] {
         for repeated in [false, true] {
             let mut data = vec![0; DATA_LENGTH];

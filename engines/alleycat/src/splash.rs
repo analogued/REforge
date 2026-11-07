@@ -568,51 +568,50 @@ mod tests {
 
     #[test]
     fn restored_titles_keep_the_timer_while_muted_and_exit_cleanly() {
-        for machine in [Machine::Pcjr, Machine::Tandy] {
-            for repeated in [false, true] {
-                let mut splash = if repeated {
-                    let mut data = synthetic_data();
-                    data[0] = 0xff;
-                    Splash::after_game_over(&data, machine, 0).unwrap()
-                } else {
-                    Splash::new(&synthetic_data(), machine).unwrap()
-                };
-                splash.sound.record(true);
-                splash.set_title_music(Some(crate::sound::psg::synthetic_music()), 0);
-                assert_eq!(splash.bios_divisor(), 0xcfff);
-                assert!(splash.take_timer_reprogram());
+        let machine = Machine::Pcjr;
+        for repeated in [false, true] {
+            let mut splash = if repeated {
+                let mut data = synthetic_data();
+                data[0] = 0xff;
+                Splash::after_game_over(&data, machine, 0).unwrap()
+            } else {
+                Splash::new(&synthetic_data(), machine).unwrap()
+            };
+            splash.sound.record(true);
+            splash.set_title_music(Some(crate::sound::psg::synthetic_music()), 0);
+            assert_eq!(splash.bios_divisor(), 0xcfff);
+            assert!(splash.take_timer_reprogram());
+            assert!(!splash.take_timer_reprogram());
+            splash.advance(1, true, false).unwrap();
+            #[cfg(feature = "sdl")]
+            {
+                splash.toggle_sound();
                 assert!(!splash.take_timer_reprogram());
-                splash.advance(1, true, false).unwrap();
-                #[cfg(feature = "sdl")]
-                {
-                    splash.toggle_sound();
-                    assert!(!splash.take_timer_reprogram());
-                    assert_eq!(splash.bios_divisor(), 0xcfff);
-                    splash.advance(5, true, false).unwrap();
-                    splash.toggle_sound();
-                    assert!(splash.take_timer_reprogram());
-                }
-                if repeated {
-                    // PSG does not take the speaker title's periodic restart.
-                    splash.advance(918, true, false).unwrap();
-                    assert_eq!(word(splash.data(), 0x6a8b), 0);
-                    assert!(!splash.finished());
-                }
-                splash
-                    .advance(if repeated { 919 } else { 6 }, true, true)
-                    .unwrap();
-                assert!(splash.finished());
-                let writes: Vec<_> = splash.sound.drain().collect();
-                assert!(
-                    writes
-                        .iter()
-                        .any(|write| write.port == 0xc0 && write.value == 0x93)
-                );
-                assert_eq!(
-                    writes.last().map(|write| (write.port, write.value)),
-                    Some((0x40, 0))
-                );
+                assert_eq!(splash.bios_divisor(), 0xcfff);
+                splash.advance(5, true, false).unwrap();
+                splash.toggle_sound();
+                assert!(splash.take_timer_reprogram());
             }
+            if repeated {
+                // PSG does not take the speaker title's periodic restart.
+                splash.advance(918, true, false).unwrap();
+                assert_eq!(word(splash.data(), 0x6a8b), 0);
+                assert!(!splash.finished());
+            }
+            splash
+                .advance(if repeated { 919 } else { 6 }, true, true)
+                .unwrap();
+            assert!(splash.finished());
+            let writes: Vec<_> = splash.sound.drain().collect();
+            assert!(
+                writes
+                    .iter()
+                    .any(|write| write.port == 0xc0 && write.value == 0x93)
+            );
+            assert_eq!(
+                writes.last().map(|write| (write.port, write.value)),
+                Some((0x40, 0))
+            );
         }
     }
 

@@ -8,6 +8,22 @@ randomness and input behavior within this crate. Preserve imported code
 attribution and license notices; see the shared
 [dependency notices](../../THIRD_PARTY.md).
 
+## Historical references
+
+The engine's technical references preserve verified knowledge of Mach 3's
+original resource formats and internal workings, independently of what the Rust
+implementation needs. This includes update and drawing order, timer/interrupt
+behavior, encounter scripts, randomness, sound execution and session state, even
+where REforge changes or omits the original mechanism.
+
+Follow the shared [original-software reference guidance](../../CONTRIBUTING.md#original-software-references).
+Useful partial findings belong in the existing technical references with the
+examined release, evidence scope and remaining uncertainties explicit. Distinguish
+original behavior, emulator observations and replacement behavior; documenting a
+mechanism does not establish support for it. Keep raw evidence and investigation
+history outside the source repository. Player guides remain focused on controls,
+options and material limitations.
+
 ## Rust validation
 
 For changes to the Rust implementation, run these checks from the combined

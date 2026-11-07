@@ -2,8 +2,8 @@
 
 The `mach3` crate reconstructs the DOS version of Mach 3 (1987, Loriciels) for
 [REforge](../../README.md). For installation, controls and player options, see
-the [player guide](../../docs/games/mach3.md). This README covers development
-interfaces and diagnostic tools.
+the [player guide](../../docs/games/mach3.md). This README indexes technical
+references and describes development interfaces and diagnostic tools.
 
 > [!IMPORTANT]
 > This engine does not include original Mach 3 assets or data. You must provide
@@ -23,6 +23,11 @@ gameplay coverage; other platform versions and additional hardware modes remain
 outside the supported set.
 
 ## Technical references
+
+These references preserve verified original game formats and internal behavior
+for historical study as well as reconstruction. They also describe REforge's
+implementation and deliberate changes; knowledge of an original mechanism does
+not by itself imply replacement support.
 
 - [Deliberate deviations](docs/deviations.md): original bug corrections,
   presentation changes and control conveniences.

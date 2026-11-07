@@ -5,6 +5,10 @@
 - Reconstruct the supported DOS executable's behavior in authored Rust, using
   its external resources and decoded program tables. Input identities and raw
   comparison evidence belong with the configured private inputs.
+- Preserve verified original engine behavior and resource formats in maintained
+  technical references, including mechanisms the replacement changes or omits.
+  Follow this crate's contributing guide for historical scope, partial findings
+  and the distinction between original behavior and replacement support.
 - Preserve encounter rules, shared random consumption, partial session resets,
   cached drawing state and original input-poll order. Consult `docs/dos-gameplay.md`
   before changing gameplay or pacing, including its intentional corrections.

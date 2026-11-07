@@ -103,6 +103,48 @@ sequence. Title exit restores channel zero to divisor 65,536. Gameplay effects
 retain the speaker path. These are inspected program contracts, not physical
 PCjr/Tandy audio or timing measurements.
 
+## Examined PC booter image
+
+A separately examined 184,320-byte disk image has BLAKE3
+`f6f0fe51a58b2c32995427fd8f3af2b1df27f3f4b8033a4a2b55946e3a90c900`.
+This is a research input, not an additional supported release. Its loader and
+disk-check bypasses prevent treating it as proven unmodified commercial media;
+its historical release identity and the authors of those changes remain unknown.
+
+The image uses 40 cylinders, one head and nine 512-byte sectors per track. Its
+boot sector bypasses the filesystem, loading sectors 1–8 from cylinders 2–17
+into `0800:0000`, one 4-KiB block per track. The ninth sector of each track is
+skipped, so the resulting 64-KiB program is not a contiguous slice of the image.
+
+A decoding pass transforms every fourth loaded byte at offsets `0000` through
+`fff8`, for `3fff` iterations. Its 16-bit state starts at `fa59`. Each iteration
+computes feedback from bit 1 of the low byte XOR the high byte, shifts the state
+right with that bit entering bit 15, and XORs the selected byte with the new low
+state byte. The final four-byte group is untouched. Bounded DOSBox-X CGA and
+PCjr boots reproduced all 65,536 decoded bytes from the static extraction.
+Further runs reached the CGA title loop and PCjr external-speaker question,
+without injecting a keyboard response or validating a complete game.
+
+The first `db30` decoded bytes match the full restored DOS program at
+`TANDYCAT.EXE` file offsets `0200`–`dd2f`, except four bytes in startup disk-check
+handling. At code offset `0048`, the booter calls the disk-check path while the
+DOS program calls a return stub. The booter's disk routine instead bypasses its
+BIOS verify operation and forces the success branch. Its requested sector IDs
+would otherwise lie outside the ordinary nine-sector geometry. The earlier
+loader also contains an XOR pass that does not store its result. These are
+observed modifications, not an attribution of the original protection scheme.
+
+The entire `73f0`-byte data segment at decoded offset `6740` matches the restored
+DOS segment at file offset `6940`. This includes the three-voice title score and
+its tables; the compared PSG code is also identical. The same structural data
+translation reproduces all 28,976 bytes of the supported conversion's data
+segment. This establishes resource identity, not full gameplay or physical
+hardware equivalence. The Tandy DOS adapter is absent from the matching program.
+
+The final 9,424 loaded bytes contain duplicate code and data fragments rather
+than zero padding. Their origin and reachability remain unresolved; the DOS
+program's endpoint alone is insufficient justification for discarding them.
+
 ## Packed display memory
 
 The original draws into the `B800h` video segment using a 16-KiB, two-bank layout

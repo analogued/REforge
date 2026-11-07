@@ -158,8 +158,10 @@ fn cache_id(release: &Release, variant: &str) -> String {
 fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source> {
     generate_with(request, cache, detection::detect, |detected, variant| {
         let inputs = detected.inputs();
-        match detected.game.engine() {
-            detection::Engine::AlleyCat => alleycat::launcher::preview(&inputs, variant),
+        match detected.engine() {
+            detection::Engine::AlleyCat(format) => {
+                alleycat::launcher::preview(&inputs, format, variant)
+            }
             detection::Engine::Mach3 => mach3::launcher::preview(&inputs, variant),
             detection::Engine::Btz(release) => btz::launcher::preview(&inputs, release, variant),
         }
@@ -190,12 +192,10 @@ fn generate_with(
     else {
         return output;
     };
-    let variants = match release.game() {
-        Game::AlleyCat => alleycat::launcher::PREVIEW_VARIANTS,
-        Game::Mach3 => mach3::launcher::PREVIEW_VARIANTS,
-        Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers => {
-            btz::launcher::PREVIEW_VARIANTS
-        }
+    let variants = match release.engine() {
+        detection::Engine::AlleyCat(format) => alleycat::launcher::preview_variants(format),
+        detection::Engine::Mach3 => mach3::launcher::PREVIEW_VARIANTS,
+        detection::Engine::Btz(_) => btz::launcher::PREVIEW_VARIANTS,
     };
     // Resolve originals lazily, once per job, only if a cached variant cannot
     // be decoded. Keep already loaded variants even when generation is impossible.

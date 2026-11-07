@@ -4,8 +4,8 @@ This reference preserves recovered format and hardware knowledge from the
 55,067-byte DOS executable identified by BLAKE3 in
 [Original game required](../README.md#original-game-required). Its commercial
 release designation remains unverified. The scope is that executable's PC/CGA
-and PCjr software paths; these findings do not establish other distributions or
-platform versions.
+and PCjr software paths, with the separately identified restored-input section
+below. These findings do not establish unrelated distributions or platforms.
 
 The descriptions combine static instruction review, checks against the original
 file and bounded execution of original routines under DOSBox-X. Emulator
@@ -40,6 +40,68 @@ their working views without changing these file-relative mappings.
 This is a partial map of the examined program, not a universal MZ layout or an
 inventory of every table. The replacement's external-data reader is in
 [`assets.rs`](../src/assets.rs).
+
+## Restored DOS input layouts
+
+The NewRisingSun restoration also supports the 55,067-byte conversion through
+its external `791CE265.DIF`. Applying that BSDIFF40 patch yields a 56,624-byte
+full-build layout. Applying the package's separate `TANDYCAT.DIF` adds a DOS
+hardware adapter and yields the supported 56,881-byte `TANDYCAT.EXE` exactly.
+The latter has a 512-byte MZ header, no relocations and initial `CS:IP=0000:db30`;
+its game code starts at file offset `0x0200`, and its full `0x73f0`-byte data
+segment starts at `0x6940`. Addresses in this section refer to that full layout;
+other sections retain the conversion's address conventions unless stated.
+
+The restored data contains an additional three-voice title score and sequencer
+state, shifting later asset locations. REforge reads it into a separate checked
+segment, translates documented data regions and asset-pointer fields into its
+established conversion layout, and retains the full segment for music parsing.
+This is a structural translation, not another release-fingerprint check.
+The DOS adapter's interrupt hooks are unnecessary in the native application.
+
+The restoration package is discussed in
+[NewRisingSun's VOGONS posts](https://www.vogons.org/viewtopic.php?t=45896).
+The [bjt42 Tandy patch](https://github.com/bjt42/tandycat) instead targets an
+executable that already has the full music resources; it cannot restore those
+resources in the selected 55,067-byte conversion by itself.
+
+### Palette and text differences
+
+The restored Tandy adapter selects the PCjr software branches. Its alley and
+room RGBI table values match the conversion's PCjr tables: the alley uses
+entries 10, 9 and 15. A bounded DOSBox-X Tandy run confirmed those palette-entry
+writes. That evidence does not support globally dimming the Tandy palette.
+
+The restored BIOS teletype helper at `CS:61ad` instead selects text color 3;
+the conversion's `CS:5e2b` selects color 2. This changes skill/instruction and
+pause captions, including with CGA or PCjr selected. Completion scoring already
+uses color 3 in both layouts. REforge preserves this input-specific text color,
+rather than treating it as a different global Tandy palette.
+
+### Three-voice title score
+
+Full-build `CS:16a0` initializes the PSG title and programs PIT channel zero to
+`0xcfff` input clocks per BIOS tick (about 22.4 Hz). The changed-tick sequencer
+at `CS:173e`/`178d` writes three tone channels through port `c0h`; the noise
+channel stays muted. It advances once per observed changed BIOS tick, without
+catch-up for skipped ticks. The score uses byte offsets into a word divider
+table, per-note durations, attenuation envelopes and staged channel enables.
+
+| Full-build data | Purpose |
+| --- | --- |
+| `DS:1014` | PSG divider words |
+| `DS:109a`, `10f2`, `113a` | Three note streams, ending with marker `86h` |
+| `DS:10c6`, `1116`, `11b1` | Corresponding duration streams |
+| `DS:124c` | Pointers to three nine-byte channel states |
+| `DS:1256` | Staged channel-enable limits |
+
+The initial title timeout therefore occurs sooner in wall time than the
+conversion's speaker title. The later PSG title keeps running instead of taking
+the speaker version's periodic presentation reset. Turning native sound off
+mutes the PSG without restoring the BIOS divisor; enabling it reinitializes the
+sequence. Title exit restores channel zero to divisor 65,536. Gameplay effects
+retain the speaker path. These are inspected program contracts, not physical
+PCjr/Tandy audio or timing measurements.
 
 ## Packed display memory
 

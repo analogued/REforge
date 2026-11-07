@@ -20,6 +20,7 @@ MIT is selected where it is offered.
 
 | Component | Version | Used by / purpose | Selected license |
 | --- | --- | --- | --- |
+| [bzip2](https://crates.io/crates/bzip2/0.5.2) | 0.5.2 | Alley Cat: decompress external restoration patches | [MIT](LICENSES/MIT.txt); bundled libbzip2 terms below |
 | [png](https://crates.io/crates/png/0.17.16) | 0.17.16 | Application preview cache and shared SDL controller artwork | [MIT](LICENSES/MIT.txt) |
 | [unicode-segmentation](https://crates.io/crates/unicode-segmentation/1.12.0) | 1.12.0 | Application: Unicode-aware Symbolic initials | [MIT](LICENSES/MIT.txt) |
 | [blake3](https://crates.io/crates/blake3/1.8.7) | 1.8.7 | Application: original-file verification, release and cache identities; parallel memory-mapped hashing | [CC0-1.0](LICENSES/CC0-1.0.txt) |
@@ -36,6 +37,7 @@ BLAKE3 uses the CC0 public-domain dedication offered in its upstream
 
 Copyright notices, transcribed from the corresponding upstream license files:
 
+- **bzip2:** Copyright (c) 2014-2025 Alex Crichton and Contributors.
 - **png:** Copyright (c) 2015 nwin.
 - **unicode-segmentation:** Copyright (c) 2015 The Rust Project Developers.
 - **sdl3:** Copyright (c) 2013 Mozilla Foundation.
@@ -54,6 +56,14 @@ Copyright notices, transcribed from the corresponding upstream license files:
 Except for egui's upstream root license, these notices come from `LICENSE` or
 `LICENSE-MIT` in each published crate archive. No implementation from these
 libraries has been adapted into REforge's authored source.
+
+## Statically linked libbzip2
+
+Alley Cat's bzip2 dependency enables `static`, compiling the unmodified libbzip2
+1.0.8 supplied by `bzip2-sys` into the executable. It does not require a system
+libbz2 at runtime. Its copyright is (C) 1996-2019 Julian R Seward; the retained
+[bzip2 license](LICENSES/bzip2-1.0.8.txt) applies to that native component.
+The Rust wrapper and bindings retain their separate Cargo license terms.
 
 ## SDL native library and bindings
 

@@ -3,7 +3,7 @@
 //! Curated games, editions, reusable specs and detected file distributions.
 //! Engines own runtime choices, palettes, geometry and preview generation.
 
-use super::{FileRecord, Game, Release};
+use super::{Engine, FileRecord, Game, Release};
 
 /// Shared game identity and editorial data, independent of platform or edition.
 #[cfg_attr(not(feature = "sdl"), allow(dead_code))]
@@ -40,6 +40,8 @@ pub struct Edition {
     #[allow(dead_code)]
     pub id: &'static str,
     pub game: &'static GameMetadata,
+    /// Application-selected engine loading behavior for this input edition.
+    pub engine: Engine,
     /// Stored for cataloguing; launcher placement has not yet been selected.
     #[allow(dead_code)]
     pub platform: Platform,
@@ -133,6 +135,7 @@ pub static ESSEX: GameMetadata = GameMetadata {
 pub static ESSEX_DOS: Edition = Edition {
     id: "essex-dos",
     game: &ESSEX,
+    engine: Game::Essex.engine(),
     platform: Platform::Dos,
     title: None,
     year: Some(1985),
@@ -150,6 +153,7 @@ pub static BRIMSTONE: GameMetadata = GameMetadata {
 pub static BRIMSTONE_DOS: Edition = Edition {
     id: "brimstone-dos",
     game: &BRIMSTONE,
+    engine: Game::Brimstone.engine(),
     platform: Platform::Dos,
     title: None,
     year: Some(1985),
@@ -167,6 +171,7 @@ pub static BREAKERS: GameMetadata = GameMetadata {
 pub static BREAKERS_DOS: Edition = Edition {
     id: "breakers-dos",
     game: &BREAKERS,
+    engine: Game::Breakers.engine(),
     platform: Platform::Dos,
     title: None,
     year: Some(1986),
@@ -183,6 +188,7 @@ pub static BTZ_DOS_SPECS: SpecsProfile = SpecsProfile {
 pub static MINDWHEEL_DOS: Edition = Edition {
     id: "mindwheel-dos",
     game: &MINDWHEEL,
+    engine: Game::Mindwheel.engine(),
     platform: Platform::Dos,
     title: None,
     year: Some(1985),
@@ -206,6 +212,7 @@ pub static MACH3_DOS_SPECS: SpecsProfile = SpecsProfile {
 pub static ALLEY_CAT_DOS: Edition = Edition {
     id: "alley-cat-dos",
     game: &ALLEY_CAT,
+    engine: Game::AlleyCat.engine(),
     platform: Platform::Dos,
     title: None,
     year: Some(1984),
@@ -214,9 +221,30 @@ pub static ALLEY_CAT_DOS: Edition = Edition {
     label: None,
     specs: &ALLEY_CAT_DOS_SPECS,
 };
+/// The NRS enhancement is an input variant, not a newly identified commercial
+/// edition. Both supported forms use the same restored game/audio resources.
+pub static ALLEY_CAT_RESTORED_SPECS: SpecsProfile = SpecsProfile {
+    id: "alley-cat-dos-restored",
+    video_features: &["320×200", "CGA / PCjr / Tandy"],
+    audio_features: &["PC speaker / three-voice PSG"],
+};
+pub static ALLEY_CAT_TANDY: Edition = Edition {
+    id: "alley-cat-dos-nrs-tandy",
+    engine: Engine::AlleyCat(alleycat::assets::InputFormat::Tandy),
+    label: Some("NRS Tandy enhancement"),
+    specs: &ALLEY_CAT_RESTORED_SPECS,
+    ..ALLEY_CAT_DOS
+};
+pub static ALLEY_CAT_WITH_PATCH: Edition = Edition {
+    id: "alley-cat-dos-nrs-patch",
+    engine: Engine::AlleyCat(alleycat::assets::InputFormat::CatWithPatch),
+    ..ALLEY_CAT_TANDY
+};
+
 pub static MACH3_DOS: Edition = Edition {
     id: "mach-3-dos",
     game: &MACH3,
+    engine: Game::Mach3.engine(),
     platform: Platform::Dos,
     title: None,
     year: Some(1987),
@@ -510,12 +538,75 @@ pub static RELEASES: &[Release] = &[
             blake3: "ec269441b8183e81913c253d098ec18686cc844604144e5c3071efd3d0d277cb",
         }),
     },
+    Release {
+        id: "alley-cat-dos-17b9603eee",
+        compatibility_id: "alley-cat-dos",
+        edition: &ALLEY_CAT_TANDY,
+        #[cfg(test)]
+        identity_files: &[],
+        files: &[FileRecord {
+            name: "TANDYCAT.EXE",
+            size: 56_881,
+            blake3: "1e162b41fd7516ed6063c33a9431ef2df268ca0720e25d2c34918ba084063bc9",
+        }],
+    },
+    Release {
+        id: "alley-cat-dos-bc3e9d804a",
+        compatibility_id: "alley-cat-dos",
+        edition: &ALLEY_CAT_WITH_PATCH,
+        #[cfg(test)]
+        identity_files: &[],
+        files: &[
+            FileRecord {
+                name: "CAT.EXE",
+                size: 55_067,
+                blake3: "8b6c0f5151075e596296675648eb75b4527e228f74aff1b5db2403f03ff84cf2",
+            },
+            FileRecord {
+                name: "791CE265.DIF",
+                size: 6_704,
+                blake3: "8b4a0b641691d33b146f00806bf5fc77a91a769b684388f7ce7ed0826922758b",
+            },
+        ],
+    },
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn alleycat_restoration_forms_select_loading_profiles_and_share_compatibility() {
+        use alleycat::assets::InputFormat;
+        let releases = RELEASES
+            .iter()
+            .filter(|release| release.game() == Game::AlleyCat)
+            .collect::<Vec<_>>();
+        assert_eq!(releases.len(), 3);
+        assert_eq!(releases[0].engine(), Engine::AlleyCat(InputFormat::Cat));
+        assert_eq!(releases[1].engine(), Engine::AlleyCat(InputFormat::Tandy));
+        assert_eq!(
+            releases[2].engine(),
+            Engine::AlleyCat(InputFormat::CatWithPatch)
+        );
+        assert_eq!(releases[1].files[0].name, "TANDYCAT.EXE");
+        assert_eq!(releases[2].files[0].name, "CAT.EXE");
+        assert_eq!(releases[2].files[1].name, "791CE265.DIF");
+        for release in &releases[1..] {
+            assert!(releases[0].compatible_with(release));
+            assert!(release.compatible_with(releases[0]));
+            assert!(!std::ptr::eq(
+                release.edition.specs,
+                releases[0].edition.specs
+            ));
+        }
+        assert!(std::ptr::eq(
+            releases[1].edition.specs,
+            releases[2].edition.specs
+        ));
+        assert_eq!(releases[0].id, "alley-cat-dos-7b92bb401f");
+    }
 
     #[test]
     fn mach3_packagings_share_resources_edition_and_compatibility() {

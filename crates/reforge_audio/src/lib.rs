@@ -5,6 +5,7 @@
 
 pub mod category;
 pub mod pit;
+pub mod psg;
 pub mod render;
 pub mod speaker;
 pub mod wav;

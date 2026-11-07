@@ -3,7 +3,8 @@
 Climb the alley's bins and clotheslines, enter windows to tackle the room
 challenges, and reach the female cat in the Hearts stage. REforge includes all
 five ordinary rooms, the underwater section and the Hearts bonus scene, with
-PC Speaker music and effects.
+PC Speaker music and effects, plus restored three-voice intro music with
+supported patched inputs.
 
 Ordinary movement has more consistent pacing across rooms, and selected
 animations play more smoothly.
@@ -15,9 +16,12 @@ animations play more smoothly.
 
 ## What you need
 
-Supply the original DOS **CAT.EXE**. One verified DOS release is currently
-supported; COM, booter and other platform versions are not interchangeable.
-REforge will report an unsupported version if the file does not match.
+Supply the supported DOS **CAT.EXE**, the NewRisingSun-patched
+**TANDYCAT.EXE**, or **CAT.EXE** together with its **791CE265.DIF** patch.
+For the last option, keep both files in the selected game directory. REforge
+applies the patch in memory; your files stay unchanged. No patch or game data
+is bundled. Other EXE, COM, booter and platform versions are not interchangeable;
+see the [supported input details](../../engines/alleycat/README.md#original-game-required).
 
 ## Start playing
 
@@ -27,7 +31,8 @@ After [building REforge](../../README.md#getting-started), run from the reposito
 ./target/release/reforge --original /path/to/alley-cat
 ```
 
-You can also point `--original` directly to `CAT.EXE`.
+You can also point `--original` directly to `CAT.EXE` or `TANDYCAT.EXE`.
+If a directory contains both executables, select the one you want explicitly.
 Press a key to leave the animated title, choose a skill, then press another key
 at the instructions to start. K/H/T/A select Kitten, House Cat, Tomcat or Alley Cat.
 You can also choose with the arrow keys and Enter, or a gamepad.
@@ -68,10 +73,13 @@ jump physics. To use the original polling behavior, open
 **F10 → Alley Cat overrides → Controls → Input response**. Check
 **Override global defaults** to edit, then Apply.
 
-**CGA or PCjr graphics:** CGA is the default. Add `--machine pcjr` to select
-PCjr graphics. The modes also retain their original pacing differences;
-underwater play can feel more variable in PCjr. Both modes currently use
-PC Speaker sound.
+**Machine:** the original input offers CGA (the default) and PCjr.
+The restored inputs also offer Tandy and default to it. Choose in the launcher,
+or use `--machine cga`, `pcjr` or `tandy`. The modes retain their original pacing
+differences; underwater play can feel more variable in PCjr and Tandy.
+With restored inputs, PCjr and Tandy play the three-voice intro melody;
+CGA keeps the PC Speaker version. Gameplay effects remain PC Speaker. Restored
+inputs also use white menu and pause text.
 
 **Starting skill:** use the menu, or add `--difficulty 0`, `1`, `2` or `3` for
 Kitten through Alley Cat. The command line also lets you start directly at the
@@ -89,7 +97,7 @@ independent of the menu's host mute and volume controls.
 
 ## Current limits
 
-Only the supported DOS executable is accepted. The original movement and landing
+Only the supported DOS inputs are accepted. The original movement and landing
 quirks are retained, so a difficult jump is not automatically an input fault.
 Hardware timing is reconstructed; exact behavior on every historical machine
 is not guaranteed.

@@ -63,6 +63,53 @@ fn complete_cache_loads_without_detecting_or_rendering_even_when_originals_are_a
 }
 
 #[test]
+fn restored_editions_generate_and_cache_all_three_machine_variants() {
+    for release in detection::RELEASES.iter().filter(|release| {
+        matches!(
+            release.engine(),
+            detection::Engine::AlleyCat(format) if format != alleycat::assets::InputFormat::Cat
+        )
+    }) {
+        let directory = TestDirectory::new();
+        let mut request = preview_request(&directory.0);
+        request.identity.release = release.id.into();
+        request.identity.preferred = "tandy".into();
+        let mut detections = 0;
+        let mut rendered = Vec::new();
+        let found = generate_with(
+            &request,
+            Some(&directory.0),
+            |_| {
+                detections += 1;
+                Ok(Detected {
+                    game: release.game(),
+                    release,
+                    root: directory.0.clone(),
+                    original: request.identity.original.clone(),
+                    files: BTreeMap::new(),
+                })
+            },
+            |detected, variant| {
+                assert_eq!(detected.engine(), release.engine());
+                rendered.push(variant.to_owned());
+                Ok(frame())
+            },
+        );
+        assert_eq!(detections, 1);
+        assert_eq!(rendered, ["tandy", "cga", "pcjr"]);
+        assert_eq!(found.len(), 3);
+        request.identity.allow_generation = false;
+        let cached = generate_with(
+            &request,
+            Some(&directory.0),
+            |_| panic!("cached restored previews must not verify originals"),
+            |_, _| panic!("cached restored previews must not be regenerated"),
+        );
+        assert_eq!(cached.len(), 3);
+    }
+}
+
+#[test]
 fn only_the_missing_or_corrupt_variant_is_regenerated() {
     for corrupt in [false, true] {
         let directory = TestDirectory::new();

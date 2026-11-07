@@ -90,7 +90,7 @@ fn plan(
         .original
         .ok_or("Supply --original <file-or-directory>; use --help for usage")?;
     let detected = detector(&path)?;
-    let mut prepared = options::prepare(input.remaining, detected.game);
+    let mut prepared = options::prepare_for_detected(input.remaining, &detected);
     let mut warnings = input.warnings;
     warnings.append(&mut prepared.warnings);
     Ok(Plan {
@@ -241,8 +241,8 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
     args.extend(remaining);
     let _preferences = prefs.install();
     let inputs = plan.detected.inputs();
-    match plan.detected.game.engine() {
-        Engine::AlleyCat => {
+    match plan.detected.engine() {
+        Engine::AlleyCat(format) => {
             let args = args
                 .into_iter()
                 .map(|arg| {
@@ -250,7 +250,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
                         .map_err(|_| "Alley Cat requires UTF-8 paths".to_string())
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            alleycat::cli::run(args, &inputs)
+            alleycat::cli::run(args, &inputs, format)
         }
         Engine::Btz(release) => btz::cli::run(
             args.into_iter(),
@@ -305,6 +305,33 @@ mod tests {
             root: path.into(),
         })
     }
+    #[test]
+    fn restored_machine_choice_is_release_specific_and_warns_on_legacy_inputs() {
+        let input = || {
+            extract(args(&[
+                "--original",
+                "cat",
+                "--machine",
+                "pcjr",
+                "--machine",
+                "tandy",
+            ]))
+        };
+        let legacy = plan(input(), synthetic_detect).unwrap();
+        assert_eq!(legacy.args, args(&["--machine", "pcjr"]));
+        assert_eq!(legacy.warnings.len(), 1);
+        assert!(legacy.warnings[0].contains("requires restored Alley Cat inputs"));
+        for release in detection::RELEASES.iter().filter(|release| matches!(release.engine(), detection::Engine::AlleyCat(format) if format != alleycat::assets::InputFormat::Cat)) {
+            let restored = plan(input(), |path| {
+                let mut detected = synthetic_detect(path)?;
+                detected.release = release;
+                Ok(detected)
+            }).unwrap();
+            assert_eq!(restored.args, args(&["--machine", "tandy"]));
+            assert!(restored.warnings.is_empty());
+        }
+    }
+
     #[test]
     fn btz_terminal_renderer_reaches_launch_settings_without_opening_launcher() {
         for game in [

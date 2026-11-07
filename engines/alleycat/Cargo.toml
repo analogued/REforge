@@ -14,6 +14,7 @@ sdl = ["dep:reforge_sdl", "dep:reforge_audio", "reforge_audio/blip"]
 dev-tools = ["dep:reforge_audio", "reforge_audio/blip", "reforge_sdl?/dev-tools"]
 
 [dependencies]
+bzip2 = { version = "=0.5.2", features = ["static"] }
 reforge_graphics = { path = "../../crates/reforge_graphics" }
 reforge_inputs = { path = "../../crates/reforge_inputs" }
 reforge_audio = { path = "../../crates/reforge_audio", optional = true }

@@ -1,4 +1,4 @@
-# Shared PIT and PC speaker devices
+# Shared PIT, PC speaker and tone PSG devices
 
 `reforge_audio` provides deterministic device execution and optional offline
 signal rendering. Its default device implementation has no dependencies and
@@ -32,6 +32,27 @@ drive is channel 2 OUT AND bit 1, independently of the gate level. IBM documents
 that wiring in its [PC Technical Reference](https://www.minuszerodegrees.net/manuals/IBM_5150_Technical_Reference_6322507_APR84.pdf),
 section 1-25. Drive events describe the logic before the speaker driver and
 physical response; they are not pressure samples or synthesized PCM.
+
+`psg::TonePsg` implements the three tone generators' latch/data writes,
+ten-bit dividers and two-decibel attenuation steps of the TI SN76489 family.
+Its counter clock is the input clock divided by sixteen; each expiration
+toggles the corresponding output and reloads the current divider. Register
+writes retain the running counter phase. These are the tone-generator and
+register-format rules in the [TI SN76489AN datasheet](https://map.grauw.nl/resources/sound/texas_instruments_sn76489an.pdf).
+The device accepts input-chip clocks, leaving the engine to select the actual
+clock rate and machine wiring. It does not perform game sequencing.
+
+This is an explicit three-tone subset: the noise channel may be muted, but
+audible noise/control writes fail without mutation. Zero dividers select 1,024
+counter steps; variants that make zero a constant output are not modeled.
+Construction explicitly chooses muted outputs, low phases and a first reload
+after sixteen input clocks. It does not claim a particular hardware power-on
+state. Muting attenuates output while the same counter work continues. Combined
+tone levels use a presentation scale with three-voice headroom; analogue output
+filtering, physical response and write setup/hold intervals are outside this
+model. Synthetic checks cover ordered register bytes, divider changes without
+phase resets, attenuation, simultaneous edges, chunk invariance and rejected
+noise writes.
 
 ## Clock and ordering
 

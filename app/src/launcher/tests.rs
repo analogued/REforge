@@ -1980,17 +1980,7 @@ fn native_engine_previews() {
         assert_eq!(state.games.len(), paths.len());
         let mut manager = preview::sources::Manager::new(Some(fixture.directory.join("previews")));
         let start = std::time::Instant::now();
-        while state.games.iter().any(|g| {
-            g.previews.len()
-                != if matches!(
-                    g.game_id.as_str(),
-                    "mindwheel" | "essex" | "brimstone" | "breakers"
-                ) {
-                    1
-                } else {
-                    2
-                }
-        }) {
+        while state.games.iter().any(|game| !game.previews_complete()) {
             assert!(
                 start.elapsed() < Duration::from_secs(15),
                 "engine preview generation timed out"
@@ -2004,8 +1994,10 @@ fn native_engine_previews() {
             let detected = detection::detect(&game.original).unwrap();
             for (variant, source) in &game.previews {
                 let inputs = detected.inputs();
-                let again = match detected.game.engine() {
-                    detection::Engine::AlleyCat => alleycat::launcher::preview(&inputs, variant),
+                let again = match detected.engine() {
+                    detection::Engine::AlleyCat(format) => {
+                        alleycat::launcher::preview(&inputs, format, variant)
+                    }
                     detection::Engine::Mach3 => mach3::launcher::preview(&inputs, variant),
                     detection::Engine::Btz(release) => {
                         btz::launcher::preview(&inputs, release, variant)

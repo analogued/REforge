@@ -16,13 +16,18 @@ fn playback_uses_resolved_inputs_instead_of_argument_paths() {
     std::fs::write(&path, b"authored malformed executable").unwrap();
     let files = reforge_inputs::ResolvedFiles::new([("CAT.EXE", path.clone())]);
     let args = ["--original", "unused-argument-path.exe", "--seed", "2"];
-    let result = run(args.map(String::from), &files);
+    let result = run(
+        args.map(String::from),
+        &files,
+        crate::assets::InputFormat::Cat,
+    );
     std::fs::remove_file(path).unwrap();
     assert!(result.unwrap_err().contains("MZ image"));
 
     let result = run(
         args.map(String::from),
         &reforge_inputs::ResolvedFiles::default(),
+        crate::assets::InputFormat::Cat,
     );
     assert!(result.unwrap_err().contains("CAT.EXE"));
 }
@@ -34,7 +39,12 @@ fn title_sound_toggles_remain_valid_after_committed_drawing_work() {
     use alleycat::sound::render::Renderer;
     use reforge_audio::category::CategoryVolumes;
 
-    for machine in [Machine::Cga, Machine::Pcjr] {
+    for (machine, restored) in [
+        (Machine::Cga, false),
+        (Machine::Pcjr, false),
+        (Machine::Pcjr, true),
+        (Machine::Tandy, true),
+    ] {
         for repeated in [false, true] {
             let mut data = vec![0; DATA_LENGTH];
             set_word(&mut data, 0x2ae5, 0xfa59);
@@ -53,6 +63,9 @@ fn title_sound_toggles_remain_valid_after_committed_drawing_work() {
                 Splash::new(&data, machine).unwrap()
             };
             splash.sound.record(true);
+            if restored {
+                splash.set_title_music(Some(crate::sound::psg::synthetic_music()), 0);
+            }
             let mut clock = VirtualClock::new(RetraceProfile::for_machine(machine));
             let mut renderer = Renderer::new(CategoryVolumes::default()).unwrap();
 

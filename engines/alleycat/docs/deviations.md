@@ -148,6 +148,17 @@ directly, without replaying the splash. An explicit `--difficulty` skips the ski
 question and shows controls with a separate key-to-start wait. Menu waits ignore
 desktop shortcuts, modifier keys alone and held-key repeats.
 
+## Restored executable integration
+
+Both supported restored input forms use the same native Rust gameplay and
+coordinate contracts as the DOS conversion. The loader translates full-build
+asset pointers and retains the conversion's completion-image row convention and
+menu placement, rather than reproducing those small full-build layout changes.
+The external full-build score remains separate and supplies PCjr/Tandy title
+music. DOS interrupt hooks, hardware detection and the external-speaker question
+are replaced by the Machine choice; no DOS adapter code executes. The restored
+title's distinct timer rate and native sound-toggle sequencing remain.
+
 ## Startup seed and original bad-state guard
 
 Normal play uses the original `2e10` counter-byte swap and zero-to-`0xfa59`

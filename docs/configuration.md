@@ -161,8 +161,13 @@ release and resolved file paths. It checks file sizes and modification times
 before accepting the handoff; an unavailable or invalid handoff falls back to
 full verification. Direct command-line launches perform full verification.
 
-Multiple matching releases remain ambiguous, including a renamed release beside
-a normally named one. Selecting a file requires that exact file to satisfy one
+When one fully verified manifest strictly extends another for the same
+compatible game and root, selecting all the same files plus extra resources,
+the complete extension takes precedence. This lets CAT.EXE plus its verified
+restoration DIF select restored Alley Cat instead of the CAT-only input.
+Independent executables and other distinct matching releases remain ambiguous,
+including a renamed release beside a normally named one.
+Selecting a file requires that exact file to satisfy one
 of the release's records, with the remaining files in the permitted locations.
 For a file inside a catalog subdirectory, REforge also checks the corresponding
 game root. Multiple complete roots remain ambiguous; select the intended root
@@ -427,8 +432,8 @@ devices and focus defaults can be edited globally even from a silent game.
 
 Mach 3's normal timed playback supports PC speaker and Enhanced PCM; Game default
 selects its original speaker renderer. Development-only step/static previews remain
-silent. Alley Cat supports PC Speaker playback in its normal timed runner and
-animated title, with Music and Effects categories; its uniform-step diagnostic
+silent. Alley Cat supports PC Speaker playback and restored PCjr/Tandy
+three-voice title music, with Music and Effects categories; its uniform-step diagnostic
 runner remains silent. Engines declare supported Music, Speech and Sound effects groups;
 unsupported game groups remain visible but disabled. Global category defaults
 can still be edited. Latency controls and stereo processing are not implemented.
@@ -718,7 +723,7 @@ The catalog has four linked record types:
 | Record | Data |
 | --- | --- |
 | `GameMetadata` | Typed game identity, canonical title, genres and tagline. |
-| `Edition` | Internal edition ID, game reference, platform, optional title replacement, year, developers, publishers, optional display label and specs profile reference. |
+| `Edition` | Internal edition ID, game reference, platform, optional title replacement, year, developers, publishers, optional display label, typed engine loading profile and specs profile reference. |
 | `SpecsProfile` | Internal profile ID and video/audio feature lists. |
 | `Release` | Assigned detected-release ID, edition reference, compatibility group and filename/size/BLAKE3 fingerprints. |
 
@@ -734,6 +739,8 @@ The current chains are:
 | Detected release ID | Edition ID | Game ID | Specs profile ID |
 | --- | --- | --- | --- |
 | `alley-cat-dos-7b92bb401f` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
+| `alley-cat-dos-17b9603eee` | `alley-cat-dos-nrs-tandy` | `alley-cat` | `alley-cat-dos-restored` |
+| `alley-cat-dos-bc3e9d804a` | `alley-cat-dos-nrs-patch` | `alley-cat` | `alley-cat-dos-restored` |
 | `mach-3-dos-3d1f0c95f9` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
 | `mach-3-dos-564352e19f` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
 | `mach-3-dos-549ea638df` | `mach-3-dos` | `mach-3` | `mach-3-dos` |
@@ -749,8 +756,9 @@ for that release, alongside the game root. All current releases use root files.
 All current editions have platform `Platform::Dos`. Edition IDs name catalog
 groupings; the precise commercial edition/version designations remain unverified.
 Edition, specs and compatibility IDs have separate namespaces. Each current
-detected release uses its game's `*-dos` compatibility ID, matching the edition
-ID; the four BTZ editions share the `btz-dos-text` specs profile. Sharing edition
+detected release uses its game's `*-dos` compatibility ID. Restored Alley Cat
+editions have distinct edition IDs but retain `alley-cat-dos` compatibility;
+the four BTZ editions share the `btz-dos-text` specs profile. Sharing edition
 or specs records does not establish save/configuration compatibility: each
 detected release retains its explicit compatibility group.
 
@@ -834,7 +842,7 @@ The local development `project.toml` inventories are not runtime catalog inputs.
 
 The launcher loads cached static engine scene previews in a background worker
 and generates missing or corrupt images from verified originals. It warms the
-available visual variants (CGA/PCjr for Alley Cat, colour/monochrome for Mach
+available visual variants (CGA/PCjr and, for restored inputs, Tandy for Alley Cat, colour/monochrome for Mach
 3). Mach 3 uses its first splash screen. Alley Cat uses its intro, advanced
 with fixed seed `0xcafe` and the normal virtual startup loop until the cat sits
 on the fence with the SynSoft footer visible. BTZ uses the game's original

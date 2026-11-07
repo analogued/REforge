@@ -78,6 +78,7 @@ fn all_releases_keep_their_verified_paths_without_another_detector_call() {
         .unwrap();
         assert_eq!(found.game, fixture.detected.game);
         assert_eq!(found.release.id, release.id);
+        assert_eq!(found.engine(), release.engine());
         assert_eq!(found.root, fixture.detected.root);
         assert_eq!(found.original, fixture.detected.original);
         assert_eq!(found.files, fixture.detected.files);

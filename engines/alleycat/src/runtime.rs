@@ -1314,7 +1314,7 @@ impl ReferenceCosts {
             mouse_catch: 7_408_100,
             // Whole trios, including their counted sound loops once. The
             // original PCjr software branch is measured on the same XT CPU.
-            bin_push_sound: if machine == Machine::Pcjr {
+            bin_push_sound: if machine.is_pcjr() {
                 35_107_600
             } else {
                 69_985_143
@@ -1644,7 +1644,7 @@ impl ReferenceCosts {
             mouse_redraw: 1_550_000,
             mouse_catch: 7_600_000,
             // Provisional total allowance, including the three counted loops.
-            bin_push_sound: if machine == Machine::Pcjr {
+            bin_push_sound: if machine.is_pcjr() {
                 40_900_000
             } else {
                 81_500_000

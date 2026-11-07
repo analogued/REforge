@@ -6,13 +6,45 @@
 use crate::framebuffer::{Dimensions, Framebuffer};
 use std::path::Path;
 
+mod patch;
+mod restored;
+
 pub const DATA_LENGTH: usize = 0x7130;
+
+/// Data layout chosen by application detection, without engine fingerprinting.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputFormat {
+    Cat,
+    Tandy,
+    CatWithPatch,
+}
 
 pub struct Assets {
     data: Vec<u8>,
+    restored: Option<Vec<u8>>,
 }
 
 impl Assets {
+    pub fn from_files(
+        files: &reforge_inputs::ResolvedFiles,
+        format: InputFormat,
+    ) -> Result<Self, String> {
+        let read = |role| {
+            files
+                .read(role)
+                .map_err(|error| format!("Cannot read executable resource {role}: {error}"))
+        };
+        match format {
+            InputFormat::Cat => Self::from_executable(&read("CAT.EXE")?),
+            InputFormat::Tandy => Self::from_restored_executable(&read("TANDYCAT.EXE")?),
+            InputFormat::CatWithPatch => {
+                let executable = read("CAT.EXE")?;
+                let patched = patch::apply(&executable, &read("791CE265.DIF")?)?;
+                Self::from_restored_executable(&patched)
+            }
+        }
+    }
+
     pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
         let bytes = std::fs::read(path.as_ref())
             .map_err(|error| format!("Cannot read executable assets: {error}"))?;
@@ -30,7 +62,40 @@ impl Assets {
             .ok_or("Executable assets have a truncated game-data block")?;
         Ok(Self {
             data: data.to_vec(),
+            restored: None,
         })
+    }
+
+    fn from_restored_executable(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.get(..2) != Some(b"MZ") || bytes.get(8..10) != Some(&0x20u16.to_le_bytes()) {
+            return Err("Executable assets require an MZ image with a 0x200-byte header".into());
+        }
+        let restored = bytes
+            .get(0x6940..0x6940 + restored::DATA_LENGTH)
+            .ok_or("Restored executable has a truncated game-data block")?;
+        Ok(Self {
+            data: restored::normalize(restored)?,
+            restored: Some(restored.to_vec()),
+        })
+    }
+
+    /// Unmodified full-build data segment, including the restored PSG score.
+    /// Gameplay uses the normalized legacy layout returned by `data()`.
+    pub fn restored_data(&self) -> Option<&[u8]> {
+        self.restored.as_deref()
+    }
+
+    pub fn title_music(
+        &self,
+        machine: crate::alley::Machine,
+    ) -> Result<Option<std::sync::Arc<crate::sound::psg::Music>>, String> {
+        if machine == crate::alley::Machine::Cga {
+            return Ok(None);
+        }
+        self.restored_data()
+            .map(crate::sound::psg::Music::from_data)
+            .transpose()
+            .map(|music| music.map(std::sync::Arc::new))
     }
 
     pub fn data(&self) -> &[u8] {

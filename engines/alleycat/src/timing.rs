@@ -137,6 +137,8 @@ pub struct VirtualClock {
     /// Units are 1/1e9 of a PIT input clock.
     elapsed_scaled: u128,
     initial_tick: u16,
+    bios_divisor: u32,
+    bios_epoch_scaled: u128,
     retrace: RetraceProfile,
 }
 
@@ -149,8 +151,21 @@ impl VirtualClock {
         Self {
             elapsed_scaled: 0,
             initial_tick,
+            bios_divisor: BIOS_TICK_PIT_CLOCKS as u32,
+            bios_epoch_scaled: 0,
             retrace,
         }
+    }
+
+    /// Reprogram channel zero at the current instant, preserving the BIOS
+    /// count while restarting the counter phase. The restored title also does
+    /// this when native sound is re-enabled. Gameplay keeps the default divisor.
+    #[cfg(any(feature = "sdl", feature = "dev-tools", test))]
+    pub(crate) fn set_bios_divisor(&mut self, divisor: u32) {
+        debug_assert!((1..=65_536).contains(&divisor));
+        self.initial_tick = self.bios_sample().tick_low;
+        self.bios_epoch_scaled = self.elapsed_scaled;
+        self.bios_divisor = divisor;
     }
 
     pub fn advance(&mut self, duration: Duration) {
@@ -168,8 +183,8 @@ impl VirtualClock {
     /// Advance to the first BIOS edge strictly after the current instant.
     /// This preserves the fractional phase for deterministic blocking waits.
     pub fn advance_to_next_bios_tick(&mut self) {
-        let period = u128::from(BIOS_TICK_PIT_CLOCKS) * NANOS_PER_SECOND;
-        self.elapsed_scaled += period - self.elapsed_scaled % period;
+        let period = u128::from(self.bios_divisor) * NANOS_PER_SECOND;
+        self.elapsed_scaled += period - (self.elapsed_scaled - self.bios_epoch_scaled) % period;
     }
 
     /// Skip the current retrace pulse, if any, and reach the next set edge.
@@ -200,7 +215,8 @@ impl VirtualClock {
     }
 
     pub fn bios_sample(&self) -> BiosSample {
-        let ticks = self.elapsed_pit_ticks() / u128::from(BIOS_TICK_PIT_CLOCKS);
+        let ticks = (self.elapsed_scaled - self.bios_epoch_scaled)
+            / (u128::from(self.bios_divisor) * NANOS_PER_SECOND);
         BiosSample {
             tick_low: self.initial_tick.wrapping_add(ticks as u16),
             ax: 0,
@@ -212,16 +228,13 @@ impl VirtualClock {
     }
 
     pub fn pit_counter(&self) -> u16 {
-        // DOSBox-X mode 3 interpolates the down-count, truncates to a word,
-        // then clears its low bit. For this even divisor that equals rounding
-        // the fractional input-clock phase up before decrementing by two.
-        // Thus this latch matches the emulator's interpolation rather than a
-        // physical discrete-edge count. Each half period reloads 65536 (word
-        // zero), while IRQ0/BIOS rises once per full period.
-        // Source: DOSBox-X timer.cpp, PIT_Block::read_counter's mode-3 behavior.
-        let half_scaled = self.elapsed_scaled % (32_768 * NANOS_PER_SECOND);
-        let half_phase = half_scaled.div_ceil(NANOS_PER_SECOND) as u16;
-        0_u16.wrapping_sub(half_phase.wrapping_mul(2))
+        // DOSBox-X mode 3 interpolates the count at twice the input-clock
+        // phase, wrapping at each half-period, truncating and clearing bit 0.
+        // Keep rational phase for both the normal even and title's odd divisor.
+        // Source: timer.cpp, PIT_Block::read_counter's mode-3 behavior.
+        let period = u128::from(self.bios_divisor) * NANOS_PER_SECOND;
+        let phase = ((self.elapsed_scaled - self.bios_epoch_scaled) % period) * 2 % period;
+        ((period - phase) / NANOS_PER_SECOND) as u16 & !1
     }
 
     pub fn sample(&self) -> ClockSample {
@@ -295,7 +308,7 @@ impl PlayerGate {
         let ax = if bios.tick_low != self.last_tick {
             let reload = match machine {
                 Machine::Cga => 32,
-                Machine::Pcjr => 16,
+                Machine::Pcjr | Machine::Tandy => 16,
             };
             self.countdown = reload;
             reload
@@ -497,6 +510,40 @@ mod tests {
         assert_eq!(split.elapsed_scaled, whole.elapsed_scaled);
         assert_eq!(split.sample(), whole.sample());
         assert_eq!(split.bios_sample().tick_low, 18);
+    }
+
+    #[test]
+    fn restored_title_uses_its_programmed_timer_without_changing_gameplay_clock() {
+        let mut title = VirtualClock::default();
+        title.set_bios_divisor(0xcfff);
+        title.advance_pit_ticks(0xcffe);
+        assert_eq!(title.bios_sample().tick_low, 0);
+        title.advance_to_next_bios_tick();
+        assert_eq!(title.elapsed_pit_ticks(), 0xcfff);
+        assert_eq!(title.bios_sample().tick_low, 1);
+        title.advance_pit_ticks(0xcfff * 7);
+        assert_eq!(title.bios_sample().tick_low, 8);
+        let mut game = VirtualClock::default();
+        game.advance_pit_ticks(0xcfff);
+        assert_eq!(game.bios_sample().tick_low, 0);
+        game.advance_to_next_bios_tick();
+        assert_eq!(game.elapsed_pit_ticks(), 65_536);
+    }
+
+    #[test]
+    fn reprogramming_title_timer_keeps_bios_count_but_restarts_counter_phase() {
+        let mut clock = VirtualClock::default();
+        clock.set_bios_divisor(0xcfff);
+        clock.advance_pit_ticks(0xcfff + 1234);
+        assert_eq!(clock.bios_sample().tick_low, 1);
+        clock.set_bios_divisor(0xcfff);
+        assert_eq!(clock.bios_sample().tick_low, 1);
+        assert_eq!(clock.pit_counter(), 0xcffe);
+        clock.advance_pit_ticks(0xcffe);
+        assert_eq!(clock.bios_sample().tick_low, 1);
+        clock.advance_to_next_bios_tick();
+        assert_eq!(clock.bios_sample().tick_low, 2);
+        assert_eq!(clock.elapsed_pit_ticks(), 0xcfff * 2 + 1234);
     }
 
     #[test]

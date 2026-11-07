@@ -115,12 +115,23 @@ pub struct PauseOverlay {
 
 impl PauseOverlay {
     pub fn new(title: &str, machine: Machine) -> Result<Self, String> {
+        Self::with_text_color(title, machine, 2)
+    }
+
+    pub(crate) fn with_text_color(
+        title: &str,
+        machine: Machine,
+        color: u8,
+    ) -> Result<Self, String> {
+        if color > 3 {
+            return Err("pause text color is outside its range".into());
+        }
         if title.contains('\0') {
             return Err("pause text contains a NUL byte".into());
         }
         Ok(Self {
             lines: [title.into(), "     P / Pause to continue...    ".into()],
-            color: machine.colors()[2],
+            color: machine.colors()[usize::from(color)],
         })
     }
 }

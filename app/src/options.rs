@@ -199,9 +199,9 @@ const SPECS: &[Spec] = &[
     Spec {
         name: "--machine",
         scope: Scope::Game(Game::AlleyCat),
-        value: Value::Choice(&["cga", "pcjr"]),
+        value: Value::Choice(&["cga", "pcjr", "tandy"]),
         dev: false,
-        description: "Hardware path (default cga)",
+        description: "Hardware path: cga, pcjr or restored-input tandy (default cga; restored inputs tandy)",
     },
     Spec {
         name: "--difficulty",
@@ -624,7 +624,23 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
     }
 }
 
+#[cfg(test)]
 pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared {
+    prepare_with_engine(args, game, None)
+}
+
+pub fn prepare_for_detected(
+    args: impl IntoIterator<Item = OsString>,
+    detected: &crate::detection::Detected,
+) -> Prepared {
+    prepare_with_engine(args, detected.game, Some(detected.engine()))
+}
+
+fn prepare_with_engine(
+    args: impl IntoIterator<Item = OsString>,
+    game: Game,
+    engine: Option<crate::detection::Engine>,
+) -> Prepared {
     let mut args = args.into_iter().peekable();
     let mut entries = Vec::new();
     let mut warnings = Vec::new();
@@ -688,10 +704,24 @@ pub fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared
                 continue;
             };
             match validate(spec, value, game) {
-                Ok(value) => entries.push(Entry {
-                    spec,
-                    value: Some(value),
-                }),
+                Ok(value) => {
+                    if spec.name == "--machine"
+                        && value == "tandy"
+                        && matches!(
+                            engine,
+                            Some(crate::detection::Engine::AlleyCat(
+                                alleycat::assets::InputFormat::Cat
+                            ))
+                        )
+                    {
+                        warnings.push("--machine tandy requires restored Alley Cat inputs; ignored (previous value or default retained)".into());
+                    } else {
+                        entries.push(Entry {
+                            spec,
+                            value: Some(value),
+                        });
+                    }
+                }
                 Err(error) => warnings.push(format!(
                     "{}: {error}; ignored (previous value or default retained)",
                     spec.name

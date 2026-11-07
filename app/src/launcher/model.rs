@@ -123,12 +123,10 @@ impl GameEntry {
             .iter()
             .find(|r| r.id == entry.release_id && r.game().id() == entry.game_id);
         let edition = release.map(|r| r.edition);
-        let options = match release.map(|r| r.game()) {
-            Some(Game::AlleyCat) => alleycat::launcher::OPTIONS,
-            Some(Game::Mach3) => mach3::launcher::OPTIONS,
-            Some(Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers) => {
-                btz::launcher::OPTIONS
-            }
+        let options = match release.map(|r| r.engine()) {
+            Some(detection::Engine::AlleyCat(format)) => alleycat::launcher::options(format),
+            Some(detection::Engine::Mach3) => mach3::launcher::OPTIONS,
+            Some(detection::Engine::Btz(_)) => btz::launcher::OPTIONS,
             None => &[],
         };
         Self {
@@ -188,12 +186,12 @@ impl GameEntry {
         self.error = self.refresh_preferences().err();
     }
     pub fn previews_complete(&self) -> bool {
-        let variants = match self.edition.map(|edition| edition.game.identity) {
-            Some(Game::AlleyCat) => alleycat::launcher::PREVIEW_VARIANTS,
-            Some(Game::Mach3) => mach3::launcher::PREVIEW_VARIANTS,
-            Some(Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers) => {
-                btz::launcher::PREVIEW_VARIANTS
+        let variants = match self.edition.map(|edition| edition.engine) {
+            Some(detection::Engine::AlleyCat(format)) => {
+                alleycat::launcher::preview_variants(format)
             }
+            Some(detection::Engine::Mach3) => mach3::launcher::PREVIEW_VARIANTS,
+            Some(detection::Engine::Btz(_)) => btz::launcher::PREVIEW_VARIANTS,
             None => return false,
         };
         variants

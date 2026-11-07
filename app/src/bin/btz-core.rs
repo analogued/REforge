@@ -420,7 +420,7 @@ fn resolve_inputs(
         });
     }
     let detected = detect(original)?;
-    let reforge::detection::Engine::Btz(release) = detected.game.engine() else {
+    let reforge::detection::Engine::Btz(release) = detected.engine() else {
         return Err("btz-core requires a supported BTZ installation".into());
     };
     let inputs = detected.inputs();

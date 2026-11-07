@@ -19,6 +19,7 @@ pub enum Machine {
     #[default]
     Cga,
     Pcjr,
+    Tandy,
 }
 
 impl Machine {
@@ -27,8 +28,13 @@ impl Machine {
     pub(crate) const fn rgb_colors(self) -> [[u8; 3]; 4] {
         match self {
             Self::Cga => [[0, 0, 0], [0, 170, 170], [170, 0, 170], [170, 170, 170]],
-            Self::Pcjr => [[0, 0, 0], [85, 255, 85], [85, 85, 255], [255, 255, 255]],
+            Self::Pcjr | Self::Tandy => [[0, 0, 0], [85, 255, 85], [85, 85, 255], [255, 255, 255]],
         }
+    }
+
+    /// PCjr software branches also serve the restored Tandy adapter.
+    pub(crate) const fn is_pcjr(self) -> bool {
+        matches!(self, Self::Pcjr | Self::Tandy)
     }
 
     pub(crate) fn colors(self) -> [[u8; 4]; 4] {
@@ -95,6 +101,8 @@ pub struct SelectionTraceState {
 pub struct Alley {
     data: Vec<u8>,
     pub(crate) sound: crate::sound::Sound,
+    psg_music: Option<std::sync::Arc<crate::sound::psg::Music>>,
+    text_color: u8,
     screen: Framebuffer,
     presented: Framebuffer,
     compositor: PlayerCompositor,
@@ -204,7 +212,10 @@ impl Alley {
             return Err("The current run has not ended".into());
         }
         self.promote_high_score();
-        crate::splash::Splash::after_game_over(&self.data, self.machine, 0)
+        let mut splash = crate::splash::Splash::after_game_over(&self.data, self.machine, 0)?;
+        splash.set_title_music(self.psg_music.clone(), 0);
+        splash.text_color = self.text_color;
+        Ok(splash)
     }
 
     /// Resume after the later title without reseeding or clearing room history.
@@ -223,10 +234,7 @@ impl Alley {
 
     /// Build the keyboard menu from the external executable's text tables.
     pub fn menu(&self, difficulty: Option<u16>) -> Result<crate::menu::Menu, String> {
-        match difficulty {
-            Some(level) => crate::menu::Menu::with_difficulty(&self.data, self.machine, level),
-            None => crate::menu::Menu::new(&self.data, self.machine),
-        }
+        crate::menu::Menu::with_text_color(&self.data, self.machine, difficulty, self.text_color)
     }
 
     /// Apply the menu selection to this run and subsequent restarts.
@@ -637,6 +645,11 @@ impl Alley {
         })
     }
 
+    #[cfg(feature = "sdl")]
+    pub(crate) fn text_color(&self) -> u8 {
+        self.text_color
+    }
+
     pub fn machine(&self) -> Machine {
         self.machine
     }
@@ -701,6 +714,8 @@ impl Alley {
         data[0x100e] = 7;
         Self {
             sound: crate::sound::Sound::default(),
+            psg_music: None,
+            text_color: 2,
             data,
             screen: Framebuffer::default(),
             presented: Framebuffer::default(),
@@ -743,7 +758,14 @@ impl Alley {
         difficulty: u16,
         machine: Machine,
     ) -> Result<Self, String> {
-        Self::from_runtime_data(assets.runtime_data(), seed, difficulty, machine)
+        let mut alley = Self::from_runtime_data(assets.runtime_data(), seed, difficulty, machine)?;
+        alley.psg_music = assets.title_music(machine)?;
+        alley.text_color = if assets.restored_data().is_some() {
+            3
+        } else {
+            2
+        };
+        Ok(alley)
     }
 
     fn from_runtime_data(
@@ -766,7 +788,7 @@ impl Alley {
         set_word(&mut data, 8, difficulty);
         set_word(&mut data, 0x2ae5, seed);
         set_word(&mut data, 0x6df8, 0);
-        data[0x697] = if machine == Machine::Pcjr { 0xfd } else { 0xfc };
+        data[0x697] = if machine.is_pcjr() { 0xfd } else { 0xfc };
         let mut screen = Framebuffer::default();
         initialize_score_state(&mut data)?;
         initialize_alley(&mut data, &mut screen)?;
@@ -798,6 +820,8 @@ impl Alley {
             return Err("Alley difficulty must be in 0..7".into());
         }
         let mut alley = Self::unstarted(splash.data().to_vec(), seed, difficulty, splash.machine());
+        alley.psg_music = splash.title_music().cloned();
+        alley.text_color = splash.text_color;
         alley.player = splash.player().clone();
         Ok(alley)
     }
@@ -805,6 +829,8 @@ impl Alley {
     fn unstarted(data: Vec<u8>, seed: u16, difficulty: u16, machine: Machine) -> Self {
         Self {
             sound: crate::sound::Sound::default(),
+            psg_music: None,
+            text_color: 2,
             data,
             presented: Framebuffer::default(),
             screen: Framebuffer::default(),
@@ -2270,7 +2296,7 @@ impl Alley {
         };
         let mut colors = if palette_scene == 0 {
             self.machine.colors()
-        } else if self.machine == Machine::Pcjr {
+        } else if self.machine.is_pcjr() {
             [
                 hardware_color(0),
                 hardware_color(self.data[0x183b + palette_scene]),

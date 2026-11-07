@@ -1,6 +1,7 @@
 # Timing contracts
 
-These contracts describe the executable identified in the
+Unless marked as restored-input behavior, these contracts describe the
+55,067-byte executable identified in the
 [README](../README.md#original-game-required). Code addresses below are offsets
 within its original code segment; data addresses are offsets within its game
 data segment. They identify behavior, not a required DOS load address.
@@ -25,6 +26,20 @@ reviewed paths. The channel-0 writes above latch its count; they do not change
 its clock divisor. Reviewed sound paths separately program PIT channel 2.
 The PIT read at `2e10` seeds the shared random state; it is not evidence of a
 CPU-speed benchmark.
+
+### Restored PCjr/Tandy title timer
+
+With restored inputs, the PCjr and Tandy title programs PIT channel zero to
+`0xcfff` (53,247) instead of 65,536. REforge selects that divisor in the title's
+virtual BIOS clock, including while the native sound flag is off. Re-enabling
+native sound reinitializes the score and counter phase, retaining the BIOS
+tick count. The initial
+timeout is about 38 seconds rather than 47 seconds. The restored PSG score
+advances once per changed BIOS tick; the later title does not take the speaker
+path's periodic presentation reset. Title exit restores the ordinary timer;
+REforge's separate gameplay epoch retains divisor 65,536. CGA and unpatched
+inputs keep the existing speaker title clock. See the
+[restored score reference](original-engine.md#three-voice-title-score).
 
 ## Player acceptance
 

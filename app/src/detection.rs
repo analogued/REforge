@@ -33,7 +33,7 @@ pub enum Game {
 /// Loading behavior selected by application identification, not by engine hashes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Engine {
-    AlleyCat,
+    AlleyCat(alleycat::assets::InputFormat),
     Mach3,
     Btz(btz::player::DosRelease),
 }
@@ -42,7 +42,7 @@ impl Game {
     pub const fn engine(self) -> Engine {
         use btz::player::DosRelease;
         match self {
-            Self::AlleyCat => Engine::AlleyCat,
+            Self::AlleyCat => Engine::AlleyCat(alleycat::assets::InputFormat::Cat),
             Self::Mach3 => Engine::Mach3,
             Self::Mindwheel => Engine::Btz(DosRelease::Mindwheel),
             Self::Essex => Engine::Btz(DosRelease::Essex),
@@ -106,6 +106,10 @@ pub struct Release {
 }
 
 impl Release {
+    pub const fn engine(&self) -> Engine {
+        self.edition.engine
+    }
+
     pub const fn game(&self) -> Game {
         self.edition.game.identity
     }
@@ -130,6 +134,10 @@ pub struct Detected {
 }
 
 impl Detected {
+    pub const fn engine(&self) -> Engine {
+        self.release.engine()
+    }
+
     pub fn inputs(&self) -> reforge_inputs::ResolvedFiles {
         reforge_inputs::ResolvedFiles::new(
             self.files.iter().map(|(&name, path)| (name, path.clone())),
@@ -433,6 +441,18 @@ pub(crate) fn detect_with(
             ));
         }
     }
+    // A fully verified add-on extends the same selected installation. Prefer
+    // that complete manifest over its strict subset, never an unrelated copy,
+    // game or alternative executable. Mere filenames are not sufficient.
+    let superseded = verified
+        .iter()
+        .map(|base| verified.iter().any(|other| verified_extension(base, other)))
+        .collect::<Vec<_>>();
+    verified = verified
+        .into_iter()
+        .zip(superseded)
+        .filter_map(|(candidate, superseded)| (!superseded).then_some(candidate))
+        .collect();
     match verified.as_slice() {
         [candidate] => {
             let original = match candidate.release.game() {
@@ -480,6 +500,30 @@ pub(crate) fn detect_with(
                 .join(", ")
         )),
     }
+}
+
+fn verified_extension(base: &Verified, other: &Verified) -> bool {
+    base.root == other.root
+        && base.release.compatible_with(other.release)
+        && base.release.files.len() < other.release.files.len()
+        && base
+            .release
+            .files
+            .iter()
+            .zip(&base.paths)
+            .all(|(base_file, base_path)| {
+                other
+                    .release
+                    .files
+                    .iter()
+                    .zip(&other.paths)
+                    .any(|(file, path)| {
+                        base_file.name.eq_ignore_ascii_case(file.name)
+                            && base_file.size == file.size
+                            && base_file.blake3.eq_ignore_ascii_case(file.blake3)
+                            && search::same_entry(base_path, path)
+                    })
+            })
 }
 
 fn unknown(path: &Path, reason: &str) -> String {

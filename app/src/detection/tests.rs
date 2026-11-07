@@ -3,6 +3,7 @@
 
 use super::*;
 
+mod enhancements;
 mod subdirectories;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -606,7 +607,7 @@ fn hash_cache_is_scoped_to_one_detection_call() {
 
 #[test]
 fn public_catalog_describes_unique_games_and_well_formed_fingerprints() {
-    assert_eq!(RELEASES.len(), 8);
+    assert_eq!(RELEASES.len(), 10);
     let games: std::collections::HashSet<_> =
         RELEASES.iter().map(|release| release.game().id()).collect();
     assert_eq!(games.len(), 6);

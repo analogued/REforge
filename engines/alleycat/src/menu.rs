@@ -79,12 +79,12 @@ impl Line {
         Ok(())
     }
 
-    fn draw(&self, framebuffer: &mut Framebuffer) -> Result<(), String> {
+    fn draw(&self, framebuffer: &mut Framebuffer, color: u8) -> Result<(), String> {
         for (column, &character) in self.text.iter().enumerate() {
             let mut pixels = crate::font::character(character)?;
-            // The shared font packs color three; BIOS teletype BL=2 renders
-            // these menu glyphs in color two on the cleared color-zero screen.
-            pixels.iter_mut().for_each(|byte| *byte &= 0xaa);
+            // BIOS teletype uses BL=2 in the conversion and BL=3 in the
+            // restored full build. Glyphs remain external-independent ROM font.
+            pixels.iter_mut().for_each(|byte| *byte &= color * 0x55);
             framebuffer.copy_rect(
                 pixel_offset(column as u16 * 8, self.row * 8),
                 Dimensions(0x0801),
@@ -107,6 +107,7 @@ pub struct Menu {
     machine: Machine,
     framebuffer: Framebuffer,
     controls: Vec<Line>,
+    text_color: u8,
     difficulty: Option<u16>,
     stage: MenuStage,
     question_frame: Framebuffer,
@@ -116,6 +117,10 @@ pub struct Menu {
 
 impl Menu {
     pub fn new(data: &[u8], machine: Machine) -> Result<Self, String> {
+        Self::new_colored(data, machine, 2)
+    }
+
+    fn new_colored(data: &[u8], machine: Machine, color: u8) -> Result<Self, String> {
         let questions = QUESTION_LINES
             .into_iter()
             .map(|index| Line::external(data, index))
@@ -128,7 +133,7 @@ impl Menu {
         controls[4].text = b"P / Pause  toggles paws mode.".to_vec();
         let mut framebuffer = Framebuffer::default();
         for line in &questions {
-            line.draw(&mut framebuffer)?;
+            line.draw(&mut framebuffer, color)?;
         }
         Ok(Self {
             machine,
@@ -136,6 +141,7 @@ impl Menu {
             skill_rows: std::array::from_fn(|i| questions[i + 1].row),
             framebuffer,
             controls,
+            text_color: color,
             difficulty: None,
             stage: MenuStage::Difficulty,
             cursor_selection: None,
@@ -145,19 +151,30 @@ impl Menu {
     /// An explicitly supplied starting difficulty bypasses the question while
     /// retaining the controls and their separate key-to-start wait.
     pub fn with_difficulty(data: &[u8], machine: Machine, difficulty: u16) -> Result<Self, String> {
-        if difficulty > 7 {
-            return Err("Menu difficulty must be in 0..7".into());
+        Self::with_text_color(data, machine, Some(difficulty), 2)
+    }
+
+    pub(crate) fn with_text_color(
+        data: &[u8],
+        machine: Machine,
+        difficulty: Option<u16>,
+        color: u8,
+    ) -> Result<Self, String> {
+        if color > 3 || difficulty.is_some_and(|value| value > 7) {
+            return Err("Menu color or difficulty is outside its range".into());
         }
-        let mut menu = Self::new(data, machine)?;
-        menu.framebuffer = Framebuffer::default();
-        menu.select_difficulty(difficulty)?;
+        let mut menu = Self::new_colored(data, machine, color)?;
+        if let Some(difficulty) = difficulty {
+            menu.framebuffer = Framebuffer::default();
+            menu.select_difficulty(difficulty)?;
+        }
         Ok(menu)
     }
 
     fn select_difficulty(&mut self, difficulty: u16) -> Result<(), String> {
         let mut framebuffer = self.framebuffer.clone();
         for line in &self.controls {
-            line.draw(&mut framebuffer)?;
+            line.draw(&mut framebuffer, self.text_color)?;
         }
         self.framebuffer = framebuffer;
         self.difficulty = Some(difficulty);
@@ -258,6 +275,20 @@ impl Menu {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn restored_text_uses_color_three_in_questions_and_controls() {
+        for machine in [Machine::Cga, Machine::Pcjr, Machine::Tandy] {
+            let mut restored = Menu::with_text_color(&synthetic_data(), machine, None, 3).unwrap();
+            let legacy = Menu::new(&synthetic_data(), machine).unwrap();
+            assert!(restored.framebuffer.indices().contains(&3));
+            assert!(!restored.framebuffer.indices().contains(&2));
+            assert!(legacy.framebuffer.indices().contains(&2));
+            restored.press(MenuKey::Kitten).unwrap();
+            assert!(restored.framebuffer.indices().contains(&3));
+            assert!(!restored.framebuffer.indices().contains(&2));
+        }
+    }
+
     #[test]
     fn controller_selects_each_skill_then_requires_a_separate_confirmation() {
         for (delta, expected) in [(0, 0), (1, 1), (2, 2), (-1, 3)] {

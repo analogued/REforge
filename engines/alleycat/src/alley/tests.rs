@@ -338,6 +338,23 @@ fn initial_title_fixture(machine: Machine, watched_ticks: u16) -> crate::splash:
 }
 
 #[test]
+fn restored_title_configuration_survives_first_game_and_game_over() {
+    let mut splash = crate::splash::Splash::new(&initial_title_data(), Machine::Tandy).unwrap();
+    splash.text_color = 3;
+    splash.set_title_music(Some(crate::sound::psg::synthetic_music()), 0);
+    let mut alley = Alley::for_initial_title(&splash, 0xfa59, 0).unwrap();
+    splash.advance(1, true, true).unwrap();
+    alley.inherit_initial_splash(&splash).unwrap();
+    assert_eq!(alley.text_color, 3);
+    alley.game_over = true;
+    let mut later = alley.game_over_splash().unwrap();
+    assert_eq!(later.text_color, 3);
+    assert!(later.title_music().is_some());
+    later.advance(1, true, true).unwrap();
+    assert!(later.finished());
+}
+
+#[test]
 fn initial_title_state_reaches_first_game_without_reseeding() {
     for machine in [Machine::Cga, Machine::Pcjr] {
         let mut runs = Vec::new();

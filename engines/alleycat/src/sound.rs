@@ -7,10 +7,12 @@
 
 #[cfg(feature = "sdl")]
 pub(crate) mod playback;
+pub mod psg;
 #[cfg(any(feature = "sdl", feature = "dev-tools"))]
 pub mod render;
 
 use crate::assets::{next_random, set_word, word};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Category {
@@ -31,6 +33,8 @@ pub struct Sound {
     capture: bool,
     writes: Vec<Write>,
     busy_ticks: u64,
+    psg_music: Option<Arc<psg::Music>>,
+    psg_sequence: Option<psg::Sequencer>,
 }
 impl Sound {
     pub fn record(&mut self, enabled: bool) {
@@ -44,8 +48,10 @@ impl Sound {
     }
     pub fn reset(&mut self) {
         let capture = self.capture;
+        let music = self.psg_music.clone();
         *self = Self::default();
         self.capture = capture;
+        self.psg_music = music;
     }
     pub fn tick(&self) -> u64 {
         self.tick
@@ -75,6 +81,44 @@ impl Sound {
     }
     pub fn stop(&mut self) {
         self.write(0x61, self.control & !3, Category::Effects);
+        if self.psg_music.is_some() {
+            self.mute_psg();
+        }
+    }
+    /// Select external restored music only for PCjr/Tandy playback. Legacy/CGA
+    /// callers leave this unset and retain the original speaker program.
+    pub fn set_psg_music(&mut self, music: Option<Arc<psg::Music>>) {
+        self.psg_music = music;
+        self.psg_sequence = None;
+    }
+    fn mute_psg(&mut self) {
+        for value in [0x9f, 0xbf, 0xdf, 0xff] {
+            self.write(0xc0, value, Category::Music);
+        }
+    }
+    fn title_divisor(&mut self, divisor: u16) {
+        self.write(0x43, 0x36, Category::Music);
+        self.write(0x40, divisor as u8, Category::Music);
+        self.write(0x40, (divisor >> 8) as u8, Category::Music);
+    }
+    /// CS:16a0. The caller also installs this divisor in its BIOS scheduler;
+    /// recorded hardware writes alone do not advance the engine's clock.
+    pub fn begin_psg_title(&mut self, tick: u16) {
+        if let Some(music) = self.psg_music.clone() {
+            self.mute_psg();
+            self.title_divisor(psg::TITLE_DIVISOR);
+            self.psg_sequence = Some(psg::Sequencer::new(music, tick));
+        }
+    }
+    /// Restore the normal BIOS divisor on title exit. Native sound disable
+    /// only mutes outputs and leaves this faster BIOS divisor installed.
+    /// Host category volume changes must not call this or reset sequencing.
+    pub fn finish_psg_title(&mut self) {
+        if self.psg_music.is_some() {
+            self.mute_psg();
+            self.title_divisor(0);
+            self.psg_sequence = None;
+        }
     }
     pub fn gate(&mut self, value: u8) {
         self.write(0x61, value, Category::Effects);
@@ -94,6 +138,18 @@ impl Sound {
     }
     /// CS:53b0, including rests and the non-advancing 66h end marker.
     pub fn splash(&mut self, data: &mut [u8], tick: u16) -> Result<(), String> {
+        if self.psg_music.is_some() {
+            set_word(data, 0x5322, tick);
+            if data[0] != 0 {
+                let mut sequence = self
+                    .psg_sequence
+                    .take()
+                    .ok_or("Restored title sequencer was not initialized")?;
+                sequence.step(tick, |value| self.write(0xc0, value, Category::Music));
+                self.psg_sequence = Some(sequence);
+            }
+            return Ok(());
+        }
         if data[0] == 0 || word(data, 0x5322) == tick {
             return Ok(());
         }

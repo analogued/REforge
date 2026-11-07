@@ -208,7 +208,11 @@ fn decode(bytes: &[u8], original: &Path) -> Result<Detected, String> {
     }
     if !root.is_dir()
         || match release.game() {
-            Game::AlleyCat => files.values().next() != Some(&selected),
+            Game::AlleyCat => {
+                // The executable is the first catalog role, which need not be
+                // the first alphabetically sorted role in a multi-file input.
+                release.files.first().and_then(|file| files.get(file.name)) != Some(&selected)
+            }
             _ => selected != root,
         }
     {

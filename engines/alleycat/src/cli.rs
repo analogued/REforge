@@ -33,7 +33,7 @@ const HELP: &str = "Alley Cat — game reconstruction
 
 Usage: reforge --original /path/to/CAT.EXE [options]
 
-  --machine cga|pcjr       Hardware path (default: cga)
+  --machine cga|pcjr|tandy Hardware path (default: cga, or tandy for restored inputs)
   --scale auto|1..16       Initial drawable pixel multiplier (default: auto)
   --presentation pixels|hyllian  Window presentation (default: pixels; unavailable shader falls back)
   --difficulty N          Initial difficulty 0..7; skips the skill question
@@ -49,7 +49,7 @@ After the last life, the animated title returns; press a key to play again at th
 Alt drinks milk, uses paired holes in cheese and places a carried gift in the hearts room.
 Gifts are picked up automatically.
 Ordinary windows lead to fishbowl, bookcase, cheese, birdcage or milk; after success, the next leads to hearts.
-PC Speaker audio is enabled; Ctrl-S toggles the native sound flag.
+PC Speaker effects and available three-voice intro music are enabled; Ctrl-S toggles the native sound flag.
 Timing uses a stock 4.77 MHz XT model; unmeasured paths retain provisional costs.
 Your original executable is required; original data is never bundled.";
 
@@ -95,6 +95,7 @@ enum StartScene {
 
 struct Options {
     machine: Machine,
+    machine_selected: bool,
     scale: Option<u32>,
     #[cfg(feature = "sdl")]
     presentation: reforge_sdl::Presentation,
@@ -156,6 +157,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
     let mut presentation = None;
     let mut result = Options {
         machine: Machine::Cga,
+        machine_selected: false,
         scale: None,
         #[cfg(feature = "sdl")]
         presentation: reforge_sdl::Presentation::Pixels,
@@ -203,8 +205,10 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
                 result.machine = match value()?.as_str() {
                     "cga" => Machine::Cga,
                     "pcjr" => Machine::Pcjr,
-                    _ => return Err("Machine must be cga or pcjr".into()),
-                }
+                    "tandy" => Machine::Tandy,
+                    _ => return Err("Machine must be cga, pcjr or tandy".into()),
+                };
+                result.machine_selected = true;
             }
             "--scale" => {
                 let value = value()?;
@@ -335,14 +339,17 @@ pub fn validate_arguments(args: impl IntoIterator<Item = String>) -> Result<(), 
 pub fn run(
     args: impl IntoIterator<Item = String>,
     files: &reforge_inputs::ResolvedFiles,
+    format: crate::assets::InputFormat,
 ) -> Result<(), String> {
-    let Some(options) = parse_options(args)? else {
+    let Some(mut options) = parse_options(args)? else {
         return Ok(());
     };
+    if !options.machine_selected && format != crate::assets::InputFormat::Cat {
+        options.machine = Machine::Tandy;
+    }
     let seed = seed::resolve(&options)?;
     eprintln!("Alley Cat: startup seed 0x{seed:04x}");
-    let assets =
-        crate::assets::Assets::load(files.path("CAT.EXE").map_err(|error| error.to_string())?)?;
+    let assets = crate::assets::Assets::from_files(files, format)?;
     #[cfg(any(feature = "sdl", feature = "dev-tools"))]
     let startup = {
         #[cfg(feature = "dev-tools")]
@@ -353,8 +360,15 @@ pub fn run(
         if enabled {
             let mut data = assets.runtime_data();
             alleycat::assets::set_word(&mut data, 0x2ae5, seed);
+            let mut splash = Splash::new(&data, options.machine)?;
+            splash.set_title_music(assets.title_music(options.machine)?, 0);
+            splash.text_color = if assets.restored_data().is_some() {
+                3
+            } else {
+                2
+            };
             Some(Startup {
-                splash: Splash::new(&data, options.machine)?,
+                splash,
                 #[cfg(feature = "sdl")]
                 difficulty_override: options.difficulty_selected.then_some(options.difficulty),
             })
@@ -408,6 +422,9 @@ pub(crate) fn advance_splash(
 ) -> Result<crate::splash::SplashStep, String> {
     // The outer-loop prelude remains approximate; measured title helpers are
     // charged only when executed, independently of host presentation.
+    if splash.take_timer_reprogram() {
+        clock.set_bios_divisor(splash.bios_divisor());
+    }
     let costs = alleycat::runtime::ReferenceCosts::ibm_xt(splash.machine());
     clock.advance_nanos(costs.prelude);
     let sample = clock.sample();

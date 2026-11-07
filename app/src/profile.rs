@@ -47,13 +47,10 @@ fn add_native_options(
 ) -> Result<(), String> {
     use reforge_sdl::launcher::Storage;
     let saved = reforge_settings::launcher::native_options(config, id)?;
-    let options = match detected.game {
-        crate::detection::Game::AlleyCat => alleycat::launcher::OPTIONS,
-        crate::detection::Game::Mach3 => mach3::launcher::OPTIONS,
-        crate::detection::Game::Mindwheel
-        | crate::detection::Game::Essex
-        | crate::detection::Game::Brimstone
-        | crate::detection::Game::Breakers => btz::launcher::OPTIONS,
+    let options = match detected.engine() {
+        crate::detection::Engine::AlleyCat(format) => alleycat::launcher::options(format),
+        crate::detection::Engine::Mach3 => mach3::launcher::OPTIONS,
+        crate::detection::Engine::Btz(_) => btz::launcher::OPTIONS,
     };
     for option in options {
         if let Storage::Native { key, argument } = option.storage

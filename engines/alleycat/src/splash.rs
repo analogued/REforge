@@ -44,6 +44,10 @@ pub struct Splash {
     data: Vec<u8>,
     pub(crate) sound: crate::sound::Sound,
     machine: Machine,
+    psg_music: Option<std::sync::Arc<crate::sound::psg::Music>>,
+    music_tick: u16,
+    timer_reprogram: bool,
+    pub(crate) text_color: u8,
     framebuffer: Framebuffer,
     player: Player,
     compositor: PlayerCompositor,
@@ -92,7 +96,7 @@ impl Splash {
         if !repeated && word(&data, 0x2ae5) == 0 {
             set_word(&mut data, 0x2ae5, 0xfa59);
         }
-        data[0x697] = if machine == Machine::Pcjr { 0xfd } else { 0xfc };
+        data[0x697] = if machine.is_pcjr() { 0xfd } else { 0xfc };
         set_word(&mut data, 4, 0);
         set_word(&mut data, 8, 0);
         data[0x41a] = u8::from(repeated);
@@ -183,6 +187,10 @@ impl Splash {
             sound: crate::sound::Sound::default(),
             data,
             machine,
+            psg_music: None,
+            music_tick: tick,
+            timer_reprogram: false,
+            text_color: 2,
             framebuffer,
             player,
             compositor: PlayerCompositor::default(),
@@ -219,7 +227,7 @@ impl Splash {
         }
         let elapsed = tick.wrapping_sub(word(&self.data, 0x6a8b));
         let duration = word(&self.data, 0x56da);
-        if self.repeated && elapsed >= duration.wrapping_add(72) {
+        if self.repeated && self.psg_music.is_none() && elapsed >= duration.wrapping_add(72) {
             for offset in [0x6a8b, 0x5322, 0x6a93] {
                 set_word(&mut self.data, offset, tick);
             }
@@ -231,6 +239,7 @@ impl Splash {
         }
         if !self.repeated && elapsed > duration.wrapping_add(6) {
             self.sound.stop();
+            self.sound.finish_psg_title();
             self.finished = true;
             step.finished = true;
             return Ok(step);
@@ -280,6 +289,7 @@ impl Splash {
         }
         if self.pending_key {
             self.sound.stop();
+            self.sound.finish_psg_title();
             self.finished = true;
         }
         step.finished = self.finished;
@@ -314,6 +324,7 @@ impl Splash {
     }
 
     fn advance_music_sequence(&mut self, tick: u16) -> Result<(), String> {
+        self.music_tick = tick;
         self.sound.splash(&mut self.data, tick)
     }
 
@@ -380,8 +391,43 @@ impl Splash {
         self.data[0] = !self.data[0];
         if self.data[0] == 0 {
             self.sound.stop();
+        } else if self.psg_music.is_some() {
+            self.sound.begin_psg_title(self.music_tick);
+            self.timer_reprogram = true;
         }
     }
+    pub(crate) fn set_title_music(
+        &mut self,
+        music: Option<std::sync::Arc<crate::sound::psg::Music>>,
+        tick: u16,
+    ) {
+        self.timer_reprogram = music.is_some();
+        self.psg_music = music.clone();
+        self.sound.set_psg_music(music);
+        if self.psg_music.is_some() {
+            self.sound.begin_psg_title(tick);
+        }
+    }
+
+    #[cfg(any(feature = "sdl", feature = "dev-tools", test))]
+    pub(crate) fn title_music(&self) -> Option<&std::sync::Arc<crate::sound::psg::Music>> {
+        self.psg_music.as_ref()
+    }
+
+    #[cfg(any(feature = "sdl", feature = "dev-tools", test))]
+    pub(crate) fn take_timer_reprogram(&mut self) -> bool {
+        std::mem::take(&mut self.timer_reprogram)
+    }
+
+    #[cfg(any(feature = "sdl", feature = "dev-tools", test))]
+    pub(crate) fn bios_divisor(&self) -> u32 {
+        if self.psg_music.is_some() {
+            0xcfff
+        } else {
+            65_536
+        }
+    }
+
     pub fn machine(&self) -> Machine {
         self.machine
     }
@@ -516,6 +562,56 @@ mod tests {
         }
         data[0x1800..0x1880].fill(0x55);
         data
+    }
+
+    #[test]
+    fn restored_titles_keep_the_timer_while_muted_and_exit_cleanly() {
+        for machine in [Machine::Pcjr, Machine::Tandy] {
+            for repeated in [false, true] {
+                let mut splash = if repeated {
+                    let mut data = synthetic_data();
+                    data[0] = 0xff;
+                    Splash::after_game_over(&data, machine, 0).unwrap()
+                } else {
+                    Splash::new(&synthetic_data(), machine).unwrap()
+                };
+                splash.sound.record(true);
+                splash.set_title_music(Some(crate::sound::psg::synthetic_music()), 0);
+                assert_eq!(splash.bios_divisor(), 0xcfff);
+                assert!(splash.take_timer_reprogram());
+                assert!(!splash.take_timer_reprogram());
+                splash.advance(1, true, false).unwrap();
+                #[cfg(feature = "sdl")]
+                {
+                    splash.toggle_sound();
+                    assert!(!splash.take_timer_reprogram());
+                    assert_eq!(splash.bios_divisor(), 0xcfff);
+                    splash.advance(5, true, false).unwrap();
+                    splash.toggle_sound();
+                    assert!(splash.take_timer_reprogram());
+                }
+                if repeated {
+                    // PSG does not take the speaker title's periodic restart.
+                    splash.advance(918, true, false).unwrap();
+                    assert_eq!(word(splash.data(), 0x6a8b), 0);
+                    assert!(!splash.finished());
+                }
+                splash
+                    .advance(if repeated { 919 } else { 6 }, true, true)
+                    .unwrap();
+                assert!(splash.finished());
+                let writes: Vec<_> = splash.sound.drain().collect();
+                assert!(
+                    writes
+                        .iter()
+                        .any(|write| write.port == 0xc0 && write.value == 0x93)
+                );
+                assert_eq!(
+                    writes.last().map(|write| (write.port, write.value)),
+                    Some((0x40, 0))
+                );
+            }
+        }
     }
 
     #[test]

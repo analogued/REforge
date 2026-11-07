@@ -227,7 +227,8 @@ pub(super) fn interactive(
     let mut control_history = ControlHistory::new(window.control_keys());
     let start = Instant::now();
     let mut pause_clock = PauseClock::new(start);
-    let pause_overlay = PauseOverlay::new(alley.pause_text()?[0], alley.machine())?;
+    let pause_overlay =
+        PauseOverlay::with_text_color(alley.pause_text()?[0], alley.machine(), alley.text_color())?;
     let mut target_nanos = 0;
     #[cfg(feature = "dev-tools")]
     let mut index = 0;

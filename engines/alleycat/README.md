@@ -3,7 +3,8 @@
 A Rust reconstruction of **Alley Cat** for modern desktop systems, initially
 targeting Linux. It includes the alley, all five ordinary rooms, the underwater
 section and the hearts bonus scene, with actors, damage, progression and
-PC Speaker music and effects. Original hardware timing remains approximate;
+PC Speaker music and effects, with restored three-voice intro music for
+supported patched inputs. Original hardware timing remains approximate;
 the [timing reference](docs/timing.md) describes the model and its limits,
 including the deferred physical PCjr timing comparison.
 Alley Cat is the `alleycat` engine crate in **REforge**.
@@ -52,8 +53,11 @@ F10 → Audio controls host enable, Master/Music/Effects levels, output device
 and focus muting. Master defaults to 80%; these levels are independent of the
 system mixer. Host mute does not skip native sound logic, random draws or waits.
 Ctrl+S separately toggles the original sound flag, including its gameplay effects.
-Both graphics paths currently use this PC Speaker renderer; a separate PCjr
-sound-chip renderer is not included. Uniform `--step-hz` diagnostic play remains
+Restored PCjr and Tandy inputs use an SN76489-compatible three-tone renderer
+for the title melody. Its note and duration tables are read from your supplied
+files. CGA retains the speaker title, and gameplay effects remain on the speaker.
+The restored title uses its original channel-zero divisor of `0xcfff`; gameplay
+returns to the ordinary BIOS timer rate. Uniform `--step-hz` diagnostic play remains
 silent. Headless logic still executes the native sound-state work.
 
 Timing uses a stock 4.77 MHz 8088 XT baseline, with shared allowances for
@@ -65,24 +69,40 @@ timing limitations.
 
 ## Original game required
 
-The program requires your original `CAT.EXE` at runtime. It reads embedded
-sprites, scenery, animation tables, and platform data from that file. Rust
-implements the reconstructed behavior; it does not execute the DOS program.
-Original game data is not included in this repository or embedded in builds.
+The program requires one of these verified external input sets. It reads
+embedded sprites, scenery, animation and music tables; Rust implements the
+reconstructed behavior without executing the DOS program. Original data and
+patches are not included in this repository or embedded in builds.
 
-Currently one executable is supported, identified by its exact bytes rather
-than an unverified historical release name:
+| Input set | Required files | Size in bytes |
+| --- | --- | --- |
+| DOS conversion | `CAT.EXE` | 55,067 |
+| NewRisingSun-patched DOS conversion | `TANDYCAT.EXE` | 56,881 |
+| DOS conversion plus restoration patch | `CAT.EXE`, `791CE265.DIF` | 55,067; 6,704 |
+
+The commercial edition of the DOS conversion remains unverified. The two
+restored forms are equivalent inputs for REforge: the second patch that builds
+the DOS Tandy adapter is unnecessary when loading the external DIF directly.
+REforge applies `791CE265.DIF` in memory, leaving both files untouched. The
+patch comes from NewRisingSun's enhanced Alley Cat patch package, discussed on
+[VOGONS](https://www.vogons.org/viewtopic.php?t=45896).
+This differs from the smaller [bjt42 patch](https://github.com/bjt42/tandycat),
+which targets a different executable that already contains the music data.
+
+The application's BLAKE3 fingerprints are:
 
 ```text
-Size:    55067 bytes
-BLAKE3:  8b6c0f5151075e596296675648eb75b4527e228f74aff1b5db2403f03ff84cf2
-SHA-256: 4979c8867826e08881d1d4bec95c95d6bc1ac70fd21050ccdb4f733a50d7bfdd
+CAT.EXE      8b6c0f5151075e596296675648eb75b4527e228f74aff1b5db2403f03ff84cf2
+TANDYCAT.EXE 1e162b41fd7516ed6063c33a9431ef2df268ca0720e25d2c34918ba084063bc9
+791CE265.DIF 8b4a0b641691d33b146f00806bf5fc77a91a769b684388f7ce7ed0826922758b
 ```
 
-REforge's application detector verifies the release and supplies its selected
-file to the engine. The engine reads it without repeating the fingerprint check,
-while retaining format and bounds checks. Keep original files and any generated
-captures outside this repository.
+REforge's application detector verifies the input set and supplies its selected
+files and loading profile to the engine. The engine does not repeat fingerprint
+checks or discover replacement files; format and bounds checks remain.
+A verified CAT-plus-DIF set takes precedence over CAT alone. A directory with
+both independent executables is ambiguous; select the intended executable with
+`--original`. Keep originals and generated captures outside this repository.
 
 ## Build and run
 
@@ -104,7 +124,8 @@ cargo run --locked -p reforge --release -- --original /path/to/CAT.EXE
 Launch starts with the original animated splash: a cat enters and walks along
 the fence, and the copyright artwork alternates between SynSoft and IBM.
 Press a key to continue, or wait for the original first-entry timeout of about
-47 seconds. Desktop shortcuts, modifier keys alone and held-key repeats do not
+47 seconds with the unpatched input, or 38 seconds with the restored
+PCjr/Tandy title. Desktop shortcuts, modifier keys alone and held-key repeats do not
 dismiss it. The following menu omits the original joystick question. Select
 K (Kitten), H (House Cat), T (Tomcat), or A (Alley Cat); the controls then appear
 below the question. Press another key to start. These choices select initial
@@ -154,10 +175,13 @@ attributed adaptation of the same glyphs from
 [`reforge_graphics`](../../crates/reforge_graphics/README.md), including in
 headless builds.
 
-`--machine pcjr` selects PCjr graphics and mode-specific timing rules; the default
-is `cga`. These include the player countdown and height-dependent fishbowl pacing:
+`--machine pcjr` selects PCjr graphics and mode-specific timing rules. The
+unpatched input defaults to `cga`. Restored inputs additionally accept
+`--machine tandy`, which is their default. Restored inputs use white menu and
+pause text instead of the conversion's color-two text. PCjr and Tandy retain
+the player countdown and height-dependent fishbowl pacing:
 near the surface, fish and eels have more update opportunities while the cat's
-movement adds a retrace wait and counted delay. Both modes use the same packed
+movement adds a retrace wait and counted delay. All modes use the same packed
 320×200, four-colour framebuffer. Pixels have a 5:6 width-to-height ratio and are
 displayed at 4:3, with nearest-neighbor sampling by default. The engine declares
 both its native 320×200 grid and 320×240 display base to the shared renderer/menu.

@@ -366,15 +366,23 @@ pub(super) fn draw(
                         });
                     if menu.page == 0
                         && menu.scope == 1
-                        && menu.alleycat_machines.is_some()
+                        && let Some(machines) = menu.alleycat_machines
                         && original.alleycat.machine != value.alleycat.machine
                         && !cli.contains_key(ALLEYCAT_MACHINE)
                     {
-                        draft.edit_game(
-                            ALLEYCAT_MACHINE,
-                            value.get(ALLEYCAT_MACHINE),
-                            (!menu.game_reset[0]).then_some(&saved),
-                        );
+                        let selection = value.get(ALLEYCAT_MACHINE);
+                        let original_pin = (!menu.game_reset[0]).then_some(&saved);
+                        // This default depends on the input profile. Returning
+                        // to it must not create a pin absent from the saved draft;
+                        // an existing explicit pin still survives a round trip.
+                        if selection == machines.default
+                            && original_pin.and_then(|draft| draft.game.get(ALLEYCAT_MACHINE))
+                                != Some(&selection)
+                        {
+                            draft.game.remove(ALLEYCAT_MACHINE);
+                        } else {
+                            draft.edit_game(ALLEYCAT_MACHINE, selection, original_pin);
+                        }
                     }
                     if menu.page == 0
                         && menu.scope == 1

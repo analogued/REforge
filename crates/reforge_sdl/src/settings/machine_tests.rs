@@ -217,6 +217,89 @@ fn machine_choices_share_launcher_storage_and_apply_cancel_reset() {
 }
 
 #[test]
+fn machine_round_trip_restores_saved_override_presence() {
+    if !dummy_video("settings::machine_tests::machine_round_trip_restores_saved_override_presence")
+    {
+        return;
+    }
+    for machines in [&LEGACY, &RESTORED] {
+        for pin in [None, Some(machines.default), Some("pcjr")] {
+            let path = std::env::temp_dir().join(format!(
+                "reforge-machine-round-trip-{}-{}.toml",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+            ));
+            if let Some(pin) = pin {
+                reforge_settings::launcher::save_native_option(
+                    &path,
+                    "copy",
+                    ALLEYCAT_MACHINE,
+                    Some(pin),
+                )
+                .unwrap();
+            }
+            let before = std::fs::read(&path).ok();
+            let _guard = Launch {
+                game_id: "alley-cat".into(),
+                entry_id: Some("copy".into()),
+                path: Some(path.clone()),
+                cli: Patch::from([
+                    ("renderer".into(), "software".into()),
+                    ("vsync".into(), "false".into()),
+                ]),
+            }
+            .install();
+            let display = crate::Window::new("machine round trip", 320, 240, Some(3)).unwrap();
+            let creator = display.texture_creator();
+            let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+                .with_alleycat_options()
+                .with_alleycat_machines(machines);
+            menu.toggle();
+            menu.prepare(display.ui_metrics(), display.settings());
+            menu.scope = 1;
+            menu.game_editing[0] = true;
+            let initial = pin.unwrap_or(machines.default);
+            let away = if initial == "pcjr" {
+                machines.default
+            } else {
+                "pcjr"
+            };
+            let title = |value| {
+                machines
+                    .choices
+                    .iter()
+                    .find(|choice| choice.value == value)
+                    .unwrap()
+                    .label
+            };
+            click(&mut menu, title(initial));
+            click(&mut menu, title(away));
+            assert_ne!(
+                menu.draft.as_ref().unwrap(),
+                &creator.session.borrow().saved
+            );
+            assert!(label(&draw(&mut menu, vec![]), "Unapplied changes").is_some());
+            click(&mut menu, title(away));
+            click(&mut menu, title(initial));
+            assert_eq!(
+                menu.draft.as_ref().unwrap(),
+                &creator.session.borrow().saved,
+                "round trip must restore saved presence: default={}, pin={pin:?}",
+                machines.default
+            );
+            assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());
+            assert_eq!(std::fs::read(&path).ok(), before);
+            if path.exists() {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
 fn machine_selector_locks_cli_overrides_and_disables_unsavable_runs() {
     if !dummy_video(
         "settings::machine_tests::machine_selector_locks_cli_overrides_and_disables_unsavable_runs",

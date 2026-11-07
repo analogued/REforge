@@ -572,7 +572,20 @@ impl<'a> SettingsMenu<'a> {
         if self.draft.is_none() {
             self.audio_devices_loaded = false;
             let saved = self.creator.session.borrow().saved.clone();
-            self.game_editing = [0, 1, 2, 3].map(|page| saved.has_game_overrides(page));
+            let mut active = saved.clone();
+            if let Some(machines) = self.alleycat_machines
+                && active
+                    .game
+                    .get(reforge_settings::ALLEYCAT_MACHINE)
+                    .is_some_and(|value| {
+                        !machines.choices.iter().any(|choice| choice.value == value)
+                    })
+            {
+                // Keep unavailable pins on disk and in the transaction, but
+                // they do not enable editing of an otherwise inherited page.
+                active.game.remove(reforge_settings::ALLEYCAT_MACHINE);
+            }
+            self.game_editing = [0, 1, 2, 3].map(|page| active.has_game_overrides(page));
             self.draft = Some(saved);
         }
         if self.page == 2 && !self.audio_devices_loaded {

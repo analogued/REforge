@@ -102,6 +102,10 @@ Apply.
 Game fields with an override in the draft use the theme accent text, including
 explicit values matching global defaults. An amber dot marks a change compared with
 saved preferences, including removal of an old override.
+A saved Machine choice unavailable for the current original files is retained
+but inactive. Settings shows the available default without override colouring
+and explains the fallback. Other edits preserve that choice for compatible
+inputs; resetting Display removes it.
 Hover labels/dots for global or saved values. No override badges or individual
 reset buttons are displayed. Checking **Override global defaults**
 enables game editing without copying the global section. The checkbox explains

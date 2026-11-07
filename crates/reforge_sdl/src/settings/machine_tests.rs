@@ -357,3 +357,143 @@ fn machine_selector_locks_cli_overrides_and_disables_unsavable_runs() {
         assert!(!path.exists());
     }
 }
+
+#[test]
+fn unavailable_machine_pin_is_dormant_and_survives_unrelated_apply() {
+    if !dummy_video(
+        "settings::machine_tests::unavailable_machine_pin_is_dormant_and_survives_unrelated_apply",
+    ) {
+        return;
+    }
+    for other_override in [false, true] {
+        let path = std::env::temp_dir().join(format!(
+            "reforge-machine-dormant-{}-{other_override}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        reforge_settings::launcher::save_native_option(
+            &path,
+            "copy",
+            ALLEYCAT_MACHINE,
+            Some("tandy"),
+        )
+        .unwrap();
+        if other_override {
+            let mut session = reforge_settings::Session::load(Launch {
+                game_id: "alley-cat".into(),
+                entry_id: Some("copy".into()),
+                path: Some(path.clone()),
+                cli: Default::default(),
+            });
+            let mut draft = session.saved.clone();
+            draft.edit(true, "window_mode", "fullscreen".into());
+            session.commit(draft).unwrap();
+        }
+        let before = std::fs::read(&path).unwrap();
+        let _guard = Launch {
+            game_id: "alley-cat".into(),
+            entry_id: Some("copy".into()),
+            path: Some(path.clone()),
+            cli: Patch::from([
+                ("renderer".into(), "software".into()),
+                ("vsync".into(), "false".into()),
+            ]),
+        }
+        .install();
+        let display = crate::Window::new("dormant machine", 320, 240, Some(3)).unwrap();
+        let creator = display.texture_creator();
+        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+            .with_alleycat_options()
+            .with_alleycat_machines(&LEGACY);
+        menu.toggle();
+        menu.prepare(display.ui_metrics(), display.settings());
+        menu.scope = 1;
+        assert_eq!(menu.game_editing[0], other_override);
+        // Enable editing to check the inherited row's normal text colour,
+        // independently of the section's disabled/dimmed appearance.
+        menu.game_editing[0] = true;
+        draw(&mut menu, vec![]);
+        let output = draw(&mut menu, vec![]);
+        assert_eq!(
+            menu.draft.as_ref().unwrap(),
+            &creator.session.borrow().saved
+        );
+        for shown in ["Machine", "IBM CGA"] {
+            let text = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == shown => Some(text),
+                    _ => None,
+                })
+                .unwrap();
+            assert_ne!(
+                text.override_text_color
+                    .unwrap_or(text.galley.job.sections[0].format.color),
+                crate::ui::current_palette(&menu.context).override_text,
+                "unavailable pin must not accent {shown} as an active override"
+            );
+        }
+        assert!(label(&output, "IBM CGA").is_some());
+        assert!(label(&output, "Saved machine 'tandy' is unavailable for these files; using IBM CGA. The saved choice is retained until replaced or reset.").is_some());
+        assert!(label(&output, "No pending changes").is_some());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let saved = menu.draft.clone();
+        click(&mut menu, "IBM CGA");
+        click(&mut menu, "IBM PCjr");
+        click(&mut menu, "IBM PCjr");
+        click(&mut menu, "IBM CGA");
+        assert_eq!(
+            menu.draft, saved,
+            "returning to the fallback preserves the dormant saved pin"
+        );
+        assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());
+        menu.draft
+            .as_mut()
+            .unwrap()
+            .edit(true, "master_volume", "60".into());
+        menu.pending = menu.draft.clone();
+        menu.applied();
+        assert!(menu.error.is_none());
+        assert_eq!(
+            reforge_settings::launcher::native_options(&path, "copy").unwrap()[ALLEYCAT_MACHINE],
+            "tandy"
+        );
+        drop(menu);
+        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+            .with_alleycat_options()
+            .with_alleycat_machines(&RESTORED);
+        menu.toggle();
+        menu.prepare(display.ui_metrics(), display.settings());
+        menu.scope = 1;
+        assert!(menu.game_editing[0]);
+        assert!(label(&draw(&mut menu, vec![]), "Tandy").is_some());
+        assert_eq!(menu.draft.as_ref().unwrap().game[ALLEYCAT_MACHINE], "tandy");
+        click(&mut menu, "Restore defaults");
+        assert!(
+            !menu
+                .draft
+                .as_ref()
+                .unwrap()
+                .game
+                .contains_key(ALLEYCAT_MACHINE)
+        );
+        assert_eq!(
+            reforge_settings::launcher::native_options(&path, "copy").unwrap()[ALLEYCAT_MACHINE],
+            "tandy",
+            "reset is pending until Apply"
+        );
+        click(&mut menu, "Apply");
+        menu.applied();
+        assert!(menu.error.is_none());
+        assert!(
+            !reforge_settings::launcher::native_options(&path, "copy")
+                .unwrap()
+                .contains_key(ALLEYCAT_MACHINE)
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+}

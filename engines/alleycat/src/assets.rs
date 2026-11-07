@@ -7,6 +7,7 @@ use crate::framebuffer::{Dimensions, Framebuffer};
 use std::path::Path;
 
 mod booter;
+mod dos_image;
 mod patch;
 mod restored;
 
@@ -19,13 +20,14 @@ pub enum InputFormat {
     Tandy,
     CatWithPatch,
     PcBooter,
+    DosDiskImage,
 }
 
 impl InputFormat {
     /// Match each input's previous default; the old Tandy choice is now PCjr.
     pub const fn default_machine(self) -> crate::alley::Machine {
         match self {
-            Self::Cat | Self::PcBooter => crate::alley::Machine::Cga,
+            Self::Cat | Self::PcBooter | Self::DosDiskImage => crate::alley::Machine::Cga,
             Self::Tandy | Self::CatWithPatch => crate::alley::Machine::Pcjr,
         }
     }
@@ -49,6 +51,9 @@ impl Assets {
         };
         let mut assets = match format {
             InputFormat::Cat => Self::from_executable(&read("CAT.EXE")?),
+            InputFormat::DosDiskImage => {
+                Self::from_executable(&dos_image::cat(&read("alley_cat.img")?)?)
+            }
             InputFormat::Tandy => Self::from_restored_executable(&read("TANDYCAT.EXE")?),
             InputFormat::CatWithPatch => {
                 let executable = read("CAT.EXE")?;
@@ -378,6 +383,7 @@ mod tests {
     fn machine_defaults_preserve_conversion_booter_and_restored_presentation() {
         use crate::alley::Machine;
         assert_eq!(InputFormat::Cat.default_machine(), Machine::Cga);
+        assert_eq!(InputFormat::DosDiskImage.default_machine(), Machine::Cga);
         assert_eq!(InputFormat::PcBooter.default_machine(), Machine::Cga);
         assert_eq!(InputFormat::Tandy.default_machine(), Machine::Pcjr);
         assert_eq!(InputFormat::CatWithPatch.default_machine(), Machine::Pcjr);

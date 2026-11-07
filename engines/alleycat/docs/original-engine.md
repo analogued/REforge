@@ -41,6 +41,27 @@ This is a partial map of the examined program, not a universal MZ layout or an
 inventory of every table. The replacement's external-data reader is in
 [`assets.rs`](../src/assets.rs).
 
+## Examined DOS disk container
+
+The supported 3,145,728-byte `alley_cat.img` has BLAKE3
+`2b8cf7b87eb8975f9ad502428d39c8fbaa57cb2aacd16f0f2e79d4b3f2aee4b8`.
+It is a partitioned hard-disk image despite some archives describing it as a
+floppy image. Its first MBR partition is type `06h`, starts at LBA 8 and contains
+6,136 sectors. The FAT16 volume uses 512-byte sectors, one sector per cluster,
+one reserved sector, two 24-sector FATs and a 512-entry root directory.
+
+The root directory at image offset `0x7200` contains only `CAT.EXE`, starting
+at cluster 2. Its 108-cluster chain supplies exactly 55,067 file bytes, beginning
+at image offset `0xb200`; final-cluster padding is outside the executable.
+Those file bytes are identical to the standalone DOS conversion described above.
+Container authorship and creation date are not established by that equality.
+This is distinct from the original PC Booter program described below.
+
+REforge reads the selected partition, root entry and bounded FAT16 cluster chain
+in memory, then uses the existing MZ asset parser. It does not execute the boot
+records or write extracted files. The reader supports this verified container's
+root-file use; it is not general disk emulation or discovery of other releases.
+
 ## Restored DOS input layouts
 
 The NewRisingSun restoration also supports the 55,067-byte conversion through

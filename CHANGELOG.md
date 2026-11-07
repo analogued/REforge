@@ -12,6 +12,7 @@ Unreleased contains changes intended for the next public release.
 
 ### Alley Cat
 
+- Load the supported DOS conversion directly from its verified disk image.
 - Add support for the verified PC Booter floppy image, including its three-voice
   PCjr intro music and full-build menu colours.
 - Add support for NewRisingSun-restored Tandy inputs, including CAT.EXE with

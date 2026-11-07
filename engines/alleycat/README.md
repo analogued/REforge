@@ -77,6 +77,7 @@ patches are not included in this repository or embedded in builds.
 | Input set | Required files | Size in bytes |
 | --- | --- | --- |
 | DOS conversion | `CAT.EXE` | 55,067 |
+| DOS conversion in a hard-disk image | `alley_cat.img` | 3,145,728 |
 | NewRisingSun-patched DOS conversion | `TANDYCAT.EXE` | 56,881 |
 | DOS conversion plus restoration patch | `CAT.EXE`, `791CE265.DIF` | 55,067; 6,704 |
 | PC Booter raw floppy image | `disk1.img` | 184,320 |
@@ -87,6 +88,13 @@ image untouched. It shares the full game-data layout, three-voice PCjr title
 music and white menu/pause text with the restored DOS inputs. Its modified disk
 checks do not establish that it is pristine commercial media. Other floppy-image
 formats are not supported by this loader.
+
+The supported `alley_cat.img` is a 3 MiB MBR/FAT16 hard-disk container of the
+same DOS `CAT.EXE`, not the PC Booter release. REforge reads its root executable
+in memory, without booting the image or extracting files beside it. It retains
+the conversion's CGA/PCjr choices, CGA default and PC Speaker audio; it does not
+restore the three-voice score. This accepts the specifically verified image,
+not arbitrary FAT volumes or IMG files.
 
 The commercial edition of the DOS conversion remains unverified. The two
 restored forms are equivalent inputs for REforge: the second patch that builds
@@ -104,6 +112,7 @@ CAT.EXE      8b6c0f5151075e596296675648eb75b4527e228f74aff1b5db2403f03ff84cf2
 TANDYCAT.EXE 1e162b41fd7516ed6063c33a9431ef2df268ca0720e25d2c34918ba084063bc9
 791CE265.DIF 8b4a0b641691d33b146f00806bf5fc77a91a769b684388f7ce7ed0826922758b
 disk1.img   f6f0fe51a58b2c32995427fd8f3af2b1df27f3f4b8033a4a2b55946e3a90c900
+alley_cat.img 2b8cf7b87eb8975f9ad502428d39c8fbaa57cb2aacd16f0f2e79d4b3f2aee4b8
 ```
 
 REforge's application detector verifies the input set and supplies its selected
@@ -129,6 +138,7 @@ From the combined repository root:
 ```sh
 cargo run --locked -p reforge --release -- --original /path/to/CAT.EXE
 cargo run --locked -p reforge --release -- --original /path/to/disk1.img
+cargo run --locked -p reforge --release -- --original /path/to/alley_cat.img
 ```
 
 Launch starts with the original animated splash: a cat enters and walks along

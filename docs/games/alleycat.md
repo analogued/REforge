@@ -18,9 +18,10 @@ animations play more smoothly.
 
 Supply the supported DOS **CAT.EXE**, the NewRisingSun-patched
 **TANDYCAT.EXE**, **CAT.EXE** together with its **791CE265.DIF** patch, or the
-supported PC Booter **disk1.img**.
+supported PC Booter **disk1.img**. The DOS conversion is also supported inside
+the verified **alley_cat.img** disk image, without extracting CAT.EXE yourself.
 For the EXE-plus-patch option, keep both files in the selected game directory.
-REforge applies the patch or decodes the floppy image in memory; your files stay
+REforge reads image contents and applies patches in memory; your files stay
 unchanged. No patch or game data is bundled. Other executable and disk-image
 variants are not interchangeable; see the [supported input details](../../engines/alleycat/README.md#original-game-required).
 
@@ -32,7 +33,8 @@ After [building REforge](../../README.md#getting-started), run from the reposito
 ./target/release/reforge --original /path/to/alley-cat
 ```
 
-You can also point `--original` directly to `CAT.EXE`, `TANDYCAT.EXE` or `disk1.img`.
+You can also point `--original` directly to `CAT.EXE`, `TANDYCAT.EXE`,
+`disk1.img` or `alley_cat.img`.
 If a directory contains both executables, select the one you want explicitly.
 Press a key to leave the animated title, choose a skill, then press another key
 at the instructions to start. K/H/T/A select Kitten, House Cat, Tomcat or Alley Cat.
@@ -74,9 +76,9 @@ jump physics. To use the original polling behavior, open
 **F10 → Alley Cat overrides → Controls → Input response**. Check
 **Override global defaults** to edit, then Apply.
 
-**Machine:** the original DOS conversion and PC booter offer CGA (the default)
-and PCjr. The restored DOS inputs default to PCjr. Choose in the launcher
-or under **Settings → Alley Cat overrides → Display → Machine**. Enable
+**Machine:** the DOS conversion (including its disk image) and PC booter offer
+CGA (the default) and PCjr. The restored DOS inputs default to PCjr. Choose in
+the launcher or under **Settings → Alley Cat overrides → Display → Machine**. Enable
 **Override global defaults**, choose the machine and Apply. Settings and the
 launcher share this choice; during play it applies on the next launch. You can
 also use `--machine cga` or `--machine pcjr`. The old `tandy` spelling remains an

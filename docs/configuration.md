@@ -769,6 +769,7 @@ The current chains are:
 | Detected release ID | Edition ID | Game ID | Specs profile ID |
 | --- | --- | --- | --- |
 | `alley-cat-dos-7b92bb401f` | `alley-cat-dos` | `alley-cat` | `alley-cat-dos` |
+| `alley-cat-dos-d7d4bbbcbd` | `alley-cat-dos-image` | `alley-cat` | `alley-cat-dos` |
 | `alley-cat-dos-17b9603eee` | `alley-cat-dos-nrs-tandy` | `alley-cat` | `alley-cat-dos-restored` |
 | `alley-cat-dos-bc3e9d804a` | `alley-cat-dos-nrs-patch` | `alley-cat` | `alley-cat-dos-restored` |
 | `alley-cat-pc-booter-56647cbe98` | `alley-cat-pc-booter` | `alley-cat` | `alley-cat-pc-booter` |
@@ -787,6 +788,8 @@ for that release, alongside the game root. All current releases use root files.
 Editions use `Platform::Dos` or, for the supported Alley Cat floppy image,
 `Platform::PcBooter`. Edition IDs name catalog groupings; the precise commercial
 edition/version designations remain unverified.
+The `alley-cat-dos-image` edition describes disk packaging of the same DOS
+conversion, not a separate historical release or the original PC Booter.
 Edition, specs and compatibility IDs have separate namespaces. Each current
 detected release uses its game's `*-dos` compatibility ID. Restored Alley Cat
 editions and the PC booter have distinct edition IDs but retain

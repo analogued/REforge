@@ -148,7 +148,12 @@ directly, without replaying the splash. An explicit `--difficulty` skips the ski
 question and shows controls with a separate key-to-start wait. Menu waits ignore
 desktop shortcuts, modifier keys alone and held-key repeats.
 
-## Full-build input integration
+## Disk and full-build input integration
+
+The DOS hard-disk image is a container of the same conversion executable.
+REforge reads CAT.EXE through its FAT16 directory and cluster chain instead of
+executing the image's boot records. It then uses the standalone conversion's
+asset parser and native behavior; no emulated DOS or disk hardware is involved.
 
 The supported booter and both restored DOS input forms use the same native Rust
 gameplay and coordinate contracts as the DOS conversion. The loader translates

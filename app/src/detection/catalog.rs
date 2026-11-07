@@ -222,6 +222,13 @@ pub static ALLEY_CAT_DOS: Edition = Edition {
     label: None,
     specs: &ALLEY_CAT_DOS_SPECS,
 };
+/// A later disk container of the same DOS conversion, not an original booter.
+pub static ALLEY_CAT_DOS_IMAGE: Edition = Edition {
+    id: "alley-cat-dos-image",
+    engine: Engine::AlleyCat(alleycat::assets::InputFormat::DosDiskImage),
+    label: Some("DOS disk image"),
+    ..ALLEY_CAT_DOS
+};
 /// The NRS enhancement is an input variant, not a newly identified commercial
 /// edition. Both supported forms use the same restored game/audio resources.
 pub static ALLEY_CAT_RESTORED_SPECS: SpecsProfile = SpecsProfile {
@@ -596,6 +603,18 @@ pub static RELEASES: &[Release] = &[
             blake3: "f6f0fe51a58b2c32995427fd8f3af2b1df27f3f4b8033a4a2b55946e3a90c900",
         }],
     },
+    Release {
+        id: "alley-cat-dos-d7d4bbbcbd",
+        compatibility_id: "alley-cat-dos",
+        edition: &ALLEY_CAT_DOS_IMAGE,
+        #[cfg(test)]
+        identity_files: &[],
+        files: &[FileRecord {
+            name: "alley_cat.img",
+            size: 3_145_728,
+            blake3: "2b8cf7b87eb8975f9ad502428d39c8fbaa57cb2aacd16f0f2e79d4b3f2aee4b8",
+        }],
+    },
 ];
 
 #[cfg(test)]
@@ -610,7 +629,7 @@ mod tests {
             .iter()
             .filter(|release| release.game() == Game::AlleyCat)
             .collect::<Vec<_>>();
-        assert_eq!(releases.len(), 4);
+        assert_eq!(releases.len(), 5);
         assert_eq!(releases[0].engine(), Engine::AlleyCat(InputFormat::Cat));
         assert_eq!(releases[1].engine(), Engine::AlleyCat(InputFormat::Tandy));
         assert_eq!(
@@ -621,16 +640,28 @@ mod tests {
             releases[3].engine(),
             Engine::AlleyCat(InputFormat::PcBooter)
         );
+        assert_eq!(
+            releases[4].engine(),
+            Engine::AlleyCat(InputFormat::DosDiskImage)
+        );
+        assert_eq!(releases[4].edition.platform, Platform::Dos);
+        assert_eq!(releases[4].edition.label, Some("DOS disk image"));
+        assert!(std::ptr::eq(
+            releases[4].edition.specs,
+            releases[0].edition.specs
+        ));
         assert_eq!(releases[1].files[0].name, "TANDYCAT.EXE");
         assert_eq!(releases[2].files[0].name, "CAT.EXE");
         assert_eq!(releases[2].files[1].name, "791CE265.DIF");
         for release in &releases[1..] {
             assert!(releases[0].compatible_with(release));
             assert!(release.compatible_with(releases[0]));
-            assert!(!std::ptr::eq(
-                release.edition.specs,
-                releases[0].edition.specs
-            ));
+            if release.engine() != Engine::AlleyCat(InputFormat::DosDiskImage) {
+                assert!(!std::ptr::eq(
+                    release.edition.specs,
+                    releases[0].edition.specs
+                ));
+            }
         }
         assert!(std::ptr::eq(
             releases[1].edition.specs,

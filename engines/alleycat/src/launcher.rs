@@ -50,7 +50,7 @@ pub const RESTORED_OPTIONS: &[OptionDefinition] = &[
 
 pub fn options(format: InputFormat) -> &'static [OptionDefinition] {
     match format {
-        InputFormat::Cat | InputFormat::PcBooter => OPTIONS,
+        InputFormat::Cat | InputFormat::PcBooter | InputFormat::DosDiskImage => OPTIONS,
         InputFormat::Tandy | InputFormat::CatWithPatch => RESTORED_OPTIONS,
     }
 }
@@ -137,7 +137,11 @@ mod tests {
             assert_eq!(choices, preview_variants(format));
             assert_eq!(choices, ["cga", "pcjr"]);
         }
-        for format in [InputFormat::Cat, InputFormat::PcBooter] {
+        for format in [
+            InputFormat::Cat,
+            InputFormat::PcBooter,
+            InputFormat::DosDiskImage,
+        ] {
             assert_eq!(options(format)[0].default, "cga");
             assert_eq!(preview_variants(format), ["cga", "pcjr"]);
             assert_eq!(options(format)[0].choices.len(), 2);

@@ -227,7 +227,7 @@ pub static ALLEY_CAT_DOS: Edition = Edition {
 pub static ALLEY_CAT_RESTORED_SPECS: SpecsProfile = SpecsProfile {
     id: "alley-cat-dos-restored",
     video_features: &["320×200", "CGA / PCjr"],
-    audio_features: &["PC speaker / three-voice PSG"],
+    audio_features: &["PC speaker / three-voice PSG (PCjr)"],
 };
 pub static ALLEY_CAT_TANDY: Edition = Edition {
     id: "alley-cat-dos-nrs-tandy",
@@ -243,8 +243,7 @@ pub static ALLEY_CAT_WITH_PATCH: Edition = Edition {
 };
 pub static ALLEY_CAT_PC_BOOTER_SPECS: SpecsProfile = SpecsProfile {
     id: "alley-cat-pc-booter",
-    video_features: &["320×200", "CGA / PCjr"],
-    audio_features: &["PC speaker / three-voice PSG (PCjr)"],
+    ..ALLEY_CAT_RESTORED_SPECS
 };
 /// The verified image is catalogued by its container format. Its modified disk
 /// checks do not establish that it is an unmodified commercial release.

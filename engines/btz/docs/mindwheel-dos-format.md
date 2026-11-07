@@ -2,9 +2,12 @@
 
 # Mindwheel DOS data and wordcode
 
-This reference describes the DOS layout implemented by the BTZ crate for the
-supported Mindwheel data, interpreter and disk map. It is not a specification
-for every BTZ release. Other interpreter revisions are unvalidated.
+This reference preserves the recovered data layout and wordcode semantics of
+the identified Mindwheel DOS files, including original mechanisms that REforge
+does not reproduce. Replacement checks and limitations are identified separately.
+It is not a specification for every BTZ release; see
+[interpreter definitions](interpreter-definitions.md) for verified differences
+in the other examined DOS interpreters.
 See the [engine overview](../README.md) for supported inputs and the
 [runtime reference](mindwheel-dos-runtime.md) for input, timing and host services.
 
@@ -62,6 +65,35 @@ An address is meaningful only with its address space:
 Program words occupy two bytes; advancing one word adds two to its address.
 Address arithmetic follows the interpreter's wrapping 16-bit operations, followed
 by checked access to the corresponding Rust buffer.
+
+## Original DOS store access and cache
+
+The examined interpreter reads stores through a 512-byte page cache in segmented
+DOS memory. Its store reader separates the requested address into a page and a
+byte offset within that page. For stores 0 through 3, these are `address >> 9`
+and `address & 0x1ff`. Store 4 uses word indices instead: its page is
+`address >> 8` and its byte offset is `2 * (address & 0xff)`. The cache lookup
+maps the store/page pair to a cache slot before accessing its far address.
+
+The recovered cache-base calculation uses the DOS data segment and the saved
+initial stack pointer. In paragraph units, where one paragraph is 16 bytes:
+
+```text
+paragraph = floor((16 * data_segment + saved_stack_pointer) / 16)
+cache_base_segment = (floor((paragraph + 5) / 32) + 1) * 32
+page_segment = cache_base_segment + 32 * cache_slot
+```
+
+The 32-paragraph slot stride corresponds to one 512-byte page. Native store
+reader `CS:389a` and the cache-base routine at `CS:0c79` establish these rules
+for the identified executable; CS offsets are relative to its loaded MZ image,
+whose file origin is `0x200`. This is a partial account of the native cache,
+not a complete specification of its capacity or replacement policy.
+
+REforge loads the stores into checked host buffers and does not reproduce DOS
+segments, cache allocation or cache-access history. Those details can nevertheless
+affect the original's uninitialized input-return word; see
+[native stack residue](mindwheel-dos-runtime.md#native-stack-residue).
 
 ## Initial variables and layout words
 
@@ -183,6 +215,28 @@ Interval lookup scans paired inclusive lower/upper bounds in two-byte steps.
 If none contains the argument, it returns the configured byte extent. Form 2
 scans objects beginning at `second + 1`, compares each direct value with the
 first operand and returns the first matching object or `0xffff`.
+
+### Original diagnostic and stack-overflow path
+
+Both native stacks have 128 physical words, which also appear in bookmarks.
+The examined Mindwheel push routines first write the new word, then increment
+the depth. A resulting depth of 128 or more invokes the diagnostic handler;
+after it returns, the push routine clamps the depth to 127. Thus the highest
+active depth reached without a diagnostic is 127, despite the 128-word storage.
+The word written in the last physical slot remains outside that active prefix.
+
+The shared native diagnostic handler positions output on the bottom screen row,
+prints an error code with the VM instruction pointer, argument and accumulator,
+then waits for a BIOS key. Its dismissal passes through the usual key-forwarding
+helper before the caller's recovery continues. These facts come from the
+identified executable's return-stack push at `CS:1ce0`, value-stack push at
+`CS:1ebc`, and diagnostic handler at `CS:2430`. They do not establish safe recovery
+for every malformed program or a normal game path that reaches stack overflow.
+
+REforge instead permits an active depth of 128 and rejects another push with a
+checked error. It does not emulate the native diagnostic pause or clamp. The
+physical bookmark arrays remain 128 words; their storage size must be
+distinguished from the original nonfaulting active-depth limit.
 
 ## Object properties
 

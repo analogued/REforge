@@ -7,6 +7,17 @@ is required. Keep interpreter semantics, game formats, timing and randomness
 within this crate, and preserve dependency and imported-code notices; see the
 shared [dependency notices](../../THIRD_PARTY.md).
 
+## Original-software references
+
+Follow the shared [reference guidance](../../CONTRIBUTING.md#original-software-references).
+The format, runtime and interpreter-definition references preserve recovered
+knowledge of the identified DOS files, including original cache, display and
+diagnostic paths that the replacement does not emulate. Record useful partial
+findings with their release scope and uncertainties. Separate original routines
+from emulator measurements, modern host policy and implementation limits; a
+documented mechanism is not a claim of player support or complete equivalence.
+Keep raw evidence and investigation history outside the source repository.
+
 ## Build and validate
 
 The core library has no default third-party dependencies. The `frontend` feature
@@ -83,7 +94,9 @@ and input-file paths remain separate from save-file resolution.
 Keep story behavior in the supplied wordcode. Reconstruct native algorithms
 rather than adding room/NPC scripts or frontend command aliases. See the
 [format](docs/mindwheel-dos-format.md) and [runtime](docs/mindwheel-dos-runtime.md)
-references for the current implementation contract.
+references for recovered original behavior and the current implementation
+contract. Historical mechanisms outside that contract remain useful reference
+knowledge and should retain their explicit scope.
 
 Use synthetic tests for instruction, parser, text, editor, timing and format
 boundaries. Original files, decoded text, memory dumps, captured screens and

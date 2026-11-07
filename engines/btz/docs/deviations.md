@@ -10,8 +10,33 @@ timing/input fidelity questions remain in the
 
 ## File dialogs
 
-The original file pages show a passive directory listing followed by a typed
-filename prompt. Both player frontends replace them with the same framed text
+In the four catalogued DOS releases, file services use a plain 80×25 text page
+with attribute 7 (light grey on black), a passive directory listing and a typed
+filename prompt. The listing includes executables and game data, not only
+bookmarks. Save and resume have different prompts, and physical-media handling
+can ask for a bookmark disk or the game disk to be reinserted. These pages do
+not offer arrow-key file selection.
+
+The original bookmark interfaces differ as follows:
+
+| DOS implementation | Filename input and cancellation | Replacing a bookmark |
+| --- | --- | --- |
+| Mindwheel / Essex | C-runtime line reader; an empty restore name uses the bookmark-abort message. | Writes directly without asking. |
+| Brimstone | C-runtime line reader; cancellation distinguishes bookmark writes from resume attempts. | Writes directly without asking. |
+| Breakers | Custom BIOS-keyboard reader; CR or LF ends the name, and Escape clears it and cancels. Resume cancellation has its own message. | Asks before writing an existing file. |
+
+The first three save/resume callers pass a byte bound of 29 to their runtime
+reader. Its console branch can collect 29 bytes; its buffered branch reserves
+space for the terminating NUL and can consume newline bytes within its 28-byte
+input. Breakers' custom reader instead accepts up to 32 bytes before terminating
+the name. These are original reader limits, not modern host path limits.
+
+Breakers checks whether the destination already exists, closes that test handle,
+then asks whether to replace it. The reply is uppercased: Y proceeds, N or Escape
+aborts, and other replies repeat the question. Original transcripts replace
+their destination without confirmation.
+
+Both modern player frontends replace these pages with the same framed text
 browser. Windowed play uses the game's bitmap font and selected display treatment;
 terminal play uses ANSI attributes and the terminal's font. The browser adds folder
 navigation, bookmark filtering, local modification dates, caret editing,
@@ -26,10 +51,8 @@ requires a press and release on the same control; leaving the window, opening
 Settings or losing focus cancels a held press. Selected files remain marked
 after focus moves to another control, until the filename is edited.
 
-Originally, Mindwheel, Essex and Brimstone replace bookmarks without asking;
-Breakers asks first. Original transcripts replace their destination without
-confirmation. Both player frontends ask before replacing either kind of file in
-every game, initially selecting No. Declining returns to filename selection, or cancels
+Both player frontends ask before replacing either kind of file in every game,
+initially selecting No. Declining returns to filename selection, or cancels
 the operation when a command-line option fixed its destination. Errors leave the
 browser available for correction and retry.
 

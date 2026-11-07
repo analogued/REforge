@@ -2,7 +2,7 @@
 
 Follow the repository AGENTS.md and CONTRIBUTING.md. Read this crate's README.md
 for support and architecture, CONTRIBUTING.md for validation, and the linked
-DOS references for implemented semantics.
+DOS references for recovered original semantics and implementation boundaries.
 
 - Implement the original interpreter algorithms over externally supplied data.
   Keep story rules in the original program rather than adding per-game scripts.
@@ -17,3 +17,8 @@ DOS references for implemented semantics.
 - Public documentation must stand alone within this repository. Keep current
   implementation/reference facts separate from experiments, proposals and
   capture-specific reports; do not link to local evidence directories or helpers.
+- Preserve verified original formats and interpreter behavior for historical
+  study, including mechanisms the replacement omits or handles differently.
+  Scope partial findings to identified releases and state remaining unknowns.
+  Distinguish original behavior, emulator observations and replacement policy;
+  keep feature/support claims separate from recovered knowledge.

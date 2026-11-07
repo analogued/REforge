@@ -1,6 +1,11 @@
 <!-- Copyright (c) 2026 analogued. SPDX-License-Identifier: GPL-3.0-or-later -->
 # Interpreter definitions
 
+This reference compares the identified DOS interpreters and selected original
+story routines. It preserves recovered behavior independently of whether the
+replacement needs the original mechanism. The scope is the four catalogued DOS
+releases, not an established chronology of official interpreter versions.
+
 BTZ uses one VM and integrated `Session`. An immutable `Interpreter` definition
 selects the behavior that differs between identified implementations. Executable
 resource locations live separately in `DosResources`; relocated text tables or
@@ -34,16 +39,39 @@ operation that needs them:
 | Story text region | Fixed coordinates | Bounds and cursor exposed through variables |
 | Submitted-read conversion | `(scratch_word >> 8) - 1` | `(scratch_word / 85) - 1` |
 
+Essex and Brimstone accept service 17 but perform no operation for that selector.
+Their services 7 and 10 retain Mindwheel's unknown-word and completed-input echo
+roles, respectively.
+
 The submitted-read conversions clamp at zero. Their scratch word is an explicit
 adapter input, separate from the clock and from timeout results. The ordinary
 player adapter continues to supply result zero; selecting a definition does not
-invent a DOS memory environment or change the BIOS tick rate.
+invent a DOS memory environment or change the BIOS tick rate. For a 16-bit scratch
+word, the possible submitted results are 0–254 in Mindwheel and 0–770 in the other
+three examined interpreters. A real timeout returns its requested timeout value
+separately from these calculations.
 
 Numeric native-service IDs are translated through the definition's service table
 into `NativeService` operations. Session code implements those named operations.
 The common opcode executor uses a small extension table for slots `0x0d`–`0x0f`,
 `0x17` and `0x18`. This permits definitions to share individual behaviors without
 ordering all implementations along a single version-number comparison.
+
+### Byte operations
+
+The extended byte load uses a byte offset into the variable image and returns
+the low byte as an unsigned word. The original implementation obtains that byte
+by reading a word and masking with `0xff`; it does not require an even address.
+The replacement reads the checked byte directly instead of reproducing an extra
+native memory access beyond the last byte.
+
+The byte store writes only the accumulator's low byte. Odd addresses, including
+offset 1, are permitted. Offsets 2 through 9 and offsets at or beyond the variable
+extent are rejected. Native code first changes address zero to `0xffff`, which
+then fails its bounds check; this differs from the ordinary word setter's
+special handling of offset zero. Checked replacement writes reject zero
+directly. These rules apply to Essex, Brimstone and Breakers, while the byte
+opcode slots have no additional action in Mindwheel.
 
 ## Breakers differences
 
@@ -133,6 +161,75 @@ transcript buffering and flushing without closing an already-open transcript.
 Successful bookmark restore rebuilds the frame, refreshes the exposed cursor,
 and resets the story rectangle and reflected extents. Other saved variable
 state remains intact. The bookmark byte format itself is unchanged.
+
+## Original story read wrappers
+
+Native input-return conversion and its story-level consumers are separate
+mechanisms. Let `R` be the native read result. Essex's ordinary wrapper compares
+`R` directly with the timeout in variable `0x226`, initially 500 in the supplied
+story. The later two stories additionally store a scaled result:
+
+| Story | Stored value after the read | Timeout comparison |
+| --- | --- | --- |
+| Brimstone | `((R * 30) mod 65536) / V[0x150]` in `V[0x22a]` | Original `R` against `V[0x152]` |
+| Breakers | `((R * 30) mod 65536) / V[0x182]` in `V[0x260]` | Original `R` against `V[0x184]` |
+
+Here `V` denotes variable words at byte offsets; division is unsigned. Brimstone
+also scales its requested timeout before the read as
+`((V[0x22c] * V[0x150]) mod 65536) / 30`, saving that timeout in `V[0x152]`.
+An observed initial ordinary wait has `V[0x150] = 30` and a 450-tick timeout;
+these are story values rather than native interpreter constants.
+
+These computations are established in the original wordcode. Their complete
+downstream gameplay effects remain unverified, and the scaled fields have not
+been established as global story clocks. In particular, a different submitted
+result cannot be characterized only as an RNG-sequence change for these games.
+The replacement executes these wrappers from the original data; they are not
+host-side timing formulas or reasons to invent another interpreter version.
+
+## Executable resource layouts
+
+These are data offsets within the identified interpreter executables, relative
+to the resource origin described in the
+[format reference](mindwheel-dos-format.md#dictionary-messages-and-grammar).
+Locations and contents must be considered separately: moving a table or string
+does not establish a changed VM operation.
+
+| Resource | Mindwheel | Essex | Brimstone | Breakers |
+| --- | --- | --- | --- | --- |
+| Input classes, 128 bytes | `0x07f` | `0x022` | `0x022` | `0x022` |
+| Key-wait prompt | `0x0ff` | `0x105` | `0x105` | `0x114` |
+| Compression pairs, 512 bytes | `0x36d` | `0x312` | `0x322` | `0x38b` |
+| Third-character table, 128 bytes | `0x56d` | `0x512` | `0x522` | `0x58b` |
+| RNG adjustment, 4 bytes | `0x6c7` | `0x6d5` | `0x6e5` | `0x73e` |
+| Printing-device prompt | `0x23f` | `0x213` | `0x223` | `0x246` |
+| Printing-device error | `0x18f` | `0x163` | `0x18c` | `0x19b` |
+| Program-disk prompt | `0x270` | `0x244` | `0x254` | `0x277` |
+| Wrong-disk prompt | `0x297` | `0x268` | `0x278` | `0x29b` |
+
+Breakers also has the same pause-prompt text at `0x0de` for editor pauses.
+Brimstone's printing-device error relocation is not the uniform `+0x10` movement
+seen in its other listed strings relative to Essex.
+
+The examined later three interpreters have identical compression-table bytes.
+Relative to Mindwheel, the significant change is encoded byte `0x7c`: Mindwheel
+expands it to `ell`, whereas the later tables leave it as literal `|`, available
+to the callback-capable formatter. This is a resource-content difference as well
+as a change in text execution. It does not establish that every story exercises
+the callback mechanism.
+
+## Breakers title program
+
+The supplied `TITLE.EXE` is a separate DOS presentation program preceding
+`RUN.EXE`, rather than wordcode in `ADISK.OBJ`. It presents three timed stages:
+title artwork, that title with copyright, and credits. Each stage waits for 16
+changes of the BIOS tick count; neither artwork page waits for Enter. The
+original also performs short wipe transitions between its presentations.
+
+The replacement reads the original presentation data without executing x86,
+uses elapsed monotonic time for the stages, and substitutes immediate page
+changes for those wipes. The title program's timing is separate from the
+interpreter's story input deadlines.
 
 ## Validation boundary
 

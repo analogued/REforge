@@ -105,15 +105,22 @@ codec.
 
 ## Reference and compatibility
 
+The technical references preserve verified original formats and program behavior
+for historical study as well as reconstruction. They include partial findings
+and mechanisms the replacement does not emulate, with original behavior,
+emulator observations and implementation limits distinguished explicitly.
+
 - [Deliberate deviations](docs/deviations.md): file dialogs, filesystem policy,
   host controls and presentation adaptations compared with DOS.
 - [DOS format and VM](docs/mindwheel-dos-format.md): stores, address units,
-  operand forms, instruction semantics, properties and persistence formats.
+  native cache addressing, operand forms, instruction semantics, diagnostic
+  stack limits, properties and persistence formats.
 - [Interpreter definitions](docs/interpreter-definitions.md): shared behavior,
   extensions and Breakers screen services, resource layouts and compatibility
   boundaries.
 - [DOS runtime](docs/mindwheel-dos-runtime.md): parser, text, keyboard, native
-  services, timing/RNG and host behavior.
+  services, the partially recovered 40-column input path, timing/RNG, native
+  stack residue and host behavior.
 
 The native services of the four supported DOS interpreters have implementation
 paths. That does not imply complete behavioral equivalence: pause/typeahead and

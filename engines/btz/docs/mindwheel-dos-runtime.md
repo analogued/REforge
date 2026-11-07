@@ -3,10 +3,12 @@
 
 # Mindwheel DOS runtime
 
-This reference describes the observed Mindwheel DOS runtime implemented by the
-BTZ crate. It covers execution around the wordcode VM: input, parsing, text,
-native services, persistence and timing. Binary layouts and address spaces are
-specified separately in [Mindwheel DOS formats](mindwheel-dos-format.md).
+This reference preserves observed Mindwheel DOS runtime behavior around the
+wordcode VM: input, parsing, text, native services, persistence and timing.
+It includes verified original mechanisms that the replacement omits or adapts;
+implementation behavior and remaining uncertainties are identified separately.
+Binary layouts and address spaces are specified separately in
+[Mindwheel DOS formats](mindwheel-dos-format.md).
 See the [engine overview](../README.md) for supported use and build entry points.
 Intentional changes to host interfaces and presentation are recorded in
 [deliberate deviations](deviations.md).
@@ -47,6 +49,14 @@ accepts 76 ordinary bytes; CR can still be appended as the 77th byte to submit
 the line. Input keeps its original case. LF does not submit or move the editor.
 Submitting CR clears variable `0xda`, marks the line ready, erases the current
 block cursor and advances to the next input row.
+
+The original low-level input writer also contains a 40-column branch. Static
+inspection shows a limit of 73 ordinary buffered bytes there, compared with
+76 in the observed 80-column mode. Both use the same CR-submission path. This
+is a recovered branch condition, not a verified complete 40-column interface:
+its startup selection and full screen behavior remain unvalidated. REforge
+currently implements only the 80-column presentation. The two limits must not
+be inferred from the visible width alone.
 
 Backspace deletes the last buffered byte and moves the block cursor back.
 Tab inserts ten literal spaces, subject to the same character limit. Native
@@ -308,6 +318,32 @@ observed-result adapter supplies another value for a chosen environment; valid
 submitted results range from 0 through 254. Exact DOS memory/stack reconstruction
 and complete host pacing identity are not established.
 
+### Native stack residue
+
+The dependency above has a demonstrated mechanism in the identified executable.
+A variable-operand read passes through the native store cache before service 1
+starts. The cache reader pushes a far-memory segment onto the DOS stack. The
+later input routine reuses that stack location for its uninitialized low
+counter word; the high word is explicitly initialized to zero. In the captured
+path, that segment survives until submission and supplies the shifted value.
+It is neither measured elapsed time nor a VM return address.
+
+The cache segment depends on DOS placement and cache-slot selection; its
+[allocation calculation](mindwheel-dos-format.md#original-dos-store-access-and-cache)
+therefore matters even though the replacement uses host buffers. Unchanged-game
+DOSBox-X captures produced submitted results of 24 under one normal launch and
+41 with `LOADFIX -64` reserving memory before the executable. A separate run
+showed that C-runtime filename input could change later submitted results to
+zero in the same load environment. These scoped examples depend on the
+environment; the native formula permits the full range stated above.
+
+The pushed-segment explanation is established for the captured operand/read
+path. Other operand modes and C-runtime call histories can leave different
+residue. Reconstructing one DOS load address alone would not determine every
+read result; no complete cache/stack-history model is claimed here.
+
+### Replacement clock and random sequence
+
 The terminal host converts a monotonic clock to BIOS ticks for deadlines and
 wakes read waits at the next tick or earlier keyboard activity. Execution speed
 does not scale the tick rate. Its poll schedule is not an emulated DOS CPU loop:
@@ -345,7 +381,9 @@ Three narrow input/presentation behaviors remain incomplete in the current host:
 
 Malformed pointers, stores, buffers, stacks and bookmarks return checked errors.
 The original interpreter's diagnostic pause/recovery and unsafe corruption on
-such faults are not reproduced. Existing logical-state construction is not a
+such faults are not reproduced; the recovered
+[stack-overflow path](mindwheel-dos-format.md#original-diagnostic-and-stack-overflow-path)
+is documented separately. Existing logical-state construction is not a
 full suspended-session checkpoint API. Broader gameplay progression, original
 secondary media and other BTZ releases still require separate validation.
 An automated Mindwheel command replay reaches the winning ending and includes

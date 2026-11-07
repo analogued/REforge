@@ -43,7 +43,7 @@ const RESTORED: OptionDefinition = OptionDefinition {
 
 // Keep ordinary workspace tests independent of a desktop and of SDL state in
 // other test threads, matching the shared presentation regression convention.
-fn dummy_video(test: &str) -> bool {
+pub(super) fn dummy_video(test: &str) -> bool {
     const MARKER: &str = "REFORGE_MACHINE_SETTINGS_TEST";
     if std::env::var(MARKER).as_deref() == Ok(test) {
         return true;
@@ -65,7 +65,7 @@ fn dummy_video(test: &str) -> bool {
     false
 }
 
-fn draw(menu: &mut SettingsMenu<'_>, events: Vec<egui::Event>) -> egui::FullOutput {
+pub(super) fn draw(menu: &mut SettingsMenu<'_>, events: Vec<egui::Event>) -> egui::FullOutput {
     let context = menu.context.clone();
     let now = menu.started.elapsed().as_secs_f64();
     context.run(
@@ -83,7 +83,7 @@ fn draw(menu: &mut SettingsMenu<'_>, events: Vec<egui::Event>) -> egui::FullOutp
         },
     )
 }
-fn label(output: &egui::FullOutput, text: &str) -> Option<egui::Rect> {
+pub(super) fn label(output: &egui::FullOutput, text: &str) -> Option<egui::Rect> {
     fn find(shape: &egui::epaint::Shape, text: &str) -> Option<egui::Rect> {
         match shape {
             egui::epaint::Shape::Text(shape) if shape.galley.text() == text => {
@@ -98,7 +98,7 @@ fn label(output: &egui::FullOutput, text: &str) -> Option<egui::Rect> {
         .iter()
         .find_map(|shape| find(&shape.shape, text))
 }
-fn click(menu: &mut SettingsMenu<'_>, text: &str) {
+pub(super) fn click(menu: &mut SettingsMenu<'_>, text: &str) {
     draw(menu, vec![]);
     let pos = label(&draw(menu, vec![]), text)
         .unwrap_or_else(|| panic!("missing {text}"))

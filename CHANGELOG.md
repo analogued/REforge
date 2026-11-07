@@ -5,6 +5,11 @@ Unreleased contains changes intended for the next public release.
 
 ## Unreleased
 
+### General
+
+- Restore pending display choices correctly when switching back before Apply,
+  including renderer backends, manual scaling and explicit global defaults.
+
 ### Alley Cat
 
 - Add support for NewRisingSun-restored Tandy inputs, including CAT.EXE with

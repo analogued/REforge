@@ -117,6 +117,8 @@ pub struct SettingsMenu<'a> {
     pub(super) page: usize,
     // A section reset prevents edit round trips from restoring cleared keys.
     pub(super) game_reset: [bool; 4],
+    pub(super) global_reset: [bool; 4],
+    pub(super) display_edits: [crate::settings_ui::DisplayEdits; 2],
     pub(super) status: Option<String>,
     pub(super) jobs: Vec<egui::ClippedPrimitive>,
     pub(super) pending_textures: egui::TexturesDelta,
@@ -283,6 +285,8 @@ impl<'a> SettingsMenu<'a> {
             game_editing: [false; 4],
             page: 0,
             game_reset: [false; 4],
+            global_reset: [false; 4],
+            display_edits: Default::default(),
             status: None,
             jobs: Vec::new(),
             pending_textures: egui::TexturesDelta::default(),
@@ -320,6 +324,8 @@ impl<'a> SettingsMenu<'a> {
         self.draft = None;
         self.pending = None;
         self.game_reset = [false; 4];
+        self.global_reset = [false; 4];
+        self.display_edits = Default::default();
         self.events.clear();
         let mode = self.navigation.mode;
         self.navigation = Default::default();
@@ -650,6 +656,8 @@ impl<'a> SettingsMenu<'a> {
                     self.draft = Some(self.creator.session.borrow().saved.clone());
                     self.error = None;
                     self.game_reset = [false; 4];
+                    self.global_reset = [false; 4];
+                    self.display_edits = Default::default();
                 }
                 Err(error) => {
                     self.error = Some(format!("Settings applied, but could not save: {error}"))
@@ -1015,6 +1023,8 @@ fn translate_event(
 
 #[cfg(test)]
 mod machine_tests;
+#[cfg(test)]
+mod round_trip_tests;
 
 #[cfg(test)]
 mod tests {

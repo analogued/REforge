@@ -22,7 +22,8 @@ settings are skipped. Down from the last option goes to Apply when it is enabled
 otherwise it goes to Reset. Tab retains the footer's visual order. Menu input
 does not reach gameplay.
 With Auto selected, the disabled scale slider shows the resolved windowed
-multiplier. Turning Auto off starts manual scaling at that value.
+multiplier. Turning Auto off restores the last manual scale edited in that scope
+before Apply; if none has been selected, it starts at the resolved multiplier.
 
 During graphical play, the mouse cursor hides after two seconds without mouse
 activity, in both windowed and fullscreen modes. Moving or clicking the mouse
@@ -81,6 +82,9 @@ or window mode supersedes that restoration; temporary sizing is never saved.
 
 Controls edit a draft. Apply activates and saves pending edits across both
 Global defaults and the current game's overrides, leaving the menu open.
+Before Apply, switching back to a renderer restores its previous backend choice.
+These remembered backend and manual-scale choices are separate for each scope
+and are cleared by Apply, Cancel or resetting the corresponding Display section.
 For an unregistered game launched with `--original`, game overrides apply only
 to the current run; add the game to the launcher library to retain them. Global
 defaults still save normally. With `--no-config`, all edits are temporary.

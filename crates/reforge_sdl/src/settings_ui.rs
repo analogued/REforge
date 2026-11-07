@@ -263,6 +263,9 @@ pub(super) fn draw(
                             if !override_defaults {
                                 draft.reset_section(true, menu.page);
                                 menu.game_reset[menu.page] = true;
+                                if menu.page == 0 {
+                                    menu.display_edits[1] = Default::default();
+                                }
                             }
                         }
                     } else {
@@ -325,6 +328,7 @@ pub(super) fn draw(
                                         ui,
                                         &mut value,
                                         rows,
+                                        &mut menu.display_edits[menu.scope],
                                         DisplayOptions {
                                             capabilities: menu.capabilities,
                                             geometry,
@@ -446,7 +450,11 @@ pub(super) fn draw(
                                     (!menu.game_reset[menu.page]).then_some(&saved),
                                 );
                             } else {
-                                draft.edit(false, key, value.get(key));
+                                draft.edit_global(
+                                    key,
+                                    value.get(key),
+                                    (!menu.global_reset[menu.page]).then_some(&saved),
+                                );
                             }
                         }
                     }
@@ -502,10 +510,14 @@ pub(super) fn draw(
                     {
                         if menu.scope == 0 {
                             draft.reset_section(false, menu.page);
+                            menu.global_reset[menu.page] = true;
                         } else {
                             draft.reset_section(true, menu.page);
                             menu.game_editing[menu.page] = false;
                             menu.game_reset[menu.page] = true;
+                        }
+                        if menu.page == 0 {
+                            menu.display_edits[menu.scope] = Default::default();
                         }
                     }
                     let apply = primary_footer_control(ui.add_enabled(
@@ -547,6 +559,42 @@ pub(super) fn draw(
         });
     close
 }
+/// Choices temporarily hidden by another Display control, scoped to one draft.
+#[derive(Default)]
+pub(super) struct DisplayEdits {
+    manual_scale: Option<u32>,
+    backends: Vec<(Renderer, Backend)>,
+}
+
+impl DisplayEdits {
+    fn switch_renderer(&mut self, previous: Renderer, backend: Backend, next: Renderer) -> Backend {
+        if let Some((_, saved)) = self
+            .backends
+            .iter_mut()
+            .find(|(renderer, _)| *renderer == previous)
+        {
+            *saved = backend;
+        } else {
+            self.backends.push((previous, backend));
+        }
+        // Terminal has no backend of its own; retain the dormant graphical
+        // value until another graphical renderer is chosen.
+        if next == Renderer::Terminal {
+            return backend;
+        }
+        let selected = self
+            .backends
+            .iter()
+            .find(|(renderer, _)| *renderer == next)
+            .map_or(backend, |(_, saved)| *saved);
+        if backends(next).contains(&selected) {
+            selected
+        } else {
+            Backend::Auto
+        }
+    }
+}
+
 struct DisplayOptions {
     capabilities: VideoCapabilities,
     geometry: crate::DisplayGeometry,
@@ -620,6 +668,7 @@ fn display_controls(
     ui: &mut egui::Ui,
     value: &mut RuntimeSettings,
     rows: RowContext<'_>,
+    edits: &mut DisplayEdits,
     options: DisplayOptions,
 ) {
     let DisplayOptions {
@@ -633,6 +682,9 @@ fn display_controls(
         game_storage,
     } = options;
     let RowContext { scope, cli, .. } = rows;
+    if let Some(scale) = value.scale {
+        edits.manual_scale = Some(scale);
+    }
     if let Some(machines) = alleycat_machines {
         alleycat_machine_controls(ui, value, rows, machines, game_storage);
     }
@@ -671,7 +723,9 @@ fn display_controls(
                         None
                     } else {
                         Some(
-                            windowed_scale
+                            edits
+                                .manual_scale
+                                .unwrap_or(windowed_scale)
                                 .clamp(capabilities.min_scale.max(1), capabilities.max_scale),
                         )
                     };
@@ -766,13 +820,11 @@ fn display_controls(
             .show(ui, &mut value.renderer);
         },
     );
-    if value.renderer != Renderer::Terminal
-        && value.renderer != original_renderer
+    if value.renderer != original_renderer
         && !cli.contains_key("renderer")
         && !cli.contains_key("backend")
-        && !backends(value.renderer).contains(&value.backend)
     {
-        value.backend = Backend::Auto;
+        value.backend = edits.switch_renderer(original_renderer, value.backend, value.renderer);
     }
     ui.add_enabled_ui(value.renderer != Renderer::Terminal, |ui| {
         row(
@@ -2348,6 +2400,7 @@ mod tests {
                                         overrides: Overrides::default(),
                                         cli: &cli,
                                     },
+                                    &mut DisplayEdits::default(),
                                     DisplayOptions {
                                         capabilities: VideoCapabilities::default(),
                                         alleycat_machines: None,

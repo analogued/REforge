@@ -886,6 +886,16 @@ impl Draft {
             patch.insert(key.into(), value);
         }
     }
+    /// Restore an existing explicit global value when an edit is undone. After
+    /// resetting a section, pass None so its cleared keys remain sparse.
+    pub fn edit_global(&mut self, key: &str, value: String, original: Option<&Self>) {
+        if original.and_then(|draft| draft.global.get(key)) == Some(&value) {
+            self.global.insert(key.into(), value);
+        } else {
+            self.edit(false, key, value);
+        }
+    }
+
     /// Settings edits save differences, while returning to an original explicit
     /// override restores its presence even when it matches the current global.
     /// Pass None after an explicit section reset so cleared overrides stay clear.
@@ -1350,6 +1360,34 @@ mod tests {
             session(path, "mach-3").saved.game["window_mode"],
             "fullscreen"
         );
+    }
+
+    #[test]
+    fn global_edits_restore_original_presence_but_resets_do_not() {
+        for (key, initial, other) in [
+            ("window_mode", "windowed", "fullscreen"),
+            ("master_volume", "80", "60"),
+            ("renderer", "auto", "software"),
+        ] {
+            let original = Draft {
+                global: Patch::from([(key.into(), initial.into())]),
+                ..Default::default()
+            };
+            let mut draft = original.clone();
+            draft.edit_global(key, other.into(), Some(&original));
+            draft.edit_global(key, initial.into(), Some(&original));
+            assert_eq!(draft, original, "preserve explicit {key}");
+            let inherited = Draft::default();
+            let mut draft = inherited.clone();
+            draft.edit_global(key, other.into(), Some(&inherited));
+            draft.edit_global(key, initial.into(), Some(&inherited));
+            assert_eq!(draft, inherited, "preserve default absence for {key}");
+            draft = original.clone();
+            draft.reset_section(false, section_index(key));
+            draft.edit_global(key, other.into(), None);
+            draft.edit_global(key, initial.into(), None);
+            assert!(draft.global.is_empty(), "reset {key} must not return");
+        }
     }
 
     #[test]

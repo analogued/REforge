@@ -103,6 +103,7 @@ pub struct Alley {
     pub(crate) sound: crate::sound::Sound,
     psg_music: Option<std::sync::Arc<crate::sound::psg::Music>>,
     text_color: u8,
+    input_format: crate::assets::InputFormat,
     screen: Framebuffer,
     presented: Framebuffer,
     compositor: PlayerCompositor,
@@ -215,6 +216,7 @@ impl Alley {
         let mut splash = crate::splash::Splash::after_game_over(&self.data, self.machine, 0)?;
         splash.set_title_music(self.psg_music.clone(), 0);
         splash.text_color = self.text_color;
+        splash.input_format = self.input_format;
         Ok(splash)
     }
 
@@ -646,6 +648,11 @@ impl Alley {
     }
 
     #[cfg(feature = "sdl")]
+    pub(crate) fn input_format(&self) -> crate::assets::InputFormat {
+        self.input_format
+    }
+
+    #[cfg(feature = "sdl")]
     pub(crate) fn text_color(&self) -> u8 {
         self.text_color
     }
@@ -716,6 +723,7 @@ impl Alley {
             sound: crate::sound::Sound::default(),
             psg_music: None,
             text_color: 2,
+            input_format: crate::assets::InputFormat::Cat,
             data,
             screen: Framebuffer::default(),
             presented: Framebuffer::default(),
@@ -759,6 +767,7 @@ impl Alley {
         machine: Machine,
     ) -> Result<Self, String> {
         let mut alley = Self::from_runtime_data(assets.runtime_data(), seed, difficulty, machine)?;
+        alley.input_format = assets.input_format();
         alley.psg_music = assets.title_music(machine)?;
         alley.text_color = if assets.restored_data().is_some() {
             3
@@ -822,6 +831,7 @@ impl Alley {
         let mut alley = Self::unstarted(splash.data().to_vec(), seed, difficulty, splash.machine());
         alley.psg_music = splash.title_music().cloned();
         alley.text_color = splash.text_color;
+        alley.input_format = splash.input_format;
         alley.player = splash.player().clone();
         Ok(alley)
     }
@@ -831,6 +841,7 @@ impl Alley {
             sound: crate::sound::Sound::default(),
             psg_music: None,
             text_color: 2,
+            input_format: crate::assets::InputFormat::Cat,
             data,
             presented: Framebuffer::default(),
             screen: Framebuffer::default(),

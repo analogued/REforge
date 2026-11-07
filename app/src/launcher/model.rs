@@ -333,6 +333,22 @@ impl GameEntry {
         }
         args
     }
+    /// Saved Alley Cat machine preferences are read by the child's profile
+    /// binding. Passing them as CLI overrides would lock the in-game selector.
+    pub fn launch_arguments(&self) -> Vec<String> {
+        let args = self.native_arguments();
+        if self.game_id != "alley-cat" {
+            return args;
+        }
+        args.as_chunks::<2>()
+            .0
+            .iter()
+            .filter(|pair| pair[0] != "--machine")
+            .flatten()
+            .cloned()
+            .collect()
+    }
+
     pub fn refresh_preferences(&mut self) -> Result<(), String> {
         let session = Session::load(Launch {
             game_id: self.game_id.clone(),

@@ -22,6 +22,7 @@ pub enum InputFormat {
 pub struct Assets {
     data: Vec<u8>,
     restored: Option<Vec<u8>>,
+    format: InputFormat,
 }
 
 impl Assets {
@@ -34,7 +35,7 @@ impl Assets {
                 .read(role)
                 .map_err(|error| format!("Cannot read executable resource {role}: {error}"))
         };
-        match format {
+        let mut assets = match format {
             InputFormat::Cat => Self::from_executable(&read("CAT.EXE")?),
             InputFormat::Tandy => Self::from_restored_executable(&read("TANDYCAT.EXE")?),
             InputFormat::CatWithPatch => {
@@ -42,7 +43,9 @@ impl Assets {
                 let patched = patch::apply(&executable, &read("791CE265.DIF")?)?;
                 Self::from_restored_executable(&patched)
             }
-        }
+        }?;
+        assets.format = format;
+        Ok(assets)
     }
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
@@ -63,6 +66,7 @@ impl Assets {
         Ok(Self {
             data: data.to_vec(),
             restored: None,
+            format: InputFormat::Cat,
         })
     }
 
@@ -76,6 +80,7 @@ impl Assets {
         Ok(Self {
             data: restored::normalize(restored)?,
             restored: Some(restored.to_vec()),
+            format: InputFormat::Tandy,
         })
     }
 
@@ -83,6 +88,10 @@ impl Assets {
     /// Gameplay uses the normalized legacy layout returned by `data()`.
     pub fn restored_data(&self) -> Option<&[u8]> {
         self.restored.as_deref()
+    }
+
+    pub fn input_format(&self) -> InputFormat {
+        self.format
     }
 
     pub fn title_music(

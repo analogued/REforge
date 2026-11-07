@@ -74,8 +74,11 @@ jump physics. To use the original polling behavior, open
 **Override global defaults** to edit, then Apply.
 
 **Machine:** the original input offers CGA (the default) and PCjr.
-The restored inputs also offer Tandy and default to it. Choose in the launcher,
-or use `--machine cga`, `pcjr` or `tandy`. The modes retain their original pacing
+The restored inputs also offer Tandy and default to it. Choose in the launcher
+or under **Settings → Alley Cat overrides → Display → Machine**. Enable
+**Override global defaults**, choose the machine and Apply. Settings and the
+launcher share this choice; during play it applies on the next launch. You can
+also use `--machine cga`, `pcjr` or `tandy`. The modes retain their original pacing
 differences; underwater play can feel more variable in PCjr and Tandy.
 With restored inputs, PCjr and Tandy play the three-voice intro melody;
 CGA keeps the PC Speaker version. Gameplay effects remain PC Speaker. Restored

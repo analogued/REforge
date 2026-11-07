@@ -177,7 +177,12 @@ headless builds.
 
 `--machine pcjr` selects PCjr graphics and mode-specific timing rules. The
 unpatched input defaults to `cga`. Restored inputs additionally accept
-`--machine tandy`, which is their default. Restored inputs use white menu and
+`--machine tandy`, which is their default. The same choice is available in the
+launcher and under F10 → Alley Cat overrides → Display → Machine. Enable
+Override global defaults and Apply to save it for the next launch; the running
+game keeps its current machine. An explicit `--machine` override locks this
+control for that run. Unregistered/configuration-disabled runs cannot save a
+next-launch selection. Restored inputs use white menu and
 pause text instead of the conversion's color-two text. PCjr and Tandy retain
 the player countdown and height-dependent fishbowl pacing:
 near the surface, fish and eels have more update opportunities while the cat's

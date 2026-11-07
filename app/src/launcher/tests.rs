@@ -185,6 +185,57 @@ fn library_round_trip_retains_an_explicit_file_and_binds_its_directory_profile()
 }
 
 #[test]
+fn alleycat_settings_and_launcher_share_machine_without_turning_saved_pins_into_cli_locks() {
+    for release in detection::RELEASES
+        .iter()
+        .filter(|release| release.game() == detection::Game::AlleyCat)
+    {
+        let fixture = Fixture::for_releases([release]);
+        let mut library = Library::new(fixture.library.clone());
+        library.reload().unwrap();
+        let entry = &library.entries[0];
+        let mut game = model::GameEntry::from_entry(entry, fixture.config.clone());
+        game.reload_preferences();
+        game.save_option("Machine", "IBM PCjr");
+        assert_eq!(game.native_arguments(), ["--machine", "pcjr"]);
+        assert!(game.launch_arguments().is_empty());
+        let mut launch = Launch {
+            game_id: "alley-cat".into(),
+            entry_id: None,
+            path: Some(fixture.config.clone()),
+            cli: Default::default(),
+        };
+        let detected = detection::Detected {
+            game: detection::Game::AlleyCat,
+            release,
+            original: entry.original.clone(),
+            root: entry.directory.clone(),
+            files: Default::default(),
+        };
+        let mut forwarded = Vec::new();
+        crate::profile::bind(&mut launch, &detected, &mut forwarded).unwrap();
+        assert_eq!(
+            forwarded,
+            [std::ffi::OsString::from("--machine"), "pcjr".into()]
+        );
+        assert!(!launch.cli.contains_key(reforge_settings::ALLEYCAT_MACHINE));
+        let mut session = Session::load(launch);
+        let mut draft = session.saved.clone();
+        draft.reset_section(true, 0);
+        session.commit(draft).unwrap();
+        game.reload_preferences();
+        assert_eq!(
+            game.preview_variant(),
+            alleycat::launcher::options(match release.engine() {
+                detection::Engine::AlleyCat(format) => format,
+                _ => unreachable!(),
+            })[0]
+                .default
+        );
+    }
+}
+
+#[test]
 fn invalid_shared_fields_preserve_launcher_choices_and_cli_agreement() {
     for (game_id, key, choice) in [
         ("mach-3", "video", "mono"),

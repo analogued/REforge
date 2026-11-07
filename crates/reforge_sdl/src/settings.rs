@@ -110,6 +110,7 @@ pub struct SettingsMenu<'a> {
     pub(super) audio_categories: Vec<reforge_settings::SoundCategory>,
     pub(super) mach3_options: bool,
     pub(super) alleycat_options: bool,
+    pub(super) alleycat_machines: Option<&'static crate::launcher::OptionDefinition>,
     pub(super) controller_style: crate::gamepad::ControllerStyle,
     pub(super) btz_terminal: Option<bool>,
     pub(super) game_editing: [bool; 4],
@@ -151,6 +152,18 @@ impl<'a> SettingsMenu<'a> {
         drop(session);
         self
     }
+    /// Use the engine's release-specific Machine choices and default. The
+    /// selection shares the launcher's saved pin and applies on the next launch.
+    pub fn with_alleycat_machines(
+        mut self,
+        machine: &'static crate::launcher::OptionDefinition,
+    ) -> Self {
+        if self.alleycat_options {
+            self.alleycat_machines = Some(machine);
+        }
+        self
+    }
+
     /// Expose terminal play as a BTZ-only startup choice. A launcher supplies
     /// whether its child can inherit an interactive terminal; SDL play passes
     /// false because an existing game window cannot switch host mid-session.
@@ -264,6 +277,7 @@ impl<'a> SettingsMenu<'a> {
             audio_categories: Vec::new(),
             mach3_options: false,
             alleycat_options: false,
+            alleycat_machines: None,
             controller_style: Default::default(),
             btz_terminal: None,
             game_editing: [false; 4],
@@ -998,6 +1012,9 @@ fn translate_event(
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod machine_tests;
 
 #[cfg(test)]
 mod tests {

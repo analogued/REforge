@@ -9,7 +9,7 @@ Unreleased contains changes intended for the next public release.
 
 - Add support for NewRisingSun-restored Tandy inputs, including CAT.EXE with
   its external restoration patch, with three-voice intro music and a Tandy
-  machine choice.
+  machine choice, available in the launcher and Alley Cat's Display settings.
 
 ## 2026.2.1 (2026-11-06)
 

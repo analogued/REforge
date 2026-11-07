@@ -503,7 +503,7 @@ pub fn run() -> Result<(), String> {
                         .games
                         .iter()
                         .find(|g| g.entry_id == id)
-                        .map(|g| g.native_arguments())
+                        .map(|g| g.launch_arguments())
                         .unwrap_or_default();
                     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
                     let ticket = match launch_handoff::Ticket::new(&original, &detected) {

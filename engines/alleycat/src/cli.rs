@@ -361,6 +361,7 @@ pub fn run(
             let mut data = assets.runtime_data();
             alleycat::assets::set_word(&mut data, 0x2ae5, seed);
             let mut splash = Splash::new(&data, options.machine)?;
+            splash.input_format = format;
             splash.set_title_music(assets.title_music(options.machine)?, 0);
             splash.text_color = if assets.restored_data().is_some() {
                 3

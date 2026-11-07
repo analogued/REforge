@@ -103,6 +103,7 @@ pub fn preview(
     let mut data = assets.runtime_data();
     crate::assets::set_word(&mut data, 0x2ae5, 0xcafe);
     let mut splash = crate::splash::Splash::new(&data, machine)?;
+    splash.input_format = format;
     splash.set_title_music(assets.title_music(machine)?, 0);
     let mut clock =
         crate::timing::VirtualClock::new(crate::timing::RetraceProfile::for_machine(machine));

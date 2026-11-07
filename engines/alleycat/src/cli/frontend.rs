@@ -201,7 +201,8 @@ pub(super) fn interactive(
         presentation,
     )?;
     let creator = display.texture_creator();
-    let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
+    let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?
+        .with_input_format(alley.input_format());
     if let Some(mut startup) = startup {
         let splash_exit = present_splash(&mut window, &mut startup.splash, None)?;
         if splash_exit == SplashExit::Quit {

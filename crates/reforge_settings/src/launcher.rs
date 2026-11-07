@@ -3,7 +3,8 @@
 //! Launcher presentation preferences and opaque engine option overrides.
 //!
 //! Engines define native option names and values. This module only stores their
-//! explicit selections; ordinary Settings drafts leave this namespace intact.
+//! explicit selections. Settings shares Alley Cat's machine key; other native
+//! options remain opaque and are preserved by ordinary Settings drafts.
 
 use std::{collections::BTreeMap, path::Path};
 

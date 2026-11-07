@@ -313,7 +313,8 @@ fn splash_preview(
             )?;
             let creator = display.texture_creator();
             let mut window =
-                alleycat::platform::Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
+                alleycat::platform::Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?
+                    .with_input_format(splash.input_format);
             present_splash(&mut window, &mut splash, options.steps)?;
         }
         #[cfg(not(feature = "sdl"))]
@@ -360,7 +361,8 @@ fn run_player_preview(
         presentation,
     )?;
     let creator = display.texture_creator();
-    let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?;
+    let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?
+        .with_input_format(alley.input_format());
     if let Some(mut startup) = startup {
         let splash_exit = present_splash(&mut window, &mut startup.splash, None)?;
         if splash_exit == SplashExit::Quit {
@@ -385,7 +387,8 @@ fn run_player_preview(
     let mut controls = Controls::default();
     let mut deadline = Instant::now() + period;
     let mut pause_clock = PauseClock::new(Instant::now());
-    let pause_overlay = PauseOverlay::new(alley.pause_text()?[0], alley.machine())?;
+    let pause_overlay =
+        PauseOverlay::with_text_color(alley.pause_text()?[0], alley.machine(), alley.text_color())?;
     let mut index = 0;
     window.present(&alley.rgba())?;
     while steps.is_none_or(|steps| index < steps) {

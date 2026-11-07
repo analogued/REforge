@@ -42,6 +42,16 @@ pub fn run(
     menu = match game.as_deref() {
         Some("alley-cat") => menu
             .with_alleycat_options()
+            .with_alleycat_machines(
+                state
+                    .selected_game()
+                    .and_then(|game| {
+                        game.options
+                            .iter()
+                            .find(|option| option.key() == reforge_settings::ALLEYCAT_MACHINE)
+                    })
+                    .unwrap_or(&alleycat::launcher::OPTIONS[0]),
+            )
             .with_audio_renderers(&[SoundRenderer::Speaker])
             .with_audio_categories(&[SoundCategory::Music, SoundCategory::Effects]),
         Some("mach-3") => menu

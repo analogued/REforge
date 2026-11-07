@@ -131,7 +131,8 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
                 | "--presentation"
                 | "--audio-renderer"
                 | "--digitized-samples"
-                | "--motion"),
+                | "--motion"
+                | "--machine"),
             ) => {
                 if let Some(value) = remaining.next() {
                     let key = match name {
@@ -144,6 +145,7 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
                         "--audio-renderer" => "audio_renderer",
                         "--digitized-samples" => "digitized_samples",
                         "--motion" => "motion",
+                        "--machine" => reforge_settings::ALLEYCAT_MACHINE,
                         _ => "vsync",
                     };
                     if let Some(text) = value.to_str() {
@@ -159,6 +161,7 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
                             | "--audio-renderer"
                             | "--digitized-samples"
                             | "--motion"
+                            | "--machine"
                     ) {
                         args.push(arg);
                         args.push(value);
@@ -330,6 +333,19 @@ mod tests {
             assert_eq!(restored.args, args(&["--machine", "tandy"]));
             assert!(restored.warnings.is_empty());
         }
+    }
+
+    #[test]
+    fn explicit_alleycat_machine_is_forwarded_and_locked_as_temporary() {
+        let (launch, forwarded) = launch_settings(args(&["--machine", "pcjr"]), Game::AlleyCat);
+        assert_eq!(
+            launch
+                .cli
+                .get(reforge_settings::ALLEYCAT_MACHINE)
+                .map(String::as_str),
+            Some("pcjr")
+        );
+        assert_eq!(forwarded, args(&["--machine", "pcjr"]));
     }
 
     #[test]

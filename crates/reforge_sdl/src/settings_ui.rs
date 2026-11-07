@@ -10,10 +10,11 @@ use crate::settings_navigation::{
 use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
-    AspectRatio, BTZ_FILE_CURSOR, Backend, CONTROL_MODE, CONTROLLER_ACTION, CONTROLLER_BUTTONS,
-    CONTROLLER_MOVEMENT, ControlMode, DIGITIZED_SAMPLES, FileCursorStyle, FrameLimit, MOTION,
-    MotionMode, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
-    STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
+    ALLEYCAT_MACHINE, AlleyCatMachine, AspectRatio, BTZ_FILE_CURSOR, Backend, CONTROL_MODE,
+    CONTROLLER_ACTION, CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, ControlMode, DIGITIZED_SAMPLES,
+    FileCursorStyle, FrameLimit, MOTION, MotionMode, Presentation, Renderer, RuntimeSettings,
+    SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory,
+    SoundRenderer,
 };
 mod controller;
 const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
@@ -71,6 +72,7 @@ impl RowContext<'_> {
             if matches!(
                 key,
                 DIGITIZED_SAMPLES
+                    | ALLEYCAT_MACHINE
                     | BTZ_FILE_CURSOR
                     | CONTROL_MODE
                     | MOTION
@@ -329,6 +331,8 @@ pub(super) fn draw(
                                             windowed_scale,
                                             original_renderer: original.renderer,
                                             mach3: menu.scope == 1 && menu.mach3_options,
+                                            alleycat_machines: (menu.scope == 1).then_some(menu.alleycat_machines).flatten(),
+                                            game_storage,
                                             terminal: (menu.scope == 1)
                                                 .then_some(menu.btz_terminal)
                                                 .flatten(),
@@ -360,6 +364,18 @@ pub(super) fn draw(
                             });
                             crate::settings_navigation::scroll_focus(ui, first);
                         });
+                    if menu.page == 0
+                        && menu.scope == 1
+                        && menu.alleycat_machines.is_some()
+                        && original.alleycat.machine != value.alleycat.machine
+                        && !cli.contains_key(ALLEYCAT_MACHINE)
+                    {
+                        draft.edit_game(
+                            ALLEYCAT_MACHINE,
+                            value.get(ALLEYCAT_MACHINE),
+                            (!menu.game_reset[0]).then_some(&saved),
+                        );
+                    }
                     if menu.page == 0
                         && menu.scope == 1
                         && menu.btz_terminal.is_some()
@@ -445,6 +461,7 @@ pub(super) fn draw(
                     } else if menu.page == 3
                         || ([0, 2].contains(&menu.page) && menu.mach3_options)
                         || (menu.page == 0 && menu.btz_terminal.is_some())
+                        || (menu.page == 0 && menu.alleycat_machines.is_some())
                     {
                         "Restore defaults"
                     } else {
@@ -529,6 +546,66 @@ struct DisplayOptions {
     original_renderer: Renderer,
     terminal: Option<bool>,
     mach3: bool,
+    alleycat_machines: Option<&'static crate::launcher::OptionDefinition>,
+    game_storage: bool,
+}
+
+fn alleycat_machine_controls(
+    ui: &mut egui::Ui,
+    value: &mut RuntimeSettings,
+    rows: RowContext<'_>,
+    machines: &'static crate::launcher::OptionDefinition,
+    game_storage: bool,
+) {
+    section(ui, "Machine");
+    // Absence inherits the input profile's default, not a global machine.
+    let mut selected = value
+        .alleycat
+        .machine
+        .filter(|machine| {
+            machines
+                .choices
+                .iter()
+                .any(|choice| choice.value == machine.as_str())
+        })
+        .unwrap_or_else(|| {
+            machines
+                .default
+                .parse::<AlleyCatMachine>()
+                .expect("engine machine default")
+        });
+    ui.add_enabled_ui(game_storage, |ui| {
+        row(
+            ui,
+            "Machine",
+            ALLEYCAT_MACHINE,
+            rows.state(ALLEYCAT_MACHINE, value),
+            |ui| {
+                let previous = selected;
+                Selector::new(
+                    ALLEYCAT_MACHINE,
+                    machines.choices.iter().map(|choice| {
+                        Choice::new(
+                            choice
+                                .value
+                                .parse::<AlleyCatMachine>()
+                                .expect("engine machine choice"),
+                            choice.label,
+                        )
+                    }),
+                )
+                .show(ui, &mut selected);
+                if selected != previous {
+                    value.alleycat.machine = Some(selected);
+                }
+            },
+        );
+    });
+    ui.weak(if game_storage {
+        "Applies on next launch."
+    } else {
+        "Machine requires saved game settings; it applies on next launch."
+    });
 }
 
 fn display_controls(
@@ -544,8 +621,13 @@ fn display_controls(
         original_renderer,
         terminal,
         mach3,
+        alleycat_machines,
+        game_storage,
     } = options;
     let RowContext { scope, cli, .. } = rows;
+    if let Some(machines) = alleycat_machines {
+        alleycat_machine_controls(ui, value, rows, machines, game_storage);
+    }
     ui.add_enabled_ui(value.renderer != Renderer::Terminal, |ui| {
         section(ui, "Window & scaling");
         row(
@@ -2260,6 +2342,8 @@ mod tests {
                                     },
                                     DisplayOptions {
                                         capabilities: VideoCapabilities::default(),
+                                        alleycat_machines: None,
+                                        game_storage: true,
                                         geometry: crate::DisplayGeometry::new(
                                             (320, 200),
                                             (320, 240),

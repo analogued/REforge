@@ -168,6 +168,7 @@ impl<'a> Window<'a> {
             quit: false,
             settings: SettingsMenu::new(creator, VideoCapabilities::default())
                 .with_alleycat_options()
+                .with_alleycat_machines(&crate::launcher::OPTIONS[0])
                 .with_audio_renderers(&[reforge_sdl::settings::SoundRenderer::Speaker])
                 .with_audio_categories(&[
                     reforge_audio::category::SoundCategory::Music,
@@ -178,6 +179,13 @@ impl<'a> Window<'a> {
             control_keys: Keys::default(),
             control_changes: Vec::new(),
         })
+    }
+
+    pub(crate) fn with_input_format(mut self, format: crate::assets::InputFormat) -> Self {
+        self.settings = self
+            .settings
+            .with_alleycat_machines(&crate::launcher::options(format)[0]);
+        self
     }
 
     pub fn poll_input(&mut self) -> Input {

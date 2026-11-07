@@ -5,7 +5,8 @@ game. Inside a dialog or file browser, Esc cancels or goes back; F10 can still o
 Settings.
 The Display page offers window mode (windowed or borderless desktop fullscreen),
 window scale (Auto or ×1–×16), scaling policy, sampling, aspect ratio, renderer,
-backend, VSync and a frame limiter. Mach 3 also offers scene and player craft
+backend, VSync and a frame limiter. Alley Cat additionally offers its startup
+Machine choice; Mach 3 also offers scene and player craft
 movement settings. CRT & Colour offers sharp pixels or Hyllian CRT with adjustable
 shader controls. Colour profiles and white points remain future work. Audio
 offers enable sound, master/category volumes, per-game sound renderer, output
@@ -478,6 +479,25 @@ Unavailable audio does not prevent unrelated Display/CRT changes.
 `--audio-renderer speaker|enhanced-pcm` remains a temporary Mach 3 override and
 locks its menu control for that run. It is never saved into preferences.
 Audio buffering uses the existing latency policy, and output remains mono.
+
+## Alley Cat machine
+
+**Alley Cat overrides → Display → Machine** exposes the same choices as the
+launcher: CGA and PCjr for the original DOS input, plus Tandy for restored inputs.
+The original input defaults to CGA; restored inputs default to Tandy. Enable
+**Override global defaults**, select the machine and Apply. There is no global
+machine preference.
+
+This is a startup choice: changing it in-game saves the next launch's selection
+without changing the running game's graphics, sound or timing. It uses the
+existing `[entries.<entry-id>.launcher].machine` value, so launcher and Settings
+edits stay synchronized. Display's **Restore defaults** removes the pin and
+returns to the input-specific default. Cancel discards pending edits.
+
+An explicit `--machine` argument is temporary and locks the selector for that
+run. A saved launcher selection remains editable. Next-launch edits require a
+registered library entry and configuration storage; unregistered or
+`--no-config` runs show the control disabled.
 
 ## Alley Cat controls
 

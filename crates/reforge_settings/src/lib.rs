@@ -60,6 +60,8 @@ pub const DIGITIZED_SAMPLES: &str = "digitized_samples";
 pub const MOTION: &str = "motion";
 pub const BTZ_FILE_CURSOR: &str = "file_cursor";
 pub const CONTROL_MODE: &str = "control_mode";
+/// Alley Cat startup machine, shared with the launcher's native option store.
+pub const ALLEYCAT_MACHINE: &str = "machine";
 pub const CONTROLLER_MOVEMENT: &str = "controller_movement";
 pub const CONTROLLER_ACTION: &str = "controller_action";
 pub const CONTROLLER_BUTTONS: &str = "controller_buttons";
@@ -80,7 +82,13 @@ pub fn supports_terminal(game: &str) -> bool {
 fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     let keys: &[&str] = match game {
         "mach-3" => &[DIGITIZED_SAMPLES, MOTION],
-        "alley-cat" => ALLEYCAT_CONTROL_KEYS,
+        "alley-cat" => &[
+            ALLEYCAT_MACHINE,
+            CONTROL_MODE,
+            CONTROLLER_MOVEMENT,
+            CONTROLLER_ACTION,
+            CONTROLLER_BUTTONS,
+        ],
         "mindwheel" | "essex" | "brimstone" | "breakers" => &[GRAPHICAL_RENDERER, BTZ_FILE_CURSOR],
         _ => &[],
     };
@@ -103,7 +111,9 @@ pub fn keys() -> impl Iterator<Item = &'static str> {
 }
 
 fn section(key: &str) -> &'static str {
-    if key == DIGITIZED_SAMPLES {
+    if key == ALLEYCAT_MACHINE {
+        "launcher"
+    } else if key == DIGITIZED_SAMPLES {
         "gameplay"
     } else if ALLEYCAT_CONTROL_KEYS.contains(&key) || CONTROL_KEYS.contains(&key) {
         "controls"
@@ -439,9 +449,38 @@ impl std::str::FromStr for ControlMode {
         }
     }
 }
-/// Alley Cat input policy; it has no global or other-game counterpart.
+/// Stored Alley Cat startup choices; availability/default depend on the inputs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AlleyCatMachine {
+    Cga,
+    Pcjr,
+    Tandy,
+}
+impl AlleyCatMachine {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cga => "cga",
+            Self::Pcjr => "pcjr",
+            Self::Tandy => "tandy",
+        }
+    }
+}
+impl std::str::FromStr for AlleyCatMachine {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "cga" => Ok(Self::Cga),
+            "pcjr" => Ok(Self::Pcjr),
+            "tandy" => Ok(Self::Tandy),
+            _ => Err("Alley Cat machine must be cga, pcjr or tandy".into()),
+        }
+    }
+}
+/// Alley Cat preferences; they have no global or other-game counterpart.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct AlleyCatSettings {
+    /// None inherits the input-specific machine default. Changes apply on launch.
+    pub machine: Option<AlleyCatMachine>,
     pub control_mode: ControlMode,
     pub controller_movement: ControllerMovement,
     pub controller_action: FaceButton,
@@ -585,6 +624,11 @@ impl RuntimeSettings {
         match key {
             STICK_DEAD_ZONE => self.stick_dead_zone.to_string(),
             DIGITIZED_SAMPLES => self.mach3.digitized_samples.to_string(),
+            ALLEYCAT_MACHINE => self
+                .alleycat
+                .machine
+                .map_or("default", AlleyCatMachine::as_str)
+                .into(),
             CONTROL_MODE => self.alleycat.control_mode.as_str().into(),
             CONTROLLER_MOVEMENT => self.alleycat.controller_movement.as_str().into(),
             CONTROLLER_ACTION => self.alleycat.controller_action.as_str().into(),
@@ -628,6 +672,13 @@ impl RuntimeSettings {
                     .ok()
                     .filter(|v| (5..=90).contains(v))
                     .ok_or("stick dead zone must be 5..90 percent")?;
+            }
+            ALLEYCAT_MACHINE => {
+                self.alleycat.machine = if value == "default" {
+                    None
+                } else {
+                    Some(value.parse()?)
+                };
             }
             CONTROL_MODE => self.alleycat.control_mode = value.parse()?,
             CONTROLLER_MOVEMENT => self.alleycat.controller_movement = value.parse()?,
@@ -790,6 +841,7 @@ impl Draft {
             patch.remove(GRAPHICAL_RENDERER);
             patch.remove(MOTION);
             patch.remove(BTZ_FILE_CURSOR);
+            patch.remove(ALLEYCAT_MACHINE);
         }
     }
     /// Native game options can share a menu page without acquiring global keys.
@@ -799,6 +851,7 @@ impl Draft {
             .any(|key| self.game.contains_key(*key))
             || page == 0 && self.game.contains_key(MOTION)
             || page == 0 && self.game.contains_key(BTZ_FILE_CURSOR)
+            || page == 0 && self.game.contains_key(ALLEYCAT_MACHINE)
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
             || page == 3
                 && ALLEYCAT_CONTROL_KEYS
@@ -807,8 +860,10 @@ impl Draft {
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
         if !game
-            && (matches!(key, DIGITIZED_SAMPLES | MOTION | BTZ_FILE_CURSOR)
-                || ALLEYCAT_CONTROL_KEYS.contains(&key))
+            && (matches!(
+                key,
+                DIGITIZED_SAMPLES | MOTION | BTZ_FILE_CURSOR | ALLEYCAT_MACHINE
+            ) || ALLEYCAT_CONTROL_KEYS.contains(&key))
         {
             return;
         }
@@ -1045,6 +1100,7 @@ fn read_draft(
                 for name in ["display", "crt", "audio", "controls"]
                     .into_iter()
                     .chain((game == "mach-3").then_some("gameplay"))
+                    .chain((game == "alley-cat").then_some("launcher"))
                 {
                     if table.get(name).is_some_and(|v| !v.is_table_like()) {
                         *warning = Some(format!("Invalid {name} section; using inherited values"));
@@ -1082,7 +1138,8 @@ fn read_draft(
                             }
                             continue;
                         }
-                        if validated.set(key, &text).is_ok()
+                        if !(key == ALLEYCAT_MACHINE && text == "default")
+                            && validated.set(key, &text).is_ok()
                             && !(key == "renderer"
                                 && validated.renderer == Renderer::Terminal
                                 && !supports_terminal(game))
@@ -1976,6 +2033,155 @@ control_mode = "original"
             );
             assert_eq!(fs::read_to_string(&path).unwrap(), text);
         }
+    }
+
+    #[test]
+    fn alleycat_machine_shares_launcher_pins_and_resets_to_input_default() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        launcher::save_native_option(&path, "alley-cat", "machine", Some("pcjr")).unwrap();
+        launcher::save_native_option(&path, "alley-cat", "future_option", Some("keep")).unwrap();
+        launcher::save_native_option(&path, "another-copy", "machine", Some("cga")).unwrap();
+        let mut current = session(path.clone(), "alley-cat");
+        assert_eq!(
+            current.saved.game_values().alleycat.machine,
+            Some(AlleyCatMachine::Pcjr)
+        );
+        assert!(current.saved.has_game_overrides(0));
+        assert_eq!(section_index(ALLEYCAT_MACHINE), 0);
+        let mut draft = current.saved.clone();
+        draft.edit_game(ALLEYCAT_MACHINE, "tandy".into(), Some(&current.saved));
+        current.commit(draft).unwrap();
+        assert_eq!(
+            launcher::native_options(&path, "alley-cat").unwrap()["machine"],
+            "tandy"
+        );
+        let mut current = session(path.clone(), "alley-cat");
+        let mut draft = current.saved.clone();
+        // Choosing an engine's concrete default remains an explicit pin.
+        draft.edit(true, ALLEYCAT_MACHINE, "cga".into());
+        current.commit(draft).unwrap();
+        assert_eq!(
+            launcher::native_options(&path, "alley-cat").unwrap()["machine"],
+            "cga"
+        );
+        let mut draft = current.saved.clone();
+        draft.reset_section(false, 0);
+        assert_eq!(
+            draft.game_values().alleycat.machine,
+            Some(AlleyCatMachine::Cga)
+        );
+        draft.reset_section(true, 0);
+        assert!(!draft.has_game_overrides(0));
+        assert_eq!(draft.game_values().alleycat.machine, None);
+        current.commit(draft).unwrap();
+        let native = launcher::native_options(&path, "alley-cat").unwrap();
+        assert!(!native.contains_key("machine"));
+        assert_eq!(native["future_option"], "keep");
+        assert_eq!(
+            launcher::native_options(&path, "another-copy").unwrap()["machine"],
+            "cga"
+        );
+    }
+
+    #[test]
+    fn alleycat_machine_never_inherits_global_or_other_game_values() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(
+            &path,
+            "[global.launcher]\nmachine = 'tandy'\n[entries.mach-3.launcher]\nmachine = 'pcjr'\n",
+        )
+        .unwrap();
+        for game in ["alley-cat", "mach-3", "mindwheel"] {
+            let mut current = session(path.clone(), game);
+            assert_eq!(current.saved.global_values().alleycat.machine, None);
+            assert_eq!(current.effective(&current.saved).alleycat.machine, None);
+            assert!(!current.saved.game.contains_key(ALLEYCAT_MACHINE));
+            let mut draft = current.saved.clone();
+            draft.edit(false, ALLEYCAT_MACHINE, "cga".into());
+            assert!(!draft.global.contains_key(ALLEYCAT_MACHINE));
+            if game != "alley-cat" {
+                draft.edit(true, ALLEYCAT_MACHINE, "cga".into());
+                current.commit(draft).unwrap();
+            }
+        }
+        let doc = read(&path).unwrap();
+        assert_eq!(doc["global"]["launcher"]["machine"].as_str(), Some("tandy"));
+        assert_eq!(
+            doc["entries"]["mach-3"]["launcher"]["machine"].as_str(),
+            Some("pcjr")
+        );
+        let mut value = RuntimeSettings::default();
+        for mode in ["cga", "pcjr", "tandy", "default"] {
+            value.set(ALLEYCAT_MACHINE, mode).unwrap();
+            assert_eq!(value.get(ALLEYCAT_MACHINE), mode);
+        }
+        for invalid in ["", "other", "CGA"] {
+            assert!(value.set(ALLEYCAT_MACHINE, invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn unrelated_settings_save_preserves_concurrent_launcher_machine_edits() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        launcher::save_native_option(&path, "alley-cat", "machine", Some("cga")).unwrap();
+        let mut current = session(path.clone(), "alley-cat");
+        launcher::save_native_option(&path, "alley-cat", "machine", Some("pcjr")).unwrap();
+        launcher::save_native_option(&path, "alley-cat", "future_option", Some("new")).unwrap();
+        let mut draft = current.saved.clone();
+        draft.edit(true, "vsync", "false".into());
+        current.commit(draft).unwrap();
+        let latest = session(path.clone(), "alley-cat");
+        assert_eq!(
+            latest.saved.game_values().alleycat.machine,
+            Some(AlleyCatMachine::Pcjr)
+        );
+        assert!(!latest.saved.game_values().vsync);
+        assert_eq!(
+            launcher::native_options(&path, "alley-cat").unwrap()["future_option"],
+            "new"
+        );
+    }
+
+    #[test]
+    fn invalid_alleycat_machine_values_and_malformed_sections_remain_intact() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        for invalid in ["unknown", "default"] {
+            fs::write(
+                &path,
+                format!(
+                    "[entries.alley-cat.launcher]\nmachine = '{invalid}'\nfuture_flag = true\n"
+                ),
+            )
+            .unwrap();
+            let mut current = session(path.clone(), "alley-cat");
+            assert!(current.warning.is_some());
+            assert_eq!(current.saved.game_values().alleycat.machine, None);
+            let mut draft = current.saved.clone();
+            draft.edit(true, "vsync", "false".into());
+            current.commit(draft).unwrap();
+            let doc = read(&path).unwrap();
+            assert_eq!(
+                doc["entries"]["alley-cat"]["launcher"]["machine"].as_str(),
+                Some(invalid)
+            );
+            assert_eq!(
+                doc["entries"]["alley-cat"]["launcher"]["future_flag"].as_bool(),
+                Some(true)
+            );
+        }
+        let original = "[entries.alley-cat]\nlauncher = 'broken'\n";
+        fs::write(&path, original).unwrap();
+        let mut current = session(path.clone(), "alley-cat");
+        assert!(current.warning.is_some());
+        let mut draft = current.saved.clone();
+        draft.edit(false, "vsync", "false".into());
+        draft.edit(true, ALLEYCAT_MACHINE, "pcjr".into());
+        assert!(current.commit(draft).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
     }
 
     #[test]

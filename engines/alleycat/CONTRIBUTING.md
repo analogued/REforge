@@ -57,6 +57,13 @@ Compare reconstructed routines and accepted movement updates against the
 original before claiming behavior fidelity; a window smoke test alone does not
 establish that fidelity.
 
+Maintain the [original-engine reference](docs/original-engine.md) for verified
+executable, drawing, input and palette knowledge, including mechanisms replaced
+by host facilities. The [timing reference](docs/timing.md) covers original
+scheduling and the current model; [deviations](docs/deviations.md) records approved
+differences. Preserve useful partial findings with their scope and uncertainties,
+independently of whether the recreation uses them. Keep the raw evidence private.
+
 ## Build output and dependencies
 
 Use `CARGO_TARGET_DIR` and, when appropriate, `CARGO_HOME` to direct reproducible

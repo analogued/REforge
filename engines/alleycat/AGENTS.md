@@ -11,3 +11,8 @@
 - Verify behavior against controlled original-code evidence before claiming
   fidelity. Distinguish helper comparisons, staged integration and natural
   gameplay; a window smoke test alone does not establish equivalence.
+- Maintain verified original-format and hardware knowledge in
+  `docs/original-engine.md`, including findings outside the replacement's needs.
+  Keep release scope and remaining unknowns explicit, and retain raw evidence
+  privately. Use `docs/timing.md` for scheduling and `docs/deviations.md` for
+  deliberate behavior changes rather than duplicating those references.

@@ -8,6 +8,10 @@ the [timing reference](docs/timing.md) describes the model and its limits,
 including the deferred physical PCjr timing comparison.
 Alley Cat is the `alleycat` engine crate in **REforge**.
 
+The [original-engine reference](docs/original-engine.md) preserves recovered DOS
+format and hardware details for historical study and reconstruction, including
+mechanisms that REforge replaces with host facilities.
+
 > [!IMPORTANT]
 > This engine does not include original Alley Cat assets or data. You must
 > provide the original files from a supported release. See

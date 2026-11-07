@@ -5,6 +5,10 @@ These contracts describe the executable identified in the
 within its original code segment; data addresses are offsets within its game
 data segment. They identify behavior, not a required DOS load address.
 
+The [original-engine reference](original-engine.md) describes executable address
+mapping, drawing helpers, keyboard/joystick interfaces and palette programming.
+Those original-machine details remain useful independently of this timing model.
+
 ## Clocks and hardware access
 
 | Mechanism | Verified use |

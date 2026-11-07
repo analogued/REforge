@@ -1,9 +1,13 @@
 # Repository instructions
 
 - Read and follow `CONTRIBUTING.md` for code style, commit messages, and validation.
-- Keep `docs/` focused on maintained implementation and reference documentation
-  useful to users and contributors. Add documentation only when an actual need
-  arises; an empty `docs/` is fine. Do not create a preset collection of documents.
+- Keep `docs/` focused on maintained implementation guidance and reference knowledge
+  useful to users and contributors. This includes verified original data formats
+  and program behavior, with value for historical study as well as reconstruction,
+  even where the replacement does not implement those systems. Document useful
+  partial findings with release scope and uncertainties explicit. Add documentation
+  only when an actual need arises; an empty `docs/` is fine. Do not create a preset
+  collection of documents.
 - Document intentional deviations, including original bug/quirk corrections, and
   user-facing features according to
   [Features and deviations](CONTRIBUTING.md#features-and-deviations). Changes that
@@ -12,7 +16,8 @@
 - Keep discussions, brainstorming, speculative designs, experiments, internal
   audits, retrospectives, session logs, and planning notes outside the source
   repository. Do not move them to another tracked directory to avoid this rule.
-  Promote verified findings into concise implementation documentation when useful.
+  Promote verified findings into maintained public references when useful,
+  retaining raw investigation evidence privately.
 - This repository contains authored project source and documented RE knowledge.
   Original game files and raw generated evidence are external inputs. Keep them
   outside Git unless a specific redistribution basis has been established.

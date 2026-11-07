@@ -19,6 +19,20 @@ Keep broad formatting changes separate from functional changes. Preserve
 third-party style and notices. Do not reformat generated files or fixtures whose
 exact contents matter.
 
+## Original-software references
+
+Preserve verified original data formats and program behavior in maintained public
+references, including systems the replacement omits or handles differently. Their
+historical value does not depend on a current implementation requirement. Useful
+partial specifications are welcome; identify the examined release, what is known
+and what remains uncertain.
+
+Distinguish original behavior, emulator observations and replacement behavior.
+State the scope of measurements and avoid extending an emulator result to all
+historical hardware. Keep feature/support claims separate from knowledge of a
+format or routine. Raw disassembly, captures, investigation scripts and discussion
+remain private; promote the verified explanations rather than those artifacts.
+
 ## Features and deviations
 
 Document intentional departures from original game behavior or presentation in

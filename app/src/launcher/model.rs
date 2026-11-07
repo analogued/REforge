@@ -99,6 +99,7 @@ pub struct GameEntry {
     pub entry_id: String,
     pub title: String,
     pub edition: Option<&'static detection::Edition>,
+    /// Display the installation root for multi-file releases, otherwise the anchor.
     pub original_path: String,
     pub original: PathBuf,
     pub directory: PathBuf,
@@ -133,7 +134,13 @@ impl GameEntry {
             entry_id: entry.entry_id.clone(),
             title: entry.title.clone(),
             edition,
-            original_path: entry.original.display().to_string(),
+            original_path: if release.is_some_and(|release| release.files.len() > 1) {
+                &entry.directory
+            } else {
+                &entry.original
+            }
+            .display()
+            .to_string(),
             original: entry.original.clone(),
             directory: entry.directory.clone(),
             game_id: entry.game_id.clone(),

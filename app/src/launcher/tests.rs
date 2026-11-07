@@ -1491,12 +1491,26 @@ fn truncated_status_has_one_tooltip_with_full_path_and_missing_details() {
     let context = Context::default();
     context.style_mut(|style| style.interaction.tooltip_delay = 0.0);
     let fixture = Fixture::new(1);
-    let mut game = fixture
-        .state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true)
-        .games
-        .remove(0);
-    game.original_path =
-        "/synthetic/a/very/long/game/location/that/does/not/fit/the/status/row/CAT.EXE".into();
+    let release = detection::RELEASES
+        .iter()
+        .find(|release| release.game() == detection::Game::AlleyCat && release.files.len() == 2)
+        .unwrap();
+    let directory =
+        PathBuf::from("/synthetic/a/very/long/game/location/that/does/not/fit/the/status/row");
+    let entry = Entry {
+        entry_id: "synthetic-copy".into(),
+        game_id: "alley-cat".into(),
+        release_id: release.id.into(),
+        title: "Alley Cat".into(),
+        original: directory.join("CAT.EXE"),
+        directory: directory.clone(),
+    };
+    let mut game = model::GameEntry::from_entry(&entry, fixture.config.clone());
+    assert_eq!(game.original_path, directory.display().to_string());
+    assert_eq!(
+        game.original, entry.original,
+        "retain the selected file anchor"
+    );
     let appearance = ResolvedAppearance::resolve(ThemeId::ClassicDark);
     for (index, status) in [
         EntryStatus::Verified,

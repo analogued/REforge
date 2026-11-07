@@ -90,6 +90,10 @@ same text rasterizer as gameplay, without advancing the story or opening a host.
 
 [Interpreter definitions](docs/interpreter-definitions.md) describe the shared
 execution model and the verified differences between DOS implementations.
+The application passes its already detected game identity to player and preview
+loading. BTZ selects the matching rules and resource layout from that identity;
+file fingerprint verification stays in application detection. Standalone
+diagnostic identification is available with `dev-tools`.
 
 `Session` is the integrated execution interface. It accepts explicit clock and
 keyboard input and yields events or `HostRequest` operations. The host completes

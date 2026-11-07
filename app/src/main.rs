@@ -255,6 +255,7 @@ fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
             btz::cli::run_with_title(
                 args.into_iter(),
                 &plan.detected.files,
+                plan.detected.game.id(),
                 plan.detected.game.title(),
             )
         }

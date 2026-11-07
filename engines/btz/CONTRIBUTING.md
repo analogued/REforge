@@ -42,8 +42,12 @@ not require original game files or a desktop.
 
 ## Player frontends
 
-REforge dispatches verified BTZ files to the shared player entry point. Windowed
-play uses the shared SDL display and settings; `--renderer terminal` uses an
+REforge dispatches verified BTZ files and the existing detected game ID to the
+shared player entry point. BTZ maps that ID to its known DOS loading profile;
+it does not repeat application file hashing or infer a profile from filenames.
+Library loading accepts an explicit `player::DosRelease`. The standalone
+diagnostic frontend retains its own fingerprint identification under `dev-tools`.
+Windowed play uses the shared SDL display and settings; `--renderer terminal` uses an
 attached terminal without initializing an SDL window. Both hosts use `Session`
 and the same player loading, file browser and file-service adapters. Windowed
 file prompts are asynchronous and never read standard input. Terminal file

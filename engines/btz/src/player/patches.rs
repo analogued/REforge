@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Release-specific playback edits, separate from the wordcode interpreter.
 
+use super::DosRelease;
+
 struct Edit {
     offset: usize,
     before: &'static [u8],
@@ -10,13 +12,23 @@ struct Edit {
 
 struct Patch<'a> {
     size: usize,
+    #[cfg(feature = "dev-tools")]
     blake3: [u8; 32],
     edits: &'a [Edit],
 }
 
 impl Patch<'_> {
+    #[cfg(feature = "dev-tools")]
+    fn apply_identified(&self, bytes: &mut [u8]) -> bool {
+        bytes.len() == self.size
+            && blake3::hash(bytes).as_bytes() == &self.blake3
+            && self.apply(bytes)
+    }
+
     fn apply(&self, bytes: &mut [u8]) -> bool {
-        if bytes.len() != self.size || blake3::hash(bytes).as_bytes() != &self.blake3 {
+        // Normal loading already has the application's verified release.
+        // Keep local size/instruction guards without identifying the file again.
+        if bytes.len() != self.size {
             return false;
         }
         // Validate every edit before changing any bytes.
@@ -42,6 +54,7 @@ impl Patch<'_> {
 // the existing opening-scene initialization. Keep the title and story setup.
 const MINDWHEEL_DOS: Patch = Patch {
     size: 188_928,
+    #[cfg(feature = "dev-tools")]
     blake3: [
         0x4d, 0x07, 0xf7, 0x20, 0x1d, 0x61, 0x43, 0xb9, 0xb6, 0xe6, 0x48, 0x98, 0x6c, 0xb9, 0x57,
         0x49, 0x29, 0x42, 0x9b, 0x05, 0xbe, 0x6e, 0xaf, 0xa0, 0xcc, 0x10, 0xcf, 0xc4, 0x90, 0xce,
@@ -58,6 +71,7 @@ const MINDWHEEL_DOS: Patch = Patch {
 // opening-scene initialization.
 const ESSEX_DOS: Patch = Patch {
     size: 180_736,
+    #[cfg(feature = "dev-tools")]
     blake3: [
         0xf0, 0x4c, 0xdf, 0x37, 0x7f, 0x6f, 0x48, 0x45, 0x9a, 0x49, 0x9b, 0x66, 0xb5, 0xea, 0x2f,
         0x4f, 0x4e, 0xab, 0x32, 0x32, 0xbf, 0xbc, 0xfb, 0x23, 0x7d, 0x0c, 0xb8, 0xf0, 0x42, 0x5c,
@@ -74,6 +88,7 @@ const ESSEX_DOS: Patch = Patch {
 // initialization, including its story timing setup.
 const BRIMSTONE_DOS: Patch = Patch {
     size: 183_296,
+    #[cfg(feature = "dev-tools")]
     blake3: [
         0xd4, 0x73, 0xd1, 0xd4, 0xf1, 0x9a, 0x41, 0x90, 0x0e, 0x32, 0xee, 0x08, 0x8c, 0x6e, 0x5c,
         0x5d, 0x0b, 0x11, 0x8e, 0x0a, 0x31, 0x0e, 0x1c, 0x1d, 0x5f, 0x1e, 0x0c, 0x47, 0x4e, 0x03,
@@ -95,6 +110,7 @@ const BRIMSTONE_DOS: Patch = Patch {
 
 const BREAKERS_DOS: Patch = Patch {
     size: 232_960,
+    #[cfg(feature = "dev-tools")]
     blake3: [
         0x79, 0xf1, 0xaf, 0xcc, 0xc9, 0x2c, 0x22, 0x01, 0xb4, 0xfb, 0x50, 0x31, 0x10, 0x65, 0xd0,
         0x18, 0x10, 0x75, 0x75, 0x87, 0xed, 0x6b, 0x8a, 0x79, 0x5a, 0x14, 0x52, 0xce, 0x41, 0x3f,
@@ -119,11 +135,22 @@ const BREAKERS_DOS: Patch = Patch {
     ],
 };
 
-pub(super) fn prepare_for_play(bytes: &mut [u8]) {
-    MINDWHEEL_DOS.apply(bytes);
-    ESSEX_DOS.apply(bytes);
-    BRIMSTONE_DOS.apply(bytes);
-    BREAKERS_DOS.apply(bytes);
+pub(super) fn prepare_for_play(release: DosRelease, bytes: &mut [u8]) {
+    let patch = match release {
+        DosRelease::Mindwheel => &MINDWHEEL_DOS,
+        DosRelease::Essex => &ESSEX_DOS,
+        DosRelease::Brimstone => &BRIMSTONE_DOS,
+        DosRelease::Breakers => &BREAKERS_DOS,
+    };
+    patch.apply(bytes);
+}
+
+#[cfg(feature = "dev-tools")]
+pub(super) fn prepare_diagnostic_for_play(bytes: &mut [u8]) {
+    MINDWHEEL_DOS.apply_identified(bytes);
+    ESSEX_DOS.apply_identified(bytes);
+    BRIMSTONE_DOS.apply_identified(bytes);
+    BREAKERS_DOS.apply_identified(bytes);
 }
 
 #[cfg(test)]
@@ -134,6 +161,7 @@ mod tests {
     fn authored_patch(bytes: &[u8]) -> Patch<'static> {
         Patch {
             size: bytes.len(),
+            #[cfg(feature = "dev-tools")]
             blake3: *blake3::hash(bytes).as_bytes(),
             edits: &[Edit {
                 offset: 2,
@@ -144,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn identified_patch_changes_only_its_guarded_instruction_and_is_idempotent() {
+    fn selected_patch_changes_only_its_guarded_instruction_and_is_idempotent() {
         let original = [0xaa, 0xbb, 0x2c, 0, 0, 0, 0xcc, 0xdd];
         let mut bytes = original;
         let patch = authored_patch(&original);
@@ -159,15 +187,26 @@ mod tests {
     }
 
     #[test]
+    fn selected_patch_checks_instructions_without_reidentifying_unrelated_bytes() {
+        let original = [0xaa, 0xbb, 0x2c, 0, 0, 0, 0xcc, 0xdd];
+        let patch = authored_patch(&original);
+        let mut bytes = original;
+        bytes[7] ^= 1;
+        assert!(patch.apply(&mut bytes));
+        assert_eq!(bytes, [0xaa, 0xbb, 0x08, 0, 0x20, 0, 0xcc, 0xdc]);
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
     fn a_matching_instruction_in_another_release_is_not_enough() {
         let original = [0xaa, 0xbb, 0x2c, 0, 0, 0, 0xcc, 0xdd];
         let patch = authored_patch(&original);
         let mut different = original;
         different[7] ^= 1;
         let before = different;
-        assert!(!patch.apply(&mut different));
+        assert!(!patch.apply_identified(&mut different));
         assert_eq!(different, before);
-        prepare_for_play(&mut different);
+        prepare_diagnostic_for_play(&mut different);
         assert_eq!(different, before);
     }
 

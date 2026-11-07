@@ -164,7 +164,7 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
             Game::AlleyCat => alleycat::launcher::preview(&detected.original, variant),
             Game::Mach3 => mach3::launcher::preview(&detected.files, variant),
             Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers => {
-                btz::launcher::preview(&detected.files, variant)
+                btz::launcher::preview(&detected.files, detected.game.id(), variant)
             }
         },
     )

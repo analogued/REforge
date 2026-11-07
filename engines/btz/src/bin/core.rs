@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     files.originals.push(path.clone());
     let bytes = std::fs::read(path)?;
     let image = if interpreter.is_some() {
-        btz::player::prepare_image(bytes)?
+        btz::player::prepare_diagnostic_image(bytes)?
     } else {
         StoryImage::from_dos_obj(bytes)?
     };

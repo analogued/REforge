@@ -8,9 +8,9 @@ license.workspace = true
 description = "Reconstructed BTZ interpreter core"
 
 [features]
-frontend = ["dep:libc", "dep:blake3", "dep:reforge_settings"]
+frontend = ["dep:libc", "dep:reforge_settings"]
 sdl = ["frontend", "dep:reforge_sdl", "dep:reforge_audio", "dep:reforge_graphics"]
-dev-tools = ["frontend", "reforge_sdl?/dev-tools"]
+dev-tools = ["frontend", "dep:blake3", "reforge_sdl?/dev-tools"]
 
 [dependencies]
 reforge_graphics = { path = "../../crates/reforge_graphics", optional = true }

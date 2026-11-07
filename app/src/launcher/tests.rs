@@ -2011,7 +2011,9 @@ fn native_engine_previews() {
                     detection::Game::Mindwheel
                     | detection::Game::Essex
                     | detection::Game::Brimstone
-                    | detection::Game::Breakers => btz::launcher::preview(&detected.files, variant),
+                    | detection::Game::Breakers => {
+                        btz::launcher::preview(&detected.files, detected.game.id(), variant)
+                    }
                 }
                 .unwrap();
                 assert_eq!(source.frame.rgba(), again.rgba());

@@ -88,6 +88,7 @@ mod terminal_bell {
         fs::write(directory.0.join("GO.EXE"), exe).unwrap();
         fs::write(directory.0.join("SIDE.TXT"), "0\na\n".repeat(10) + "0\n").unwrap();
         btz::player::load(
+            btz::player::DosRelease::Mindwheel,
             &directory.0.join("ADISK.OBJ"),
             &directory.0.join("GO.EXE"),
             &directory.0.join("SIDE.TXT"),
@@ -169,6 +170,7 @@ mod terminal_bell {
                         "terminal".into(),
                     ]
                     .into_iter(),
+                    "mindwheel",
                 )
                 .unwrap();
                 assert_eq!(fs::read(path).unwrap(), original);

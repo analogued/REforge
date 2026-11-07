@@ -18,8 +18,8 @@ struct Options {
     warning: Option<String>,
 }
 
-pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
-    run_with_files(args, &BTreeMap::new())
+pub fn run(args: impl Iterator<Item = OsString>, game_id: &str) -> Result<(), String> {
+    run_with_files(args, &BTreeMap::new(), game_id)
 }
 
 pub fn validate_arguments(args: impl Iterator<Item = OsString>) -> Result<(), String> {
@@ -86,13 +86,15 @@ fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Options>, String
 pub fn run_with_files(
     args: impl Iterator<Item = OsString>,
     files: &BTreeMap<&str, PathBuf>,
+    game_id: &str,
 ) -> Result<(), String> {
-    run_with_title(args, files, "BTZ")
+    run_with_title(args, files, game_id, "BTZ")
 }
 
 pub fn run_with_title(
     args: impl Iterator<Item = OsString>,
     files: &BTreeMap<&str, PathBuf>,
+    game_id: &str,
     title: &str,
 ) -> Result<(), String> {
     let Some(options) = parse(args)? else {
@@ -101,6 +103,8 @@ pub fn run_with_title(
         println!("--side-map file [dev-tools] supplies an alternate SIDE.TXT.");
         return Ok(());
     };
+    let release = crate::player::DosRelease::from_game_id(game_id)
+        .ok_or_else(|| format!("Unsupported BTZ game: {game_id}"))?;
     if options.settings.renderer == Renderer::Terminal {
         if let Some(warning) = &options.warning {
             eprintln!("REforge: {warning}");
@@ -126,20 +130,16 @@ pub fn run_with_title(
             .unwrap_or_else(|| directory.join(name))
     };
     let data = selected("ADISK.OBJ");
-    let interpreter = if files.contains_key("RUN.EXE") {
-        selected("RUN.EXE")
+    let interpreter = selected(if release == crate::player::DosRelease::Breakers {
+        "RUN.EXE"
     } else {
-        let go = selected("GO.EXE");
-        if crate::player::files::resolve_original(&go).is_ok() {
-            go
-        } else {
-            selected("RUN.EXE")
-        }
-    };
+        "GO.EXE"
+    });
     let map = selected("SIDE.TXT");
     #[cfg(feature = "dev-tools")]
     let map = options.side_map.unwrap_or(map);
     let mut loaded = crate::player::load_with_title(
+        release,
         &data,
         &interpreter,
         &map,

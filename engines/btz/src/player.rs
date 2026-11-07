@@ -3,9 +3,16 @@
 //! Player loading and host adapters shared by windowed and terminal play.
 
 pub(crate) mod cursor;
+#[cfg(feature = "dev-tools")]
+mod diagnostic;
 pub(crate) mod file_dialog;
 pub mod files;
 mod patches;
+mod release;
+
+#[cfg(feature = "dev-tools")]
+pub use diagnostic::{identify_dos_interpreter, prepare_image as prepare_diagnostic_image};
+pub use release::DosRelease;
 pub mod presentation;
 // Raw host input is isolated here; the VM, parser and story services remain safe Rust.
 #[allow(unsafe_code)]
@@ -28,168 +35,25 @@ pub struct Loaded {
     pub presentation: Option<presentation::TitleSequence>,
 }
 
-pub fn prepare_image(mut bytes: Vec<u8>) -> Result<StoryImage, Error> {
-    patches::prepare_for_play(&mut bytes);
+pub fn prepare_image(release: DosRelease, mut bytes: Vec<u8>) -> Result<StoryImage, Error> {
+    patches::prepare_for_play(release, &mut bytes);
     StoryImage::from_dos_obj(bytes)
 }
 
-/// Identification is a loading concern, outside the VM. Unknown diagnostic
-/// fixtures can still use the explicit definition/resource constructors.
-pub fn identify_dos_interpreter(
-    exe: &[u8],
-) -> Option<(
-    &'static crate::interpreter::Interpreter,
-    crate::interpreter::DosResources,
-)> {
-    use crate::interpreter::*;
-    match *blake3::hash(exe).as_bytes() {
-        [
-            0xab,
-            0xc0,
-            0x67,
-            0x8c,
-            0x92,
-            0xdc,
-            0x91,
-            0xf3,
-            0x9a,
-            0x02,
-            0x03,
-            0xc1,
-            0x9e,
-            0x80,
-            0xaf,
-            0xed,
-            0x95,
-            0x64,
-            0xc3,
-            0x22,
-            0x50,
-            0xdb,
-            0x21,
-            0x21,
-            0x6c,
-            0x90,
-            0x44,
-            0x27,
-            0xb5,
-            0xcd,
-            0xd7,
-            0x56,
-        ] => Some((&MINDWHEEL_DOS, MINDWHEEL_RESOURCES)),
-        [
-            0x1d,
-            0x3d,
-            0x08,
-            0x2d,
-            0x6e,
-            0xbc,
-            0x8f,
-            0x7c,
-            0x5a,
-            0x1c,
-            0x49,
-            0xca,
-            0x7c,
-            0x77,
-            0x66,
-            0x53,
-            0xd0,
-            0xb3,
-            0x75,
-            0x50,
-            0x68,
-            0xac,
-            0x2f,
-            0xb9,
-            0x72,
-            0xf0,
-            0x2b,
-            0x6b,
-            0x13,
-            0xfe,
-            0xea,
-            0x98,
-        ] => Some((&ESSEX_DOS, ESSEX_RESOURCES)),
-        [
-            0x75,
-            0x8b,
-            0x53,
-            0xef,
-            0x59,
-            0xd0,
-            0x1a,
-            0x19,
-            0x12,
-            0x70,
-            0xb6,
-            0x97,
-            0x1f,
-            0xea,
-            0x44,
-            0xb1,
-            0xe0,
-            0xe1,
-            0xdf,
-            0xcd,
-            0x47,
-            0x20,
-            0x67,
-            0x4a,
-            0xfd,
-            0x6e,
-            0x37,
-            0x6d,
-            0x1d,
-            0x0a,
-            0xe8,
-            0xe5,
-        ] => Some((&BRIMSTONE_DOS, BRIMSTONE_RESOURCES)),
-        [
-            0x95,
-            0xaa,
-            0x40,
-            0x27,
-            0xbe,
-            0xf4,
-            0x1d,
-            0xa2,
-            0x1a,
-            0x3f,
-            0xa6,
-            0x36,
-            0xbe,
-            0x57,
-            0x1a,
-            0xb5,
-            0x03,
-            0xa0,
-            0xfc,
-            0x3d,
-            0xa1,
-            0x35,
-            0x31,
-            0x50,
-            0xf7,
-            0x50,
-            0x71,
-            0x4c,
-            0xd5,
-            0xac,
-            0xb6,
-            0xac,
-        ] => Some((&BREAKERS_DOS, BREAKERS_RESOURCES)),
-        _ => None,
-    }
-}
-
-pub fn load(data: &Path, interpreter: &Path, side_map: &Path) -> Result<Loaded, String> {
-    load_with_title(data, interpreter, side_map, None)
+/// Load inputs already verified by the application for the selected DOS release.
+pub fn load(
+    release: DosRelease,
+    data: &Path,
+    interpreter: &Path,
+    side_map: &Path,
+) -> Result<Loaded, String> {
+    load_with_title(release, data, interpreter, side_map, None)
 }
 
 /// Load with an optional exact title-art path selected by the release detector.
 /// Standalone callers can retain ordinary TITLE.EXE lookup through `load`.
 pub fn load_with_title(
+    release: DosRelease,
     data: &Path,
     interpreter: &Path,
     side_map: &Path,
@@ -206,14 +70,9 @@ pub fn load_with_title(
         let data = resolve(data)?;
         let interpreter = resolve(interpreter)?;
         let side_map = resolve(side_map)?;
-        let image = prepare_image(std::fs::read(&data)?)?;
+        let image = prepare_image(release, std::fs::read(&data)?)?;
         let exe = std::fs::read(&interpreter)?;
-        // Production callers have already identified exact files in the game
-        // catalog. Retain the original default for explicit diagnostic fixtures.
-        let (definition, resources) = identify_dos_interpreter(&exe).unwrap_or((
-            &crate::interpreter::MINDWHEEL_DOS,
-            crate::interpreter::MINDWHEEL_RESOURCES,
-        ));
+        let (definition, resources) = release.interpreter();
         let mut session = Session::with_interpreter(
             image,
             TextCodec::from_dos_resources(&exe, resources)?,
@@ -226,7 +85,7 @@ pub fn load_with_title(
         files.originals = vec![data.clone(), interpreter, side_map.clone()];
         files.side_map_path = Some(side_map);
         files.confirm_bookmark_replace = definition.confirm_bookmark_replace;
-        let presentation = if std::ptr::eq(definition, &crate::interpreter::BREAKERS_DOS) {
+        let presentation = if release == DosRelease::Breakers {
             let title = match title {
                 Some(path) => resolve(path)?,
                 None => files::resolve_original(&data.parent().unwrap().join("TITLE.EXE"))?,

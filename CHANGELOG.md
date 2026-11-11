@@ -18,11 +18,8 @@ Unreleased contains changes intended for the next public release.
   cutoffs.
 - Let the controller's Jump button jump from solid floors even while Down is
   held, keeping Drop available on higher surfaces.
-- Load the supported DOS conversion directly from its verified disk image.
-- Add support for the verified PC Booter floppy image, including its three-voice
-  PCjr intro music and full-build menu colours.
-- Add support for NewRisingSun-restored Tandy inputs, including CAT.EXE with
-  its external restoration patch, with three-voice intro music in PCjr mode.
+- Add support for three more variants: NewRisingSun's Tandy enhancement, the
+  DOS disk image and the PC Booter release.
 
 ## 2026.2.1 (2026-11-06)
 

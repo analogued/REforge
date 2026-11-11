@@ -2146,6 +2146,8 @@ impl Runtime {
         let was_dying = alley.dying();
         let entry = self.pursuit_contact_cost(alley);
         let sample = self.clock.sample();
+        // A completed exit stops sound here, even without a new ambient tone.
+        alley.sound.at(self.clock.elapsed_pit_ticks() as u64);
         if alley.advance_ground_dog(sample.bios.tick_low, sample.retrace)? {
             self.clock.advance_nanos(self.costs.ground_dog_draw);
         }

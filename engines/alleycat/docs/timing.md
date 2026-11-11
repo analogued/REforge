@@ -326,6 +326,11 @@ leave floor tracks during pursuit. An alley death resets its acceptance gate
 and direction requests; the extra actor group runs every pass without advancing
 its ordinary divider. After four clipped exit steps, alley pursuit removes one
 life and resets the dog; room pursuit instead sets failure for the common return.
+The final exit step unconditionally clears speaker-control bits 0 and 1
+(`1e95` calling `5b21`) before handling either consequence. Ordinary dog retirement
+uses the same cutoff, including when the native sound flag is off; initialization
+alone does not stop sound. The reconstruction timestamps this write at the dog
+update, independently of the last ambient sound request.
 
 Window launch (`1a05`) selects jitter, type and direction using the shared
 generator. Projectile motion (`184b`) requires a changed BIOS tick. Contact
@@ -409,6 +414,8 @@ uses the unused part of 2700 ticks. The external per-room base award is added
 to the seven-digit decimal award and then to the current score. High score is
 unchanged. The completed-room count increments before the silhouettes; score
 addition occurs once after them.
+Both face-grid passes end with an unconditional speaker cutoff (`3af0`), after
+their drawing work and, for the coloured reveal, its final two-tick wait.
 
 The second pass uses the full sprite and reveals rows from Y176 upwards in
 16-pixel steps, stopping at `((2700-timeBonus)>>4)&f0`. Each row, including the
@@ -429,9 +436,11 @@ the separate 30-tick ordinary and 68-tick Hearts holds remain unchanged.
 The final `3a1c` loop samples a BIOS tick before waiting for retrace set. It
 sets logical background color zero to hardware green when sampled tick bit 2
 is clear, and black otherwise. After 30 wrapping ticks, it restores black and
-runs the final color wipe before initializing the alley. Pending retrace samples
-and animation phases remain frozen during a desktop pause. Input, player and
-ordinary actors stay blocked throughout; host pause and quit remain responsive.
+runs the final color wipe before initializing the alley. The ordinary score
+branch stops sound (`39d8`) before that wipe; the Hearts score branch skips these
+ordinary face-grid and hold cutoffs so its melody continues. Pending retrace
+samples and animation phases remain frozen during a desktop pause. Input, player
+and ordinary actors stay blocked throughout; host pause and quit remain responsive.
 Sound counters and the synthesized table-driven tone requests advance with these
 stages, without additional random draws from the presentation helpers.
 

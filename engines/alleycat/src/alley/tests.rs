@@ -3,6 +3,88 @@
 
 use super::*;
 
+#[test]
+fn dog_exit_clears_the_speaker_before_all_death_and_retirement_outcomes() {
+    for machine in [Machine::Cga, Machine::Pcjr] {
+        for scene in [0, 3, 6] {
+            for dying in [0, 1, 255] {
+                for lives in [1, 3] {
+                    for native_sound in [0, 255] {
+                        let mut alley = actor_fixture();
+                        alley.machine = machine;
+                        set_word(&mut alley.data, 4, scene);
+                        alley.data[0] = native_sound;
+                        alley.data[0x1cc1] = 1;
+                        alley.data[0x1cb8] = dying;
+                        alley.data[0x1f80] = lives;
+                        alley.sound.gate(0xaf);
+                        alley.sound.at(1234);
+                        alley.sound.record(true);
+
+                        // Tick and retrace waits must not cut the final note short.
+                        alley.advance_ground_dog(0, true).unwrap();
+                        alley.advance_ground_dog(1, false).unwrap();
+                        assert_eq!(alley.data[0x1cc1], 1);
+                        assert!(alley.sound.drain().next().is_none());
+
+                        alley.advance_ground_dog(1, true).unwrap();
+                        let writes: Vec<_> = alley.sound.drain().collect();
+                        assert!(!writes.is_empty());
+                        assert!(writes.iter().all(|write| {
+                            write.tick == 1234 && write.port == 0x61 && write.value == 0xac
+                        }));
+                        // Game-over also performs its existing idempotent stop.
+                        assert_eq!(
+                            writes.len(),
+                            if scene == 0 && dying != 0 && lives == 1 {
+                                2
+                            } else {
+                                1
+                            }
+                        );
+                        assert_eq!(alley.sound.control(), 0xac);
+                        assert_eq!(alley.data[0x1cc1], 0);
+                        assert_eq!(
+                            alley.data[0x1f80],
+                            lives - u8::from(scene == 0 && dying != 0)
+                        );
+                        assert_eq!(alley.data[0x552] == 0xdd, scene != 0 && dying != 0);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn score_cutoffs_are_committed_at_the_post_drawing_sound_clock() {
+    let mut alley = Alley::synthetic();
+    alley.sound.record(true);
+    alley.sound.gate(0xaf);
+    alley.sound.drain().for_each(drop);
+    let work = crate::presentation::Work {
+        stop_sound: true,
+        ..Default::default()
+    };
+    alley.sound.at(5678);
+    alley.finish_presentation_step(&work, 0).unwrap();
+    let writes: Vec<_> = alley.sound.drain().collect();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(
+        (writes[0].tick, writes[0].port, writes[0].value),
+        (5678, 0x61, 0xac)
+    );
+
+    // A normal presentation poll leaves the inherited sound alone.
+    alley.sound.gate(0xaf);
+    alley.sound.drain().for_each(drop);
+    alley
+        .finish_presentation_step(&Default::default(), 0)
+        .unwrap();
+    assert_eq!(alley.sound.control(), 0xaf);
+    assert!(alley.sound.drain().next().is_none());
+}
+
 fn fence_fixture() -> Alley {
     let mut alley = Alley::synthetic();
     alley.player.x = 160;

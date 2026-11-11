@@ -24,6 +24,8 @@ pub(crate) struct Update {
     pub sprite: Option<VisibleSprite>,
     pub contact: bool,
     pub started_death: bool,
+    /// CS:1e95 clears the speaker gate after every completed exit.
+    pub finished_exit: bool,
     pub finished_death: bool,
     pub failure: bool,
     pub life_lost: bool,
@@ -215,6 +217,7 @@ pub(crate) fn advance(
     if data[0x1cc1] != 0 {
         data[0x1cc1] -= 1;
         if data[0x1cc1] == 0 {
+            update.finished_exit = true;
             update.finished_death = data[0x1cb8] != 0;
             if update.finished_death && word(data, 4) != 0 {
                 data[0x552] = 0xdd;
@@ -543,12 +546,13 @@ mod tests {
         data[0x1cc1] = 4;
         for tick in [1, 3, 4] {
             let update = advance(&mut data, tick, true, false).unwrap().unwrap();
+            assert!(!update.finished_exit);
             assert!(!update.life_lost);
             assert!(update.sprite.unwrap().opaque);
             assert_eq!(data[0x1f80], 3);
         }
         let update = advance(&mut data, 6, true, false).unwrap().unwrap();
-        assert!(update.life_lost && update.finished_death);
+        assert!(update.finished_exit && update.life_lost && update.finished_death);
         assert_eq!(data[0x1f80], 2);
         assert_eq!(data[0x1cb8], 0);
         assert!(update.sprite.is_none());

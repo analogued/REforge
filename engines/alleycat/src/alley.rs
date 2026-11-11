@@ -543,6 +543,9 @@ impl Alley {
         let Some(step) = crate::dog::advance(&mut self.data, tick, retrace, !enabled)? else {
             return Ok(false);
         };
+        if step.finished_exit {
+            self.sound.stop();
+        }
         {
             self.motion_order = self.motion_order.wrapping_add(1);
         }
@@ -1388,7 +1391,7 @@ impl Alley {
         work: &crate::presentation::Work,
         tick: u16,
     ) -> Result<(), String> {
-        if work.graphics.wipe.is_some_and(|wipe| !wipe.growing) {
+        if work.stop_sound || work.graphics.wipe.is_some_and(|wipe| !wipe.growing) {
             self.sound.stop();
         }
         if work.complete {

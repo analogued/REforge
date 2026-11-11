@@ -123,6 +123,8 @@ impl Completion {
                     work.graphics.score_rows += 1;
                 }
                 work.graphics.score_bytes = work.bytes_drawn;
+                // CS:3af0 ends each full face-grid pass, including silhouettes.
+                work.stop_sound = true;
                 self.phase = Phase::Award;
             }
             Phase::Award => {
@@ -153,6 +155,8 @@ impl Completion {
                     }
                 }
                 if y < i16::from(data[0x369e]) {
+                    // The final row's wait has completed; stop before digits.
+                    work.stop_sound = true;
                     self.phase = Phase::Digits;
                 } else {
                     work.bytes_drawn = draw_row(data, screen, y as u16)?;
@@ -208,6 +212,8 @@ impl Completion {
                     self.background = if sampled & 4 == 0 { 2 } else { 0 };
                     if sampled.wrapping_sub(start) >= 30 {
                         self.background = 0;
+                        // CS:39d8 ends the score hold before the colour wipe.
+                        work.stop_sound = true;
                         self.phase = Phase::Fill(Wipe::new(self.center.0, self.center.1, 0xaa));
                     } else {
                         self.phase = Phase::Hold {
@@ -375,6 +381,178 @@ mod tests {
             .unwrap();
         assert!(matches!(completion.phase, Phase::Fill(_)));
         assert_eq!(completion.background(), 0);
+    }
+
+    #[test]
+    fn reveal_cutoff_follows_the_final_wrapping_tick_wait_and_is_deferred() {
+        for enabled in [false, true] {
+            let mut data = data();
+            data[0] = if enabled { 255 } else { 0 };
+            data[0x369e] = 176;
+            let mut completion = Completion::new(80, 180, 5).unwrap();
+            completion.phase = Phase::Reveal {
+                y: 176,
+                since: None,
+            };
+            let mut screen = Framebuffer::default();
+            let mut sound = crate::sound::Sound::default();
+            sound.record(true);
+            sound.tone(1000, crate::sound::Category::Music);
+            sound.drain().for_each(drop);
+            let row = completion
+                .advance(&mut data, &mut screen, u16::MAX, false, &mut sound)
+                .unwrap();
+            assert_eq!(row.graphics.score_rows, 1);
+            assert!(
+                !row.stop_sound,
+                "the last drawn row still owns its two-tick note"
+            );
+            let waiting = completion
+                .advance(&mut data, &mut screen, 0, true, &mut sound)
+                .unwrap();
+            assert_eq!(waiting.bytes_drawn, 0);
+            assert!(!waiting.stop_sound);
+            let terminal = completion
+                .advance(&mut data, &mut screen, 1, false, &mut sound)
+                .unwrap();
+            assert!(terminal.stop_sound);
+            assert_eq!(terminal.bytes_drawn, 0);
+            assert!(matches!(completion.phase, Phase::Digits));
+            assert_eq!(
+                sound.control() & 3,
+                3,
+                "drawing must defer the cutoff to its charged caller"
+            );
+            assert!(
+                sound
+                    .drain()
+                    .all(|write| write.port != 0x61 || write.value & 3 != 0)
+            );
+            let digits = completion
+                .advance(&mut data, &mut screen, 1, true, &mut sound)
+                .unwrap();
+            assert_eq!(digits.bytes_drawn, 64);
+            assert!(
+                !digits.stop_sound,
+                "the cutoff is a one-shot boundary, not a digits poll"
+            );
+        }
+    }
+
+    #[test]
+    fn hold_cutoff_requires_the_latched_deadline_and_retrace() {
+        for enabled in [false, true] {
+            let mut data = data();
+            data[0] = if enabled { 255 } else { 0 };
+            let start = u16::MAX - 10;
+            let mut completion = Completion::new(80, 180, 5).unwrap();
+            completion.phase = Phase::Hold {
+                start,
+                sample: None,
+            };
+            let mut screen = Framebuffer::default();
+            let mut sound = crate::sound::Sound::default();
+            sound.record(true);
+            sound.tone(1000, crate::sound::Category::Music);
+            sound.drain().for_each(drop);
+            let early = completion
+                .advance(&mut data, &mut screen, 18, false, &mut sound)
+                .unwrap();
+            assert!(!early.stop_sound);
+            let latched = completion
+                .advance(&mut data, &mut screen, 19, true, &mut sound)
+                .unwrap();
+            assert!(
+                !latched.stop_sound,
+                "retrace must retain tick18 rather than adopt tick19"
+            );
+            assert!(matches!(completion.phase, Phase::Hold { sample: None, .. }));
+            let blocked = completion
+                .advance(&mut data, &mut screen, 19, false, &mut sound)
+                .unwrap();
+            assert!(!blocked.stop_sound, "elapsed30 alone cannot bypass retrace");
+            let terminal = completion
+                .advance(&mut data, &mut screen, 20, true, &mut sound)
+                .unwrap();
+            assert!(terminal.stop_sound);
+            assert!(matches!(completion.phase, Phase::Fill(_)));
+            assert_eq!(
+                sound.control() & 3,
+                3,
+                "native cutoff is committed after drawing charges"
+            );
+            assert!(
+                sound
+                    .drain()
+                    .all(|write| write.port != 0x61 || write.value & 3 != 0)
+            );
+            let first_fill = completion
+                .advance(&mut data, &mut screen, 20, true, &mut sound)
+                .unwrap();
+            assert!(
+                !first_fill.stop_sound,
+                "the next phase must not replay the hold cutoff"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_flow_requests_each_grid_and_hold_cutoff_once_even_when_muted() {
+        for machine in [0, 0xfd] {
+            for enabled in [false, true] {
+                let mut data = data();
+                data[0] = if enabled { 255 } else { 0 };
+                data[0x697] = machine;
+                set_word(&mut data, 0x2ae5, 0xfa59);
+                let mut screen = Framebuffer::default();
+                let mut completion = Completion::new(80, 180, 5).unwrap();
+                let mut sound = crate::sound::Sound::default();
+                sound.record(true);
+                let mut boundaries = Vec::new();
+                let mut complete = false;
+                for tick in 0..200 {
+                    let phase = completion.phase;
+                    let work = completion
+                        .advance(&mut data, &mut screen, tick, tick % 3 != 0, &mut sound)
+                        .unwrap();
+                    if work.stop_sound {
+                        boundaries.push(match phase {
+                            Phase::Silhouettes => {
+                                assert_eq!(work.graphics.score_rows, 12);
+                                assert!(work.graphics.score_grid);
+                                assert!(work.bytes_drawn > 0);
+                                "silhouettes"
+                            }
+                            Phase::Reveal { .. } => {
+                                assert!(matches!(completion.phase, Phase::Digits));
+                                "reveal"
+                            }
+                            Phase::Hold { .. } => {
+                                assert!(matches!(completion.phase, Phase::Fill(_)));
+                                "hold"
+                            }
+                            _ => panic!("unexpected cutoff phase: {phase:?}"),
+                        });
+                    }
+                    if work.complete {
+                        complete = true;
+                        break;
+                    }
+                }
+                assert!(complete);
+                assert_eq!(boundaries, ["silhouettes", "reveal", "hold"]);
+                assert_eq!(word(&data, 0x414), 1);
+                assert_eq!(data[0x1f80], 3);
+                assert_eq!(word(&data, 0x2ae5), 0xfa59);
+                assert!(screen.indices().iter().all(|pixel| *pixel == 2));
+                assert!(
+                    sound
+                        .drain()
+                        .all(|write| write.port != 0x61 || write.value & 3 != 0),
+                    "the phase reports the cutoff without emitting it early"
+                );
+            }
+        }
     }
 
     #[test]

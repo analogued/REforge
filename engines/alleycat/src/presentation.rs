@@ -9,6 +9,8 @@ use crate::framebuffer::{Framebuffer, pixel_offset};
 pub(crate) struct Work {
     pub bytes_drawn: usize,
     pub complete: bool,
+    /// Commit a native speaker cutoff after this pass's drawing costs are charged.
+    pub stop_sound: bool,
     pub graphics: Graphics,
     pub hearts: crate::hearts_completion::PresentationWork,
     pub failure: crate::failure::PresentationWork,
@@ -129,6 +131,7 @@ impl Wipe {
             return Ok(Work {
                 bytes_drawn,
                 complete: true,
+                stop_sound: false,
                 graphics: Graphics {
                     wipe: Some(geometry),
                     ..Graphics::default()
@@ -143,6 +146,7 @@ impl Wipe {
         Ok(Work {
             bytes_drawn,
             complete: false,
+            stop_sound: false,
             graphics: Graphics {
                 wipe: Some(geometry),
                 ..Graphics::default()

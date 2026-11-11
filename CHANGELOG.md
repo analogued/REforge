@@ -14,6 +14,8 @@ Unreleased contains changes intended for the next public release.
 
 - Add Reforged scene movement for smoother actors and animations, keeping
   Original movement selectable independently of responsive controls.
+- Stop dog-catch sounds promptly and restore ordinary room-completion sound
+  cutoffs.
 - Load the supported DOS conversion directly from its verified disk image.
 - Add support for the verified PC Booter floppy image, including its three-voice
   PCjr intro music and full-build menu colours.

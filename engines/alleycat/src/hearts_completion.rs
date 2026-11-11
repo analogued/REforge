@@ -455,6 +455,19 @@ fn wait_dance(
 }
 
 impl HeartsCompletion {
+    pub(crate) fn falling_return(&self) -> bool {
+        !self.success
+    }
+
+    /// Only the current falling picture, never the wider landing or a stale offset.
+    pub(crate) fn falling_cat(&self, data: &[u8]) -> Option<u16> {
+        let offset = word(data, 0x6f24);
+        (matches!(self.phase, Phase::Drop | Phase::DropTick)
+            && (517..=6757).contains(&offset)
+            && (offset - 37).is_multiple_of(480))
+        .then_some(offset)
+    }
+
     pub(crate) fn new(x: u16, y: u8, success: bool) -> Result<Self, String> {
         if x > 296 || y > 198 {
             return Err("Hearts return center is outside the player area".into());
@@ -1152,6 +1165,34 @@ mod tests {
             (3, 3, 0xfa59)
         );
         assert!(screen.indices().iter().all(|pixel| *pixel == 2));
+    }
+
+    #[test]
+    fn falling_sample_is_phase_scoped_and_rejects_stale_landing_offsets() {
+        let mut data = data();
+        let mut completion = HeartsCompletion::new(80, 180, false).unwrap();
+        for phase in [
+            Phase::Start,
+            Phase::DropStart,
+            Phase::DropHold,
+            Phase::Complete,
+        ] {
+            completion.phase = phase;
+            set_word(&mut data, 0x6f24, 6757);
+            assert_eq!(completion.falling_cat(&data), None);
+        }
+        for phase in [Phase::Drop, Phase::DropTick] {
+            completion.phase = phase;
+            for step in 1..=14 {
+                let offset = 37 + step * 480;
+                set_word(&mut data, 0x6f24, offset);
+                assert_eq!(completion.falling_cat(&data), Some(offset));
+            }
+            for offset in [0, 37, 518, 7237] {
+                set_word(&mut data, 0x6f24, offset);
+                assert_eq!(completion.falling_cat(&data), None);
+            }
+        }
     }
 
     #[test]

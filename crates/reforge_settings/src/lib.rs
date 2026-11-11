@@ -58,6 +58,9 @@ pub const CONTROL_KEYS: &[&str] = &[STICK_DEAD_ZONE];
 pub const SECTION_KEYS: [&[&str]; 4] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS, CONTROL_KEYS];
 pub const DIGITIZED_SAMPLES: &str = "digitized_samples";
 pub const MOTION: &str = "motion";
+/// Internal key separating Alley Cat from Mach 3 in the flat runtime patch.
+/// Both games persist their own value as `display.motion`.
+pub const ALLEYCAT_MOTION: &str = "alleycat_motion";
 pub const BTZ_FILE_CURSOR: &str = "file_cursor";
 pub const CONTROL_MODE: &str = "control_mode";
 /// Alley Cat startup machine, shared with the launcher's native option store.
@@ -84,6 +87,7 @@ fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
         "mach-3" => &[DIGITIZED_SAMPLES, MOTION],
         "alley-cat" => &[
             ALLEYCAT_MACHINE,
+            ALLEYCAT_MOTION,
             CONTROL_MODE,
             CONTROLLER_MOVEMENT,
             CONTROLLER_ACTION,
@@ -108,6 +112,10 @@ pub fn section_index(key: &str) -> usize {
 }
 pub fn keys() -> impl Iterator<Item = &'static str> {
     SECTION_KEYS.into_iter().flatten().copied()
+}
+
+fn stored_key(key: &str) -> &str {
+    if key == ALLEYCAT_MOTION { MOTION } else { key }
 }
 
 fn section(key: &str) -> &'static str {
@@ -418,6 +426,39 @@ impl std::str::FromStr for MotionMode {
     }
 }
 
+/// Alley Cat presentation only; input policy and native updates are independent.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum AlleyCatMotion {
+    #[default]
+    Reforged,
+    Original,
+}
+impl AlleyCatMotion {
+    pub const ALL: [Self; 2] = [Self::Reforged, Self::Original];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reforged => "reforged",
+            Self::Original => "original",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Reforged => "Reforged",
+            Self::Original => "Original",
+        }
+    }
+}
+impl std::str::FromStr for AlleyCatMotion {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "reforged" => Ok(Self::Reforged),
+            "original" => Ok(Self::Original),
+            _ => Err("Alley Cat motion must be reforged or original".into()),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ControlMode {
     #[default]
@@ -479,6 +520,7 @@ pub struct AlleyCatSettings {
     /// None inherits the input-specific machine default. Changes apply on launch.
     pub machine: Option<AlleyCatMachine>,
     pub control_mode: ControlMode,
+    pub motion: AlleyCatMotion,
     pub controller_movement: ControllerMovement,
     pub controller_action: FaceButton,
     pub controller_buttons: ControllerButtons,
@@ -631,6 +673,7 @@ impl RuntimeSettings {
             CONTROLLER_ACTION => self.alleycat.controller_action.as_str().into(),
             CONTROLLER_BUTTONS => self.alleycat.controller_buttons.as_str().into(),
             MOTION => self.mach3.motion.as_str().into(),
+            ALLEYCAT_MOTION => self.alleycat.motion.as_str().into(),
             BTZ_FILE_CURSOR => self.btz.file_cursor.as_str().into(),
             "window_mode" => if self.fullscreen {
                 "fullscreen"
@@ -682,6 +725,7 @@ impl RuntimeSettings {
             CONTROLLER_ACTION => self.alleycat.controller_action = value.parse()?,
             CONTROLLER_BUTTONS => self.alleycat.controller_buttons = value.parse()?,
             MOTION => self.mach3.motion = value.parse()?,
+            ALLEYCAT_MOTION => self.alleycat.motion = value.parse()?,
             BTZ_FILE_CURSOR => self.btz.file_cursor = value.parse()?,
             DIGITIZED_SAMPLES => {
                 self.mach3.digitized_samples = match value {
@@ -837,6 +881,7 @@ impl Draft {
         if game && page == 0 {
             patch.remove(GRAPHICAL_RENDERER);
             patch.remove(MOTION);
+            patch.remove(ALLEYCAT_MOTION);
             patch.remove(BTZ_FILE_CURSOR);
             patch.remove(ALLEYCAT_MACHINE);
         }
@@ -847,6 +892,7 @@ impl Draft {
             .iter()
             .any(|key| self.game.contains_key(*key))
             || page == 0 && self.game.contains_key(MOTION)
+            || page == 0 && self.game.contains_key(ALLEYCAT_MOTION)
             || page == 0 && self.game.contains_key(BTZ_FILE_CURSOR)
             || page == 0 && self.game.contains_key(ALLEYCAT_MACHINE)
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
@@ -859,7 +905,7 @@ impl Draft {
         if !game
             && (matches!(
                 key,
-                DIGITIZED_SAMPLES | MOTION | BTZ_FILE_CURSOR | ALLEYCAT_MACHINE
+                DIGITIZED_SAMPLES | MOTION | ALLEYCAT_MOTION | BTZ_FILE_CURSOR | ALLEYCAT_MACHINE
             ) || ALLEYCAT_CONTROL_KEYS.contains(&key))
         {
             return;
@@ -955,7 +1001,14 @@ impl Session {
             },
         }
     }
-    pub fn load(launch: Launch) -> Self {
+    pub fn load(mut launch: Launch) -> Self {
+        // The application exposes one --motion argument; patches need distinct
+        // internal keys because RuntimeSettings contains both games' settings.
+        if launch.game_id == "alley-cat"
+            && let Some(motion) = launch.cli.remove(MOTION)
+        {
+            launch.cli.insert(ALLEYCAT_MOTION.into(), motion);
+        }
         let mut s = Self {
             game_id: launch.game_id,
             entry_id: launch.entry_id,
@@ -1118,7 +1171,7 @@ fn read_draft(
                     }
                 }
                 for key in keys().chain(game_keys(game)) {
-                    if let Some(v) = table.get(section(key)).and_then(|x| x.get(key)) {
+                    if let Some(v) = table.get(section(key)).and_then(|x| x.get(stored_key(key))) {
                         let mut text: String = if let Some(s) = v.as_str() {
                             s.into()
                         } else if let Some(n) = v.as_integer() {
@@ -1157,8 +1210,10 @@ fn read_draft(
                         {
                             p.insert(key.into(), validated.get(key));
                         } else {
-                            *warning =
-                                Some(format!("Invalid setting {key}; using inherited value"));
+                            *warning = Some(format!(
+                                "Invalid setting {}; using inherited value",
+                                stored_key(key)
+                            ));
                         }
                     }
                 }
@@ -1227,7 +1282,9 @@ fn save_changes(
                 if !item.is_table_like() {
                     return Err("configuration section is not a table; file preserved".into());
                 }
-                if let Some(text) = after.get(key) {
+                let text = after.get(key);
+                let key = stored_key(key);
+                if let Some(text) = text {
                     let replacement = match key {
                         "vsync" | "sound_enabled" | "mute_unfocused" | DIGITIZED_SAMPLES => {
                             toml_edit::Value::from(text == "true" || text == "on")
@@ -1707,6 +1764,156 @@ mod tests {
     }
 
     #[test]
+    fn alleycat_motion_is_per_copy_and_independent_of_input_and_mach3() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(
+            &path,
+            concat!(
+                "[global.display]\nmotion='original'\n",
+                "[entries.other.display]\nmotion='original'\n",
+                "[entries.mach-3.display]\nmotion='enhanced'\n"
+            ),
+        )
+        .unwrap();
+        let launch = |entry: &str| Launch {
+            game_id: "alley-cat".into(),
+            entry_id: Some(entry.into()),
+            path: Some(path.clone()),
+            cli: Patch::new(),
+        };
+        let mut first = Session::load(launch("first"));
+        assert_eq!(
+            first.effective(&first.saved).alleycat.motion,
+            AlleyCatMotion::Reforged
+        );
+        assert_eq!(
+            first.effective(&first.saved).alleycat.control_mode,
+            ControlMode::Responsive
+        );
+        let mut draft = first.saved.clone();
+        draft.edit(false, ALLEYCAT_MOTION, "original".into());
+        assert!(!draft.global.contains_key(ALLEYCAT_MOTION));
+        draft.edit(true, ALLEYCAT_MOTION, "original".into());
+        assert!(draft.has_game_overrides(0));
+        assert!(!draft.has_game_overrides(3));
+        assert_eq!(draft.game_values().get(ALLEYCAT_MOTION), "original");
+        assert_eq!(draft.game_values().get(MOTION), "reforged");
+        first.commit(draft).unwrap();
+        let loaded = Session::load(launch("first"));
+        assert_eq!(
+            loaded.effective(&loaded.saved).alleycat.motion,
+            AlleyCatMotion::Original
+        );
+        assert_eq!(
+            loaded.effective(&loaded.saved).mach3.motion,
+            MotionMode::Reforged
+        );
+        assert_eq!(
+            Session::load(launch("second"))
+                .saved
+                .game_values()
+                .alleycat
+                .motion,
+            AlleyCatMotion::Reforged
+        );
+        assert_eq!(
+            Session::load(launch("other"))
+                .saved
+                .game_values()
+                .alleycat
+                .motion,
+            AlleyCatMotion::Original
+        );
+        assert_eq!(
+            session(path.clone(), "mach-3")
+                .effective(&session(path.clone(), "mach-3").saved)
+                .mach3
+                .motion,
+            MotionMode::Enhanced
+        );
+        let text = fs::read_to_string(&path).unwrap();
+        let doc = text.parse::<DocumentMut>().unwrap();
+        assert_eq!(
+            doc["entries"]["first"]["display"][MOTION].as_str(),
+            Some("original")
+        );
+        assert!(
+            doc["entries"]["first"]["display"]
+                .get(ALLEYCAT_MOTION)
+                .is_none()
+        );
+        assert_eq!(
+            doc["entries"]["mach-3"]["display"][MOTION].as_str(),
+            Some("enhanced")
+        );
+        let mut controls = loaded.saved.clone();
+        controls.edit(true, CONTROL_MODE, "original".into());
+        controls.reset_section(true, 0);
+        assert_eq!(
+            controls.game_values().alleycat.motion,
+            AlleyCatMotion::Reforged
+        );
+        assert_eq!(
+            controls.game_values().alleycat.control_mode,
+            ControlMode::Original
+        );
+        assert!(controls.has_game_overrides(3));
+        assert!(!controls.has_game_overrides(0));
+    }
+
+    #[test]
+    fn alleycat_motion_cli_is_temporary_and_rejects_mach3_only_modes() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(&path, "[entries.copy.display]\nmotion='reforged'\n").unwrap();
+        let launch = Launch {
+            game_id: "alley-cat".into(),
+            entry_id: Some("copy".into()),
+            path: Some(path.clone()),
+            cli: Patch::from([(MOTION.into(), "original".into())]),
+        };
+        let mut loaded = Session::load(launch);
+        assert!(!loaded.cli.contains_key(MOTION));
+        assert_eq!(
+            loaded.cli.get(ALLEYCAT_MOTION).map(String::as_str),
+            Some("original")
+        );
+        assert_eq!(loaded.saved.game_values().get(ALLEYCAT_MOTION), "reforged");
+        assert_eq!(
+            loaded.effective(&loaded.saved).get(ALLEYCAT_MOTION),
+            "original"
+        );
+        let saved = loaded.saved.clone();
+        loaded.commit(saved).unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "schema_version = 2\n[entries.copy.display]\nmotion='reforged'\n"
+        );
+        for invalid in ["enhanced", "scene", "faithful"] {
+            assert!(
+                RuntimeSettings::default()
+                    .set(ALLEYCAT_MOTION, invalid)
+                    .is_err()
+            );
+            fs::write(
+                &path,
+                format!("[entries.alley-cat.display]\nmotion='{invalid}' # preserve\n"),
+            )
+            .unwrap();
+            let original = fs::read_to_string(&path).unwrap();
+            let s = session(path.clone(), "alley-cat");
+            assert!(s.warning.is_some());
+            assert!(!s.saved.game.contains_key(ALLEYCAT_MOTION));
+            assert_eq!(
+                s.effective(&s.saved).alleycat.motion,
+                AlleyCatMotion::Reforged
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        }
+    }
+
+    #[test]
     fn mach3_motion_is_game_only_persistent_and_defaults_to_reforged() {
         let dir = TestDir::new();
         let path = dir.file();
@@ -1822,8 +2029,13 @@ mod tests {
         let original = "[entries.alley-cat.display]\nmotion = 'scene'\n";
         fs::write(&path, original).unwrap();
         let loaded = session(path.clone(), "alley-cat");
-        assert!(loaded.warning.is_none());
+        assert!(loaded.warning.is_some());
         assert!(!loaded.saved.game.contains_key(MOTION));
+        assert!(!loaded.saved.game.contains_key(ALLEYCAT_MOTION));
+        assert_eq!(
+            loaded.effective(&loaded.saved).alleycat.motion,
+            AlleyCatMotion::Reforged
+        );
         assert_eq!(fs::read_to_string(path).unwrap(), original);
     }
 

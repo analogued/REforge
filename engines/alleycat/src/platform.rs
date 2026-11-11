@@ -47,6 +47,8 @@ pub struct Input {
     pub menu_pressed: bool,
     pub new_game_pressed: bool,
     pub sound_pressed: bool,
+    #[cfg(feature = "dev-tools")]
+    pub motion_pressed: bool,
     pub settings_open: bool,
     pub settings_changed: bool,
     pub controller_menu_delta: i8,
@@ -150,6 +152,8 @@ pub struct Window<'a> {
     control_changes: Vec<HostChange>,
     gamepads: Gamepads,
     controller: Controller,
+    #[cfg(feature = "dev-tools")]
+    motion_label: Option<&'static str>,
 }
 
 impl<'a> Window<'a> {
@@ -175,6 +179,8 @@ impl<'a> Window<'a> {
                     reforge_audio::category::SoundCategory::Effects,
                 ]),
             settings_was_open: false,
+            #[cfg(feature = "dev-tools")]
+            motion_label: None,
             suppressed: HashSet::new(),
             control_keys: Keys::default(),
             control_changes: Vec::new(),
@@ -186,6 +192,32 @@ impl<'a> Window<'a> {
             .settings
             .with_alleycat_machines(&crate::launcher::options(format)[0]);
         self
+    }
+
+    pub(crate) fn with_scene_motion(
+        mut self,
+        motion: Option<crate::motion::SceneMode>,
+    ) -> Result<Self, String> {
+        let motion = motion.map(|motion| match motion {
+            crate::motion::SceneMode::Reforged => reforge_sdl::AlleyCatMotion::Reforged,
+            crate::motion::SceneMode::Original => reforge_sdl::AlleyCatMotion::Original,
+        });
+        self.settings = self.settings.with_alleycat_motion(motion);
+        if let Some(motion) = motion {
+            let mut requested = self.display.settings();
+            if requested.alleycat.motion != motion {
+                requested.alleycat.motion = motion;
+                self.display.apply_settings(requested)?;
+            }
+        }
+        Ok(self)
+    }
+
+    pub(crate) fn scene_motion(&self) -> crate::motion::SceneMode {
+        match self.display.settings().alleycat.motion {
+            reforge_sdl::AlleyCatMotion::Reforged => crate::motion::SceneMode::Reforged,
+            reforge_sdl::AlleyCatMotion::Original => crate::motion::SceneMode::Original,
+        }
     }
 
     pub fn poll_input(&mut self) -> Input {
@@ -345,6 +377,8 @@ impl<'a> Window<'a> {
             menu_pressed: presses.menu_pressed,
             new_game_pressed: presses.new_game_pressed,
             sound_pressed: presses.sound_pressed,
+            #[cfg(feature = "dev-tools")]
+            motion_pressed: presses.motion_pressed,
             settings_open,
             settings_changed,
             controller_menu_delta: presses.controller_menu_delta,
@@ -374,6 +408,11 @@ impl<'a> Window<'a> {
         )
     }
 
+    #[cfg(feature = "dev-tools")]
+    pub(crate) fn set_motion_label(&mut self, label: Option<&'static str>) {
+        self.motion_label = label;
+    }
+
     pub fn present(&mut self, rgba: &[u8]) -> Result<(), String> {
         self.present_with_pause(rgba, None)
     }
@@ -390,6 +429,8 @@ impl<'a> Window<'a> {
         self.display.prepare_settings(&mut self.settings);
         self.frame.update(rgba)?;
         let settings = &mut self.settings;
+        #[cfg(feature = "dev-tools")]
+        let motion_label = self.motion_label;
         self.display.present_with(&self.frame, |canvas| {
             if let Some(pause) = pause {
                 // Keep original 320x200 text placement under either aspect policy.
@@ -415,6 +456,23 @@ impl<'a> Window<'a> {
                     .map_err(|error| error.to_string())?;
                 canvas.set_draw_color(Color::RGB(0, 0, 0));
                 result?;
+            }
+            #[cfg(feature = "dev-tools")]
+            if let Some(label) = motion_label {
+                let (width, height, _) = canvas.logical_size();
+                canvas
+                    .set_scale(width as f32 / 320.0, height as f32 / 200.0)
+                    .map_err(|e| e.to_string())?;
+                canvas.set_draw_color(Color::RGBA(0, 0, 0, 255));
+                canvas
+                    .fill_rect(FRect::new(3.0, 8.0, label.len() as f32 * 8.0 + 8.0, 12.0))
+                    .map_err(|e| e.to_string())?;
+                canvas.set_draw_color(Color::RGBA(255, 255, 255, 255));
+                canvas
+                    .draw_debug_text(label, (7.0, 10.0))
+                    .map_err(|e| e.to_string())?;
+                canvas.set_scale(1.0, 1.0).map_err(|e| e.to_string())?;
+                canvas.set_draw_color(Color::RGB(0, 0, 0));
             }
             settings.paint(canvas)
         })
@@ -563,6 +621,11 @@ impl Input {
             return;
         };
         let (scancode, modifiers, repeat) = (*scancode, keymod.bits(), *repeat);
+        #[cfg(feature = "dev-tools")]
+        if scancode == Scancode::F8 && modifiers & SHORTCUT == 0 {
+            self.motion_pressed |= !repeat;
+            return;
+        }
         if !repeat && modifiers & CONTROL != 0 && modifiers & 0x0f00 == 0 {
             self.new_game_pressed |= scancode == Scancode::R;
             self.menu_pressed |= scancode == Scancode::M;
@@ -606,6 +669,20 @@ impl Input {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn motion_hotkey_requires_fresh_unmodified_press_and_never_advances_menus() {
+        let mut input = Input::default();
+        input.record_press(Scancode::F8, 0, false);
+        assert!(input.motion_pressed);
+        assert!(!input.continue_pressed && input.menu_key.is_none() && !input.pause_pressed);
+        for (modifiers, repeat) in [(0, true), (CONTROL, false), (Mod::LALTMOD.bits(), false)] {
+            let mut input = Input::default();
+            input.record_press(Scancode::F8, modifiers, repeat);
+            assert!(!input.motion_pressed);
+        }
+    }
 
     #[test]
     fn land_and_swimming_bindings_remain_independent_in_timestamped_history() {

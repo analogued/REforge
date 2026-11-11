@@ -25,6 +25,11 @@ Mach 3 also has a per-entry native startup preference for digitized samples,
 kept outside shared/global host audio keys. The engine reads it once at startup;
 later menu commits persist the next-launch choice without changing execution.
 
+Alley Cat's per-entry Display preference `motion` selects Reforged (the default)
+or Original scene movement, independently of its input response. Mach 3 keeps
+its existing motion choices. The flat runtime patch uses distinct internal keys
+for these typed preferences; both are stored in their own entry's `display.motion`.
+
 Alley Cat's Controls preferences are per-entry too. Its movement mode and the
 independent button choices for directional and button jumping use physical
 positions, so changing controller models does not change the bindings. Defaults

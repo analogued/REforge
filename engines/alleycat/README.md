@@ -18,6 +18,22 @@ mechanisms that REforge replaces with host facilities.
 > provide the original files from a supported release. See
 > [Original game required](#original-game-required) for details.
 
+## Scene movement
+
+**Reforged** scene movement is enabled by default. It smooths actor movement
+while keeping the game's movement speed, physics and collision rules. **Original**
+retains the native stepped presentation. Choose under
+**Settings → Alley Cat overrides → Display → Scene movement**.
+Enable **Override global defaults**, then Apply to save the choice for this
+library entry. You can also use `--motion reforged|original` for a temporary
+launch override.
+
+Scene movement and input response are independent. Either movement mode can use
+Responsive or Original controls. Reforged adds a small visual delay; it does not
+increase the frequency of game updates. See the
+[presentation differences](docs/deviations.md#scene-movement) for implementation
+scope and remaining native animations.
+
 ## Responsive controls
 
 Responsive controls reduce the wait before the game reads direction and action
@@ -298,6 +314,11 @@ Room actors and transitions use the default timed runner. `--scene hearts`
 starts directly in the hearts scene with one gift. `--scene underwater` starts
 inside the fishbowl. Fishbowl, underwater, bookcase, cheese, milk and hearts require
 default windowed timing or `--headless --timed`.
+
+Development builds retain `--smooth-motion` and F8 comparisons for investigating
+individual motion policies. These temporary comparisons do not change the saved
+Scene movement preference. Normal builds offer only Reforged and Original.
+
 `--scene completion` previews the birdcage scoring presentation and returns to
 the alley, without playing the objective. It also requires default windowed
 timing or `--headless --timed`.

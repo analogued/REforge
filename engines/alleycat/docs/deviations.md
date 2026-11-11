@@ -190,3 +190,62 @@ to the title retain the shared random state and room history, as in the original
 The title waits for a fresh key press and keeps the selected skill; it does not
 repeat the menu questions. Desktop shortcut filtering applies to this later
 title as well. Ctrl+Q and window close remain available throughout.
+
+## Scene movement
+
+Reforged scene movement is the interactive default. Original retains the native
+packed framebuffer, sprite placement and stepped updates. The per-game Display
+setting and temporary `--motion reforged|original` override are independent of
+Responsive/Original input response. Neither presentation policy changes native
+movement, collisions, support checks, random consumption, progression or sound
+execution. Visual positions can differ from the authoritative collision positions.
+
+Reforged separates safely recoverable sprite images from their native backgrounds
+and composes them at finer visual positions. Ordinary player movement and the
+released bird interpolate actual available observations on a 25 ms presentation
+clock. Missing future observations hold the last known position rather than
+extrapolating a later correction. Scene, lifetime, direction and large relocation
+boundaries cut history instead of drawing a path across unrelated positions.
+Walking poses use a shared front anchor while retaining the original artwork,
+leg changes and bobbing; Original keeps their native placement.
+
+Hearts rivals use 40 ms observation history, while the player and scene remain
+on the 25 ms clock. Each rival's artwork and position come from the same selected
+observation. The main timeline owns visibility and sprite lifetimes; missing or
+unsafe older images fall back to it. Boundary turns retain their native final
+outward displacement with the new facing artwork. Drawn origins stay within the
+native raster field limits after pose registration.
+
+Swimming retains continuous visual velocity derived from decoded native steps
+and observed update cadence. Fish, eels, dogs, brooms and the bookcase spider
+also retain their actor-specific velocity smoothing and bounded stop/turn rules.
+These observers preserve the PCjr aquarium scheduling differences, the bookcase
+broom's slower gate and native acceleration. The spider checks possible nearby
+broom blocks on independent scratch state; it never advances the live simulation.
+Opaque dog pursuit/death images, sleeping dogs' eyes, cheese-hole transfers and
+drinking images retain native placement. Bird/broom overlap stays native until a
+clean draw makes their saved backgrounds separable again.
+
+Clothes use completed native band scrolls, including newly entering edge pixels.
+A riding cat shares the garment's visual offset once. Attachment changes rebase
+that offset; unrelated writes invalidate the affected strip. Clothesline mice use
+their own observed cadence and native directions, stops and catch/respawn images.
+Window opening and closing retain native one-pixel steps, keeping projectile
+appearance and room entry aligned with the native window edge.
+
+The non-success Hearts return uses a 60 ms presentation clock for its complete
+wipe, falling head, landing hold and fill sequence. Only the falling head's
+position is interpolated, between its actual downward steps. Its different landing
+picture is never moved. The first ending frame is held briefly when extending
+the ordinary 25 ms delay; the delayed ending finishes before resuming ordinary
+play. Native sound timing is unchanged. Successful Hearts approach/pairing
+presentations, the cage and other unsplit effects retain native images and steps.
+
+The aquarium composes complete actors over a separate water background with
+native surface animation and accumulated bubbles, avoiding fragments from older
+actor restores. Exact saved-image checks guard other layer separation. An unsafe
+local overlap can leave just that actor native; a broader composition mismatch
+falls back to the native frame instead of reusing stale background pixels.
+
+See the [player guide](../../../docs/games/alleycat.md#game-specific-options)
+for selection and the [timing reference](timing.md) for native update schedules.

@@ -526,8 +526,17 @@ without life loss. Scene-seven falling continues past Y180, clips below Y187,
 and exits by secondary coordinate248 or when its sprite is completely clipped.
 
 The completed ordinary-room count supplies up to eight gifts. A neutral hearts
-exit retains that count and other progression state. Its `6040` falling-cat
-presentation waits for retrace and changed ticks, then holds for eighteen ticks.
+exit retains that count and other progression state. Only a non-success
+scene-seven exit runs the `6040` falling-cat presentation; ordinary rooms use
+other return presentations. After the black wipe, its 24×12 head stays at X148
+and advances fourteen times by twelve pixels, from Y12 through Y168. Each
+retrace-ready step erases the preceding rectangle with zeros and draws its next
+position, then waits for a changed BIOS tick before allowing another step. The first interval
+therefore depends on the current tick/video phase. At the final position a
+different 48×17 landing image replaces the falling pose and holds for eighteen
+ticks. Its descending speaker pitch follows the native destination offset;
+the landing hold alternates two divisors before stopping sound. Those phase
+boundaries are distinct from ordinary actor updates.
 Successful goal-cat contact runs `5060` approach animation and the special
 `38b0` score branch, followed by three `519b` pairing animations. The score uses
 half the unused portion of 10800 wrapping BIOS ticks since the progression
@@ -1035,6 +1044,10 @@ whole-room cadence or every seed/position. Post-motion broom suppression retains
 a conservative active allowance including first drawing; that collision branch,
 exact in-call tone timestamps and additional boundaries remain approximate.
 The older DOSBox profile retains its generic gate and fixed drawing price.
+
+The external gate table at `32f2` requires two elapsed BIOS ticks in the bookcase
+room and one in fishbowl, cheese, birdcage and milk. Each room retains its own
+table entry; these are minimum acceptance intervals, not a uniform frame rate.
 
 The shared broom helper (`3150`) measures about 0.097 ms for a rejected tick,
 3.807 ms for first drawing and 5.507–5.522 ms for ordinary visible movement

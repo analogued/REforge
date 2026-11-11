@@ -180,15 +180,177 @@ pub(super) fn catch_up_batch(
     Ok(passes)
 }
 
+/// The persisted scene choice is independent of input polling. Comparison
+/// overrides are development-only and never write the player's preference.
+struct ScenePresentation {
+    selected: SceneMode,
+    history: crate::motion::history::HistoryPresenter,
+    failed: bool,
+    #[cfg(feature = "dev-tools")]
+    comparison: Option<crate::motion::Mode>,
+    #[cfg(feature = "dev-tools")]
+    predicted: crate::motion::Presenter,
+}
+
+impl ScenePresentation {
+    fn new(selected: SceneMode) -> Self {
+        Self {
+            selected,
+            history: Default::default(),
+            failed: false,
+            #[cfg(feature = "dev-tools")]
+            comparison: None,
+            #[cfg(feature = "dev-tools")]
+            predicted: Default::default(),
+        }
+    }
+
+    fn reset(&mut self) {
+        self.history.reset();
+        self.failed = false;
+        #[cfg(feature = "dev-tools")]
+        self.predicted.reset();
+    }
+
+    fn select(&mut self, selected: SceneMode) {
+        if self.selected != selected {
+            self.selected = selected;
+            #[cfg(feature = "dev-tools")]
+            {
+                self.comparison = None;
+            }
+            self.reset();
+        }
+    }
+
+    #[cfg(feature = "dev-tools")]
+    fn cycle(&mut self) {
+        self.comparison = Some(
+            self.comparison
+                .unwrap_or(match self.selected {
+                    SceneMode::Original => crate::motion::Mode::Original,
+                    SceneMode::Reforged => crate::motion::Mode::HeadHistory60,
+                })
+                .next(),
+        );
+        self.reset();
+    }
+
+    #[cfg(feature = "dev-tools")]
+    fn label(&self) -> Option<&'static str> {
+        self.comparison.map(|mode| {
+            mode.label(if mode.delay_ns().is_some() {
+                self.history.is_active()
+            } else {
+                self.predicted.is_active()
+            })
+        })
+    }
+
+    fn observe(&mut self, alley: &Alley, event: &crate::runtime::PassOutcome, now_ns: u128) {
+        if self.failed {
+            return;
+        }
+        let moving = !(event.fence_wait || event.mouse_wait || event.room_wait);
+        #[cfg(feature = "dev-tools")]
+        let result = if let Some(mode) = self.comparison {
+            if mode.delay_ns().is_some() {
+                self.history.observe(alley, event.end_nanos, now_ns, moving)
+            } else if mode != crate::motion::Mode::Original {
+                self.predicted
+                    .observe(alley, event.end_nanos, now_ns, moving)
+            } else {
+                Ok(())
+            }
+        } else if self.selected == SceneMode::Reforged {
+            self.history.observe(alley, event.end_nanos, now_ns, moving)
+        } else {
+            Ok(())
+        };
+        #[cfg(not(feature = "dev-tools"))]
+        let result = if self.selected == SceneMode::Reforged {
+            self.history.observe(alley, event.end_nanos, now_ns, moving)
+        } else {
+            Ok(())
+        };
+        if let Err(error) = result {
+            eprintln!("Alley Cat: scene smoothing unavailable: {error}; using Original movement");
+            self.reset();
+            self.failed = true;
+        }
+    }
+
+    fn rgba(&self, alley: &Alley, now_ns: u128) -> Vec<u8> {
+        if self.failed {
+            return alley.rgba();
+        }
+        #[cfg(feature = "dev-tools")]
+        if let Some(mode) = self.comparison {
+            return match mode {
+                crate::motion::Mode::Original => alley.rgba(),
+                crate::motion::Mode::Aligned => self
+                    .predicted
+                    .stepped_rgba()
+                    .unwrap_or_else(|| alley.rgba()),
+                crate::motion::Mode::Smooth => {
+                    self.predicted.rgba(now_ns).unwrap_or_else(|| alley.rgba())
+                }
+                crate::motion::Mode::HistoryRivals25 | crate::motion::Mode::HistoryRivals40 => self
+                    .history
+                    .rgba_with_rival_delay(now_ns, 25_000_000, mode.rival_delay_ns().unwrap())
+                    .unwrap_or_else(|| alley.rgba()),
+                crate::motion::Mode::HeadHistory60 | crate::motion::Mode::HeadNative60 => self
+                    .history
+                    .rgba_with_hearts_drop(now_ns, mode == crate::motion::Mode::HeadHistory60)
+                    .unwrap_or_else(|| alley.rgba()),
+                crate::motion::Mode::HistorySwim25 => self
+                    .history
+                    .rgba_with_swimming(now_ns, 25_000_000, 40_000_000)
+                    .unwrap_or_else(|| alley.rgba()),
+                crate::motion::Mode::BirdVelocity | crate::motion::Mode::BirdHistory25 => self
+                    .history
+                    .rgba_with_bird(
+                        now_ns,
+                        25_000_000,
+                        40_000_000,
+                        if mode == crate::motion::Mode::BirdVelocity {
+                            crate::motion::history::BirdPolicy::Velocity
+                        } else {
+                            crate::motion::history::BirdPolicy::History
+                        },
+                    )
+                    .unwrap_or_else(|| alley.rgba()),
+                crate::motion::Mode::History25
+                | crate::motion::Mode::History35
+                | crate::motion::Mode::History40
+                | crate::motion::Mode::History60 => self
+                    .history
+                    .rgba(now_ns, mode.delay_ns().unwrap())
+                    .unwrap_or_else(|| alley.rgba()),
+            };
+        }
+        match self.selected {
+            SceneMode::Original => alley.rgba(),
+            SceneMode::Reforged => self
+                .history
+                .rgba_with_hearts_drop(now_ns, true)
+                .unwrap_or_else(|| alley.rgba()),
+        }
+    }
+}
+
 #[cfg(feature = "sdl")]
 pub(super) fn interactive(
     alley: &mut Alley,
     scale: Option<u32>,
     presentation: reforge_sdl::Presentation,
     startup: Option<Startup>,
+    motion_choice: Option<SceneMode>,
     #[cfg(feature = "dev-tools")] steps: Option<usize>,
-    #[cfg(feature = "dev-tools")] trace: &mut Option<BufWriter<File>>,
-    #[cfg(feature = "dev-tools")] timing_trace: &mut Option<BufWriter<File>>,
+    #[cfg(feature = "dev-tools")] (trace, timing_trace): (
+        &mut Option<BufWriter<File>>,
+        &mut Option<BufWriter<File>>,
+    ),
 ) -> Result<(), String> {
     use crate::control_history::ControlHistory;
     use alleycat::platform::{PauseClock, PauseOverlay, Window};
@@ -202,7 +364,8 @@ pub(super) fn interactive(
     )?;
     let creator = display.texture_creator();
     let mut window = Window::new(display, &creator, WIDTH as u32, HEIGHT as u32)?
-        .with_input_format(alley.input_format());
+        .with_input_format(alley.input_format())
+        .with_scene_motion(motion_choice)?;
     if let Some(mut startup) = startup {
         let splash_exit = present_splash(&mut window, &mut startup.splash, None)?;
         if splash_exit == SplashExit::Quit {
@@ -223,6 +386,7 @@ pub(super) fn interactive(
     window.audio.pause(false);
     alley.sound.reset();
     alley.sound.record(true);
+    let mut scene_presentation = ScenePresentation::new(window.scene_motion());
     let mut runtime = Runtime::new(alley.machine());
     runtime.responsive_controls = window.responsive_controls();
     let mut control_history = ControlHistory::new(window.control_keys());
@@ -249,6 +413,7 @@ pub(super) fn interactive(
             window.audio.pause(false);
             alley.sound.reset();
             alley.sound.record(true);
+            scene_presentation.reset();
             runtime = Runtime::new(alley.machine());
             runtime.responsive_controls = window.responsive_controls();
             control_history = ControlHistory::new(window.control_keys());
@@ -262,6 +427,14 @@ pub(super) fn interactive(
         let input = window.poll_game_input(alley.scene() == 2);
         if input.quit {
             break;
+        }
+        scene_presentation.select(window.scene_motion());
+        #[cfg(feature = "dev-tools")]
+        if input.motion_pressed {
+            scene_presentation.cycle();
+            if let Some(mode) = scene_presentation.comparison {
+                eprintln!("Motion comparison: {}", mode.name());
+            }
         }
         if input.sound_pressed {
             alley.toggle_sound();
@@ -280,6 +453,7 @@ pub(super) fn interactive(
             window.audio.pause(false);
             alley.sound.reset();
             alley.sound.record(true);
+            scene_presentation.reset();
             runtime = Runtime::new(alley.machine());
             runtime.responsive_controls = window.responsive_controls();
             control_history = ControlHistory::new(window.control_keys());
@@ -294,6 +468,7 @@ pub(super) fn interactive(
         let pause = pause_clock.sample(now, input);
         window.audio.pause(pause.paused);
         if pause.changed {
+            scene_presentation.reset();
             window.reset_controller();
             // Preserve pending guest work across the settings panel; retain the
             // existing manual-pause policy of discarding partial pacing budget.
@@ -335,15 +510,12 @@ pub(super) fn interactive(
                 if steps.is_some_and(|limit| index >= limit) {
                     return Ok(false);
                 }
-                #[cfg(not(feature = "dev-tools"))]
-                runtime.advance_pass_with_scene_input(alley, |at, scene| {
+                let event = runtime.advance_pass_with_scene_input(alley, |at, scene| {
                     control_history.sample(at, scene == 2)
                 })?;
+                scene_presentation.observe(alley, &event, target_nanos);
                 #[cfg(feature = "dev-tools")]
                 {
-                    let event = runtime.advance_pass_with_scene_input(alley, |at, scene| {
-                        control_history.sample(at, scene == 2)
-                    })?;
                     if let Some(output) = timing_trace.as_mut() {
                         timing_row(output, pass, &event, alley.selection_trace_state())?;
                     }
@@ -369,11 +541,82 @@ pub(super) fn interactive(
             continue;
         }
         if pause.changed || window.presentation_due() {
-            window.present(&alley.rgba())?;
+            #[cfg(feature = "dev-tools")]
+            window.set_motion_label(scene_presentation.label());
+            window.present(&scene_presentation.rgba(alley, target_nanos))?;
         }
         std::thread::sleep(Duration::from_millis(1));
     }
     window.audio.pause(true);
     window.present(&alley.rgba())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod motion_tests {
+    use super::*;
+
+    #[test]
+    fn live_scene_changes_discard_history_without_changing_native_execution() {
+        for responsive in [false, true] {
+            let replay = |switching: bool| {
+                let mut alley = Alley::synthetic();
+                let mut runtime = Runtime::new(alley.machine());
+                runtime.responsive_controls = responsive;
+                let mut view = ScenePresentation::new(if switching {
+                    SceneMode::Reforged
+                } else {
+                    SceneMode::Original
+                });
+                let mut native = Vec::new();
+                for pass in 0..80 {
+                    if switching && matches!(pass, 20 | 40 | 60) {
+                        view.select(if pass == 40 {
+                            SceneMode::Reforged
+                        } else {
+                            SceneMode::Original
+                        });
+                        assert!(view.history.rgba(0, 0).is_none());
+                        assert_eq!(
+                            view.rgba(&alley, runtime.clock.elapsed_nanos()),
+                            alley.rgba()
+                        );
+                    }
+                    let event = runtime
+                        .advance_pass(&mut alley, Controls { x: 1, y: 0 })
+                        .unwrap();
+                    view.observe(&alley, &event, event.end_nanos);
+                    let _ = view.rgba(&alley, event.end_nanos);
+                    if view.selected == SceneMode::Original {
+                        assert!(view.history.rgba(event.end_nanos, 0).is_none());
+                        assert_eq!(view.rgba(&alley, event.end_nanos), alley.rgba());
+                    } else {
+                        assert!(view.history.rgba(event.end_nanos, 0).is_some());
+                    }
+                    native.push((
+                        format!("{event:?}{:?}", alley.player),
+                        alley.framebuffer().bytes().to_vec(),
+                    ));
+                }
+                native
+            };
+            assert_eq!(replay(false), replay(true));
+        }
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn saved_scene_selection_supersedes_development_comparison_without_persisting_it() {
+        let mut view = ScenePresentation::new(SceneMode::Reforged);
+        view.cycle();
+        assert_eq!(view.comparison, Some(crate::motion::Mode::HeadNative60));
+        assert_eq!(view.selected, SceneMode::Reforged);
+        view.select(SceneMode::Original);
+        assert!(view.comparison.is_none());
+        assert_eq!(view.selected, SceneMode::Original);
+        view.cycle();
+        assert_eq!(view.comparison, Some(crate::motion::Mode::Aligned));
+        view.select(SceneMode::Reforged);
+        assert!(view.comparison.is_none());
+    }
 }

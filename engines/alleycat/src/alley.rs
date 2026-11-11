@@ -87,7 +87,7 @@ struct DamageEffect {
 }
 
 /// Post-pass selection state for development traces; observing it consumes no RNG.
-#[cfg(feature = "dev-tools")]
+#[cfg(any(feature = "dev-tools", test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SelectionTraceState {
     pub last_room: u16,
@@ -96,6 +96,8 @@ pub struct SelectionTraceState {
     pub difficulty: u16,
     pub pending_hearts: bool,
 }
+
+mod motion;
 
 pub struct Alley {
     data: Vec<u8>,
@@ -127,6 +129,22 @@ pub struct Alley {
     initial_difficulty: u16,
     #[cfg(feature = "dev-tools")]
     dev_options: DevOptions,
+    motion_fish: [Option<crate::motion::Layer>; 24],
+    motion_mice: [Option<crate::motion::Layer>; 3],
+    motion_clothes: [Option<crate::motion::ClothBand>; 3],
+    motion_clothes_tick: Option<u16>,
+    motion_order: u64,
+    motion_player_step: u64,
+    motion_broom_step: u64,
+    motion_broom_moving: bool,
+    motion_spider_step: u64,
+    motion_spider_stride: [f64; 2],
+    motion_bird: Option<crate::motion::Layer>,
+    motion_bird_broom_overlap: bool,
+    motion_hearts_cats: [Option<crate::motion::Layer>; 7],
+    motion_hearts_arrow_step: u64,
+    motion_hearts_arrow_epoch: u64,
+    motion_water: Option<Framebuffer>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -525,6 +543,9 @@ impl Alley {
         let Some(step) = crate::dog::advance(&mut self.data, tick, retrace, !enabled)? else {
             return Ok(false);
         };
+        {
+            self.motion_order = self.motion_order.wrapping_add(1);
+        }
         let drawn = step.sprite.is_some();
         self.dog_image = step.sprite;
         if step.started_death || step.failure {
@@ -588,7 +609,16 @@ impl Alley {
     #[cfg(feature = "dev-tools")]
     pub fn set_dev_options(&mut self, options: DevOptions) -> Result<(), String> {
         self.dev_options = options;
-        self.apply_actor_overrides()
+        self.apply_actor_overrides()?;
+        if self.scene() == 7 {
+            if options.actor_disabled(Actor::HeartsRivals) {
+                self.motion_hearts_cats[..6].fill(None);
+            }
+            // Actor retirement can be fully hidden beneath the player image.
+            // Invalidate the observer even when the visible native frame matches.
+            self.motion_order = self.motion_order.wrapping_add(1);
+        }
+        Ok(())
     }
 
     #[cfg(feature = "dev-tools")]
@@ -747,6 +777,22 @@ impl Alley {
             initial_difficulty: 0,
             #[cfg(feature = "dev-tools")]
             dev_options: DevOptions::default(),
+            motion_fish: Default::default(),
+            motion_mice: Default::default(),
+            motion_clothes: Default::default(),
+            motion_clothes_tick: None,
+            motion_order: 0,
+            motion_player_step: 0,
+            motion_broom_step: 0,
+            motion_broom_moving: false,
+            motion_spider_step: 0,
+            motion_spider_stride: [0.0; 2],
+            motion_bird: None,
+            motion_bird_broom_overlap: false,
+            motion_hearts_cats: Default::default(),
+            motion_hearts_arrow_step: 0,
+            motion_hearts_arrow_epoch: 0,
+            motion_water: None,
         }
     }
 
@@ -865,6 +911,22 @@ impl Alley {
             initial_difficulty: difficulty,
             #[cfg(feature = "dev-tools")]
             dev_options: DevOptions::default(),
+            motion_fish: Default::default(),
+            motion_mice: Default::default(),
+            motion_clothes: Default::default(),
+            motion_clothes_tick: None,
+            motion_order: 0,
+            motion_player_step: 0,
+            motion_broom_step: 0,
+            motion_broom_moving: false,
+            motion_spider_step: 0,
+            motion_spider_stride: [0.0; 2],
+            motion_bird: None,
+            motion_bird_broom_overlap: false,
+            motion_hearts_cats: Default::default(),
+            motion_hearts_arrow_step: 0,
+            motion_hearts_arrow_epoch: 0,
+            motion_water: None,
         }
     }
 
@@ -879,6 +941,10 @@ impl Alley {
         controls: Controls,
         tick: u16,
     ) -> Result<UpdateOutcome, String> {
+        {
+            self.motion_player_step = self.motion_player_step.wrapping_add(1);
+            self.motion_order = self.motion_order.wrapping_add(1);
+        }
         #[cfg(feature = "dev-tools")]
         if self.dev_options.actor_disabled(Actor::BinCat) {
             self.data[0x1d59] = 0;
@@ -1013,8 +1079,19 @@ impl Alley {
             suppress_air,
             &mut self.sound,
         )?;
+        {
+            self.motion_player_step = self.motion_player_step.wrapping_add(1);
+            self.motion_order = self.motion_order.wrapping_add(1);
+        }
         if let Some((offset, sprite)) = step.bubble {
             let dimensions = Dimensions(sprite.dimensions);
+            if let Some(water) = self.motion_water.as_mut() {
+                water.and_rect(
+                    offset,
+                    dimensions,
+                    sprite_bytes(&self.data, sprite.source, dimensions)?,
+                )?;
+            }
             let background = self.screen.and_rect(
                 offset,
                 dimensions,
@@ -1112,7 +1189,7 @@ impl Alley {
         self.data[0x419] != 0
     }
 
-    #[cfg(feature = "dev-tools")]
+    #[cfg(any(feature = "dev-tools", test))]
     pub fn selection_trace_state(&self) -> SelectionTraceState {
         SelectionTraceState {
             last_room: word(&self.data, 0x41d),
@@ -1152,18 +1229,22 @@ impl Alley {
         if self.dev_options.actor_disabled(Actor::HeartsArrows) {
             return Ok(crate::hearts::HeartStep::default());
         }
-        self.room_actor(|data, screen, _sound| {
+        let step = self.room_actor(|data, screen, _sound| {
             crate::hearts::advance_arrow(data, screen, tick, _sound)
-        })
+        })?;
+        self.remember_motion_hearts(step)?;
+        Ok(step)
     }
 
     pub(crate) fn pickup_hearts_item(
         &mut self,
         tick: u16,
     ) -> Result<crate::hearts::HeartStep, String> {
-        self.room_actor(|data, screen, _sound| {
+        let step = self.room_actor(|data, screen, _sound| {
             crate::hearts::pickup_item(data, screen, tick, _sound)
-        })
+        })?;
+        self.remember_motion_hearts(step)?;
+        Ok(step)
     }
 
     pub(crate) fn place_hearts_item(
@@ -1171,18 +1252,20 @@ impl Alley {
         tick: u16,
     ) -> Result<crate::hearts::HeartStep, String> {
         #[cfg(feature = "dev-tools")]
-        {
+        let step = {
             let disabled = self.dev_options.actor_disabled(Actor::HeartsRivals);
             self.room_actor(|data, screen, _sound| {
                 crate::hearts::place_item_dev(data, screen, tick, disabled, _sound)
             })
-        }
+        }?;
         #[cfg(not(feature = "dev-tools"))]
-        {
+        let step = {
             self.room_actor(|data, screen, _sound| {
                 crate::hearts::place_item(data, screen, tick, _sound)
             })
-        }
+        }?;
+        self.remember_motion_hearts(step)?;
+        Ok(step)
     }
 
     pub(crate) fn advance_hearts_cat(
@@ -1190,18 +1273,20 @@ impl Alley {
         tick: u16,
     ) -> Result<crate::hearts::HeartStep, String> {
         #[cfg(feature = "dev-tools")]
-        {
+        let step = {
             let disabled = self.dev_options.actor_disabled(Actor::HeartsRivals);
             self.room_actor(|data, screen, _sound| {
                 crate::hearts::advance_cat_dev(data, screen, tick, disabled, _sound)
             })
-        }
+        }?;
         #[cfg(not(feature = "dev-tools"))]
-        {
+        let step = {
             self.room_actor(|data, screen, _sound| {
                 crate::hearts::advance_cat(data, screen, tick, _sound)
             })
-        }
+        }?;
+        self.remember_motion_hearts(step)?;
+        Ok(step)
     }
 
     fn reset_sound_state(&mut self) {
@@ -1411,6 +1496,11 @@ impl Alley {
     }
 
     fn setup_underwater(&mut self, tick: u16) -> Result<(), String> {
+        {
+            self.motion_fish = Default::default();
+            self.motion_order = 0;
+            self.motion_player_step = 0;
+        }
         self.completion = None;
         self.hearts_completion = None;
         set_word(&mut self.data, 4, 2);
@@ -1419,6 +1509,9 @@ impl Alley {
         self.bin_image = None;
         self.mouse_effect = None;
         crate::fishbowl::draw_underwater(&mut self.data, &mut self.screen)?;
+        {
+            self.motion_water = Some(self.screen.clone());
+        }
         #[cfg(feature = "dev-tools")]
         crate::fishbowl::initialize_underwater_dev(
             &mut self.data,
@@ -1459,6 +1552,10 @@ impl Alley {
         crate::room::initialize_room_player(&mut self.data, 3)?;
         crate::room::initialize_broom(&mut self.data)?;
         crate::bookcase::initialize(&mut self.data, &mut self.screen)?;
+        {
+            self.motion_spider_step = 0;
+            self.motion_spider_stride = [0.0; 2];
+        }
         #[cfg(feature = "dev-tools")]
         if self.dev_options.actor_disabled(Actor::Spider) {
             crate::bookcase::remove_spider(&mut self.data, &mut self.screen)?;
@@ -1573,11 +1670,20 @@ impl Alley {
         self.dog_image = None;
         self.projectile_image = None;
         self.player = Player::from_data(&self.data)?;
+        {
+            self.motion_hearts_cats = Default::default();
+            self.motion_hearts_arrow_step = 0;
+            self.motion_hearts_arrow_epoch = 0;
+        }
         self.reset_sound_state();
         self.compose_actors()
     }
 
     fn setup_birdcage(&mut self) -> Result<(), String> {
+        {
+            self.motion_bird = None;
+            self.motion_bird_broom_overlap = false;
+        }
         self.completion = None;
         self.hearts_completion = None;
         set_word(&mut self.data, 4, 5);
@@ -1743,25 +1849,42 @@ impl Alley {
         tick: u16,
     ) -> Result<crate::fishbowl::ActorStep, String> {
         #[cfg(feature = "dev-tools")]
-        {
+        let step = {
             let disabled = self.dev_options.actor_disabled(Actor::Eels);
             self.room_actor(|data, screen, _sound| {
                 crate::fishbowl::advance_actors_dev(data, screen, tick, disabled)
-            })
-        }
+            })?
+        };
         #[cfg(not(feature = "dev-tools"))]
-        {
-            self.room_actor(|data, screen, _sound| {
-                crate::fishbowl::advance_actors(data, screen, tick)
-            })
+        let step = self.room_actor(|data, screen, _sound| {
+            crate::fishbowl::advance_actors(data, screen, tick)
+        })?;
+        if step.drew {
+            self.remember_motion_fish()?;
         }
+        Ok(step)
     }
 
     pub(crate) fn advance_water_surface(
         &mut self,
         tick: u16,
     ) -> Result<crate::fishbowl::SurfaceStep, String> {
-        self.room_actor(|data, screen, _sound| crate::fishbowl::advance_surface(data, screen, tick))
+        let step = self.room_actor(|data, screen, _sound| {
+            crate::fishbowl::advance_surface(data, screen, tick)
+        })?;
+        if step.drew
+            && let Some(water) = self.motion_water.as_mut()
+        {
+            let slot = usize::from(word(&self.data, 0x350d));
+            let dimensions = Dimensions(0x0401);
+            let source = 0x2020 + u16::from(self.data[0x2656 + slot] & 0x18);
+            water.copy_rect(
+                0x00a0 + slot as u16 * 2,
+                dimensions,
+                sprite_bytes(&self.data, source, dimensions)?,
+            )?;
+        }
+        Ok(step)
     }
 
     pub(crate) fn advance_bookcase_spider(
@@ -1786,6 +1909,28 @@ impl Alley {
         let step = self.room_actor(|data, screen, _sound| {
             crate::bookcase::advance_spider_with_damage(data, screen, tick, suppress)
         })?;
+        if step.accepted {
+            self.motion_spider_step = self.motion_spider_step.wrapping_add(1);
+            // Cache accepted movement and its visual stop forecast together.
+            // Player-only updates cannot revive a stopped prediction.
+            self.motion_spider_stride = if step.drew && !step.failure_pending {
+                [
+                    f64::from(word(&self.data, 0x3964)) - f64::from(word(&self.data, 0x39c3)),
+                    f64::from(self.data[0x3966]) - f64::from(self.data[0x39c5]),
+                ]
+            } else {
+                [0.0; 2]
+            };
+            if self.data[0x3966] == 8 && word(&self.data, 0x3964) & !7 == self.player.x & !7 {
+                self.motion_spider_stride[0] = 0.0;
+            }
+            if self.motion_spider_stride[1] != 0.0
+                && self.motion_spider_broom_stop_forecast(tick)?
+            {
+                self.motion_spider_stride[1] = 0.0;
+            }
+            self.motion_order = self.motion_order.wrapping_add(1);
+        }
         if step.failure_pending {
             crate::bookcase::draw_spider_failure(&mut self.data, &mut self.screen)?;
             self.sound.spider_start(&mut self.data);
@@ -1918,9 +2063,11 @@ impl Alley {
         &mut self,
         tick: u16,
     ) -> Result<crate::birdcage::BirdStep, String> {
-        self.room_actor(|data, screen, _sound| {
+        let step = self.room_actor(|data, screen, _sound| {
             crate::birdcage::advance_bird(data, screen, tick, _sound)
-        })
+        })?;
+        self.remember_motion_bird(step)?;
+        Ok(step)
     }
 
     pub(crate) fn advance_room_broom(
@@ -1931,7 +2078,14 @@ impl Alley {
         if self.dev_options.actor_disabled(Actor::Broom) {
             return Ok(None);
         }
-        self.room_actor(|data, screen, _sound| crate::room::advance_broom(data, screen, tick))
+        let update =
+            self.room_actor(|data, screen, _sound| crate::room::advance_broom(data, screen, tick))?;
+        if let Some(update) = update {
+            self.motion_broom_moving = update.drawn;
+            self.motion_broom_step = self.motion_broom_step.wrapping_add(1);
+            self.motion_order = self.motion_order.wrapping_add(1);
+        }
+        Ok(update)
     }
 
     pub(crate) fn advance_windows(
@@ -2062,6 +2216,11 @@ impl Alley {
         crate::windows::initialize(&mut self.data)?;
         let saved_x = word(&self.data, 1);
         self.mice = Mice::initialize(&mut self.data, saved_x)?;
+        {
+            self.motion_clothes = Default::default();
+            self.motion_clothes_tick = None;
+            self.motion_mice = Default::default();
+        }
         crate::room::initialize_room_player(&mut self.data, 0)?;
         if self.data[0x419] != 0 {
             self.data[0x550] = 2;
@@ -2084,6 +2243,7 @@ impl Alley {
         retrace: bool,
     ) -> Result<Option<crate::clothes::Scroll>, String> {
         let image = self.compositor.suspend(&mut self.screen)?;
+        let before = self.screen.clone();
         let result = crate::clothes::advance(
             &mut self.data,
             &mut self.screen,
@@ -2091,6 +2251,9 @@ impl Alley {
             tick,
             retrace,
         );
+        if matches!(&result, Ok(Some(_))) {
+            self.remember_motion_clothes(&before, tick)?;
+        }
         if let Some((dimensions, source)) = image {
             self.compositor.draw(
                 &mut self.screen,
@@ -2246,6 +2409,7 @@ impl Alley {
             }
             Contact::None | Contact::Blocked => false,
         };
+        self.remember_motion_mouse(update.row, update.contact == Contact::None)?;
         self.compose_actors()?;
         Ok(MouseAdvance {
             paused,
@@ -2281,7 +2445,7 @@ impl Alley {
         self.compose_actors()
     }
 
-    pub fn rgba(&self) -> Vec<u8> {
+    pub(crate) fn palette(&self) -> [[u8; 4]; 4] {
         let presentation = self.hearts_completion.as_ref();
         let palette_scene = if let Some(destination) = self
             .entry_transition
@@ -2347,6 +2511,11 @@ impl Alley {
             // independently of scene palette indices one through three.
             colors[0] = hardware_color(background);
         }
+        colors
+    }
+
+    pub fn rgba(&self) -> Vec<u8> {
+        let colors = self.palette();
         self.presented
             .indices()
             .into_iter()

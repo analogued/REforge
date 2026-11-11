@@ -377,15 +377,20 @@ mod tests {
     }
 
     #[test]
-    fn motion_override_is_temporary_locked_and_forwarded_to_mach3() {
-        let prepared = options::prepare(args(&["--motion", "original"]), Game::Mach3);
-        assert!(prepared.warnings.is_empty());
-        let (launch, forward) = launch_settings(prepared.args, Game::Mach3);
-        assert_eq!(
-            launch.cli.get(reforge_settings::MOTION).map(String::as_str),
-            Some("original")
-        );
-        assert_eq!(forward, args(&["--motion", "original"]));
+    fn motion_override_is_temporary_locked_and_forwarded_to_its_engine() {
+        for game in [Game::AlleyCat, Game::Mach3] {
+            for mode in ["reforged", "original"] {
+                let prepared = options::prepare(args(&["--motion", mode]), game);
+                assert!(prepared.warnings.is_empty());
+                let (launch, forward) = launch_settings(prepared.args, game);
+                assert_eq!(
+                    launch.cli.get(reforge_settings::MOTION).map(String::as_str),
+                    Some(mode)
+                );
+                assert_eq!(forward, args(&["--motion", mode]));
+                assert_eq!(launch.game_id, game.id());
+            }
+        }
     }
 
     #[test]

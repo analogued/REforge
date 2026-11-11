@@ -221,6 +221,21 @@ its width. Its `0802h` header specifies two bytes by eight rows. It has 24
 source/destination word pairs and an `FFFFh` source terminator at `2902`.
 The initializer uses destination displacement AX=0 for this list.
 
+### Walking sprite origins
+
+The examined data's pointer table at `0f7a` contains six walking images per
+direction, with right-facing entries first. Each image is 24 pixels wide by
+11 rows (`0b03h` in the word-rectangle format) and uses the player's AND blend.
+Walking advances the six-frame cycle independently of the logical displacement.
+
+Visible features shift within that fixed rectangle as the pose changes. In
+zero-based right-facing phases four and five, the rightmost black pixel moves
+from local X 22 to X 20. The packed drawing origin also rounds logical X down
+to a four-pixel boundary. Consequently, a feature can move backward for one
+animation step even while logical X advances; a larger drawing-origin step can
+instead hide that pose shift. These are properties of the examined artwork and
+packed rendering, distinct from a reversal of the player's logical movement.
+
 Several helpers share mutable scratch bytes. Width is stored as a byte at
 `2ae0`, while some operations read a word there and rely on the following byte,
 `2ae1`, being zero. Both bytes are initially zero in this input; a complete

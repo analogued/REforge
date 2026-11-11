@@ -32,6 +32,7 @@ pub mod launcher;
 pub mod menu;
 mod mice;
 mod milk;
+pub mod motion;
 #[cfg(feature = "sdl")]
 pub mod platform;
 pub mod player;

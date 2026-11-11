@@ -126,9 +126,10 @@ pub(super) fn run(
     #[cfg(feature = "sdl")] presentation: reforge_sdl::Presentation,
     options: DiagnosticOptions,
     startup: Option<Startup>,
+    motion: Option<SceneMode>,
 ) -> Result<(), String> {
     #[cfg(not(feature = "sdl"))]
-    let _ = scale;
+    let _ = (scale, motion);
     match options.scene {
         StartScene::Splash => {
             return splash_preview(
@@ -256,9 +257,9 @@ pub(super) fn run(
                 scale,
                 presentation,
                 startup,
+                motion,
                 options.steps,
-                &mut trace,
-                &mut timing_trace,
+                (&mut trace, &mut timing_trace),
             )?;
         }
         #[cfg(not(feature = "sdl"))]

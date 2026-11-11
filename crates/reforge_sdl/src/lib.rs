@@ -33,7 +33,7 @@ use reforge_settings::Session;
 pub use resources::FrameCreator;
 use std::cell::{Cell, RefCell};
 
-pub use reforge_settings::{AspectRatio, Presentation, Sampling, ScalingPolicy};
+pub use reforge_settings::{AlleyCatMotion, AspectRatio, Presentation, Sampling, ScalingPolicy};
 mod pacing;
 mod settings_window;
 

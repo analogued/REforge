@@ -25,8 +25,8 @@ use crate::settings_selector::InputMode;
 
 use reforge_settings::Draft;
 pub use reforge_settings::{
-    AlleyCatSettings, AudioSettings, ControlMode, ControllerButtons, ControllerMovement,
-    FaceButton, MotionMode, RuntimeSettings, SoundRenderer,
+    AlleyCatMotion, AlleyCatSettings, AudioSettings, ControlMode, ControllerButtons,
+    ControllerMovement, FaceButton, MotionMode, RuntimeSettings, SoundRenderer,
 };
 /// An engine can restrict shared choices when its implementation requires it.
 #[derive(Clone, Copy, Debug)]
@@ -144,7 +144,7 @@ impl<'a> SettingsMenu<'a> {
         self.scope = 0;
         self
     }
-    /// Expose Alley Cat's game-only input policy beside shared controller settings.
+    /// Expose Alley Cat's game-only input and presentation preferences.
     pub fn with_alleycat_options(mut self) -> Self {
         let mut session = self.creator.session.borrow_mut();
         if session.game_id == "standalone" {
@@ -225,6 +225,19 @@ impl<'a> SettingsMenu<'a> {
         }
         self
     }
+    /// Temporarily lock Alley Cat's live presentation choice for this run.
+    pub fn with_alleycat_motion(self, motion: Option<reforge_settings::AlleyCatMotion>) -> Self {
+        if self.alleycat_options
+            && let Some(motion) = motion
+        {
+            self.creator.session.borrow_mut().cli.insert(
+                reforge_settings::ALLEYCAT_MOTION.into(),
+                motion.as_str().into(),
+            );
+        }
+        self
+    }
+
     /// Resolve once before starting simulation. Saving a later draft does not
     /// change the running game's native sample flag.
     pub fn mach3_startup_settings(&self) -> reforge_settings::Mach3Settings {
@@ -1278,6 +1291,160 @@ mod tests {
                 raw: 0,
             }
         }
+    }
+
+    #[test]
+    #[ignore = "owns SDL video; run serially with dummy/software"]
+    fn alleycat_motion_applies_live_and_cancel_preserves_saved_selection() {
+        use reforge_settings::{
+            ALLEYCAT_MOTION as MOTION, AlleyCatMotion as MotionMode, Launch, Patch, Session,
+        };
+        fn draw(menu: &mut SettingsMenu<'_>, events: Vec<egui::Event>) -> egui::FullOutput {
+            let context = menu.context.clone();
+            let screen = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 800.0));
+            let time = context.input(|input| input.time) + 0.05;
+            menu.started = Instant::now() - std::time::Duration::from_secs_f64(time);
+            context.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    crate::settings_ui::draw(menu, ctx, screen);
+                },
+            )
+        }
+        fn label(output: &egui::FullOutput, name: &str) -> Option<egui::Rect> {
+            output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == name => {
+                    Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+                }
+                _ => None,
+            })
+        }
+        fn click(menu: &mut SettingsMenu<'_>, name: &str) {
+            draw(menu, vec![]);
+            let output = draw(menu, vec![]);
+            let pos = label(&output, name)
+                .unwrap_or_else(|| panic!("missing {name}"))
+                .center();
+            for pressed in [true, false] {
+                draw(
+                    menu,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        }
+        let path = std::env::temp_dir().join(format!(
+            "reforge-alleycat-motion-ui-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(!path.exists());
+        let launch = Launch {
+            game_id: "alley-cat".into(),
+            entry_id: Some("alley-cat".into()),
+            path: Some(path.clone()),
+            cli: Patch::from([
+                ("renderer".into(), "software".into()),
+                ("vsync".into(), "false".into()),
+            ]),
+        };
+        let _guard = launch.clone().install();
+        let mut display =
+            crate::Window::new("motion settings transaction", 320, 240, Some(2)).unwrap();
+        let creator = display.texture_creator();
+        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+            .with_alleycat_options()
+            .with_alleycat_motion(None);
+        assert_eq!(display.settings().alleycat.motion, MotionMode::Reforged);
+        menu.toggle();
+        menu.prepare(display.ui_metrics(), display.settings());
+        menu.scope = 1;
+        menu.page = 0;
+        menu.game_editing[0] = true;
+        click(&mut menu, "Reforged");
+        click(&mut menu, "Original");
+        assert_eq!(
+            menu.draft.as_ref().unwrap().game_values().alleycat.motion,
+            MotionMode::Original
+        );
+        assert!(label(&draw(&mut menu, vec![]), "Unapplied changes").is_some());
+        // Round trips before Apply restore both the value and sparse override.
+        click(&mut menu, "Original");
+        click(&mut menu, "Reforged");
+        assert!(!menu.draft.as_ref().unwrap().game.contains_key(MOTION));
+        assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());
+        click(&mut menu, "Reforged");
+        click(&mut menu, "Original");
+        assert_eq!(display.settings().alleycat.motion, MotionMode::Reforged);
+        assert!(!path.exists());
+        click(&mut menu, "Apply");
+        let request = creator
+            .session
+            .borrow()
+            .effective(menu.pending.as_ref().unwrap());
+        display.apply_settings(request).unwrap();
+        menu.applied();
+        assert_eq!(display.settings().alleycat.motion, MotionMode::Original);
+        assert_eq!(
+            Session::load(launch.clone())
+                .effective(&Session::load(launch.clone()).saved)
+                .alleycat
+                .motion,
+            MotionMode::Original
+        );
+        assert_eq!(
+            display.settings().alleycat.control_mode,
+            reforge_settings::ControlMode::Responsive
+        );
+        click(&mut menu, "Restore defaults");
+        menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false));
+        assert_eq!(display.settings().alleycat.motion, MotionMode::Original);
+        assert_eq!(
+            Session::load(launch.clone())
+                .saved
+                .game_values()
+                .alleycat
+                .motion,
+            MotionMode::Original
+        );
+        let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+            .with_alleycat_options()
+            .with_alleycat_motion(Some(MotionMode::Reforged));
+        assert_eq!(
+            creator.session.borrow().cli.get(MOTION).map(String::as_str),
+            Some("reforged")
+        );
+        assert_eq!(
+            creator
+                .session
+                .borrow()
+                .effective(&creator.session.borrow().saved)
+                .alleycat
+                .motion,
+            MotionMode::Reforged
+        );
+        menu.toggle();
+        menu.prepare(display.ui_metrics(), display.settings());
+        assert_eq!(
+            Session::load(launch).saved.game_values().alleycat.motion,
+            MotionMode::Original
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

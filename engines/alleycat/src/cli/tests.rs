@@ -651,3 +651,70 @@ fn diagnostic_constraints_remain_enforced() {
         assert!(parse(&args).is_err());
     }
 }
+
+#[test]
+fn scene_motion_is_available_in_all_builds_and_absence_retains_saved_choice() {
+    assert!(HELP.contains("--motion reforged|original"));
+    assert!(
+        parse(&["--original", "example.exe"])
+            .unwrap()
+            .unwrap()
+            .motion
+            .is_none()
+    );
+    for (name, expected) in [
+        ("reforged", SceneMode::Reforged),
+        ("original", SceneMode::Original),
+    ] {
+        let parsed = parse(&["--original", "example.exe", "--motion", name])
+            .unwrap()
+            .unwrap();
+        assert_eq!(parsed.motion, Some(expected));
+    }
+    for args in [
+        vec!["--motion"],
+        vec!["--motion", "enhanced"],
+        vec!["--motion", "fast"],
+    ] {
+        let mut input = vec!["--original", "example.exe"];
+        input.extend(args);
+        assert!(parse(&input).is_err());
+    }
+    assert_eq!(
+        parse(&[
+            "--original",
+            "example.exe",
+            "--motion",
+            "original",
+            "--motion",
+            "reforged"
+        ])
+        .unwrap()
+        .unwrap()
+        .motion,
+        Some(SceneMode::Reforged)
+    );
+}
+
+#[cfg(feature = "dev-tools")]
+#[test]
+fn legacy_smooth_motion_alias_preserves_explicit_scene_selection() {
+    for values in [
+        vec!["--smooth-motion", "--motion", "original"],
+        vec!["--motion", "original", "--smooth-motion"],
+    ] {
+        let mut input = vec!["--original", "example.exe"];
+        input.extend(values);
+        assert_eq!(
+            parse(&input).unwrap().unwrap().motion,
+            Some(SceneMode::Original)
+        );
+    }
+    assert_eq!(
+        parse(&["--original", "example.exe", "--smooth-motion"])
+            .unwrap()
+            .unwrap()
+            .motion,
+        Some(SceneMode::Reforged)
+    );
+}

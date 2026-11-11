@@ -195,7 +195,23 @@ struct PlayerRectangle {
     source: Vec<u8>,
 }
 
+pub(crate) type PublishedPlayerImage = (u16, Dimensions, Vec<u8>);
+
 impl PlayerCompositor {
+    pub(crate) fn publication(
+        &self,
+        screen: &Framebuffer,
+    ) -> Result<(Framebuffer, Option<PublishedPlayerImage>), String> {
+        let mut background = screen.clone();
+        let image = if let Some(p) = &self.previous {
+            background.copy_rect(p.offset, p.dimensions, &p.background)?;
+            Some((p.offset, p.dimensions, p.source.clone()))
+        } else {
+            None
+        };
+        Ok((background, image))
+    }
+
     pub(crate) fn dimensions(&self) -> Option<Dimensions> {
         self.previous.as_ref().map(|image| image.dimensions)
     }

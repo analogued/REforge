@@ -10,11 +10,11 @@ use crate::settings_navigation::{
 use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
-    ALLEYCAT_MACHINE, AlleyCatMachine, AspectRatio, BTZ_FILE_CURSOR, Backend, CONTROL_MODE,
-    CONTROLLER_ACTION, CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, ControlMode, DIGITIZED_SAMPLES,
-    FileCursorStyle, FrameLimit, MOTION, MotionMode, Presentation, Renderer, RuntimeSettings,
-    SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory,
-    SoundRenderer,
+    ALLEYCAT_MACHINE, ALLEYCAT_MOTION, AlleyCatMachine, AlleyCatMotion, AspectRatio,
+    BTZ_FILE_CURSOR, Backend, CONTROL_MODE, CONTROLLER_ACTION, CONTROLLER_BUTTONS,
+    CONTROLLER_MOVEMENT, ControlMode, DIGITIZED_SAMPLES, FileCursorStyle, FrameLimit, MOTION,
+    MotionMode, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
+    STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
 };
 mod controller;
 const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
@@ -73,6 +73,7 @@ impl RowContext<'_> {
                 key,
                 DIGITIZED_SAMPLES
                     | ALLEYCAT_MACHINE
+                    | ALLEYCAT_MOTION
                     | BTZ_FILE_CURSOR
                     | CONTROL_MODE
                     | MOTION
@@ -335,6 +336,7 @@ pub(super) fn draw(
                                             windowed_scale,
                                             original_renderer: original.renderer,
                                             mach3: menu.scope == 1 && menu.mach3_options,
+                                            alleycat: menu.scope == 1 && menu.alleycat_options,
                                             alleycat_machines: (menu.scope == 1).then_some(menu.alleycat_machines).flatten(),
                                             game_storage,
                                             terminal: (menu.scope == 1)
@@ -412,6 +414,18 @@ pub(super) fn draw(
                             (!menu.game_reset[menu.page]).then_some(&saved),
                         );
                     }
+                    if menu.page == 0
+                        && menu.scope == 1
+                        && menu.alleycat_options
+                        && original.alleycat.motion != value.alleycat.motion
+                        && !cli.contains_key(ALLEYCAT_MOTION)
+                    {
+                        draft.edit_game(
+                            ALLEYCAT_MOTION,
+                            value.get(ALLEYCAT_MOTION),
+                            (!menu.game_reset[menu.page]).then_some(&saved),
+                        );
+                    }
                     if menu.page == 2
                         && menu.scope == 1
                         && menu.mach3_options
@@ -477,7 +491,7 @@ pub(super) fn draw(
                     } else if menu.page == 3
                         || ([0, 2].contains(&menu.page) && menu.mach3_options)
                         || (menu.page == 0 && menu.btz_terminal.is_some())
-                        || (menu.page == 0 && menu.alleycat_machines.is_some())
+                        || (menu.page == 0 && menu.alleycat_options)
                     {
                         "Restore defaults"
                     } else {
@@ -602,6 +616,7 @@ struct DisplayOptions {
     original_renderer: Renderer,
     terminal: Option<bool>,
     mach3: bool,
+    alleycat: bool,
     alleycat_machines: Option<&'static crate::launcher::OptionDefinition>,
     game_storage: bool,
 }
@@ -664,6 +679,7 @@ fn display_controls(
         original_renderer,
         terminal,
         mach3,
+        alleycat,
         alleycat_machines,
         game_storage,
     } = options;
@@ -786,6 +802,18 @@ fn display_controls(
     });
     if mach3 {
         mach3_motion_controls(ui, value, rows);
+    } else if alleycat {
+        row(
+            ui,
+            "Scene movement",
+            ALLEYCAT_MOTION,
+            rows.state(ALLEYCAT_MOTION, value),
+            |ui| {
+                Selector::new(ALLEYCAT_MOTION, AlleyCatMotion::ALL.map(|motion| Choice::new(motion, motion.label())))
+                .show(ui, &mut value.alleycat.motion)
+                .on_hover_text("Reforged smooths actor movement between game updates. Original retains native stepped movement. Input response, gameplay speed and collisions are independent.");
+            },
+        );
     }
     section(ui, "Rendering");
     row(
@@ -1331,7 +1359,11 @@ fn cli_tooltip(key: &str, active: &str) -> String {
     };
     format!(
         "Locked for this run by --{} {argument}.\nRemove the command-line argument to edit this setting.\nSaved preferences are unchanged.",
-        key.replace('_', "-"),
+        if key == ALLEYCAT_MOTION {
+            "motion".into()
+        } else {
+            key.replace('_', "-")
+        },
     )
 }
 
@@ -2318,6 +2350,138 @@ mod tests {
     }
 
     #[test]
+    fn alleycat_motion_cli_tooltip_uses_the_public_argument_name() {
+        let tooltip = cli_tooltip(ALLEYCAT_MOTION, "original");
+        assert!(tooltip.contains("--motion original"));
+        assert!(!tooltip.contains("--alleycat-motion"));
+    }
+
+    #[test]
+    fn alleycat_motion_control_follows_display_defaults_scope_and_cli_locks() {
+        fn text_rect(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
+            output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == label => {
+                    Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+                }
+                _ => None,
+            })
+        }
+        for (scope, alleycat, section_editable, muted, locked) in [
+            (0, true, true, false, false),
+            (1, false, true, false, false),
+            (1, true, false, true, false),
+            (1, true, false, false, false),
+            (1, true, true, false, false),
+            (1, true, true, true, false),
+            (1, true, true, false, true),
+            (1, true, false, false, true),
+        ] {
+            let context = egui::Context::default();
+            style(&context);
+            let mut value = RuntimeSettings::default();
+            value.audio.enabled = !muted;
+            let cli = if locked {
+                reforge_settings::Patch::from([(ALLEYCAT_MOTION.into(), "original".into())])
+            } else {
+                Default::default()
+            };
+            let mut button = Pos2::ZERO;
+            let mut off = Pos2::ZERO;
+            for step in 0..9 {
+                let point = if step < 6 { button } else { off };
+                let events = if matches!(step, 2 | 3 | 6 | 7) {
+                    vec![
+                        egui::Event::PointerMoved(point),
+                        egui::Event::PointerButton {
+                            pos: point,
+                            button: egui::PointerButton::Primary,
+                            pressed: step == 2 || step == 6,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ]
+                } else {
+                    Vec::new()
+                };
+                let output = context.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            Pos2::ZERO,
+                            Vec2::new(900.0, 900.0),
+                        )),
+                        time: Some(step as f64 * 0.02),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            ui.add_enabled_ui(section_editable, |ui| {
+                                display_controls(
+                                    ui,
+                                    &mut value,
+                                    RowContext {
+                                        base: &RuntimeSettings::default(),
+                                        previous: &RuntimeSettings::default(),
+                                        scope,
+                                        overrides: Overrides::default(),
+                                        cli: &cli,
+                                    },
+                                    &mut DisplayEdits::default(),
+                                    DisplayOptions {
+                                        capabilities: VideoCapabilities::default(),
+                                        alleycat_machines: None,
+                                        game_storage: true,
+                                        geometry: crate::DisplayGeometry::new(
+                                            (320, 200),
+                                            (320, 240),
+                                        ),
+                                        windowed_scale: 2,
+                                        original_renderer: Renderer::Auto,
+                                        terminal: None,
+                                        mach3: false,
+                                        alleycat: scope == 1 && alleycat,
+                                    },
+                                );
+                            });
+                        });
+                    },
+                );
+                let label = text_rect(&output, "Scene movement");
+                if scope == 0 || !alleycat {
+                    assert!(label.is_none());
+                    break;
+                }
+                let label = label.expect("Alley Cat control must be visible");
+                if locked {
+                    assert!(
+                        output.shapes.iter().any(|shape| {
+                            matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == CLI_LOCK)
+                        }),
+                        "CLI lock must retain its colour when section defaults disable the row"
+                    );
+                }
+                assert!(label.top() > text_rect(&output, "Aspect ratio").unwrap().bottom());
+                if step < 2 {
+                    button = text_rect(&output, "Reforged").unwrap().center();
+                }
+                if step == 5 {
+                    if locked || !section_editable {
+                        assert!(text_rect(&output, "Original").is_none());
+                        assert_eq!(value.alleycat.motion, AlleyCatMotion::Reforged);
+                        break;
+                    }
+                    off = text_rect(&output, "Original")
+                        .expect("popup opens only when this section is editable")
+                        .center();
+                }
+            }
+            if scope == 1 && alleycat && section_editable && !locked {
+                assert_eq!(value.alleycat.motion, AlleyCatMotion::Original);
+                assert_eq!(value.audio.enabled, !muted);
+            }
+        }
+    }
+
+    #[test]
     fn mach3_motion_control_follows_display_defaults_scope_and_cli_locks() {
         fn text_rect(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
             output.shapes.iter().find_map(|shape| match &shape.shape {
@@ -2399,6 +2563,7 @@ mod tests {
                                         original_renderer: Renderer::Auto,
                                         terminal: None,
                                         mach3: scope == 1 && mach3,
+                                        alleycat: false,
                                     },
                                 );
                             });

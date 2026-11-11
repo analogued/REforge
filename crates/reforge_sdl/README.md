@@ -225,7 +225,10 @@ primitives with that theme. Ordinary egui widgets receive the same palette.
 Esc or F10 opens the Compact Display, CRT & Colour, Audio and Controls pages in each engine.
 Modal dialogs retain Escape for cancel/back; F10 can open Settings above them.
 Controls offers a shared stick dead zone, with Alley Cat's additional input-response
-choice under its game overrides.
+choice under its game overrides. Alley Cat's Display page also offers Scene
+movement: Reforged / Original. Applying changes it live; Cancel keeps the active
+and saved choice. `with_alleycat_motion` supplies a temporary command-line choice
+and locks the corresponding game control without saving it.
 Selectors switch live between dropdowns for mouse input and horizontal carousels
 for keyboard/controller navigation. F10 and Escape retain the last established
 input mode; the initial mode uses dropdowns. Opening from a controller selects

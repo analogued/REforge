@@ -211,6 +211,13 @@ const SPECS: &[Spec] = &[
         description: "Initial difficulty, 0..7; skip skill question",
     },
     Spec {
+        name: "--smooth-motion",
+        scope: Scope::Game(Game::AlleyCat),
+        value: Value::Flag,
+        dev: true,
+        description: "Development alias for --motion reforged (F8 comparisons)",
+    },
+    Spec {
         name: "--scene",
         scope: Scope::Game(Game::AlleyCat),
         value: Value::Choice(SCENES),
@@ -363,6 +370,13 @@ const SPECS: &[Spec] = &[
         value: Value::Path,
         dev: true,
         description: "Write simulation and presentation timing to a new file",
+    },
+    Spec {
+        name: "--motion",
+        scope: Scope::Game(Game::AlleyCat),
+        value: Value::Choice(&["reforged", "original"]),
+        dev: false,
+        description: "Select Reforged scene movement (default) or original presentation",
     },
     Spec {
         name: "--motion",
@@ -607,6 +621,17 @@ fn resolve_constraints(entries: &mut Vec<Entry>, game: Game, warnings: &mut Vec<
                 entries,
                 index,
                 "conflicts with the selected timing mode",
+                warnings,
+            );
+            continue;
+        }
+        if (active("--headless").is_some() || active("--step-hz").is_some())
+            && let Some(index) = active("--smooth-motion")
+        {
+            remove(
+                entries,
+                index,
+                "requires windowed real-time playback",
                 warnings,
             );
             continue;
@@ -1549,10 +1574,39 @@ mod tests {
             args(&["--motion", "original", "--f3-mode", "press"])
         );
         assert_eq!(invalid.warnings.len(), 1);
-        let foreign = prepare(args(&["--motion", "original"]), Game::AlleyCat);
+        let foreign = prepare(args(&["--motion", "original"]), Game::Mindwheel);
         assert!(foreign.args.is_empty());
         assert_eq!(foreign.warnings.len(), 1);
     }
+    #[test]
+    fn alleycat_motion_keeps_two_choices_and_ignores_invalid_replacements() {
+        assert!(help(Some(Game::AlleyCat)).contains("Choices: reforged, original"));
+        for mode in ["original", "reforged"] {
+            for input in [
+                vec!["--motion", mode],
+                vec!["--motion", mode, "--motion", "enhanced"],
+            ] {
+                let result = prepare(args(&input), Game::AlleyCat);
+                assert_eq!(result.args, args(&["--motion", mode]));
+                assert_eq!(result.warnings.len(), usize::from(input.len() > 2));
+                accepted(&result, Game::AlleyCat);
+            }
+        }
+        let invalid = prepare(args(&["--motion", "enhanced"]), Game::AlleyCat);
+        assert!(invalid.args.is_empty());
+        assert!(invalid.warnings[0].contains("use reforged|original"));
+        for game in [
+            Game::Mindwheel,
+            Game::Essex,
+            Game::Brimstone,
+            Game::Breakers,
+        ] {
+            let foreign = prepare(args(&["--motion", "reforged"]), game);
+            assert!(foreign.args.is_empty());
+            assert_eq!(foreign.warnings.len(), 1);
+        }
+    }
+
     #[cfg(feature = "dev-tools")]
     #[test]
     fn inline_trace_filename_starting_with_dash_reaches_engine_as_a_path() {
@@ -1647,5 +1701,25 @@ mod tests {
         );
         assert_eq!(result.warnings.len(), 2);
         accepted(&result, Game::AlleyCat);
+    }
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn motion_prototype_is_scoped_and_does_not_apply_to_headless_runs() {
+        let p = prepare(args(&["--smooth-motion"]), Game::AlleyCat);
+        assert!(p.warnings.is_empty());
+        assert_eq!(p.args, args(&["--smooth-motion"]));
+        for flag in ["--headless", "--step-hz"] {
+            let raw = if flag == "--headless" {
+                args(&["--smooth-motion", flag])
+            } else {
+                args(&["--smooth-motion", flag, "20"])
+            };
+            let p = prepare(raw, Game::AlleyCat);
+            assert_eq!(p.warnings.len(), 1);
+            assert!(!p.args.iter().any(|v| v == "--smooth-motion"));
+        }
+        let p = prepare(args(&["--smooth-motion"]), Game::Mach3);
+        assert_eq!(p.warnings.len(), 1);
+        assert!(p.args.is_empty());
     }
 }

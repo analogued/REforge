@@ -133,6 +133,19 @@ fn word(data: &[u8], offset: usize) -> u16 {
 }
 
 impl Player {
+    /// Full selected airborne artwork for the read-only Hearts compositor.
+    pub(crate) fn motion_airborne_sprite(&self, data: &[u8]) -> Sprite {
+        if self.alternate_animation == 0 {
+            self.airborne_sprite
+        } else {
+            let index = usize::from(self.alternate_phase & 14);
+            Sprite {
+                source: word(data, 0xfc2 + index),
+                dimensions: word(data, 0xfd2 + index),
+            }
+        }
+    }
+
     /// The visible saved image has the retained transition shape, without actor animation.
     pub(crate) fn has_retained_airborne_image(&self) -> bool {
         !self.image_hidden

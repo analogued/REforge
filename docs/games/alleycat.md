@@ -70,6 +70,14 @@ Keyboard and menu controls keep their usual bindings.
 
 ## Game-specific options
 
+**Scene movement** defaults to **Reforged**, smoothing movement while retaining
+the game's speed, physics and collision rules. Choose **Original** for native
+stepped movement under **Settings → Alley Cat overrides → Display → Scene
+movement**. Enable **Override global defaults** and Apply to save the choice for
+this library entry. `--motion reforged|original` temporarily overrides it for one
+launch. Reforged adds a small visual delay and works independently of the input
+response setting below.
+
 **Responsive controls** are enabled by default. They reduce the wait before
 direction and action requests are read, while preserving movement speed and
 jump physics. To use the original polling behavior, open

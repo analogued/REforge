@@ -6,6 +6,7 @@ use alleycat::alley::{Alley, Machine};
 use alleycat::dev_tools::DevOptions;
 #[cfg(any(feature = "sdl", feature = "dev-tools"))]
 use alleycat::framebuffer::{HEIGHT, WIDTH};
+use alleycat::motion::SceneMode;
 #[cfg(any(feature = "dev-tools", all(test, feature = "sdl")))]
 use alleycat::player::Controls;
 #[cfg(feature = "dev-tools")]
@@ -35,6 +36,7 @@ Usage: reforge --original /path/to/CAT.EXE [options]
 
   --machine cga|pcjr      Hardware path (default: cga; pcjr for restored DOS inputs)
                          Legacy tandy spelling is an alias for pcjr.
+  --motion reforged|original  Scene movement (default: saved choice or reforged)
   --scale auto|1..16       Initial drawable pixel multiplier (default: auto)
   --presentation pixels|hyllian  Window presentation (default: pixels; unavailable shader falls back)
   --difficulty N          Initial difficulty 0..7; skips the skill question
@@ -57,6 +59,12 @@ Your original executable is required; original data is never bundled.";
 #[cfg(feature = "dev-tools")]
 const DEV_HELP: &str = "
 Development options (compiled with dev-tools):
+F8 cycles Original / Aligned steps / predictive smooth / history 25 ms /
+  history cat+rivals 25 ms / falling head history 60 ms / falling head native 60 ms /
+  bird history 25 ms / history cat 25+rivals 40 ms /
+  bird velocity trial (extra lag) / swimming history 25 ms /
+  history 35 / 40 / 60 ms.
+  --smooth-motion         Compatibility alias for --motion reforged
 F9 toggles the presentation FPS indicator in windowed play (hidden by default).
 Headless, explicit-scene and --step-hz runs default to seed 0xfa59 unless --seed is supplied.
   --scene NAME            Start in splash, alley, fishbowl, underwater, bookcase, cheese, birdcage, milk, hearts or completion
@@ -97,6 +105,7 @@ enum StartScene {
 struct Options {
     machine: Machine,
     machine_selected: bool,
+    motion: Option<SceneMode>,
     scale: Option<u32>,
     #[cfg(feature = "sdl")]
     presentation: reforge_sdl::Presentation,
@@ -118,6 +127,7 @@ struct DiagnosticOptions {
     script: Option<PathBuf>,
     trace: Option<PathBuf>,
     timing_trace: Option<PathBuf>,
+    smooth_motion: bool,
     cga: Option<PathBuf>,
     ppm: Option<PathBuf>,
     switches: DevOptions,
@@ -136,6 +146,7 @@ impl Default for DiagnosticOptions {
             script: None,
             trace: None,
             timing_trace: None,
+            smooth_motion: false,
             cga: None,
             ppm: None,
             switches: DevOptions::default(),
@@ -159,6 +170,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
     let mut result = Options {
         machine: Machine::Cga,
         machine_selected: false,
+        motion: None,
         scale: None,
         #[cfg(feature = "sdl")]
         presentation: reforge_sdl::Presentation::Pixels,
@@ -178,6 +190,10 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
         }
         #[cfg(feature = "dev-tools")]
         match option.as_str() {
+            "--smooth-motion" => {
+                result.dev.smooth_motion = true;
+                continue;
+            }
             "--headless" => {
                 result.dev.headless = true;
                 continue;
@@ -210,6 +226,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
                 };
                 result.machine_selected = true;
             }
+            "--motion" => result.motion = Some(value()?.parse()?),
             "--scale" => {
                 let value = value()?;
                 result.scale = if value == "auto" {
@@ -283,6 +300,15 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
     }
     #[cfg(feature = "dev-tools")]
     {
+        if result.dev.smooth_motion && (result.dev.headless || result.dev.step_hz.is_some()) {
+            eprintln!("warning: --smooth-motion requires windowed real-time playback; ignored");
+            result.dev.smooth_motion = false;
+        }
+        // Preserve the development spelling as an alias for the selected
+        // production presenter. An explicit --motion retains precedence.
+        if result.dev.smooth_motion && result.motion.is_none() {
+            result.motion = Some(SceneMode::Reforged);
+        }
         let dev = &result.dev;
         if dev.scene == StartScene::Splash
             && (dev.script.is_some()
@@ -398,6 +424,7 @@ pub fn run(
             options.presentation,
             options.dev,
             startup,
+            options.motion,
         )
     }
     #[cfg(not(feature = "dev-tools"))]
@@ -405,7 +432,13 @@ pub fn run(
         #[cfg(feature = "sdl")]
         {
             let mut alley = alley;
-            frontend::interactive(&mut alley, options.scale, options.presentation, startup)
+            frontend::interactive(
+                &mut alley,
+                options.scale,
+                options.presentation,
+                startup,
+                options.motion,
+            )
         }
         #[cfg(not(feature = "sdl"))]
         {

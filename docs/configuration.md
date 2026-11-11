@@ -6,8 +6,8 @@ Settings.
 The Display page offers window mode (windowed or borderless desktop fullscreen),
 window scale (Auto or ×1–×16), scaling policy, sampling, aspect ratio, renderer,
 backend, VSync and a frame limiter. Alley Cat additionally offers its startup
-Machine choice; Mach 3 also offers scene and player craft
-movement settings. CRT & Colour offers sharp pixels or Hyllian CRT with adjustable
+Machine choice and Reforged/Original scene movement; Mach 3 also offers scene
+and player craft movement settings. CRT & Colour offers sharp pixels or Hyllian CRT with adjustable
 shader controls. Colour profiles and white points remain future work. Audio
 offers enable sound, master/category volumes, per-game sound renderer, output
 device and focus muting. Controls offers a shared controller stick dead zone and

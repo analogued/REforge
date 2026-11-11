@@ -171,7 +171,7 @@ pub(super) fn controls(
     detail(
         ui,
         if jump.is_some() {
-            "Hold Down and press Jump to drop."
+            "Down + Jump drops from higher surfaces; jumps on the floor."
         } else {
             "Up to jump. Down to drop."
         },

@@ -405,7 +405,7 @@ fn run_player_preview(
             window.present(&alley.rgba())?;
             continue;
         }
-        let input = window.poll_game_input(alley.scene() == 2);
+        let input = window.poll_game_input(alley);
         if input.quit {
             break;
         }

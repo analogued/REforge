@@ -614,8 +614,9 @@ Alley Cat's **Controls → Controller layout** offers two movement modes:
 **Directional jump** retains Up to jump and Down to drop, with one configurable
 Action button. **Button jump** keeps land movement on left/right and assigns
 Jump/Drop and Action to one of four button pairs. Hold Down before pressing Jump
-to drop; changing the stick direction during a held press does not switch that
-press between jumping and dropping. Swimming always uses all four directions.
+to drop from higher surfaces; on a solid floor it still jumps. Changing the stick
+direction or landing during a held press does not switch that press between
+jumping and dropping. Swimming always uses all four directions.
 The diagram follows the connected controller family; without a recognized family
 it shows Xbox button positions. These templates do not change keyboard, title or
 menu controls, or Mach 3's bindings.

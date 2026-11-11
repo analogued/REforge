@@ -16,6 +16,8 @@ Unreleased contains changes intended for the next public release.
   Original movement selectable independently of responsive controls.
 - Stop dog-catch sounds promptly and restore ordinary room-completion sound
   cutoffs.
+- Let the controller's Jump button jump from solid floors even while Down is
+  held, keeping Drop available on higher surfaces.
 - Load the supported DOS conversion directly from its verified disk image.
 - Add support for the verified PC Booter floppy image, including its three-voice
   PCjr intro music and full-build menu colours.

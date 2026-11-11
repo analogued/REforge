@@ -424,7 +424,7 @@ pub(super) fn interactive(
             continue;
         }
         runtime.responsive_controls = window.responsive_controls();
-        let input = window.poll_game_input(alley.scene() == 2);
+        let input = window.poll_game_input(alley);
         if input.quit {
             break;
         }

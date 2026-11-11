@@ -5,7 +5,7 @@
 
 mod controller;
 
-use crate::alley::Machine;
+use crate::alley::{Alley, Machine};
 use crate::control_history::{HostChange, Key, Keys};
 use crate::menu::MenuKey;
 use controller::Controller;
@@ -221,12 +221,19 @@ impl<'a> Window<'a> {
     }
 
     pub fn poll_input(&mut self) -> Input {
-        self.poll_game_input(false)
+        self.poll_controls(false, false)
     }
 
     /// Gameplay and diagnostics retain raw swimming directions independently
     /// from land bindings. Title/menu confirmation always uses the South button.
-    pub fn poll_game_input(&mut self, swimming: bool) -> Input {
+    pub fn poll_game_input(&mut self, alley: &Alley) -> Input {
+        self.poll_controls(
+            alley.scene() == 2,
+            controller::on_solid_floor(&alley.player, alley.scene()),
+        )
+    }
+
+    fn poll_controls(&mut self, swimming: bool, on_floor: bool) -> Input {
         // Startup and diagnostic callers need only the latest snapshot; do not
         // accumulate history across polls which have no gameplay consumer.
         self.control_changes.clear();
@@ -291,7 +298,7 @@ impl<'a> Window<'a> {
                             presses.controller_menu_delta.saturating_add(1);
                     }
                     presses.controller_confirm |= pad.pressed.action;
-                    let mapped = self.controller.map(pad.actions, pad.faces);
+                    let mapped = self.controller.map(pad.actions, pad.faces, on_floor);
                     set_controller_keys(
                         &mut self.control_keys,
                         mapped,
@@ -349,7 +356,7 @@ impl<'a> Window<'a> {
         } else {
             self.gamepads.face_buttons()
         };
-        let pad = self.controller.map(raw_pad, faces);
+        let pad = self.controller.map(raw_pad, faces, on_floor);
         set_controller_keys(
             &mut keys,
             pad,
@@ -695,7 +702,7 @@ mod tests {
             right: true,
             ..Actions::default()
         };
-        let mapped = controller.map(raw, FaceButtons::default());
+        let mapped = controller.map(raw, FaceButtons::default(), false);
         let mut keys = Keys::default();
         set_controller_keys(&mut keys, mapped, raw, ControllerMovement::Button);
         let mut history = ControlHistory::new(keys);
@@ -718,6 +725,7 @@ mod tests {
                 south: true,
                 ..FaceButtons::default()
             },
+            false,
         );
         set_controller_keys(&mut keys, mapped, raw, ControllerMovement::Button);
         history.boundary(100, keys);

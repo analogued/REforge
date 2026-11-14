@@ -112,6 +112,10 @@ For source layout, validation and contribution guidance, see
 [Alley Cat](engines/alleycat/README.md), [Mach 3](engines/mach3/README.md), and
 [BTZ](engines/btz/README.md).
 
+The shared [`reforge_disc`](crates/reforge_disc/README.md) component provides
+read-only ISO-9660/directory indexing and bounded file streams for engine data
+loaders. Archive formats and resource precedence remain engine responsibilities.
+
 ## License
 
 Copyright (c) 2026 analogued.

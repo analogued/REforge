@@ -489,6 +489,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "reforge_disc"
+version = "2026.3.0-dev"
+
+[[package]]
 name = "reforge_graphics"
 version = "2026.3.0-dev"
 

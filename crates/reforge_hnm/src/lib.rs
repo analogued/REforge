@@ -81,3 +81,27 @@ fn invalid(message: impl Into<String>) -> io::Error {
 fn unsupported(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::Unsupported, message.into())
 }
+
+/// Expand one complete checksum-171 HSQ wrapper. HNM1 uses the same wrapper as
+/// some standalone original resources; output is bytes, not assumed pixels.
+/// Declared lengths, end marker and backreferences are checked before success.
+pub fn expand_hsq(bytes: &[u8]) -> io::Result<Vec<u8>> {
+    if bytes.len() < 6 {
+        return Err(invalid("truncated HSQ header"));
+    }
+    let expected = u16::from_le_bytes(bytes[..2].try_into().unwrap()) as usize;
+    codec::decode(bytes, expected).map(|decoded| decoded.pixels)
+}
+
+/// Expand tightly packed eight-bit signed-control raster RLE with row-local
+/// runs. The same encoding occurs in HNM updates and some external sprite banks.
+/// Geometry is explicit; no palette, coordinates or composition is inferred.
+pub fn expand_rle8(bytes: &[u8], width: usize, height: usize) -> io::Result<Vec<u8>> {
+    let len = width
+        .checked_mul(height)
+        .ok_or_else(|| invalid("RLE geometry overflow"))?;
+    if width == 0 || height == 0 {
+        return Err(invalid("RLE dimensions must be nonzero"));
+    }
+    codec::decode_rle(bytes, len, width)
+}

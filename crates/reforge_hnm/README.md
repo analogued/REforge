@@ -54,6 +54,11 @@ Other bounded typed chunks, including `pt` and `kl`, are preserved without
 inventing their game meaning. Nothing here selects tracks, drives lip movement,
 chooses movie order, loops a clip or supplies an assumed frame rate.
 
+`expand_hsq()` also exposes the same bounded checksum-171 wrapper expansion
+for standalone resources. Its result is bytes, without assuming a bitmap.
+`expand_rle8()` exposes the row-bounded eight-bit RLE stage for sprite banks
+using that same encoding; geometry is supplied explicitly.
+
 ## Supported profile and boundaries
 
 Use `Hnm1` explicitly. It is not an automatic HNM revision detector. HNM0, HNM4,

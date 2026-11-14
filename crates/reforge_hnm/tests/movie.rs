@@ -223,3 +223,22 @@ fn direct_output_bypasses_the_compositor_rle_flag() {
     let update = movie.next_frame().unwrap().unwrap().video.unwrap();
     assert_eq!(update.pixels, [0, 7]);
 }
+
+#[test]
+fn standalone_hsq_wrapper_returns_uninterpreted_bytes() {
+    assert_eq!(
+        reforge_hnm::expand_hsq(&literals(b"data")).unwrap(),
+        b"data"
+    );
+    assert!(reforge_hnm::expand_hsq(&[0; 5]).is_err());
+}
+
+#[test]
+fn standalone_rle8_keeps_row_boundaries_and_explicit_geometry() {
+    assert_eq!(
+        reforge_hnm::expand_rle8(&[0xfe, 7, 2, 1, 2, 3], 3, 2).unwrap(),
+        [7, 7, 7, 1, 2, 3]
+    );
+    assert!(reforge_hnm::expand_rle8(&[0xfb, 7], 3, 2).is_err());
+    assert!(reforge_hnm::expand_rle8(&[], usize::MAX, 2).is_err());
+}

@@ -27,7 +27,7 @@ fn decode(selected_movie: &std::path::Path) -> io::Result<()> {
             canvas.apply(update)?;
         }
         // Present canvas.pixels() with frame.palette at the caller's next tick.
-        // Consume frame.chunks in order; sd bytes belong to a separate VOC stream.
+        // Consume frame.chunks in order; the engine interprets raw sd sound payloads.
     }
     Ok(())
 }
@@ -48,8 +48,10 @@ side effects and game-specific scaling/destination transforms are not emulated.
 An engine may consume bitmap updates without using this compositor.
 
 `pl` updates are applied to the palette and retained among the typed chunks.
-`sd` contains fragments of a VOC stream, not necessarily complete files or PCM
-blocks. Assembly/decoding of that stream belongs above the movie container.
+`sd` retains raw sound payloads. A VOC header does not establish that subsequent
+payloads form a valid standalone VOC file: an original player can use actual
+packet lengths instead of the header's declared sound-block length. Transport
+interpretation, sample decoding and clocks belong above the movie container.
 Other bounded typed chunks, including `pt` and `kl`, are preserved without
 inventing their game meaning. Nothing here selects tracks, drives lip movement,
 chooses movie order, loops a clip or supplies an assumed frame rate.

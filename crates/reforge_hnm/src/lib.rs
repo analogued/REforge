@@ -44,8 +44,8 @@ impl Palette {
     }
 }
 
-/// Typed chunk bytes, in file order. In particular, `sd` contains fragments of
-/// a VOC stream, not necessarily independently decodable PCM or complete files.
+/// Typed chunk bytes, in file order. In particular, `sd` retains raw sound
+/// payloads; their headers and packet framing are interpreted by the engine.
 /// Game metadata (`pt`, `kl`) is preserved without assigning engine semantics.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Chunk {

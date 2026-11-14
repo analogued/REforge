@@ -60,7 +60,11 @@ override it. The global menu continues to show the stored policy.
 Save/load uses nine slots, displayed as 1–9 and stored as `0.CSV`–`8.CSV` in
 `--state-dir`. Menu saving requires this directory; descriptions accept up to
 47 ASCII bytes. Loading first checks that directory, then the corresponding
-slot in the original-data directory. Saving does not write to original inputs.
+slot in the original-data directory. Save writes go only to the selected state
+directory. To exchange saves with the DOS game, point `--state-dir` to the same
+writable game installation that contains `CENTURIO.EXE`; both versions then use
+the same slot files. Use a different directory to keep native writes separate.
+Load a slot again when switching versions to pick up its changed contents.
 The prompt identifies the destination slot and prefills the current campaign
 description. Back up wanted slots before overwriting them.
 

@@ -1,0 +1,21 @@
+[package]
+name = "centurion"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license.workspace = true
+description = "Centurion: Defender of Rome DOS engine and research frontend"
+
+[features]
+default = []
+dev-tools = []
+
+[dependencies]
+sdl3 = { version = "=0.20.0", default-features = false }
+reforge_sdl = { path = "../../crates/reforge_sdl" }
+reforge_audio = { path = "../../crates/reforge_audio", default-features = false, features = ["opl"] }
+
+[[bin]]
+name = "centurion-prototype"
+path = "src/main.rs"

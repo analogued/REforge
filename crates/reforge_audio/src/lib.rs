@@ -4,6 +4,8 @@
 #![forbid(unsafe_code)]
 
 pub mod category;
+#[cfg(feature = "opl")]
+pub mod opl;
 pub mod pit;
 pub mod psg;
 pub mod render;

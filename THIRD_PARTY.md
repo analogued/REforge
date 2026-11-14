@@ -26,6 +26,7 @@ MIT is selected where it is offered.
 | [blake3](https://crates.io/crates/blake3/1.8.7) | 1.8.7 | Application: original-file verification, release and cache identities; parallel memory-mapped hashing | [CC0-1.0](LICENSES/CC0-1.0.txt) |
 | [sdl3](https://crates.io/crates/sdl3/0.20.0) | 0.20.0 | Shared SDL: window, input, rendering and audio APIs | [MIT](LICENSES/MIT.txt) |
 | [egui](https://crates.io/crates/egui/0.31.1) | 0.31.1 | Shared SDL: settings and launcher interfaces, with default fonts | [MIT](LICENSES/MIT.txt); font terms below |
+| [nuked-opl3](https://crates.io/crates/nuked-opl3/0.1.0) | 0.1.0 | Shared audio: optional pure Rust OPL2/OPL3 synthesis | [LGPL-2.1-or-later](LICENSES/LGPL-2.1.txt) |
 | [blip_buf](https://crates.io/crates/blip_buf/0.2.1) | 0.2.1 | Shared audio: optional band-limited speaker renderer | [MIT](LICENSES/MIT.txt) |
 | [toml_edit](https://crates.io/crates/toml_edit/0.22.27) | 0.22.27 | Shared settings: TOML parsing and editing | [MIT](LICENSES/MIT.txt) |
 | [getrandom](https://crates.io/crates/getrandom/0.3.4) | 0.3.4 | Shared settings and application: operating-system randomness for library IDs and launch handoff names | [MIT](LICENSES/MIT.txt) |
@@ -56,6 +57,18 @@ Copyright notices, transcribed from the corresponding upstream license files:
 Except for egui's upstream root license, these notices come from `LICENSE` or
 `LICENSE-MIT` in each published crate archive. No implementation from these
 libraries has been adapted into REforge's authored source.
+
+## Optional OPL synthesis
+
+`reforge_audio`'s `opl` feature uses the unmodified pure Rust `nuked-opl3` 0.1.0
+registry crate through its ordinary API. No upstream source is copied into the
+adapter. Upstream: [Tony Gies, nuked-opl3-rs](https://github.com/tgies/nuked-opl3-rs).
+The package names Tony Gies, Nuke.YKT and Daniel Balsom as authors. Its core
+retains Copyright (C) 2013-2020 Nuke.YKT and Copyright (C) 2026 Tony Gies
+(Rust port), under LGPL-2.1-or-later. The [license text](LICENSES/LGPL-2.1.txt)
+is included; Cargo.lock records the exact registry checksum.
+Neither `c-reference-tests` nor `stereo-ext` is enabled, so this dependency
+requires no C/C++ compiler. Default application builds do not enable `opl`.
 
 ## Statically linked libbzip2
 

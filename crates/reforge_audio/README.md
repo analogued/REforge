@@ -1,4 +1,4 @@
-# Shared PIT, PC speaker and tone PSG devices
+# Shared audio devices and rendering
 
 `reforge_audio` provides deterministic device execution and optional offline
 signal rendering. Its default device implementation has no dependencies and
@@ -175,6 +175,33 @@ Synthetic tests cover PCM equality across internal/external chunk partitions,
 several output rates, long silent intervals, repeated PWM operations, rendering
 near the timestamp limit, output failures, level headroom and WAV boundaries.
 Device results remain identical with different output rates.
+
+## Replaceable OPL synthesis
+
+Enable the optional `opl` feature for `opl::Opl`, a replaceable two-bank OPL
+register-to-stereo-PCM interface, and its pure Rust `opl::Nuked` implementation.
+The fixed instance sample rate is selectable from 8,000 through 192,000 Hz.
+Register writes are immediate and ordered. Reset preserves the output rate and
+leaves OPL3 NEW disabled (OPL2 compatibility); a game driver enables OPL3 itself.
+Render up to a register event's sample boundary before applying that event.
+Splitting a render buffer does not advance a separate game clock.
+
+Engines own instrument decoding, track/voice allocation, tempo, event timing and
+music/effect routing. This adapter implements neither HERAD nor AdLib Gold's
+external processing/surround module, and does not claim exact analog-card output.
+
+The unmodified `nuked-opl3` dependency is LGPL-2.1-or-later. No C reference-test
+or stereo extension feature is enabled. See the repository's dependency notices.
+
+Validate OPL and the existing optional renderer together with:
+
+```sh
+cargo test --locked -p reforge_audio --all-features
+cargo clippy --locked -p reforge_audio --all-targets --all-features -- -D warnings
+```
+
+OPL tests use synthetic register streams and cover the second bank, reset,
+buffer chunk invariance and invalid arguments. No original game data is needed.
 
 Authored code and documentation use REforge's
 [`GPL-3.0-or-later` license](../../LICENSE). See

@@ -5,10 +5,12 @@ edition = "2024"
 rust-version = "1.85"
 publish = false
 license.workspace = true
-description = "Shared deterministic PIT and PC speaker devices for REforge"
+description = "Shared deterministic PIT and PC speaker and optional OPL rendering for REforge"
 
 [features]
 blip = ["dep:blip_buf"]
+opl = ["dep:nuked-opl3"]
 
 [dependencies]
+nuked-opl3 = { version = "=0.1.0", optional = true, default-features = false }
 blip_buf = { version = "=0.2.1", optional = true }

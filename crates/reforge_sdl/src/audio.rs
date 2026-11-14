@@ -1,14 +1,17 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Main-thread queued PCM playback, independent of engine clocks.
+//! PCM playback endpoints, independent of engine clocks.
 //!
 //! SDL converts the fixed mono signed 16-bit input format to the host device's
-//! negotiated format. No application callback runs on the audio thread.
+//! negotiated format in the queued endpoint. That endpoint runs no application
+//! callback on the audio thread. [`callback`] supplies an optional demand-driven
+//! endpoint with engine-owned PCM production.
 
 use reforge_settings::AudioSettings;
 use sdl3::audio::{AudioDevice, AudioFormat, AudioSpec, AudioStreamOwner};
 use std::{cell::RefCell, rc::Rc, time::Duration};
+pub mod callback;
 pub mod queue;
 
 /// Initial/resume buffering for host scheduling jitter, independent of game time.

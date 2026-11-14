@@ -1,7 +1,7 @@
 # Shared SDL3 presentation
 
 `reforge_sdl` owns SDL3 windows, renderer setup, event pumping and reusable
-streaming frame textures and queued audio output for REforge's engines. It also
+streaming frame textures and queued or callback-driven audio output for REforge's engines. It also
 implements common startup sizing, Ctrl+Q quit and Pause/Break toggle recognition.
 Engines choose their default sizing mode; both current engines default to auto.
 Ctrl+Q follows the Q letter in the current keyboard layout, rather than the
@@ -177,6 +177,29 @@ does not wait for playback, invoke simulation callbacks or know an engine clock.
 Initialization/output errors are returned to the caller. Audio tests use fresh
 dummy-driver and unavailable-driver child processes, so ordinary tests never
 open host audio or modify the renderer tests' process environment.
+
+`audio::callback::Output` is an optional demand-driven endpoint for owned PCM
+sources that can produce audio independently of presentation. Its `Source` trait
+selects native-endian `i16` or `f32` samples; `Spec` selects mono/stereo and a fixed
+8–192 kHz source rate. Sources fill complete interleaved sample frames. The
+endpoint starts paused, retains source/queued data across pause/resume, and uses
+a reusable scratch buffer. SDL converts the input to the device format.
+
+The callback owns the `Send` source; resources, sequencing, game commands and
+completion cues remain the caller's responsibility. Avoid IO, blocking and
+unbounded work in source rendering. Source errors and panics are latched and
+reported through the endpoint without unwinding across SDL; a failed source is
+not called again. The endpoint and its SDL lifetime owners remain on the main
+thread, and callback teardown finishes before the source is destroyed.
+
+`position()` reports generated, queued and estimated consumed **sample frames**,
+independent of channel count or sample type. Consumption subtracts queued source
+input from generated frames; converted/device/hardware buffering is excluded.
+It does not measure DAC latency or select a gameplay clock. The existing queued
+`AudioOutput`, `Playback` and timestamped `Queue` interfaces remain unchanged;
+engines choose the appropriate transport and synchronization policy. Synthetic
+child-process tests cover both sample types, frame accounting, pause/resume,
+presentation stalls, unavailable devices, source failures and active teardown.
 
 Pixel-target tests cover whole and fractional densities. An opt-in window check
 exercises high-density flags, startup sizing, both texture formats and resizing:

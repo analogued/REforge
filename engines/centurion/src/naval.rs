@@ -51,6 +51,21 @@ pub struct Naval {
 fn put(ds: &mut [u8], at: usize, value: u16) {
     ds[at..at + 2].copy_from_slice(&value.to_le_bytes());
 }
+
+fn footer_hull(value: u8) -> u8 {
+    (value as i8).max(0) as u8
+}
+
+// The original footer update clears signed nonpositive hulls and their marines.
+// Boarding calls it on each displayed melee frame as well as normal repaints.
+fn update_footer_state(ds: &mut [u8]) {
+    for side in 0..2 {
+        if footer_hull(ds[0xc38e + side]) == 0 {
+            ds[0xc38e + side] = 0;
+            put(ds, 0xc37e + side * 2, 0);
+        }
+    }
+}
 impl Naval {
     pub fn new(
         assets: &Assets,
@@ -291,8 +306,14 @@ impl Naval {
             .map(|b| i32::from(assets.data_segment[widths + usize::from(b - 32)]) + 1)
             .sum();
         f.text_font(assets, &text, 159 - w / 2, 187, 0, font)?;
-        let left = i32::from(self.view.data[0xc38e]) * 115 / 60;
-        let right = 319 - i32::from(self.view.data[0xc38f]) * 115 / 60;
+        // Presentation may run between logical footer updates. Never interpret
+        // an underflowed signed hull byte as a large positive health bar.
+        let hulls = [
+            footer_hull(self.view.data[0xc38e]),
+            footer_hull(self.view.data[0xc38f]),
+        ];
+        let left = i32::from(hulls[0]) * 115 / 60;
+        let right = 319 - i32::from(hulls[1]) * 115 / 60;
         f.rect(0, 190, left + 1, 7, 4);
         // DOS 7E74 sorts rectangle endpoints before clipping. Hull values can
         // exceed the nominal 60; the reversed background span must still draw.
@@ -339,7 +360,12 @@ impl Naval {
             if show_speed {
                 continue;
             }
-            let text = word(&self.view.data, 0xc37e + side * 2)?.to_string();
+            let text = if hulls[side] == 0 {
+                0
+            } else {
+                word(&self.view.data, 0xc37e + side * 2)?
+            }
+            .to_string();
             let w: i32 = text
                 .bytes()
                 .map(|b| i32::from(assets.data_segment[footer_widths + usize::from(b - 32)]) + 1)
@@ -618,12 +644,7 @@ impl Naval {
             if ds[0xc37c] != 0 {
                 ds[0xc37c] -= 1;
             }
-            for side in 0..2 {
-                if ds[0xc38e + side] as i8 <= 0 {
-                    ds[0xc38e + side] = 0;
-                    put(ds, 0xc37e + side * 2, 0);
-                }
-            }
+            update_footer_state(ds);
         }
         if ds[0xc38e] == 0 || ds[0xc38f] == 0 {
             self.finish_round(assets, state, rng)?;
@@ -674,6 +695,7 @@ impl Naval {
         }
         // The melee sprite is also selected randomly once per displayed frame.
         self.melee_frame = usize::from(rng.bounded(3));
+        update_footer_state(ds);
         if (word(ds, 0xc37e)? == 0 || word(ds, 0xc380)? == 0) && self.boarding_tail == 0 {
             if word(ds, 0xc37e)? == 0 {
                 ds[0xc38e] = 0;
@@ -727,6 +749,7 @@ impl Naval {
             }
         }
         ds[0xc37c] = 0;
+        update_footer_state(ds);
         self.round_lost = lost;
         if lost != 0 {
             let animation = animation::Animation::new(self, assets, lost)?;
@@ -858,13 +881,38 @@ pub fn render_observation(assets: &Assets, ds: &[u8]) -> Result<Frame> {
             scene.view.data[0x98e0 + side] = (scene.view.data[0x98e0 + side] + 1) % 3;
         }
     }
-    for side in 0..2 {
-        if scene.view.data[0xc38e + side] as i8 <= 0 {
-            scene.view.data[0xc38e + side] = 0;
-            put(&mut scene.view.data, 0xc37e + side * 2, 0);
-        }
-    }
+    update_footer_state(&mut scene.view.data);
     scene.render(assets, None)
+}
+
+/// Observe the live renderer without the procedural render probe's redraw work.
+pub fn render_live_observation(assets: &Assets, ds: &[u8]) -> Result<Frame> {
+    let mut state = Campaign::new(assets)?;
+    state.data.copy_from_slice(ds);
+    let mut scene = Naval::new(assets, &state, 0, 3, Frame::new())?;
+    scene.view.data.copy_from_slice(ds);
+    scene.stage = Stage::Battle;
+    scene.render(assets, None)
+}
+
+/// Advance an observed boarding scene through one displayed melee frame.
+pub fn boarding_observation(
+    assets: &Assets,
+    ds: &[u8],
+    rng: &mut OriginalRng,
+) -> Result<(Frame, Vec<u8>)> {
+    let mut state = Campaign::new(assets)?;
+    state.data.copy_from_slice(ds);
+    let mut scene = Naval::new(assets, &state, 0, 3, Frame::new())?;
+    scene.view.data.copy_from_slice(ds);
+    scene.stage = Stage::Boarding;
+    scene.boarding_tail = 20;
+    scene.clock.now = 9;
+    scene.clock.stamps[2] = 0;
+    scene.clock.stamps[8] = 9;
+    put(&mut scene.view.data, 0xc386, 72);
+    scene.advance(assets, 1, &mut state, rng)?;
+    Ok((scene.render(assets, None)?, scene.view.data))
 }
 
 /// Check the complete resolution from an observed round-end state. No DOS

@@ -26,6 +26,24 @@ pub fn run(assets: &Assets, kind: &str, side: &str, input: &str, output: &str) -
         let frame = crate::naval::render_observation(assets, &ds)?;
         return std::fs::write(output, frame.pixels).map_err(|e| e.to_string());
     }
+    if kind == "render-live" {
+        let frame = crate::naval::render_live_observation(assets, &ds)?;
+        return std::fs::write(output, frame.pixels).map_err(|e| e.to_string());
+    }
+    if kind == "boarding-step" || kind == "boarding-frame" {
+        let (frame, mut updated) = crate::naval::boarding_observation(assets, &ds, &mut rng)?;
+        put(&mut updated, 0xc8, rng.first);
+        put(&mut updated, 0xca, rng.second);
+        return std::fs::write(
+            output,
+            if kind == "boarding-step" {
+                updated
+            } else {
+                frame.pixels
+            },
+        )
+        .map_err(|e| e.to_string());
+    }
     if kind == "resolve" || kind == "resolve-frame" {
         let (frame, mut resolved) =
             crate::naval::resolve_observation(assets, &ds, side as u16, &mut rng)?;

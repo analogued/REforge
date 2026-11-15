@@ -276,3 +276,153 @@ fn unavailable_audio_is_returned_as_an_error() {
         .is_err()
     );
 }
+
+#[test]
+fn named_device_selection_and_failed_switch_preserve_the_working_endpoint() {
+    const TEST: &str = "audio::callback::tests::named_device_selection_and_failed_switch_preserve_the_working_endpoint";
+    if child(TEST, "dummy") {
+        return;
+    }
+    let sdl = sdl3::init().unwrap();
+    let audio = sdl.audio().unwrap();
+    let names = audio.audio_playback_device_ids().unwrap();
+    assert_eq!(names.len(), 1);
+    let name = names[0].name().unwrap();
+    let frames = Arc::new(AtomicU64::new(0));
+    let drops = Arc::new(AtomicUsize::new(0));
+    let probe = || Probe {
+        values: [123i16, -123],
+        channels: 2,
+        frames: frames.clone(),
+        drops: drops.clone(),
+    };
+    let spec = Spec {
+        sample_rate: 48000,
+        channels: 2,
+    };
+    let error = Output::open(spec, probe(), Some("reforge nonexistent device"))
+        .err()
+        .unwrap();
+    assert!(error.contains("choose System default"));
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    let mut output = Output::open(spec, probe(), Some(&name)).unwrap();
+    assert_eq!(output.device.name().unwrap(), name);
+    assert_eq!(output.position().unwrap(), Position::default());
+    let stream = output.stream.as_ref().unwrap().raw();
+    let device = output.device.id();
+    output.resume().unwrap();
+    until(|| output.position().unwrap().generated_frames > 0);
+    let before = output.position().unwrap();
+    let error = output
+        .switch_device(Some("reforge nonexistent device"))
+        .unwrap_err();
+    assert!(error.contains("choose System default"));
+    assert_eq!(output.stream.as_ref().unwrap().raw(), stream);
+    assert_eq!(output.device.id(), device);
+    assert!(!output.paused);
+    until(|| output.position().unwrap().consumed_frames > before.consumed_frames);
+    output.pause().unwrap();
+    let paused = output.position().unwrap();
+    assert!(output.switch_device(Some(&name.to_uppercase())).is_err());
+    thread::sleep(Duration::from_millis(30));
+    assert_eq!(output.position().unwrap(), paused);
+    assert!(output.paused);
+    assert_eq!(frames.load(Ordering::SeqCst), paused.generated_frames);
+    drop(output);
+    assert_eq!(drops.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn rebinding_retains_queued_pcm_source_and_pause_state() {
+    const TEST: &str =
+        "audio::callback::tests::rebinding_retains_queued_pcm_source_and_pause_state";
+    if child(TEST, "dummy") {
+        return;
+    }
+    let frames = Arc::new(AtomicU64::new(0));
+    let drops = Arc::new(AtomicUsize::new(0));
+    let mut output = Output::new(
+        Spec {
+            sample_rate: 48000,
+            channels: 2,
+        },
+        Probe {
+            values: [0.25f32, -0.5],
+            channels: 2,
+            frames: frames.clone(),
+            drops: drops.clone(),
+        },
+    )
+    .unwrap();
+    let name = output.device.name().unwrap();
+    let stream = output.stream.as_ref().unwrap().raw();
+    let source = &*output._state as *const _;
+    // Seed a known nonempty input queue while the device is paused. No callback
+    // can run, so the test has exclusive access to the retained source state.
+    output._state.fill(stream, 8192).unwrap();
+    let queued = output.position().unwrap();
+    assert_eq!(queued.generated_frames, 1024);
+    assert_eq!(queued.queued_frames, 1024);
+    for selection in [Some(name.as_str()), None, Some(name.as_str()), None] {
+        let old_device = output.device.id();
+        output.switch_device(selection).unwrap();
+        assert_ne!(output.device.id(), old_device);
+        assert_eq!(output.stream.as_ref().unwrap().raw(), stream);
+        assert_eq!(&*output._state as *const _, source);
+        assert_eq!(output.position().unwrap(), queued);
+        assert_eq!(frames.load(Ordering::SeqCst), queued.generated_frames);
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        thread::sleep(Duration::from_millis(20));
+        assert_eq!(output.position().unwrap(), queued);
+    }
+    // Exercise an SDL binding failure after unbinding, separately from name
+    // lookup failures. An invalid replacement ID cannot bind; the old live
+    // device must be restored with its queue and paused state intact.
+    let old_device = output.device.id();
+    let audio = output._sdl.audio().unwrap();
+    let invalid = AudioDevice::new(
+        sdl3::audio::AudioDeviceID::Device(raw::SDL_AudioDeviceID(0)),
+        audio,
+    );
+    assert!(output.rebind(invalid).is_err());
+    assert_eq!(output.device.id(), old_device);
+    assert_eq!(
+        output.stream.as_ref().unwrap().device_id(),
+        Some(old_device)
+    );
+    assert_eq!(output.position().unwrap(), queued);
+    assert!(output.paused);
+    // Dummy honors the requested f32 stereo format. Read the retained queued
+    // data directly to verify its samples, rather than only its byte count.
+    let (_, format) = output.stream.as_ref().unwrap().get_format().unwrap();
+    assert_eq!(format.unwrap().format, Some(AudioFormat::f32_sys()));
+    let mut retained = vec![0.0f32; 2048];
+    // SAFETY: the live paused stream cannot race a device callback. The buffer
+    // is writable for its exact byte length, using its verified output format.
+    let read = unsafe { raw::SDL_GetAudioStreamData(stream, retained.as_mut_ptr().cast(), 8192) };
+    assert_eq!(read, 8192);
+    for pair in retained.chunks_exact(2) {
+        assert_eq!(pair, [0.25, -0.5]);
+    }
+    let mut before = output.position().unwrap();
+    output.resume().unwrap();
+    until(|| output.position().unwrap().generated_frames > before.generated_frames);
+    for selection in [None, Some(name.as_str()), None] {
+        before = output.position().unwrap();
+        output.switch_device(selection).unwrap();
+        assert!(!output.paused);
+        assert_eq!(output.stream.as_ref().unwrap().raw(), stream);
+        until(|| output.position().unwrap().consumed_frames > before.consumed_frames);
+        let after = output.position().unwrap();
+        assert!(after.generated_frames >= before.generated_frames);
+        assert!(after.consumed_frames >= before.consumed_frames);
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+    }
+    output.pause().unwrap();
+    assert_eq!(
+        output.position().unwrap().generated_frames,
+        frames.load(Ordering::SeqCst)
+    );
+    drop(output);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}

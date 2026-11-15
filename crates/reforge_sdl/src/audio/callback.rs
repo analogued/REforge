@@ -5,7 +5,7 @@
 //! The endpoint and SDL lifetimes stay on the main thread. SDL's callback owns
 //! the PCM source. Engines retain their commands, clocks and completion cues.
 
-use sdl3::audio::{AudioFormat, AudioSpec, AudioStreamOwner};
+use sdl3::audio::{AudioDevice, AudioFormat, AudioSpec, AudioStreamOwner};
 use sdl3::sys::audio::{self as raw, SDL_AudioStream};
 use std::{
     ffi::c_void,
@@ -141,10 +141,41 @@ unsafe extern "C" fn callback<S: Source>(
         status.error.get_or_insert(failure);
     }
 }
+// Open a separately owned logical device, paused before any stream is bound.
+fn open_device(
+    audio: &sdl3::AudioSubsystem,
+    input: &AudioSpec,
+    name: Option<&str>,
+) -> Result<AudioDevice, String> {
+    let selected = if let Some(name) = name {
+        let found = audio
+            .audio_playback_device_ids()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|id| id.name().is_ok_and(|candidate| candidate == name))
+            .collect::<Vec<_>>();
+        if found.len() != 1 {
+            return Err(format!(
+                "Output device {name:?} is unavailable or its name is ambiguous; choose System default"
+            ));
+        }
+        Some(found[0])
+    } else {
+        None
+    };
+    let device =
+        AudioDevice::open_playback(audio, selected.as_ref(), input).map_err(|e| e.to_string())?;
+    if !device.pause() {
+        return Err(sdl3::get_error().to_string());
+    }
+    Ok(device)
+}
 /// Main-thread-owned callback endpoint. It starts paused; [`Self::resume`] starts
 /// production. Pausing retains source/queued data. Engines choose clock policies.
 pub struct Output<S: Source> {
     stream: Option<AudioStreamOwner>,
+    device: AudioDevice,
+    paused: bool,
     _state: Box<State<S>>,
     status: Arc<Mutex<Status>>,
     spec: Spec,
@@ -153,6 +184,11 @@ pub struct Output<S: Source> {
 }
 impl<S: Source> Output<S> {
     pub fn new(spec: Spec, source: S) -> Result<Self, String> {
+        Self::open(spec, source, None)
+    }
+    /// Open the system default, or the playback device with this exact unique
+    /// name. A missing or ambiguous name is an error; it never silently falls back.
+    pub fn open(spec: Spec, source: S, device_name: Option<&str>) -> Result<Self, String> {
         let spec = spec.validate()?;
         let sdl = sdl3::init().map_err(|e| e.to_string())?;
         let audio = sdl.audio().map_err(|e| e.to_string())?;
@@ -161,10 +197,13 @@ impl<S: Source> Output<S> {
             channels: Some(i32::from(spec.channels)),
             format: Some(S::Sample::FORMAT),
         };
+        let device = open_device(&audio, &input, device_name)?;
+        // Independent ownership lets this stream retain its input queue when
+        // changing logical devices. SDL_OpenAudioDeviceStream ties them together.
         let stream = audio
-            .default_playback_device()
-            .open_device_stream(Some(&input))
+            .new_playback_stream(&input, None)
             .map_err(|e| e.to_string())?;
+        device.bind_stream(&stream).map_err(|e| e.to_string())?;
         let status = Arc::new(Mutex::new(Status::default()));
         let mut state = Box::new(State {
             source,
@@ -186,6 +225,8 @@ impl<S: Source> Output<S> {
         }
         Ok(Self {
             stream: Some(stream),
+            device,
+            paused: true,
             _state: state,
             status,
             spec,
@@ -202,19 +243,66 @@ impl<S: Source> Output<S> {
     }
     pub fn resume(&mut self) -> Result<(), String> {
         self.check_error()?;
-        self.stream
-            .as_ref()
-            .unwrap()
-            .resume()
-            .map_err(|e| e.to_string())
+        if !self.device.resume() {
+            return Err(sdl3::get_error().to_string());
+        }
+        self.paused = false;
+        Ok(())
     }
     pub fn pause(&mut self) -> Result<(), String> {
-        self.stream
-            .as_ref()
-            .unwrap()
-            .pause()
-            .map_err(|e| e.to_string())?;
+        if !self.device.pause() {
+            return Err(sdl3::get_error().to_string());
+        }
+        self.paused = true;
         self.check_error()
+    }
+    /// Move the existing source and queued PCM to another playback device.
+    /// Paused/running state and frame counters are retained. Opening or selecting
+    /// an unavailable device leaves the current device playing as before.
+    pub fn switch_device(&mut self, device_name: Option<&str>) -> Result<(), String> {
+        self.check_error()?;
+        let audio = self._sdl.audio().map_err(|e| e.to_string())?;
+        let input = AudioSpec {
+            freq: Some(self.spec.sample_rate as i32),
+            channels: Some(i32::from(self.spec.channels)),
+            format: Some(S::Sample::FORMAT),
+        };
+        let replacement = open_device(&audio, &input, device_name)?;
+        self.rebind(replacement)
+    }
+    fn rebind(&mut self, replacement: AudioDevice) -> Result<(), String> {
+        // Validate running state before interrupting the working endpoint. The
+        // replacement has no bound stream yet and cannot invoke the source.
+        if !self.paused && !replacement.resume() {
+            return Err(sdl3::get_error().to_string());
+        }
+        if !self.device.pause() {
+            return Err(sdl3::get_error().to_string());
+        }
+        let stream = self.stream.as_ref().unwrap();
+        // SAFETY: this independently owned live stream can be rebound. Device
+        // operations stay outside its callback lock to avoid lock inversion.
+        unsafe { raw::SDL_UnbindAudioStream(stream.raw()) };
+        if let Err(error) = replacement.bind_stream(stream) {
+            // Keep the original logical device alive until the transfer commits.
+            // SDL does not provide atomic rebinding, so restore it on failure.
+            if let Err(restore_error) = self.device.bind_stream(stream) {
+                self.paused = true;
+                return Err(format!(
+                    "{error}; restoring output device failed: {restore_error}"
+                ));
+            }
+            if !self.paused && !self.device.resume() {
+                self.paused = true;
+                return Err(format!(
+                    "{error}; resuming output device failed: {}",
+                    sdl3::get_error()
+                ));
+            }
+            return Err(error.to_string());
+        }
+        self.device = replacement;
+        Ok(())
     }
     /// Coherent source-generated/queued snapshot, serialized with the callback.
     /// Estimated consumption is monotonic; pause freezes generation/consumption.

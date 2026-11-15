@@ -184,6 +184,11 @@ selects native-endian `i16` or `f32` samples; `Spec` selects mono/stereo and a f
 8–192 kHz source rate. Sources fill complete interleaved sample frames. The
 endpoint starts paused, retains source/queued data across pause/resume, and uses
 a reusable scratch buffer. SDL converts the input to the device format.
+`open(spec, source, name)` selects an exact unique playback-device name or the
+system default; `new(spec, source)` retains its default-device behavior.
+`switch_device(name)` rebinds the same stream, retaining the source, queued input,
+frame counters and paused/running state. Failed selection keeps the active device;
+a binding failure attempts to restore it and reports any restoration failure.
 
 The callback owns the `Send` source; resources, sequencing, game commands and
 completion cues remain the caller's responsibility. Avoid IO, blocking and

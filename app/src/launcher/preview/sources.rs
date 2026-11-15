@@ -3,7 +3,11 @@
 //! Background engine preview generation; drawing never opens original/cache files.
 use super::super::model::GameEntry;
 use crate::detection::{self, Detected, Game, Release, verification::Verification};
-use reforge_sdl::{AspectRatio, DisplayGeometry, preview::Frame};
+use reforge_sdl::{
+    AspectRatio, DisplayGeometry,
+    launcher::{Palette, PaletteDisplay, PaletteHint, prepare_palette},
+    preview::Frame,
+};
 use std::{
     collections::{BTreeMap, HashSet},
     fs::{self, File, OpenOptions},
@@ -21,6 +25,15 @@ use std::{
 pub(in crate::launcher) struct Source {
     pub id: String,
     pub frame: Arc<Frame>,
+    pub palette: Option<PaletteDisplay>,
+}
+impl Source {
+    pub fn new(id: String, frame: Arc<Frame>) -> Self {
+        let palette = frame
+            .palette()
+            .map(|p| prepare_palette(&p.colours, p.weights.as_deref(), p.hint));
+        Self { id, frame, palette }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Identity {
@@ -257,13 +270,7 @@ fn generate_with(
                 continue;
             }
         };
-        output.insert(
-            variant.into(),
-            Source {
-                id,
-                frame: Arc::new(frame),
-            },
-        );
+        output.insert(variant.into(), Source::new(id, Arc::new(frame)));
     }
     output
 }
@@ -428,15 +435,96 @@ fn load(path: &Path) -> Result<Frame, String> {
         return Err("Invalid preview geometry".into());
     }
     let geometry = DisplayGeometry::new((info.width, info.height), (dimensions[0], dimensions[1]));
+    let palette = info
+        .uncompressed_latin1_text
+        .iter()
+        .find(|t| t.keyword == "reforge.palette.v1")
+        .map(|t| decode_palette(&t.text))
+        .transpose()?;
     let mut rgba = vec![0; reader.output_buffer_size()];
     let result = reader.next_frame(&mut rgba).map_err(|e| e.to_string())?;
     rgba.truncate(result.buffer_size());
     reader.finish().map_err(|e| e.to_string())?;
-    if dimensions[2] == 1 {
+    let frame = if dimensions[2] == 1 {
         Frame::new_monochrome(geometry, rgba)
     } else {
         Frame::new(geometry, rgba)
+    }?;
+    match palette {
+        Some(palette) => frame.with_palette(palette),
+        None => Ok(frame),
     }
+}
+
+fn encode_palette(palette: &Palette) -> Result<String, String> {
+    palette.validate()?;
+    let hint = match palette.hint {
+        PaletteHint::Auto => "auto",
+        PaletteHint::PreserveOrder => "ordered",
+        PaletteHint::Mosaic => "mosaic",
+    };
+    let mut text = format!(
+        "{hint} {}\n",
+        if palette.weights.is_some() {
+            "weighted"
+        } else {
+            "uniform"
+        }
+    );
+    for (index, [r, g, b]) in palette.colours.iter().enumerate() {
+        text.push_str(&format!("{r} {g} {b}"));
+        if let Some(weights) = &palette.weights {
+            text.push_str(&format!(" {}", weights[index]));
+        }
+        text.push('\n');
+    }
+    Ok(text)
+}
+
+fn decode_palette(text: &str) -> Result<Palette, String> {
+    use reforge_sdl::launcher::MAX_PALETTE_COLOURS;
+    if text.len() > MAX_PALETTE_COLOURS * 40 + 64 {
+        return Err("Preview palette metadata too large".into());
+    }
+    let mut lines = text.lines();
+    let header = lines.next().ok_or("Missing preview palette header")?;
+    let fields: Vec<_> = header.split_whitespace().collect();
+    if fields.len() != 2 {
+        return Err("Invalid preview palette header".into());
+    }
+    let hint = match fields[0] {
+        "auto" => PaletteHint::Auto,
+        "ordered" => PaletteHint::PreserveOrder,
+        "mosaic" => PaletteHint::Mosaic,
+        _ => return Err("Unknown preview palette hint".into()),
+    };
+    let mut weights = match fields[1] {
+        "weighted" => Some(Vec::new()),
+        "uniform" => None,
+        _ => return Err("Invalid preview palette weighting".into()),
+    };
+    let mut colours = Vec::new();
+    for line in lines {
+        if colours.len() >= MAX_PALETTE_COLOURS {
+            return Err("Too many preview palette colours".into());
+        }
+        let values: Vec<_> = line.split_whitespace().collect();
+        if values.len() != if weights.is_some() { 4 } else { 3 } {
+            return Err("Invalid preview palette colour".into());
+        }
+        let channel = |i: usize| values[i].parse::<u8>().map_err(|e| e.to_string());
+        colours.push([channel(0)?, channel(1)?, channel(2)?]);
+        if let Some(weights) = &mut weights {
+            weights.push(values[3].parse::<u64>().map_err(|e| e.to_string())?);
+        }
+    }
+    let palette = Palette {
+        colours,
+        weights,
+        hint,
+    };
+    palette.validate()?;
+    Ok(palette)
 }
 fn store(path: &Path, frame: &Frame) -> Result<(), String> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -470,6 +558,11 @@ fn store(path: &Path, frame: &Frame) -> Result<(), String> {
             format!("{aw} {ah} {}", u8::from(frame.is_monochrome())),
         )
         .map_err(|e| e.to_string())?;
+    if let Some(palette) = frame.palette() {
+        encoder
+            .add_text_chunk("reforge.palette.v1".into(), encode_palette(palette)?)
+            .map_err(|e| e.to_string())?;
+    }
     let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
     writer
         .write_image_data(frame.rgba())

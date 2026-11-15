@@ -9,6 +9,7 @@ use reforge_settings::{
     library::{Entry, Library},
 };
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap},
     io::IsTerminal,
     path::PathBuf,
@@ -318,7 +319,14 @@ impl GameEntry {
             .collect::<Vec<_>>()
             .join(" · ")
     }
-    pub fn palette_swatches(&self) -> &'static [[u8; 3]] {
+    pub fn palette_swatches(&self) -> &[[u8; 3]] {
+        if let Some(palette) = self
+            .previews
+            .get(self.preview_variant())
+            .and_then(|s| s.frame.palette())
+        {
+            return &palette.colours;
+        }
         let v = self.option_values();
         self.options
             .iter()
@@ -329,6 +337,26 @@ impl GameEntry {
                     .and_then(|c| c.palette)
             })
             .unwrap_or(&[])
+    }
+    pub fn palette_display(&self) -> Cow<'_, reforge_sdl::launcher::PaletteDisplay> {
+        if let Some(palette) = self
+            .previews
+            .get(self.preview_variant())
+            .and_then(|s| s.palette.as_ref())
+        {
+            return Cow::Borrowed(palette);
+        }
+        let values = self.option_values();
+        let choice = self.options.iter().find_map(|option| {
+            option
+                .choices
+                .iter()
+                .find(|c| Some(&c.label) == values.get(option.label))
+                .filter(|c| c.palette.is_some())
+        });
+        let colours = choice.and_then(|c| c.palette).unwrap_or(&[]);
+        let hint = choice.map(|c| c.palette_hint).unwrap_or_default();
+        Cow::Owned(reforge_sdl::launcher::prepare_palette(colours, None, hint))
     }
     pub fn native_arguments(&self) -> Vec<String> {
         if !self.native_preferences_loaded {

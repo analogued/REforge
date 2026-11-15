@@ -11,6 +11,8 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Show larger game palettes as compact six-row launcher mosaics, keeping small
+  palettes in their original order.
 - Restore pending display choices correctly when switching back before Apply,
   including renderer backends, manual scaling and explicit global defaults.
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Clean engine preview frames and a size-aware, illustrative CRT treatment.
 //! Launcher cues are deliberately independent of the gameplay Hyllian shader.
-use crate::{AspectRatio, DisplayGeometry};
+use crate::{AspectRatio, DisplayGeometry, launcher::Palette};
 use egui::{Color32, ColorImage};
 
 #[derive(Clone, Debug)]
@@ -10,6 +10,7 @@ pub struct Frame {
     geometry: DisplayGeometry,
     rgba: Vec<u8>,
     monochrome: bool,
+    palette: Option<Palette>,
 }
 impl Frame {
     /// Previews are opaque native pixels; geometry also describes their intended display aspect.
@@ -28,6 +29,7 @@ impl Frame {
             geometry,
             rgba,
             monochrome: false,
+            palette: None,
         })
     }
     /// A single neutral phosphor: the CRT cue must not introduce RGB subpixels.
@@ -51,6 +53,15 @@ impl Frame {
     }
     pub fn rgba(&self) -> &[u8] {
         &self.rgba
+    }
+    /// Optional native palette metadata; it never changes preview pixels.
+    pub fn palette(&self) -> Option<&Palette> {
+        self.palette.as_ref()
+    }
+    pub fn with_palette(mut self, palette: Palette) -> Result<Self, String> {
+        palette.validate()?;
+        self.palette = Some(palette);
+        Ok(self)
     }
 }
 
@@ -180,6 +191,34 @@ fn axis_samples(source: usize, destination: usize) -> Vec<Vec<(usize, f32)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::launcher::PaletteHint;
+    #[test]
+    fn palette_metadata_is_validated_without_changing_pixels() {
+        let frame = Frame::new(
+            DisplayGeometry::new((1, 1), (1, 1)),
+            vec![37, 129, 211, 255],
+        )
+        .unwrap();
+        assert!(frame.palette().is_none());
+        let palette = Palette {
+            colours: vec![[37, 129, 211]],
+            weights: Some(vec![1]),
+            hint: PaletteHint::Mosaic,
+        };
+        let image = render(&frame, [3, 3], 1.0, true);
+        let tagged = frame.clone().with_palette(palette.clone()).unwrap();
+        assert_eq!(tagged.palette(), Some(&palette));
+        assert_eq!(tagged.rgba(), frame.rgba());
+        assert_eq!(render(&tagged, [3, 3], 1.0, true), image);
+        assert!(
+            frame
+                .with_palette(Palette {
+                    weights: Some(vec![]),
+                    ..palette
+                })
+                .is_err()
+        );
+    }
     #[test]
     fn compact_crt_remains_visible_without_only_dimming() {
         let frame = Frame::new(

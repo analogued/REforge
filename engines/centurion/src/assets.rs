@@ -314,6 +314,36 @@ impl Assets {
         Ok(bitmap)
     }
 
+    /// Visit each stored bitmap/sprite frame once, excluding packed row padding.
+    /// Raw full-screen backgrounds have no transparency mask.
+    #[cfg(feature = "sdl")]
+    pub(crate) fn visit_stored_artwork(
+        &self,
+        mut include: impl FnMut(&[u8], Option<&[bool]>),
+    ) -> Result<()> {
+        for (bank, contents) in &self.banks {
+            for (name, &(_, _, flags)) in &contents.entries {
+                if flags == 0xc0 {
+                    let bitmap = self.bitmap(bank, name)?;
+                    include(&bitmap.pixels, Some(&bitmap.visible));
+                }
+                if let Some(stem) = name.strip_suffix("HDR.LZW") {
+                    for bitmap in self.sprites(bank, stem)? {
+                        include(&bitmap.pixels, Some(&bitmap.visible));
+                    }
+                }
+            }
+        }
+        for (bank, name) in [("MINIT", "WORLD.LZW"), ("NAVL", "GALLEYS.LZW")] {
+            let pixels = self.resource(bank, name)?;
+            if pixels.len() != 320 * 200 {
+                return Err(format!("Unexpected {bank}/{name} background size"));
+            }
+            include(&pixels, None);
+        }
+        Ok(())
+    }
+
     pub fn validate_all(&self) -> Result<(usize, usize, usize, usize)> {
         let (mut raw, mut streams, mut bitmaps, mut sprites) = (0, 0, 0, 0);
         for (bank, contents) in &self.banks {

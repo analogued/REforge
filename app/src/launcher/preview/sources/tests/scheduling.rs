@@ -82,10 +82,7 @@ fn setup(directory: &TestDirectory) -> (State, PathBuf, PathBuf) {
 fn repaired() -> BTreeMap<String, Source> {
     BTreeMap::from([(
         "pcjr".into(),
-        Source {
-            id: "repaired-a".into(),
-            frame: Arc::new(frame()),
-        },
+        Source::new("repaired-a".into(), Arc::new(frame())),
     )])
 }
 

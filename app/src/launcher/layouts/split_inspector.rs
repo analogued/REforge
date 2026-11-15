@@ -13,7 +13,7 @@ use super::super::{
     model::{EntryStatus, GameEntry, State},
     switchers::{self, AnchorPlacement},
     widgets::{
-        UiAction, draw_launch_options_rows, draw_palette_dots, draw_preview_screen,
+        UiAction, draw_launch_options_rows, draw_palette, draw_preview_screen,
         draw_provenance_inline, paint_title, primary_button, quiet_text_button, secondary_button,
         section_rule,
     },
@@ -347,7 +347,7 @@ fn draw_hero_details(
     ui.add_space(4.0);
     let specs = ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
-        draw_palette_dots(ui, ap, game.palette_swatches(), 6.5);
+        draw_palette(ui, ap, &game.palette_display(), 6.5);
         ui.label(
             RichText::new(game.features_line())
                 .size(11.5)

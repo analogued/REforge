@@ -11,6 +11,7 @@ const CGA: Choice = Choice {
     short_label: "CGA",
     badge: None,
     palette: None,
+    palette_hint: crate::launcher::PaletteHint::Auto,
 };
 const PCJR: Choice = Choice {
     value: "pcjr",
@@ -18,6 +19,7 @@ const PCJR: Choice = Choice {
     short_label: "PCjr",
     badge: None,
     palette: None,
+    palette_hint: crate::launcher::PaletteHint::Auto,
 };
 const LEGACY: OptionDefinition = OptionDefinition {
     label: "Machine",

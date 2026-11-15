@@ -17,6 +17,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
                 short_label: "CGA",
                 badge: Some("CGA"),
                 palette: Some(&crate::frame::PALETTE),
+                palette_hint: reforge_sdl::launcher::PaletteHint::Auto,
             },
             Choice {
                 value: "mono",
@@ -24,6 +25,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
                 short_label: "Mono",
                 badge: Some("Mono"),
                 palette: Some(&MONO),
+                palette_hint: reforge_sdl::launcher::PaletteHint::Auto,
             },
         ],
         default: "cga",
@@ -43,6 +45,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
                 short_label: "Speaker",
                 badge: None,
                 palette: None,
+                palette_hint: reforge_sdl::launcher::PaletteHint::Auto,
             },
             Choice {
                 value: "enhanced-pcm",
@@ -50,6 +53,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
                 short_label: "PCM",
                 badge: Some("PCM"),
                 palette: None,
+                palette_hint: reforge_sdl::launcher::PaletteHint::Auto,
             },
         ],
         default: "speaker",

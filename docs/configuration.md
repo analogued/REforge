@@ -888,8 +888,10 @@ on the fence with the SynSoft footer visible. BTZ uses the game's original
 title screen, with the loading label, continue prompt and input cursor removed
 from the preview copy. Its single monochrome image is shared by graphical and
 terminal launch choices. Preview generation has no effect on the player's
-startup seed or session. Native RGBA pixels, engine-supplied display geometry
-and colour model are cached together in PNG files under:
+startup seed or session. Centurion uses its title screen and extracts its used
+colours and weights from the selected resource files during preview generation.
+Native RGBA pixels, engine-supplied display geometry, colour model and optional
+palette metadata are cached together in PNG files under:
 
 - Linux: `$XDG_CACHE_HOME/reforge/previews`, or `~/.cache/reforge/previews`.
 - macOS: `~/Library/Caches/REforge/previews`.
@@ -911,6 +913,27 @@ it verifies the originals once for the job. Valid cached variants remain usable
 if another variant cannot be generated. Successful verification after originals
 recover allows missing variants to be retried without discarding good images.
 Library status verification is separate.
+
+Palette swatches preserve the engine's supplied order for small palettes (up to
+16 colours), including CGA, monochrome and the current text palettes. Larger
+palettes use six rows of 2-point squares or circles with 1-point gaps, following
+the active theme. Their column count is the number of distinct colours divided
+by six, rounded down. To fill the rectangle, the launcher repeatedly finds the
+closest colour pair in OKLab and removes the less frequent shade, using optional
+engine-supplied weights. Missing weights are equal; exact ties use RGB ordering.
+The surviving colours are ordered by hue, then OKLab lightness. A 256-colour set
+therefore displays 252 colours in 42 columns. The engine's rendering palette is
+unmodified.
+
+Engine metadata may override this automatic treatment with `PreserveOrder` or
+`Mosaic`; `Auto` is the default. These are presentation hints, not player settings.
+Engines own the meaning and extraction of their colour sets; the launcher owns
+ordering, reduction and layout. Runtime palette extraction and mosaic preparation run in
+the preview worker, not during painting. Cached metadata remains available when
+original files are unavailable. Metadata is optional for existing static palettes
+and validated when loading previews; malformed metadata triggers normal preview
+regeneration. Palettes with fewer than six distinct colours retain a single row
+even when `Mosaic` is requested.
 
 Each completed PNG is a checkpoint, published only after its write finishes.
 Preview work continues independently while a launched game runs. After a

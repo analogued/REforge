@@ -36,6 +36,14 @@ Ctrl+Q exits to the launcher. Escape retains the original back/cancel/game-menu
 behavior. Gamepads can operate Settings and host pause; gameplay uses the mouse
 and keyboard controls below. Use `--help` to list player options.
 
+The launcher derives its colour mosaic from the selected original resources
+while preparing the title preview. It counts each stored visible artwork pixel
+once, including both raw backgrounds, then includes cached bitmap expansion,
+province uniform remaps and procedural drawing pens. Colours found only through
+those runtime rules receive weight one. The palette keeps CMAP order and RGB
+values; these artwork weights do not measure time on screen or prove that every
+stored image is reachable or unobscured during play.
+
 ## Playing
 
 Mouse and keyboard navigation work together. Menus highlight the focused choice;

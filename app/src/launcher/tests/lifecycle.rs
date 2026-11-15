@@ -352,10 +352,7 @@ fn restoring_originals_and_locating_them_retries_only_incomplete_previews() {
     .unwrap();
     state.games[0].previews.insert(
         "color".into(),
-        preview::sources::Source {
-            id: "retained".into(),
-            frame: Arc::new(image),
-        },
+        preview::sources::Source::new("retained".into(), Arc::new(image)),
     );
     state.games[0].preview_attempted = true;
     std::fs::write(root.join("program.bin"), b"bad").unwrap();

@@ -13,7 +13,7 @@ use super::super::{
     switchers::{self, AnchorPlacement},
     widgets::{
         ChevronDir, UiAction, draw_options_panel, draw_provenance_inline, options_toggle_button,
-        paint_palette_dots_at, paint_preview_in_rect, paint_title, primary_button,
+        paint_palette_at, paint_preview_in_rect, paint_title, palette_size, primary_button,
         quiet_text_button, secondary_button,
     },
 };
@@ -229,19 +229,16 @@ fn draw_deck_row(
         }
 
         if !game.status.is_missing() && rect.width() >= 500.0 {
-            let swatches = game.palette_swatches();
+            let palette = game.palette_display();
             let dot_size = 6.0;
-            let dots_w =
-                swatches.len() as f32 * dot_size + (swatches.len().saturating_sub(1)) as f32 * 3.0;
+            let size = palette_size(&palette, dot_size);
+            let dots_w = size.x;
             title_right = label_pos.x - dots_w - 20.0;
-            paint_palette_dots_at(
+            paint_palette_at(
                 ui.painter(),
                 ap,
-                Pos2::new(
-                    label_pos.x - dots_w - 10.0,
-                    rect.center().y - dot_size * 0.5,
-                ),
-                swatches,
+                Pos2::new(label_pos.x - dots_w - 10.0, rect.center().y - size.y * 0.5),
+                &palette,
                 dot_size,
             );
         }

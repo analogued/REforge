@@ -6,6 +6,75 @@ use crate::launcher::model::EntryStatus;
 mod caching;
 mod migration;
 mod scheduling;
+
+#[test]
+fn cached_palette_survives_without_originals_and_preserves_full_native_metadata() {
+    let directory = TestDirectory::new();
+    let path = directory.0.join("palette.png");
+    let palette = Palette {
+        colours: (0..=255).map(|n| [n, n, n]).collect(),
+        weights: Some((0..=255).map(|n| u64::from(n as u16) + 1).collect()),
+        hint: PaletteHint::Auto,
+    };
+    let frame = frame().with_palette(palette.clone()).unwrap();
+    store(&path, &frame).unwrap();
+    let loaded = cached_frame(Some(&path), &[], || {
+        panic!("valid cache must not read originals")
+    })
+    .unwrap();
+    assert_eq!(loaded.palette(), Some(&palette));
+    assert_eq!(loaded.rgba(), frame.rgba());
+    let source = Source::new("cached-palette".into(), Arc::new(loaded));
+    let display = source.palette.as_ref().unwrap();
+    assert_eq!((display.rows, display.columns), (6, 42));
+    assert_eq!(display.colours.len(), 252);
+    assert_eq!(source.frame.palette().unwrap().colours.len(), 256);
+    assert!(
+        display
+            .colours
+            .iter()
+            .all(|rgb| palette.colours.contains(rgb))
+    );
+    for hint in [PaletteHint::PreserveOrder, PaletteHint::Mosaic] {
+        let frame = frame
+            .clone()
+            .with_palette(Palette {
+                hint,
+                ..palette.clone()
+            })
+            .unwrap();
+        store(&path, &frame).unwrap();
+        assert_eq!(load(&path).unwrap().palette(), frame.palette());
+    }
+}
+
+#[test]
+fn palette_cache_metadata_rejects_malformed_records() {
+    for text in [
+        "",
+        "unknown weighted\n1 2 3 4\n",
+        "auto other\n",
+        "auto weighted\n1 2 3\n",
+        "auto uniform\n256 0 0\n",
+        "auto uniform\n1 2 3 4\n",
+    ] {
+        assert!(decode_palette(text).is_err(), "{text}");
+    }
+    let large = format!(
+        "auto uniform\n{}",
+        "1 2 3\n".repeat(reforge_sdl::launcher::MAX_PALETTE_COLOURS + 1)
+    );
+    assert!(decode_palette(&large).is_err());
+    let unweighted = Palette {
+        colours: vec![[1, 2, 3]],
+        weights: None,
+        hint: PaletteHint::Auto,
+    };
+    assert_eq!(
+        decode_palette(&encode_palette(&unweighted).unwrap()).unwrap(),
+        unweighted
+    );
+}
 #[test]
 fn cache_roundtrips_geometry_rejects_corruption_and_replaces_stale_data() {
     let dir = std::env::temp_dir().join(format!("reforge-preview-cache-{}", std::process::id()));
@@ -103,13 +172,7 @@ fn request(entry: &str) -> Request {
     }
 }
 fn sources(id: &str) -> BTreeMap<String, Source> {
-    BTreeMap::from([(
-        "cga".into(),
-        Source {
-            id: id.into(),
-            frame: Arc::new(frame()),
-        },
-    )])
+    BTreeMap::from([("cga".into(), Source::new(id.into(), Arc::new(frame())))])
 }
 fn process(role: &str, root: &Path) -> TestProcess {
     let child = std::process::Command::new(std::env::current_exe().unwrap())

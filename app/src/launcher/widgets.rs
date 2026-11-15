@@ -1,6 +1,7 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Shared launcher UI helpers routed through `ResolvedAppearance` and `reforge_sdl::ui::primitives`.
+use reforge_sdl::launcher::PaletteDisplay;
 use reforge_sdl::ui::ButtonActivation;
 
 use reforge_sdl::{
@@ -236,33 +237,64 @@ pub fn options_toggle_button(
     resp
 }
 
-pub fn draw_palette_dots(
-    ui: &mut egui::Ui,
-    ap: &ResolvedAppearance,
-    swatches: &[[u8; 3]],
-    size: f32,
-) {
-    let count = swatches.len();
-    let gap = 3.0;
-    let total_w = count as f32 * size + (count.saturating_sub(1)) as f32 * gap;
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(total_w, size), Sense::hover());
-    paint_palette_dots_at(ui.painter(), ap, rect.min, swatches, size);
+pub fn palette_size(palette: &PaletteDisplay, dot_size: f32) -> Vec2 {
+    if palette.colours.is_empty() {
+        return Vec2::ZERO;
+    }
+    if palette.mosaic {
+        Vec2::new((palette.columns * 3 - 1) as f32, 17.0)
+    } else {
+        Vec2::new(
+            palette.colours.len() as f32 * dot_size
+                + palette.colours.len().saturating_sub(1) as f32 * 3.0,
+            dot_size,
+        )
+    }
 }
 
-pub fn paint_palette_dots_at(
+pub fn draw_palette(
+    ui: &mut egui::Ui,
+    ap: &ResolvedAppearance,
+    palette: &PaletteDisplay,
+    size: f32,
+) {
+    let (rect, _) = ui.allocate_exact_size(palette_size(palette, size), Sense::hover());
+    paint_palette_at(ui.painter(), ap, rect.min, palette, size);
+}
+
+pub fn paint_palette_at(
     painter: &egui::Painter,
     ap: &ResolvedAppearance,
     origin: Pos2,
-    swatches: &[[u8; 3]],
+    palette: &PaletteDisplay,
     size: f32,
 ) {
+    if palette.mosaic {
+        for (index, [r, g, b]) in palette.colours.iter().enumerate() {
+            let pos = origin
+                + Vec2::new(
+                    (index % palette.columns * 3) as f32,
+                    (index / palette.columns * 3) as f32,
+                );
+            let rect = Rect::from_min_size(pos.round(), Vec2::splat(2.0));
+            match ap.tokens.palette_shape {
+                PaletteShape::Square => {
+                    painter.rect_filled(rect, 0.0, Color32::from_rgb(*r, *g, *b));
+                }
+                PaletteShape::Circle => {
+                    painter.circle_filled(rect.center(), 1.0, Color32::from_rgb(*r, *g, *b));
+                }
+            }
+        }
+        return;
+    }
     let gap = 3.0;
     let ring = if ap.theme.palette.dark {
         Color32::from_white_alpha(34)
     } else {
         Color32::from_gray(172)
     };
-    for (i, [r, g, b]) in swatches.iter().enumerate() {
+    for (i, [r, g, b]) in palette.colours.iter().enumerate() {
         let x = (origin.x + i as f32 * (size + gap)).round();
         let sq = Rect::from_min_size(Pos2::new(x, origin.y.round()), Vec2::splat(size.round()));
         match ap.tokens.palette_shape {

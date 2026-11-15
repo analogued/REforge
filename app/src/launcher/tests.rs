@@ -37,10 +37,7 @@ fn library_refresh_retains_cached_previews_when_originals_become_unavailable() {
     .unwrap();
     state.games[0].previews.insert(
         "cga".into(),
-        preview::sources::Source {
-            id: "cached-source".into(),
-            frame: std::sync::Arc::new(image),
-        },
+        preview::sources::Source::new("cached-source".into(), std::sync::Arc::new(image)),
     );
     state.games[0].preview_attempted = true;
     let entry = state.library.entries[0].clone();
@@ -1274,10 +1271,7 @@ fn btz_title_preview_is_shared_by_graphical_and_terminal_choices() {
         .unwrap();
         game.previews.insert(
             btz::launcher::PREVIEW_VARIANT.into(),
-            preview::sources::Source {
-                id: "original-title".into(),
-                frame: Arc::new(frame),
-            },
+            preview::sources::Source::new("original-title".into(), Arc::new(frame)),
         );
         for renderer in ["Terminal", "Graphical"] {
             game.save_option("Renderer", renderer);
@@ -2073,6 +2067,7 @@ fn native_engine_previews() {
                 assert_eq!(source.frame.rgba(), again.rgba());
                 assert_eq!(source.frame.geometry(), again.geometry());
                 assert_eq!(source.frame.is_monochrome(), again.is_monochrome());
+                assert_eq!(source.frame.palette(), again.palette());
             }
         }
         let mono = &state
@@ -2122,14 +2117,16 @@ fn native_engine_previews() {
             let frame = Frame::new(DisplayGeometry::new((320, 200), (320, 240)), pixels).unwrap();
             game.previews.insert(
                 game.preview_variant().into(),
-                preview::sources::Source {
-                    id: format!("synthetic-{i}"),
-                    frame: Arc::new(frame),
-                },
+                preview::sources::Source::new(format!("synthetic-{i}"), Arc::new(frame)),
             );
         }
     }
-    state.selected = state.games.first().map(|game| game.entry_id.clone());
+    state.selected = state
+        .games
+        .iter()
+        .find(|game| game.game_id == "centurion-defender-of-rome")
+        .or_else(|| state.games.first())
+        .map(|game| game.entry_id.clone());
     let capture = std::env::var_os("REFORGE_LAUNCHER_CAPTURE").map(PathBuf::from);
     if let Some(path) = &capture {
         std::fs::create_dir_all(path).unwrap();
@@ -2252,16 +2249,16 @@ fn split_preview_resizes_smoothly_and_keeps_fitting_badges_visible() {
                 assert!(!label.is_empty());
                 game.previews.insert(
                     game.preview_variant().into(),
-                    preview::sources::Source {
-                        id: format!("synthetic-{selected}"),
-                        frame: Arc::new(
+                    preview::sources::Source::new(
+                        format!("synthetic-{selected}"),
+                        Arc::new(
                             Frame::new(
                                 DisplayGeometry::new((8, 6), (4, 3)),
                                 [75, 150, 220, 255].repeat(8 * 6),
                             )
                             .unwrap(),
                         ),
-                    },
+                    ),
                 );
                 h.state.selected = Some(game.entry_id.clone());
                 h.size = Vec2::new(650.0, 470.0);

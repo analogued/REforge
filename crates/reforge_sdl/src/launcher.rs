@@ -3,8 +3,12 @@
 //! Engine declarations for the launcher's small set of immediate-save options.
 //!
 //! Storage keys and command-line values remain separate from player-facing
-//! labels. A palette is optional metadata for Symbolic artwork; producing it
-//! does not require opening original files or generating a game preview.
+//! labels. Choices can provide static palettes; engine preview frames can attach
+//! runtime palette metadata. Presentation uses a separate display copy, retaining
+//! the engine's original palette order and colour values for game rendering.
+
+mod palette;
+pub use palette::{MAX_PALETTE_COLOURS, Palette, PaletteDisplay, PaletteHint, prepare_palette};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Choice {
@@ -14,6 +18,7 @@ pub struct Choice {
     /// None omits this choice from the active-options preview badge.
     pub badge: Option<&'static str>,
     pub palette: Option<&'static [[u8; 3]]>,
+    pub palette_hint: PaletteHint,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -55,6 +60,7 @@ pub const DISPLAY: OptionDefinition = OptionDefinition {
             short_label: "Sharp pixels",
             badge: None,
             palette: None,
+            palette_hint: PaletteHint::Auto,
         },
         Choice {
             value: "hyllian",
@@ -62,6 +68,7 @@ pub const DISPLAY: OptionDefinition = OptionDefinition {
             short_label: "Hyllian CRT",
             badge: Some("CRT"),
             palette: None,
+            palette_hint: PaletteHint::Auto,
         },
     ],
     default: "pixels",
@@ -77,6 +84,7 @@ pub const WINDOW: OptionDefinition = OptionDefinition {
             short_label: "Windowed",
             badge: None,
             palette: None,
+            palette_hint: PaletteHint::Auto,
         },
         Choice {
             value: "fullscreen",
@@ -84,6 +92,7 @@ pub const WINDOW: OptionDefinition = OptionDefinition {
             short_label: "Fullscreen",
             badge: None,
             palette: None,
+            palette_hint: PaletteHint::Auto,
         },
     ],
     default: "windowed",

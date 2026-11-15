@@ -19,6 +19,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
                 short_label: "CGA",
                 badge: Some("CGA"),
                 palette: Some(&CGA),
+                palette_hint: reforge_sdl::launcher::PaletteHint::Auto,
             },
             Choice {
                 value: "pcjr",
@@ -26,6 +27,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
                 short_label: "PCjr",
                 badge: Some("PCjr"),
                 palette: Some(&PCJR),
+                palette_hint: reforge_sdl::launcher::PaletteHint::Auto,
             },
         ],
         default: "cga",

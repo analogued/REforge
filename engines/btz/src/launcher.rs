@@ -14,6 +14,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
                 short_label: "Graphical",
                 badge: None,
                 palette: Some(&crate::display::TEXT_PALETTE),
+                palette_hint: reforge_sdl::launcher::PaletteHint::Auto,
             },
             Choice {
                 value: "terminal",
@@ -21,6 +22,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
                 short_label: "Terminal",
                 badge: Some("Terminal"),
                 palette: Some(&crate::display::TEXT_PALETTE),
+                palette_hint: reforge_sdl::launcher::PaletteHint::Auto,
             },
         ],
         default: "graphical",

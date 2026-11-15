@@ -211,6 +211,9 @@ impl Games {
                 if word(&state.data, 0x634a)? < 50 {
                     self.stage = Stage::Message(state.string(0x161e)?, None);
                 } else {
+                    // Retain the selected label beneath the purchase question.
+                    panels.draw_menu(assets, &mut self.background, &self.menu, Some(row))?;
+                    panels.deactivate_menu(assets, state, &mut self.background, 0x15c2)?;
                     self.stage = Stage::Amphitheatre;
                     self.selected = None;
                 }

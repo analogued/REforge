@@ -11,8 +11,9 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
-- Show larger game palettes as compact six-row launcher mosaics, keeping small
-  palettes in their original order.
+- Show larger game palettes as launcher mosaics, using taller shapes in Gallery
+  to leave more room for game names while keeping card heights unchanged. Small
+  palettes retain their original order and layout.
 - Restore pending display choices correctly when switching back before Apply,
   including renderer backends, manual scaling and explicit global defaults.
 

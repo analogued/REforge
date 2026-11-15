@@ -1,11 +1,11 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Background engine preview generation; drawing never opens original/cache files.
-use super::super::model::GameEntry;
+use super::super::{GALLERY_MOSAIC_ROWS, model::GameEntry};
 use crate::detection::{self, Detected, Game, Release, verification::Verification};
 use reforge_sdl::{
     AspectRatio, DisplayGeometry,
-    launcher::{Palette, PaletteDisplay, PaletteHint, prepare_palette},
+    launcher::{Palette, PaletteDisplay, PaletteHint, prepare_palette, prepare_palette_for_rows},
     preview::Frame,
 };
 use std::{
@@ -26,13 +26,27 @@ pub(in crate::launcher) struct Source {
     pub id: String,
     pub frame: Arc<Frame>,
     pub palette: Option<PaletteDisplay>,
+    pub gallery_palette: Option<PaletteDisplay>,
 }
 impl Source {
     pub fn new(id: String, frame: Arc<Frame>) -> Self {
         let palette = frame
             .palette()
             .map(|p| prepare_palette(&p.colours, p.weights.as_deref(), p.hint));
-        Self { id, frame, palette }
+        let gallery_palette = frame.palette().map(|p| {
+            prepare_palette_for_rows(
+                &p.colours,
+                p.weights.as_deref(),
+                p.hint,
+                GALLERY_MOSAIC_ROWS,
+            )
+        });
+        Self {
+            id,
+            frame,
+            palette,
+            gallery_palette,
+        }
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

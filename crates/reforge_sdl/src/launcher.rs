@@ -8,7 +8,10 @@
 //! the engine's original palette order and colour values for game rendering.
 
 mod palette;
-pub use palette::{MAX_PALETTE_COLOURS, Palette, PaletteDisplay, PaletteHint, prepare_palette};
+pub use palette::{
+    MAX_PALETTE_COLOURS, Palette, PaletteDisplay, PaletteHint, prepare_palette,
+    prepare_palette_for_rows,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Choice {

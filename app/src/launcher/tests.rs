@@ -1058,11 +1058,13 @@ fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
                 game.palette_swatches(),
                 alleycat::launcher::OPTIONS[0].choices[1].palette.unwrap()
             );
+            assert_eq!(game.gallery_palette_display(), game.palette_display());
             assert_eq!(game.native_arguments(), ["--machine", "pcjr"]);
             game.save_option("Machine", "IBM PCjr");
             let game = &mut h.state.games[1];
             game.save_option("Video", "Monochrome");
             assert_eq!(game.palette_swatches(), &[[0, 0, 0], [255, 255, 255]]);
+            assert_eq!(game.gallery_palette_display(), game.palette_display());
             assert_eq!(game.native_arguments(), ["--video", "mono"]);
             game.save_option("Video", "Monochrome");
             let game = h
@@ -1076,6 +1078,109 @@ fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
             game.terminal_available = true;
             game.save_option("Renderer", "Terminal");
             assert_eq!(game.palette_swatches(), &btz::display::TEXT_PALETTE);
+        }
+    }
+}
+
+#[test]
+fn gallery_mosaics_free_title_space_without_changing_card_geometry() {
+    use reforge_sdl::{
+        DisplayGeometry,
+        launcher::{Palette, PaletteHint},
+        preview::Frame,
+    };
+    use std::sync::Arc;
+
+    let release = detection::RELEASES
+        .iter()
+        .find(|r| r.game().id() == "centurion-defender-of-rome")
+        .unwrap();
+    let fixture = Fixture::for_releases([release]);
+    for count in [235, 250, 256] {
+        let colours: Vec<_> = (0..count)
+            .map(|n| [n as u8, (n as u8) ^ 0xa5, 17])
+            .collect();
+        let frame = Frame::new(DisplayGeometry::new((2, 1), (4, 3)), vec![255; 8])
+            .unwrap()
+            .with_palette(Palette {
+                colours: colours.clone(),
+                weights: None,
+                hint: PaletteHint::Auto,
+            })
+            .unwrap();
+        for theme in ThemeId::ALL {
+            for density in [1.0, 1.5, 2.25] {
+                for layout in LayoutVariant::ALL {
+                    let mut h = Harness::new(&fixture, theme, layout, true);
+                    h.density = density;
+                    let game = &mut h.state.games[0];
+                    game.previews.insert(
+                        game.preview_variant().into(),
+                        preview::sources::Source::new(
+                            "synthetic-palette".into(),
+                            Arc::new(frame.clone()),
+                        ),
+                    );
+                    let display = if layout == LayoutVariant::GalleryShelf {
+                        game.gallery_palette_display().into_owned()
+                    } else {
+                        game.palette_display().into_owned()
+                    };
+                    let expected_rows = if layout == LayoutVariant::GalleryShelf {
+                        13
+                    } else {
+                        6
+                    };
+                    assert_eq!(display.rows, expected_rows);
+                    assert_eq!(display.colours.len(), count / expected_rows * expected_rows);
+                    let output = h.settle();
+                    let cells: Vec<_> = output
+                        .shapes
+                        .iter()
+                        .filter_map(|s| {
+                            let (rect, colour) = match &s.shape {
+                                egui::Shape::Rect(r) if r.rect.size() == Vec2::splat(2.0) => {
+                                    (r.rect, r.fill)
+                                }
+                                egui::Shape::Circle(c) if c.radius == 1.0 => {
+                                    (Rect::from_center_size(c.center, Vec2::splat(2.0)), c.fill)
+                                }
+                                _ => return None,
+                            };
+                            colours
+                                .contains(&[colour.r(), colour.g(), colour.b()])
+                                .then_some(rect)
+                        })
+                        .collect();
+                    assert_eq!(
+                        cells.len(),
+                        display.colours.len(),
+                        "{count} {layout:?} {theme:?}"
+                    );
+                    let bounds = cells.into_iter().reduce(|a, b| a.union(b)).unwrap();
+                    assert_eq!(bounds.size(), widgets::palette_size(&display, 6.0));
+                    if layout == LayoutVariant::GalleryShelf {
+                        assert_eq!(bounds.height(), 38.0);
+                        let title = text_rect(&output, "Centurion: Defender of Rome")
+                            .expect("full title should fit");
+                        assert!(title.right() <= bounds.left());
+                        // Preview textures include a two-physical-pixel antialias margin.
+                        let screen = output.shapes.iter().find_map(|s| match &s.shape {
+                            egui::Shape::Mesh(m) if matches!(m.texture_id, egui::TextureId::Managed(id) if id > 0) => Some(m.calc_bounds()),
+                            _ => None,
+                        }).unwrap().shrink(2.0 / density);
+                        assert!(
+                            (bounds.top() - screen.bottom() - 7.0).abs() <= 1.0,
+                            "{count} {theme:?} {density}: palette {bounds:?}, preview {screen:?}, title {title:?}"
+                        );
+                        // Original card metadata allocation is 46 points, leaving
+                        // eight points below the taller 38-point mosaic.
+                        assert!(
+                            (screen.bottom() + 7.0 + 46.0 - bounds.bottom() - 8.0).abs() <= 1.0
+                        );
+                    }
+                }
+            }
         }
     }
 }

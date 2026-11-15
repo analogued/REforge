@@ -28,6 +28,17 @@ fn cached_palette_survives_without_originals_and_preserves_full_native_metadata(
     let display = source.palette.as_ref().unwrap();
     assert_eq!((display.rows, display.columns), (6, 42));
     assert_eq!(display.colours.len(), 252);
+    let gallery = source.gallery_palette.as_ref().unwrap();
+    assert_eq!(
+        (gallery.rows, gallery.columns, gallery.colours.len()),
+        (13, 19, 247)
+    );
+    assert!(
+        gallery
+            .colours
+            .iter()
+            .all(|rgb| palette.colours.contains(rgb))
+    );
     assert_eq!(source.frame.palette().unwrap().colours.len(), 256);
     assert!(
         display

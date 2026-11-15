@@ -916,24 +916,31 @@ Library status verification is separate.
 
 Palette swatches preserve the engine's supplied order for small palettes (up to
 16 colours), including CGA, monochrome and the current text palettes. Larger
-palettes use six rows of 2-point squares or circles with 1-point gaps, following
-the active theme. Their column count is the number of distinct colours divided
-by six, rounded down. To fill the rectangle, the launcher repeatedly finds the
+palettes use mosaics of 2-point squares or circles with 1-point gaps, following
+the active theme. Split and Compact use six rows; Gallery uses thirteen rows
+beside the title and developer lines, leaving more room for game names without
+increasing card height. The taller Gallery mosaic occupies one extra point of
+bottom padding.
+
+The column count is the number of distinct colours divided by the layout's row
+count, rounded down. To fill the rectangle, the launcher repeatedly finds the
 closest colour pair in OKLab and removes the less frequent shade, using optional
 engine-supplied weights. Missing weights are equal; exact ties use RGB ordering.
 The surviving colours are ordered by hue, then OKLab lightness. A 256-colour set
-therefore displays 252 colours in 42 columns. The engine's rendering palette is
-unmodified.
+therefore displays 252 colours in 42 columns in Split/Compact, or 247 colours in
+19 columns in Gallery. Each layout is prepared independently from the full
+source palette; a shade discarded in one layout can remain in another. The
+engine's rendering palette is unmodified.
 
 Engine metadata may override this automatic treatment with `PreserveOrder` or
 `Mosaic`; `Auto` is the default. These are presentation hints, not player settings.
 Engines own the meaning and extraction of their colour sets; the launcher owns
-ordering, reduction and layout. Runtime palette extraction and mosaic preparation run in
-the preview worker, not during painting. Cached metadata remains available when
-original files are unavailable. Metadata is optional for existing static palettes
-and validated when loading previews; malformed metadata triggers normal preview
-regeneration. Palettes with fewer than six distinct colours retain a single row
-even when `Mosaic` is requested.
+ordering, reduction and layout. Runtime palette extraction and both mosaic
+preparations run in the preview worker, not during painting. Cached metadata
+remains available when original files are unavailable. Metadata is optional for
+existing static palettes and validated when loading previews; malformed metadata
+triggers normal preview regeneration. Palettes with fewer distinct colours than
+the requested row count retain a single row even when `Mosaic` is requested.
 
 Each completed PNG is a checkpoint, published only after its write finishes.
 Preview work continues independently while a launched game runs. After a

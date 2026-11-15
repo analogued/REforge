@@ -242,7 +242,10 @@ pub fn palette_size(palette: &PaletteDisplay, dot_size: f32) -> Vec2 {
         return Vec2::ZERO;
     }
     if palette.mosaic {
-        Vec2::new((palette.columns * 3 - 1) as f32, 17.0)
+        Vec2::new(
+            (palette.columns * 3 - 1) as f32,
+            (palette.rows * 3 - 1) as f32,
+        )
     } else {
         Vec2::new(
             palette.colours.len() as f32 * dot_size

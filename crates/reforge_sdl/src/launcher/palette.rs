@@ -62,6 +62,21 @@ pub fn prepare_palette(
     weights: Option<&[u64]>,
     hint: PaletteHint,
 ) -> PaletteDisplay {
+    prepare_palette_for_rows(colours, weights, hint, MOSAIC_ROWS)
+}
+
+/// Prepare a layout-specific mosaic from the complete native palette.
+///
+/// The column count is rounded down and redundant shades are removed using the
+/// same rule as the default six-row display. Ordered swatches are unaffected.
+/// Zero rows are treated as one; fewer distinct colours than rows stay swatches.
+pub fn prepare_palette_for_rows(
+    colours: &[[u8; 3]],
+    weights: Option<&[u64]>,
+    hint: PaletteHint,
+    rows: usize,
+) -> PaletteDisplay {
+    let rows = rows.max(1);
     if hint == PaletteHint::PreserveOrder || (hint == PaletteHint::Auto && colours.len() <= 16) {
         return swatches(colours.to_vec());
     }
@@ -72,7 +87,7 @@ pub fn prepare_palette(
         let total = histogram.entry(rgb).or_default();
         *total = total.saturating_add(weight);
     }
-    if histogram.len() < MOSAIC_ROWS {
+    if histogram.len() < rows {
         return swatches(histogram.into_keys().collect());
     }
     // RGB order makes both pair selection and frequency ties independent of
@@ -85,7 +100,7 @@ pub fn prepare_palette(
             lab: oklab(rgb),
         })
         .collect();
-    let capacity = samples.len() / MOSAIC_ROWS * MOSAIC_ROWS;
+    let capacity = samples.len() / rows * rows;
     while samples.len() > capacity {
         let mut closest = (f64::INFINITY, 0, 1);
         for (a, first) in samples.iter().enumerate() {
@@ -116,8 +131,8 @@ pub fn prepare_palette(
             .then_with(|| a.rgb.cmp(&b.rgb))
     });
     PaletteDisplay {
-        columns: samples.len() / MOSAIC_ROWS,
-        rows: MOSAIC_ROWS,
+        columns: samples.len() / rows,
+        rows,
         mosaic: true,
         colours: samples.into_iter().map(|sample| sample.rgb).collect(),
     }
@@ -227,6 +242,46 @@ mod tests {
             assert!(display.colours.iter().all(|rgb| colours.contains(rgb)));
             assert_eq!(colours, before);
         }
+    }
+
+    #[test]
+    fn layout_specific_rows_reduce_the_full_source_palette_independently() {
+        for (size, rows, columns) in [(17, 13, 1), (235, 13, 18), (250, 13, 19), (256, 13, 19)] {
+            let colours = synthetic_palette(size);
+            let before = colours.clone();
+            let display = prepare_palette_for_rows(&colours, None, PaletteHint::Auto, rows);
+            assert_eq!((display.rows, display.columns), (rows, columns));
+            assert_eq!(display.colours.len(), rows * columns);
+            assert!(display.mosaic);
+            assert!(display.colours.iter().all(|rgb| colours.contains(rgb)));
+            assert_eq!(colours, before);
+            if size == 250 {
+                let normal = prepare_palette(&colours, None, PaletteHint::Auto);
+                assert!(
+                    display
+                        .colours
+                        .iter()
+                        .any(|rgb| !normal.colours.contains(rgb))
+                );
+            }
+        }
+        for colours in [synthetic_palette(4), synthetic_palette(16)] {
+            assert_eq!(
+                prepare_palette_for_rows(&colours, None, PaletteHint::Auto, 13),
+                prepare_palette(&colours, None, PaletteHint::Auto)
+            );
+        }
+        let colours = synthetic_palette(7);
+        assert!(!prepare_palette_for_rows(&colours, None, PaletteHint::Mosaic, 13).mosaic);
+        assert_eq!(
+            prepare_palette_for_rows(&colours, None, PaletteHint::Mosaic, 0).rows,
+            1
+        );
+        let colours = synthetic_palette(256);
+        assert_eq!(
+            prepare_palette_for_rows(&colours, None, PaletteHint::PreserveOrder, 13),
+            prepare_palette(&colours, None, PaletteHint::PreserveOrder)
+        );
     }
 
     #[test]

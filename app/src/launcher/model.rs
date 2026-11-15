@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Library-backed launcher state. Painting never opens files or starts games.
-use super::{catalog::ThemeId, widgets::UiAction};
+use super::{GALLERY_MOSAIC_ROWS, catalog::ThemeId, widgets::UiAction};
 use crate::detection::{self, Detected, Game, verification::Verification};
 use reforge_sdl::launcher::{OptionDefinition, Storage};
 use reforge_settings::{
@@ -357,6 +357,27 @@ impl GameEntry {
         let colours = choice.and_then(|c| c.palette).unwrap_or(&[]);
         let hint = choice.map(|c| c.palette_hint).unwrap_or_default();
         Cow::Owned(reforge_sdl::launcher::prepare_palette(colours, None, hint))
+    }
+    pub fn gallery_palette_display(&self) -> Cow<'_, reforge_sdl::launcher::PaletteDisplay> {
+        if let Some(palette) = self
+            .previews
+            .get(self.preview_variant())
+            .and_then(|source| source.gallery_palette.as_ref())
+        {
+            return Cow::Borrowed(palette);
+        }
+        let display = self.palette_display();
+        if !display.mosaic {
+            return display;
+        }
+        // Static metadata has no source weights. Runtime palettes are prepared
+        // with their full weights by the preview worker, including cache loads.
+        Cow::Owned(reforge_sdl::launcher::prepare_palette_for_rows(
+            self.palette_swatches(),
+            None,
+            reforge_sdl::launcher::PaletteHint::Mosaic,
+            GALLERY_MOSAIC_ROWS,
+        ))
     }
     pub fn native_arguments(&self) -> Vec<String> {
         if !self.native_preferences_loaded {

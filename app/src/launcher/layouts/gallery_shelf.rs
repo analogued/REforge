@@ -338,7 +338,7 @@ fn draw_game_card(
         sub_col
     };
 
-    let palette = game.palette_display();
+    let palette = game.gallery_palette_display();
     let dot_size = 6.0;
     let size = palette_size(&palette, dot_size);
     let dots_w = size.x;
@@ -357,17 +357,39 @@ fn draw_game_card(
     } else {
         game.library_line()
     };
-    let sub_rect = ui.painter().text(
-        Pos2::new(rect.left() + pad, text_top + 19.0),
-        egui::Align2::LEFT_TOP,
-        sub,
-        FontId::proportional(11.5),
-        sub_col,
-    );
+    let sub_position = Pos2::new(rect.left() + pad, text_top + 19.0);
+    let sub_right = if palette.mosaic {
+        title_right
+    } else {
+        rect.right() - pad
+    };
+    let sub_rect = if palette.mosaic {
+        // The taller mosaic also shares the developer/status line. Keep long
+        // labels and the missing-files marker out of its colour cells.
+        let font = FontId::proportional(11.5);
+        let height = ui
+            .painter()
+            .layout_no_wrap(sub.clone(), font.clone(), sub_col)
+            .size()
+            .y;
+        let width =
+            (sub_right - sub_position.x - if game.status.is_missing() { 12.0 } else { 0.0 })
+                .max(0.0);
+        paint_title(ui.painter(), sub_position, width, &sub, font, sub_col);
+        Rect::from_min_size(sub_position, Vec2::new(width, height))
+    } else {
+        ui.painter().text(
+            sub_position,
+            egui::Align2::LEFT_TOP,
+            sub,
+            FontId::proportional(11.5),
+            sub_col,
+        )
+    };
 
     if game.status.is_missing() {
         ui.painter().circle_filled(
-            Pos2::new(rect.right() - pad - 3.2, sub_rect.center().y),
+            Pos2::new(sub_right - 3.2, sub_rect.center().y),
             3.2,
             ap.missing.foreground,
         );
@@ -376,7 +398,17 @@ fn draw_game_card(
     paint_palette_at(
         ui.painter(),
         ap,
-        Pos2::new(rect.right() - pad - dots_w, text_top + 7.5 - size.y * 0.5),
+        // Thirteen rows occupy 38 points: the existing 46-point metadata
+        // area leaves eight points below, absorbing the extra point in bottom
+        // padding without changing card height or gallery grid fitting.
+        Pos2::new(
+            rect.right() - pad - dots_w,
+            if palette.mosaic {
+                text_top
+            } else {
+                text_top + 7.5 - size.y * 0.5
+            },
+        ),
         &palette,
         dot_size,
     );

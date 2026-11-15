@@ -31,6 +31,9 @@ use std::{
 };
 use widgets::UiAction;
 
+// Gallery mosaics span the title/developer block rather than one text line.
+const GALLERY_MOSAIC_ROWS: usize = 13;
+
 struct LaunchedGame {
     process: Child,
     // Remove an unconsumed ticket after startup failure or early child exit.

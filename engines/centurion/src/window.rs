@@ -173,7 +173,7 @@ fn fit_window(context: &Context, scale: Option<u32>) -> Result<()> {
     Ok(())
 }
 
-fn key_input(key: u32, phase: Phase) -> Option<Input> {
+pub(crate) fn key_input(key: u32, phase: Phase) -> Option<Input> {
     match key {
         13 => Some(Input::Enter),
         43 if matches!(phase, Phase::Naval | Phase::Games) => Some(Input::Shortcut(b'+')),
@@ -216,7 +216,7 @@ pub struct Smoke {
     pub skip: bool,
 }
 
-fn mouse_delta(remainder: &mut (f32, f32), dx: f32, dy: f32) -> (i32, i32) {
+pub(crate) fn mouse_delta(remainder: &mut (f32, f32), dx: f32, dy: f32) -> (i32, i32) {
     remainder.0 += dx;
     remainder.1 += dy;
     let whole = (remainder.0.trunc() as i32, remainder.1.trunc() as i32);

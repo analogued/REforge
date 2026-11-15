@@ -5,6 +5,10 @@ Unreleased contains changes intended for the next public release.
 
 ## Unreleased
 
+### New games
+
+- Added support for Centurion: Defender of Rome (DOS).
+
 ### General
 
 - Restore pending display choices correctly when switching back before Apply,

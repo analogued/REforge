@@ -144,13 +144,39 @@ impl Assets {
         if ovl.len() != 96_272 || ovl.get(0xb86e..0xb883) != Some(b"Version 1.00A 5/25/90") {
             return Err("This prototype requires the selected DOS 1.00A reference; OVL0.OVL does not match its layout".into());
         }
-        let data_segment = ovl[0xb400..].to_vec();
+        Self::parse(root.to_path_buf(), |name| read(&root.join(name)), ovl)
+    }
+
+    /// Load only catalog-selected roles; release identification belongs to the app.
+    #[cfg(any(feature = "sdl", test))]
+    pub fn load(files: &reforge_inputs::ResolvedFiles, root: PathBuf) -> Result<Self> {
+        let ovl = files.read("OVL0.OVL").map_err(|e| e.to_string())?;
+        Self::parse(
+            root,
+            |name| files.read(name).map_err(|e| e.to_string()),
+            ovl,
+        )
+    }
+
+    fn parse(
+        root: PathBuf,
+        read_role: impl Fn(&str) -> Result<Vec<u8>>,
+        ovl: Vec<u8>,
+    ) -> Result<Self> {
+        // Runtime tables occupy the resident DOS data segment, including palette
+        // maps through 0x6300. Content fingerprints are deliberately absent here.
+        let data_segment = ovl
+            .get(0xb400..)
+            .filter(|ds| ds.len() >= 0x6300)
+            .ok_or("Truncated resident data segment")?
+            .to_vec();
+
         let mut banks = BTreeMap::new();
         for name in [
             "CENT", "MINIT", "MMAP", "BATL", "MGLAD", "MRACE", "MNAVAL", "NAVL", "MNEGO",
         ] {
-            let directory = read(&root.join(format!("{name}.DIR")))?;
-            let data = read(&root.join(format!("{name}.DAT")))?;
+            let directory = read_role(&format!("{name}.DIR"))?;
+            let data = read_role(&format!("{name}.DAT"))?;
             if directory.len() % 20 != 0 || data.get(..4) != Some(&[0xca, 0xca, 0xd0, 0xd0]) {
                 return Err(format!("Invalid {name} resource bank"));
             }
@@ -186,7 +212,7 @@ impl Assets {
             banks.insert(name.into(), Bank { data, entries });
         }
         let mut assets = Self {
-            root: root.to_path_buf(),
+            root,
             banks,
             data_segment,
             palette: [[0; 3]; 256],
@@ -357,5 +383,57 @@ mod tests {
         assert_eq!(bitmap.pixels, [0, 0, 2]);
         assert_eq!(bitmap.visible, [false, true, true]);
         assert_eq!((bitmap.origin_x, bitmap.origin_y), (1, 2));
+    }
+    #[test]
+    fn selected_roles_load_renamed_resources_without_executable_or_fingerprints() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let directory = std::env::temp_dir().join(format!(
+            "centurion-inputs-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(directory.clone());
+        let mut selected = Vec::new();
+        let mut add = |role: &str, bytes: &[u8]| {
+            let path = directory.join(format!("selected-{}", selected.len()));
+            fs::write(&path, bytes).unwrap();
+            selected.push((role.to_owned(), path));
+        };
+        // Deliberately absent version label: this is authored format data, not
+        // an original release fingerprint or a runtime identity requirement.
+        add("OVL0.OVL", &vec![0; 0xb400 + 0xc410]);
+        for bank in [
+            "CENT", "MINIT", "MMAP", "BATL", "MGLAD", "MRACE", "MNAVAL", "NAVL", "MNEGO",
+        ] {
+            let mut data = vec![0xca, 0xca, 0xd0, 0xd0];
+            let mut index = vec![];
+            if bank == "CENT" {
+                data.extend([0; 750]);
+                index.resize(20, 0);
+                index[..4].copy_from_slice(&4u32.to_le_bytes());
+                index[4..6].copy_from_slice(&750u16.to_le_bytes());
+                index[6..14].copy_from_slice(b"CMAP.BIN");
+            }
+            add(&format!("{bank}.DAT"), &data);
+            add(&format!("{bank}.DIR"), &index);
+        }
+        assert_eq!(selected.len(), 19);
+        let files = reforge_inputs::ResolvedFiles::new(selected.clone());
+        let loaded = Assets::load(&files, directory.clone()).unwrap();
+        assert_eq!(loaded.palette, [[0; 3]; 256]);
+        selected.retain(|(role, _)| role != "MINIT.DAT");
+        fs::write(directory.join("MINIT.DAT"), [0xca, 0xca, 0xd0, 0xd0]).unwrap();
+        let error = Assets::load(&reforge_inputs::ResolvedFiles::new(selected), directory)
+            .err()
+            .unwrap();
+        assert!(error.contains("Missing resolved original resource MINIT.DAT"));
     }
 }

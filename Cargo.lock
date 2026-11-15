@@ -132,7 +132,9 @@ name = "centurion"
 version = "2026.3.0-dev"
 dependencies = [
  "reforge_audio",
+ "reforge_inputs",
  "reforge_sdl",
+ "reforge_settings",
  "sdl3",
 ]
 
@@ -485,6 +487,7 @@ dependencies = [
  "alleycat",
  "blake3",
  "btz",
+ "centurion",
  "fs2",
  "getrandom",
  "libc",

@@ -132,6 +132,7 @@ fn revision(game: Game) -> u32 {
     match game {
         Game::AlleyCat => alleycat::launcher::PREVIEW_REVISION,
         Game::Mach3 => mach3::launcher::PREVIEW_REVISION,
+        Game::Centurion => centurion::launcher::PREVIEW_REVISION,
         Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers => {
             btz::launcher::PREVIEW_REVISION
         }
@@ -163,6 +164,7 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
                 alleycat::launcher::preview(&inputs, format, variant)
             }
             detection::Engine::Mach3 => mach3::launcher::preview(&inputs, variant),
+            detection::Engine::Centurion => centurion::launcher::preview(&inputs, variant),
             detection::Engine::Btz(release) => btz::launcher::preview(&inputs, release, variant),
         }
     })
@@ -195,6 +197,7 @@ fn generate_with(
     let variants = match release.engine() {
         detection::Engine::AlleyCat(format) => alleycat::launcher::preview_variants(format),
         detection::Engine::Mach3 => mach3::launcher::PREVIEW_VARIANTS,
+        detection::Engine::Centurion => centurion::launcher::PREVIEW_VARIANTS,
         detection::Engine::Btz(_) => btz::launcher::PREVIEW_VARIANTS,
     };
     // Resolve originals lazily, once per job, only if a cached variant cannot

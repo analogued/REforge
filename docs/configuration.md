@@ -1,8 +1,8 @@
 # Host preferences
 
-Esc or F10 opens the Compact Settings menu during graphical play in each supported
-game. Inside a dialog or file browser, Esc cancels or goes back; F10 can still open
-Settings.
+F10 opens the Compact Settings menu during graphical play. Other engines also
+accept Esc outside dialogs; Centurion keeps its original Escape actions. Inside
+a dialog or file browser, Esc cancels or goes back; F10 can still open Settings.
 The Display page offers window mode (windowed or borderless desktop fullscreen),
 window scale (Auto or ×1–×16), scaling policy, sampling, aspect ratio, renderer,
 backend, VSync and a frame limiter. Alley Cat additionally offers its startup
@@ -29,6 +29,8 @@ During graphical play, the mouse cursor hides after two seconds without mouse
 activity, in both windowed and fullscreen modes. Moving or clicking the mouse
 shows it again. Settings and file dialogs keep it visible; leaving the game
 window or returning to the launcher restores it.
+Centurion instead draws its own game pointer and hides the host pointer during
+gameplay. Settings restores the host pointer.
 
 The frame limiter controls presentation, independently of game simulation.
 It keeps a steady deadline schedule so ordinary polling delays do not accumulate
@@ -39,8 +41,8 @@ and VSync can still limit the achieved rate; Unlimited removes the software cap.
 Aspect ratio stores `original` (the default) or `square`. Each engine supplies
 its native pixel grid and aspect-corrected base display size; the shared menu and
 renderer use that same metadata. Global labels are Original display / Square
-pixels; game labels include the resolved ratios. Alley Cat and Mach 3's colour
-mode use 320×200 pixels on a 4:3 display, giving square pixels an 8:5 ratio.
+pixels; game labels include the resolved ratios. Centurion, Alley Cat and Mach 3's
+colour mode use 320×200 pixels on a 4:3 display, giving square pixels an 8:5 ratio.
 Mach 3's monochrome mode and BTZ's text raster use 640×200 pixels, so
 Square pixels becomes 16:5 while Original stays 4:3.
 An expanded upload texture does not change the engine's native pixel geometry.

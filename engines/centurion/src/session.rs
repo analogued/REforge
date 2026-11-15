@@ -297,6 +297,7 @@ impl Session {
             })
     }
 
+    #[cfg(feature = "sdl")]
     pub fn relative_steering(&self) -> bool {
         self.phase == Phase::Games && self.games.as_ref().is_some_and(|g| g.relative_steering())
     }
@@ -306,7 +307,7 @@ impl Session {
         self.recording = Some(crate::record::Recorder::start(root, assets, self, mute)?);
         Ok(())
     }
-    #[cfg(feature = "dev-tools")]
+    #[cfg(all(feature = "dev-tools", feature = "sdl"))]
     pub fn recording_active(&self) -> bool {
         self.recording.is_some()
     }

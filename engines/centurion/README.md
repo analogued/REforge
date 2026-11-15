@@ -1,15 +1,14 @@
 # Centurion: Defender of Rome
 
-`centurion` is a development engine for the DOS version of Centurion: Defender
-of Rome. Its standalone `centurion-prototype` research frontend supports playing
-a campaign, including province management, diplomacy, land and naval battles,
-gladiator shows, chariot races, Cleopatra and the closing presentations.
+`centurion` recreates the DOS version of Centurion: Defender of Rome, including
+province management, diplomacy, land and naval battles, gladiator shows, chariot
+races, Cleopatra and the closing presentations. REforge selects supported DOS
+1.00A resources through its release catalog. The engine reads the exact selected
+paths, including renamed files; it does not execute the DOS program or driver.
 
-This frontend is separate from REforge's normal player and release catalog.
-The loader currently requires the DOS 1.00A data layout and its original filenames;
-other releases and renamed resources are not supported by this research entry
-point. The crate currently exposes `run_prototype()`, which reads process
-arguments. Application loading and host integration are not implemented.
+The separate `centurion-prototype` research frontend accepts a raw DOS directory
+with original filenames and explicit diagnostic controls. It does not perform
+normal application detection and should be used only for research.
 
 ## Build and run
 
@@ -17,21 +16,25 @@ Use Rust 1.88 or newer and installed SDL3 3.4 or newer development/runtime
 libraries. Run these commands from the combined repository root:
 
 ```sh
-cargo run --locked -p centurion --bin centurion-prototype -- \
+cargo run --locked -p reforge -- \
   --original /path/to/DOS --state-dir /path/to/saves
 ```
 
 Supply your own DOS distribution, including `OVL0.OVL` and the `DAT`/`DIR` pairs
 for `CENT`, `MINIT`, `MMAP`, `BATL`, `MGLAD`, `MRACE`, `MNAVAL`, `NAVL` and
-`MNEGO`. Keep `CENTURIO.EXE` with it for playthrough recording. No original assets,
-executable code, extracted tables or saved games are bundled. The frontend reads
-original resources as data; it does not run the DOS executable or sound driver.
+`MNEGO`. Normal playback needs these nineteen resource files; the DOS executable
+is needed only by the original game and raw research recorder. No original assets,
+executable code, extracted tables or saved games are bundled.
 
 `--scale auto` is the default: fit a compact 4:3 window to the available desktop.
 `--scale 1` through `--scale 16` requests a display multiple. The original 320x200
 image is presented at 4:3 with sharp pixels. AdLib music and effects use OPL2
-compatibility through shared OPL synthesis; `--mute` disables playback.
-Use `--help` to list frontend options.
+compatibility through shared OPL synthesis; `--mute` silences playback.
+F10 opens shared Settings, including renderer, display, volume, output device
+and focus muting. Settings and Pause freeze simulation and the audio timeline;
+Ctrl+Q exits to the launcher. Escape retains the original back/cancel/game-menu
+behavior. Gamepads can operate Settings and host pause; gameplay uses the mouse
+and keyboard controls below. Use `--help` to list player options.
 
 ## Playing
 
@@ -58,9 +61,9 @@ Changing global policy updates controlled provinces; local tribute can then
 override it. The global menu continues to show the stored policy.
 
 Save/load uses nine slots, displayed as 1–9 and stored as `0.CSV`–`8.CSV` in
-`--state-dir`. Menu saving requires this directory; descriptions accept up to
-47 ASCII bytes. Loading first checks that directory, then the corresponding
-slot in the original-data directory. Save writes go only to the selected state
+`--state-dir`, defaulting to the original installation directory for sharing
+with DOS. Descriptions accept up to 47 ASCII bytes. Loading first checks that
+directory, then the corresponding slot in the original-data directory. Save writes go only to the selected state
 directory. To exchange saves with the DOS game, point `--state-dir` to the same
 writable game installation that contains `CENTURIO.EXE`; both versions then use
 the same slot files. Use a different directory to keep native writes separate.
@@ -76,8 +79,10 @@ See [intentional deviations](docs/deviations.md) for presentation changes.
 
 ## Development recording
 
-Recording is compiled only with the opt-in `dev-tools` feature, independently of
-debug/release optimization. Install `b3sum` and choose a new output directory:
+Recording is available through the standalone research frontend, compiled only
+with the opt-in `dev-tools` feature, independently of debug/release optimization.
+Its retained binary supports deterministic research replay; the normal player
+does not expose recording yet. Install `b3sum` and choose a new output directory:
 
 ```sh
 cargo run --locked -p centurion --bin centurion-prototype --features dev-tools -- \
@@ -101,13 +106,15 @@ root:
 ```sh
 cargo fmt --all -- --check
 cargo test --locked -p centurion
+cargo test --locked -p centurion --no-default-features
 cargo test --locked -p centurion --features dev-tools
 cargo clippy --locked -p centurion --all-targets -- -D warnings
 cargo clippy --locked -p centurion --all-targets --features dev-tools -- -D warnings
+cargo clippy --locked -p centurion --all-targets --no-default-features -- -D warnings
 ```
 
 The playable scope does not imply complete DOS parity. Difficulty presets work;
-fine tuning and the shared application's settings interface are not implemented.
+original fine tuning is not implemented.
 Audio currently implements AdLib, without the other original sound hardware
 modes. Comparisons cover selected frames, routines and play sequences rather
 than every possible campaign.
@@ -120,9 +127,12 @@ not generally reproducible. Invalid exhausted arena offers are bounded and
 reported instead of following arbitrary indices. These remain fidelity limits.
 
 Interactive audio runs independently of rendering and uses an estimated consumed
-source-sample clock, falling back to wall time when audio is unavailable or muted.
+source-sample clock, falling back to wall time when audio is unavailable. Muting
+the normal player retains synthesis and its clock.
 This does not measure DAC latency or make every scene transition sample exact.
-Headless stepping remains driven by explicit logical inputs.
+Headless research stepping remains driven by explicit logical inputs. Building
+with `--no-default-features` excludes SDL and retains those raw research tools;
+interactive playback and launcher previews require the default `sdl` feature.
 
 Authored source and documentation use [GPL-3.0-or-later](../../LICENSE).
 Dependency notices and license texts are maintained in the repository's

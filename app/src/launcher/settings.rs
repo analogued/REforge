@@ -24,6 +24,7 @@ pub fn run(
     let geometry = match game.as_deref() {
         Some("alley-cat") => alleycat::launcher::geometry(&native),
         Some("mach-3") => mach3::launcher::geometry(&native),
+        Some("centurion-defender-of-rome") => centurion::launcher::geometry(&native),
         Some("mindwheel" | "essex" | "brimstone" | "breakers") => btz::windowed::GEOMETRY,
         _ => reforge_sdl::DisplayGeometry::new((320, 200), (320, 240)),
     };
@@ -58,6 +59,9 @@ pub fn run(
             .with_mach3_options(None)
             .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
             .with_audio_categories(&SoundCategory::ALL),
+        Some("centurion-defender-of-rome") => menu
+            .with_audio_renderers(&[SoundRenderer::GameDefault])
+            .with_audio_categories(&[SoundCategory::Music, SoundCategory::Effects]),
         Some("mindwheel" | "essex" | "brimstone" | "breakers") => {
             use std::io::IsTerminal;
             menu.with_btz_options(std::io::stdin().is_terminal() && std::io::stdout().is_terminal())

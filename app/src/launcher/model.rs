@@ -127,6 +127,7 @@ impl GameEntry {
         let options = match release.map(|r| r.engine()) {
             Some(detection::Engine::AlleyCat(format)) => alleycat::launcher::options(format),
             Some(detection::Engine::Mach3) => mach3::launcher::OPTIONS,
+            Some(detection::Engine::Centurion) => centurion::launcher::OPTIONS,
             Some(detection::Engine::Btz(_)) => btz::launcher::OPTIONS,
             None => &[],
         };
@@ -152,6 +153,7 @@ impl GameEntry {
             preview_option: match release.map(|r| r.game()) {
                 Some(Game::AlleyCat) => alleycat::launcher::PREVIEW_OPTION,
                 Some(Game::Mach3) => mach3::launcher::PREVIEW_OPTION,
+                Some(Game::Centurion) => centurion::launcher::PREVIEW_OPTION,
                 Some(Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers) | None => "",
             },
             status: EntryStatus::Missing("Original files have not been verified".into()),
@@ -198,6 +200,7 @@ impl GameEntry {
                 alleycat::launcher::preview_variants(format)
             }
             Some(detection::Engine::Mach3) => mach3::launcher::PREVIEW_VARIANTS,
+            Some(detection::Engine::Centurion) => centurion::launcher::PREVIEW_VARIANTS,
             Some(detection::Engine::Btz(_)) => btz::launcher::PREVIEW_VARIANTS,
             None => return false,
         };
@@ -231,6 +234,12 @@ impl GameEntry {
             .map_or_else(String::new, detection::Edition::features_line)
     }
     pub fn preview_variant(&self) -> &'static str {
+        if self
+            .edition
+            .is_some_and(|edition| edition.game.identity == Game::Centurion)
+        {
+            return centurion::launcher::PREVIEW_VARIANT;
+        }
         if self
             .edition
             .is_some_and(|edition| edition.game.identity.is_btz())

@@ -121,6 +121,30 @@ pub static MACH3: GameMetadata = GameMetadata {
     tagline: "Back into the cockpit.",
 };
 
+pub static CENTURION: GameMetadata = GameMetadata {
+    identity: Game::Centurion,
+    title: "Centurion: Defender of Rome",
+    genres: &["Strategy", "Action"],
+    tagline: "Lead Rome from a legion to an empire.",
+};
+pub static CENTURION_DOS_SPECS: SpecsProfile = SpecsProfile {
+    id: "centurion-dos-vga-adlib",
+    video_features: &["320×200", "VGA"],
+    audio_features: &["AdLib"],
+};
+pub static CENTURION_DOS: Edition = Edition {
+    id: "centurion-defender-of-rome-dos-100a",
+    game: &CENTURION,
+    engine: Game::Centurion.engine(),
+    platform: Platform::Dos,
+    title: None,
+    year: Some(1990),
+    developers: &["Bits of Magic"],
+    publishers: &["Electronic Arts"],
+    label: Some("DOS 1.00A"),
+    specs: &CENTURION_DOS_SPECS,
+};
+
 pub static MINDWHEEL: GameMetadata = GameMetadata {
     identity: Game::Mindwheel,
     title: "Mindwheel",
@@ -396,6 +420,106 @@ const fn mach3_files(executable: FileRecord) -> [FileRecord; 18] {
 // These fingerprints identify the verified inputs used by the engines. Their
 // historical commercial release/version identities remain unknown. Only files
 // needed by the current implementations are required; unrelated extras are fine.
+// The executable is not loaded: only the overlay data and resource banks are
+// required. Do not bind supported play to an unused DOS launcher/protection copy.
+const CENTURION_DOS_FILES: [FileRecord; 19] = [
+    FileRecord {
+        name: "BATL.DAT",
+        size: 96_479,
+        blake3: "54e080ab17f5292cfbac0aeb64b4cfcc8c527ce2e4279b22cc7f5b814cc10acf",
+    },
+    FileRecord {
+        name: "BATL.DIR",
+        size: 440,
+        blake3: "7923d581a24f6e16dcc344ec900329086abd383e53abe56a7bf20f723b16becb",
+    },
+    FileRecord {
+        name: "CENT.DAT",
+        size: 14_770,
+        blake3: "dfe7772e91053ac99292af9c56b7d27ff12843a428417f583c4d66b38b287701",
+    },
+    FileRecord {
+        name: "CENT.DIR",
+        size: 240,
+        blake3: "3738ef7cfd586e92793fabec8cc60b393713e43b1c35be105968225dd53886f8",
+    },
+    FileRecord {
+        name: "MGLAD.DAT",
+        size: 72_758,
+        blake3: "b1d894f65927b1b8e30cba5e4ca6aac0799e4ab55723a4d27926f6a0529557f9",
+    },
+    FileRecord {
+        name: "MGLAD.DIR",
+        size: 480,
+        blake3: "9e55a9850fb4875330b0ce85b56184d36234e72f14d4165e44ebd1a9f7a58384",
+    },
+    FileRecord {
+        name: "MINIT.DAT",
+        size: 41_349,
+        blake3: "5600d4527ea2f9171d85a5f67f3dc8fed38c2234088c4475805b48c36ca49fcf",
+    },
+    FileRecord {
+        name: "MINIT.DIR",
+        size: 140,
+        blake3: "157fb02ddb80ef98e8bf2c131fa8c8e64b02a78a4d6df2eb848f4b1b16609cc7",
+    },
+    FileRecord {
+        name: "MMAP.DAT",
+        size: 23_516,
+        blake3: "f5e53a1858b6503da2526a06900cf60d393432614631aa36134eb7b3672377a9",
+    },
+    FileRecord {
+        name: "MMAP.DIR",
+        size: 40,
+        blake3: "36df7e803168bd2e021e2586381c9444d20292089b2ad47a310e7fe8cb775c60",
+    },
+    FileRecord {
+        name: "MNAVAL.DAT",
+        size: 34_713,
+        blake3: "896915633132339284214caedeaaae09ec412afdd8a22e5c362988fd13c6bc94",
+    },
+    FileRecord {
+        name: "MNAVAL.DIR",
+        size: 500,
+        blake3: "581a17296db1638ea85099644f1c093c3fdeeb0e309b7bc997c043fb8e238fce",
+    },
+    FileRecord {
+        name: "MNEGO.DAT",
+        size: 196_775,
+        blake3: "dd83599faa790222cf3babbc162b03b70f031127bb6d1734d2bc51aee39ebb17",
+    },
+    FileRecord {
+        name: "MNEGO.DIR",
+        size: 2_040,
+        blake3: "fd223c053f85978af305b3c09e825cad8dbac6ec9306bd3359d961de9d805d8e",
+    },
+    FileRecord {
+        name: "MRACE.DAT",
+        size: 49_309,
+        blake3: "62cb9280d5c7dceb526f506567682264419f7dc74aa979f83f48926b3a63a321",
+    },
+    FileRecord {
+        name: "MRACE.DIR",
+        size: 280,
+        blake3: "975390bcd0ad2c0427a9d12c10c5b7ec105d9f613e482e3170898e48e47f67c6",
+    },
+    FileRecord {
+        name: "NAVL.DAT",
+        size: 34_705,
+        blake3: "64c00916a0a92852a4d8afc15c4021f7ee6b7648de8786532ab1208f64159067",
+    },
+    FileRecord {
+        name: "NAVL.DIR",
+        size: 100,
+        blake3: "9ab394013adfba5be1f3b99896d188dca13511f618500e9f81759a117af8f02b",
+    },
+    FileRecord {
+        name: "OVL0.OVL",
+        size: 96_272,
+        blake3: "a785df2681d83c6f6448c1ca48d2f38e75b67ace5c5b0c9539814a02e8a25377",
+    },
+];
+
 pub static RELEASES: &[Release] = &[
     Release {
         id: "alley-cat-dos-7b92bb401f",
@@ -614,6 +738,14 @@ pub static RELEASES: &[Release] = &[
             size: 3_145_728,
             blake3: "2b8cf7b87eb8975f9ad502428d39c8fbaa57cb2aacd16f0f2e79d4b3f2aee4b8",
         }],
+    },
+    Release {
+        id: "centurion-defender-of-rome-dos-b82e91fe62",
+        compatibility_id: "centurion-defender-of-rome-dos-100a",
+        edition: &CENTURION_DOS,
+        #[cfg(test)]
+        identity_files: &[],
+        files: &CENTURION_DOS_FILES,
     },
 ];
 

@@ -39,24 +39,29 @@ impl Music {
         Ok(result)
     }
     /// Switch music using resource data already read on the game thread.
+    #[cfg(any(feature = "sdl", test))]
     pub fn play_data(&mut self, song: Vec<u8>) -> Result<()> {
         self.sequencer.restart(song)?;
         self.finished_at = None;
         self.apply()
     }
+    #[cfg(any(feature = "sdl", test))]
     pub fn stop(&mut self) -> Result<()> {
         self.sequencer.stop();
         self.finished_at = Some(self.frame);
         self.apply()
     }
+    #[cfg(any(feature = "sdl", test))]
     pub fn is_playing(&self) -> bool {
         self.sequencer.is_playing()
     }
+    #[cfg(any(feature = "sdl", test))]
     pub fn position_frames(&self) -> u64 {
         self.frame
     }
     /// Sequencer completion/explicit-stop boundary in the rendered sample clock.
     /// OPL release tails may continue after this position.
+    #[cfg(any(feature = "sdl", test))]
     pub fn finished_at(&self) -> Option<u64> {
         self.finished_at
     }

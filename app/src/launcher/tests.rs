@@ -2064,6 +2064,7 @@ fn native_engine_previews() {
                         alleycat::launcher::preview(&inputs, format, variant)
                     }
                     detection::Engine::Mach3 => mach3::launcher::preview(&inputs, variant),
+                    detection::Engine::Centurion => centurion::launcher::preview(&inputs, variant),
                     detection::Engine::Btz(release) => {
                         btz::launcher::preview(&inputs, release, variant)
                     }

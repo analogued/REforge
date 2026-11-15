@@ -3,11 +3,14 @@
 mod arena;
 mod assets;
 mod audio;
+#[cfg(feature = "sdl")]
 mod audio_output;
+#[cfg(any(feature = "sdl", test))]
 mod audio_timeline;
 mod battle;
 mod campaign;
 mod cleopatra;
+pub mod cli;
 mod diplomacy;
 mod encounter;
 mod ending;
@@ -18,6 +21,8 @@ mod fleet_nav;
 mod games;
 mod graphics;
 mod intro;
+#[cfg(feature = "sdl")]
+pub mod launcher;
 mod legion;
 mod movement;
 mod music;
@@ -28,6 +33,8 @@ mod naval_fleet;
 mod naval_intro;
 mod naval_motion;
 mod naval_probe;
+#[cfg(feature = "sdl")]
+mod player;
 mod province;
 mod race;
 mod race_crash;
@@ -42,7 +49,9 @@ mod sound;
 mod state;
 mod turn;
 mod water;
+#[cfg(feature = "sdl")]
 mod window;
+#[cfg(any(feature = "sdl", test))]
 mod window_geometry;
 
 use assets::{Assets, Result};
@@ -188,6 +197,15 @@ pub fn run_prototype() -> std::result::Result<(), String> {
             _ => return Err(format!("Unknown argument {argument}")),
         }
     }
+    #[cfg(not(feature = "sdl"))]
+    let _ = (
+        mute,
+        scale,
+        smoke_frames,
+        smoke_resize,
+        smoke_maximize,
+        smoke_skip,
+    );
     let original =
         original.ok_or("Supply --original DIR pointing to the selected writable game copy")?;
     let assets = Assets::open(&original)?;
@@ -308,6 +326,9 @@ pub fn run_prototype() -> std::result::Result<(), String> {
         }
     }
     if !headless {
+        #[cfg(not(feature = "sdl"))]
+        return Err("Interactive playback requires the sdl feature".into());
+        #[cfg(feature = "sdl")]
         window::run(
             &assets,
             &mut session,

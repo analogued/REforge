@@ -68,7 +68,8 @@ retains Copyright (C) 2013-2020 Nuke.YKT and Copyright (C) 2026 Tony Gies
 (Rust port), under LGPL-2.1-or-later. The [license text](LICENSES/LGPL-2.1.txt)
 is included; Cargo.lock records the exact registry checksum.
 Neither `c-reference-tests` nor `stereo-ext` is enabled, so this dependency
-requires no C/C++ compiler. Default application builds do not enable `opl`.
+requires no C/C++ compiler. Centurion enables `opl` for its AdLib output, so
+default application builds include this dependency.
 
 ## Statically linked libbzip2
 

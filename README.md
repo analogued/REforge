@@ -15,6 +15,7 @@ controller options. Linux is the current development platform.
 | Alley Cat | Alley Cat | [Playing Alley Cat](docs/games/alleycat.md) |
 | Mach 3 | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
 | BTZ | Mindwheel, Essex, Brimstone: The Dream of Gawain, Breakers | [Playing BTZ games](docs/games/btz.md) |
+| Centurion | Centurion: Defender of Rome | [Playing Centurion](docs/games/centurion.md) |
 
 Supported inputs include verified DOS distributions and Alley Cat’s PC Booter
 image. See each guide for the required files and current limitations.
@@ -47,6 +48,7 @@ or `-V`. Launch a game using its original files:
 ./target/release/reforge --original /path/to/alley-cat
 ./target/release/reforge --original /path/to/mach3
 ./target/release/reforge --original /path/to/mindwheel
+./target/release/reforge --original /path/to/centurion
 ```
 
 Run `reforge` without arguments to open the launcher. Use **Add** to select a game
@@ -68,7 +70,8 @@ REforge searches the game root and any subdirectories specified by its catalog.
 
 ## Settings and shared controls
 
-Press **Esc** or **F10** to open Settings. Choose windowed or fullscreen play, adjust scaling,
+Press **Esc** or **F10** to open Settings. Centurion uses **F10**, preserving
+Escape for its game menus. Choose windowed or fullscreen play, adjust scaling,
 try CRT presentation, or change audio levels and your controller's stick dead zone.
 **Apply** activates and saves edits; **Cancel** discards them. Preferences can be
 shared globally or overridden for an individual game.

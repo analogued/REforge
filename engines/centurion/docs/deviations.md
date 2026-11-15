@@ -35,9 +35,15 @@ It does not change fleet selection precedence, ship counts or naval mechanics.
 
 The software pointer uses absolute host mouse coordinates. The host cursor is
 hidden over the window without relative capture or added cursor smoothing.
-Window sizing preserves the 4:3 display aspect of the original 320x200 image;
-maximizing fits a normal window to that image rather than leaving a wider client
-area around it.
+The player uses the shared renderer and display preferences, defaulting to the
+original 4:3 display aspect of the 320x200 image. Square pixels and stretch are
+explicit shared presentation choices. The standalone research window retains
+its constrained 4:3 geometry.
+
+F10 opens shared Settings; Pause freezes host simulation and callback playback,
+and Ctrl+Q exits. Escape retains original game controls. Shared volume, semantic
+music/effects levels, output-device selection and focus muting affect host audio
+without changing the game's original single sequencer or sound requests.
 
 AdLib output uses software OPL2-compatible synthesis and host PCM playback.
 Audio generation runs independently of window rendering. Interactive pacing

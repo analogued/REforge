@@ -10,6 +10,7 @@ fn all_legacy_images_migrate_without_originals_and_are_not_regenerated() {
         let variants = match release.game() {
             Game::AlleyCat => alleycat::launcher::PREVIEW_VARIANTS,
             Game::Mach3 => mach3::launcher::PREVIEW_VARIANTS,
+            Game::Centurion => centurion::launcher::PREVIEW_VARIANTS,
             _ => btz::launcher::PREVIEW_VARIANTS,
         };
         // New distributions need not have any pre-BLAKE3 preview aliases.
@@ -82,6 +83,7 @@ fn each_published_or_development_alias_can_migrate_by_itself() {
                 let variants = match release.game() {
                     Game::AlleyCat => alleycat::launcher::PREVIEW_VARIANTS,
                     Game::Mach3 => mach3::launcher::PREVIEW_VARIANTS,
+                    Game::Centurion => centurion::launcher::PREVIEW_VARIANTS,
                     _ => btz::launcher::PREVIEW_VARIANTS,
                 };
                 variants

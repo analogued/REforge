@@ -8,11 +8,21 @@ use reforge_sdl::audio::callback::{Output as Device, Source, Spec};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, mpsc};
 
-#[derive(Default)]
 struct Status {
+    gains: [f32; 2],
     progress: Progress,
     completions: VecDeque<Completion>,
 }
+impl Default for Status {
+    fn default() -> Self {
+        Self {
+            gains: [1.0; 2],
+            progress: Progress::default(),
+            completions: VecDeque::new(),
+        }
+    }
+}
+
 struct Playback {
     inbox: mpsc::Receiver<Request>,
     timeline: Timeline,
@@ -28,7 +38,14 @@ impl Source for Playback {
                 Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => break,
             }
         }
-        self.timeline.render(output)?;
+        let gains = self.status.lock().map_err(|e| e.to_string())?.gains;
+        // Scene themes and battle fanfares use Music; short racing, arena and
+        // naval cues use Effects. Both remain one original interrupting score.
+        self.timeline.render_with_gain(output, |track| {
+            gains[usize::from(
+                track.is_some_and(|id| !matches!(id, 0 | 1 | 2 | 4 | 8 | 9 | 10 | 11 | 12 | 13)),
+            )]
+        })?;
         let mut status = self.status.lock().map_err(|e| e.to_string())?;
         status.progress = self.timeline.progress();
         while let Some(cue) = self.timeline.pop_completion() {
@@ -94,6 +111,23 @@ impl Output {
             prepared: false,
             resumed: false,
         })
+    }
+
+    pub fn set_host_audio(
+        &mut self,
+        settings: &reforge_settings::AudioSettings,
+        focused: bool,
+        mute: bool,
+    ) -> Result<()> {
+        use reforge_settings::SoundCategory::{Effects, Music};
+        let master = if mute { 0.0 } else { settings.gain(focused) };
+        self.status.lock().map_err(|e| e.to_string())?.gains = [Music, Effects]
+            .map(|category| master * f32::from(settings.categories.get(category)) / 100.0);
+        Ok(())
+    }
+
+    pub fn switch_device(&mut self, name: Option<&str>) -> Result<()> {
+        self.device.switch_device(name)
     }
 
     pub fn clock_frames(&mut self) -> Result<u64> {

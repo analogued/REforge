@@ -14,6 +14,7 @@ pub const TITLE_DURATION: u32 = 3024 - INTRO_END;
 pub const CREDIT_DURATION: u32 = 288;
 pub const PROLOGUE_DURATION: u32 = 720;
 
+#[cfg(any(feature = "sdl", test))]
 pub fn clock_ticks(nanoseconds: u128) -> u64 {
     (nanoseconds * PIT_HZ / (PIT_DIVISOR * 1_000_000_000)) as u64
 }

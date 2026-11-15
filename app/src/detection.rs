@@ -24,6 +24,7 @@ pub use catalog::{Edition, GameMetadata, RELEASES};
 pub enum Game {
     AlleyCat,
     Mach3,
+    Centurion,
     Mindwheel,
     Essex,
     Brimstone,
@@ -35,6 +36,7 @@ pub enum Game {
 pub enum Engine {
     AlleyCat(alleycat::assets::InputFormat),
     Mach3,
+    Centurion,
     Btz(btz::player::DosRelease),
 }
 
@@ -44,6 +46,7 @@ impl Game {
         match self {
             Self::AlleyCat => Engine::AlleyCat(alleycat::assets::InputFormat::Cat),
             Self::Mach3 => Engine::Mach3,
+            Self::Centurion => Engine::Centurion,
             Self::Mindwheel => Engine::Btz(DosRelease::Mindwheel),
             Self::Essex => Engine::Btz(DosRelease::Essex),
             Self::Brimstone => Engine::Btz(DosRelease::Brimstone),
@@ -55,6 +58,7 @@ impl Game {
         match self {
             Self::AlleyCat => "alley-cat",
             Self::Mach3 => "mach-3",
+            Self::Centurion => "centurion-defender-of-rome",
             Self::Mindwheel => "mindwheel",
             Self::Essex => "essex",
             Self::Brimstone => "brimstone",
@@ -66,6 +70,7 @@ impl Game {
         match self {
             Self::AlleyCat => &catalog::ALLEY_CAT,
             Self::Mach3 => &catalog::MACH3,
+            Self::Centurion => &catalog::CENTURION,
             Self::Mindwheel => &catalog::MINDWHEEL,
             Self::Essex => &catalog::ESSEX,
             Self::Brimstone => &catalog::BRIMSTONE,
@@ -457,9 +462,12 @@ pub(crate) fn detect_with(
         [candidate] => {
             let original = match candidate.release.game() {
                 Game::AlleyCat => candidate.paths[0].clone(),
-                Game::Mach3 | Game::Mindwheel | Game::Essex | Game::Brimstone | Game::Breakers => {
-                    candidate.root.clone()
-                }
+                Game::Mach3
+                | Game::Centurion
+                | Game::Mindwheel
+                | Game::Essex
+                | Game::Brimstone
+                | Game::Breakers => candidate.root.clone(),
             };
             Ok(Detected {
                 game: candidate.release.game(),

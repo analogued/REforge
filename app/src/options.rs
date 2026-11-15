@@ -169,6 +169,41 @@ const SPECS: &[Spec] = &[
         description: "Initial video mode (default cga); F3 switches during play",
     },
     Spec {
+        name: "--state-dir",
+        scope: Scope::Game(Game::Centurion),
+        value: Value::Path,
+        dev: false,
+        description: "Directory for the nine DOS-compatible save slots",
+    },
+    Spec {
+        name: "--load",
+        scope: Scope::Game(Game::Centurion),
+        value: Value::Path,
+        dev: false,
+        description: "Load a DOS-compatible campaign save before playing",
+    },
+    Spec {
+        name: "--mute",
+        scope: Scope::Game(Game::Centurion),
+        value: Value::Flag,
+        dev: false,
+        description: "Disable audio output for this run",
+    },
+    Spec {
+        name: "--original-tribute-menus",
+        scope: Scope::Game(Game::Centurion),
+        value: Value::Flag,
+        dev: false,
+        description: "Hide the added current-tribute indicator",
+    },
+    Spec {
+        name: "--smoke-frames",
+        scope: Scope::Game(Game::Centurion),
+        value: Value::Integer(1, u32::MAX as u64),
+        dev: true,
+        description: "Exit after this many presentation frames for development checks",
+    },
+    Spec {
         name: "--save-dir",
         scope: Scope::Btz,
         value: Value::Path,
@@ -900,6 +935,9 @@ mod tests {
     fn accepted(result: &Prepared, game: Game) {
         let mut args = args(&["--original", "synthetic-missing-original"]);
         args.extend(result.args.iter().cloned());
+        if game == Game::Centurion {
+            centurion::cli::validate_arguments(args.clone().into_iter()).unwrap();
+        }
         if game == Game::AlleyCat {
             alleycat::cli::validate_arguments(
                 args.iter().map(|arg| arg.to_str().unwrap().to_owned()),
@@ -954,6 +992,7 @@ mod tests {
             Game::Essex,
             Game::Brimstone,
             Game::Breakers,
+            Game::Centurion,
         ] {
             for value in ["display", "60", "120", "unlimited"] {
                 let result = prepare(args(&["--frame-limit", value]), game);
@@ -981,6 +1020,7 @@ mod tests {
             Game::Essex,
             Game::Brimstone,
             Game::Breakers,
+            Game::Centurion,
         ] {
             let help = help(Some(game));
             assert!(help.contains("--presentation VALUE"));
@@ -1016,6 +1056,7 @@ mod tests {
             Game::Essex,
             Game::Brimstone,
             Game::Breakers,
+            Game::Centurion,
         ] {
             for value in ["", "crt", "Hyllian", "-1"] {
                 let result = prepare(
@@ -1072,6 +1113,7 @@ mod tests {
             Game::Essex,
             Game::Brimstone,
             Game::Breakers,
+            Game::Centurion,
         ] {
             let defaults = prepare(args(&[]), game);
             assert!(defaults.args.is_empty());
@@ -1107,6 +1149,7 @@ mod tests {
             Game::Essex,
             Game::Brimstone,
             Game::Breakers,
+            Game::Centurion,
         ] {
             for value in ["0", "17", "-1", "1.5", "Auto", "", "0x", "4294967296"] {
                 for previous in [None, Some("auto"), Some("3")] {
@@ -1400,6 +1443,10 @@ mod tests {
                 Game::AlleyCat,
             ),
             (include_str!("../../engines/mach3/src/cli.rs"), Game::Mach3),
+            (
+                include_str!("../../engines/centurion/src/cli.rs"),
+                Game::Centurion,
+            ),
         ] {
             for line in source.lines() {
                 let line = line.trim();
@@ -1600,6 +1647,7 @@ mod tests {
             Game::Essex,
             Game::Brimstone,
             Game::Breakers,
+            Game::Centurion,
         ] {
             let foreign = prepare(args(&["--motion", "reforged"]), game);
             assert!(foreign.args.is_empty());
@@ -1721,5 +1769,41 @@ mod tests {
         let p = prepare(args(&["--smooth-motion"]), Game::Mach3);
         assert_eq!(p.warnings.len(), 1);
         assert!(p.args.is_empty());
+    }
+    #[test]
+    fn centurion_player_paths_and_flags_are_scoped_and_preserve_arguments() {
+        let values = args(&[
+            "--state-dir",
+            "shared saves",
+            "--load",
+            "slot 7.CSV",
+            "--mute",
+            "--original-tribute-menus",
+        ]);
+        let selected = prepare(values.clone(), Game::Centurion);
+        assert!(selected.warnings.is_empty());
+        assert_eq!(selected.args, values);
+        accepted(&selected, Game::Centurion);
+        let other = prepare(values, Game::Mach3);
+        assert!(other.args.is_empty());
+        assert_eq!(other.warnings.len(), 4);
+        assert!(help(Some(Game::Centurion)).contains("--state-dir PATH"));
+        assert!(!help(Some(Game::Mach3)).contains("--state-dir"));
+    }
+    #[test]
+    fn centurion_smoke_controls_require_dev_tools_and_recording_stays_in_research() {
+        let selected = prepare(args(&["--smoke-frames", "32"]), Game::Centurion);
+        if cfg!(feature = "dev-tools") {
+            assert!(selected.warnings.is_empty());
+            assert_eq!(selected.args, args(&["--smoke-frames", "32"]));
+        } else {
+            assert!(selected.args.is_empty());
+            assert_eq!(selected.warnings.len(), 1);
+        }
+        accepted(&selected, Game::Centurion);
+        let research = prepare(args(&["--record", "new recording"]), Game::Centurion);
+        assert!(research.args.is_empty());
+        assert!(!research.warnings.is_empty());
+        assert!(!help(Some(Game::Centurion)).contains("--record"));
     }
 }

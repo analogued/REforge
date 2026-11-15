@@ -134,7 +134,17 @@ impl Timeline {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn render(&mut self, output: &mut [i16]) -> Result<()> {
+        self.render_with_gain(output, |_| 1.0)
+    }
+
+    /// Host gain follows each scheduled score boundary without altering synthesis.
+    pub fn render_with_gain(
+        &mut self,
+        output: &mut [i16],
+        gain: impl Fn(Option<u8>) -> f32,
+    ) -> Result<()> {
         if !output.len().is_multiple_of(2) {
             return Err("Stereo buffer has odd length".into());
         }
@@ -158,6 +168,15 @@ impl Timeline {
             } else {
                 part.fill(0);
             }
+            let gain = gain(self.progress.track);
+            if gain != 1.0 {
+                for sample in part {
+                    *sample = (f32::from(*sample) * gain)
+                        .round()
+                        .clamp(i16::MIN as f32, i16::MAX as f32)
+                        as i16;
+                }
+            }
             self.progress.rendered += frames as u64;
             offset += frames * 2;
             self.update_progress(CompletionKind::Finished)?;
@@ -179,6 +198,42 @@ mod tests {
                 music: Box::new(Music::from_sequencer(crate::music::fixture()).unwrap()),
             },
         }
+    }
+
+    #[test]
+    fn host_gain_changes_at_score_boundaries_without_changing_execution() {
+        let mut original = Timeline::default();
+        let mut scaled = Timeline::default();
+        for timeline in [&mut original, &mut scaled] {
+            timeline.schedule(start()).unwrap();
+            timeline
+                .schedule(Request {
+                    frame: 1000,
+                    change: Change::Play {
+                        id: 5,
+                        song: crate::music::fixture_song(),
+                    },
+                })
+                .unwrap();
+        }
+        let mut expected = vec![0; 4000];
+        original.render(&mut expected).unwrap();
+        assert!(expected[..2000].iter().any(|sample| *sample != 0));
+        let mut actual = vec![0; 4000];
+        scaled
+            .render_with_gain(
+                &mut actual,
+                |track| if track == Some(5) { 0.0 } else { 1.0 },
+            )
+            .unwrap();
+        assert_eq!(&actual[..2000], &expected[..2000]);
+        assert!(actual[2000..].iter().all(|sample| *sample == 0));
+        assert_eq!(original.progress().rendered, scaled.progress().rendered);
+        assert_eq!(original.progress().applied, scaled.progress().applied);
+        assert_eq!(
+            original.progress().track_started,
+            scaled.progress().track_started
+        );
     }
 
     #[test]

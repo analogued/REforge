@@ -261,6 +261,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
             release,
             plan.detected.game.title(),
         ),
+        Engine::Centurion => centurion::cli::run(args.into_iter(), &inputs),
         Engine::Mach3 => {
             #[cfg(feature = "sdl")]
             {

@@ -79,6 +79,7 @@ impl Games {
     pub fn race_field_frame(&self) -> Option<&Frame> {
         self.race.as_ref().and_then(|r| r.field_frame())
     }
+    #[cfg(feature = "sdl")]
     pub fn relative_steering(&self) -> bool {
         self.race.as_ref().is_some_and(|r| r.relative_steering())
     }

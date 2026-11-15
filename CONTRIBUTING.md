@@ -185,7 +185,9 @@ feature/build combinations required by the affected crates. Package-scoped
 checks can aid development; shared changes must validate affected games.
 See [Alley Cat checks](engines/alleycat/CONTRIBUTING.md),
 [Mach 3 checks](engines/mach3/CONTRIBUTING.md), and
-[BTZ checks](engines/btz/CONTRIBUTING.md) for their feature matrices and tools.
+[BTZ checks](engines/btz/CONTRIBUTING.md), and
+[Centurion checks](engines/centurion/README.md#validation-and-limits) for their
+feature matrices and tools.
 For application CLI changes, test and lint `-p reforge` with default features,
 `--no-default-features`, `--features dev-tools`, and both options combined.
 Release optimization (`--release`) is independent of the opt-in `dev-tools`

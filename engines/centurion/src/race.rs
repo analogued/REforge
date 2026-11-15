@@ -113,6 +113,7 @@ impl Race {
             parade: None,
         })
     }
+    #[cfg(feature = "sdl")]
     pub fn relative_steering(&self) -> bool {
         self.stage == Stage::Racing
     }

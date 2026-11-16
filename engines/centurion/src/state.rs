@@ -162,6 +162,24 @@ impl Campaign {
         }
         self.string(word(&self.data, 0x5222 + usize::from(region) * 2)? as usize)
     }
+    /// Resident 720B: the first roaming army, if present, precedes the place name.
+    pub fn region_information(&self, region: u8) -> Result<String> {
+        let name = self.region_name(region)?;
+        if let Some(army) = self.roaming_army(region, 0) {
+            let origin = word(&self.data, 0xc114 + army * 14)?;
+            if origin >= 27 {
+                return Err("Roaming army origin outside province table".into());
+            }
+            return Ok(format!(
+                "{}{}{}{}",
+                self.string(0x58e3)?,
+                self.province_name(origin as u8)?,
+                self.string(0x58f6)?,
+                name,
+            ));
+        }
+        Ok(name)
+    }
     pub fn province_name(&self, province: u8) -> Result<String> {
         if province >= 27 {
             return Err("Not a land province".into());
@@ -173,6 +191,41 @@ impl Campaign {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn region_information_names_the_first_local_roaming_army_without_mutation() {
+        let mut data = vec![0; 65536];
+        for (address, text) in [
+            (0xd000, "Mauretania"),
+            (0xd020, "Numidia"),
+            (0xd040, "Mare Nostrum"),
+            (0x58e3, "Army from\n"),
+            (0x58f6, "\nin "),
+        ] {
+            data[address..address + text.len()].copy_from_slice(text.as_bytes());
+        }
+        data[0x5222 + 2 * 2..0x5224 + 2 * 2].copy_from_slice(&0xd000_u16.to_le_bytes());
+        data[0x5222 + 3 * 2..0x5224 + 3 * 2].copy_from_slice(&0xd020_u16.to_le_bytes());
+        data[0x5222 + 30 * 2..0x5224 + 30 * 2].copy_from_slice(&0xd040_u16.to_le_bytes());
+        let mut state = Campaign::test_data(data);
+        assert_eq!(state.region_information(30).unwrap(), "Mare Nostrum");
+        assert!(state.region_information(37).is_err());
+        assert_eq!(state.region_information(2).unwrap(), "Mauretania");
+        state.data[0xc113] = 2;
+        state.data[0xc114..0xc116].copy_from_slice(&3_u16.to_le_bytes());
+        state.data[0xc11a..0xc11c].copy_from_slice(&1_u16.to_le_bytes());
+        let before = state.data.clone();
+        assert_eq!(
+            state.region_information(2).unwrap(),
+            "Army from\nNumidia\nin Mauretania"
+        );
+        assert_eq!(state.data, before);
+        state.data[0xc113] = 30;
+        assert_eq!(
+            state.region_information(30).unwrap(),
+            "Army from\nNumidia\nin Mare Nostrum"
+        );
+    }
 
     fn synthetic() -> Campaign {
         let mut state = Campaign {

@@ -15,7 +15,7 @@ pub enum Phase {
     Credits,
     Prologue,
     Map,
-    ProvinceInspect,
+    RegionInspect,
     Rome,
     Legions,
     RaiseLegion,
@@ -98,6 +98,7 @@ pub struct Session {
     pub last_random: u16,
     pub campaign: Campaign,
     pub selected_province: Option<u8>,
+    inspected_region: Option<u8>,
     pub quit: bool,
     pub save_dir: Option<PathBuf>,
     pub tribute_indicator: bool,
@@ -189,6 +190,7 @@ impl Session {
                 Phase::Rome | Phase::Tribute | Phase::TributePolicy | Phase::ProvinceList
             )
             .then_some(0),
+            inspected_region: None,
             quit: false,
             save_dir: None,
             tribute_indicator: true,
@@ -705,7 +707,7 @@ impl Session {
             }
             return Ok(());
         }
-        if self.phase == Phase::ProvinceInspect
+        if self.phase == Phase::RegionInspect
             && matches!(
                 input,
                 Input::Enter
@@ -719,6 +721,7 @@ impl Session {
             )
         {
             self.phase = Phase::Map;
+            self.inspected_region = None;
             self.highlighted = false;
             return Ok(());
         }
@@ -1168,7 +1171,8 @@ impl Session {
                     if let Some(province) = self.selected_province
                         && self.campaign.ownership(province)? == 0
                     {
-                        self.phase = Phase::ProvinceInspect;
+                        self.inspected_region = Some(province);
+                        self.phase = Phase::RegionInspect;
                         return Ok(());
                     }
                     if let Some(province) = self.selected_province
@@ -1392,6 +1396,9 @@ impl Session {
             }) {
                 self.moving_fleet = Some(id);
                 self.phase = Phase::FleetInspect;
+            } else {
+                self.inspected_region = Some(region);
+                self.phase = Phase::RegionInspect;
             }
             return Ok(());
         }
@@ -2771,13 +2778,13 @@ impl Session {
                     )?;
                 }
             }
-            Phase::ProvinceInspect => {
+            Phase::RegionInspect => {
                 frame = crate::campaign::render(assets, &self.campaign, &self.map, &self.sprites)?;
                 crate::legion::message_with_footer(
                     &mut frame,
                     assets,
-                    &self.campaign.province_information(
-                        self.selected_province.ok_or("Missing inspected province")?,
+                    &self.campaign.region_information(
+                        self.inspected_region.ok_or("Missing inspected region")?,
                     )?,
                     &self.campaign.string(0x3e2e)?,
                     0,
@@ -2980,7 +2987,7 @@ impl Session {
                 || self.games.as_ref().is_some_and(|s| s.cursor_visible()))
             && !self.phase.is_startup()
             && self.phase != Phase::LegionMessage
-            && self.phase != Phase::ProvinceInspect
+            && self.phase != Phase::RegionInspect
             && (self.phase != Phase::Diplomacy
                 || self.diplomacy.as_ref().is_some_and(|s| s.cursor_visible()))
             && battle_cursor

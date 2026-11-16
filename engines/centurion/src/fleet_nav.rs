@@ -264,6 +264,46 @@ pub fn inspection(
     crate::legion::message(frame, assets, state, &notice)
 }
 
+/// Roaming armies at sea have stored troops, but no persistent ship counts.
+/// Inspecting them must not create the random fleet used for a naval battle.
+pub fn region_inspection(
+    frame: &mut Frame,
+    assets: &Assets,
+    state: &Campaign,
+    region: u8,
+    information: reforge_settings::FleetInformation,
+) -> Result<()> {
+    let notice = state.region_information(region)?;
+    if information != reforge_settings::FleetInformation::Original
+        && (27..37).contains(&region)
+        && let Some(army) = state.roaming_army(region, 0)
+    {
+        let at = 0xc114 + army * 14;
+        let origin = word(&state.data, at)?;
+        // region_information has already validated the original province ID.
+        let name = format!(
+            "{}{}",
+            state.string(0x58e3)?.replace('\n', " "),
+            state.province_name(origin as u8)?,
+        );
+        frame.acknowledgment_popup = true;
+        frame.bevel(2, 0, 317, 31, 26);
+        for (label, center, count) in [
+            ("Infantry", 185, word(&state.data, at + 2)?),
+            ("Cavalry", 235, word(&state.data, at + 4)?),
+            ("Elephants", 289, u16::from(state.data[at + 8])),
+        ] {
+            frame.center_text(assets, label, center, 5, 0)?;
+            frame.center_text(assets, &count.to_string(), center, 16, 0)?;
+        }
+        frame.center_text(assets, &name, 84, 16, 0)?;
+        if information == reforge_settings::FleetInformation::Detailed {
+            return Ok(());
+        }
+    }
+    crate::legion::message(frame, assets, state, &notice)
+}
+
 pub fn complete_list(frame: &mut Frame, assets: &Assets, state: &Campaign) -> Result<()> {
     let ids = state.fleets();
     if ids.is_empty() {
@@ -487,6 +527,81 @@ mod tests {
             detailed,
             "detailed table shows ship count changes"
         );
+    }
+
+    #[test]
+    fn sea_army_inspection_composes_stored_troops_without_creating_a_fleet() {
+        use reforge_settings::FleetInformation::{Both, Detailed, Original};
+        let mut ds = vec![0; 65536];
+        let put = |data: &mut [u8], at: usize, value: u16| {
+            data[at..at + 2].copy_from_slice(&value.to_le_bytes());
+        };
+        for (offset, value) in [(0xa05c, 0xe000), (0xa05e, 0xe100), (0xa060, 0xe200)] {
+            put(&mut ds, offset, value);
+        }
+        ds[0xa062] = 1;
+        ds[0xa064] = 1;
+        ds[0xe000..0xe060].fill(3);
+        for glyph in 0..96 {
+            ds[0xe200 + glyph] = (glyph as u8).wrapping_mul(29);
+        }
+        let assets = Assets::test_data(ds.clone());
+        for (at, text) in [
+            (0xd000, "Mauretania"),
+            (0xd040, "Mare Nostrum"),
+            (0x58e3, "Marauding Army\nof "),
+            (0x58f6, "\nin "),
+            (0x3e16, "Hit any key"),
+            (0x3e2e, "Click"),
+        ] {
+            ds[at..at + text.len()].copy_from_slice(text.as_bytes());
+        }
+        put(&mut ds, 0x5222 + 16 * 2, 0xd000);
+        put(&mut ds, 0x5222 + 30 * 2, 0xd040);
+        let mut state = Campaign::test_data(ds);
+        let draw = |state: &Campaign, region, mode| {
+            let mut frame = Frame::new();
+            frame.pixels.fill(7);
+            region_inspection(&mut frame, &assets, state, region, mode).unwrap();
+            assert!(frame.acknowledgment_popup);
+            frame.pixels
+        };
+        // Empty seas and land keep their original notices under every setting.
+        for region in [16, 30] {
+            assert_eq!(draw(&state, region, Original), draw(&state, region, Both));
+            assert_eq!(
+                draw(&state, region, Original),
+                draw(&state, region, Detailed)
+            );
+        }
+        // Exercise both ends of the roaming table, including explicit zeros and
+        // full-width fields. Inspection changes no bytes, even unsaved scratch.
+        for army in [0, 10] {
+            let at = 0xc114 + army * 14;
+            state.data[at - 1] = 30;
+            put(&mut state.data, at, 16);
+            put(&mut state.data, at + 2, 3200);
+            put(&mut state.data, at + 6, 1);
+            let before = state.data.clone();
+            let original = draw(&state, 30, Original);
+            let detailed = draw(&state, 30, Detailed);
+            let both = draw(&state, 30, Both);
+            assert_eq!(both[..32 * 320], detailed[..32 * 320]);
+            assert_eq!(both[32 * 320..], original[32 * 320..]);
+            assert!(original[..32 * 320].iter().all(|p| *p == 7));
+            assert!(detailed[32 * 320..].iter().all(|p| *p == 7));
+            assert_ne!(detailed, original);
+            assert_eq!(state.data, before);
+            put(&mut state.data, at + 2, u16::MAX);
+            put(&mut state.data, at + 4, u16::MAX);
+            state.data[at + 8] = u8::MAX;
+            assert_eq!(draw(&state, 30, Original), original);
+            assert_ne!(draw(&state, 30, Detailed), detailed);
+            assert_ne!(draw(&state, 30, Both), both);
+            state.data[at - 1] = 16;
+            assert_eq!(draw(&state, 16, Original), draw(&state, 16, Detailed));
+            put(&mut state.data, at + 6, 0);
+        }
     }
 
     #[test]

@@ -37,6 +37,13 @@ Troops sums that army's infantry, cavalry and elephants. The former native table
 incorrectly treated it as a Roman legion index, producing misleading numerals.
 Enemy army records include eleven roaming slots and three dedicated permanent
 fleet slots; all fourteen are valid cargo references.
+Roaming armies at sea use the same Original/Detailed/Both setting. Their added
+316 × 32 panel shows the full Marauding Army of <province> name, followed by
+separate centered Infantry, Cavalry and Elephants counts, including zeros.
+The original message remains below in Both. There are no ship columns: DOS
+creates that army's temporary fleet with a random ship type when combat starts.
+Inspection reads only the stored army record and does not generate ships, advance
+RNG or change campaign bytes. Land-army and empty-region notices are unchanged.
 An empty transport displays None. Roman fleet tables now use complete legion
 identifiers rather than just numerals, so I Ital, I Aeg and I Narb are distinct.
 Enemy columns keep fixed centered positions. Roman panels start closer to DOS

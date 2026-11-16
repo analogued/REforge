@@ -95,8 +95,11 @@ their pointer. Reforged selects Both and Visible; Original selects Original and
 Hidden. Other combinations show Custom. Continue prompts follow the last
 intentional mouse click or key, ignoring pointer motion and polling. Roman
 tables show complete legion identifiers and readiness, with spacing that adapts
-to the names and counts in each panel; enemy tables show embarked troop totals without the uninformative readiness column. Counts
-use plain decimal digits. See the
+to the names and counts in each panel; enemy tables show embarked troop totals
+without the uninformative readiness column. Counts use plain decimal digits.
+Marauding armies at sea follow the same information
+choice, with their full name and separate infantry, cavalry and elephant counts;
+their battle-only ships are not generated for inspection. See the
 [player guide](../../docs/games/centurion.md#presentation-and-original-rules) and
 [intentional deviations](docs/deviations.md) for presentation changes.
 

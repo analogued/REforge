@@ -105,9 +105,14 @@ The Fleet information choice affects enemy inspection. Roman tables use centered
 columns with complete legion names (such as I Ital and I Aeg) and fleet readiness.
 They start with spacing close to DOS and make room for longer names by moving
 only the necessary ship/Legion columns left. All rows in a panel stay aligned.
-Enemy tables keep fixed positions and show centered ship counts and an embarked Troops total, without a
-Status column. Troops includes infantry, cavalry and elephants; no embarked army
+Enemy tables keep fixed positions and show centered ship counts and an embarked
+Troops total, without a Status column. Troops includes infantry, cavalry and
+elephants; no embarked army
 shows None. Counts use plain decimal digits, as in the original numeric tables.
+Marauding armies travelling by sea use the same information setting. Their panel
+shows the full army name and separate Infantry, Cavalry and Elephants counts.
+Both also keeps the original name/location notice. Ship counts are omitted:
+the game generates their temporary ships only when a naval battle begins.
 Fleet movement, selection rules and naval mechanics are unchanged. Other menu
 presentation changes above are independent of this preset. These choices are
 described in the engine's

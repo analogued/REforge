@@ -2794,13 +2794,12 @@ impl Session {
             }
             Phase::RegionInspect => {
                 frame = crate::campaign::render(assets, &self.campaign, &self.map, &self.sprites)?;
-                crate::legion::message(
+                crate::fleet_nav::region_inspection(
                     &mut frame,
                     assets,
                     &self.campaign,
-                    &self.campaign.region_information(
-                        self.inspected_region.ok_or("Missing inspected region")?,
-                    )?,
+                    self.inspected_region.ok_or("Missing inspected region")?,
+                    self.fleet_information,
                 )?;
             }
             Phase::FleetMove | Phase::FleetSelect | Phase::FleetList | Phase::FleetInspect => {

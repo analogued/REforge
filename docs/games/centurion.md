@@ -76,8 +76,7 @@ Original game resources are only read; campaign writes target the save directory
 Menus combine keyboard-style selection boxes with mouse-hover highlighting.
 Tribute and Tribute Policy also mark the currently applied level with a subdued
 band. `--original-tribute-menus` hides that added indicator for comparisons.
-In Settings, select **Centurion overrides → Display** and enable **Override global
-defaults** to edit **Centurion UI**.
+In Settings, select **Centurion overrides → Enhancements** to edit **Centurion UI**.
 **UI preset** selects Original or Reforged (the default) for the options in that
 section. Expand **Advanced options** to choose **Fleet information** individually:
 Original shows the DOS fleet-name/location notice; Detailed shows the existing

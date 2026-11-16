@@ -30,8 +30,8 @@ fleets are present. **Fleet information: Original** uses that notice alone.
 with ship counts, transport assignment and readiness. The detailed table can
 overlap a long fleet name with the trireme count; its layout is unchanged.
 
-The granular setting is available under Settings → Display → Centurion overrides →
-Centurion UI → Advanced options. The Original/Reforged UI presets are aliases
+The granular setting is available under Settings → Centurion overrides →
+Enhancements → Centurion UI → Advanced options. The Original/Reforged UI presets are aliases
 for the detailed choices in that section, rather than separate saved switches.
 They currently cover fleet information only. Applying a change can switch an
 already open inspection without changing campaign state. Both views use the

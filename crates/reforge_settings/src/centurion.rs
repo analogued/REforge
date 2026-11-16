@@ -45,7 +45,8 @@ pub struct CenturionOptions {
 mod tests {
     use super::*;
     use crate::{
-        CENTURION_FLEET_INFORMATION as KEY, Draft, Launch, Patch, RuntimeSettings, Session,
+        CENTURION_FLEET_INFORMATION as KEY, Draft, ENHANCEMENTS_SECTION, Launch, Patch,
+        RuntimeSettings, Session,
     };
     use std::{
         fs,
@@ -120,6 +121,19 @@ mod tests {
                 .fleet_information,
             FleetInformation::Original
         );
+        let document = fs::read_to_string(temp.path())
+            .unwrap()
+            .parse::<toml_edit::DocumentMut>()
+            .unwrap();
+        assert_eq!(
+            document["entries"]["copy"]["enhancements"]["fleet_information"].as_str(),
+            Some("original")
+        );
+        assert!(
+            document["entries"]["copy"]["display"]
+                .get("fleet_information")
+                .is_none()
+        );
         let other = temp.session("alley-cat");
         assert_eq!(
             other.effective(&other.saved).centurion,
@@ -140,9 +154,19 @@ mod tests {
         assert!(!text.contains("preset"));
         let mut loaded = temp.session("centurion-defender-of-rome");
         let mut reset = loaded.saved.clone();
-        assert!(reset.has_game_overrides(0));
+        reset.edit(true, "window_mode", "fullscreen".into());
+        let mut enhancements_only = reset.clone();
+        enhancements_only.reset_section(true, ENHANCEMENTS_SECTION);
+        assert!(
+            enhancements_only.game_values().fullscreen,
+            "Enhancements reset must preserve Display"
+        );
+        assert_eq!(crate::section_index(KEY), ENHANCEMENTS_SECTION);
+        assert!(reset.has_game_overrides(ENHANCEMENTS_SECTION));
         reset.reset_section(true, 0);
-        assert!(!reset.has_game_overrides(0));
+        assert!(reset.has_game_overrides(ENHANCEMENTS_SECTION));
+        reset.reset_section(true, ENHANCEMENTS_SECTION);
+        assert!(!reset.has_game_overrides(ENHANCEMENTS_SECTION));
         assert_eq!(reset.game_values().centurion, CenturionOptions::default());
         assert_eq!(reset.game["master_volume"], "43");
         loaded.commit(reset).unwrap();
@@ -160,7 +184,7 @@ mod tests {
         let temp = Temp::new();
         fs::write(
             temp.path(),
-            "[entries.copy.display]\nfleet_information = 'detailed'\n",
+            "[entries.copy.enhancements]\nfleet_information = 'detailed'\n",
         )
         .unwrap();
         let mut session = temp.session("centurion-defender-of-rome");
@@ -176,7 +200,7 @@ mod tests {
         );
         fs::write(
             temp.path(),
-            "[entries.copy.display]\nfleet_information = 'invalid'\nwindow_mode = 'fullscreen'\n",
+            "[entries.copy.enhancements]\nfleet_information = 'invalid'\n[entries.copy.display]\nwindow_mode = 'fullscreen'\n",
         )
         .unwrap();
         let session = temp.session("centurion-defender-of-rome");

@@ -219,7 +219,7 @@ pub(super) fn draw(
                     for (page, label) in PAGES.into_iter()
                         .chain(menu.launcher_options.is_some().then_some("Launcher"))
                         .enumerate() {
-                        if page == ENHANCEMENTS_SECTION && !menu.alleycat_options && !menu.mach3_options {
+                        if page == ENHANCEMENTS_SECTION && !menu.alleycat_options && !menu.mach3_options && !menu.centurion_options {
                             continue;
                         }
                         if page == LAUNCHER_PAGE {
@@ -387,7 +387,6 @@ pub(super) fn draw(
                                             geometry,
                                             windowed_scale,
                                             original_renderer: original.renderer,
-                                            centurion: menu.scope == 1 && menu.centurion_options,
                                             alleycat_machines: (menu.scope == 1).then_some(menu.alleycat_machines).flatten(),
                                             game_storage,
                                             terminal: (menu.scope == 1)
@@ -418,7 +417,7 @@ pub(super) fn draw(
                                         menu.controller_style,
                                     );
                                 } else if menu.page == ENHANCEMENTS_SECTION {
-                                    enhancement_controls(ui, &mut value, rows, menu.mach3_options, menu.alleycat_options);
+                                    enhancement_controls(ui, &mut value, rows, menu.mach3_options, menu.alleycat_options, menu.centurion_options);
                                 }
                             });
                             crate::settings_navigation::scroll_focus(ui, first);
@@ -479,7 +478,7 @@ pub(super) fn draw(
                             (!menu.game_reset[menu.page]).then_some(&saved),
                         );
                     }
-                    if menu.page == 0
+                    if menu.page == ENHANCEMENTS_SECTION
                         && menu.scope == 1
                         && menu.centurion_options
                         && original.centurion != value.centurion
@@ -553,7 +552,6 @@ pub(super) fn draw(
                         || (menu.page == 2 && menu.mach3_options)
                         || (menu.page == 0 && menu.btz_terminal.is_some())
                         || (menu.page == 0 && menu.alleycat_options)
-                        || (menu.page == 0 && menu.centurion_options)
                     {
                         "Restore defaults"
                     } else {
@@ -742,7 +740,6 @@ struct DisplayOptions {
     windowed_scale: u32,
     original_renderer: Renderer,
     terminal: Option<bool>,
-    centurion: bool,
     alleycat_machines: Option<&'static crate::launcher::OptionDefinition>,
     game_storage: bool,
 }
@@ -848,7 +845,6 @@ fn display_controls(
         windowed_scale,
         original_renderer,
         terminal,
-        centurion,
         alleycat_machines,
         game_storage,
     } = options;
@@ -858,9 +854,6 @@ fn display_controls(
     }
     if let Some(machines) = alleycat_machines {
         alleycat_machine_controls(ui, value, rows, machines, game_storage);
-    }
-    if centurion {
-        centurion_controls(ui, value, rows);
     }
     ui.add_enabled_ui(value.renderer != Renderer::Terminal, |ui| {
         section(ui, "Window & scaling");
@@ -1108,10 +1101,14 @@ fn enhancement_controls(
     rows: RowContext<'_>,
     mach3: bool,
     alleycat: bool,
+    centurion: bool,
 ) {
     if rows.scope == 0 {
         ui.weak("Enhancements are selected per game. Open the game's overrides to customize them.");
         return;
+    }
+    if centurion {
+        centurion_controls(ui, value, rows);
     }
     if mach3 {
         mach3_motion_controls(ui, value, rows);
@@ -1482,7 +1479,8 @@ fn section_has_cli_locks(
             && scope == 1
             && (mach3_options && cli.contains_key(MOTION)
                 || cli.contains_key(ALLEYCAT_MOTION)
-                || cli.contains_key(CONTROL_MODE)))
+                || cli.contains_key(CONTROL_MODE)
+                || cli.contains_key(CENTURION_FLEET_INFORMATION)))
 }
 
 fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {
@@ -2623,6 +2621,7 @@ mod tests {
                                     },
                                     false,
                                     alleycat,
+                                    false,
                                 );
                             });
                         });
@@ -2734,6 +2733,7 @@ mod tests {
                                         cli: &cli,
                                     },
                                     mach3,
+                                    false,
                                     false,
                                 );
                             });

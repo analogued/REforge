@@ -66,7 +66,7 @@ pub const MOTION: &str = "motion";
 /// Both games persist their own value as `enhancements.motion`.
 pub const ALLEYCAT_MOTION: &str = "alleycat_motion";
 pub const BTZ_FILE_CURSOR: &str = "file_cursor";
-/// Internal key for Centurion; stored as `display.fleet_information`.
+/// Internal key for Centurion; stored as `enhancements.fleet_information`.
 pub const CENTURION_FLEET_INFORMATION: &str = "centurion_fleet_information";
 pub const CONTROL_MODE: &str = "control_mode";
 /// Alley Cat startup machine, shared with the launcher's native option store.
@@ -106,7 +106,10 @@ fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     keys.iter().copied()
 }
 pub fn section_index(key: &str) -> usize {
-    if matches!(key, MOTION | ALLEYCAT_MOTION | CONTROL_MODE) {
+    if matches!(
+        key,
+        MOTION | ALLEYCAT_MOTION | CONTROL_MODE | CENTURION_FLEET_INFORMATION
+    ) {
         return ENHANCEMENTS_SECTION;
     }
     if key == DIGITIZED_SAMPLES {
@@ -133,7 +136,10 @@ fn stored_key(key: &str) -> &str {
 }
 
 fn section(key: &str) -> &'static str {
-    if matches!(key, MOTION | ALLEYCAT_MOTION | CONTROL_MODE) {
+    if matches!(
+        key,
+        MOTION | ALLEYCAT_MOTION | CONTROL_MODE | CENTURION_FLEET_INFORMATION
+    ) {
         "enhancements"
     } else if key == ALLEYCAT_MACHINE {
         "launcher"
@@ -905,12 +911,12 @@ impl Draft {
             patch.remove(MOTION);
             patch.remove(ALLEYCAT_MOTION);
             patch.remove(CONTROL_MODE);
+            patch.remove(CENTURION_FLEET_INFORMATION);
         }
         if game && page == 0 {
             patch.remove(GRAPHICAL_RENDERER);
             patch.remove(BTZ_FILE_CURSOR);
             patch.remove(ALLEYCAT_MACHINE);
-            patch.remove(CENTURION_FLEET_INFORMATION);
         }
     }
     /// Native game options can share a menu page without acquiring global keys.
@@ -923,7 +929,7 @@ impl Draft {
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(CONTROL_MODE)
             || page == 0 && self.game.contains_key(BTZ_FILE_CURSOR)
             || page == 0 && self.game.contains_key(ALLEYCAT_MACHINE)
-            || page == 0 && self.game.contains_key(CENTURION_FLEET_INFORMATION)
+            || page == ENHANCEMENTS_SECTION && self.game.contains_key(CENTURION_FLEET_INFORMATION)
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
             || page == 3
                 && ALLEYCAT_CONTROL_KEYS
@@ -1200,6 +1206,9 @@ fn migrate_legacy_settings(doc: &mut DocumentMut, game: &str, entry: &str) -> bo
 fn migrate_enhancements(doc: &mut DocumentMut, game: &str, entry: &str) -> bool {
     let moves: &[(&str, &str, &str)] = match game {
         "mach-3" => &[("display", "motion", MOTION)],
+        "centurion-defender-of-rome" => {
+            &[("display", "fleet_information", CENTURION_FLEET_INFORMATION)]
+        }
         "alley-cat" => &[
             ("display", "motion", ALLEYCAT_MOTION),
             ("controls", "control_mode", CONTROL_MODE),
@@ -1316,7 +1325,7 @@ fn read_draft(
                 for key in keys().chain(game_keys(game)) {
                     // TODO(compat-cleanup): Retire with migrate_enhancements.
                     let legacy = match key {
-                        MOTION | ALLEYCAT_MOTION => Some("display"),
+                        MOTION | ALLEYCAT_MOTION | CENTURION_FLEET_INFORMATION => Some("display"),
                         CONTROL_MODE => Some("controls"),
                         _ => None,
                     };

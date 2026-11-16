@@ -708,8 +708,8 @@ preferences; the REforge app supplies persistent settings and the common CLI.
 
 ## Centurion UI preferences
 
-Centurion's **Display** page exposes **Centurion UI** when editing **Centurion
-overrides**. Enable **Override global defaults** to edit the choices.
+Centurion's **Enhancements** page exposes **Centurion UI** when editing
+**Centurion overrides**. These per-game choices can be edited directly.
 **UI preset** is an alias over its detailed choices: Original selects original
 behaviour and Reforged selects the ergonomic alternatives, which are the defaults.
 Expand **Advanced options** for individual controls. Presets are derived from the
@@ -720,10 +720,11 @@ notice (**Original**) or the native statistics table (**Detailed**). These are
 alternative views of enemy inspection. Apply changes the current view immediately;
 Cancel discards pending changes. Roman fleet lists and naval mechanics are
 unchanged. With this single binary choice, only Original/Reforged combinations
-exist. Other existing Centurion menu enhancements remain independent.
+exist. Other existing Centurion menu enhancements remain independent. Existing
+fleet-information selections are retained when updating.
 
 ```toml
-[entries.centurion-copy.display]
+[entries.centurion-copy.enhancements]
 fleet_information = "detailed" # default; "original" for the DOS notice
 ```
 

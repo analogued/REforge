@@ -3,7 +3,9 @@
 //! Granular Centurion choices and their preset aliases share one draft value.
 use super::machine_tests::{click, draw, dummy_video, label};
 use super::*;
-use reforge_settings::{CENTURION_FLEET_INFORMATION as KEY, FleetInformation, Launch, Patch};
+use reforge_settings::{
+    CENTURION_FLEET_INFORMATION as KEY, ENHANCEMENTS_SECTION, FleetInformation, Launch, Patch,
+};
 
 fn click_last(menu: &mut SettingsMenu<'_>, text: &str) {
     fn labels(shape: &egui::Shape, text: &str, result: &mut Vec<egui::Rect>) {
@@ -84,13 +86,29 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
         "game option must not appear in Global defaults"
     );
     menu.scope = 1;
-    click(
-        &mut menu,
-        "Override global defaults · only differences are saved",
+    assert!(
+        label(&draw(&mut menu, vec![]), "UI preset").is_none(),
+        "Centurion enhancements must not remain in Display"
     );
+    menu.scope = 0;
+    click(&mut menu, "Enhancements");
+    assert_eq!(menu.page, ENHANCEMENTS_SECTION);
+    assert!(label(&draw(&mut menu, vec![]), "UI preset").is_none());
+    menu.scope = 1;
     let output = draw(&mut menu, vec![]);
     assert!(label(&output, "UI preset").is_some());
     assert!(label(&output, "Reforged").is_some());
+    assert!(
+        !menu.game_editing[ENHANCEMENTS_SECTION],
+        "enhancements work without enabling global overrides"
+    );
+    assert!(
+        label(
+            &output,
+            "Override global defaults · only differences are saved"
+        )
+        .is_none()
+    );
     assert!(
         label(&output, "Fleet information").is_none(),
         "details start collapsed"
@@ -118,7 +136,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     menu.toggle();
     menu.prepare(display.ui_metrics(), display.settings());
     menu.scope = 1;
-    menu.game_editing[0] = true;
+    menu.page = ENHANCEMENTS_SECTION;
     assert_eq!(
         menu.draft
             .as_ref()
@@ -267,10 +285,10 @@ fn centurion_native_settings_capture_and_detail_navigation() {
             menu.set_theme(ResolvedAppearance::resolve(theme).theme);
             menu.toggle();
             menu.scope = 1;
+            menu.page = ENHANCEMENTS_SECTION;
             for _ in 0..3 {
                 menu.prepare(metrics, RuntimeSettings::default());
             }
-            menu.game_editing[0] = true;
             let output = sized_draw(&mut menu, metrics, vec![]);
             let pos = label(&output, "Advanced options").unwrap().center();
             for pressed in [true, false] {

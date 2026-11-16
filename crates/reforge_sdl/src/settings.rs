@@ -1445,7 +1445,6 @@ mod tests {
         menu.prepare(display.ui_metrics(), display.settings());
         menu.scope = 1;
         menu.page = reforge_settings::ENHANCEMENTS_SECTION;
-        menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION] = true;
         click(&mut menu, "Reforged");
         click(&mut menu, "Original");
         assert_eq!(
@@ -1842,6 +1841,23 @@ mod tests {
                         "section changes must preserve the menu frame: {scope}, {page}"
                     );
                     assert_eq!(menu.cancel_rect.unwrap(), cancel, "footer moved: {page}");
+                    if page == "Enhancements" {
+                        let output = draw(&mut menu, vec![]);
+                        assert!(
+                            label(
+                                &output,
+                                "Shared defaults · individual games can override these values"
+                            )
+                            .is_none()
+                        );
+                        assert!(
+                            label(
+                                &output,
+                                "Override global defaults · only differences are saved"
+                            )
+                            .is_none()
+                        );
+                    }
                 }
             }
         }
@@ -1849,10 +1865,8 @@ mod tests {
         click(&mut menu, "Enhancements");
         assert_eq!(menu.page, reforge_settings::ENHANCEMENTS_SECTION);
         let override_label = "Override global defaults · only differences are saved";
-        assert!(label(&draw(&mut menu, vec![]), override_label).is_some());
+        assert!(label(&draw(&mut menu, vec![]), override_label).is_none());
         assert!(!menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION]);
-        click(&mut menu, override_label);
-        assert!(menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION]);
         click(&mut menu, "Responsive");
         click(&mut menu, "Original");
         assert_eq!(
@@ -1864,7 +1878,7 @@ mod tests {
                 .control_mode,
             ControlMode::Original
         );
-        click(&mut menu, override_label);
+        click(&mut menu, "Restore defaults");
         assert!(!menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION]);
         assert!(
             !menu
@@ -1873,8 +1887,6 @@ mod tests {
                 .unwrap()
                 .has_game_overrides(reforge_settings::ENHANCEMENTS_SECTION)
         );
-        click(&mut menu, override_label);
-        assert!(menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION]);
         click(&mut menu, "Responsive");
         click(&mut menu, "Original");
         assert_eq!(

@@ -24,9 +24,8 @@ mechanisms that REforge replaces with host facilities.
 while keeping the game's movement speed, physics and collision rules. **Original**
 retains the native stepped presentation. Choose under
 **Settings → Alley Cat overrides → Enhancements → Scene movement**.
-Enable **Override global defaults**, then Apply to save the choice for this
-library entry. You can also use `--motion reforged|original` for a temporary
-launch override.
+Choose the mode, then Apply to save it for this library entry. You can also use
+`--motion reforged|original` for a temporary launch override.
 
 Scene movement and input response are independent. Either movement mode can use
 Responsive or Original controls. Reforged adds a small visual delay; it does not
@@ -40,8 +39,8 @@ Responsive controls reduce the wait before the game reads direction and action
 requests. They are enabled by default and preserve movement speed, physics and
 blocking effects. Original input polling remains available under
 F10 → Alley Cat overrides → Enhancements → Input response.
-Check **Override global defaults** to edit; Apply activates and
-saves the selection, and Cancel discards it. The preference persists across restarts.
+Apply activates and saves the selection, and Cancel discards it. The preference
+persists across restarts.
 
 Directions and Alt preserve timestamped transitions during catch-up. Brief taps
 between input samples can still be missed; see [input timing](docs/timing.md)

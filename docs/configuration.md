@@ -107,7 +107,7 @@ saved preferences, including removal of an old override.
 Older Alley Cat `machine = "tandy"` selections migrate to explicit `pcjr`
 selections; they keep their override status even when matching the input default.
 Hover labels/dots for global or saved values. No override badges or individual
-reset buttons are displayed. Checking **Override global defaults**
+reset buttons are displayed. Where present, **Override global defaults**
 enables game editing without copying the global section. The checkbox explains
 that only different values are saved. Unchecking it clears that section's game
 overrides in the draft; Apply saves the reset and Cancel discards it.
@@ -518,7 +518,10 @@ settings. Alley Cat offers scene movement and input response; Mach 3 offers
 scene movement and, with Original scenes, player craft movement. These options
 have built-in game defaults rather than shared global defaults. They are stored
 in each entry's `enhancements` table. Existing motion and input-response
-preferences migrate there automatically when that entry loads.
+preferences migrate there automatically when that entry loads. Options are
+directly editable, without an override checkbox; **Restore defaults** restores
+the game's built-in choices on Apply. The Global defaults view is informational
+for this section.
 
 ### Alley Cat input response
 
@@ -531,7 +534,7 @@ saves the preference; Cancel discards pending edits.
 This option exists only for Alley Cat, without a Global defaults or Mach 3
 counterpart. It is stored as
 `[entries.alley-cat-m7k4p9.enhancements] control_mode = "original"`; selecting Responsive
-removes that override. Check **Override global defaults** to edit it.
+removes that override.
 **Restore defaults** resets this entry's Enhancements section on Apply,
 including input response and scene movement. Controller layouts and the stick
 dead zone reset separately under Controls.
@@ -558,9 +561,8 @@ Existing explicit `enhanced` values keep craft/shadow-only interpolation;
 `original` keeps native presentation. The menu remembers the last player craft
 choice while switching scene movement during a session.
 
-Check **Override global defaults** to edit the section. Resetting the game Enhancements
-section restores Reforged scene movement on Apply; global resets and
-other game sections leave the motion override intact.
+Resetting the game Enhancements section restores Reforged scene movement on
+Apply; global resets and other game sections leave the motion override intact.
 `--motion reforged|enhanced|original` is a temporary, locked override and does not
 change the saved value.
 

@@ -293,7 +293,11 @@ pub(super) fn draw(
                     if section_has_cli_locks(&cli, menu.page, menu.scope, menu.mach3_options) {
                         cli_notice(ui);
                     }
-                    if menu.scope == 1 {
+                    if menu.page == ENHANCEMENTS_SECTION {
+                        if menu.scope == 1 {
+                            ui.weak("Game-specific options · Restore defaults returns to this game's built-in choices");
+                        }
+                    } else if menu.scope == 1 {
                         let mut override_defaults = menu.game_editing[menu.page];
                         if control(ui.checkbox(
                             &mut override_defaults,
@@ -353,7 +357,7 @@ pub(super) fn draw(
                         overrides,
                         cli: &cli,
                     };
-                    let enabled = menu.scope == 0 || menu.game_editing[menu.page];
+                    let enabled = menu.page == ENHANCEMENTS_SECTION || menu.scope == 0 || menu.game_editing[menu.page];
                     egui::ScrollArea::vertical()
                         .animated(false)
                         .id_salt(("settings_content", menu.page))
@@ -572,7 +576,8 @@ pub(super) fn draw(
                         .x
                         + ui.spacing().button_padding.x * 2.0;
                     if group_control(
-                        ui.add(
+                        ui.add_enabled(
+                            menu.page != ENHANCEMENTS_SECTION || menu.scope == 1,
                             egui::Button::new(reset_label)
                                 .min_size(Vec2::new(reset_width, ui.spacing().interact_size.y)),
                         ),

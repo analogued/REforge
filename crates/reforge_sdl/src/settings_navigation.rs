@@ -2101,12 +2101,12 @@ mod tests {
             menu.toggle();
             menu.scope = 1;
             menu.prepare(metrics, reforge_settings::RuntimeSettings::default());
-            menu.page = reforge_settings::ENHANCEMENTS_SECTION;
-            menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION] = true;
+            menu.page = 0;
+            menu.game_editing[0] = true;
             menu.draft
                 .as_mut()
                 .unwrap()
-                .edit(true, "motion", "original".into());
+                .edit(true, "scaling_policy", "fit".into());
             for _ in 0..3 {
                 menu.prepare(metrics, reforge_settings::RuntimeSettings::default());
             }
@@ -2122,7 +2122,7 @@ mod tests {
                 .id;
             let selector = targets
                 .iter()
-                .find(|target| matches!(target.kind, Kind::Selector)) // Scene movement.
+                .find(|target| matches!(target.kind, Kind::Selector)) // Scaling policy.
                 .unwrap()
                 .id;
             for (label, focus) in [("checkbox", checkbox), ("selector", selector)] {

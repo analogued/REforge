@@ -100,6 +100,7 @@ pub struct Session {
     pub quit: bool,
     pub save_dir: Option<PathBuf>,
     pub tribute_indicator: bool,
+    pub fleet_information: reforge_settings::FleetInformation,
     #[cfg(feature = "dev-tools")]
     pub slot_fallback: bool,
     #[cfg(feature = "dev-tools")]
@@ -190,6 +191,7 @@ impl Session {
             quit: false,
             save_dir: None,
             tribute_indicator: true,
+            fleet_information: reforge_settings::FleetInformation::default(),
             #[cfg(feature = "dev-tools")]
             slot_fallback: true,
             #[cfg(feature = "dev-tools")]
@@ -2763,6 +2765,7 @@ impl Session {
                         assets,
                         &self.campaign,
                         self.moving_fleet.ok_or("Missing fleet")?,
+                        self.fleet_information,
                     )?,
                     _ => {
                         let ids = self.campaign.local_fleets(self.fleet_region);

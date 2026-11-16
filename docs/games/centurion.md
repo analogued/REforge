@@ -76,9 +76,22 @@ Original game resources are only read; campaign writes target the save directory
 Menus combine keyboard-style selection boxes with mouse-hover highlighting.
 Tribute and Tribute Policy also mark the currently applied level with a subdued
 band. `--original-tribute-menus` hides that added indicator for comparisons.
-Enemy fleet inspection currently displays both a detailed native table and the
-DOS name/location notice; the detailed table's long names can overlap its counts.
-These presentation choices are described in the engine's
+In Settings, select **Centurion overrides → Display** and enable **Override global
+defaults** to edit **Centurion UI**.
+**UI preset** selects Original or Reforged (the default) for the options in that
+section. Expand **Advanced options** to choose **Fleet information** individually:
+Original shows the DOS fleet-name/location notice; Detailed shows the existing
+ship-count, transport and readiness table. The table replaces the notice rather
+than appearing alongside it. Apply takes effect immediately, including while an
+inspection is open; Cancel discards pending edits. Only the detailed choices are
+saved, and the preset label follows them. With this first binary option, every
+combination matches Original or Reforged.
+
+This option affects enemy inspection. Roman fleet lists, movement and naval rules
+retain their existing behaviour. The detailed table retains its current layout,
+including possible overlap between long fleet names and counts. Other menu
+presentation changes above are independent of this preset. These choices are
+described in the engine's
 [deviations reference](../../engines/centurion/docs/deviations.md).
 
 Several surprising original rules are retained. Canceling formation/tactic

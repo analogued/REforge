@@ -16,6 +16,8 @@ mod audio;
 pub use audio::{AudioSettings, CategoryVolumes, SoundCategory, SoundRenderer};
 mod controller;
 pub use controller::{ControllerButtons, ControllerMovement, FaceButton};
+mod centurion;
+pub use centurion::{CenturionOptions, FleetInformation};
 mod btz;
 pub use btz::{BtzSettings, FileCursorStyle};
 
@@ -62,6 +64,8 @@ pub const MOTION: &str = "motion";
 /// Both games persist their own value as `display.motion`.
 pub const ALLEYCAT_MOTION: &str = "alleycat_motion";
 pub const BTZ_FILE_CURSOR: &str = "file_cursor";
+/// Internal key for Centurion; stored as `display.fleet_information`.
+pub const CENTURION_FLEET_INFORMATION: &str = "centurion_fleet_information";
 pub const CONTROL_MODE: &str = "control_mode";
 /// Alley Cat startup machine, shared with the launcher's native option store.
 pub const ALLEYCAT_MACHINE: &str = "machine";
@@ -85,6 +89,7 @@ pub fn supports_terminal(game: &str) -> bool {
 fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     let keys: &[&str] = match game {
         "mach-3" => &[DIGITIZED_SAMPLES, MOTION],
+        "centurion-defender-of-rome" => &[CENTURION_FLEET_INFORMATION],
         "alley-cat" => &[
             ALLEYCAT_MACHINE,
             ALLEYCAT_MOTION,
@@ -115,7 +120,11 @@ pub fn keys() -> impl Iterator<Item = &'static str> {
 }
 
 fn stored_key(key: &str) -> &str {
-    if key == ALLEYCAT_MOTION { MOTION } else { key }
+    match key {
+        ALLEYCAT_MOTION => MOTION,
+        CENTURION_FLEET_INFORMATION => "fleet_information",
+        _ => key,
+    }
 }
 
 fn section(key: &str) -> &'static str {
@@ -551,6 +560,7 @@ pub struct RuntimeSettings {
     pub mach3: Mach3Settings,
     pub alleycat: AlleyCatSettings,
     pub btz: BtzSettings,
+    pub centurion: CenturionOptions,
     /// Percentage of each left-stick axis required to activate a direction.
     pub stick_dead_zone: u8,
 }
@@ -572,6 +582,7 @@ impl Default for RuntimeSettings {
             mach3: Mach3Settings::default(),
             alleycat: AlleyCatSettings::default(),
             btz: BtzSettings::default(),
+            centurion: CenturionOptions::default(),
             stick_dead_zone: 35,
         }
     }
@@ -675,6 +686,7 @@ impl RuntimeSettings {
             MOTION => self.mach3.motion.as_str().into(),
             ALLEYCAT_MOTION => self.alleycat.motion.as_str().into(),
             BTZ_FILE_CURSOR => self.btz.file_cursor.as_str().into(),
+            CENTURION_FLEET_INFORMATION => self.centurion.fleet_information.as_str().into(),
             "window_mode" => if self.fullscreen {
                 "fullscreen"
             } else {
@@ -727,6 +739,7 @@ impl RuntimeSettings {
             MOTION => self.mach3.motion = value.parse()?,
             ALLEYCAT_MOTION => self.alleycat.motion = value.parse()?,
             BTZ_FILE_CURSOR => self.btz.file_cursor = value.parse()?,
+            CENTURION_FLEET_INFORMATION => self.centurion.fleet_information = value.parse()?,
             DIGITIZED_SAMPLES => {
                 self.mach3.digitized_samples = match value {
                     "on" | "true" => true,
@@ -822,6 +835,7 @@ impl Draft {
         values.mach3 = Mach3Settings::default();
         values.alleycat = AlleyCatSettings::default();
         values.btz = BtzSettings::default();
+        values.centurion = CenturionOptions::default();
         values
     }
     pub fn game_values(&self) -> RuntimeSettings {
@@ -884,6 +898,7 @@ impl Draft {
             patch.remove(ALLEYCAT_MOTION);
             patch.remove(BTZ_FILE_CURSOR);
             patch.remove(ALLEYCAT_MACHINE);
+            patch.remove(CENTURION_FLEET_INFORMATION);
         }
     }
     /// Native game options can share a menu page without acquiring global keys.
@@ -895,6 +910,7 @@ impl Draft {
             || page == 0 && self.game.contains_key(ALLEYCAT_MOTION)
             || page == 0 && self.game.contains_key(BTZ_FILE_CURSOR)
             || page == 0 && self.game.contains_key(ALLEYCAT_MACHINE)
+            || page == 0 && self.game.contains_key(CENTURION_FLEET_INFORMATION)
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
             || page == 3
                 && ALLEYCAT_CONTROL_KEYS
@@ -905,7 +921,12 @@ impl Draft {
         if !game
             && (matches!(
                 key,
-                DIGITIZED_SAMPLES | MOTION | ALLEYCAT_MOTION | BTZ_FILE_CURSOR | ALLEYCAT_MACHINE
+                DIGITIZED_SAMPLES
+                    | MOTION
+                    | ALLEYCAT_MOTION
+                    | BTZ_FILE_CURSOR
+                    | ALLEYCAT_MACHINE
+                    | CENTURION_FLEET_INFORMATION
             ) || ALLEYCAT_CONTROL_KEYS.contains(&key))
         {
             return;
@@ -1066,6 +1087,9 @@ impl Session {
         }
         if !supports_terminal(&self.game_id) {
             values.btz = BtzSettings::default();
+        }
+        if self.game_id != "centurion-defender-of-rome" {
+            values.centurion = CenturionOptions::default();
         }
         values
     }

@@ -694,6 +694,27 @@ and UI. Engine adapters preserve pause/input boundaries and acknowledge runtime
 success before saving. Standalone diagnostic engine binaries retain in-memory
 preferences; the REforge app supplies persistent settings and the common CLI.
 
+## Centurion UI preferences
+
+Centurion's **Display** page exposes **Centurion UI** when editing **Centurion
+overrides**. Enable **Override global defaults** to edit the choices.
+**UI preset** is an alias over its detailed choices: Original selects original
+behaviour and Reforged selects the ergonomic alternatives, which are the defaults.
+Expand **Advanced options** for individual controls. Presets are derived from the
+choices, rather than saved separately.
+
+The first choice, **Fleet information**, selects the DOS fleet-name/location
+notice (**Original**) or the native statistics table (**Detailed**). These are
+alternative views of enemy inspection. Apply changes the current view immediately;
+Cancel discards pending changes. Roman fleet lists and naval mechanics are
+unchanged. With this single binary choice, only Original/Reforged combinations
+exist. Other existing Centurion menu enhancements remain independent.
+
+```toml
+[entries.centurion-copy.display]
+fleet_information = "detailed" # default; "original" for the DOS notice
+```
+
 ## Launcher appearance and quick options
 
 The no-argument launcher supports Classic Dark, Soft Tonal, Warm Amber and Crisp

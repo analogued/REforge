@@ -139,6 +139,16 @@ pub struct Assets {
 }
 
 impl Assets {
+    #[cfg(test)]
+    pub(crate) fn test_data(data_segment: Vec<u8>) -> Self {
+        Self {
+            root: PathBuf::new(),
+            banks: BTreeMap::new(),
+            data_segment,
+            palette: [[0; 3]; 256],
+        }
+    }
+
     pub fn open(root: &Path) -> Result<Self> {
         let ovl = read(&root.join("OVL0.OVL"))?;
         if ovl.len() != 96_272 || ovl.get(0xb86e..0xb883) != Some(b"Version 1.00A 5/25/90") {

@@ -112,6 +112,7 @@ pub struct SettingsMenu<'a> {
     pub(super) audio_categories: Vec<reforge_settings::SoundCategory>,
     pub(super) mach3_options: bool,
     pub(super) alleycat_options: bool,
+    pub(super) centurion_options: bool,
     pub(super) alleycat_machines: Option<&'static crate::launcher::OptionDefinition>,
     pub(super) controller_style: crate::gamepad::ControllerStyle,
     pub(super) btz_terminal: Option<bool>,
@@ -177,6 +178,16 @@ impl<'a> SettingsMenu<'a> {
             saved_height: preferences.split_preview_height,
             height: preferences.split_preview_height,
         });
+        self
+    }
+    /// Expose Centurion's game-only presentation preferences.
+    pub fn with_centurion_options(mut self) -> Self {
+        let mut session = self.creator.session.borrow_mut();
+        if session.game_id == "standalone" {
+            session.game_id = "centurion-defender-of-rome".into();
+        }
+        self.centurion_options = session.game_id == "centurion-defender-of-rome";
+        drop(session);
         self
     }
     /// Expose Alley Cat's game-only input and presentation preferences.
@@ -329,6 +340,7 @@ impl<'a> SettingsMenu<'a> {
             audio_categories: Vec::new(),
             mach3_options: false,
             alleycat_options: false,
+            centurion_options: false,
             alleycat_machines: None,
             controller_style: Default::default(),
             btz_terminal: None,
@@ -1088,6 +1100,8 @@ fn translate_event(
     }
 }
 
+#[cfg(test)]
+mod centurion_tests;
 #[cfg(test)]
 mod launcher_tests;
 #[cfg(test)]

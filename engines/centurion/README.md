@@ -83,7 +83,13 @@ Some surprising DOS rules are retained. Escape during formation/tactic selection
 spends the legion's action without moving it or inflicting battle casualties.
 Commander deaths do not immediately end battles, and some tactical positions
 can remain in a standoff until further orders or retreat.
-See [intentional deviations](docs/deviations.md) for presentation changes.
+Enemy-fleet information defaults to the detailed ship-count/transport/readiness
+table. In the normal player's Settings, Display → Centurion overrides → Centurion UI
+offers Original/Reforged presets and an expandable Fleet information choice.
+Original uses the DOS name/location notice alone. The presets currently cover
+this option only; other menu improvements remain independent. See the
+[player guide](../../docs/games/centurion.md#presentation-and-original-rules) and
+[intentional deviations](docs/deviations.md) for presentation changes.
 
 ## Development recording
 

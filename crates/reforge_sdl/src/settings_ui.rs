@@ -11,10 +11,11 @@ use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     ALLEYCAT_MACHINE, ALLEYCAT_MOTION, AlleyCatMachine, AlleyCatMotion, AspectRatio,
-    BTZ_FILE_CURSOR, Backend, CONTROL_MODE, CONTROLLER_ACTION, CONTROLLER_BUTTONS,
-    CONTROLLER_MOVEMENT, ControlMode, DIGITIZED_SAMPLES, FileCursorStyle, FrameLimit, MOTION,
-    MotionMode, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
-    STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
+    BTZ_FILE_CURSOR, Backend, CENTURION_FLEET_INFORMATION, CONTROL_MODE, CONTROLLER_ACTION,
+    CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, ControlMode, DIGITIZED_SAMPLES, FileCursorStyle,
+    FleetInformation, FrameLimit, MOTION, MotionMode, Presentation, Renderer, RuntimeSettings,
+    SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory,
+    SoundRenderer,
 };
 mod controller;
 const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
@@ -74,6 +75,7 @@ impl RowContext<'_> {
                 key,
                 DIGITIZED_SAMPLES
                     | ALLEYCAT_MACHINE
+                    | CENTURION_FLEET_INFORMATION
                     | ALLEYCAT_MOTION
                     | BTZ_FILE_CURSOR
                     | CONTROL_MODE
@@ -181,6 +183,7 @@ pub(super) fn draw(
                                 match game.as_str() {
                                     "alley-cat" => "Alley Cat",
                                     "mach-3" => "Mach 3",
+                                    "centurion-defender-of-rome" => "Centurion",
                                     "mindwheel" => "Mindwheel",
                                     "essex" => "Essex",
                                     "brimstone" => "Brimstone",
@@ -373,6 +376,7 @@ pub(super) fn draw(
                                             original_renderer: original.renderer,
                                             mach3: menu.scope == 1 && menu.mach3_options,
                                             alleycat: menu.scope == 1 && menu.alleycat_options,
+                                            centurion: menu.scope == 1 && menu.centurion_options,
                                             alleycat_machines: (menu.scope == 1).then_some(menu.alleycat_machines).flatten(),
                                             game_storage,
                                             terminal: (menu.scope == 1)
@@ -462,6 +466,18 @@ pub(super) fn draw(
                             (!menu.game_reset[menu.page]).then_some(&saved),
                         );
                     }
+                    if menu.page == 0
+                        && menu.scope == 1
+                        && menu.centurion_options
+                        && original.centurion != value.centurion
+                        && !cli.contains_key(CENTURION_FLEET_INFORMATION)
+                    {
+                        draft.edit_game(
+                            CENTURION_FLEET_INFORMATION,
+                            value.get(CENTURION_FLEET_INFORMATION),
+                            (!menu.game_reset[menu.page]).then_some(&saved),
+                        );
+                    }
                     if menu.page == 2
                         && menu.scope == 1
                         && menu.mach3_options
@@ -528,6 +544,7 @@ pub(super) fn draw(
                         || ([0, 2].contains(&menu.page) && menu.mach3_options)
                         || (menu.page == 0 && menu.btz_terminal.is_some())
                         || (menu.page == 0 && menu.alleycat_options)
+                        || (menu.page == 0 && menu.centurion_options)
                     {
                         "Restore defaults"
                     } else {
@@ -717,6 +734,7 @@ struct DisplayOptions {
     terminal: Option<bool>,
     mach3: bool,
     alleycat: bool,
+    centurion: bool,
     alleycat_machines: Option<&'static crate::launcher::OptionDefinition>,
     game_storage: bool,
 }
@@ -765,6 +783,50 @@ fn alleycat_machine_controls(
     });
 }
 
+fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
+    section(ui, "Centurion UI");
+    // Presets are aliases over the individual choices. With the first binary
+    // option, every combination matches one preset; there is no Custom state yet.
+    row(
+        ui,
+        "UI preset",
+        "centurion_ui_preset",
+        rows.state(CENTURION_FLEET_INFORMATION, value),
+        |ui| {
+            Selector::new(
+                "centurion_ui_preset",
+                [
+                    Choice::new(FleetInformation::Original, "Original"),
+                    Choice::new(FleetInformation::Detailed, "Reforged"),
+                ],
+            )
+            .show(ui, &mut value.centurion.fleet_information);
+        },
+    );
+    ui.weak("Presets apply to the detailed options below.");
+    collapsing(
+        egui::CollapsingHeader::new("Advanced options")
+            .id_salt("centurion_advanced_options")
+            .default_open(false)
+            .show(ui, |ui| {
+                row(
+                    ui,
+                    "Fleet information",
+                    CENTURION_FLEET_INFORMATION,
+                    rows.state(CENTURION_FLEET_INFORMATION, value),
+                    |ui| {
+                        Selector::new(
+                            CENTURION_FLEET_INFORMATION,
+                            FleetInformation::ALL.map(|choice| Choice::new(choice, choice.label())),
+                        )
+                        .show(ui, &mut value.centurion.fleet_information)
+                        .on_hover_text("Original shows the fleet's name and sea location. Detailed shows ship counts, transported legion and readiness.");
+                    },
+                );
+            }),
+    );
+}
+
 fn display_controls(
     ui: &mut egui::Ui,
     value: &mut RuntimeSettings,
@@ -780,6 +842,7 @@ fn display_controls(
         terminal,
         mach3,
         alleycat,
+        centurion,
         alleycat_machines,
         game_storage,
     } = options;
@@ -789,6 +852,9 @@ fn display_controls(
     }
     if let Some(machines) = alleycat_machines {
         alleycat_machine_controls(ui, value, rows, machines, game_storage);
+    }
+    if centurion {
+        centurion_controls(ui, value, rows);
     }
     ui.add_enabled_ui(value.renderer != Renderer::Terminal, |ui| {
         section(ui, "Window & scaling");
@@ -2539,6 +2605,7 @@ mod tests {
                                         terminal: None,
                                         mach3: false,
                                         alleycat: scope == 1 && alleycat,
+                                        centurion: false,
                                     },
                                 );
                             });
@@ -2664,6 +2731,7 @@ mod tests {
                                         terminal: None,
                                         mach3: scope == 1 && mach3,
                                         alleycat: false,
+                                        centurion: false,
                                     },
                                 );
                             });

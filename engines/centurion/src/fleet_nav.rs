@@ -157,15 +157,18 @@ pub fn movement(
     }
     Ok(())
 }
-/// Temporary comparison view: retain the native table and add the DOS notice.
+/// Show either the original fleet/location notice or the optional detailed table.
 pub fn inspection(
     frame: &mut Frame,
     assets: &Assets,
     state: &Campaign,
     index: usize,
+    information: reforge_settings::FleetInformation,
 ) -> Result<()> {
     let region = state.fleet_location(index)?;
-    movement(frame, assets, state, &[], index)?;
+    if information == reforge_settings::FleetInformation::Detailed {
+        return movement(frame, assets, state, &[], index);
+    }
     let notice = format!(
         "{}{}{}",
         state.string(word(&state.data, 0x1100 + index * 2)? as usize)?,
@@ -204,6 +207,75 @@ pub fn complete_list(frame: &mut Frame, assets: &Assets, state: &Campaign) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inspection_selects_one_view_and_only_details_expose_ship_counts() {
+        use reforge_settings::FleetInformation::{Detailed, Original};
+        let mut ds = vec![0; 65536];
+        let put = |data: &mut [u8], at: usize, value: u16| {
+            data[at..at + 2].copy_from_slice(&value.to_le_bytes());
+        };
+        // Authored three-pixel glyphs make text differences visible without
+        // requiring original font resources, banks or game assets.
+        for (offset, value) in [(0xa05c, 0xe000), (0xa05e, 0xe100), (0xa060, 0xe200)] {
+            put(&mut ds, offset, value);
+        }
+        ds[0xa062] = 1;
+        ds[0xa064] = 1;
+        ds[0xe000..0xe060].fill(3);
+        for glyph in 0..96 {
+            ds[0xe200 + glyph] = (glyph as u8).wrapping_mul(29);
+        }
+        let assets = Assets::test_data(ds.clone());
+        for (at, text) in [
+            (0xd000, "Enemy fleet"),
+            (0xd040, "Western sea"),
+            (0x58fb, " in "),
+            (0x1314, "Ships"),
+            (0x139e, "None"),
+            (0x3e16, "Continue"),
+            (0xd080, "Ready"),
+        ] {
+            ds[at..at + text.len()].copy_from_slice(text.as_bytes());
+        }
+        put(&mut ds, 0x1100 + 3 * 2, 0xd000);
+        put(&mut ds, 0x5222 + 32 * 2, 0xd040);
+        put(&mut ds, 0x1b54, 0xd080);
+        let fleet = 0x110e + 3 * 12;
+        put(&mut ds, fleet, 1);
+        ds[fleet + 6] = 32;
+        ds[fleet + 8] = 0;
+        ds[fleet + 9] = 255;
+        let mut state = Campaign::test_data(ds);
+        let before = state.data.clone();
+        let draw = |state: &Campaign, mode| {
+            let mut frame = Frame::new();
+            frame.pixels.fill(7);
+            inspection(&mut frame, &assets, state, 3, mode).unwrap();
+            frame.pixels
+        };
+        let original = draw(&state, Original);
+        let detailed = draw(&state, Detailed);
+        assert!(original[..40 * 320].iter().all(|pixel| *pixel == 7));
+        assert!(detailed[60 * 320..].iter().all(|pixel| *pixel == 7));
+        assert!(original[60 * 320..].iter().any(|pixel| *pixel != 7));
+        assert!(detailed[..40 * 320].iter().any(|pixel| *pixel != 7));
+        assert_eq!(
+            state.data, before,
+            "both views leave campaign state unchanged"
+        );
+        put(&mut state.data, fleet, 99);
+        assert_eq!(
+            draw(&state, Original),
+            original,
+            "DOS notice exposes no ship count"
+        );
+        assert_ne!(
+            draw(&state, Detailed),
+            detailed,
+            "detailed table shows ship count changes"
+        );
+    }
+
     #[test]
     fn sailing_moves_cargo_without_spending_the_legions_own_action() {
         let mut ds = vec![0; 65536];

@@ -25,11 +25,18 @@ than the selected slot's previous name.
 ## Enemy-fleet information
 
 DOS enemy inspection displays a fleet-name/location notice, including when Roman
-fleets are present. The native frontend shows that notice alongside an additional
-detailed fleet table, with one acknowledgment dismissing both. The extra table
-exposes counts, transport assignment and readiness; it can overlap a long fleet
-name with the trireme count. This combined presentation remains provisional.
-It does not change fleet selection precedence, ship counts or naval mechanics.
+fleets are present. **Fleet information: Original** uses that notice alone.
+**Detailed**, the Reforged default, instead shows the existing native fleet table
+with ship counts, transport assignment and readiness. The detailed table can
+overlap a long fleet name with the trireme count; its layout is unchanged.
+
+The granular setting is available under Settings → Display → Centurion overrides →
+Centurion UI → Advanced options. The Original/Reforged UI presets are aliases
+for the detailed choices in that section, rather than separate saved switches.
+They currently cover fleet information only. Applying a change can switch an
+already open inspection without changing campaign state. Both views use the
+same single key/click dismissal. The choice does not change fleet selection
+precedence, Roman fleet lists, ship counts or naval mechanics.
 
 ## Host presentation and sound
 

@@ -38,8 +38,10 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
     let sdl = sdl3::init().map_err(|e| e.to_string())?;
     let cursor = Cursor(sdl.mouse());
     let creator = window.texture_creator();
+    session.fleet_information = window.settings().centurion.fleet_information;
     let mut texture = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba)?;
     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+        .with_centurion_options()
         .with_audio_renderers(&[reforge_settings::SoundRenderer::GameDefault])
         .with_audio_categories(&[
             reforge_settings::SoundCategory::Music,
@@ -265,6 +267,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
             }
         }
         window.prepare_settings(&mut menu);
+        session.fleet_information = window.settings().centurion.fleet_information;
         gamepads.set_dead_zone(window.settings().stick_dead_zone);
         if !paused {
             let frame = audio.as_mut().map(|o| o.clock_frames()).transpose()?;

@@ -73,6 +73,11 @@ Original game resources are only read; campaign writes target the save directory
 
 ## Presentation and original rules
 
+Click an uncontrolled province to see its name. If a roaming army is there, the
+notice also identifies its origin. The popup hides the pointer and displays
+“Click to continue”; either mouse button, Enter, Space or Escape dismisses it.
+Controlled and allied provinces open their normal management panels.
+
 Menus combine keyboard-style selection boxes with mouse-hover highlighting.
 Tribute and Tribute Policy also mark the currently applied level with a subdued
 band. `--original-tribute-menus` hides that added indicator for comparisons.

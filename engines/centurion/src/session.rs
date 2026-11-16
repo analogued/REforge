@@ -15,6 +15,7 @@ pub enum Phase {
     Credits,
     Prologue,
     Map,
+    ProvinceInspect,
     Rome,
     Legions,
     RaiseLegion,
@@ -704,6 +705,23 @@ impl Session {
             }
             return Ok(());
         }
+        if self.phase == Phase::ProvinceInspect
+            && matches!(
+                input,
+                Input::Enter
+                    | Input::Space
+                    | Input::Escape
+                    | Input::Backspace
+                    | Input::Text(_)
+                    | Input::Shortcut(_)
+                    | Input::Click(_, _)
+                    | Input::RightClick(_, _)
+            )
+        {
+            self.phase = Phase::Map;
+            self.highlighted = false;
+            return Ok(());
+        }
         if matches!(self.phase, Phase::FleetList | Phase::FleetInspect)
             && !matches!(
                 input,
@@ -1147,6 +1165,12 @@ impl Session {
                         return Ok(());
                     }
                     self.selected_province = self.campaign.province_at(x, y)?;
+                    if let Some(province) = self.selected_province
+                        && self.campaign.ownership(province)? == 0
+                    {
+                        self.phase = Phase::ProvinceInspect;
+                        return Ok(());
+                    }
                     if let Some(province) = self.selected_province
                         && self.campaign.ownership(province)? != 0
                     {
@@ -2747,6 +2771,18 @@ impl Session {
                     )?;
                 }
             }
+            Phase::ProvinceInspect => {
+                frame = crate::campaign::render(assets, &self.campaign, &self.map, &self.sprites)?;
+                crate::legion::message_with_footer(
+                    &mut frame,
+                    assets,
+                    &self.campaign.province_information(
+                        self.selected_province.ok_or("Missing inspected province")?,
+                    )?,
+                    &self.campaign.string(0x3e2e)?,
+                    0,
+                )?;
+            }
             Phase::FleetMove | Phase::FleetSelect | Phase::FleetList | Phase::FleetInspect => {
                 frame = crate::campaign::render(assets, &self.campaign, &self.map, &self.sprites)?;
                 match self.phase {
@@ -2944,6 +2980,7 @@ impl Session {
                 || self.games.as_ref().is_some_and(|s| s.cursor_visible()))
             && !self.phase.is_startup()
             && self.phase != Phase::LegionMessage
+            && self.phase != Phase::ProvinceInspect
             && (self.phase != Phase::Diplomacy
                 || self.diplomacy.as_ref().is_some_and(|s| s.cursor_visible()))
             && battle_cursor

@@ -62,6 +62,9 @@ enters the campaign map.
 | Gladiator show | Left/Right moves, Up/Down guards, Left with Up/Down attacks. H opens games from a province; Rome offers gladiator shows. |
 | Chariot race | Arrows steer/brake, Up whips, Up with Left/Right strikes. Choose racing from Rome's games menu. |
 
+Clicking an uncontrolled province shows its name in the original information
+popup, including a roaming army and its origin when one is present. A fresh
+mouse click or ordinary key dismisses it without changing the campaign.
 Province screens include tribute, army management and province lists. Rome also
 offers global Tribute Policy; other controlled provinces offer plunder. Tribute
 menus mark the applied level with a dim band, independently of selection.

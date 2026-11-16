@@ -399,10 +399,19 @@ pub fn message_with_footer_offset(
     footer_offset: i32,
 ) -> Result<()> {
     let footer = state.string(0x3e16)?;
+    message_with_footer(frame, assets, text, &footer, footer_offset)
+}
+pub fn message_with_footer(
+    frame: &mut Frame,
+    assets: &Assets,
+    text: &str,
+    footer: &str,
+    footer_offset: i32,
+) -> Result<()> {
     let widths = word(&assets.data_segment, 0xa05c)? as usize;
     let width = text
         .split('\n')
-        .chain(std::iter::once(footer.as_str()))
+        .chain(std::iter::once(footer))
         .map(|line| {
             line.bytes()
                 .filter(|b| (32..128).contains(b))
@@ -427,7 +436,7 @@ pub fn message_with_footer_offset(
     frame.center_lines(assets, text, 159, 99 - half_height, 0)?;
     frame.center_text(
         assets,
-        &footer,
+        footer,
         159,
         99 + half_height - 8 + footer_offset,
         15,

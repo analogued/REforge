@@ -116,11 +116,11 @@ pub struct SettingsMenu<'a> {
     pub(super) alleycat_machines: Option<&'static crate::launcher::OptionDefinition>,
     pub(super) controller_style: crate::gamepad::ControllerStyle,
     pub(super) btz_terminal: Option<bool>,
-    pub(super) game_editing: [bool; 4],
+    pub(super) game_editing: [bool; reforge_settings::SECTION_KEYS.len()],
     pub(super) page: usize,
     // A section reset prevents edit round trips from restoring cleared keys.
-    pub(super) game_reset: [bool; 4],
-    pub(super) global_reset: [bool; 4],
+    pub(super) game_reset: [bool; reforge_settings::SECTION_KEYS.len()],
+    pub(super) global_reset: [bool; reforge_settings::SECTION_KEYS.len()],
     pub(super) display_edits: [crate::settings_ui::DisplayEdits; 2],
     pub(super) status: Option<String>,
     pub(super) jobs: Vec<egui::ClippedPrimitive>,
@@ -344,10 +344,10 @@ impl<'a> SettingsMenu<'a> {
             alleycat_machines: None,
             controller_style: Default::default(),
             btz_terminal: None,
-            game_editing: [false; 4],
+            game_editing: [false; reforge_settings::SECTION_KEYS.len()],
             page: 0,
-            game_reset: [false; 4],
-            global_reset: [false; 4],
+            game_reset: [false; reforge_settings::SECTION_KEYS.len()],
+            global_reset: [false; reforge_settings::SECTION_KEYS.len()],
             display_edits: Default::default(),
             status: None,
             jobs: Vec::new(),
@@ -389,8 +389,8 @@ impl<'a> SettingsMenu<'a> {
         if let Some(launcher) = &mut self.launcher_options {
             launcher.height = launcher.saved_height;
         }
-        self.game_reset = [false; 4];
-        self.global_reset = [false; 4];
+        self.game_reset = [false; reforge_settings::SECTION_KEYS.len()];
+        self.global_reset = [false; reforge_settings::SECTION_KEYS.len()];
         self.display_edits = Default::default();
         self.events.clear();
         let mode = self.navigation.mode;
@@ -639,7 +639,7 @@ impl<'a> SettingsMenu<'a> {
         if self.draft.is_none() {
             self.audio_devices_loaded = false;
             let saved = self.creator.session.borrow().saved.clone();
-            self.game_editing = [0, 1, 2, 3].map(|page| saved.has_game_overrides(page));
+            self.game_editing = std::array::from_fn(|page| saved.has_game_overrides(page));
             self.draft = Some(saved);
         }
         if self.page == 2 && !self.audio_devices_loaded {
@@ -734,8 +734,8 @@ impl<'a> SettingsMenu<'a> {
                     if let (Some(launcher), Some(height)) = (&mut self.launcher_options, height) {
                         launcher.saved_height = height;
                     }
-                    self.game_reset = [false; 4];
-                    self.global_reset = [false; 4];
+                    self.game_reset = [false; reforge_settings::SECTION_KEYS.len()];
+                    self.global_reset = [false; reforge_settings::SECTION_KEYS.len()];
                     self.display_edits = Default::default();
                 }
                 Err(error) => {
@@ -1444,8 +1444,8 @@ mod tests {
         menu.toggle();
         menu.prepare(display.ui_metrics(), display.settings());
         menu.scope = 1;
-        menu.page = 0;
-        menu.game_editing[0] = true;
+        menu.page = reforge_settings::ENHANCEMENTS_SECTION;
+        menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION] = true;
         click(&mut menu, "Reforged");
         click(&mut menu, "Original");
         assert_eq!(
@@ -1824,7 +1824,13 @@ mod tests {
                 .context
                 .memory(|memory| memory.area_rect(egui::Id::new("reforge_settings")).unwrap());
             let cancel = menu.cancel_rect.unwrap();
-            for page in ["CRT & Colour", "Audio", "Controls", "Display"] {
+            for page in [
+                "CRT & Colour",
+                "Audio",
+                "Controls",
+                "Enhancements",
+                "Display",
+            ] {
                 click(&mut menu, page);
                 for _ in 0..3 {
                     draw(&mut menu, vec![]);
@@ -1840,13 +1846,13 @@ mod tests {
             }
         }
         click(&mut menu, "Alley Cat overrides");
-        click(&mut menu, "Controls");
-        assert_eq!(menu.page, 3);
+        click(&mut menu, "Enhancements");
+        assert_eq!(menu.page, reforge_settings::ENHANCEMENTS_SECTION);
         let override_label = "Override global defaults · only differences are saved";
         assert!(label(&draw(&mut menu, vec![]), override_label).is_some());
-        assert!(!menu.game_editing[3]);
+        assert!(!menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION]);
         click(&mut menu, override_label);
-        assert!(menu.game_editing[3]);
+        assert!(menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION]);
         click(&mut menu, "Responsive");
         click(&mut menu, "Original");
         assert_eq!(
@@ -1859,10 +1865,16 @@ mod tests {
             ControlMode::Original
         );
         click(&mut menu, override_label);
-        assert!(!menu.game_editing[3]);
-        assert!(!menu.draft.as_ref().unwrap().has_game_overrides(3));
+        assert!(!menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION]);
+        assert!(
+            !menu
+                .draft
+                .as_ref()
+                .unwrap()
+                .has_game_overrides(reforge_settings::ENHANCEMENTS_SECTION)
+        );
         click(&mut menu, override_label);
-        assert!(menu.game_editing[3]);
+        assert!(menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION]);
         click(&mut menu, "Responsive");
         click(&mut menu, "Original");
         assert_eq!(
@@ -1927,7 +1939,11 @@ mod tests {
             display.settings().alleycat.control_mode,
             ControlMode::Responsive
         );
-        assert!(!Session::load(launch.clone()).saved.has_game_overrides(3));
+        assert!(
+            !Session::load(launch.clone())
+                .saved
+                .has_game_overrides(reforge_settings::ENHANCEMENTS_SECTION)
+        );
 
         // An explicit launcher preference may equal global. Exercise the real
         // menu and Apply path, rather than just editing the model directly.
@@ -2603,11 +2619,11 @@ mod tests {
                     window: (1280, 960),
                     pixels_per_point: density,
                 };
-                for page in 0..4 {
+                for page in 0..reforge_settings::SECTION_KEYS.len() {
                     for scope in 0..2 {
                         menu.page = page;
                         menu.scope = scope;
-                        menu.game_editing = [true; 4];
+                        menu.game_editing = [true; reforge_settings::SECTION_KEYS.len()];
                         for _ in 0..3 {
                             menu.prepare(metrics, display.settings());
                         }

@@ -407,6 +407,11 @@ fn directional_target(targets: &[Target], current: usize, key: Key) -> Option<us
             if index == current || candidate.layer != source.layer {
                 return None;
             }
+            // Vertical page navigation stays in content until the footer;
+            // a taller sidebar must not intercept the final row's Down action.
+            if vertical && source.group == Group::Content && candidate.group == Group::Sidebar {
+                return None;
+            }
             let delta = candidate.rect.center() - source.rect.center();
             // Horizontal movement within the content acts on the same row;
             // diagonal fields below it are reached with Up/Down instead.
@@ -1082,7 +1087,10 @@ mod tests {
                                     "79".into(),
                                 );
                             }
-                            for page in 0..4 {
+                            for page in 0..reforge_settings::SECTION_KEYS.len() {
+                                if page == reforge_settings::ENHANCEMENTS_SECTION && scope == 0 {
+                                    continue;
+                                }
                                 menu.page = page;
                                 menu.game_editing[page] = true;
                                 for _ in 0..3 {
@@ -1216,7 +1224,18 @@ mod tests {
                 controller(&mut menu, confirm);
                 assert_eq!(menu.page, page);
             }
-            controller(&mut menu, next); // Override defaults checkbox
+            // Enter the page directly, independent of later sidebar categories.
+            controller(
+                &mut menu,
+                PadEvent {
+                    actions: Actions {
+                        right: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            controller(&mut menu, PadEvent::default()); // Override defaults checkbox
             assert!(!menu.game_editing[3]);
             controller(&mut menu, confirm);
             assert!(menu.game_editing[3]);
@@ -2082,7 +2101,8 @@ mod tests {
             menu.toggle();
             menu.scope = 1;
             menu.prepare(metrics, reforge_settings::RuntimeSettings::default());
-            menu.game_editing[0] = true;
+            menu.page = reforge_settings::ENHANCEMENTS_SECTION;
+            menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION] = true;
             menu.draft
                 .as_mut()
                 .unwrap()
@@ -2102,8 +2122,7 @@ mod tests {
                 .id;
             let selector = targets
                 .iter()
-                .filter(|target| matches!(target.kind, Kind::Selector))
-                .nth(3) // Scaling policy, sampling, aspect ratio, then Mach 3 motion.
+                .find(|target| matches!(target.kind, Kind::Selector)) // Scene movement.
                 .unwrap()
                 .id;
             for (label, focus) in [("checkbox", checkbox), ("selector", selector)] {

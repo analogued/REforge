@@ -539,14 +539,14 @@ fn native_controller_templates_and_themes() {
                 ],
             );
             let scrolled = render(&mut menu, &mut canvas, vec![]);
-            assert_visible_text(&scrolled, "Input response", theme.palette.window);
-            let label = text(&scrolled.output, "Input response").0;
+            assert_visible_text(&scrolled, "Stick dead zone", theme.palette.window);
+            let label = text(&scrolled.output, "Stick dead zone").0;
             let clip = scrolled
                 .output
                 .shapes
                 .iter()
                 .find_map(|shape| match &shape.shape {
-                    egui::Shape::Text(text) if text.galley.text() == "Input response" => {
+                    egui::Shape::Text(text) if text.galley.text() == "Stick dead zone" => {
                         Some(shape.clip_rect)
                     }
                     _ => None,
@@ -554,7 +554,7 @@ fn native_controller_templates_and_themes() {
                 .unwrap();
             assert!(
                 clip.contains_rect(label),
-                "small-window Input response must be reachable by scrolling"
+                "small-window Stick dead zone must be reachable by scrolling"
             );
             if let Some(directory) = &output_dir {
                 write_capture(

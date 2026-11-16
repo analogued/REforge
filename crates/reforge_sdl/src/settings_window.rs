@@ -450,7 +450,7 @@ mod tests {
             );
             assert!(screen.contains_rect(menu.cancel_rect.unwrap()));
             let grown = display.canvas.window().size();
-            for page in 0..4 {
+            for page in 0..reforge_settings::SECTION_KEYS.len() {
                 menu.page = page;
                 display.prepare_settings(&mut menu);
                 assert_eq!(display.canvas.window().size(), grown);

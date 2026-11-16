@@ -11,6 +11,8 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Group Alley Cat and Mach 3 motion options and Alley Cat input response under
+  Enhancements in Settings.
 - Use equal-height previews in Split view, with Play aligned to the preview when
   text fits. Choose a height from 144 to 192 logical pixels (180 by default) on
   the separate Launcher page in Settings.

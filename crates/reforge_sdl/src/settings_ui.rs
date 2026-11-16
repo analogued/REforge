@@ -12,13 +12,19 @@ use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     ALLEYCAT_MACHINE, ALLEYCAT_MOTION, AlleyCatMachine, AlleyCatMotion, AspectRatio,
     BTZ_FILE_CURSOR, Backend, CENTURION_FLEET_INFORMATION, CONTROL_MODE, CONTROLLER_ACTION,
-    CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, ControlMode, DIGITIZED_SAMPLES, FileCursorStyle,
-    FleetInformation, FrameLimit, MOTION, MotionMode, Presentation, Renderer, RuntimeSettings,
-    SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory,
-    SoundRenderer,
+    CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, ControlMode, DIGITIZED_SAMPLES, ENHANCEMENTS_SECTION,
+    FileCursorStyle, FleetInformation, FrameLimit, MOTION, MotionMode, Presentation, Renderer,
+    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy,
+    SoundCategory, SoundRenderer,
 };
 mod controller;
-const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
+const PAGES: [&str; SECTION_KEYS.len()] = [
+    "Display",
+    "CRT & Colour",
+    "Audio",
+    "Controls",
+    "Enhancements",
+];
 pub(super) const LAUNCHER_PAGE: usize = PAGES.len();
 // Presence is distinct from equality: explicit overrides may match global.
 #[derive(Clone, Copy, Default)]
@@ -213,6 +219,9 @@ pub(super) fn draw(
                     for (page, label) in PAGES.into_iter()
                         .chain(menu.launcher_options.is_some().then_some("Launcher"))
                         .enumerate() {
+                        if page == ENHANCEMENTS_SECTION && !menu.alleycat_options && !menu.mach3_options {
+                            continue;
+                        }
                         if page == LAUNCHER_PAGE {
                             ui.separator();
                         }
@@ -374,8 +383,6 @@ pub(super) fn draw(
                                             geometry,
                                             windowed_scale,
                                             original_renderer: original.renderer,
-                                            mach3: menu.scope == 1 && menu.mach3_options,
-                                            alleycat: menu.scope == 1 && menu.alleycat_options,
                                             centurion: menu.scope == 1 && menu.centurion_options,
                                             alleycat_machines: (menu.scope == 1).then_some(menu.alleycat_machines).flatten(),
                                             game_storage,
@@ -406,6 +413,8 @@ pub(super) fn draw(
                                         controls_visible,
                                         menu.controller_style,
                                     );
+                                } else if menu.page == ENHANCEMENTS_SECTION {
+                                    enhancement_controls(ui, &mut value, rows, menu.mach3_options, menu.alleycat_options);
                                 }
                             });
                             crate::settings_navigation::scroll_focus(ui, first);
@@ -442,7 +451,7 @@ pub(super) fn draw(
                             (!menu.game_reset[menu.page]).then_some(&saved),
                         );
                     }
-                    if menu.page == 0
+                    if menu.page == ENHANCEMENTS_SECTION
                         && menu.scope == 1
                         && menu.mach3_options
                         && original.mach3.motion != value.mach3.motion
@@ -454,7 +463,7 @@ pub(super) fn draw(
                             (!menu.game_reset[menu.page]).then_some(&saved),
                         );
                     }
-                    if menu.page == 0
+                    if menu.page == ENHANCEMENTS_SECTION
                         && menu.scope == 1
                         && menu.alleycat_options
                         && original.alleycat.motion != value.alleycat.motion
@@ -490,13 +499,9 @@ pub(super) fn draw(
                             (!menu.game_reset[menu.page]).then_some(&saved),
                         );
                     }
-                    if menu.page == 3 && controls_visible {
-                        for key in [
-                            CONTROL_MODE,
-                            CONTROLLER_MOVEMENT,
-                            CONTROLLER_ACTION,
-                            CONTROLLER_BUTTONS,
-                        ] {
+                    if controls_visible {
+                        for key in [CONTROL_MODE, CONTROLLER_MOVEMENT, CONTROLLER_ACTION, CONTROLLER_BUTTONS]
+                            .into_iter().filter(|key| reforge_settings::section_index(key) == menu.page) {
                             if original.get(key) != value.get(key) && !cli.contains_key(key) {
                                 draft.edit_game(
                                     key,
@@ -540,8 +545,8 @@ pub(super) fn draw(
                 crate::settings_navigation::row_controls(ui, bounds, |ui| {
                     let reset_label = if menu.page == LAUNCHER_PAGE || menu.scope == 0 {
                         "Reset section"
-                    } else if menu.page == 3
-                        || ([0, 2].contains(&menu.page) && menu.mach3_options)
+                    } else if menu.page == 3 || menu.page == ENHANCEMENTS_SECTION
+                        || (menu.page == 2 && menu.mach3_options)
                         || (menu.page == 0 && menu.btz_terminal.is_some())
                         || (menu.page == 0 && menu.alleycat_options)
                         || (menu.page == 0 && menu.centurion_options)
@@ -732,8 +737,6 @@ struct DisplayOptions {
     windowed_scale: u32,
     original_renderer: Renderer,
     terminal: Option<bool>,
-    mach3: bool,
-    alleycat: bool,
     centurion: bool,
     alleycat_machines: Option<&'static crate::launcher::OptionDefinition>,
     game_storage: bool,
@@ -840,8 +843,6 @@ fn display_controls(
         windowed_scale,
         original_renderer,
         terminal,
-        mach3,
-        alleycat,
         centurion,
         alleycat_machines,
         game_storage,
@@ -966,21 +967,6 @@ fn display_controls(
             },
         );
     });
-    if mach3 {
-        mach3_motion_controls(ui, value, rows);
-    } else if alleycat {
-        row(
-            ui,
-            "Scene movement",
-            ALLEYCAT_MOTION,
-            rows.state(ALLEYCAT_MOTION, value),
-            |ui| {
-                Selector::new(ALLEYCAT_MOTION, AlleyCatMotion::ALL.map(|motion| Choice::new(motion, motion.label())))
-                .show(ui, &mut value.alleycat.motion)
-                .on_hover_text("Reforged smooths actor movement between game updates. Original retains native stepped movement. Input response, gameplay speed and collisions are independent.");
-            },
-        );
-    }
     section(ui, "Rendering");
     row(
         ui,
@@ -1109,10 +1095,37 @@ fn controls_controls(
             );
         },
     );
+}
+
+fn enhancement_controls(
+    ui: &mut egui::Ui,
+    value: &mut RuntimeSettings,
+    rows: RowContext<'_>,
+    mach3: bool,
+    alleycat: bool,
+) {
+    if rows.scope == 0 {
+        ui.weak("Enhancements are selected per game. Open the game's overrides to customize them.");
+        return;
+    }
+    if mach3 {
+        mach3_motion_controls(ui, value, rows);
+    } else if alleycat {
+        row(
+            ui,
+            "Scene movement",
+            ALLEYCAT_MOTION,
+            rows.state(ALLEYCAT_MOTION, value),
+            |ui| {
+                Selector::new(ALLEYCAT_MOTION, AlleyCatMotion::ALL.map(|motion| Choice::new(motion, motion.label())))
+                .show(ui, &mut value.alleycat.motion)
+                .on_hover_text("Reforged smooths actor movement between game updates. Original retains native stepped movement. Input response, gameplay speed and collisions are independent.");
+            },
+        );
+    }
     if !alleycat {
         return;
     }
-    section(ui, "Gameplay");
     row(
         ui,
         "Input response",
@@ -1460,7 +1473,11 @@ fn section_has_cli_locks(
 ) -> bool {
     SECTION_KEYS[page].iter().any(|key| cli.contains_key(*key))
         || (page == 2 && scope == 1 && mach3_options && cli.contains_key(DIGITIZED_SAMPLES))
-        || (page == 0 && scope == 1 && mach3_options && cli.contains_key(MOTION))
+        || (page == ENHANCEMENTS_SECTION
+            && scope == 1
+            && (mach3_options && cli.contains_key(MOTION)
+                || cli.contains_key(ALLEYCAT_MOTION)
+                || cli.contains_key(CONTROL_MODE)))
 }
 
 fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {
@@ -2398,6 +2415,14 @@ mod tests {
         assert!(!section_has_cli_locks(&cli, 2, 1, false));
         assert!(section_has_cli_locks(&cli, 2, 1, true));
         assert!(!section_has_cli_locks(&Default::default(), 2, 1, true));
+        for key in [MOTION, ALLEYCAT_MOTION, CONTROL_MODE] {
+            let cli = reforge_settings::Patch::from([(key.into(), "original".into())]);
+            assert!(section_has_cli_locks(&cli, ENHANCEMENTS_SECTION, 1, true));
+            assert!(!section_has_cli_locks(&cli, ENHANCEMENTS_SECTION, 0, true));
+            assert!(!section_has_cli_locks(&cli, 0, 1, true));
+            assert!(!section_has_cli_locks(&cli, 3, 1, true));
+        }
+
         assert!(cli_tooltip(DIGITIZED_SAMPLES, "false").contains("--digitized-samples off"));
     }
 
@@ -2523,7 +2548,7 @@ mod tests {
     }
 
     #[test]
-    fn alleycat_motion_control_follows_display_defaults_scope_and_cli_locks() {
+    fn alleycat_motion_control_follows_enhancement_defaults_scope_and_cli_locks() {
         fn text_rect(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
             output.shapes.iter().find_map(|shape| match &shape.shape {
                 egui::Shape::Text(text) if text.galley.text() == label => {
@@ -2581,7 +2606,7 @@ mod tests {
                     |ctx| {
                         egui::CentralPanel::default().show(ctx, |ui| {
                             ui.add_enabled_ui(section_editable, |ui| {
-                                display_controls(
+                                enhancement_controls(
                                     ui,
                                     &mut value,
                                     RowContext {
@@ -2591,22 +2616,8 @@ mod tests {
                                         overrides: Overrides::default(),
                                         cli: &cli,
                                     },
-                                    &mut DisplayEdits::default(),
-                                    DisplayOptions {
-                                        capabilities: VideoCapabilities::default(),
-                                        alleycat_machines: None,
-                                        game_storage: true,
-                                        geometry: crate::DisplayGeometry::new(
-                                            (320, 200),
-                                            (320, 240),
-                                        ),
-                                        windowed_scale: 2,
-                                        original_renderer: Renderer::Auto,
-                                        terminal: None,
-                                        mach3: false,
-                                        alleycat: scope == 1 && alleycat,
-                                        centurion: false,
-                                    },
+                                    false,
+                                    alleycat,
                                 );
                             });
                         });
@@ -2617,7 +2628,7 @@ mod tests {
                     assert!(label.is_none());
                     break;
                 }
-                let label = label.expect("Alley Cat control must be visible");
+                label.expect("Alley Cat control must be visible");
                 if locked {
                     assert!(
                         output.shapes.iter().any(|shape| {
@@ -2626,7 +2637,7 @@ mod tests {
                         "CLI lock must retain its colour when section defaults disable the row"
                     );
                 }
-                assert!(label.top() > text_rect(&output, "Aspect ratio").unwrap().bottom());
+                assert!(text_rect(&output, "Aspect ratio").is_none());
                 if step < 2 {
                     button = text_rect(&output, "Reforged").unwrap().center();
                 }
@@ -2649,7 +2660,7 @@ mod tests {
     }
 
     #[test]
-    fn mach3_motion_control_follows_display_defaults_scope_and_cli_locks() {
+    fn mach3_motion_control_follows_enhancement_defaults_scope_and_cli_locks() {
         fn text_rect(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
             output.shapes.iter().find_map(|shape| match &shape.shape {
                 egui::Shape::Text(text) if text.galley.text() == label => {
@@ -2707,7 +2718,7 @@ mod tests {
                     |ctx| {
                         egui::CentralPanel::default().show(ctx, |ui| {
                             ui.add_enabled_ui(section_editable, |ui| {
-                                display_controls(
+                                enhancement_controls(
                                     ui,
                                     &mut value,
                                     RowContext {
@@ -2717,22 +2728,8 @@ mod tests {
                                         overrides: Overrides::default(),
                                         cli: &cli,
                                     },
-                                    &mut DisplayEdits::default(),
-                                    DisplayOptions {
-                                        capabilities: VideoCapabilities::default(),
-                                        alleycat_machines: None,
-                                        game_storage: true,
-                                        geometry: crate::DisplayGeometry::new(
-                                            (320, 200),
-                                            (320, 240),
-                                        ),
-                                        windowed_scale: 2,
-                                        original_renderer: Renderer::Auto,
-                                        terminal: None,
-                                        mach3: scope == 1 && mach3,
-                                        alleycat: false,
-                                        centurion: false,
-                                    },
+                                    mach3,
+                                    false,
                                 );
                             });
                         });
@@ -2743,7 +2740,7 @@ mod tests {
                     assert!(label.is_none());
                     break;
                 }
-                let label = label.expect("Mach 3 control must be visible");
+                label.expect("Mach 3 control must be visible");
                 if locked {
                     assert!(
                         output.shapes.iter().any(|shape| {
@@ -2752,7 +2749,7 @@ mod tests {
                         "CLI lock must retain its colour when section defaults disable the row"
                     );
                 }
-                assert!(label.top() > text_rect(&output, "Aspect ratio").unwrap().bottom());
+                assert!(text_rect(&output, "Aspect ratio").is_none());
                 if step < 2 {
                     button = text_rect(&output, "Reforged").unwrap().center();
                 }

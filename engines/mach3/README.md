@@ -108,7 +108,7 @@ Mach 3-specific options include:
 - `--motion reforged|enhanced|original`: temporarily select Reforged scene
   movement (default `reforged`), craft/shadow-only interpolation (`enhanced`), or
   native presentation (`original`). Existing saved values keep their meanings.
-  The saved per-game Display setting applies when this argument is absent.
+  The saved per-game Enhancements setting applies when this argument is absent.
   F10 offers Scene movement and, for Original scene movement, Player craft movement.
 
 - `--video cga|mono`: select the initial native colour or monochrome display.

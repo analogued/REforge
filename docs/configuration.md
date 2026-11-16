@@ -94,12 +94,12 @@ Next-launch-only settings such as Mach 3's Digitized samples require a registere
 game with configuration enabled and are disabled otherwise.
 Cancel, Escape and F10 discard unapplied edits. **Reset section** clears only the
 selected global section when editing Global defaults. When editing a game, the
-button is **Restore defaults** on Controls, BTZ's Display page and Mach 3's
-Display/Audio pages, or **Restore global defaults** on the other pages. It clears
-only that game's overrides for the selected section: shared fields inherit global
+button is **Restore defaults** on Controls and Enhancements, BTZ's Display page
+and Mach 3's Audio page, or **Restore global defaults** on the other pages.
+It clears only that game's overrides for the selected section: shared fields inherit global
 preferences, and game-only fields return to their built-in defaults. Display,
-CRT & Colour, Audio and Controls reset independently. Resets remain drafts until
-Apply.
+CRT & Colour, Audio, Controls and Enhancements reset independently. Resets remain
+drafts until Apply.
 
 Game fields with an override in the draft use the theme accent text, including
 explicit values matching global defaults. An amber dot marks a change compared with
@@ -290,7 +290,7 @@ stick_dead_zone = 35
 [entries.alley-cat-m7k4p9.display]
 scale = 4
 
-[entries.alley-cat-m7k4p9.controls]
+[entries.alley-cat-m7k4p9.enhancements]
 control_mode = "original"
 
 [entries.mach-3-q8n2v5.display]
@@ -511,9 +511,18 @@ run. A saved launcher selection remains editable. Next-launch edits require a
 registered library entry and configuration storage; unregistered or
 `--no-config` runs show the control disabled.
 
-## Alley Cat controls
+## Enhancements
 
-**Alley Cat overrides → Controls → Input response** offers **Responsive** (the
+Game-specific improvements are grouped under **Enhancements** in each game's
+settings. Alley Cat offers scene movement and input response; Mach 3 offers
+scene movement and, with Original scenes, player craft movement. These options
+have built-in game defaults rather than shared global defaults. They are stored
+in each entry's `enhancements` table. Existing motion and input-response
+preferences migrate there automatically when that entry loads.
+
+### Alley Cat input response
+
+**Alley Cat overrides → Enhancements → Input response** offers **Responsive** (the
 built-in default) and **Original**. Responsive refreshes direction and action
 requests more often, preserving movement cadence and blocking effects. Original
 retains the original game's input polling. Apply changes the running game and
@@ -521,16 +530,17 @@ saves the preference; Cancel discards pending edits.
 
 This option exists only for Alley Cat, without a Global defaults or Mach 3
 counterpart. It is stored as
-`[entries.alley-cat-m7k4p9.controls] control_mode = "original"`; selecting Responsive
+`[entries.alley-cat-m7k4p9.enhancements] control_mode = "original"`; selecting Responsive
 removes that override. Check **Override global defaults** to edit it.
-**Restore defaults** resets this entry's whole Controls section on Apply,
-including input response, controller layouts and the stick dead zone override.
+**Restore defaults** resets this entry's Enhancements section on Apply,
+including input response and scene movement. Controller layouts and the stick
+dead zone reset separately under Controls.
 Global resets leave game overrides intact. Reference/headless diagnostics retain
 original input polling.
 
-## Mach 3 motion
+### Mach 3 motion
 
-**Mach 3 overrides → Display → Scene movement** offers **Reforged** (the
+**Mach 3 overrides → Enhancements → Scene movement** offers **Reforged** (the
 built-in default) and **Original**. Reforged smooths scene movement while
 keeping the original mountain artwork and updates. Original scene movement shows
 **Player craft movement**, with **Enhanced** for craft/shadow-only smoothing
@@ -540,7 +550,7 @@ changes the running presentation and saves the preference; Cancel discards draft
 changes.
 
 This option is game-specific and has no global or other-game counterpart. Its
-storage is `[entries.mach-3-q8n2v5.display] motion = "reforged"|"enhanced"|"original"`.
+storage is `[entries.mach-3-q8n2v5.enhancements] motion = "reforged"|"enhanced"|"original"`.
 `reforged` is the built-in default, so selecting it normally removes the override.
 An existing saved `scene` value is automatically renamed to `reforged` when its
 Mach 3 entry loads, preserving the selected behavior.
@@ -548,8 +558,8 @@ Existing explicit `enhanced` values keep craft/shadow-only interpolation;
 `original` keeps native presentation. The menu remembers the last player craft
 choice while switching scene movement during a session.
 
-Check **Override global defaults** to edit the section. Resetting the game Display
-section restores Reforged scene movement on Apply; global Display resets and
+Check **Override global defaults** to edit the section. Resetting the game Enhancements
+section restores Reforged scene movement on Apply; global resets and
 other game sections leave the motion override intact.
 `--motion reforged|enhanced|original` is a temporary, locked override and does not
 change the saved value.

@@ -84,7 +84,7 @@ Reforged scene movement is the default. It smooths the moving scene while
 retaining native gameplay, input polling, collisions and sound timing. Mountains
 keep their original artwork and updates.
 
-Use **F10 → Mach 3 overrides → Display → Scene movement** to choose
+Use **F10 → Mach 3 overrides → Enhancements → Scene movement** to choose
 **Reforged** or **Original**. With Original scene movement, **Player craft
 movement** offers **Enhanced** (craft and shadow only) or **Original**
 (native craft placement and publication rhythm). Enable **Override global

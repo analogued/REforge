@@ -196,7 +196,7 @@ title as well. Ctrl+Q and window close remain available throughout.
 ## Scene movement
 
 Reforged scene movement is the interactive default. Original retains the native
-packed framebuffer, sprite placement and stepped updates. The per-game Display
+packed framebuffer, sprite placement and stepped updates. The per-game Enhancements
 setting and temporary `--motion reforged|original` override are independent of
 Responsive/Original input response. Neither presentation policy changes native
 movement, collisions, support checks, random consumption, progression or sound

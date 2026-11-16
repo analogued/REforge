@@ -57,11 +57,13 @@ pub const AUDIO_KEYS: &[&str] = &[
 ];
 pub const STICK_DEAD_ZONE: &str = "stick_dead_zone";
 pub const CONTROL_KEYS: &[&str] = &[STICK_DEAD_ZONE];
-pub const SECTION_KEYS: [&[&str]; 4] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS, CONTROL_KEYS];
+/// UI section containing game-specific enhancements.
+pub const ENHANCEMENTS_SECTION: usize = 4;
+pub const SECTION_KEYS: [&[&str]; 5] = [DISPLAY_KEYS, CRT_KEYS, AUDIO_KEYS, CONTROL_KEYS, &[]];
 pub const DIGITIZED_SAMPLES: &str = "digitized_samples";
 pub const MOTION: &str = "motion";
 /// Internal key separating Alley Cat from Mach 3 in the flat runtime patch.
-/// Both games persist their own value as `display.motion`.
+/// Both games persist their own value as `enhancements.motion`.
 pub const ALLEYCAT_MOTION: &str = "alleycat_motion";
 pub const BTZ_FILE_CURSOR: &str = "file_cursor";
 /// Internal key for Centurion; stored as `display.fleet_information`.
@@ -104,6 +106,9 @@ fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     keys.iter().copied()
 }
 pub fn section_index(key: &str) -> usize {
+    if matches!(key, MOTION | ALLEYCAT_MOTION | CONTROL_MODE) {
+        return ENHANCEMENTS_SECTION;
+    }
     if key == DIGITIZED_SAMPLES {
         return 2;
     }
@@ -128,7 +133,9 @@ fn stored_key(key: &str) -> &str {
 }
 
 fn section(key: &str) -> &'static str {
-    if key == ALLEYCAT_MACHINE {
+    if matches!(key, MOTION | ALLEYCAT_MOTION | CONTROL_MODE) {
+        "enhancements"
+    } else if key == ALLEYCAT_MACHINE {
         "launcher"
     } else if key == DIGITIZED_SAMPLES {
         "gameplay"
@@ -890,12 +897,17 @@ impl Draft {
             patch.remove(DIGITIZED_SAMPLES);
         }
         if game && page == 3 {
-            patch.retain(|key, _| !ALLEYCAT_CONTROL_KEYS.contains(&key.as_str()));
+            patch.retain(|key, _| {
+                !ALLEYCAT_CONTROL_KEYS.contains(&key.as_str()) || key == CONTROL_MODE
+            });
+        }
+        if game && page == ENHANCEMENTS_SECTION {
+            patch.remove(MOTION);
+            patch.remove(ALLEYCAT_MOTION);
+            patch.remove(CONTROL_MODE);
         }
         if game && page == 0 {
             patch.remove(GRAPHICAL_RENDERER);
-            patch.remove(MOTION);
-            patch.remove(ALLEYCAT_MOTION);
             patch.remove(BTZ_FILE_CURSOR);
             patch.remove(ALLEYCAT_MACHINE);
             patch.remove(CENTURION_FLEET_INFORMATION);
@@ -906,8 +918,9 @@ impl Draft {
         SECTION_KEYS[page]
             .iter()
             .any(|key| self.game.contains_key(*key))
-            || page == 0 && self.game.contains_key(MOTION)
-            || page == 0 && self.game.contains_key(ALLEYCAT_MOTION)
+            || page == ENHANCEMENTS_SECTION && self.game.contains_key(MOTION)
+            || page == ENHANCEMENTS_SECTION && self.game.contains_key(ALLEYCAT_MOTION)
+            || page == ENHANCEMENTS_SECTION && self.game.contains_key(CONTROL_MODE)
             || page == 0 && self.game.contains_key(BTZ_FILE_CURSOR)
             || page == 0 && self.game.contains_key(ALLEYCAT_MACHINE)
             || page == 0 && self.game.contains_key(CENTURION_FLEET_INFORMATION)
@@ -915,7 +928,7 @@ impl Draft {
             || page == 3
                 && ALLEYCAT_CONTROL_KEYS
                     .iter()
-                    .any(|key| self.game.contains_key(*key))
+                    .any(|key| *key != CONTROL_MODE && self.game.contains_key(*key))
     }
     pub fn edit(&mut self, game: bool, key: &str, value: String) {
         if !game
@@ -1144,11 +1157,24 @@ impl Session {
 }
 /// Canonicalize legacy preferences without changing their behavior or presence.
 fn migrate_legacy_settings(doc: &mut DocumentMut, game: &str, entry: &str) -> bool {
+    let enhancements_changed = migrate_enhancements(doc, game, entry);
     let (section, key, old, canonical) = match game {
-        "mach-3" => ("display", MOTION, "scene", "reforged"),
+        "mach-3" => ("enhancements", MOTION, "scene", "reforged"),
         "alley-cat" => ("launcher", ALLEYCAT_MACHINE, "tandy", "pcjr"),
-        _ => return false,
+        _ => return enhancements_changed,
     };
+    // Item::get_mut may create missing paths. Inspect first so an unrelated
+    // save cannot materialize empty sections or alter absent entry structure.
+    if doc
+        .get("entries")
+        .and_then(|entries| entries.get(entry))
+        .and_then(|entry| entry.get(section))
+        .and_then(|section| section.get(key))
+        .and_then(Item::as_str)
+        != Some(old)
+    {
+        return enhancements_changed;
+    }
     let Some(value) = doc
         .get_mut("entries")
         .and_then(|entries| entries.get_mut(entry))
@@ -1156,15 +1182,92 @@ fn migrate_legacy_settings(doc: &mut DocumentMut, game: &str, entry: &str) -> bo
         .and_then(|section| section.get_mut(key))
         .and_then(Item::as_value_mut)
     else {
-        return false;
+        return enhancements_changed;
     };
     if value.as_str() != Some(old) {
-        return false;
+        return enhancements_changed;
     }
     let mut replacement = toml_edit::Value::from(canonical);
     *replacement.decor_mut() = value.decor().clone();
     *value = replacement;
     true
+}
+
+/// Move only this game's recognized preferences; canonical values take precedence.
+fn migrate_enhancements(doc: &mut DocumentMut, game: &str, entry: &str) -> bool {
+    let moves: &[(&str, &str, &str)] = match game {
+        "mach-3" => &[("display", "motion", MOTION)],
+        "alley-cat" => &[
+            ("display", "motion", ALLEYCAT_MOTION),
+            ("controls", "control_mode", CONTROL_MODE),
+        ],
+        _ => return false,
+    };
+    if doc
+        .get("entries")
+        .and_then(|entries| entries.get(entry))
+        .is_none_or(|entry| !entry.is_table_like())
+    {
+        return false;
+    }
+    let Some(entry) = doc
+        .get_mut("entries")
+        .and_then(|entries| entries.get_mut(entry))
+        .and_then(Item::as_table_like_mut)
+    else {
+        return false;
+    };
+    if entry
+        .get("enhancements")
+        .is_some_and(|item| !item.is_table_like())
+    {
+        return false;
+    }
+    let mut changed = false;
+    for &(source, key, runtime_key) in moves {
+        let Some(item) = entry.get(source).and_then(|table| table.get(key)) else {
+            continue;
+        };
+        let Some(text) = item.as_str() else {
+            continue;
+        };
+        let text = if game == "mach-3" && text == "scene" {
+            "reforged"
+        } else {
+            text
+        };
+        if RuntimeSettings::default().set(runtime_key, text).is_err() {
+            continue;
+        }
+        // Preserve invalid canonical data for repair rather than replacing it.
+        if let Some(canonical) = entry.get("enhancements").and_then(|table| table.get(key))
+            && canonical
+                .as_str()
+                .is_none_or(|value| RuntimeSettings::default().set(runtime_key, value).is_err())
+        {
+            continue;
+        }
+        let item = entry
+            .get_mut(source)
+            .unwrap()
+            .as_table_like_mut()
+            .unwrap()
+            .remove(key)
+            .unwrap();
+        if entry.get("enhancements").is_none() {
+            entry.insert("enhancements", Item::Table(toml_edit::Table::new()));
+        }
+        let target = entry
+            .get_mut("enhancements")
+            .unwrap()
+            .as_table_like_mut()
+            .unwrap();
+        if target.get(key).is_none() {
+            target.insert(key, item);
+        }
+        changed = true;
+    }
+    changed
 }
 
 fn read(path: &Path) -> Result<DocumentMut, String> {
@@ -1198,7 +1301,7 @@ fn read_draft(
         let mut p = Patch::new();
         if let Some(item) = item {
             if let Some(table) = item.as_table_like() {
-                for name in ["display", "crt", "audio", "controls"]
+                for name in ["display", "crt", "audio", "controls", "enhancements"]
                     .into_iter()
                     .chain((game == "mach-3").then_some("gameplay"))
                     .chain((game == "alley-cat").then_some("launcher"))
@@ -1208,7 +1311,20 @@ fn read_draft(
                     }
                 }
                 for key in keys().chain(game_keys(game)) {
-                    if let Some(v) = table.get(section(key)).and_then(|x| x.get(stored_key(key))) {
+                    let legacy = match key {
+                        MOTION | ALLEYCAT_MOTION => Some("display"),
+                        CONTROL_MODE => Some("controls"),
+                        _ => None,
+                    };
+                    if let Some(v) = table
+                        .get(section(key))
+                        .and_then(|x| x.get(stored_key(key)))
+                        .or_else(|| {
+                            legacy
+                                .and_then(|section| table.get(section))
+                                .and_then(|x| x.get(stored_key(key)))
+                        })
+                    {
                         let mut text: String = if let Some(s) = v.as_str() {
                             s.into()
                         } else if let Some(n) = v.as_integer() {
@@ -1291,6 +1407,9 @@ fn save_changes(
     split_preview_height: Option<u16>,
 ) -> Result<(), String> {
     edit_document(path, "settings", |doc| {
+        if let Some(entry) = entry {
+            migrate_legacy_settings(doc, game, entry);
+        }
         if let Some(height) = split_preview_height {
             launcher::write_split_preview_height(doc, height)?;
         }
@@ -1836,7 +1955,7 @@ mod tests {
         draft.edit(false, ALLEYCAT_MOTION, "original".into());
         assert!(!draft.global.contains_key(ALLEYCAT_MOTION));
         draft.edit(true, ALLEYCAT_MOTION, "original".into());
-        assert!(draft.has_game_overrides(0));
+        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
         assert!(!draft.has_game_overrides(3));
         assert_eq!(draft.game_values().get(ALLEYCAT_MOTION), "original");
         assert_eq!(draft.game_values().get(MOTION), "reforged");
@@ -1876,38 +1995,38 @@ mod tests {
         let text = fs::read_to_string(&path).unwrap();
         let doc = text.parse::<DocumentMut>().unwrap();
         assert_eq!(
-            doc["entries"]["first"]["display"][MOTION].as_str(),
+            doc["entries"]["first"]["enhancements"][MOTION].as_str(),
             Some("original")
         );
         assert!(
-            doc["entries"]["first"]["display"]
+            doc["entries"]["first"]["enhancements"]
                 .get(ALLEYCAT_MOTION)
                 .is_none()
         );
         assert_eq!(
-            doc["entries"]["mach-3"]["display"][MOTION].as_str(),
+            doc["entries"]["mach-3"]["enhancements"][MOTION].as_str(),
             Some("enhanced")
         );
         let mut controls = loaded.saved.clone();
         controls.edit(true, CONTROL_MODE, "original".into());
-        controls.reset_section(true, 0);
+        controls.reset_section(true, ENHANCEMENTS_SECTION);
         assert_eq!(
             controls.game_values().alleycat.motion,
             AlleyCatMotion::Reforged
         );
         assert_eq!(
             controls.game_values().alleycat.control_mode,
-            ControlMode::Original
+            ControlMode::Responsive
         );
-        assert!(controls.has_game_overrides(3));
-        assert!(!controls.has_game_overrides(0));
+        assert!(!controls.has_game_overrides(3));
+        assert!(!controls.has_game_overrides(ENHANCEMENTS_SECTION));
     }
 
     #[test]
     fn alleycat_motion_cli_is_temporary_and_rejects_mach3_only_modes() {
         let dir = TestDir::new();
         let path = dir.file();
-        fs::write(&path, "[entries.copy.display]\nmotion='reforged'\n").unwrap();
+        fs::write(&path, "[entries.copy.enhancements]\nmotion='reforged'\n").unwrap();
         let launch = Launch {
             game_id: "alley-cat".into(),
             entry_id: Some("copy".into()),
@@ -1929,7 +2048,7 @@ mod tests {
         loaded.commit(saved).unwrap();
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
-            "schema_version = 2\n[entries.copy.display]\nmotion='reforged'\n"
+            "schema_version = 2\n[entries.copy.enhancements]\nmotion='reforged'\n"
         );
         for invalid in ["enhanced", "scene", "faithful"] {
             assert!(
@@ -1978,8 +2097,8 @@ mod tests {
         draft.edit(false, MOTION, "original".into());
         assert!(!draft.global.contains_key(MOTION));
         draft.edit(true, MOTION, "original".into());
-        assert!(draft.has_game_overrides(0));
-        assert_eq!(section_index(MOTION), 0);
+        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert_eq!(section_index(MOTION), ENHANCEMENTS_SECTION);
         assert_eq!(
             mach.effective(&mach.saved).mach3.motion,
             MotionMode::Reforged
@@ -2011,8 +2130,8 @@ mod tests {
         let mut reset = loaded.saved.clone();
         reset.reset_section(true, 2);
         assert_eq!(reset.game_values().mach3.motion, MotionMode::Original);
-        reset.reset_section(true, 0);
-        assert!(!reset.has_game_overrides(0));
+        reset.reset_section(true, ENHANCEMENTS_SECTION);
+        assert!(!reset.has_game_overrides(ENHANCEMENTS_SECTION));
         assert_eq!(reset.game_values().mach3.motion, MotionMode::Reforged);
         assert_eq!(
             session(path, "alley-cat")
@@ -2022,6 +2141,99 @@ mod tests {
             MotionMode::Reforged
         );
         assert!("faithful".parse::<MotionMode>().is_err());
+    }
+
+    #[test]
+    fn enhancements_migrate_together_and_reset_independently_of_display_and_bindings() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let original = "[entries.copy.display]\nmotion = 'original' # motion note\nscale = 4\n[entries.copy.controls]\ncontrol_mode = 'original' # response note\ncontroller_action = 'north'\n[entries.other.display]\nmotion = 'original'\n";
+        fs::write(&path, original).unwrap();
+        let launch = Launch {
+            game_id: "alley-cat".into(),
+            entry_id: Some("copy".into()),
+            path: Some(path.clone()),
+            cli: Patch::new(),
+        };
+        let mut loaded = Session::load(launch.clone());
+        assert!(loaded.warning.is_none());
+        let migrated = fs::read_to_string(&path).unwrap();
+        let doc = migrated.parse::<DocumentMut>().unwrap();
+        assert_eq!(
+            doc["entries"]["copy"]["enhancements"]["motion"].as_str(),
+            Some("original")
+        );
+        assert_eq!(
+            doc["entries"]["copy"]["enhancements"]["control_mode"].as_str(),
+            Some("original")
+        );
+        assert!(doc["entries"]["copy"]["display"].get("motion").is_none());
+        assert!(
+            doc["entries"]["copy"]["controls"]
+                .get("control_mode")
+                .is_none()
+        );
+        assert_eq!(
+            doc["entries"]["other"]["display"]["motion"].as_str(),
+            Some("original")
+        );
+        assert!(migrated.contains("# motion note") && migrated.contains("# response note"));
+        let _ = Session::load(launch.clone());
+        assert_eq!(fs::read_to_string(&path).unwrap(), migrated);
+        let mut draft = loaded.saved.clone();
+        draft.reset_section(true, 0);
+        draft.reset_section(true, 3);
+        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert_eq!(
+            draft.game_values().alleycat.motion,
+            AlleyCatMotion::Original
+        );
+        assert_eq!(
+            draft.game_values().alleycat.control_mode,
+            ControlMode::Original
+        );
+        let mut draft = loaded.saved.clone();
+        draft.reset_section(true, ENHANCEMENTS_SECTION);
+        assert!(!draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert_eq!(draft.game_values().scale, Some(4));
+        assert_eq!(
+            draft.game_values().alleycat.controller_action,
+            FaceButton::North
+        );
+        loaded.commit(draft).unwrap();
+        assert!(
+            !Session::load(launch)
+                .saved
+                .has_game_overrides(ENHANCEMENTS_SECTION)
+        );
+    }
+
+    #[test]
+    fn enhancement_migration_preserves_canonical_values_and_malformed_sections() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(&path, "[entries.alley-cat.display]\nmotion = 'original'\n[entries.alley-cat.enhancements]\nmotion = 'reforged'\n").unwrap();
+        let loaded = session(path.clone(), "alley-cat");
+        assert!(loaded.warning.is_none());
+        assert_eq!(
+            loaded.saved.game.get(ALLEYCAT_MOTION).map(String::as_str),
+            Some("reforged")
+        );
+        let doc = read(&path).unwrap();
+        assert!(
+            doc["entries"]["alley-cat"]["display"]
+                .get("motion")
+                .is_none()
+        );
+        let malformed = "[entries.alley-cat]\nenhancements = 'broken'\n[entries.alley-cat.display]\nmotion = 'original'\n";
+        fs::write(&path, malformed).unwrap();
+        let mut loaded = session(path.clone(), "alley-cat");
+        assert!(loaded.warning.is_some());
+        assert_eq!(fs::read_to_string(&path).unwrap(), malformed);
+        let mut draft = loaded.saved.clone();
+        draft.edit(true, ALLEYCAT_MOTION, "reforged".into());
+        assert!(loaded.commit(draft).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), malformed);
     }
 
     #[test]
@@ -2051,7 +2263,21 @@ mod tests {
             MotionMode::Original
         );
         let migrated = fs::read_to_string(&path).unwrap();
-        assert_eq!(migrated, original.replacen("'scene'", "\"reforged\"", 1));
+        let doc = migrated.parse::<DocumentMut>().unwrap();
+        assert_eq!(
+            doc["entries"]["custom"]["enhancements"][MOTION].as_str(),
+            Some("reforged")
+        );
+        assert!(doc["entries"]["custom"]["display"].get(MOTION).is_none());
+        assert_eq!(
+            doc["entries"]["custom"]["display"]["unknown"].as_integer(),
+            Some(7)
+        );
+        assert_eq!(
+            doc["entries"]["other"]["display"][MOTION].as_str(),
+            Some("scene")
+        );
+        assert!(migrated.contains("# keep this comment"));
         // Reloading is idempotent and never persists the command-line override.
         let _ = Session::load(Launch {
             game_id: "mach-3".into(),
@@ -2122,7 +2348,7 @@ mod tests {
             reset.reset_section(true, 2);
             reset.reset_section(true, 3);
             assert_eq!(reset.game_values().mach3.motion, mode);
-            reset.reset_section(true, 0);
+            reset.reset_section(true, ENHANCEMENTS_SECTION);
             assert_eq!(reset.game_values().mach3.motion, MotionMode::Reforged);
         }
     }
@@ -2157,8 +2383,8 @@ control_mode = "original"
         draft.edit(false, CONTROL_MODE, "original".into());
         assert!(draft.global.is_empty());
         draft.edit(true, CONTROL_MODE, "original".into());
-        assert!(draft.has_game_overrides(3));
-        assert_eq!(section_index(CONTROL_MODE), 3);
+        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert_eq!(section_index(CONTROL_MODE), ENHANCEMENTS_SECTION);
         assert_eq!(
             cat.effective(&cat.saved).alleycat.control_mode,
             ControlMode::Responsive
@@ -2180,7 +2406,7 @@ control_mode = "original"
             reset.game_values().alleycat.control_mode,
             ControlMode::Original
         );
-        reset.reset_section(true, 3);
+        reset.reset_section(true, ENHANCEMENTS_SECTION);
         assert_eq!(
             reset.game_values().alleycat.control_mode,
             ControlMode::Responsive
@@ -2193,7 +2419,7 @@ control_mode = "original"
         loaded.commit(reset).unwrap();
         let doc = read(&path).unwrap();
         assert!(
-            doc["entries"]["alley-cat"]["controls"]
+            doc["entries"]["alley-cat"]["enhancements"]
                 .get(CONTROL_MODE)
                 .is_none()
         );

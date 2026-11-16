@@ -251,10 +251,12 @@ primitives with that theme. Ordinary egui widgets receive the same palette.
 ## Settings menu
 
 Esc or F10 opens the Compact Display, CRT & Colour, Audio and Controls pages in each engine.
+Games with optional improvements also expose an Enhancements page.
 Modal dialogs retain Escape for cancel/back; F10 can open Settings above them.
-Controls offers a shared stick dead zone, with Alley Cat's additional input-response
-choice under its game overrides. Alley Cat's Display page also offers Scene
-movement: Reforged / Original. Applying changes it live; Cancel keeps the active
+Controls offers a shared stick dead zone and Alley Cat controller layouts.
+Enhancements groups Alley Cat's input response and scene movement, and Mach 3's
+scene and player-craft movement. Alley Cat offers Reforged / Original scene
+movement. Applying changes it live; Cancel keeps the active
 and saved choice. `with_alleycat_motion` supplies a temporary command-line choice
 and locks the corresponding game control without saving it.
 Selectors switch live between dropdowns for mouse input and horizontal carousels

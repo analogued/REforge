@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded compatibility data for the SHA-256 to BLAKE3 identity transition.
 //! These opaque aliases need no old hashing algorithm or per-file metadata.
+// TODO(compat-cleanup): Retire these release/cache aliases after a few published
+// releases have carried the BLAKE3 migration (first shipped in 2026.2.1).
+// See "Temporary compatibility cleanup" in docs/releases.md for removal scope.
 use reforge_settings::library::ReleaseAlias;
 
 pub(crate) const RELEASES: &[ReleaseAlias] = &[

@@ -28,6 +28,24 @@ Calendar versions do not encode compatibility guarantees. Check release notes
 for changes requiring user action, including new system/build requirements or
 incompatible command-line options.
 
+### Temporary compatibility cleanup
+
+Review these transitional adapters for removal after a few published releases
+have carried each migration. Development builds do not count toward that window;
+no removal version has been selected yet.
+
+- **BLAKE3 identities (first shipped in 2026.2.1):**
+  `app/src/detection/migration.rs` retains six old-to-new release-ID aliases and
+  ten preview-cache-key aliases. Retire their library/profile and preview lookup
+  wiring and migration-only tests together. No SHA-256 verification algorithm,
+  `sha2` dependency or per-file SHA-256 fingerprint catalog is retained for this
+  transition. SHA-256 checks for release-packaging dependency sources are separate.
+- **Enhancements preferences (currently Unreleased):**
+  `migrate_enhancements` in `crates/reforge_settings/src/lib.rs` moves the old
+  Display/Controls fields into per-entry Enhancements tables. Retire the helper,
+  its call, the legacy-section read fallback and migration-only tests together.
+  Keep ordinary Enhancements loading, saving and reset coverage.
+
 ## Build a package
 
 Install Python 3.11 or newer and the release-only

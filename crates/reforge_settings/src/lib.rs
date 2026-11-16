@@ -1194,6 +1194,9 @@ fn migrate_legacy_settings(doc: &mut DocumentMut, game: &str, entry: &str) -> bo
 }
 
 /// Move only this game's recognized preferences; canonical values take precedence.
+// TODO(compat-cleanup): Remove after a few published releases carry this migration.
+// Remove its caller, legacy-section reading and migration-only tests together;
+// see "Temporary compatibility cleanup" in docs/releases.md.
 fn migrate_enhancements(doc: &mut DocumentMut, game: &str, entry: &str) -> bool {
     let moves: &[(&str, &str, &str)] = match game {
         "mach-3" => &[("display", "motion", MOTION)],
@@ -1311,6 +1314,7 @@ fn read_draft(
                     }
                 }
                 for key in keys().chain(game_keys(game)) {
+                    // TODO(compat-cleanup): Retire with migrate_enhancements.
                     let legacy = match key {
                         MOTION | ALLEYCAT_MOTION => Some("display"),
                         CONTROL_MODE => Some("controls"),

@@ -91,9 +91,12 @@ fleet-name/location notice. In Settings, Centurion overrides â†’ Enhancements â†
 Centurion UI offers Original/Reforged presets and expandable Fleet information
 choices: Original, Detailed and Both. Popup cursor offers Visible (default) or
 Hidden for acknowledgment messages and read-only lists; interactive choices keep
-their pointer. Reforged selects Both and Visible; Original selects Original and
-Hidden. Other combinations show Custom. Continue prompts follow the last
-intentional mouse click or key, ignoring pointer motion and polling. Roman
+their pointer. Menu decorations offers Mouse rails (default), Keyboard squares
+or Dynamic, following arrow navigation and mouse movement/clicks. All styles
+accept both input methods. Reforged selects Both, Visible and Mouse; Original
+selects Original, Hidden and Mouse. Other combinations show Custom. Continue
+prompts follow the last intentional mouse click or key, ignoring pointer motion
+and polling. Roman
 tables show complete legion identifiers and readiness, with spacing that adapts
 to the names and counts in each panel; enemy tables show embarked troop totals
 without the uninformative readiness column. Counts use plain decimal digits.

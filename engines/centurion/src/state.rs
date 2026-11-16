@@ -17,6 +17,8 @@ pub struct Campaign {
     pub data: Vec<u8>,
     pub sound: crate::sound::Bus,
     pub continue_input: ContinueInput,
+    /// Resolved menu presentation; transient and independent of save bytes.
+    pub keyboard_menus: bool,
     blocks: Vec<(usize, usize)>,
 }
 
@@ -28,6 +30,7 @@ impl Campaign {
             blocks: Vec::new(),
             sound: crate::sound::Bus::default(),
             continue_input: ContinueInput::default(),
+            keyboard_menus: false,
         }
     }
 
@@ -58,6 +61,7 @@ impl Campaign {
             blocks,
             sound: crate::sound::Bus::default(),
             continue_input: ContinueInput::default(),
+            keyboard_menus: false,
         };
         state.load(&assets.resource("CENT", "NEWGAME.LZW")?)?;
         Ok(state)
@@ -224,9 +228,11 @@ mod tests {
         let saved = state.save();
         assert_eq!(state.continue_footer().unwrap(), "Click to continue");
         state.continue_input = ContinueInput::Keyboard;
+        state.keyboard_menus = true;
         assert_eq!(state.continue_footer().unwrap(), "Hit any key to continue");
         let copy = state.clone();
         assert_eq!(copy.continue_input, ContinueInput::Keyboard);
+        assert!(copy.keyboard_menus);
         assert_eq!(state.save(), saved);
         assert_eq!(state.data, bytes);
     }
@@ -272,6 +278,7 @@ mod tests {
             blocks: Vec::new(),
             sound: crate::sound::Bus::default(),
             continue_input: ContinueInput::default(),
+            keyboard_menus: false,
         };
         for province in 0..27 {
             state.data[0x5282 + province * 32] = 1;

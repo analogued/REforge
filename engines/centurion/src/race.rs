@@ -749,6 +749,7 @@ impl Race {
             if stage == Stage::Type {
                 panels.plain_menu(
                     assets,
+                    state,
                     &mut background,
                     &Menu::read(state, 0x88e6)?,
                     self.selected,
@@ -802,6 +803,7 @@ impl Race {
         if matches!(self.stage, Stage::ConfirmExit | Stage::ConfirmNoBet) {
             panels.confirm(
                 assets,
+                state,
                 &mut background,
                 &state.string(if self.stage == Stage::ConfirmExit {
                     0x84ce
@@ -827,6 +829,7 @@ mod tests {
             selected: None,
             chosen: true,
             menu: Menu {
+                joined_decoration: true,
                 rect: (0, 0, 0, 0),
                 title: String::new(),
                 items: Vec::new(),

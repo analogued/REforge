@@ -11,11 +11,12 @@ use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     ALLEYCAT_MACHINE, ALLEYCAT_MOTION, AlleyCatMachine, AlleyCatMotion, AspectRatio,
-    BTZ_FILE_CURSOR, Backend, CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR, CONTROL_MODE,
-    CONTROLLER_ACTION, CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, CenturionOptions, ControlMode,
-    DIGITIZED_SAMPLES, ENHANCEMENTS_SECTION, FileCursorStyle, FleetInformation, FrameLimit, MOTION,
-    MotionMode, PopupCursor, Presentation, Renderer, RuntimeSettings, SECTION_KEYS,
-    SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
+    BTZ_FILE_CURSOR, Backend, CENTURION_FLEET_INFORMATION, CENTURION_MENU_DECORATIONS,
+    CENTURION_POPUP_CURSOR, CONTROL_MODE, CONTROLLER_ACTION, CONTROLLER_BUTTONS,
+    CONTROLLER_MOVEMENT, CenturionOptions, ControlMode, DIGITIZED_SAMPLES, ENHANCEMENTS_SECTION,
+    FileCursorStyle, FleetInformation, FrameLimit, MOTION, MenuDecorations, MotionMode,
+    PopupCursor, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
+    STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
 };
 mod controller;
 const PAGES: [&str; SECTION_KEYS.len()] = [
@@ -83,6 +84,7 @@ impl RowContext<'_> {
                     | ALLEYCAT_MACHINE
                     | CENTURION_FLEET_INFORMATION
                     | CENTURION_POPUP_CURSOR
+                    | CENTURION_MENU_DECORATIONS
                     | ALLEYCAT_MOTION
                     | BTZ_FILE_CURSOR
                     | CONTROL_MODE
@@ -484,7 +486,7 @@ pub(super) fn draw(
                         && menu.centurion_options
                         && original.centurion != value.centurion
                     {
-                        for key in [CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR] {
+                        for key in [CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR, CENTURION_MENU_DECORATIONS] {
                             if !cli.contains_key(key) && original.get(key) != value.get(key) {
                                 draft.edit_game(
                                     key,
@@ -794,23 +796,33 @@ fn alleycat_machine_controls(
 
 fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
     section(ui, "Centurion UI");
-    // Presets are aliases over both granular choices, never separately saved.
+    // Presets are aliases over the granular choices, never separately saved.
     let original = CenturionOptions {
         fleet_information: FleetInformation::Original,
         popup_cursor: PopupCursor::Hidden,
+        menu_decorations: MenuDecorations::Mouse,
     };
     let reforged = CenturionOptions::default();
     let fleet_state = rows.state(CENTURION_FLEET_INFORMATION, value);
     let cursor_state = rows.state(CENTURION_POPUP_CURSOR, value);
+    let decorations_state = rows.state(CENTURION_MENU_DECORATIONS, value);
     let preset_state = RowState {
-        lock_tooltip: fleet_state.lock_tooltip.or(cursor_state.lock_tooltip),
-        overridden: fleet_state.overridden || cursor_state.overridden,
-        dirty: fleet_state.dirty || cursor_state.dirty,
+        lock_tooltip: fleet_state
+            .lock_tooltip
+            .or(cursor_state.lock_tooltip)
+            .or(decorations_state.lock_tooltip),
+        overridden: fleet_state.overridden
+            || cursor_state.overridden
+            || decorations_state.overridden,
+        dirty: fleet_state.dirty || cursor_state.dirty || decorations_state.dirty,
         tooltip: format!(
-            "Fleet information\n{}\n\nPopup cursor\n{}",
-            fleet_state.tooltip, cursor_state.tooltip
+            "Fleet information\n{}\n\nPopup cursor\n{}\n\nMenu decorations\n{}",
+            fleet_state.tooltip, cursor_state.tooltip, decorations_state.tooltip
         ),
-        saved: format!("{} / {}", fleet_state.saved, cursor_state.saved),
+        saved: format!(
+            "{} / {} / {}",
+            fleet_state.saved, cursor_state.saved, decorations_state.saved
+        ),
     };
     row(ui, "UI preset", "centurion_ui_preset", preset_state, |ui| {
         let selector = Selector::new(
@@ -859,6 +871,20 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
                         )
                         .show(ui, &mut value.centurion.popup_cursor)
                         .on_hover_text("Applies to acknowledgment messages and read-only lists. Hidden follows DOS; Visible keeps the pointer shown. Interactive choices retain their cursor.");
+                    },
+                );
+                row(
+                    ui,
+                    "Menu decorations",
+                    CENTURION_MENU_DECORATIONS,
+                    rows.state(CENTURION_MENU_DECORATIONS, value),
+                    |ui| {
+                        Selector::new(
+                            CENTURION_MENU_DECORATIONS,
+                            MenuDecorations::ALL.map(|choice| Choice::new(choice, choice.label())),
+                        )
+                        .show(ui, &mut value.centurion.menu_decorations)
+                        .on_hover_text("Mouse and Keyboard retain their respective original menu decorations. Dynamic switches to Keyboard after arrow navigation and to Mouse after pointer movement or a click.");
                     },
                 );
             }),
@@ -1514,7 +1540,8 @@ fn section_has_cli_locks(
                 || cli.contains_key(ALLEYCAT_MOTION)
                 || cli.contains_key(CONTROL_MODE)
                 || cli.contains_key(CENTURION_FLEET_INFORMATION)
-                || cli.contains_key(CENTURION_POPUP_CURSOR)))
+                || cli.contains_key(CENTURION_POPUP_CURSOR)
+                || cli.contains_key(CENTURION_MENU_DECORATIONS)))
 }
 
 fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {

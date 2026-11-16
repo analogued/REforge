@@ -213,7 +213,7 @@ impl Games {
                     self.stage = Stage::Message(state.string(0x161e)?, None);
                 } else {
                     // Retain the selected label beneath the purchase question.
-                    panels.draw_menu(assets, &mut self.background, &self.menu, Some(row))?;
+                    panels.draw_menu(assets, state, &mut self.background, &self.menu, Some(row))?;
                     panels.deactivate_menu(assets, state, &mut self.background, 0x15c2)?;
                     self.stage = Stage::Amphitheatre;
                     self.selected = None;
@@ -238,7 +238,7 @@ impl Games {
         }
         // Resident 585B deactivates the choice under a following report.
         if matches!(self.stage, Stage::Message(..)) {
-            panels.draw_menu(assets, &mut self.background, &self.menu, None)?;
+            panels.draw_menu(assets, state, &mut self.background, &self.menu, None)?;
         }
         Ok(())
     }
@@ -252,10 +252,16 @@ impl Games {
     pub fn render(&self, assets: &Assets, state: &Campaign, panels: &Panels) -> Result<Frame> {
         let mut frame = self.background.clone();
         match &self.stage {
-            Stage::Menu => panels.draw_menu(assets, &mut frame, &self.menu, self.selected)?,
-            Stage::Amphitheatre => {
-                panels.confirm(assets, &mut frame, &state.string(0x164e)?, self.selected)?
+            Stage::Menu => {
+                panels.draw_menu(assets, state, &mut frame, &self.menu, self.selected)?
             }
+            Stage::Amphitheatre => panels.confirm(
+                assets,
+                state,
+                &mut frame,
+                &state.string(0x164e)?,
+                self.selected,
+            )?,
             Stage::Message(text, _) => crate::legion::message(&mut frame, assets, state, text)?,
             Stage::Arena => return self.arena.as_ref().unwrap().render(assets, state, panels),
             Stage::Race => return self.race.as_ref().unwrap().render(assets, state, panels),

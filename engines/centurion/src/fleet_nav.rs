@@ -206,15 +206,24 @@ pub fn local(
     }
     table.headings(frame, assets, 5 + prefix)?;
     let buttons = assets.sprites("MINIT", "INIT")?;
+    if selected.is_some() {
+        crate::province::decorate_menu(
+            frame,
+            &buttons[1],
+            state,
+            &(0..ids.len())
+                .map(|i| {
+                    let y = 15 + prefix + i as i32 * 10;
+                    (8, y - 1, 311, y + 9)
+                })
+                .collect::<Vec<_>>(),
+            selected,
+            true,
+        );
+    }
     for number in 0..ids.len() {
         let y = 15 + prefix + number as i32 * 10;
         table.row(frame, assets, number, y)?;
-        if let Some(selected) = selected {
-            frame.blit(&buttons[1], 8, y);
-            if selected == number {
-                frame.rect(10, y + 2, 5, 3, 8);
-            }
-        }
     }
     Ok(())
 }

@@ -104,6 +104,9 @@ pub struct Session {
     pub tribute_indicator: bool,
     pub fleet_information: reforge_settings::FleetInformation,
     pub popup_cursor: reforge_settings::PopupCursor,
+    pub menu_decorations: reforge_settings::MenuDecorations,
+    menu_input: crate::state::ContinueInput,
+    last_mouse: Option<(i32, i32)>,
     #[cfg(feature = "dev-tools")]
     pub slot_fallback: bool,
     #[cfg(feature = "dev-tools")]
@@ -175,7 +178,7 @@ impl Session {
             Phase::TributePolicy => campaign.data[0x5fc0] as usize,
             _ => 0,
         };
-        Ok(Self {
+        let mut session = Self {
             phase,
             selected,
             highlighted: false,
@@ -197,6 +200,9 @@ impl Session {
             tribute_indicator: true,
             fleet_information: reforge_settings::FleetInformation::default(),
             popup_cursor: reforge_settings::PopupCursor::default(),
+            menu_decorations: reforge_settings::MenuDecorations::default(),
+            menu_input: crate::state::ContinueInput::default(),
+            last_mouse: None,
             #[cfg(feature = "dev-tools")]
             slot_fallback: true,
             #[cfg(feature = "dev-tools")]
@@ -249,7 +255,9 @@ impl Session {
             fleet_background: None,
             battle_lead_in: 0,
             skip_battle_fanfare: false,
-        })
+        };
+        session.set_menu_decorations(reforge_settings::MenuDecorations::default());
+        Ok(session)
     }
 
     fn rows(&self) -> usize {
@@ -423,11 +431,36 @@ impl Session {
     pub fn input(&mut self, assets: &Assets, input: Input) -> Result<()> {
         self.apply_input(assets, input)
     }
+    pub fn set_menu_decorations(&mut self, choice: reforge_settings::MenuDecorations) {
+        self.menu_decorations = choice;
+        self.sync_menu_decorations();
+    }
+    fn sync_menu_decorations(&mut self) {
+        let keyboard = match self.menu_decorations {
+            reforge_settings::MenuDecorations::Mouse => false,
+            reforge_settings::MenuDecorations::Keyboard => true,
+            reforge_settings::MenuDecorations::Dynamic => {
+                self.menu_input == crate::state::ContinueInput::Keyboard
+            }
+        };
+        self.campaign.keyboard_menus = keyboard;
+        if let Some(scene) = self.naval.as_mut() {
+            scene.view.keyboard_menus = keyboard;
+        }
+    }
     fn apply_input(&mut self, assets: &Assets, input: Input) -> Result<()> {
         #[cfg(feature = "dev-tools")]
         if matches!(input, Input::Mark(_)) {
             return Ok(());
         }
+        let menu_input = input.menu_input(self.last_mouse).unwrap_or(self.menu_input);
+        let last_mouse = match input {
+            Input::Mouse(x, y) | Input::Click(x, y) | Input::RightClick(x, y) => Some((x, y)),
+            _ => self.last_mouse,
+        };
+        self.menu_input = menu_input;
+        self.last_mouse = last_mouse;
+        self.sync_menu_decorations();
         let continue_input = input.continue_input();
         if let Some(method) = continue_input {
             self.campaign.continue_input = method;
@@ -439,6 +472,10 @@ impl Session {
         let was_visible = self.battle_pointer_visible();
         let timer = matches!(input, Input::Tick(_));
         self.input_inner(assets, input)?;
+        // Space can dispatch a synthetic click, and loading can replace state.
+        self.menu_input = menu_input;
+        self.last_mouse = last_mouse;
+        self.sync_menu_decorations();
         // New encounters or campaign resets can replace the cloned state.
         if let Some(method) = continue_input {
             self.campaign.continue_input = method;
@@ -2786,6 +2823,7 @@ impl Session {
                 if self.naval.as_ref().unwrap().stage == crate::naval::Stage::Reengage {
                     self.province_panels.confirm(
                         assets,
+                        &self.campaign,
                         &mut frame,
                         &self.campaign.string(0x935a)?,
                         Some(self.selected),
@@ -2856,6 +2894,7 @@ impl Session {
                     .question(&self.campaign)?;
                 self.province_panels.confirm(
                     assets,
+                    &self.campaign,
                     &mut frame,
                     &question,
                     self.highlighted.then_some(self.selected),
@@ -2930,6 +2969,19 @@ impl Session {
             };
             frame.bevel(30, 40, 290, 166, 26);
             frame.center_text(assets, title, 160, 46, 15)?;
+            crate::province::decorate_menu(
+                &mut frame,
+                &self.sprites[1],
+                &self.campaign,
+                &(0..self.rows())
+                    .map(|row| {
+                        let top = 68 + row as i32 * 10;
+                        (39, top, 284, top + 10)
+                    })
+                    .collect::<Vec<_>>(),
+                Some(self.selected),
+                true,
+            );
             for row in 0..self.rows() {
                 let label = if self.phase == Phase::Difficulty {
                     ["Galley Slave", "Legionnaire", "Senator", "Emperor"][row].to_string()
@@ -3041,6 +3093,16 @@ impl Session {
     fn render_game_menu(&self, assets: &Assets, frame: &mut Frame) -> Result<()> {
         frame.bevel(81, 79, 251, 197, 26);
         frame.center_text(assets, "Game Control Menu", 166, 85, 15)?;
+        crate::province::decorate_menu(
+            frame,
+            &self.sprites[1],
+            &self.campaign,
+            &(0..7)
+                .map(|row| (87, 102 + row * 10, 250, 112 + row * 10))
+                .collect::<Vec<_>>(),
+            self.highlighted.then_some(self.selected),
+            true,
+        );
         for row in 0..7 {
             let record = 0x492 + row * 12;
             let string = crate::assets::word(&self.campaign.data, record)? as usize;
@@ -3056,11 +3118,6 @@ impl Session {
                 },
             )?;
         }
-        for x in [89, 91, 93] {
-            frame.rect(x, 102, 1, 70, 8);
-        }
-        frame.rect(88, 102, 7, 1, 8);
-        frame.rect(88, 171, 7, 1, 8);
         Ok(())
     }
 

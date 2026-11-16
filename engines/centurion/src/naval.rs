@@ -282,8 +282,15 @@ impl Naval {
                 15,
             )?;
             let button = assets.sprites("MINIT", "INIT")?.remove(1);
+            crate::province::decorate_menu(
+                &mut f,
+                &button,
+                &self.view,
+                &menu.items.iter().map(|item| item.rect).collect::<Vec<_>>(),
+                selected,
+                menu.joined_decoration,
+            );
             for (row, item) in menu.items.iter().enumerate() {
-                f.blit(&button, item.rect.0, item.rect.1 + 1);
                 f.text(
                     assets,
                     &item.label,

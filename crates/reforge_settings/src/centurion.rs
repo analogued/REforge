@@ -76,17 +76,58 @@ impl std::str::FromStr for PopupCursor {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MenuDecorations {
+    /// Retain the original mouse presentation for menu decorations.
+    #[default]
+    Mouse,
+    /// Retain the original keyboard presentation for menu decorations.
+    Keyboard,
+    /// Follow arrow navigation and mouse movement/clicks.
+    Dynamic,
+}
+impl MenuDecorations {
+    pub const ALL: [Self; 3] = [Self::Mouse, Self::Keyboard, Self::Dynamic];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mouse => "mouse",
+            Self::Keyboard => "keyboard",
+            Self::Dynamic => "dynamic",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mouse => "Mouse",
+            Self::Keyboard => "Keyboard",
+            Self::Dynamic => "Dynamic",
+        }
+    }
+}
+impl std::str::FromStr for MenuDecorations {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "mouse" => Ok(Self::Mouse),
+            "keyboard" => Ok(Self::Keyboard),
+            "dynamic" => Ok(Self::Dynamic),
+            _ => Err("menu decorations must be mouse, keyboard or dynamic".into()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CenturionOptions {
     pub fleet_information: FleetInformation,
     pub popup_cursor: PopupCursor,
+    pub menu_decorations: MenuDecorations,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        CENTURION_FLEET_INFORMATION as KEY, CENTURION_POPUP_CURSOR as CURSOR, Draft,
-        ENHANCEMENTS_SECTION, Launch, Patch, RuntimeSettings, Session,
+        CENTURION_FLEET_INFORMATION as KEY, CENTURION_MENU_DECORATIONS as DECORATIONS,
+        CENTURION_POPUP_CURSOR as CURSOR, Draft, ENHANCEMENTS_SECTION, Launch, Patch,
+        RuntimeSettings, Session,
     };
     use std::{
         fs,
@@ -122,6 +163,89 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn menu_decorations_validate_and_default_to_mouse() {
+        let mut values = RuntimeSettings::default();
+        assert_eq!(values.centurion.menu_decorations, MenuDecorations::Mouse);
+        for choice in MenuDecorations::ALL {
+            values.set(DECORATIONS, choice.as_str()).unwrap();
+            assert_eq!(values.centurion.menu_decorations, choice);
+            assert_eq!(values.get(DECORATIONS), choice.as_str());
+        }
+        for invalid in ["", "original", "reforged", "visible", "true", "0"] {
+            assert!(values.set(DECORATIONS, invalid).is_err());
+            assert_eq!(values.centurion.menu_decorations, MenuDecorations::Dynamic);
+        }
+        assert_eq!(crate::section_index(DECORATIONS), ENHANCEMENTS_SECTION);
+    }
+
+    #[test]
+    fn menu_decorations_are_per_entry_and_explicit_choices_survive_unrelated_edits() {
+        let temp = Temp::new();
+        let missing = temp.session("centurion-defender-of-rome");
+        assert_eq!(
+            missing.effective(&missing.saved).centurion.menu_decorations,
+            MenuDecorations::Mouse
+        );
+        for choice in MenuDecorations::ALL {
+            fs::write(temp.path(), format!("[global.enhancements]\nmenu_decorations = 'keyboard'\n[entries.copy.enhancements]\nmenu_decorations = '{}' # retain\nunknown = 'retained'\n[entries.copy.display]\nwindow_mode = 'fullscreen'\n", choice.as_str())).unwrap();
+            let mut session = temp.session("centurion-defender-of-rome");
+            assert_eq!(
+                session.saved.global_values().centurion.menu_decorations,
+                MenuDecorations::Mouse
+            );
+            assert_eq!(
+                session.effective(&session.saved).centurion.menu_decorations,
+                choice
+            );
+            let mut draft = session.saved.clone();
+            draft.edit(false, DECORATIONS, "dynamic".into());
+            assert!(!draft.global.contains_key(DECORATIONS));
+            draft.edit_game(CURSOR, "hidden".into(), Some(&session.saved));
+            session.commit(draft).unwrap();
+            let text = fs::read_to_string(temp.path()).unwrap();
+            assert!(text.contains(&format!(
+                "menu_decorations = '{}' # retain",
+                choice.as_str()
+            )));
+            assert!(!text.contains(DECORATIONS));
+            assert!(!text.contains("preset"));
+        }
+        let mut other = temp.session("mach-3");
+        assert!(!other.saved.game.contains_key(DECORATIONS));
+        other.cli.insert(DECORATIONS.into(), "keyboard".into());
+        assert_eq!(
+            other.effective(&other.saved).centurion.menu_decorations,
+            MenuDecorations::Mouse
+        );
+        let mut session = temp.session("centurion-defender-of-rome");
+        let mut draft = session.saved.clone();
+        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        draft.reset_section(true, ENHANCEMENTS_SECTION);
+        assert!(!draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert!(draft.game_values().fullscreen);
+        assert_eq!(
+            draft.game_values().centurion.menu_decorations,
+            MenuDecorations::Mouse
+        );
+        session.commit(draft).unwrap();
+        let text = fs::read_to_string(temp.path()).unwrap();
+        let doc = text.parse::<toml_edit::DocumentMut>().unwrap();
+        assert!(
+            doc["entries"]["copy"]["enhancements"]
+                .get("menu_decorations")
+                .is_none()
+        );
+        assert!(text.contains("unknown = 'retained'"));
+        fs::write(temp.path(), "[entries.copy.enhancements]\nmenu_decorations = 'invalid'\nfleet_information = 'original'\n").unwrap();
+        let session = temp.session("centurion-defender-of-rome");
+        assert!(session.warning.is_some());
+        assert!(!session.saved.game.contains_key(DECORATIONS));
+        let options = session.effective(&session.saved).centurion;
+        assert_eq!(options.menu_decorations, MenuDecorations::Mouse);
+        assert_eq!(options.fleet_information, FleetInformation::Original);
     }
 
     #[test]

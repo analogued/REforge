@@ -6,10 +6,22 @@ reconstruction and timing limits are listed in the [engine guide](../README.md#v
 
 ## Menu feedback
 
-The native menus combine DOS keyboard-style selection boxes and highlighted text
-with mouse-hover selection. DOS mouse mode normally uses a decorative vertical
-column without highlighting the option under the pointer. Native keyboard and
-mouse input remain available together.
+Menu decorations now offers Mouse, Keyboard and Dynamic under Centurion UI's
+advanced options. Mouse, the Reforged default, uses the original capped
+three-line rails; Keyboard uses the original square selectors. Ordinary vertical
+menus and fleet/legion selectors share one continuous rail, while side-by-side
+Yes/No choices have separate rails. Selected-label feedback and disabled text
+remain independent of the decoration. Modern mouse-hover focus and keyboard
+navigation remain available together, regardless of the chosen style.
+
+Dynamic switches to keyboard decorations after arrow navigation and to mouse
+decorations after actual pointer movement or a click. Stationary pointer polling,
+releases, timer updates and unrelated keys do not switch it. This presentation
+state is separate from continue-prompt input, is not part of DOS saves and does
+not advance RNG. Changes apply to open menus. Original/Reforged preset aliases
+both use Mouse, matching DOS's normal mouse startup; Keyboard and Dynamic are
+granular alternatives. The native save/load/difficulty menu geometry and their
+existing simplified layouts are retained; they now share the decoration policy.
 
 Tribute and Tribute Policy add a subdued band and a current-level legend for the
 stored choice, separately from the brighter focus highlight. The local menu
@@ -58,7 +70,8 @@ of the enemy inspection choice.
 
 The granular setting is under Settings → Centurion overrides → Enhancements →
 Centurion UI → Advanced options. Original/Reforged are aliases over Fleet
-information and Popup cursor: Original/Hidden or Both/Visible. Other combinations
+information, Popup cursor and Menu decorations: Original/Hidden/Mouse or
+Both/Visible/Mouse. Other combinations
 show Custom. Only granular choices are saved. Applying a change can switch an
 already open inspection. Movement and naval mechanics are unchanged.
 

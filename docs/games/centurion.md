@@ -90,10 +90,14 @@ Reforged default. One key or click dismisses either view or their combination.
 **Popup cursor** offers Visible (the Reforged default) and Hidden (DOS behavior).
 It applies to acknowledgment messages and read-only lists, including reports in
 battles and games. Interactive choices and Yes/No buttons retain their cursor.
+**Menu decorations** offers Mouse (the default rails), Keyboard (square
+selectors), and Dynamic. Dynamic switches to Keyboard after arrow navigation
+and to Mouse after pointer movement or a click. Both input methods remain usable
+in every style. This does not change the separate continue-prompt rule below.
 
-The presets apply both individual choices: Original selects Original fleet
-information and Hidden; Reforged selects Both and Visible. Other combinations
-show Custom. Only the individual choices are saved. Apply takes effect
+The presets apply all three choices: Original selects Original fleet
+information, Hidden and Mouse; Reforged selects Both, Visible and Mouse. Other
+combinations show Custom. Only the individual choices are saved. Apply takes effect
 immediately, including on an open popup; Cancel discards pending edits.
 
 Continue prompts follow the last deliberate gameplay input: a mouse click gives

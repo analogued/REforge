@@ -248,10 +248,11 @@ impl Recorder {
                 quote(session.fleet_information.as_str()),
             ),
             ("popup_cursor", quote(session.popup_cursor.as_str())),
+            ("menu_decorations", quote(session.menu_decorations.as_str())),
             (
                 "ui_policy",
                 quote(
-                    "keyboard-style menus with mouse-hover feedback; applied tribute shading when enabled; selectable enemy fleet information; intentional differences from DOS menus",
+                    "selectable mouse/keyboard/dynamic menu decorations; applied tribute shading when enabled; selectable enemy fleet information; intentional differences from DOS menus",
                 ),
             ),
             (

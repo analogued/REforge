@@ -32,6 +32,21 @@ pub enum Input {
 }
 
 impl Input {
+    /// Menu decoration follows navigation or actual mouse activity, separately
+    /// from continue prompts (which deliberately ignore mouse movement).
+    pub(super) fn menu_input(
+        &self,
+        previous_mouse: Option<(i32, i32)>,
+    ) -> Option<crate::state::ContinueInput> {
+        use crate::state::ContinueInput::{Keyboard, Mouse};
+        match self {
+            Self::Up | Self::Down | Self::Left | Self::Right => Some(Keyboard),
+            Self::Click(..) | Self::RightClick(..) => Some(Mouse),
+            Self::Mouse(x, y) if previous_mouse != Some((*x, *y)) => Some(Mouse),
+            Self::MouseDelta(x, y) if *x != 0 || *y != 0 => Some(Mouse),
+            _ => None,
+        }
+    }
     /// Continue prompts follow intentional controls, never polling or pointer drift.
     pub(super) fn continue_input(&self) -> Option<crate::state::ContinueInput> {
         use crate::state::ContinueInput::{Keyboard, Mouse};
@@ -158,6 +173,36 @@ impl Input {
 mod continue_tests {
     use super::*;
     use crate::state::ContinueInput::{Keyboard, Mouse};
+
+    #[test]
+    fn decoration_navigation_ignores_stationary_polling_and_other_keys() {
+        for input in [Input::Up, Input::Down, Input::Left, Input::Right] {
+            assert_eq!(input.menu_input(Some((12, 20))), Some(Keyboard));
+        }
+        for input in [
+            Input::Mouse(13, 20),
+            Input::MouseDelta(1, 0),
+            Input::Click(12, 20),
+            Input::RightClick(12, 20),
+        ] {
+            assert_eq!(input.menu_input(Some((12, 20))), Some(Mouse));
+        }
+        for input in [
+            Input::Mouse(12, 20),
+            Input::MouseDelta(0, 0),
+            Input::Tick(1),
+            Input::Enter,
+            Input::Space,
+            Input::Shortcut(b's'),
+            Input::Release(13, 20),
+            Input::ReleaseButton(1),
+            Input::ReleaseKey(1),
+        ] {
+            assert_eq!(input.menu_input(Some((12, 20))), None);
+        }
+        // Motion changes decoration, but continue wording waits for a click/key.
+        assert_eq!(Input::Mouse(13, 20).continue_input(), None);
+    }
 
     #[test]
     fn only_deliberate_controls_change_continue_wording() {

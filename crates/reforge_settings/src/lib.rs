@@ -17,7 +17,7 @@ pub use audio::{AudioSettings, CategoryVolumes, SoundCategory, SoundRenderer};
 mod controller;
 pub use controller::{ControllerButtons, ControllerMovement, FaceButton};
 mod centurion;
-pub use centurion::{CenturionOptions, FleetInformation, PopupCursor};
+pub use centurion::{CenturionOptions, FleetInformation, MenuDecorations, PopupCursor};
 mod btz;
 pub use btz::{BtzSettings, FileCursorStyle};
 
@@ -70,6 +70,8 @@ pub const BTZ_FILE_CURSOR: &str = "file_cursor";
 pub const CENTURION_FLEET_INFORMATION: &str = "centurion_fleet_information";
 /// Internal key for Centurion; stored as `enhancements.popup_cursor`.
 pub const CENTURION_POPUP_CURSOR: &str = "centurion_popup_cursor";
+/// Internal key for Centurion; stored as `enhancements.menu_decorations`.
+pub const CENTURION_MENU_DECORATIONS: &str = "centurion_menu_decorations";
 pub const CONTROL_MODE: &str = "control_mode";
 /// Alley Cat startup machine, shared with the launcher's native option store.
 pub const ALLEYCAT_MACHINE: &str = "machine";
@@ -93,7 +95,11 @@ pub fn supports_terminal(game: &str) -> bool {
 fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     let keys: &[&str] = match game {
         "mach-3" => &[DIGITIZED_SAMPLES, MOTION],
-        "centurion-defender-of-rome" => &[CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR],
+        "centurion-defender-of-rome" => &[
+            CENTURION_FLEET_INFORMATION,
+            CENTURION_POPUP_CURSOR,
+            CENTURION_MENU_DECORATIONS,
+        ],
         "alley-cat" => &[
             ALLEYCAT_MACHINE,
             ALLEYCAT_MOTION,
@@ -115,6 +121,7 @@ pub fn section_index(key: &str) -> usize {
             | CONTROL_MODE
             | CENTURION_FLEET_INFORMATION
             | CENTURION_POPUP_CURSOR
+            | CENTURION_MENU_DECORATIONS
     ) {
         return ENHANCEMENTS_SECTION;
     }
@@ -138,6 +145,7 @@ fn stored_key(key: &str) -> &str {
         ALLEYCAT_MOTION => MOTION,
         CENTURION_FLEET_INFORMATION => "fleet_information",
         CENTURION_POPUP_CURSOR => "popup_cursor",
+        CENTURION_MENU_DECORATIONS => "menu_decorations",
         _ => key,
     }
 }
@@ -150,6 +158,7 @@ fn section(key: &str) -> &'static str {
             | CONTROL_MODE
             | CENTURION_FLEET_INFORMATION
             | CENTURION_POPUP_CURSOR
+            | CENTURION_MENU_DECORATIONS
     ) {
         "enhancements"
     } else if key == ALLEYCAT_MACHINE {
@@ -712,6 +721,7 @@ impl RuntimeSettings {
             BTZ_FILE_CURSOR => self.btz.file_cursor.as_str().into(),
             CENTURION_FLEET_INFORMATION => self.centurion.fleet_information.as_str().into(),
             CENTURION_POPUP_CURSOR => self.centurion.popup_cursor.as_str().into(),
+            CENTURION_MENU_DECORATIONS => self.centurion.menu_decorations.as_str().into(),
             "window_mode" => if self.fullscreen {
                 "fullscreen"
             } else {
@@ -766,6 +776,7 @@ impl RuntimeSettings {
             BTZ_FILE_CURSOR => self.btz.file_cursor = value.parse()?,
             CENTURION_FLEET_INFORMATION => self.centurion.fleet_information = value.parse()?,
             CENTURION_POPUP_CURSOR => self.centurion.popup_cursor = value.parse()?,
+            CENTURION_MENU_DECORATIONS => self.centurion.menu_decorations = value.parse()?,
             DIGITIZED_SAMPLES => {
                 self.mach3.digitized_samples = match value {
                     "on" | "true" => true,
@@ -926,6 +937,7 @@ impl Draft {
             patch.remove(CONTROL_MODE);
             patch.remove(CENTURION_FLEET_INFORMATION);
             patch.remove(CENTURION_POPUP_CURSOR);
+            patch.remove(CENTURION_MENU_DECORATIONS);
         }
         if game && page == 0 {
             patch.remove(GRAPHICAL_RENDERER);
@@ -945,6 +957,7 @@ impl Draft {
             || page == 0 && self.game.contains_key(ALLEYCAT_MACHINE)
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(CENTURION_FLEET_INFORMATION)
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(CENTURION_POPUP_CURSOR)
+            || page == ENHANCEMENTS_SECTION && self.game.contains_key(CENTURION_MENU_DECORATIONS)
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
             || page == 3
                 && ALLEYCAT_CONTROL_KEYS
@@ -962,6 +975,7 @@ impl Draft {
                     | ALLEYCAT_MACHINE
                     | CENTURION_FLEET_INFORMATION
                     | CENTURION_POPUP_CURSOR
+                    | CENTURION_MENU_DECORATIONS
             ) || ALLEYCAT_CONTROL_KEYS.contains(&key))
         {
             return;

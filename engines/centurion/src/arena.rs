@@ -524,7 +524,7 @@ impl Arena {
         if self.stage == Stage::Training
             || (self.stage == Stage::Prompt && matches!(self.after, After::Training))
         {
-            panels.draw_menu(assets, &mut frame, &self.training, self.selected)?;
+            panels.draw_menu(assets, state, &mut frame, &self.training, self.selected)?;
         }
         if matches!(self.stage, Stage::Prompt | Stage::Final) {
             crate::legion::message(&mut frame, assets, state, &self.message)?;
@@ -944,6 +944,7 @@ mod tests {
             original_treasury: 100,
             selected: None,
             training: Menu {
+                joined_decoration: true,
                 rect: (0, 0, 0, 0),
                 title: String::new(),
                 items: Vec::new(),

@@ -592,9 +592,21 @@ impl Diplomacy {
             for tab in self.tabs.iter().skip(4).take(4) {
                 frame.blit(tab, 8, 151);
             }
+            crate::province::decorate_menu(
+                &mut frame,
+                &self.button,
+                state,
+                &(0..self.choices.len())
+                    .map(|row| {
+                        let y = 155 + row as i32 * 13;
+                        (15, y, 101, y + 10)
+                    })
+                    .collect::<Vec<_>>(),
+                selected,
+                true,
+            );
             for (row, choice) in self.choices.iter().enumerate() {
                 let y = 155 + row as i32 * 13;
-                frame.blit(&self.button, 15, y + 1);
                 frame.text(
                     assets,
                     &choice.label,
@@ -602,9 +614,6 @@ impl Diplomacy {
                     y,
                     if selected == Some(row) { 15 } else { 0 },
                 )?;
-                if selected == Some(row) {
-                    frame.rect(17, y + 3, 5, 3, 8);
-                }
             }
         }
         if self.stage == Stage::CleoFinal {

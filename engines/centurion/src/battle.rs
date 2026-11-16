@@ -556,9 +556,16 @@ impl Preparation {
         let (left, top, right, bottom) = menu.rect;
         frame.bevel(left, top, right, bottom, 26);
         frame.center_text(assets, &menu.title, (left + right) / 2, top + 6, 15)?;
+        crate::province::decorate_menu(
+            frame,
+            &self.button,
+            state,
+            &menu.items.iter().map(|item| item.rect).collect::<Vec<_>>(),
+            selected,
+            menu.joined_decoration,
+        );
         for (row, item) in menu.items.iter().enumerate() {
             let (x, y, _, _) = item.rect;
-            frame.blit(&self.button, x, y + 1);
             frame.text(
                 assets,
                 &item.label,
@@ -566,9 +573,6 @@ impl Preparation {
                 y,
                 if selected == Some(row) { 15 } else { 0 },
             )?;
-            if selected == Some(row) {
-                frame.rect(x + 2, y + 3, 5, 3, 8);
-            }
         }
         Ok(())
     }

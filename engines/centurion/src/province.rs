@@ -50,6 +50,7 @@ pub struct Menu {
     pub rect: (i32, i32, i32, i32),
     pub title: String,
     pub items: Vec<Item>,
+    pub joined_decoration: bool,
 }
 impl Menu {
     pub fn read(state: &Campaign, address: usize) -> Result<Self> {
@@ -82,6 +83,7 @@ impl Menu {
             rect: (left, top, right, bottom),
             title: state.string(word(ds, address + 12)? as usize)?,
             items,
+            joined_decoration: ds[address + 15] != 0,
         })
     }
     pub fn hit(&self, x: i32, y: i32) -> Option<usize> {
@@ -89,6 +91,42 @@ impl Menu {
             let (left, top, right, bottom) = item.rect;
             !item.disabled && (left..=right).contains(&x) && (top..=bottom).contains(&y)
         })
+    }
+}
+
+/// Resident 56B6/585B: boxes in keyboard mode; capped three-line mouse rails.
+pub fn decorate_menu(
+    frame: &mut Frame,
+    button: &Bitmap,
+    state: &Campaign,
+    rows: &[(i32, i32, i32, i32)],
+    selected: Option<usize>,
+    joined: bool,
+) {
+    if state.keyboard_menus {
+        for (index, &(x, y, _, _)) in rows.iter().enumerate() {
+            frame.blit(button, x, y + 1);
+            if selected == Some(index) {
+                frame.rect(x + 2, y + 3, 5, 3, 8);
+            }
+        }
+    } else {
+        let rail = |frame: &mut Frame, (x, top, _, bottom): (i32, i32, i32, i32)| {
+            for offset in [2, 4, 6] {
+                frame.rect(x + offset, top, 1, bottom - top, 8);
+            }
+            frame.rect(x + 1, top, 7, 1, 8);
+            frame.rect(x + 1, bottom - 1, 7, 1, 8);
+        };
+        if joined {
+            if let (Some(first), Some(last)) = (rows.first(), rows.last()) {
+                rail(frame, (first.0, first.1, first.2, last.3));
+            }
+        } else {
+            for &row in rows {
+                rail(frame, row);
+            }
+        }
     }
 }
 
@@ -106,11 +144,12 @@ impl Panels {
         frame: &mut Frame,
         selected: Option<usize>,
     ) -> Result<()> {
-        self.confirm(assets, frame, &state.string(0x57be)?, selected)
+        self.confirm(assets, state, frame, &state.string(0x57be)?, selected)
     }
     pub fn confirm(
         &self,
         assets: &Assets,
+        state: &Campaign,
         frame: &mut Frame,
         title: &str,
         selected: Option<usize>,
@@ -133,8 +172,15 @@ impl Panels {
         frame.bevel(159 - width / 2 - 7, top, 159 + width / 2 + 7, bottom, 26);
         frame.center_lines(assets, title, 159, top + 7, 15)?;
         let y = bottom - 16;
+        decorate_menu(
+            frame,
+            &self.button,
+            state,
+            &[(129, y, 160, y + 10), (165, y, 196, y + 10)],
+            selected,
+            false,
+        );
         for (row, (label, x)) in [("Yes", 129), ("No", 165)].into_iter().enumerate() {
-            frame.blit(&self.button, x, y + 1);
             frame.text(
                 assets,
                 label,
@@ -142,9 +188,6 @@ impl Panels {
                 y,
                 if selected == Some(row) { 15 } else { 0 },
             )?;
-            if selected == Some(row) {
-                frame.rect(x + 2, y + 3, 5, 3, 8);
-            }
         }
         Ok(())
     }
@@ -207,31 +250,34 @@ impl Panels {
         selected: Option<usize>,
     ) -> Result<()> {
         let menu = Menu::read(state, address)?;
-        self.draw_menu(assets, frame, &menu, selected)
+        self.draw_menu(assets, state, frame, &menu, selected)
     }
     pub fn draw_menu(
         &self,
         assets: &Assets,
+        state: &Campaign,
         frame: &mut Frame,
         menu: &Menu,
         selected: Option<usize>,
     ) -> Result<()> {
         self.window(frame, menu.rect.0, menu.rect.1);
-        self.menu_contents(assets, frame, menu, selected)
+        self.menu_contents(assets, state, frame, menu, selected)
     }
     pub fn plain_menu(
         &self,
         assets: &Assets,
+        state: &Campaign,
         frame: &mut Frame,
         menu: &Menu,
         selected: Option<usize>,
     ) -> Result<()> {
         frame.bevel(menu.rect.0, menu.rect.1, menu.rect.2, menu.rect.3, 26);
-        self.menu_contents(assets, frame, menu, selected)
+        self.menu_contents(assets, state, frame, menu, selected)
     }
     fn menu_contents(
         &self,
         assets: &Assets,
+        state: &Campaign,
         frame: &mut Frame,
         menu: &Menu,
         selected: Option<usize>,
@@ -243,9 +289,16 @@ impl Panels {
             menu.rect.1 + 6,
             15,
         )?;
+        decorate_menu(
+            frame,
+            &self.button,
+            state,
+            &menu.items.iter().map(|item| item.rect).collect::<Vec<_>>(),
+            selected,
+            menu.joined_decoration,
+        );
         for (index, item) in menu.items.iter().enumerate() {
             let (x, y, _, _) = item.rect;
-            frame.blit(&self.button, x, y + 1);
             let color = if selected == Some(index) {
                 15
             } else if item.disabled {
@@ -254,9 +307,6 @@ impl Panels {
                 0
             };
             frame.text(assets, &item.label, x + 11, y, color)?;
-            if selected == Some(index) {
-                frame.rect(x + 2, y + 3, 5, 3, 8);
-            }
         }
         Ok(())
     }

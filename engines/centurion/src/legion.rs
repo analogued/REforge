@@ -343,20 +343,25 @@ pub fn local_list(
         };
     frame.center_text(assets, &title, 160, 5, 15)?;
     frame.text(assets, &state.string(0x1efa)?, 115, 15, 0)?;
+    if selected.is_some() {
+        let button = assets
+            .sprites("MINIT", "INIT")?
+            .into_iter()
+            .nth(1)
+            .ok_or("Missing selection button")?;
+        crate::province::decorate_menu(
+            frame,
+            &button,
+            state,
+            &(0..count)
+                .map(|i| (8, 24 + i as i32 * 10, 311, 34 + i as i32 * 10))
+                .collect::<Vec<_>>(),
+            selected,
+            true,
+        );
+    }
     for (number, &index) in ids.iter().take(3).enumerate() {
         row(frame, assets, state, index, 25 + number as i32 * 10, true)?;
-        if let Some(selected) = selected {
-            let button = assets
-                .sprites("MINIT", "INIT")?
-                .into_iter()
-                .nth(1)
-                .ok_or("Missing selection button")?;
-            let y = 25 + number as i32 * 10;
-            frame.blit(&button, 8, y);
-            if selected == number {
-                frame.rect(10, y + 2, 5, 3, 8);
-            }
-        }
     }
     Ok(())
 }

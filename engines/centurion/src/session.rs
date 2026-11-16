@@ -103,6 +103,7 @@ pub struct Session {
     pub save_dir: Option<PathBuf>,
     pub tribute_indicator: bool,
     pub fleet_information: reforge_settings::FleetInformation,
+    pub popup_cursor: reforge_settings::PopupCursor,
     #[cfg(feature = "dev-tools")]
     pub slot_fallback: bool,
     #[cfg(feature = "dev-tools")]
@@ -195,6 +196,7 @@ impl Session {
             save_dir: None,
             tribute_indicator: true,
             fleet_information: reforge_settings::FleetInformation::default(),
+            popup_cursor: reforge_settings::PopupCursor::default(),
             #[cfg(feature = "dev-tools")]
             slot_fallback: true,
             #[cfg(feature = "dev-tools")]
@@ -426,10 +428,24 @@ impl Session {
         if matches!(input, Input::Mark(_)) {
             return Ok(());
         }
+        let continue_input = input.continue_input();
+        if let Some(method) = continue_input {
+            self.campaign.continue_input = method;
+            if let Some(scene) = self.naval.as_mut() {
+                scene.view.continue_input = method;
+            }
+        }
         let before = self.phase;
         let was_visible = self.battle_pointer_visible();
         let timer = matches!(input, Input::Tick(_));
         self.input_inner(assets, input)?;
+        // New encounters or campaign resets can replace the cloned state.
+        if let Some(method) = continue_input {
+            self.campaign.continue_input = method;
+            if let Some(scene) = self.naval.as_mut() {
+                scene.view.continue_input = method;
+            }
+        }
         if self.phase != Phase::BattlePreparation
             || (was_visible || timer) && self.battle_pointer_visible()
         {
@@ -1988,10 +2004,8 @@ impl Session {
                     _ => {
                         let menu =
                             crate::province::Menu::read(&self.campaign, self.command_menu())?;
-                        self.notice = format!(
-                            "{}\nNot implemented yet.\nPress Enter to return.",
-                            menu.items[self.selected].label
-                        );
+                        self.notice =
+                            format!("{}\nNot implemented yet.", menu.items[self.selected].label);
                         self.notice_return = Phase::Rome;
                         Phase::Notice
                     }
@@ -2780,14 +2794,13 @@ impl Session {
             }
             Phase::RegionInspect => {
                 frame = crate::campaign::render(assets, &self.campaign, &self.map, &self.sprites)?;
-                crate::legion::message_with_footer(
+                crate::legion::message(
                     &mut frame,
                     assets,
+                    &self.campaign,
                     &self.campaign.region_information(
                         self.inspected_region.ok_or("Missing inspected region")?,
                     )?,
-                    &self.campaign.string(0x3e2e)?,
-                    0,
                 )?;
             }
             Phase::FleetMove | Phase::FleetSelect | Phase::FleetList | Phase::FleetInspect => {
@@ -2955,43 +2968,65 @@ impl Session {
             frame.rect(40, 99, 240, 13, 8);
             frame.text(assets, &self.description, 43, 101, 15)?;
         } else if self.phase == Phase::About {
+            frame.acknowledgment_popup = true;
             frame.bevel(18, 48, 302, 152, 26);
             frame.text(
                 assets,
-                "CENTURION\nDefender of Rome\nVersion 1.00A 5/25/90\nPress Enter to continue",
+                &format!(
+                    "CENTURION\nDefender of Rome\nVersion 1.00A 5/25/90\n{}",
+                    self.campaign.continue_footer()?
+                ),
                 34,
                 64,
                 15,
             )?;
         } else if self.phase == Phase::Notice {
+            frame.acknowledgment_popup = true;
             frame.bevel(16, 70, 304, 133, 26);
             if self.notice_return == Phase::Rome {
-                frame.center_lines(assets, &self.notice, 160, 81, 15)?;
+                frame.center_lines(
+                    assets,
+                    &format!("{}\n{}", self.notice, self.campaign.continue_footer()?),
+                    160,
+                    81,
+                    15,
+                )?;
             } else {
-                frame.text(assets, "Cannot complete this operation.\nSee terminal for details.\nPress Enter to continue.", 26, 81, 15)?;
+                frame.text(
+                    assets,
+                    &format!(
+                        "Cannot complete this operation.\nSee terminal for details.\n{}",
+                        self.campaign.continue_footer()?
+                    ),
+                    26,
+                    81,
+                    15,
+                )?;
             }
         }
         let battle_cursor = self.battle_pointer_visible();
-        // 59E8 hides the pointer throughout the original message/acknowledgment.
-        if cursor
-            && (self.phase != Phase::Naval
+        let show_pointer = if frame.acknowledgment_popup {
+            self.popup_cursor == reforge_settings::PopupCursor::Visible
+        } else {
+            (self.phase != Phase::Naval
                 || self.naval.as_ref().is_some_and(|scene| {
                     matches!(
                         scene.stage,
                         crate::naval::Stage::Ship | crate::naval::Stage::Reengage
                     )
                 }))
-            && self.phase != Phase::VictoryParade
-            && self.phase != Phase::VictoryCredits
-            && (self.phase != Phase::Games
-                || self.games.as_ref().is_some_and(|s| s.cursor_visible()))
-            && !self.phase.is_startup()
-            && self.phase != Phase::LegionMessage
-            && self.phase != Phase::RegionInspect
-            && (self.phase != Phase::Diplomacy
-                || self.diplomacy.as_ref().is_some_and(|s| s.cursor_visible()))
-            && battle_cursor
-        {
+                && self.phase != Phase::VictoryParade
+                && self.phase != Phase::VictoryCredits
+                && (self.phase != Phase::Games
+                    || self.games.as_ref().is_some_and(|s| s.cursor_visible()))
+                && !self.phase.is_startup()
+                && self.phase != Phase::LegionMessage
+                && self.phase != Phase::RegionInspect
+                && (self.phase != Phase::Diplomacy
+                    || self.diplomacy.as_ref().is_some_and(|s| s.cursor_visible()))
+                && battle_cursor
+        };
+        if cursor && show_pointer {
             frame.blit(&self.sprites[0], self.drawn_cursor.0, self.drawn_cursor.1);
         }
         if frame.palette.is_none() {

@@ -203,6 +203,7 @@ pub fn inspection(
     information: reforge_settings::FleetInformation,
 ) -> Result<()> {
     let region = state.fleet_location(index)?;
+    frame.acknowledgment_popup = true;
     if information != reforge_settings::FleetInformation::Original {
         movement(frame, assets, state, &[], index)?;
     }
@@ -223,16 +224,13 @@ pub fn complete_list(frame: &mut Frame, assets: &Assets, state: &Campaign) -> Re
     if ids.is_empty() {
         return Ok(());
     }
+    frame.acknowledgment_popup = true;
     let top = (200 - ((ids.len() as i32 + 3) * 8 + 15)) / 2;
     let bottom = top + (ids.len() as i32 + 3) * 8 + 15;
     frame.bevel(2, top, 317, bottom, 26);
     frame.center_text(
         assets,
-        &format!(
-            "{}{}",
-            state.string(0x13a3)?,
-            state.string(word(&state.data, 0x3e40)? as usize)?
-        ),
+        &format!("{}{}", state.string(0x13a3)?, state.continue_footer()?),
         160,
         top + 5,
         15,
@@ -317,6 +315,7 @@ mod tests {
             (0x1314, "Ships"),
             (0x139e, "None"),
             (0x3e16, "Continue"),
+            (0x3e2e, "Click"),
             (0xd080, "Ready"),
         ] {
             ds[at..at + text.len()].copy_from_slice(text.as_bytes());
@@ -335,6 +334,7 @@ mod tests {
             let mut frame = Frame::new();
             frame.pixels.fill(7);
             inspection(&mut frame, &assets, state, 3, mode).unwrap();
+            assert!(frame.acknowledgment_popup);
             frame.pixels
         };
         let original = draw(&state, Original);

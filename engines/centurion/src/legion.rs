@@ -365,12 +365,13 @@ pub fn complete_list(frame: &mut Frame, assets: &Assets, state: &Campaign) -> Re
     if ids.is_empty() {
         return Ok(());
     }
+    frame.acknowledgment_popup = true;
     let height = (ids.len() as i32 + 3) * 8 + 15;
     let top = (200 - height) / 2;
     frame.bevel(2, top, 317, top + height, 26);
     frame.center_text(
         assets,
-        &format!("{}{}", state.string(0x1f70)?, state.string(0x3e16)?),
+        &format!("{}{}", state.string(0x1f70)?, state.continue_footer()?),
         160,
         top + 5,
         15,
@@ -398,7 +399,7 @@ pub fn message_with_footer_offset(
     text: &str,
     footer_offset: i32,
 ) -> Result<()> {
-    let footer = state.string(0x3e16)?;
+    let footer = state.continue_footer()?;
     message_with_footer(frame, assets, text, &footer, footer_offset)
 }
 pub fn message_with_footer(
@@ -408,6 +409,7 @@ pub fn message_with_footer(
     footer: &str,
     footer_offset: i32,
 ) -> Result<()> {
+    frame.acknowledgment_popup = true;
     let widths = word(&assets.data_segment, 0xa05c)? as usize;
     let width = text
         .split('\n')

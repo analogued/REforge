@@ -45,9 +45,10 @@ matching the original table. These layout and cargo corrections apply
 to the fleet tables independently of the enemy inspection choice.
 
 The granular setting is under Settings → Centurion overrides → Enhancements →
-Centurion UI → Advanced options. Original/Reforged are aliases for Original/Both;
-Detailed shows Custom. Only the granular choice is saved. Applying a change can
-switch an already open inspection. Movement and naval mechanics are unchanged.
+Centurion UI → Advanced options. Original/Reforged are aliases over Fleet
+information and Popup cursor: Original/Hidden or Both/Visible. Other combinations
+show Custom. Only granular choices are saved. Applying a change can switch an
+already open inspection. Movement and naval mechanics are unchanged.
 
 The three permanent enemy fleets normally occupy distinct fixed seas. The
 original inspection routine reports only the first active matching permanent
@@ -57,6 +58,24 @@ Marauding Fleet encounters, and the original information routine checks those
 before permanent fleets. Native Roman/enemy co-location selection still differs
 from the controlled DOS captures: the native selection path prioritizes local
 Roman fleets. This presentation change does not alter that selection path.
+
+## Acknowledgment cursor and continue prompts
+
+DOS's shared acknowledgment routine hides and restores the software pointer;
+complete fleet/legion lists and province lists do likewise. Interactive Yes/No
+and selection dialogs show it while accepting a choice. **Popup cursor: Hidden**
+preserves the acknowledgment behavior. **Visible**, the Reforged default, keeps
+the pointer visible on those messages and read-only lists, including game/battle
+reports. Interactive choices remain visible under either setting. The added
+Detailed enemy fleet table follows the same read-only policy.
+
+DOS chooses its continue-prompt string once at startup according to mouse
+availability. REforge instead follows the last deliberate gameplay input:
+mouse click selects “Click to continue”, keyboard input selects “Hit any key to
+continue”. Motion, releases and polling do not change it. This policy is shared
+by messages and read-only lists, independent of the cursor option or UI preset.
+It changes wording rather than the accepted dismissal controls. The input mode
+is transient presentation state and does not enter campaign saves or alter RNG.
 
 ## Host presentation and sound
 

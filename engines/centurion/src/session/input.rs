@@ -32,6 +32,24 @@ pub enum Input {
 }
 
 impl Input {
+    /// Continue prompts follow intentional controls, never polling or pointer drift.
+    pub(super) fn continue_input(&self) -> Option<crate::state::ContinueInput> {
+        use crate::state::ContinueInput::{Keyboard, Mouse};
+        match self {
+            Self::Click(..) | Self::RightClick(..) => Some(Mouse),
+            Self::Enter
+            | Self::Space
+            | Self::Escape
+            | Self::Up
+            | Self::Down
+            | Self::Left
+            | Self::Right
+            | Self::Backspace => Some(Keyboard),
+            Self::Shortcut(key) if *key != 0 => Some(Keyboard),
+            Self::Text(text) if !text.is_empty() => Some(Keyboard),
+            _ => None,
+        }
+    }
     pub fn parse(line: &str) -> Result<Self> {
         let fields: Vec<_> = line.split_whitespace().collect();
         Ok(match fields.as_slice() {
@@ -133,6 +151,42 @@ impl Input {
     #[cfg(feature = "dev-tools")]
     pub fn is_motion(&self) -> bool {
         matches!(self, Self::Tick(_) | Self::Mouse(..) | Self::MouseDelta(..))
+    }
+}
+
+#[cfg(test)]
+mod continue_tests {
+    use super::*;
+    use crate::state::ContinueInput::{Keyboard, Mouse};
+
+    #[test]
+    fn only_deliberate_controls_change_continue_wording() {
+        for input in [Input::Click(10, 20), Input::RightClick(10, 20)] {
+            assert_eq!(input.continue_input(), Some(Mouse));
+        }
+        for input in [
+            Input::Enter,
+            Input::Space,
+            Input::Escape,
+            Input::Up,
+            Input::Shortcut(b'f'),
+            Input::Text("a".into()),
+        ] {
+            assert_eq!(input.continue_input(), Some(Keyboard));
+        }
+        for input in [
+            Input::Mouse(10, 20),
+            Input::MouseDelta(1, 2),
+            Input::Tick(3),
+            Input::Release(10, 20),
+            Input::ReleaseButton(1),
+            Input::ReleaseKey(1),
+            Input::Random(10),
+            Input::Text(String::new()),
+            Input::Shortcut(0),
+        ] {
+            assert_eq!(input.continue_input(), None);
+        }
     }
 }
 

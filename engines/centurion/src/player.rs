@@ -39,6 +39,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
     let cursor = Cursor(sdl.mouse());
     let creator = window.texture_creator();
     session.fleet_information = window.settings().centurion.fleet_information;
+    session.popup_cursor = window.settings().centurion.popup_cursor;
     let mut texture = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba)?;
     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
         .with_centurion_options()
@@ -268,6 +269,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
         }
         window.prepare_settings(&mut menu);
         session.fleet_information = window.settings().centurion.fleet_information;
+        session.popup_cursor = window.settings().centurion.popup_cursor;
         gamepads.set_dead_zone(window.settings().stick_dead_zone);
         if !paused {
             let frame = audio.as_mut().map(|o| o.clock_frames()).transpose()?;

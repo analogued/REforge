@@ -42,16 +42,51 @@ impl std::str::FromStr for FleetInformation {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum PopupCursor {
+    /// Hide the pointer while a popup is open, as in the original game.
+    Hidden,
+    /// Keep the pointer visible while a popup is open.
+    #[default]
+    Visible,
+}
+impl PopupCursor {
+    pub const ALL: [Self; 2] = [Self::Hidden, Self::Visible];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Hidden => "hidden",
+            Self::Visible => "visible",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Hidden => "Hidden",
+            Self::Visible => "Visible",
+        }
+    }
+}
+impl std::str::FromStr for PopupCursor {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "hidden" => Ok(Self::Hidden),
+            "visible" => Ok(Self::Visible),
+            _ => Err("popup cursor must be hidden or visible".into()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CenturionOptions {
     pub fleet_information: FleetInformation,
+    pub popup_cursor: PopupCursor,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        CENTURION_FLEET_INFORMATION as KEY, Draft, ENHANCEMENTS_SECTION, Launch, Patch,
-        RuntimeSettings, Session,
+        CENTURION_FLEET_INFORMATION as KEY, CENTURION_POPUP_CURSOR as CURSOR, Draft,
+        ENHANCEMENTS_SECTION, Launch, Patch, RuntimeSettings, Session,
     };
     use std::{
         fs,
@@ -87,6 +122,94 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn popup_cursor_validates_and_defaults_to_visible() {
+        let mut values = RuntimeSettings::default();
+        assert_eq!(values.centurion.popup_cursor, PopupCursor::Visible);
+        for choice in PopupCursor::ALL {
+            values.set(CURSOR, choice.as_str()).unwrap();
+            assert_eq!(values.centurion.popup_cursor, choice);
+            assert_eq!(values.get(CURSOR), choice.as_str());
+        }
+        for invalid in ["", "original", "reforged", "true", "false", "0"] {
+            assert!(values.set(CURSOR, invalid).is_err());
+            assert_eq!(values.centurion.popup_cursor, PopupCursor::Visible);
+        }
+        assert_eq!(crate::section_index(CURSOR), ENHANCEMENTS_SECTION);
+    }
+
+    #[test]
+    fn popup_cursor_is_per_entry_persists_and_resets_with_enhancements() {
+        let temp = Temp::new();
+        fs::write(temp.path(), "[global.enhancements]\npopup_cursor = 'hidden'\n[entries.copy.enhancements]\npopup_cursor = 'hidden' # keep\nunknown = 'retained'\n[entries.copy.display]\nwindow_mode = 'fullscreen'\n").unwrap();
+        let mut session = temp.session("centurion-defender-of-rome");
+        assert_eq!(
+            session.saved.global_values().centurion.popup_cursor,
+            PopupCursor::Visible
+        );
+        assert_eq!(
+            session.effective(&session.saved).centurion.popup_cursor,
+            PopupCursor::Hidden
+        );
+        let other = temp.session("alley-cat");
+        assert!(!other.saved.game.contains_key(CURSOR));
+        assert_eq!(
+            other.effective(&other.saved).centurion.popup_cursor,
+            PopupCursor::Visible
+        );
+        let mut draft = session.saved.clone();
+        draft.edit(false, CURSOR, "hidden".into());
+        assert!(!draft.global.contains_key(CURSOR));
+        draft.edit_game(KEY, "original".into(), Some(&session.saved));
+        session.commit(draft).unwrap();
+        let text = fs::read_to_string(temp.path()).unwrap();
+        assert!(text.contains("popup_cursor = 'hidden' # keep"));
+        assert!(!text.contains(CURSOR));
+        assert!(!text.contains("preset"));
+        let mut session = temp.session("centurion-defender-of-rome");
+        let mut draft = session.saved.clone();
+        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        draft.reset_section(true, ENHANCEMENTS_SECTION);
+        assert!(!draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert!(draft.game_values().fullscreen);
+        assert_eq!(draft.game_values().centurion, CenturionOptions::default());
+        session.commit(draft).unwrap();
+        let text = fs::read_to_string(temp.path()).unwrap();
+        let doc = text.parse::<toml_edit::DocumentMut>().unwrap();
+        assert!(
+            doc["entries"]["copy"]["enhancements"]
+                .get("popup_cursor")
+                .is_none()
+        );
+        assert!(text.contains("unknown = 'retained'"));
+    }
+
+    #[test]
+    fn invalid_popup_cursor_recovers_and_other_games_ignore_cli_choice() {
+        let temp = Temp::new();
+        fs::write(temp.path(), "[entries.copy.enhancements]\npopup_cursor = 'invalid'\nfleet_information = 'original'\n").unwrap();
+        let session = temp.session("centurion-defender-of-rome");
+        assert!(session.warning.is_some());
+        assert!(!session.saved.game.contains_key(CURSOR));
+        assert_eq!(
+            session.effective(&session.saved).centurion.popup_cursor,
+            PopupCursor::Visible
+        );
+        assert_eq!(
+            session
+                .effective(&session.saved)
+                .centurion
+                .fleet_information,
+            FleetInformation::Original
+        );
+        let mut other = temp.session("mach-3");
+        other.cli.insert(CURSOR.into(), "hidden".into());
+        assert_eq!(
+            other.effective(&other.saved).centurion.popup_cursor,
+            PopupCursor::Visible
+        );
     }
 
     #[test]

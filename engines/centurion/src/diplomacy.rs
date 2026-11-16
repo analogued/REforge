@@ -436,18 +436,11 @@ impl Diplomacy {
         }
         Ok(())
     }
-    fn final_scene(&mut self, assets: &Assets, state: &Campaign) -> Result<()> {
+    fn final_scene(&mut self, _assets: &Assets, state: &Campaign) -> Result<()> {
         self.cleopatra
             .as_mut()
             .unwrap()
             .finish(&mut self.body, state);
-        self.body.center_text(
-            assets,
-            &state.string(word(&state.data, 0x3e40)? as usize)?,
-            212,
-            184,
-            4,
-        )?;
         self.stage = Stage::CleoFinal;
         Ok(())
     }
@@ -580,6 +573,7 @@ impl Diplomacy {
         selected: Option<usize>,
     ) -> Result<Frame> {
         let mut frame = self.body.clone();
+        frame.acknowledgment_popup = false;
         if self.stage == Stage::Scout {
             // The portrait's saved region is restored only after the scouting
             // acknowledgment, when 6570 finishes assembling the leader panel.
@@ -615,12 +609,15 @@ impl Diplomacy {
         }
         if self.stage == Stage::CleoFinal {
             self.cleopatra.as_ref().unwrap().overlay(&mut frame);
+            frame.center_text(assets, &state.continue_footer()?, 212, 184, 4)?;
+            frame.acknowledgment_popup = true;
         }
         if matches!(
             self.stage,
             Stage::Scout | Stage::Alliance | Stage::CleoInvitation | Stage::CleoDismissed
         ) {
-            frame.center_text(assets, &state.string(0x3e16)?, 212, 183, 4)?;
+            frame.center_text(assets, &state.continue_footer()?, 212, 183, 4)?;
+            frame.acknowledgment_popup = true;
         }
         Ok(frame)
     }

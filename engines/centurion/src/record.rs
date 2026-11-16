@@ -247,6 +247,7 @@ impl Recorder {
                 "fleet_information",
                 quote(session.fleet_information.as_str()),
             ),
+            ("popup_cursor", quote(session.popup_cursor.as_str())),
             (
                 "ui_policy",
                 quote(

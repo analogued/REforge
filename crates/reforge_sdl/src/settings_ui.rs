@@ -11,11 +11,11 @@ use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     ALLEYCAT_MACHINE, ALLEYCAT_MOTION, AlleyCatMachine, AlleyCatMotion, AspectRatio,
-    BTZ_FILE_CURSOR, Backend, CENTURION_FLEET_INFORMATION, CONTROL_MODE, CONTROLLER_ACTION,
-    CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, ControlMode, DIGITIZED_SAMPLES, ENHANCEMENTS_SECTION,
-    FileCursorStyle, FleetInformation, FrameLimit, MOTION, MotionMode, Presentation, Renderer,
-    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy,
-    SoundCategory, SoundRenderer,
+    BTZ_FILE_CURSOR, Backend, CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR, CONTROL_MODE,
+    CONTROLLER_ACTION, CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, CenturionOptions, ControlMode,
+    DIGITIZED_SAMPLES, ENHANCEMENTS_SECTION, FileCursorStyle, FleetInformation, FrameLimit, MOTION,
+    MotionMode, PopupCursor, Presentation, Renderer, RuntimeSettings, SECTION_KEYS,
+    SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
 };
 mod controller;
 const PAGES: [&str; SECTION_KEYS.len()] = [
@@ -82,6 +82,7 @@ impl RowContext<'_> {
                 DIGITIZED_SAMPLES
                     | ALLEYCAT_MACHINE
                     | CENTURION_FLEET_INFORMATION
+                    | CENTURION_POPUP_CURSOR
                     | ALLEYCAT_MOTION
                     | BTZ_FILE_CURSOR
                     | CONTROL_MODE
@@ -482,13 +483,16 @@ pub(super) fn draw(
                         && menu.scope == 1
                         && menu.centurion_options
                         && original.centurion != value.centurion
-                        && !cli.contains_key(CENTURION_FLEET_INFORMATION)
                     {
-                        draft.edit_game(
-                            CENTURION_FLEET_INFORMATION,
-                            value.get(CENTURION_FLEET_INFORMATION),
-                            (!menu.game_reset[menu.page]).then_some(&saved),
-                        );
+                        for key in [CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR] {
+                            if !cli.contains_key(key) && original.get(key) != value.get(key) {
+                                draft.edit_game(
+                                    key,
+                                    value.get(key),
+                                    (!menu.game_reset[menu.page]).then_some(&saved),
+                                );
+                            }
+                        }
                     }
                     if menu.page == 2
                         && menu.scope == 1
@@ -790,29 +794,39 @@ fn alleycat_machine_controls(
 
 fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
     section(ui, "Centurion UI");
-    // Presets are aliases over the individual choices. Detailed is a custom choice;
-    // only granular values are saved, never a separate preset.
-    row(
-        ui,
-        "UI preset",
-        "centurion_ui_preset",
-        rows.state(CENTURION_FLEET_INFORMATION, value),
-        |ui| {
-            let selector = Selector::new(
-                "centurion_ui_preset",
-                [
-                    Choice::new(FleetInformation::Original, "Original"),
-                    Choice::new(FleetInformation::Both, "Reforged"),
-                ],
-            );
-            let selector = if value.centurion.fleet_information == FleetInformation::Detailed {
-                selector.selected_text("Custom")
-            } else {
-                selector
-            };
-            selector.show(ui, &mut value.centurion.fleet_information);
-        },
-    );
+    // Presets are aliases over both granular choices, never separately saved.
+    let original = CenturionOptions {
+        fleet_information: FleetInformation::Original,
+        popup_cursor: PopupCursor::Hidden,
+    };
+    let reforged = CenturionOptions::default();
+    let fleet_state = rows.state(CENTURION_FLEET_INFORMATION, value);
+    let cursor_state = rows.state(CENTURION_POPUP_CURSOR, value);
+    let preset_state = RowState {
+        lock_tooltip: fleet_state.lock_tooltip.or(cursor_state.lock_tooltip),
+        overridden: fleet_state.overridden || cursor_state.overridden,
+        dirty: fleet_state.dirty || cursor_state.dirty,
+        tooltip: format!(
+            "Fleet information\n{}\n\nPopup cursor\n{}",
+            fleet_state.tooltip, cursor_state.tooltip
+        ),
+        saved: format!("{} / {}", fleet_state.saved, cursor_state.saved),
+    };
+    row(ui, "UI preset", "centurion_ui_preset", preset_state, |ui| {
+        let selector = Selector::new(
+            "centurion_ui_preset",
+            [
+                Choice::new(original, "Original"),
+                Choice::new(reforged, "Reforged"),
+            ],
+        );
+        let selector = if value.centurion != original && value.centurion != reforged {
+            selector.selected_text("Custom")
+        } else {
+            selector
+        };
+        selector.show(ui, &mut value.centurion);
+    });
     ui.weak("Presets apply to the detailed options below.");
     collapsing(
         egui::CollapsingHeader::new("Advanced options")
@@ -831,6 +845,20 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
                         )
                         .show(ui, &mut value.centurion.fleet_information)
                         .on_hover_text("Original shows the fleet's name and sea location. Detailed shows ship counts and transported troops. Both shows the details together with the original notice.");
+                    },
+                );
+                row(
+                    ui,
+                    "Popup cursor",
+                    CENTURION_POPUP_CURSOR,
+                    rows.state(CENTURION_POPUP_CURSOR, value),
+                    |ui| {
+                        Selector::new(
+                            CENTURION_POPUP_CURSOR,
+                            PopupCursor::ALL.map(|choice| Choice::new(choice, choice.label())),
+                        )
+                        .show(ui, &mut value.centurion.popup_cursor)
+                        .on_hover_text("Applies to acknowledgment messages and read-only lists. Hidden follows DOS; Visible keeps the pointer shown. Interactive choices retain their cursor.");
                     },
                 );
             }),
@@ -1485,7 +1513,8 @@ fn section_has_cli_locks(
             && (mach3_options && cli.contains_key(MOTION)
                 || cli.contains_key(ALLEYCAT_MOTION)
                 || cli.contains_key(CONTROL_MODE)
-                || cli.contains_key(CENTURION_FLEET_INFORMATION)))
+                || cli.contains_key(CENTURION_FLEET_INFORMATION)
+                || cli.contains_key(CENTURION_POPUP_CURSOR)))
 }
 
 fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {

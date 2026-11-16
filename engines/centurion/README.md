@@ -89,8 +89,11 @@ can remain in a standoff until further orders or retreat.
 Enemy-fleet information defaults to **Both**: a detailed table above the original
 fleet-name/location notice. In Settings, Centurion overrides → Enhancements →
 Centurion UI offers Original/Reforged presets and expandable Fleet information
-choices: Original, Detailed and Both. Reforged selects Both; Detailed alone shows
-Custom. Roman tables show complete legion identifiers and readiness; enemy tables
+choices: Original, Detailed and Both. Popup cursor offers Visible (default) or
+Hidden for acknowledgment messages and read-only lists; interactive choices keep
+their pointer. Reforged selects Both and Visible; Original selects Original and
+Hidden. Other combinations show Custom. Continue prompts follow the last
+intentional mouse click or key, ignoring pointer motion and polling. Roman tables show complete legion identifiers and readiness; enemy tables
 show embarked troop totals without the uninformative readiness column. Counts
 use plain decimal digits. See the
 [player guide](../../docs/games/centurion.md#presentation-and-original-rules) and

@@ -4,7 +4,8 @@
 use super::machine_tests::{click, draw, dummy_video, label};
 use super::*;
 use reforge_settings::{
-    CENTURION_FLEET_INFORMATION as KEY, ENHANCEMENTS_SECTION, FleetInformation, Launch, Patch,
+    CENTURION_FLEET_INFORMATION as KEY, CENTURION_POPUP_CURSOR as CURSOR, ENHANCEMENTS_SECTION,
+    FleetInformation, Launch, Patch, PopupCursor,
 };
 
 fn click_last(menu: &mut SettingsMenu<'_>, text: &str) {
@@ -116,6 +117,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     click(&mut menu, "Reforged");
     click(&mut menu, "Original");
     assert_eq!(menu.draft.as_ref().unwrap().game[KEY], "original");
+    assert_eq!(menu.draft.as_ref().unwrap().game[CURSOR], "hidden");
     assert_eq!(std::fs::read(&path).unwrap(), initial);
     click(&mut menu, "Advanced options");
     assert!(label(&draw(&mut menu, vec![]), "Fleet information").is_some());
@@ -126,8 +128,24 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     click(&mut menu, "Custom");
     click(&mut menu, "Reforged");
     assert!(!menu.draft.as_ref().unwrap().game.contains_key(KEY));
+    assert!(!menu.draft.as_ref().unwrap().game.contains_key(CURSOR));
     assert!(label(&draw(&mut menu, vec![]), "Both").is_some());
     assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());
+    click(&mut menu, "Visible");
+    click(&mut menu, "Hidden");
+    assert_eq!(menu.draft.as_ref().unwrap().game[CURSOR], "hidden");
+    assert!(!menu.draft.as_ref().unwrap().game.contains_key(KEY));
+    assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
+    click(&mut menu, "Custom");
+    click(&mut menu, "Original");
+    assert_eq!(menu.draft.as_ref().unwrap().game[KEY], "original");
+    assert_eq!(menu.draft.as_ref().unwrap().game[CURSOR], "hidden");
+    click(&mut menu, "Hidden");
+    click(&mut menu, "Visible");
+    assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
+    assert!(!menu.draft.as_ref().unwrap().game.contains_key(CURSOR));
+    click(&mut menu, "Custom");
+    click(&mut menu, "Reforged");
     click(&mut menu, "Both");
     click_last(&mut menu, "Original");
     assert_eq!(menu.draft.as_ref().unwrap().game[KEY], "original");
@@ -162,8 +180,11 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     );
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.contains("fleet_information = \"original\""));
+    assert!(text.contains("popup_cursor = \"hidden\""));
     assert!(!text.contains("preset"));
     assert!(text.contains("master_volume = 61"));
+    click(&mut menu, "Hidden");
+    click(&mut menu, "Visible");
     click_last(&mut menu, "Original");
     click(&mut menu, "Detailed");
     assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
@@ -194,6 +215,15 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
             .fleet_information,
         FleetInformation::Both
     );
+    assert_eq!(
+        menu.draft
+            .as_ref()
+            .unwrap()
+            .game_values()
+            .centurion
+            .popup_cursor,
+        PopupCursor::Visible
+    );
     assert!(
         std::fs::read_to_string(&path)
             .unwrap()
@@ -215,6 +245,11 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
         !std::fs::read_to_string(&path)
             .unwrap()
             .contains("fleet_information")
+    );
+    assert!(
+        !std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("popup_cursor")
     );
     assert!(
         std::fs::read_to_string(&path)
@@ -409,6 +444,61 @@ fn centurion_native_settings_capture_and_detail_navigation() {
                             "{}-{}-{width}x{height}-{}.bmp",
                             theme.slug(),
                             choice.as_str(),
+                            (density * 100.0).round() as u32
+                        )))
+                        .unwrap();
+                }
+            }
+            let mut cursor_found = false;
+            for _ in 0..80 {
+                let output = sized_draw(&mut menu, metrics, vec![]);
+                let visible = label(&output, "Visible").unwrap();
+                if menu
+                    .context
+                    .memory(|memory| memory.focused())
+                    .and_then(|id| menu.context.read_response(id))
+                    .is_some_and(|response| response.rect.contains(visible.center()))
+                {
+                    cursor_found = true;
+                    break;
+                }
+                pulse(&mut menu, metrics, Key::Tab);
+            }
+            assert!(
+                cursor_found,
+                "popup cursor selector must be reachable: {width} {density}"
+            );
+            for cursor in PopupCursor::ALL {
+                pulse(&mut menu, metrics, Key::ArrowRight);
+                let options = menu.draft.as_ref().unwrap().game_values().centurion;
+                assert_eq!(options.fleet_information, FleetInformation::Both);
+                assert_eq!(options.popup_cursor, cursor);
+                let output = sized_draw(&mut menu, metrics, vec![]);
+                assert!(
+                    label(
+                        &output,
+                        if cursor == PopupCursor::Hidden {
+                            "Custom"
+                        } else {
+                            "Reforged"
+                        }
+                    )
+                    .is_some()
+                );
+                for _ in 0..3 {
+                    canvas.set_draw_color(sdl3::pixels::Color::RGB(80, 80, 80));
+                    canvas.clear();
+                    menu.prepare(metrics, RuntimeSettings::default());
+                    menu.paint(&mut canvas).unwrap();
+                }
+                if let Some(directory) = std::env::var_os("REFORGE_CENTURION_SETTINGS_CAPTURE") {
+                    canvas
+                        .read_pixels(None)
+                        .unwrap()
+                        .save_bmp(std::path::PathBuf::from(directory).join(format!(
+                            "{}-popup-{}-{width}x{height}-{}.bmp",
+                            theme.slug(),
+                            cursor.as_str(),
                             (density * 100.0).round() as u32
                         )))
                         .unwrap();

@@ -115,6 +115,7 @@ impl Panels {
         title: &str,
         selected: Option<usize>,
     ) -> Result<()> {
+        frame.acknowledgment_popup = false;
         let widths = word(&assets.data_segment, 0xa05c)? as usize;
         let width = title
             .split('\n')
@@ -438,11 +439,12 @@ impl Panels {
         if rows == 0 {
             return Ok(());
         }
+        frame.acknowledgment_popup = true;
         let top = 90 - (rows as i32 * 8 + 45) / 2;
         let bottom = top + rows as i32 * 8 + 45;
         frame.bevel(24, top, 295, bottom, 26);
         frame.center_text(assets, &state.string(0x56ef)?, 160, top + 6, 15)?;
-        frame.center_text(assets, &state.string(0x3e16)?, 160, bottom - 13, 15)?;
+        frame.center_text(assets, &state.continue_footer()?, 160, bottom - 13, 15)?;
         for index in 0..4 {
             let at = 0x57a2 + index * 4;
             frame.text(

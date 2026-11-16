@@ -11,6 +11,8 @@ pub const HEIGHT: usize = 200;
 pub struct Frame {
     pub pixels: Vec<u8>,
     pub palette: Option<crate::water::Palette>,
+    /// A read-only acknowledgment is currently displayed over this frame.
+    pub acknowledgment_popup: bool,
 }
 
 impl Frame {
@@ -18,6 +20,7 @@ impl Frame {
         Self {
             pixels: vec![0; WIDTH * HEIGHT],
             palette: None,
+            acknowledgment_popup: false,
         }
     }
 

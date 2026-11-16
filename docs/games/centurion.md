@@ -74,8 +74,8 @@ Original game resources are only read; campaign writes target the save directory
 ## Presentation and original rules
 
 Click an uncontrolled province or empty sea to see its name. If a roaming army
-is there, the notice also identifies its origin. The popup hides the pointer and displays
-“Click to continue”; either mouse button, Enter, Space or Escape dismisses it.
+is there, the notice also identifies its origin. Either mouse button, Enter,
+Space or Escape dismisses the popup.
 Controlled and allied provinces open their normal management panels.
 
 Menus combine keyboard-style selection boxes with mouse-hover highlighting.
@@ -83,13 +83,23 @@ Tribute and Tribute Policy also mark the currently applied level with a subdued
 band. `--original-tribute-menus` hides that added indicator for comparisons.
 In Settings, select **Centurion overrides → Enhancements** to edit **Centurion UI**.
 **UI preset** selects Original or Reforged (the default) for the options in that
-section. Expand **Advanced options** to choose **Fleet information** individually:
-Original shows the DOS fleet-name/location notice; Detailed shows ship counts
-and embarked troops; Both shows the table and notice together. **Both is the
-Reforged default.** One key or click dismisses either view or their combination.
-Apply takes effect immediately, including while an inspection is open; Cancel
-discards pending edits. Only the individual choice is saved. The preset label
-follows it: Original for Original, Reforged for Both, and Custom for Detailed.
+section. Expand **Advanced options** to adjust the individual choices.
+**Fleet information** offers Original (the DOS name/location notice), Detailed
+(the ship and troop table), and Both (table and notice together). **Both** is the
+Reforged default. One key or click dismisses either view or their combination.
+**Popup cursor** offers Visible (the Reforged default) and Hidden (DOS behavior).
+It applies to acknowledgment messages and read-only lists, including reports in
+battles and games. Interactive choices and Yes/No buttons retain their cursor.
+
+The presets apply both individual choices: Original selects Original fleet
+information and Hidden; Reforged selects Both and Visible. Other combinations
+show Custom. Only the individual choices are saved. Apply takes effect
+immediately, including on an open popup; Cancel discards pending edits.
+
+Continue prompts follow the last deliberate gameplay input: a mouse click gives
+“Click to continue”; a key gives “Hit any key to continue”. Mouse motion, button
+releases and timer updates do not switch the wording. Either input method can
+still dismiss an acknowledgment regardless of its current wording.
 
 The Fleet information choice affects enemy inspection. Roman tables use centered
 columns with complete legion names (such as I Ital and I Aeg) and fleet readiness.

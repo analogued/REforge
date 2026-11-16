@@ -4,10 +4,19 @@
 // Save blocks are read from the original table used by 0000:75a3 / 75e8.
 use crate::assets::{Assets, Result, word};
 
+/// Presentation-only provenance of the last deliberate player input.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ContinueInput {
+    Keyboard,
+    #[default]
+    Mouse,
+}
+
 #[derive(Clone)]
 pub struct Campaign {
     pub data: Vec<u8>,
     pub sound: crate::sound::Bus,
+    pub continue_input: ContinueInput,
     blocks: Vec<(usize, usize)>,
 }
 
@@ -18,6 +27,7 @@ impl Campaign {
             data,
             blocks: Vec::new(),
             sound: crate::sound::Bus::default(),
+            continue_input: ContinueInput::default(),
         }
     }
 
@@ -47,6 +57,7 @@ impl Campaign {
             data,
             blocks,
             sound: crate::sound::Bus::default(),
+            continue_input: ContinueInput::default(),
         };
         state.load(&assets.resource("CENT", "NEWGAME.LZW")?)?;
         Ok(state)
@@ -70,6 +81,13 @@ impl Campaign {
             bytes.extend_from_slice(&self.data[address..address + size]);
         }
         bytes
+    }
+
+    pub fn continue_footer(&self) -> Result<String> {
+        self.string(match self.continue_input {
+            ContinueInput::Keyboard => 0x3e16,
+            ContinueInput::Mouse => 0x3e2e,
+        })
     }
 
     pub fn string(&self, offset: usize) -> Result<String> {
@@ -193,6 +211,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn continue_prompt_tracks_transient_input_without_changing_campaign_bytes() {
+        let mut state = Campaign::test_data(vec![0; 65536]);
+        for (address, text) in [
+            (0x3e16, "Hit any key to continue"),
+            (0x3e2e, "Click to continue"),
+        ] {
+            state.data[address..address + text.len()].copy_from_slice(text.as_bytes());
+        }
+        state.blocks = vec![(0, 16), (0x3e16, 48)];
+        let bytes = state.data.clone();
+        let saved = state.save();
+        assert_eq!(state.continue_footer().unwrap(), "Click to continue");
+        state.continue_input = ContinueInput::Keyboard;
+        assert_eq!(state.continue_footer().unwrap(), "Hit any key to continue");
+        let copy = state.clone();
+        assert_eq!(copy.continue_input, ContinueInput::Keyboard);
+        assert_eq!(state.save(), saved);
+        assert_eq!(state.data, bytes);
+    }
+
+    #[test]
     fn region_information_names_the_first_local_roaming_army_without_mutation() {
         let mut data = vec![0; 65536];
         for (address, text) in [
@@ -232,6 +271,7 @@ mod tests {
             data: vec![0; 65536],
             blocks: Vec::new(),
             sound: crate::sound::Bus::default(),
+            continue_input: ContinueInput::default(),
         };
         for province in 0..27 {
             state.data[0x5282 + province * 32] = 1;

@@ -66,13 +66,50 @@ impl Campaign {
         Ok(())
     }
 }
-fn width(assets: &Assets, text: &str) -> Result<i32> {
-    let at = word(&assets.data_segment, 0xa05c)? as usize;
-    Ok(text
-        .bytes()
-        .filter(|b| (32..128).contains(b))
-        .map(|b| i32::from(assets.data_segment[at + usize::from(b - 32)]) + 1)
-        .sum())
+const ROMAN_COLUMNS: [(&str, i32); 6] = [
+    ("Fleet", 33),
+    ("Triremes", 79),
+    ("Quinqueremes", 134),
+    ("Galleons", 187),
+    ("Legion", 232),
+    ("Status", 287),
+];
+const ENEMY_COLUMNS: [(&str, i32); 5] = [
+    ("Fleet", 53),
+    ("Triremes", 118),
+    ("Quinqueremes", 177),
+    ("Galleons", 236),
+    ("Troops", 288),
+];
+fn columns(index: usize) -> &'static [(&'static str, i32)] {
+    if index < 3 {
+        &ROMAN_COLUMNS
+    } else {
+        &ENEMY_COLUMNS
+    }
+}
+fn headings(frame: &mut Frame, assets: &Assets, index: usize, y: i32) -> Result<()> {
+    for &(label, center) in columns(index) {
+        frame.center_text(assets, label, center, y, 0)?;
+    }
+    Ok(())
+}
+fn cargo_label(state: &Campaign, index: usize) -> Result<String> {
+    let cargo = state.data[0x1117 + index * 12];
+    if cargo == 255 {
+        return state.string(0x139e);
+    }
+    if index < 3 {
+        return state.legion_name(usize::from(cargo));
+    }
+    if cargo >= 11 {
+        return Err("Invalid transported enemy army".into());
+    }
+    let army = 0xc114 + usize::from(cargo) * 14;
+    let troops = u32::from(word(&state.data, army + 2)?)
+        + u32::from(word(&state.data, army + 4)?)
+        + u32::from(state.data[army + 8]);
+    Ok(troops.to_string())
 }
 pub fn row(
     frame: &mut Frame,
@@ -81,34 +118,32 @@ pub fn row(
     index: usize,
     y: i32,
 ) -> Result<()> {
-    frame.text(
+    let columns = columns(index);
+    frame.center_text(
         assets,
         &state.string(word(&state.data, 0x1100 + index * 2)? as usize)?,
-        25,
+        columns[0].1,
         y,
         0,
     )?;
-    for (kind, x) in [(0, 104), (1, 162), (2, 216)] {
+    for kind in 0..3 {
         let count = word(&state.data, 0x110e + index * 12 + kind * 2)?.to_string();
-        frame.text(assets, &count, x - width(assets, &count)?, y, 0)?;
+        frame.center_text(assets, &count, columns[kind + 1].1, y, 0)?;
     }
-    let cargo = state.data[0x1117 + index * 12];
-    let legion = if cargo == 255 {
-        state.string(0x139e)?
-    } else {
-        state.roman(state.data[0x1922 + usize::from(cargo) * 20])?
-    };
-    frame.center_text(assets, &legion, 256, y, 0)?;
-    frame.center_text(
-        assets,
-        &state.string(word(
-            &state.data,
-            0x1b54 + usize::from(state.data[0x1116 + index * 12]) * 2,
-        )? as usize)?,
-        295,
-        y,
-        0,
-    )
+    frame.center_text(assets, &cargo_label(state, index)?, columns[4].1, y, 0)?;
+    if index < 3 {
+        frame.center_text(
+            assets,
+            &state.string(word(
+                &state.data,
+                0x1b54 + usize::from(state.data[0x1116 + index * 12]) * 2,
+            )? as usize)?,
+            columns[5].1,
+            y,
+            0,
+        )?;
+    }
+    Ok(())
 }
 pub fn local(
     frame: &mut Frame,
@@ -123,7 +158,7 @@ pub fn local(
     if let Some(title) = title {
         frame.center_text(assets, title, 160, 5, 15)?;
     }
-    frame.text(assets, &state.string(0x1314)?, 80, 5 + prefix, 0)?;
+    headings(frame, assets, 0, 5 + prefix)?;
     let buttons = assets.sprites("MINIT", "INIT")?;
     for (number, &id) in ids.iter().enumerate() {
         let y = 15 + prefix + number as i32 * 10;
@@ -145,7 +180,7 @@ pub fn movement(
     index: usize,
 ) -> Result<()> {
     frame.bevel(2, 0, 317, 31, 26);
-    frame.text(assets, &state.string(0x1314)?, 80, 5, 0)?;
+    headings(frame, assets, index, 5)?;
     row(frame, assets, state, index, 16)?;
     for target in if sprites.is_empty() {
         Vec::new()
@@ -157,7 +192,7 @@ pub fn movement(
     }
     Ok(())
 }
-/// Show either the original fleet/location notice or the optional detailed table.
+/// Show the original fleet/location notice, detailed table, or both together.
 pub fn inspection(
     frame: &mut Frame,
     assets: &Assets,
@@ -166,8 +201,11 @@ pub fn inspection(
     information: reforge_settings::FleetInformation,
 ) -> Result<()> {
     let region = state.fleet_location(index)?;
+    if information != reforge_settings::FleetInformation::Original {
+        movement(frame, assets, state, &[], index)?;
+    }
     if information == reforge_settings::FleetInformation::Detailed {
-        return movement(frame, assets, state, &[], index);
+        return Ok(());
     }
     let notice = format!(
         "{}{}{}",
@@ -197,7 +235,7 @@ pub fn complete_list(frame: &mut Frame, assets: &Assets, state: &Campaign) -> Re
         top + 5,
         15,
     )?;
-    frame.text(assets, &state.string(0x1314)?, 80, top + 22, 0)?;
+    headings(frame, assets, 0, top + 22)?;
     for (number, &id) in ids.iter().enumerate() {
         row(frame, assets, state, id, top + 32 + number as i32 * 8)?;
     }
@@ -208,8 +246,44 @@ pub fn complete_list(frame: &mut Frame, assets: &Assets, state: &Campaign) -> Re
 mod tests {
     use super::*;
     #[test]
-    fn inspection_selects_one_view_and_only_details_expose_ship_counts() {
-        use reforge_settings::FleetInformation::{Detailed, Original};
+    fn cargo_reads_full_roman_names_and_enemy_troops_from_separate_tables() {
+        let mut ds = vec![0; 65536];
+        let put = |data: &mut [u8], at: usize, value: u16| {
+            data[at..at + 2].copy_from_slice(&value.to_le_bytes());
+        };
+        ds[0xd000] = b'I';
+        for address in [0x4f82, 0x4f6e] {
+            put(&mut ds, address, 0xd010);
+        }
+        put(&mut ds, 0x4f5c, 0xd000);
+        for (index, suffix) in [" Ital", " Aeg", " Narb"].iter().enumerate() {
+            let legion = 0x1918 + index * 20;
+            ds[legion..legion + suffix.len()].copy_from_slice(suffix.as_bytes());
+            ds[legion + 10] = 1;
+            ds[0x1117 + index * 12] = index as u8;
+        }
+        ds[0x1117 + 3 * 12] = 10;
+        let army = 0xc114 + 10 * 14;
+        put(&mut ds, army + 2, 4200);
+        put(&mut ds, army + 4, 790);
+        ds[army + 8] = 10;
+        ds[0x139e..0x13a2].copy_from_slice(b"None");
+        ds[0x1117 + 4 * 12] = 255;
+        let mut state = Campaign::test_data(ds);
+        for (index, name) in ["I Ital", "I Aeg", "I Narb"].iter().enumerate() {
+            assert_eq!(cargo_label(&state, index).unwrap(), *name);
+        }
+        assert_eq!(cargo_label(&state, 3).unwrap(), "5000");
+        assert_eq!(cargo_label(&state, 4).unwrap(), "None");
+        state.data[0x1117 + 3 * 12] = 11;
+        assert!(cargo_label(&state, 3).is_err());
+        state.data[0x1117] = 12;
+        assert!(cargo_label(&state, 0).is_err());
+    }
+
+    #[test]
+    fn inspection_modes_compose_without_changing_campaign_state() {
+        use reforge_settings::FleetInformation::{Both, Detailed, Original};
         let mut ds = vec![0; 65536];
         let put = |data: &mut [u8], at: usize, value: u16| {
             data[at..at + 2].copy_from_slice(&value.to_le_bytes());
@@ -255,13 +329,16 @@ mod tests {
         };
         let original = draw(&state, Original);
         let detailed = draw(&state, Detailed);
+        let both = draw(&state, Both);
+        assert_eq!(both[..40 * 320], detailed[..40 * 320]);
+        assert_eq!(both[40 * 320..], original[40 * 320..]);
         assert!(original[..40 * 320].iter().all(|pixel| *pixel == 7));
         assert!(detailed[60 * 320..].iter().all(|pixel| *pixel == 7));
         assert!(original[60 * 320..].iter().any(|pixel| *pixel != 7));
         assert!(detailed[..40 * 320].iter().any(|pixel| *pixel != 7));
         assert_eq!(
             state.data, before,
-            "both views leave campaign state unchanged"
+            "all views leave campaign state unchanged"
         );
         put(&mut state.data, fleet, 99);
         assert_eq!(
@@ -269,6 +346,7 @@ mod tests {
             original,
             "DOS notice exposes no ship count"
         );
+        assert_ne!(draw(&state, Both), both);
         assert_ne!(
             draw(&state, Detailed),
             detailed,

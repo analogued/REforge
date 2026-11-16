@@ -22,21 +22,38 @@ The save-name prompt identifies the destination slot. This is an additional
 clarity aid; descriptions continue to prefill from the current campaign rather
 than the selected slot's previous name.
 
-## Enemy-fleet information
+## Fleet information
 
-DOS enemy inspection displays a fleet-name/location notice, including when Roman
-fleets are present. **Fleet information: Original** uses that notice alone.
-**Detailed**, the Reforged default, instead shows the existing native fleet table
-with ship counts, transport assignment and readiness. The detailed table can
-overlap a long fleet name with the trireme count; its layout is unchanged.
+DOS enemy inspection displays a fleet-name/location notice, including in the
+controlled captures with Roman fleets present. **Fleet information: Original**
+uses that notice alone. **Detailed** shows a centered ship-count and embarked
+Troops table instead. **Both**, the Reforged default, shows the table above the
+original notice. All three choices use one key/click dismissal and leave campaign
+state unchanged.
 
-The granular setting is available under Settings → Centurion overrides →
-Enhancements → Centurion UI → Advanced options. The Original/Reforged UI presets are aliases
-for the detailed choices in that section, rather than separate saved switches.
-They currently cover fleet information only. Applying a change can switch an
-already open inspection without changing campaign state. Both views use the
-same single key/click dismissal. The choice does not change fleet selection
-precedence, Roman fleet lists, ship counts or naval mechanics.
+The enemy table omits Status: the permanent enemy fleets do not use the Roman
+Ready/Moved/Forming turn cycle. Its cargo byte indexes the enemy army table;
+Troops sums that army's infantry, cavalry and elephants. The former native table
+incorrectly treated it as a Roman legion index, producing misleading numerals.
+An empty transport displays None. Roman fleet tables now use complete legion
+identifiers rather than just numerals, so I Ital, I Aeg and I Narb are distinct.
+Separate centered column positions accommodate each side's widest names/counts
+without the former name/count overlap. These layout and cargo corrections apply
+to the fleet tables independently of the enemy inspection choice.
+
+The granular setting is under Settings → Centurion overrides → Enhancements →
+Centurion UI → Advanced options. Original/Reforged are aliases for Original/Both;
+Detailed shows Custom. Only the granular choice is saved. Applying a change can
+switch an already open inspection. Movement and naval mechanics are unchanged.
+
+The three permanent enemy fleets normally occupy distinct fixed seas. The
+original inspection routine reports only the first active matching permanent
+fleet, rather than listing several; artificial co-location overlays their map
+symbols at the same sea coordinate. Roaming armies at sea are separate temporary
+Marauding Fleet encounters, and the original information routine checks those
+before permanent fleets. Native Roman/enemy co-location selection still differs
+from the controlled DOS captures: the native selection path prioritizes local
+Roman fleets. This presentation change does not alter that selection path.
 
 ## Host presentation and sound
 

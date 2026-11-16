@@ -6,22 +6,26 @@
 pub enum FleetInformation {
     /// The original fleet-name/location notice.
     Original,
-    /// Ship counts, transport assignment and readiness.
-    #[default]
+    /// Ship counts and embarked troops.
     Detailed,
+    /// The detailed table together with the original name/location notice.
+    #[default]
+    Both,
 }
 impl FleetInformation {
-    pub const ALL: [Self; 2] = [Self::Original, Self::Detailed];
+    pub const ALL: [Self; 3] = [Self::Original, Self::Detailed, Self::Both];
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Original => "original",
             Self::Detailed => "detailed",
+            Self::Both => "both",
         }
     }
     pub fn label(self) -> &'static str {
         match self {
             Self::Original => "Original",
             Self::Detailed => "Detailed",
+            Self::Both => "Both",
         }
     }
 }
@@ -31,7 +35,8 @@ impl std::str::FromStr for FleetInformation {
         match value {
             "original" => Ok(Self::Original),
             "detailed" => Ok(Self::Detailed),
-            _ => Err("fleet information must be original or detailed".into()),
+            "both" => Ok(Self::Both),
+            _ => Err("fleet information must be original, detailed or both".into()),
         }
     }
 }
@@ -85,10 +90,10 @@ mod tests {
     }
 
     #[test]
-    fn fleet_information_is_validated_and_defaults_to_detailed() {
+    fn fleet_information_is_validated_and_defaults_to_both() {
         assert_eq!(
             CenturionOptions::default().fleet_information,
-            FleetInformation::Detailed
+            FleetInformation::Both
         );
         let mut values = RuntimeSettings::default();
         for choice in FleetInformation::ALL {
@@ -96,6 +101,7 @@ mod tests {
             assert_eq!(values.centurion.fleet_information, choice);
             assert_eq!(values.get(KEY), choice.as_str());
         }
+        values.set(KEY, "detailed").unwrap();
         for invalid in ["", "reforged", "mixed", "true", "0"] {
             assert!(values.set(KEY, invalid).is_err());
             assert_eq!(
@@ -103,6 +109,60 @@ mod tests {
                 FleetInformation::Detailed
             );
         }
+    }
+
+    #[test]
+    fn both_fleet_information_round_trips_without_a_saved_preset() {
+        let temp = Temp::new();
+        fs::write(
+            temp.path(),
+            "[entries.copy.enhancements]\nfleet_information = 'both'\n",
+        )
+        .unwrap();
+        let mut session = temp.session("centurion-defender-of-rome");
+        let saved = session.saved.clone();
+        let mut draft = session.saved.clone();
+        draft.edit_game(KEY, "original".into(), Some(&saved));
+        draft.edit_game(KEY, "both".into(), Some(&saved));
+        session.commit(draft).unwrap();
+        let text = fs::read_to_string(temp.path()).unwrap();
+        assert!(text.contains("fleet_information = 'both'"));
+        assert!(!text.contains("preset"));
+        let loaded = temp.session("centurion-defender-of-rome");
+        assert!(loaded.warning.is_none());
+        assert_eq!(
+            loaded.effective(&loaded.saved).centurion.fleet_information,
+            FleetInformation::Both
+        );
+    }
+
+    #[test]
+    fn missing_values_use_both_and_migrated_detailed_stays_explicit() {
+        let temp = Temp::new();
+        let session = temp.session("centurion-defender-of-rome");
+        assert_eq!(
+            session
+                .effective(&session.saved)
+                .centurion
+                .fleet_information,
+            FleetInformation::Both
+        );
+        fs::write(
+            temp.path(),
+            "[entries.copy.display]\nfleet_information = 'detailed' # retain choice\n",
+        )
+        .unwrap();
+        let session = temp.session("centurion-defender-of-rome");
+        assert_eq!(
+            session
+                .effective(&session.saved)
+                .centurion
+                .fleet_information,
+            FleetInformation::Detailed
+        );
+        let text = fs::read_to_string(temp.path()).unwrap();
+        assert!(text.contains("[entries.copy.enhancements]"));
+        assert!(text.contains("fleet_information = 'detailed' # retain choice"));
     }
 
     #[test]

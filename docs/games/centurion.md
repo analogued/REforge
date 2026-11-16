@@ -79,16 +79,19 @@ band. `--original-tribute-menus` hides that added indicator for comparisons.
 In Settings, select **Centurion overrides → Enhancements** to edit **Centurion UI**.
 **UI preset** selects Original or Reforged (the default) for the options in that
 section. Expand **Advanced options** to choose **Fleet information** individually:
-Original shows the DOS fleet-name/location notice; Detailed shows the existing
-ship-count, transport and readiness table. The table replaces the notice rather
-than appearing alongside it. Apply takes effect immediately, including while an
-inspection is open; Cancel discards pending edits. Only the detailed choices are
-saved, and the preset label follows them. With this first binary option, every
-combination matches Original or Reforged.
+Original shows the DOS fleet-name/location notice; Detailed shows ship counts
+and embarked troops; Both shows the table and notice together. **Both is the
+Reforged default.** One key or click dismisses either view or their combination.
+Apply takes effect immediately, including while an inspection is open; Cancel
+discards pending edits. Only the individual choice is saved. The preset label
+follows it: Original for Original, Reforged for Both, and Custom for Detailed.
 
-This option affects enemy inspection. Roman fleet lists, movement and naval rules
-retain their existing behaviour. The detailed table retains its current layout,
-including possible overlap between long fleet names and counts. Other menu
+The Fleet information choice affects enemy inspection. Roman tables use centered
+columns with complete legion names (such as I Ital and I Aeg) and fleet readiness.
+Enemy tables show centered ship counts and an embarked Troops total, without a
+Status column. Troops includes infantry, cavalry and elephants; no embarked army
+shows None. Counts use plain decimal digits, as in the original numeric tables.
+Fleet movement, selection rules and naval mechanics are unchanged. Other menu
 presentation changes above are independent of this preset. These choices are
 described in the engine's
 [deviations reference](../../engines/centurion/docs/deviations.md).

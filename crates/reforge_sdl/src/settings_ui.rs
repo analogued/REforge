@@ -790,22 +790,27 @@ fn alleycat_machine_controls(
 
 fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
     section(ui, "Centurion UI");
-    // Presets are aliases over the individual choices. With the first binary
-    // option, every combination matches one preset; there is no Custom state yet.
+    // Presets are aliases over the individual choices. Detailed is a custom choice;
+    // only granular values are saved, never a separate preset.
     row(
         ui,
         "UI preset",
         "centurion_ui_preset",
         rows.state(CENTURION_FLEET_INFORMATION, value),
         |ui| {
-            Selector::new(
+            let selector = Selector::new(
                 "centurion_ui_preset",
                 [
                     Choice::new(FleetInformation::Original, "Original"),
-                    Choice::new(FleetInformation::Detailed, "Reforged"),
+                    Choice::new(FleetInformation::Both, "Reforged"),
                 ],
-            )
-            .show(ui, &mut value.centurion.fleet_information);
+            );
+            let selector = if value.centurion.fleet_information == FleetInformation::Detailed {
+                selector.selected_text("Custom")
+            } else {
+                selector
+            };
+            selector.show(ui, &mut value.centurion.fleet_information);
         },
     );
     ui.weak("Presets apply to the detailed options below.");
@@ -825,7 +830,7 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
                             FleetInformation::ALL.map(|choice| Choice::new(choice, choice.label())),
                         )
                         .show(ui, &mut value.centurion.fleet_information)
-                        .on_hover_text("Original shows the fleet's name and sea location. Detailed shows ship counts, transported legion and readiness.");
+                        .on_hover_text("Original shows the fleet's name and sea location. Detailed shows ship counts and transported troops. Both shows the details together with the original notice.");
                     },
                 );
             }),

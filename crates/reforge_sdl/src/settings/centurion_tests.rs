@@ -121,13 +121,14 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     assert!(label(&draw(&mut menu, vec![]), "Fleet information").is_some());
     click_last(&mut menu, "Original");
     click(&mut menu, "Detailed");
-    assert!(
-        label(&draw(&mut menu, vec![]), "Reforged").is_some(),
-        "main alias follows detail choice"
-    );
+    assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
+    assert_eq!(menu.draft.as_ref().unwrap().game[KEY], "detailed");
+    click(&mut menu, "Custom");
+    click(&mut menu, "Reforged");
     assert!(!menu.draft.as_ref().unwrap().game.contains_key(KEY));
+    assert!(label(&draw(&mut menu, vec![]), "Both").is_some());
     assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());
-    click(&mut menu, "Detailed");
+    click(&mut menu, "Both");
     click_last(&mut menu, "Original");
     assert_eq!(menu.draft.as_ref().unwrap().game[KEY], "original");
     menu.back(); // Escape/controller Back discards the same pending draft as Cancel.
@@ -144,7 +145,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
             .game_values()
             .centurion
             .fleet_information,
-        FleetInformation::Detailed
+        FleetInformation::Both
     );
     click(&mut menu, "Reforged");
     click(&mut menu, "Original");
@@ -163,6 +164,26 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     assert!(text.contains("fleet_information = \"original\""));
     assert!(!text.contains("preset"));
     assert!(text.contains("master_volume = 61"));
+    click_last(&mut menu, "Original");
+    click(&mut menu, "Detailed");
+    assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
+    click(&mut menu, "Apply");
+    let request = creator
+        .session
+        .borrow()
+        .effective(menu.pending.as_ref().unwrap());
+    display.apply_settings(request).unwrap();
+    menu.applied();
+    assert_eq!(
+        display.settings().centurion.fleet_information,
+        FleetInformation::Detailed
+    );
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("fleet_information = \"detailed\"")
+    );
+    assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
     click(&mut menu, "Restore defaults");
     assert_eq!(
         menu.draft
@@ -171,7 +192,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
             .game_values()
             .centurion
             .fleet_information,
-        FleetInformation::Detailed
+        FleetInformation::Both
     );
     assert!(
         std::fs::read_to_string(&path)
@@ -188,7 +209,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     menu.applied();
     assert_eq!(
         display.settings().centurion.fleet_information,
-        FleetInformation::Detailed
+        FleetInformation::Both
     );
     assert!(
         !std::fs::read_to_string(&path)
@@ -310,7 +331,7 @@ fn centurion_native_settings_capture_and_detail_navigation() {
             let mut found = false;
             for _ in 0..80 {
                 let output = sized_draw(&mut menu, metrics, vec![]);
-                let detailed = label(&output, "Detailed").unwrap();
+                let detailed = label(&output, "Both").unwrap();
                 if menu
                     .context
                     .memory(|memory| memory.focused())
@@ -326,7 +347,18 @@ fn centurion_native_settings_capture_and_detail_navigation() {
                 found,
                 "advanced fleet selector must be reachable: {width} {density}"
             );
-            pulse(&mut menu, metrics, Key::ArrowRight);
+            pulse(&mut menu, metrics, Key::ArrowLeft);
+            assert_eq!(
+                menu.draft
+                    .as_ref()
+                    .unwrap()
+                    .game_values()
+                    .centurion
+                    .fleet_information,
+                FleetInformation::Detailed
+            );
+            assert!(label(&sized_draw(&mut menu, metrics, vec![]), "Custom").is_some());
+            pulse(&mut menu, metrics, Key::ArrowLeft);
             assert_eq!(
                 menu.draft
                     .as_ref()
@@ -337,7 +369,7 @@ fn centurion_native_settings_capture_and_detail_navigation() {
                 FleetInformation::Original
             );
             for choice in FleetInformation::ALL {
-                if choice == FleetInformation::Detailed {
+                if choice != FleetInformation::Original {
                     menu.handle_gamepad(crate::gamepad::PadEvent {
                         actions: crate::gamepad::Actions {
                             right: true,
@@ -354,7 +386,7 @@ fn centurion_native_settings_capture_and_detail_navigation() {
                             .game_values()
                             .centurion
                             .fleet_information,
-                        FleetInformation::Detailed
+                        choice
                     );
                 }
                 for _ in 0..3 {

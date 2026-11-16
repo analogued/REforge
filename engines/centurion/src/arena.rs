@@ -364,9 +364,17 @@ impl Arena {
                 Input::ReleaseKey(bits) => fight.held &= !bits,
                 _ => {}
             }
+        } else if let Input::Mouse(..) = input {
+            if self.stage == Stage::Training {
+                menu_input(&self.training, &mut self.selected, &input);
+            }
         } else if !matches!(
             input,
-            Input::Mouse(..) | Input::Release(..) | Input::ReleaseKey(_) | Input::Random(_)
+            Input::MouseDelta(..)
+                | Input::ReleaseButton(_)
+                | Input::Release(..)
+                | Input::ReleaseKey(_)
+                | Input::Random(_)
         ) {
             match self.stage {
                 Stage::Intro => self.offer(state, rng)?,
@@ -971,6 +979,56 @@ mod tests {
             versus: false,
             enthusiastic: false,
             dead: [false; 2],
+        }
+    }
+    #[test]
+    fn training_hover_does_not_buy_and_motion_never_acknowledges_arena_prompts() {
+        let mut a = arena(fight());
+        let assets = Assets::test_data(vec![0; 65536]);
+        let mut state = Campaign::test_data(vec![0; 65536]);
+        let mut rng = OriginalRng {
+            first: 15,
+            second: 40,
+        };
+        a.stage = Stage::Training;
+        a.training.items.push(crate::province::Item {
+            label: "Training".into(),
+            shortcut: b't',
+            disabled: false,
+            rect: (10, 20, 50, 28),
+        });
+        let before = state.data.clone();
+        assert!(
+            !a.input(&assets, &mut state, &mut rng, Input::Mouse(30, 24))
+                .unwrap()
+        );
+        assert_eq!(a.selected, Some(0));
+        assert_eq!(a.stage, Stage::Training);
+        assert!(
+            !a.input(&assets, &mut state, &mut rng, Input::Mouse(0, 0))
+                .unwrap()
+        );
+        assert_eq!(a.selected, None);
+        a.after = After::Refund;
+        for stage in [
+            Stage::Intro,
+            Stage::Prompt,
+            Stage::Cards,
+            Stage::Walk,
+            Stage::Thumbs,
+            Stage::Final,
+        ] {
+            a.stage = stage;
+            for input in [
+                Input::Mouse(30, 24),
+                Input::MouseDelta(5, 5),
+                Input::ReleaseButton(1),
+            ] {
+                assert!(!a.input(&assets, &mut state, &mut rng, input).unwrap());
+                assert_eq!(a.stage, stage);
+                assert_eq!(state.data, before);
+                assert_eq!((rng.first, rng.second), (15, 40));
+            }
         }
     }
     #[test]

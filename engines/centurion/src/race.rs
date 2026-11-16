@@ -377,10 +377,31 @@ impl Race {
             }
             return Ok(false);
         }
+        if let Input::Mouse(x, y) = input {
+            match self.stage {
+                Stage::Type | Stage::Prepare | Stage::Dirty | Stage::Bet => {
+                    menu_input(&self.menu, &mut self.selected, &input);
+                }
+                Stage::ConfirmExit | Stage::ConfirmNoBet => {
+                    self.selected = crate::province::confirmation_hit(
+                        &state.string(if self.stage == Stage::ConfirmExit {
+                            0x84ce
+                        } else {
+                            0x87ba
+                        })?,
+                        x,
+                        y,
+                    );
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
         if matches!(
             input,
             Input::Tick(_)
-                | Input::Mouse(..)
+                | Input::MouseDelta(..)
+                | Input::ReleaseButton(_)
                 | Input::Release(..)
                 | Input::ReleaseKey(_)
                 | Input::Random(_)
@@ -411,9 +432,16 @@ impl Race {
                         self.selected = Some(1 - self.selected.unwrap_or(1));
                         None
                     }
-                    Input::Click(x, y) if (129..=188).contains(&x) && (105..=116).contains(&y) => {
-                        Some(x < 160)
-                    }
+                    Input::Click(x, y) => crate::province::confirmation_hit(
+                        &state.string(if self.stage == Stage::ConfirmExit {
+                            0x84ce
+                        } else {
+                            0x87ba
+                        })?,
+                        x,
+                        y,
+                    )
+                    .map(|row| row == 0),
                     _ => None,
                 };
                 if let Some(yes) = answer {
@@ -871,6 +899,104 @@ mod tests {
         // Minimal authored menu: one empty item/string, no original data.
         s.data[0x88f8 + 14] = 1;
         s
+    }
+    #[test]
+    fn menu_hover_selects_without_purchases_and_motion_does_not_acknowledge_race_effects() {
+        let mut r = race();
+        let assets = Assets::test_data(vec![0; 65536]);
+        let mut state = state();
+        let mut rng = OriginalRng {
+            first: 15,
+            second: 40,
+        };
+        r.menu.items.push(crate::province::Item {
+            label: "Available".into(),
+            shortcut: b'a',
+            disabled: false,
+            rect: (10, 20, 50, 28),
+        });
+        let before = state.data.clone();
+        for stage in [Stage::Type, Stage::Prepare, Stage::Dirty, Stage::Bet] {
+            r.stage = stage;
+            assert!(
+                !r.input(&assets, &mut state, &mut rng, Input::Mouse(30, 24))
+                    .unwrap()
+            );
+            assert_eq!(r.selected, Some(0));
+            assert_eq!(r.stage, stage);
+            assert!(
+                !r.input(&assets, &mut state, &mut rng, Input::Mouse(0, 0))
+                    .unwrap()
+            );
+            assert_eq!(r.selected, None);
+        }
+        r.effect = Effect::Physician;
+        for stage in [
+            Stage::Selected,
+            Stage::Prompt,
+            Stage::Gallery,
+            Stage::Victory,
+            Stage::Result,
+        ] {
+            r.stage = stage;
+            for input in [
+                Input::Mouse(30, 24),
+                Input::MouseDelta(5, 5),
+                Input::ReleaseButton(1),
+            ] {
+                assert!(!r.input(&assets, &mut state, &mut rng, input).unwrap());
+                assert_eq!(r.stage, stage);
+                assert_eq!(state.data, before);
+                assert_eq!((rng.first, rng.second), (15, 40));
+            }
+        }
+    }
+    #[test]
+    fn confirmations_hover_and_click_only_their_painted_title_dependent_rows() {
+        let assets = Assets::test_data(vec![0; 65536]);
+        let mut state = state();
+        for (at, title) in [(0x84ce, "Leave?"), (0x87ba, "Begin\nwithout\na wager?")] {
+            state.data[at..at + title.len()].copy_from_slice(title.as_bytes());
+            state.data[at + title.len()] = 0;
+        }
+        let before = state.data.clone();
+        let mut rng = OriginalRng {
+            first: 15,
+            second: 40,
+        };
+        for (stage, y) in [(Stage::ConfirmExit, 101), (Stage::ConfirmNoBet, 112)] {
+            let mut r = race();
+            r.stage = stage;
+            assert!(
+                !r.input(&assets, &mut state, &mut rng, Input::Mouse(140, y))
+                    .unwrap()
+            );
+            assert_eq!(r.selected, Some(0));
+            assert_eq!(r.stage, stage);
+            for input in [
+                Input::Mouse(163, y),
+                Input::Click(163, y),
+                Input::Click(140, y - 1),
+                Input::Click(197, y),
+            ] {
+                assert!(!r.input(&assets, &mut state, &mut rng, input).unwrap());
+                assert_eq!(r.stage, stage);
+                assert_eq!(r.selected, None);
+            }
+            assert!(
+                !r.input(&assets, &mut state, &mut rng, Input::Mouse(195, y))
+                    .unwrap()
+            );
+            assert_eq!(r.selected, Some(1));
+            // The right-hand portion of No is also clickable, beyond old x=188.
+            assert!(
+                !r.input(&assets, &mut state, &mut rng, Input::Click(195, y))
+                    .unwrap()
+            );
+            assert_eq!(r.stage, Stage::Prepare);
+            assert_eq!(state.data, before);
+            assert_eq!((rng.first, rng.second), (15, 40));
+        }
     }
     #[test]
     fn finishing_rank_controls_score_odds_skill_and_wager_payout() {

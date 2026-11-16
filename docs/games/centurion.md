@@ -94,6 +94,9 @@ battles and games. Interactive choices and Yes/No buttons retain their cursor.
 selectors), and Dynamic. Dynamic switches to Keyboard after arrow navigation
 and to Mouse after pointer movement or a click. Both input methods remain usable
 in every style. This does not change the separate continue-prompt rule below.
+Enabled menu and confirmation choices highlight under the mouse in every style.
+Move outside a choice to clear its hover highlight; a click or keyboard
+activation is still required to select it.
 
 The presets apply all three choices: Original selects Original fleet
 information, Hidden and Mouse; Reforged selects Both, Visible and Mouse. Other

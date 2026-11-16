@@ -13,6 +13,11 @@ menus and fleet/legion selectors share one continuous rail, while side-by-side
 Yes/No choices have separate rails. Selected-label feedback and disabled text
 remain independent of the decoration. Modern mouse-hover focus and keyboard
 navigation remain available together, regardless of the chosen style.
+Enabled choices highlight on hover throughout the menus, including Hold Games,
+arena/race choices, Game Control and Yes/No confirmations; leaving their hit
+areas clears mouse focus. Hover never activates a choice or acknowledges a
+message. Confirmation hover and clicks use the same title-dependent button
+positions as drawing, correcting the formerly hardcoded areas.
 
 Dynamic switches to keyboard decorations after arrow navigation and to mouse
 decorations after actual pointer movement or a click. Stationary pointer polling,

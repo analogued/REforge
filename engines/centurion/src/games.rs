@@ -128,10 +128,23 @@ impl Games {
             }
             return Ok(matches!(self.stage, Stage::Done));
         }
+        if let Input::Mouse(x, y) = input {
+            match self.stage {
+                Stage::Menu => {
+                    menu_input(&self.menu, &mut self.selected, &input);
+                }
+                Stage::Amphitheatre => {
+                    self.selected = crate::province::confirmation_hit(&state.string(0x164e)?, x, y);
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
         if matches!(
             input,
             Input::Tick(_)
-                | Input::Mouse(..)
+                | Input::MouseDelta(..)
+                | Input::ReleaseButton(_)
                 | Input::Release(..)
                 | Input::ReleaseKey(_)
                 | Input::Random(_)
@@ -154,8 +167,9 @@ impl Games {
                         self.selected = Some(1 - self.selected.unwrap_or(1));
                         None
                     }
-                    Input::Click(x, y) if (129..=188).contains(&x) && (105..=116).contains(&y) => {
-                        Some(x < 160)
+                    Input::Click(x, y) => {
+                        crate::province::confirmation_hit(&state.string(0x164e)?, x, y)
+                            .map(|row| row == 0)
                     }
                     _ => None,
                 };
@@ -277,6 +291,10 @@ pub(crate) fn menu_input(
     input: &Input,
 ) -> Option<usize> {
     match input {
+        Input::Mouse(x, y) => {
+            *selected = menu.hit(*x, *y);
+            None
+        }
         Input::Up | Input::Down => {
             let length = menu.items.len();
             let start = selected.unwrap_or(0);
@@ -309,6 +327,51 @@ pub(crate) fn menu_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn menu_hover_tracks_enabled_rows_without_activating_and_clears_outside() {
+        let menu = Menu {
+            rect: (0, 0, 80, 80),
+            title: String::new(),
+            joined_decoration: true,
+            items: vec![
+                crate::province::Item {
+                    label: "Available".into(),
+                    shortcut: b'a',
+                    disabled: false,
+                    rect: (10, 20, 50, 28),
+                },
+                crate::province::Item {
+                    label: "Unavailable".into(),
+                    shortcut: b'u',
+                    disabled: true,
+                    rect: (10, 30, 50, 38),
+                },
+            ],
+        };
+        let mut selected = Some(1);
+        assert_eq!(
+            menu_input(&menu, &mut selected, &Input::Mouse(30, 24)),
+            None
+        );
+        assert_eq!(selected, Some(0));
+        assert_eq!(menu_input(&menu, &mut selected, &Input::Enter), Some(0));
+        for input in [
+            Input::Mouse(30, 34),
+            Input::Mouse(9, 24),
+            Input::Mouse(30, 29),
+        ] {
+            assert_eq!(menu_input(&menu, &mut selected, &input), None);
+            assert_eq!(selected, None);
+        }
+        assert_eq!(
+            menu_input(&menu, &mut selected, &Input::Click(30, 34)),
+            None
+        );
+        assert_eq!(
+            menu_input(&menu, &mut selected, &Input::Click(30, 24)),
+            Some(0)
+        );
+    }
     #[test]
     fn festivals_keep_signed_unrest_and_only_clear_the_selected_event() {
         for (anger, choice, result) in [

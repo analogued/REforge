@@ -654,22 +654,26 @@ impl Session {
                 return Ok(());
             }
             if stage == N::Reengage {
+                let title = self.campaign.string(0x935a)?;
                 if let Input::Mouse(x, y) | Input::Click(x, y) = input {
                     self.cursor = (x.clamp(0, 319), y.clamp(0, 199));
+                    self.highlighted = false;
+                    if let Some(row) = crate::province::confirmation_hit(&title, x, y) {
+                        self.selected = row;
+                        self.highlighted = true;
+                    }
                 }
                 let yes = match input {
                     Input::Up | Input::Down | Input::Left | Input::Right => {
                         self.selected ^= 1;
+                        self.highlighted = true;
                         None
                     }
                     Input::Shortcut(b'y' | b'Y') => Some(true),
                     Input::Shortcut(b'n' | b'N') | Input::Escape => Some(false),
                     Input::Enter | Input::Space => Some(self.selected == 0),
-                    Input::Click(x, y) if (112..120).contains(&y) && (129..160).contains(&x) => {
-                        Some(true)
-                    }
-                    Input::Click(x, y) if (112..120).contains(&y) && (165..197).contains(&x) => {
-                        Some(false)
+                    Input::Click(x, y) => {
+                        crate::province::confirmation_hit(&title, x, y).map(|row| row == 0)
                     }
                     _ => None,
                 };
@@ -1253,11 +1257,7 @@ impl Session {
                 }
                 if let Some(row) = self.menu_hit(x, y) {
                     self.selected = row;
-                    self.highlighted = self.province_menu().is_some()
-                        || matches!(
-                            self.phase,
-                            Phase::Diplomacy | Phase::BattlePreparation | Phase::Naval
-                        );
+                    self.highlighted = true;
                     if click {
                         self.activate(assets)?;
                     }
@@ -1366,22 +1366,12 @@ impl Session {
             self.phase,
             Phase::PlunderConfirmation | Phase::BoardConfirmation
         ) {
-            let top = if self.phase == Phase::BoardConfirmation {
-                106
+            let title = if self.phase == Phase::BoardConfirmation {
+                self.boarding.as_ref()?.question(&self.campaign).ok()?
             } else {
-                101
+                self.campaign.string(0x57be).ok()?
             };
-            return if (top..=top + 10).contains(&y) {
-                if (129..=158).contains(&x) {
-                    Some(0)
-                } else if (165..=189).contains(&x) {
-                    Some(1)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            return crate::province::confirmation_hit(&title, x, y);
         }
         if self.phase == Phase::BattlePreparation {
             if self.rows() == 0 {
@@ -2078,6 +2068,12 @@ impl Session {
                     _ => return Err("Invalid menu selection".into()),
                 };
                 self.selected = 0;
+                if matches!(
+                    self.phase,
+                    Phase::SaveSlots | Phase::LoadSlots | Phase::Difficulty
+                ) {
+                    self.highlighted = true;
+                }
             }
             Phase::Difficulty => {
                 self.campaign.data[0x48e..0x492].fill(self.selected as u8);
@@ -2826,7 +2822,7 @@ impl Session {
                         &self.campaign,
                         &mut frame,
                         &self.campaign.string(0x935a)?,
-                        Some(self.selected),
+                        self.highlighted.then_some(self.selected),
                     )?;
                 }
             }
@@ -2979,7 +2975,7 @@ impl Session {
                         (39, top, 284, top + 10)
                     })
                     .collect::<Vec<_>>(),
-                Some(self.selected),
+                self.highlighted.then_some(self.selected),
                 true,
             );
             for row in 0..self.rows() {
@@ -3004,7 +3000,11 @@ impl Session {
                     &label,
                     50,
                     68 + row as i32 * 10,
-                    if row == self.selected { 15 } else { 0 },
+                    if self.highlighted && row == self.selected {
+                        15
+                    } else {
+                        0
+                    },
                 )?;
             }
         } else if self.phase == Phase::SaveDescription {

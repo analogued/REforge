@@ -130,6 +130,20 @@ pub fn decorate_menu(
     }
 }
 
+fn confirmation_rows(title: &str) -> [(i32, i32, i32, i32); 2] {
+    let y = 90 + (title.lines().count() as i32 + 1) * 11 / 2;
+    [(129, y, 160, y + 10), (165, y, 196, y + 10)]
+}
+
+/// Share the painted title-dependent Yes/No positions with mouse input.
+pub fn confirmation_hit(title: &str, x: i32, y: i32) -> Option<usize> {
+    confirmation_rows(title)
+        .iter()
+        .position(|&(left, top, right, bottom)| {
+            (left..=right).contains(&x) && (top..=bottom).contains(&y)
+        })
+}
+
 pub struct Panels {
     rome: Bitmap,
     border: Vec<Bitmap>,
@@ -171,15 +185,9 @@ impl Panels {
         let bottom = 99 + half + 7;
         frame.bevel(159 - width / 2 - 7, top, 159 + width / 2 + 7, bottom, 26);
         frame.center_lines(assets, title, 159, top + 7, 15)?;
-        let y = bottom - 16;
-        decorate_menu(
-            frame,
-            &self.button,
-            state,
-            &[(129, y, 160, y + 10), (165, y, 196, y + 10)],
-            selected,
-            false,
-        );
+        let rows = confirmation_rows(title);
+        let y = rows[0].1;
+        decorate_menu(frame, &self.button, state, &rows, selected, false);
         for (row, (label, x)) in [("Yes", 129), ("No", 165)].into_iter().enumerate() {
             frame.text(
                 assets,
@@ -537,6 +545,23 @@ impl Panels {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confirmation_hits_follow_multiline_titles_and_leave_the_gap_inactive() {
+        for (title, y) in [
+            ("Proceed?", 101),
+            ("Line one\nLine two", 106),
+            ("One\nTwo\nThree", 112),
+        ] {
+            assert_eq!(confirmation_hit(title, 140, y), Some(0));
+            assert_eq!(confirmation_hit(title, 176, y + 9), Some(1));
+            assert_eq!(confirmation_hit(title, 163, y), None);
+            assert_eq!(confirmation_hit(title, 128, y), None);
+            assert_eq!(confirmation_hit(title, 197, y), None);
+            assert_eq!(confirmation_hit(title, 140, y - 1), None);
+            assert_eq!(confirmation_hit(title, 176, y + 11), None);
+        }
+    }
 
     #[test]
     fn plunder_requires_local_legion_and_preserves_rome_and_other_provinces() {

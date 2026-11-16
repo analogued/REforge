@@ -66,6 +66,15 @@ pub struct Purchase {
     pub kind: usize,
     pub count: u16,
     pub talents: u16,
+    pub selected_action: Option<usize>,
+}
+
+/// The original editor's first two descriptor rows are OK and Cancel. The
+/// remaining rows are quantity arrows, drawn separately using their sprites.
+pub fn purchase_actions(state: &Campaign) -> Result<crate::province::Menu> {
+    let mut menu = crate::province::Menu::read(state, 0x11ca)?;
+    menu.items.truncate(2);
+    Ok(menu)
 }
 pub struct Construction {
     pub province: u8,
@@ -97,6 +106,7 @@ impl Construction {
             kind,
             count: word(&state.data, BASE + self.slot * 12 + kind * 2)?,
             talents: word(&state.data, 0x634a)?,
+            selected_action: None,
         });
         Ok(())
     }
@@ -186,7 +196,13 @@ impl Construction {
         frame.rect(211, 167, 55, 8, 26);
         frame.text(assets, &word(&state.data, 0x634a)?.to_string(), 211, 167, 0)?;
         if let Some(p) = &self.purchase {
-            frame.bevel(84, 75, 234, 131, 26);
+            panels.plain_menu(
+                assets,
+                state,
+                &mut frame,
+                &purchase_actions(state)?,
+                p.selected_action,
+            )?;
             frame.blit(&sprites[12], 90, 81);
             frame.blit(&sprites[13], 90, 91);
             frame.rect(101, 84, 19, 12, 15);
@@ -208,7 +224,6 @@ impl Construction {
             )?;
             frame.text(assets, &state.string(0x12e0)?, 114, 116, 0)?;
             frame.text(assets, &p.talents.to_string(), 194, 116, 0)?;
-            frame.text(assets, &state.string(0x12f3)?, 90, 105, 0)?;
         }
         Ok(frame)
     }

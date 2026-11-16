@@ -49,6 +49,14 @@ than the selected slot's previous name.
 
 ## Fleet information
 
+Ship quantity editors always show the original mouse-mode **OK** and **Cancel**
+choices, with hover and keyboard focus using the selected menu decorations.
+DOS shows these choices in mouse mode and substitutes an Enter/ESC instruction
+line in keyboard mode. The native editor retains those keys without displaying
+that line: Enter buys by default, or activates the focused action; Escape always
+cancels. Left/Right selects the actions, while Up/Down edits quantity and returns
+focus to OK. Hit testing uses the same descriptor bounds as drawing.
+
 DOS enemy inspection displays a fleet-name/location notice, including in the
 controlled captures with Roman fleets present. **Fleet information: Original**
 uses that notice alone. **Detailed** shows a centered ship-count and embarked

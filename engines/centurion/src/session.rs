@@ -857,31 +857,48 @@ impl Session {
                 }
                 match input {
                     Input::Tick(count) => self.advance_time(count),
-                    Input::Up => scene.adjust(&self.campaign, true),
-                    Input::Down => scene.adjust(&self.campaign, false),
+                    Input::Up | Input::Down => {
+                        scene.adjust(&self.campaign, matches!(input, Input::Up));
+                        scene.purchase.as_mut().unwrap().selected_action = Some(0);
+                    }
+                    Input::Left | Input::Right => {
+                        let p = scene.purchase.as_mut().unwrap();
+                        p.selected_action = Some(p.selected_action.map_or(0, |row| row ^ 1));
+                    }
                     Input::Escape | Input::Shortcut(b'c' | b'C') => {
                         scene.finish_purchase(&mut self.campaign, false)?;
                         self.highlighted = false;
                     }
-                    Input::Enter | Input::Space | Input::Shortcut(b'+' | b'o' | b'O') => {
+                    Input::Enter | Input::Space => {
+                        let accept = scene.purchase.as_ref().unwrap().selected_action != Some(1);
+                        scene.finish_purchase(&mut self.campaign, accept)?;
+                        self.highlighted = false;
+                    }
+                    Input::Shortcut(b'+' | b'o' | b'O') => {
                         scene.finish_purchase(&mut self.campaign, true)?;
                         self.highlighted = false;
                     }
                     Input::Click(x, y) if (90..99).contains(&x) && (81..88).contains(&y) => {
-                        scene.adjust(&self.campaign, true)
+                        scene.adjust(&self.campaign, true);
+                        scene.purchase.as_mut().unwrap().selected_action = None;
                     }
                     Input::Click(x, y) if (90..99).contains(&x) && (91..98).contains(&y) => {
-                        scene.adjust(&self.campaign, false)
+                        scene.adjust(&self.campaign, false);
+                        scene.purchase.as_mut().unwrap().selected_action = None;
                     }
-                    Input::Click(x, y) if (90..159).contains(&x) && (103..114).contains(&y) => {
-                        scene.finish_purchase(&mut self.campaign, true)?;
-                        self.highlighted = false;
+                    Input::Click(x, y) => {
+                        if let Some(row) = crate::fleet::purchase_actions(&self.campaign)?.hit(x, y)
+                        {
+                            scene.finish_purchase(&mut self.campaign, row == 0)?;
+                            self.highlighted = false;
+                        } else {
+                            scene.purchase.as_mut().unwrap().selected_action = None;
+                        }
                     }
-                    Input::Click(x, y) if (160..230).contains(&x) && (103..114).contains(&y) => {
-                        scene.finish_purchase(&mut self.campaign, false)?;
-                        self.highlighted = false;
+                    Input::Mouse(x, y) => {
+                        scene.purchase.as_mut().unwrap().selected_action =
+                            crate::fleet::purchase_actions(&self.campaign)?.hit(x, y);
                     }
-                    Input::Mouse(x, y) => self.cursor = (x.clamp(0, 319), y.clamp(0, 199)),
                     _ => {}
                 }
                 return Ok(());
@@ -2005,6 +2022,9 @@ impl Session {
                 let scene = self.construction.as_mut().ok_or("Missing construction")?;
                 if self.selected < 3 {
                     scene.select(&self.campaign, self.selected)?;
+                    if self.campaign.continue_input == crate::state::ContinueInput::Keyboard {
+                        scene.purchase.as_mut().unwrap().selected_action = Some(0);
+                    }
                 } else {
                     scene.finish(&mut self.campaign)?;
                     self.construction = None;

@@ -67,12 +67,12 @@ impl Campaign {
     }
 }
 const ROMAN_COLUMNS: [(&str, i32); 6] = [
-    ("Fleet", 33),
-    ("Triremes", 79),
-    ("Quinqueremes", 134),
-    ("Galleons", 187),
-    ("Legion", 232),
-    ("Status", 287),
+    ("Fleet", 41),
+    ("Triremes", 100),
+    ("Quinqueremes", 159),
+    ("Galleons", 214),
+    ("Legion", 252),
+    ("Status", 292),
 ];
 const ENEMY_COLUMNS: [(&str, i32); 5] = [
     ("Fleet", 53),
@@ -81,18 +81,95 @@ const ENEMY_COLUMNS: [(&str, i32); 5] = [
     ("Galleons", 236),
     ("Troops", 288),
 ];
-fn columns(index: usize) -> &'static [(&'static str, i32)] {
-    if index < 3 {
-        &ROMAN_COLUMNS
-    } else {
-        &ENEMY_COLUMNS
+// These gaps include glyph advance/tracking, matching center_text's rounding.
+const ROMAN_GAPS: [i32; 5] = [4, 4, 4, 8, 4];
+
+fn fit_roman_columns(widths: &[[i32; 6]]) -> [i32; 6] {
+    let mut centers = ROMAN_COLUMNS.map(|(_, center)| center);
+    // Keep Fleet and Status fixed; make only the necessary leftward adjustments.
+    for column in (1..5).rev() {
+        let distance = widths
+            .iter()
+            .filter(|line| line[column] != 0 && line[column + 1] != 0)
+            .map(|line| (line[column] + 1) / 2 + line[column + 1] / 2 + ROMAN_GAPS[column])
+            .max()
+            .unwrap_or(0);
+        centers[column] = centers[column].min(centers[column + 1] - distance);
     }
+    centers
 }
-fn headings(frame: &mut Frame, assets: &Assets, index: usize, y: i32) -> Result<()> {
-    for &(label, center) in &columns(index)[1..] {
-        frame.center_text(assets, label, center, y, 0)?;
+fn text_width(assets: &Assets, text: &str) -> Result<i32> {
+    let widths = usize::from(word(&assets.data_segment, 0xa05c)?);
+    let tracking = i32::from(assets.data_segment[0xa064]);
+    Ok(text
+        .bytes()
+        .filter(|b| (32..128).contains(b))
+        .map(|b| i32::from(assets.data_segment[widths + usize::from(b - 32)]) + tracking)
+        .sum())
+}
+struct Table {
+    columns: Vec<(&'static str, i32)>,
+    rows: Vec<[String; 6]>,
+}
+impl Table {
+    fn read(assets: &Assets, state: &Campaign, ids: &[usize]) -> Result<Self> {
+        let rows = ids
+            .iter()
+            .map(|&index| {
+                Ok([
+                    state.string(word(&state.data, 0x1100 + index * 2)? as usize)?,
+                    word(&state.data, 0x110e + index * 12)?.to_string(),
+                    word(&state.data, 0x1110 + index * 12)?.to_string(),
+                    word(&state.data, 0x1112 + index * 12)?.to_string(),
+                    cargo_label(state, index)?,
+                    if index < 3 {
+                        state.string(word(
+                            &state.data,
+                            0x1b54 + usize::from(state.data[0x1116 + index * 12]) * 2,
+                        )? as usize)?
+                    } else {
+                        String::new()
+                    },
+                ])
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let columns = if ids.iter().all(|&id| id < 3) {
+            let mut widths = Vec::with_capacity(rows.len() + 1);
+            let mut header = [0; 6];
+            for i in 1..6 {
+                header[i] = text_width(assets, ROMAN_COLUMNS[i].0)?;
+            }
+            widths.push(header);
+            for row in &rows {
+                let mut line = [0; 6];
+                for i in 0..6 {
+                    line[i] = text_width(assets, &row[i])?;
+                }
+                widths.push(line);
+            }
+            let centers = fit_roman_columns(&widths);
+            ROMAN_COLUMNS
+                .iter()
+                .zip(centers)
+                .map(|(&(label, _), center)| (label, center))
+                .collect()
+        } else {
+            ENEMY_COLUMNS.to_vec()
+        };
+        Ok(Self { columns, rows })
     }
-    Ok(())
+    fn headings(&self, frame: &mut Frame, assets: &Assets, y: i32) -> Result<()> {
+        for &(label, center) in &self.columns[1..] {
+            frame.center_text(assets, label, center, y, 0)?;
+        }
+        Ok(())
+    }
+    fn row(&self, frame: &mut Frame, assets: &Assets, index: usize, y: i32) -> Result<()> {
+        for ((_, center), text) in self.columns.iter().zip(&self.rows[index]) {
+            frame.center_text(assets, text, *center, y, 0)?;
+        }
+        Ok(())
+    }
 }
 fn cargo_label(state: &Campaign, index: usize) -> Result<String> {
     let cargo = state.data[0x1117 + index * 12];
@@ -113,40 +190,6 @@ fn cargo_label(state: &Campaign, index: usize) -> Result<String> {
         + u32::from(state.data[army + 8]);
     Ok(troops.to_string())
 }
-pub fn row(
-    frame: &mut Frame,
-    assets: &Assets,
-    state: &Campaign,
-    index: usize,
-    y: i32,
-) -> Result<()> {
-    let columns = columns(index);
-    frame.center_text(
-        assets,
-        &state.string(word(&state.data, 0x1100 + index * 2)? as usize)?,
-        columns[0].1,
-        y,
-        0,
-    )?;
-    for kind in 0..3 {
-        let count = word(&state.data, 0x110e + index * 12 + kind * 2)?.to_string();
-        frame.center_text(assets, &count, columns[kind + 1].1, y, 0)?;
-    }
-    frame.center_text(assets, &cargo_label(state, index)?, columns[4].1, y, 0)?;
-    if index < 3 {
-        frame.center_text(
-            assets,
-            &state.string(word(
-                &state.data,
-                0x1b54 + usize::from(state.data[0x1116 + index * 12]) * 2,
-            )? as usize)?,
-            columns[5].1,
-            y,
-            0,
-        )?;
-    }
-    Ok(())
-}
 pub fn local(
     frame: &mut Frame,
     assets: &Assets,
@@ -155,16 +198,17 @@ pub fn local(
     title: Option<&str>,
     selected: Option<usize>,
 ) -> Result<()> {
+    let table = Table::read(assets, state, ids)?;
     let prefix = if title.is_some() { 10 } else { 0 };
     frame.bevel(2, 0, 317, (ids.len() as i32 + 1) * 10 + 12 + prefix, 26);
     if let Some(title) = title {
         frame.center_text(assets, title, 160, 5, 15)?;
     }
-    headings(frame, assets, 0, 5 + prefix)?;
+    table.headings(frame, assets, 5 + prefix)?;
     let buttons = assets.sprites("MINIT", "INIT")?;
-    for (number, &id) in ids.iter().enumerate() {
+    for number in 0..ids.len() {
         let y = 15 + prefix + number as i32 * 10;
-        row(frame, assets, state, id, y)?;
+        table.row(frame, assets, number, y)?;
         if let Some(selected) = selected {
             frame.blit(&buttons[1], 8, y);
             if selected == number {
@@ -181,9 +225,10 @@ pub fn movement(
     sprites: &[crate::assets::Bitmap],
     index: usize,
 ) -> Result<()> {
+    let table = Table::read(assets, state, &[index])?;
     frame.bevel(2, 0, 317, 31, 26);
-    headings(frame, assets, index, 5)?;
-    row(frame, assets, state, index, 16)?;
+    table.headings(frame, assets, 5)?;
+    table.row(frame, assets, 0, 16)?;
     for target in if sprites.is_empty() {
         Vec::new()
     } else {
@@ -224,6 +269,7 @@ pub fn complete_list(frame: &mut Frame, assets: &Assets, state: &Campaign) -> Re
     if ids.is_empty() {
         return Ok(());
     }
+    let table = Table::read(assets, state, &ids)?;
     frame.acknowledgment_popup = true;
     let top = (200 - ((ids.len() as i32 + 3) * 8 + 15)) / 2;
     let bottom = top + (ids.len() as i32 + 3) * 8 + 15;
@@ -235,9 +281,9 @@ pub fn complete_list(frame: &mut Frame, assets: &Assets, state: &Campaign) -> Re
         top + 5,
         15,
     )?;
-    headings(frame, assets, 0, top + 22)?;
-    for (number, &id) in ids.iter().enumerate() {
-        row(frame, assets, state, id, top + 32 + number as i32 * 8)?;
+    table.headings(frame, assets, top + 22)?;
+    for number in 0..ids.len() {
+        table.row(frame, assets, number, top + 32 + number as i32 * 8)?;
     }
     Ok(())
 }
@@ -245,6 +291,85 @@ pub fn complete_list(frame: &mut Frame, assets: &Assets, state: &Campaign) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const HEADER_WIDTHS: [i32; 6] = [0, 41, 60, 34, 27, 28];
+
+    #[test]
+    fn ordinary_names_keep_defaults_and_viii_gets_earlier_clearance() {
+        // Authored text advances model short, medium and wide fleet-table cells.
+        let mut widths = vec![
+            HEADER_WIDTHS,
+            [29, 11, 11, 10, 37, 25],
+            [33, 5, 5, 6, 37, 29],
+            [37, 5, 5, 5, 37, 35],
+        ];
+        assert_eq!(fit_roman_columns(&widths), [41, 100, 159, 214, 252, 292]);
+        for row in &mut widths[1..] {
+            row[4] = 45;
+        }
+        assert_eq!(fit_roman_columns(&widths), [41, 100, 159, 210, 248, 292]);
+    }
+
+    #[test]
+    fn fitting_uses_actual_status_pairs_and_shifts_more_for_wider_counts() {
+        let long_forming = [
+            HEADER_WIDTHS,
+            [29, 11, 11, 10, 63, 25],
+            [33, 5, 5, 6, 63, 29],
+            [37, 5, 5, 5, 63, 35],
+        ];
+        assert_eq!(
+            fit_roman_columns(&long_forming),
+            [41, 89, 144, 195, 239, 292]
+        );
+        let long_ready = [
+            HEADER_WIDTHS,
+            [29, 18, 18, 18, 63, 25],
+            [33, 5, 10, 6, 37, 29],
+            [37, 5, 5, 5, 21, 35],
+        ];
+        assert_eq!(fit_roman_columns(&long_ready), [41, 90, 145, 196, 244, 292]);
+        let mut more_galleons = long_forming;
+        for row in &mut more_galleons[1..] {
+            row[3] = 18;
+        }
+        assert_eq!(
+            fit_roman_columns(&more_galleons),
+            [41, 85, 140, 191, 239, 292]
+        );
+    }
+
+    #[test]
+    fn legal_cell_widths_keep_frame_margins_and_intercolumn_clearance() {
+        for legion in 21..=63 {
+            for status in [25, 29, 35] {
+                for a in [5, 11, 15, 18, 30] {
+                    for b in [5, 11, 15, 18, 30] {
+                        for c in [5, 11, 15, 18, 30] {
+                            let lines = [HEADER_WIDTHS, [37, a, b, c, legion, status]];
+                            let centers = fit_roman_columns(&lines);
+                            assert_eq!((centers[0], centers[5]), (41, 292));
+                            for line in lines {
+                                for i in 0..6 {
+                                    if line[i] == 0 {
+                                        continue;
+                                    }
+                                    let left = centers[i] - line[i] / 2;
+                                    assert!(left >= 6);
+                                    assert!(centers[i] + (line[i] + 1) / 2 <= 315);
+                                    if i != 0 && line[i - 1] != 0 {
+                                        let previous_right = centers[i - 1] + (line[i - 1] + 1) / 2;
+                                        assert!(left - previous_right >= ROMAN_GAPS[i - 1]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn cargo_reads_full_roman_names_and_enemy_troops_from_separate_tables() {
         let mut ds = vec![0; 65536];

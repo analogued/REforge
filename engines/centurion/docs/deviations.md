@@ -39,10 +39,15 @@ Enemy army records include eleven roaming slots and three dedicated permanent
 fleet slots; all fourteen are valid cargo references.
 An empty transport displays None. Roman fleet tables now use complete legion
 identifiers rather than just numerals, so I Ital, I Aeg and I Narb are distinct.
-Separate centered column positions accommodate each side's widest names/counts
-without the former name/count overlap. The fleet-name column has no heading,
-matching the original table. These layout and cargo corrections apply
-to the fleet tables independently of the enemy inspection choice.
+Enemy columns keep fixed centered positions. Roman panels start closer to DOS
+and measure the headings and every visible row with the game font. Fleet and
+Status stay fixed; Legion and the three ship columns shift left only as far as
+needed, working from right to left. Galleons/Legion retain an eight-pixel gap;
+other text pairs retain at least four. The positions are shared by the headings
+and all rows in that panel, so a wide name elsewhere cannot affect a single-fleet
+movement panel. The fleet-name column has no heading, matching the original
+table. These layout and cargo corrections apply to the fleet tables independently
+of the enemy inspection choice.
 
 The granular setting is under Settings → Centurion overrides → Enhancements →
 Centurion UI → Advanced options. Original/Reforged are aliases over Fleet

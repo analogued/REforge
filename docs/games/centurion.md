@@ -103,7 +103,9 @@ still dismiss an acknowledgment regardless of its current wording.
 
 The Fleet information choice affects enemy inspection. Roman tables use centered
 columns with complete legion names (such as I Ital and I Aeg) and fleet readiness.
-Enemy tables show centered ship counts and an embarked Troops total, without a
+They start with spacing close to DOS and make room for longer names by moving
+only the necessary ship/Legion columns left. All rows in a panel stay aligned.
+Enemy tables keep fixed positions and show centered ship counts and an embarked Troops total, without a
 Status column. Troops includes infantry, cavalry and elephants; no embarked army
 shows None. Counts use plain decimal digits, as in the original numeric tables.
 Fleet movement, selection rules and naval mechanics are unchanged. Other menu

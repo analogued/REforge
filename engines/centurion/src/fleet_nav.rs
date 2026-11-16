@@ -204,11 +204,7 @@ pub fn inspection(
 ) -> Result<()> {
     let region = state.fleet_location(index)?;
     if information != reforge_settings::FleetInformation::Original {
-        // Match the roomier non-moving fleet table (2DB2), rather than the
-        // tighter destination-selection header (2F5A).
-        frame.bevel(2, 0, 317, 32, 26);
-        headings(frame, assets, index, 5)?;
-        row(frame, assets, state, index, 15)?;
+        movement(frame, assets, state, &[], index)?;
     }
     if information == reforge_settings::FleetInformation::Detailed {
         return Ok(());

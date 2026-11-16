@@ -43,8 +43,6 @@ Separate centered column positions accommodate each side's widest names/counts
 without the former name/count overlap. The fleet-name column has no heading,
 matching the original table. These layout and cargo corrections apply
 to the fleet tables independently of the enemy inspection choice.
-Enemy details use the roomier non-moving fleet panel spacing. Roman movement
-and readiness panels retain their original context-dependent heights and rows.
 
 The granular setting is under Settings → Centurion overrides → Enhancements →
 Centurion UI → Advanced options. Original/Reforged are aliases for Original/Both;

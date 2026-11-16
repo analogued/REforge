@@ -36,6 +36,8 @@ On the campaign map, the territory under the pointer has a brighter border:
 blue for Roman territory and brown for other territory. Arrow-key cursor
 movement gives the same feedback. **Enhancements → Advanced options → Map
 highlight** can turn this off; Reforged enables it and Original disables it.
+Territory info popups keep their territory highlighted while open. Normal hover
+resumes at the current pointer position on dismissal; unrelated menus clear it.
 
 ## Controls
 

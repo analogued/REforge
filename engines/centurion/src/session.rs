@@ -824,6 +824,9 @@ impl Session {
                     | Input::RightClick(_, _)
             )
         {
+            if let Input::Click(x, y) | Input::RightClick(x, y) = input {
+                self.cursor = (x.clamp(0, 319), y.clamp(0, 199));
+            }
             self.phase = Phase::Map;
             self.inspected_region = None;
             self.highlighted = false;
@@ -2933,12 +2936,22 @@ impl Session {
                 }
             }
             Phase::RegionInspect => {
-                frame = crate::campaign::render(assets, &self.campaign, &self.map, &self.sprites)?;
+                let region = self.inspected_region.ok_or("Missing inspected region")?;
+                let inspected = (self.map_highlight == reforge_settings::MapHighlight::On)
+                    .then_some(region)
+                    .filter(|region| *region < 27);
+                frame = crate::campaign::render_highlighted(
+                    assets,
+                    &self.campaign,
+                    &self.map,
+                    &self.sprites,
+                    inspected,
+                )?;
                 crate::fleet_nav::region_inspection(
                     &mut frame,
                     assets,
                     &self.campaign,
-                    self.inspected_region.ok_or("Missing inspected region")?,
+                    region,
                     self.fleet_information,
                 )?;
             }

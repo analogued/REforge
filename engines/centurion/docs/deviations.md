@@ -121,7 +121,9 @@ The campaign map highlights the province under the pointer, including during
 keyboard cursor movement. Roman provinces retain a blue outline and other
 provinces retain a brown outline, brightened with a frame-local palette entry.
 Only the existing province border path changes; terrain, units, seas and map
-controls retain their colors. Menus and popup backdrops do not show hover.
+controls retain their colors. Territory information popups keep the inspected
+province highlighted, independent of pointer movement while open. On dismissal,
+hover follows the current pointer again. Unrelated menus clear the highlight.
 **Map highlight: Off** retains the original static borders; the Reforged
 default is On. This presentation choice does not affect campaign saves or RNG.
 

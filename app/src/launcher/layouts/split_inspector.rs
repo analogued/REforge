@@ -175,24 +175,19 @@ pub fn draw(
 
                     if stage_w >= 260.0 {
                         ui.horizontal_top(|ui| {
-                            let prev_w = (stage_w * 0.37).clamp(112.0, 184.0);
-                            let prev_h = prev_w * 0.75;
-                            draw_preview_screen(
-                                ui,
-                                ap,
-                                Vec2::new(prev_w, prev_h),
-                                &snapshot,
-                                true,
-                            );
+                            let size = preview_size(stage_w, state.split_preview_height, &snapshot);
+                            let preview = draw_preview_screen(ui, ap, size, &snapshot, true);
                             ui.add_space(10.0);
                             ui.vertical(|ui| {
                                 ui.set_max_width(ui.available_width());
-                                if let Some(act) = draw_hero_details(ui, ap, &snapshot, compact) {
+                                if let Some(act) = draw_hero_details(
+                                    ui, ap, &snapshot, compact, Some(preview.bottom()),
+                                ) {
                                     action = Some(act);
                                 }
                             });
                         });
-                    } else if let Some(act) = draw_hero_details(ui, ap, &snapshot, compact) {
+                    } else if let Some(act) = draw_hero_details(ui, ap, &snapshot, compact, None) {
                         action = Some(act);
                     }
 
@@ -301,11 +296,31 @@ fn draw_sidebar_row(
     response
 }
 
+fn preview_size(stage_width: f32, preferred_height: u16, game: &GameEntry) -> Vec2 {
+    let (width, height) = game
+        .previews
+        .get(game.preview_variant())
+        .map(|source| {
+            source
+                .frame
+                .geometry()
+                .display_size(reforge_sdl::AspectRatio::Original)
+        })
+        .unwrap_or((4, 3));
+    let aspect = width as f32 / height as f32;
+    // Share a widescreen envelope so switching between 4:3 and 16:9 games
+    // preserves height even in a narrow window. Wider frames still fit.
+    let max_width = (stage_width - 10.0 - 200.0).max(1.0);
+    let height = f32::from(preferred_height).min(max_width / aspect.max(16.0 / 9.0));
+    Vec2::new(height * aspect, height)
+}
+
 fn draw_hero_details(
     ui: &mut egui::Ui,
     ap: &ResolvedAppearance,
     game: &GameEntry,
     compact: bool,
+    preview_bottom: Option<f32>,
 ) -> Option<UiAction> {
     let mut action = None;
     ui.horizontal_wrapped(|ui| {
@@ -361,12 +376,19 @@ fn draw_hero_details(
     ui.painter()
         .galley(Pos2::new(rect.left(), tagline_top), galley, colour);
 
-    ui.add_space(if compact { 8.0 } else { 12.0 });
     let btn_size = if compact {
         Vec2::new(112.0, 28.0)
     } else {
         Vec2::new(124.0, 30.0)
     };
+    if let Some(bottom) = preview_bottom {
+        // Align when the text leaves room; otherwise keep a readable gap and
+        // let the hero grow. Window height never squeezes the text or image.
+        let button_top = (bottom - btn_size.y).max(specs.response.rect.bottom() + 12.0);
+        ui.add_space((button_top - ui.cursor().top()).max(0.0));
+    } else {
+        ui.add_space(if compact { 8.0 } else { 12.0 });
+    }
     if game.status.is_missing() {
         if primary_button(ui, ap, "Locate Files…", btn_size, true).activated() {
             action = Some(UiAction::Locate(game.entry_id.clone()));

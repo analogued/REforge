@@ -18,6 +18,7 @@ use reforge_settings::{
 };
 mod controller;
 const PAGES: [&str; 4] = ["Display", "CRT & Colour", "Audio", "Controls"];
+pub(super) const LAUNCHER_PAGE: usize = PAGES.len();
 // Presence is distinct from equality: explicit overrides may match global.
 #[derive(Clone, Copy, Default)]
 struct Overrides<'a> {
@@ -159,6 +160,12 @@ pub(super) fn draw(
         .fixed_size([width, height])
         .show(context, |ui| {
             ui.horizontal_wrapped(|ui| {
+                if menu.page == LAUNCHER_PAGE {
+                    ui.label("Launcher preferences");
+                    // Match the scope controls' height when changing sections.
+                    ui.set_min_height(ui.spacing().interact_size.y);
+                    return;
+                }
                 ui.label("Editing");
                 let first = group_control(
                     ui.selectable_value(&mut menu.scope, 0, "Global defaults"),
@@ -200,8 +207,13 @@ pub(super) fn draw(
                 ui.vertical(|ui| {
                     ui.set_width(132.0);
                     ui.add_space(6.0);
-                    for (page, label) in PAGES.into_iter().enumerate() {
-                        if group_control(
+                    for (page, label) in PAGES.into_iter()
+                        .chain(menu.launcher_options.is_some().then_some("Launcher"))
+                        .enumerate() {
+                        if page == LAUNCHER_PAGE {
+                            ui.separator();
+                        }
+                        let section = group_control(
                             ui.add_sized(
                                 [132.0, 32.0],
                                 // egui otherwise makes selected buttons square.
@@ -218,9 +230,12 @@ pub(super) fn draw(
                                 .corner_radius(3.0),
                             ),
                             Group::Sidebar,
-                        )
-                        .clicked()
-                        {
+                        );
+                        if menu.navigation.focus_first && menu.page == LAUNCHER_PAGE && page == menu.page {
+                            section.request_focus();
+                            menu.navigation.focus_first = false;
+                        }
+                        if section.clicked() {
                             menu.page = page;
                         }
                     }
@@ -240,6 +255,27 @@ pub(super) fn draw(
                     if scroll.floating {
                         scroll.floating_allocated_width =
                             scroll.bar_inner_margin + scroll.bar_width + scroll.bar_outer_margin;
+                    }
+                    if menu.page == LAUNCHER_PAGE {
+                        ui.heading("Launcher");
+                        ui.weak("Appearance of the launcher · independent of game settings");
+                        ui.add_space(8.0);
+                        let first = crate::settings_navigation::scroll_start(ui.ctx());
+                        egui::ScrollArea::vertical()
+                            .animated(false)
+                            .id_salt("settings_launcher_content")
+                            .max_height(ui.available_height().max(0.0))
+                            .min_scrolled_width(0.0)
+                            .min_scrolled_height(0.0)
+                            .auto_shrink([false, false])
+                            .show_viewport(ui, |ui, viewport| {
+                                ui.set_width(viewport.width());
+                                if let Some(launcher) = menu.launcher_options.as_mut() {
+                                    launcher_controls(ui, launcher, global_storage);
+                                }
+                                crate::settings_navigation::scroll_focus(ui, first);
+                            });
+                        return;
                     }
                     ui.heading(PAGES[menu.page]);
                     if section_has_cli_locks(&cli, menu.page, menu.scope, menu.mach3_options) {
@@ -486,7 +522,7 @@ pub(super) fn draw(
                 // settings, even when its buttons sit left of the value fields.
                 let bounds = ui.max_rect();
                 crate::settings_navigation::row_controls(ui, bounds, |ui| {
-                    let reset_label = if menu.scope == 0 {
+                    let reset_label = if menu.page == LAUNCHER_PAGE || menu.scope == 0 {
                         "Reset section"
                     } else if menu.page == 3
                         || ([0, 2].contains(&menu.page) && menu.mach3_options)
@@ -501,7 +537,7 @@ pub(super) fn draw(
                     let reset_width = ui
                         .painter()
                         .layout_no_wrap(
-                            if menu.scope == 0 {
+                            if menu.page == LAUNCHER_PAGE || menu.scope == 0 {
                                 "Reset section"
                             } else {
                                 "Restore global defaults"
@@ -522,7 +558,11 @@ pub(super) fn draw(
                     )
                     .clicked()
                     {
-                        if menu.scope == 0 {
+                        if menu.page == LAUNCHER_PAGE {
+                            if let Some(launcher) = menu.launcher_options.as_mut() {
+                                launcher.height = reforge_settings::launcher::DEFAULT_SPLIT_PREVIEW_HEIGHT;
+                            }
+                        } else if menu.scope == 0 {
                             draft.reset_section(false, menu.page);
                             menu.global_reset[menu.page] = true;
                         } else {
@@ -535,7 +575,7 @@ pub(super) fn draw(
                         }
                     }
                     let apply = primary_footer_control(ui.add_enabled(
-                        *draft != saved || menu.error.is_some(),
+                        *draft != saved || menu.launcher_options.as_ref().is_some_and(|launcher| launcher.changed()) || menu.error.is_some(),
                         egui::Button::new("Apply"),
                     ));
                     #[cfg(test)]
@@ -548,6 +588,8 @@ pub(super) fn draw(
                             draft.game.clone_from(&saved.game);
                         }
                         menu.pending = Some(draft.clone());
+                        menu.pending_launcher_height = menu.launcher_options.as_ref()
+                            .filter(|launcher| launcher.changed()).map(|launcher| launcher.height);
                     }
                     let cancel = group_control(ui.button("Cancel"), Group::Footer);
                     #[cfg(test)]
@@ -557,7 +599,7 @@ pub(super) fn draw(
                     if cancel.clicked() {
                         close = true;
                     }
-                    ui.weak(if *draft != saved {
+                    ui.weak(if *draft != saved || menu.launcher_options.as_ref().is_some_and(|launcher| launcher.changed()) {
                         "Unapplied changes"
                     } else {
                         "No pending changes"
@@ -567,12 +609,70 @@ pub(super) fn draw(
             if let Some(error) = menu.error.as_ref().or(warning.as_ref()) {
                 ui.colored_label(crate::ui::current_palette(ui.ctx()).notice_error, error);
             }
-            if let Some(status) = &menu.status {
+            if menu.page == LAUNCHER_PAGE {
+                ui.weak("Changes apply to the launcher after Apply.");
+            } else if let Some(status) = &menu.status {
                 ui.weak(status);
             }
         });
     close
 }
+fn launcher_controls(
+    ui: &mut egui::Ui,
+    launcher: &mut crate::settings::LauncherOptions,
+    storage: bool,
+) {
+    use reforge_settings::launcher::{
+        DEFAULT_SPLIT_PREVIEW_HEIGHT, MAX_SPLIT_PREVIEW_HEIGHT, MIN_SPLIT_PREVIEW_HEIGHT,
+    };
+    section(ui, "Split view");
+    let saved = format!("{} px", launcher.saved_height);
+    let tooltip = format!("Default: {DEFAULT_SPLIT_PREVIEW_HEIGHT} px\nSaved: {saved}");
+    row(
+        ui,
+        "Preview height",
+        "split_preview_height",
+        RowState {
+            lock_tooltip: None,
+            overridden: false,
+            dirty: launcher.changed(),
+            tooltip,
+            saved,
+        },
+        |ui| {
+            let width = visible_width(ui);
+            ui.horizontal(|ui| {
+                ui.set_width(width);
+                ui.spacing_mut().slider_width = slider_track_width(ui, 64.0);
+                value_control(
+                    ui.add(
+                        egui::Slider::new(
+                            &mut launcher.height,
+                            MIN_SPLIT_PREVIEW_HEIGHT..=MAX_SPLIT_PREVIEW_HEIGHT,
+                        )
+                        .step_by(1.0)
+                        .integer()
+                        .show_value(false),
+                    ),
+                    Kind::Slider,
+                );
+                value_control(
+                    ui.add(
+                        egui::DragValue::new(&mut launcher.height)
+                            .range(MIN_SPLIT_PREVIEW_HEIGHT..=MAX_SPLIT_PREVIEW_HEIGHT)
+                            .suffix(" px"),
+                    ),
+                    Kind::Number,
+                );
+            });
+        },
+    );
+    ui.weak("144–192 logical pixels · previews shrink to fit narrow windows.");
+    if !storage {
+        ui.weak("Temporary launcher settings · configuration is disabled.");
+    }
+}
+
 /// Choices temporarily hidden by another Display control, scoped to one draft.
 #[derive(Default)]
 pub(super) struct DisplayEdits {

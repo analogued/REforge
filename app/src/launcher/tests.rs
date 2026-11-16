@@ -4,6 +4,7 @@
 use super::*;
 
 mod lifecycle;
+mod split_height;
 use model::EntryStatus;
 use reforge_sdl::egui::{Context, Pos2, RawInput, Rect, Vec2};
 use reforge_sdl::ui::themes::{ResolvedAppearance, ThemeId};
@@ -2440,8 +2441,10 @@ fn split_preview_resizes_smoothly_and_keeps_fitting_badges_visible() {
                     );
                     if let Some(before) = previous {
                         assert!(
-                            (rect.width() - before.width()).abs() <= 1.01
-                                && (rect.height() - before.height()).abs() <= 1.01,
+                            (rect.width() - before.width()).abs()
+                                <= (0.75 * density).ceil() / density + 0.01
+                                && (rect.height() - before.height()).abs()
+                                    <= (0.5625 * density).ceil() / density + 0.01,
                             "Split preview jumped: {theme:?} density {density}, width {width}: {before:?} -> {rect:?}"
                         );
                     }

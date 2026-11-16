@@ -707,7 +707,21 @@ F2 selects Split, F3 Gallery and F4 Compact. Appearance choices are independent:
 [launcher]
 theme = "classic-dark"
 layout = "split"
+split_preview_height = 180
 ```
+
+In Settings opened from the launcher, the separate **Launcher** page controls
+**Split preview height** with a slider from 144 to 192 logical pixels; the default
+is 180. Apply saves the choice for all games. Cancel discards pending changes.
+This page is separate from game settings and does not appear during play.
+
+Split previews share the selected height and keep their original display aspect
+ratio. At the default height a 4:3 preview is 240 × 180, and a 16:9 preview is
+320 × 180. Narrow windows reduce the height as needed to leave room for the
+text. Both text and previews follow desktop UI scaling. Play aligns with the
+preview's bottom while the text and a 12-point gap fit above it; otherwise Play
+flows lower. Short windows scroll the content instead of squeezing it. Gallery
+and Compact preview sizing are independent of this preference.
 
 Gallery fits the library using the largest cards that fit both the available
 width and height, up to 292 logical points wide. Equal-size arrangements prefer

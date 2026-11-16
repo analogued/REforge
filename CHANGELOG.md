@@ -11,6 +11,9 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Use equal-height previews in Split view, with Play aligned to the preview when
+  text fits. Choose a height from 144 to 192 logical pixels (180 by default) on
+  the separate Launcher page in Settings.
 - Keep Gallery sizing stable at resize boundaries, avoiding unnecessary column
   changes and jumps to large single-column cards when scrolling begins.
 - Show larger game palettes as launcher mosaics, using taller shapes in Gallery

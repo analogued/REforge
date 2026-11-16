@@ -100,6 +100,8 @@ pub struct SettingsMenu<'a> {
     pub(super) pending: Option<Draft>,
     pub(super) scope: usize,
     pub(super) game_overrides: bool,
+    pub(super) launcher_options: Option<LauncherOptions>,
+    pub(super) pending_launcher_height: Option<u16>,
     #[cfg(test)]
     pub(super) cancel_rect: Option<egui::Rect>,
     #[cfg(test)]
@@ -131,6 +133,16 @@ pub struct SettingsMenu<'a> {
     pub(super) escape_held: bool,
 }
 
+pub(super) struct LauncherOptions {
+    pub saved_height: u16,
+    pub height: u16,
+}
+impl LauncherOptions {
+    pub fn changed(&self) -> bool {
+        self.height != self.saved_height
+    }
+}
+
 enum MenuEvent {
     Sdl(Event),
     Ui(egui::Event),
@@ -142,6 +154,29 @@ impl<'a> SettingsMenu<'a> {
     pub fn with_global_defaults_only(mut self) -> Self {
         self.game_overrides = false;
         self.scope = 0;
+        self
+    }
+    /// Add a launcher-only Settings section. Game hosts leave this disabled.
+    pub fn with_launcher_options(mut self) -> Self {
+        let result = self
+            .creator
+            .session
+            .borrow()
+            .path
+            .as_deref()
+            .map(reforge_settings::launcher::load)
+            .transpose();
+        let preferences = match result {
+            Ok(preferences) => preferences.unwrap_or_default(),
+            Err(error) => {
+                self.error = Some(error);
+                Default::default()
+            }
+        };
+        self.launcher_options = Some(LauncherOptions {
+            saved_height: preferences.split_preview_height,
+            height: preferences.split_preview_height,
+        });
         self
     }
     /// Expose Alley Cat's game-only input and presentation preferences.
@@ -282,6 +317,8 @@ impl<'a> SettingsMenu<'a> {
             pending: None,
             scope: 0,
             game_overrides: true,
+            launcher_options: None,
+            pending_launcher_height: None,
             #[cfg(test)]
             cancel_rect: None,
             #[cfg(test)]
@@ -336,6 +373,10 @@ impl<'a> SettingsMenu<'a> {
         }
         self.draft = None;
         self.pending = None;
+        self.pending_launcher_height = None;
+        if let Some(launcher) = &mut self.launcher_options {
+            launcher.height = launcher.saved_height;
+        }
         self.game_reset = [false; 4];
         self.global_reset = [false; 4];
         self.display_edits = Default::default();
@@ -401,6 +442,7 @@ impl<'a> SettingsMenu<'a> {
 
     pub fn set_error(&mut self, error: String) {
         self.pending = None;
+        self.pending_launcher_height = None;
         self.error = Some(error);
     }
 
@@ -635,6 +677,10 @@ impl<'a> SettingsMenu<'a> {
                 self.open = false;
                 self.draft = None;
                 self.pending = None;
+                self.pending_launcher_height = None;
+                if let Some(launcher) = &mut self.launcher_options {
+                    launcher.height = launcher.saved_height;
+                }
             }
             crate::settings_navigation::paint_focus(ctx);
         });
@@ -663,11 +709,19 @@ impl<'a> SettingsMenu<'a> {
     /// draft and dirty markers available for retry without rewriting CLI values.
     pub fn applied(&mut self) {
         if let Some(draft) = self.pending.take() {
-            let result = self.creator.session.borrow_mut().commit(draft.clone());
+            let height = self.pending_launcher_height.take();
+            let result = self
+                .creator
+                .session
+                .borrow_mut()
+                .commit_with_launcher(draft.clone(), height);
             match result {
                 Ok(()) => {
                     self.draft = Some(self.creator.session.borrow().saved.clone());
                     self.error = None;
+                    if let (Some(launcher), Some(height)) = (&mut self.launcher_options, height) {
+                        launcher.saved_height = height;
+                    }
                     self.game_reset = [false; 4];
                     self.global_reset = [false; 4];
                     self.display_edits = Default::default();
@@ -1034,6 +1088,8 @@ fn translate_event(
     }
 }
 
+#[cfg(test)]
+mod launcher_tests;
 #[cfg(test)]
 mod machine_tests;
 #[cfg(test)]

@@ -1069,7 +1069,19 @@ impl Session {
         }
         values
     }
-    pub fn commit(&mut self, mut draft: Draft) -> Result<(), String> {
+    pub fn commit(&mut self, draft: Draft) -> Result<(), String> {
+        self.commit_with_launcher(draft, None)
+    }
+    /// Apply game/default edits and an optional launcher-only preference in one
+    /// locked, atomic configuration update. Unchanged launcher values are omitted.
+    pub fn commit_with_launcher(
+        &mut self,
+        mut draft: Draft,
+        split_preview_height: Option<u16>,
+    ) -> Result<(), String> {
+        if let Some(height) = split_preview_height {
+            launcher::validate_split_preview_height(height)?;
+        }
         if self.blocked {
             return Err("preferences were applied, but the invalid/unreadable configuration was preserved; repair it before saving".into());
         }
@@ -1098,6 +1110,7 @@ impl Session {
                 self.entry_id.as_deref(),
                 &self.saved,
                 &draft,
+                split_preview_height,
             )?;
         }
         self.saved = draft;
@@ -1251,8 +1264,12 @@ fn save_changes(
     entry: Option<&str>,
     old: &Draft,
     new: &Draft,
+    split_preview_height: Option<u16>,
 ) -> Result<(), String> {
     edit_document(path, "settings", |doc| {
+        if let Some(height) = split_preview_height {
+            launcher::write_split_preview_height(doc, height)?;
+        }
         doc["schema_version"] = toml_edit::value(2);
         for (before, after, route) in [
             (&old.global, &new.global, vec!["global"]),

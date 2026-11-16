@@ -37,7 +37,8 @@ pub fn run(
     .install();
     let creator = FrameCreator::for_ui_with_geometry(canvas, geometry);
     drop(guard);
-    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
+    let mut menu =
+        SettingsMenu::new(&creator, VideoCapabilities::default()).with_launcher_options();
     menu.set_controller_style(pads.style());
     use reforge_settings::{SoundCategory, SoundRenderer};
     menu = match game.as_deref() {
@@ -96,6 +97,7 @@ pub fn run(
         let metrics = Gui::metrics(canvas)?;
         if menu.prepare(metrics, Default::default()).is_some() {
             menu.applied();
+            state.reload_preferences();
             pads.set_dead_zone(global_dead_zone(&state.config));
         }
         gui.prepare(metrics, |ctx| layouts::draw(ctx, state));

@@ -10,11 +10,16 @@ use std::{collections::BTreeMap, path::Path};
 
 use toml_edit::{DocumentMut, Item, Table, value};
 
+pub const MIN_SPLIT_PREVIEW_HEIGHT: u16 = 144;
+pub const MAX_SPLIT_PREVIEW_HEIGHT: u16 = 192;
+pub const DEFAULT_SPLIT_PREVIEW_HEIGHT: u16 = 180;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Preferences {
     pub theme: String,
     pub layout: String,
     pub selected_entry: Option<String>,
+    pub split_preview_height: u16,
 }
 
 impl Default for Preferences {
@@ -23,6 +28,7 @@ impl Default for Preferences {
             theme: "classic-dark".into(),
             layout: "split".into(),
             selected_entry: None,
+            split_preview_height: DEFAULT_SPLIT_PREVIEW_HEIGHT,
         }
     }
 }
@@ -39,6 +45,38 @@ pub fn save_theme(path: &Path, theme: &str) -> Result<(), String> {
 
 pub fn save_layout(path: &Path, layout: &str) -> Result<(), String> {
     save_preference(path, "layout", layout)
+}
+
+/// Set the Split view preview height in logical pixels.
+pub fn save_split_preview_height(path: &Path, height: u16) -> Result<(), String> {
+    validate_split_preview_height(height)?;
+    super::edit_document(path, "settings", |doc| {
+        write_split_preview_height(doc, height)
+    })
+}
+
+pub(crate) fn validate_split_preview_height(height: u16) -> Result<(), String> {
+    if (MIN_SPLIT_PREVIEW_HEIGHT..=MAX_SPLIT_PREVIEW_HEIGHT).contains(&height) {
+        Ok(())
+    } else {
+        Err(
+            "Launcher split_preview_height must be between 144 and 192; settings file preserved"
+                .into(),
+        )
+    }
+}
+
+pub(crate) fn write_split_preview_height(doc: &mut DocumentMut, height: u16) -> Result<(), String> {
+    validate_split_preview_height(height)?;
+    preferences(doc)?;
+    schema(doc);
+    let table = table_mut(doc, &["launcher"])?;
+    let mut replacement = toml_edit::Value::from(i64::from(height));
+    if let Some(previous) = table.get("split_preview_height").and_then(Item::as_value) {
+        *replacement.decor_mut() = previous.decor().clone();
+    }
+    table["split_preview_height"] = Item::Value(replacement);
+    Ok(())
 }
 
 /// Remember a library entry independently of its release, directory or order.
@@ -128,6 +166,14 @@ fn preferences(doc: &DocumentMut) -> Result<Preferences, String> {
                     .ok_or_else(|| format!("Invalid launcher {key}; settings file preserved"))?
                     .into();
             }
+        }
+        if let Some(item) = table.get("split_preview_height") {
+            let height = item
+                .as_integer()
+                .and_then(|height| u16::try_from(height).ok())
+                .ok_or("Invalid launcher split_preview_height; settings file preserved")?;
+            validate_split_preview_height(height)?;
+            preferences.split_preview_height = height;
         }
         if let Some(item) = table.get("selected_entry") {
             preferences.selected_entry = Some(
@@ -274,6 +320,78 @@ mod tests {
         assert!(text.contains("# retained"));
         assert!(text.contains("custom = [1, 2]"));
         assert!(text.contains("value = 42"));
+    }
+
+    #[test]
+    fn preview_height_validates_bounds_and_preserves_other_settings() {
+        let temp = Temp::new();
+        let path = temp.path();
+        assert_eq!(load(&path).unwrap().split_preview_height, 180);
+        fs::write(&path, "[launcher]\nsplit_preview_height = 180 # size\ncustom = 'keep'\n[global.audio]\nmaster_volume = 81\n").unwrap();
+        for height in [144, 180, 192] {
+            save_split_preview_height(&path, height).unwrap();
+            save_theme(&path, "crisp-light").unwrap();
+            assert_eq!(load(&path).unwrap().split_preview_height, height);
+            let text = fs::read_to_string(&path).unwrap();
+            assert!(text.contains("# size"));
+            assert!(text.contains("custom = 'keep'"));
+            assert!(text.contains("master_volume = 81"));
+        }
+        let before = fs::read(&path).unwrap();
+        for height in [0, 143, 193, u16::MAX] {
+            assert!(save_split_preview_height(&path, height).is_err());
+            assert_eq!(fs::read(&path).unwrap(), before);
+        }
+        for value in ["143", "193", "-1", "70000", "180.0", "'180'", "false"] {
+            let text = format!("[launcher]\nsplit_preview_height = {value}\n");
+            fs::write(&path, &text).unwrap();
+            assert!(load(&path).is_err());
+            assert!(save_split_preview_height(&path, 180).is_err());
+            assert!(save_layout(&path, "gallery").is_err());
+            assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        }
+    }
+
+    #[test]
+    fn launcher_and_game_edits_commit_atomically_and_preserve_concurrent_edits() {
+        let temp = Temp::new();
+        let path = temp.path();
+        save_theme(&path, "crisp-light").unwrap();
+        let mut session = Session::load(Launch {
+            game_id: "alley-cat".into(),
+            entry_id: Some("copy".into()),
+            path: Some(path.clone()),
+            cli: Patch::new(),
+        });
+        let mut draft = session.saved.clone();
+        draft.global.insert("master_volume".into(), "72".into());
+        draft.game.insert("window_mode".into(), "fullscreen".into());
+        save_layout(&path, "gallery").unwrap();
+        save_native_option(&path, "other-copy", "machine", Some("pcjr")).unwrap();
+        session
+            .commit_with_launcher(draft.clone(), Some(156))
+            .unwrap();
+        assert_eq!(load(&path).unwrap().split_preview_height, 156);
+        assert_eq!(load(&path).unwrap().layout, "gallery");
+        assert_eq!(
+            native_options(&path, "other-copy").unwrap()["machine"],
+            "pcjr"
+        );
+        let before = fs::read(&path).unwrap();
+        let saved = session.saved.clone();
+        draft.global.insert("master_volume".into(), "35".into());
+        assert!(
+            session
+                .commit_with_launcher(draft.clone(), Some(193))
+                .is_err()
+        );
+        assert_eq!(session.saved, saved);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::write(&path, "[launcher]\nsplit_preview_height = 'bad'\n").unwrap();
+        let before = fs::read(&path).unwrap();
+        assert!(session.commit_with_launcher(draft, Some(180)).is_err());
+        assert_eq!(session.saved, saved);
+        assert_eq!(fs::read(&path).unwrap(), before);
     }
 
     #[test]

@@ -565,6 +565,7 @@ pub struct State {
     pub config: PathBuf,
     pub layout: LayoutVariant,
     pub saved_theme: ThemeId,
+    pub split_preview_height: u16,
     pub preview_draft: ThemeId,
     pub preview_open: bool,
     pub preview_focus_pending: bool,
@@ -618,17 +619,19 @@ impl State {
         verify: impl FnMut(&Entry) -> Result<Detected, String>,
     ) -> Self {
         let pref = reforge_settings::launcher::load(&config);
-        let (theme, layout, selected, error) = match pref {
+        let (theme, layout, selected, preview_height, error) = match pref {
             Ok(p) => (
                 ThemeId::from_slug(&p.theme).unwrap_or_default(),
                 LayoutVariant::parse(&p.layout),
                 p.selected_entry,
+                p.split_preview_height,
                 None,
             ),
             Err(e) => (
                 ThemeId::default(),
                 LayoutVariant::default(),
                 None,
+                reforge_settings::launcher::DEFAULT_SPLIT_PREVIEW_HEIGHT,
                 Some((e, true)),
             ),
         };
@@ -642,6 +645,7 @@ impl State {
             config,
             layout,
             saved_theme: theme,
+            split_preview_height: preview_height,
             preview_draft: theme,
             preview_open: false,
             preview_focus_pending: false,
@@ -676,6 +680,10 @@ impl State {
         self.reload_preferences();
     }
     pub fn reload_preferences(&mut self) {
+        match reforge_settings::launcher::load(&self.config) {
+            Ok(preferences) => self.split_preview_height = preferences.split_preview_height,
+            Err(error) => self.notify(error, true),
+        }
         for game in &mut self.games {
             game.reload_preferences();
         }

@@ -709,6 +709,16 @@ theme = "classic-dark"
 layout = "split"
 ```
 
+Gallery fits the library using the largest cards that fit both the available
+width and height, up to 292 logical points wide. Equal-size arrangements prefer
+fewer empty positions, then fewer rows. Fitting uses the actual rounded preview
+height. When the library cannot fit at the 144-point readable minimum, cards
+stay at that minimum and the gallery scrolls vertically, using as few rows and
+empty positions as the width permits. Crossing that height boundary therefore
+does not reset the grid to maximum-size cards. If the viewport itself is narrower
+than the minimum, cards fit its width. Gaps remain 16 points; the whole grid is
+centred, with an incomplete last row aligned to its first column.
+
 The first launch uses Classic Dark and Split. Unknown stored appearance values
 fall back for display without rewriting them until the player changes that choice.
 

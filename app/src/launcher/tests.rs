@@ -2338,6 +2338,55 @@ fn gallery_options_toggle_preserves_preview_positions_and_sizes() {
 }
 
 #[test]
+fn gallery_one_pixel_resizing_keeps_readable_columns_when_scrolling_starts() {
+    let fixture = Fixture::new(11);
+    let mut h = Harness::new(
+        &fixture,
+        ThemeId::CrispLight,
+        LayoutVariant::GalleryShelf,
+        true,
+    );
+    h.density = 2.25;
+    let mut previous_width: Option<f32> = None;
+    // Sweep both sides of the reported height boundary, one physical pixel at
+    // a time. Inspect the full UI, including ScrollArea scrollbar allocation.
+    for physical_height in 1640..=1680 {
+        h.size = Vec2::new(1405.0, physical_height as f32) / h.density;
+        let output = h.settle();
+        let previews: Vec<_> = output.shapes.iter().filter_map(|s| match &s.shape {
+            egui::Shape::Mesh(m) if matches!(m.texture_id, egui::TextureId::Managed(id) if id > 0) => Some(m.calc_bounds()),
+            _ => None,
+        }).collect();
+        assert_eq!(
+            previews.len(),
+            11,
+            "height {physical_height}: previews disappeared below the viewport"
+        );
+        let columns: std::collections::BTreeSet<_> = previews
+            .iter()
+            .map(|rect| (rect.left() * h.density).round() as i32)
+            .collect();
+        assert_eq!(
+            columns.len(),
+            3,
+            "height {physical_height}: grid reflowed unexpectedly"
+        );
+        let width = previews[0].width();
+        assert!(
+            width < 160.0,
+            "height {physical_height}: cards jumped to a larger size"
+        );
+        if let Some(previous) = previous_width {
+            assert!(
+                (width - previous).abs() <= 3.0,
+                "height {physical_height}: preview jumped from {previous} to {width}"
+            );
+        }
+        previous_width = Some(width);
+    }
+}
+
+#[test]
 fn split_preview_resizes_smoothly_and_keeps_fitting_badges_visible() {
     use reforge_sdl::{DisplayGeometry, preview::Frame};
     use std::sync::Arc;

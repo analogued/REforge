@@ -245,18 +245,26 @@ impl GalleryGrid {
         let mut best: Option<Self> = None;
         for columns in 1..=max_columns {
             let rows = count.div_ceil(columns);
-            let row_height =
-                (available.y - rows.saturating_sub(1) as f32 * GALLERY_GAP) / rows as f32;
-            let card_width = width_for_columns(columns)
-                .min((row_height - 62.0) / 0.65 + 18.0)
-                .floor();
-            if card_width < min_width
-                || rows as f32 * card_height(card_width)
-                    + rows.saturating_sub(1) as f32 * GALLERY_GAP
-                    > available.y
-            {
-                continue;
+            // Search the actual rounded geometry used by draw_game_card.
+            // Inverting an unrounded height can reject an otherwise fitting
+            // column count, or miss a larger width on a rounding plateau.
+            let mut low = min_width.ceil() as usize;
+            let mut high = width_for_columns(columns).floor() as usize;
+            let mut fitting_width = None;
+            while low <= high {
+                let width = low + (high - low) / 2;
+                let height = rows as f32 * card_height(width as f32)
+                    + rows.saturating_sub(1) as f32 * GALLERY_GAP;
+                if height <= available.y {
+                    fitting_width = Some(width as f32);
+                    low = width + 1;
+                } else {
+                    high = width - 1;
+                }
             }
+            let Some(card_width) = fitting_width else {
+                continue;
+            };
             let candidate = Self {
                 columns,
                 rows,
@@ -271,16 +279,16 @@ impl GalleryGrid {
                 best = Some(candidate);
             }
         }
-        // Large libraries scroll instead of shrinking cards below the readable
-        // minimum. The same cap and centring apply to every library size.
+        // Continue at the readable minimum when the last fitting layout starts
+        // to overflow, rather than jumping back to maximum-width cards. Use the
+        // fewest possible rows, then avoid unnecessary empty positions, matching
+        // the fitting path's tie-break at the minimum-width boundary.
         best.unwrap_or_else(|| {
-            let columns = (((available.x + GALLERY_GAP) / (MAX_CARD_WIDTH + GALLERY_GAP)) as usize)
-                .max(1)
-                .min(count);
+            let rows = count.div_ceil(max_columns);
             Self {
-                columns,
-                rows: count.div_ceil(columns),
-                card_width: width_for_columns(columns),
+                columns: count.div_ceil(rows),
+                rows,
+                card_width: min_width,
             }
         })
     }
@@ -415,3 +423,6 @@ fn draw_game_card(
 
     response
 }
+
+#[cfg(test)]
+mod tests;

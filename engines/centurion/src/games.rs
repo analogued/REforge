@@ -6,7 +6,7 @@ use crate::graphics::Frame;
 use crate::province::{Menu, Panels};
 use crate::rng::OriginalRng;
 use crate::session::Input;
-use crate::state::Campaign;
+use crate::state::{Campaign, ContinueInput};
 
 pub(crate) fn put(state: &mut Campaign, at: usize, value: u16) {
     state.data[at..at + 2].copy_from_slice(&value.to_le_bytes());
@@ -58,11 +58,13 @@ impl Games {
         } else {
             Stage::Menu
         };
+        let menu = Menu::read(state, if province == 0 { 0x15c2 } else { 0x15b0 })?;
+        let selected = menu_focus(&menu, state, None);
         Ok(Self {
             background,
             province,
-            menu: Menu::read(state, if province == 0 { 0x15c2 } else { 0x15b0 })?,
-            selected: None,
+            menu,
+            selected,
             stage,
             arena: None,
             race: None,
@@ -164,7 +166,10 @@ impl Games {
                     Input::Shortcut(b'n') | Input::Escape => Some(false),
                     Input::Enter | Input::Space => Some(self.selected == Some(0)),
                     Input::Left | Input::Right | Input::Up | Input::Down => {
-                        self.selected = Some(1 - self.selected.unwrap_or(1));
+                        self.selected = Some(match self.selected {
+                            Some(0) => 1,
+                            _ => 0,
+                        });
                         None
                     }
                     Input::Click(x, y) => {
@@ -230,7 +235,7 @@ impl Games {
                     panels.draw_menu(assets, state, &mut self.background, &self.menu, Some(row))?;
                     panels.deactivate_menu(assets, state, &mut self.background, 0x15c2)?;
                     self.stage = Stage::Amphitheatre;
-                    self.selected = None;
+                    self.selected = (state.continue_input == ContinueInput::Keyboard).then_some(1);
                 }
             } else if word(&state.data, 0x154c)? == word(&state.data, 0x634c)? {
                 self.stage = Stage::Message(state.string(0x167a)?, None);
@@ -285,6 +290,17 @@ impl Games {
     }
 }
 
+/// Keyboard entry restores a valid previous row or exposes the first enabled one.
+/// Mouse entry waits for hover instead of retaining an invisible keyboard focus.
+pub(crate) fn menu_focus(menu: &Menu, state: &Campaign, previous: Option<usize>) -> Option<usize> {
+    if state.continue_input != ContinueInput::Keyboard {
+        return None;
+    }
+    previous
+        .filter(|&row| menu.items.get(row).is_some_and(|item| !item.disabled))
+        .or_else(|| menu.first_enabled())
+}
+
 pub(crate) fn menu_input(
     menu: &Menu,
     selected: &mut Option<usize>,
@@ -296,19 +312,12 @@ pub(crate) fn menu_input(
             None
         }
         Input::Up | Input::Down => {
-            let length = menu.items.len();
-            let start = selected.unwrap_or(0);
-            let backwards = matches!(input, Input::Up);
-            for distance in 1..=length {
-                let row = if backwards {
-                    (start + length - distance) % length
-                } else {
-                    (start + distance) % length
-                };
-                if !menu.items[row].disabled {
-                    *selected = Some(row);
-                    break;
-                }
+            *selected = menu.next_focus(*selected, matches!(input, Input::Down));
+            None
+        }
+        Input::Left | Input::Right => {
+            if !selected.is_some_and(|row| menu.items.get(row).is_some_and(|item| !item.disabled)) {
+                *selected = menu.first_enabled();
             }
             None
         }
@@ -327,6 +336,77 @@ pub(crate) fn menu_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn focus_menu() -> Menu {
+        Menu {
+            rect: (0, 0, 80, 80),
+            title: String::new(),
+            joined_decoration: true,
+            items: [true, false, false]
+                .into_iter()
+                .enumerate()
+                .map(|(i, disabled)| crate::province::Item {
+                    label: format!("Row {i}"),
+                    shortcut: b'a' + i as u8,
+                    disabled,
+                    rect: (10, 20 + i as i32 * 10, 50, 28 + i as i32 * 10),
+                })
+                .collect(),
+        }
+    }
+    #[test]
+    fn keyboard_focus_is_visible_on_entry_and_first_arrow_skips_no_unseen_row() {
+        let menu = focus_menu();
+        let mut state = Campaign::test_data(vec![0; 65536]);
+        assert_eq!(menu_focus(&menu, &state, Some(2)), None);
+        state.continue_input = ContinueInput::Keyboard;
+        assert_eq!(menu_focus(&menu, &state, None), Some(1));
+        assert_eq!(menu_focus(&menu, &state, Some(2)), Some(2));
+        assert_eq!(menu_focus(&menu, &state, Some(0)), Some(1));
+        for input in [Input::Up, Input::Down, Input::Left, Input::Right] {
+            let mut selected = None;
+            assert_eq!(menu_input(&menu, &mut selected, &input), None);
+            assert_eq!(selected, Some(1));
+            for invalid in [0, 99] {
+                selected = Some(invalid);
+                assert_eq!(menu_input(&menu, &mut selected, &input), None);
+                assert_eq!(selected, Some(1));
+            }
+        }
+        let mut selected = Some(1);
+        for (input, expected) in [
+            (Input::Down, 2),
+            (Input::Down, 1),
+            (Input::Up, 2),
+            (Input::Up, 1),
+        ] {
+            assert_eq!(menu_input(&menu, &mut selected, &input), None);
+            assert_eq!(selected, Some(expected));
+        }
+        for input in [Input::Left, Input::Right] {
+            let mut selected = Some(2);
+            assert_eq!(menu_input(&menu, &mut selected, &input), None);
+            assert_eq!(
+                selected,
+                Some(2),
+                "horizontal arrows retain valid focus in vertical menus"
+            );
+        }
+    }
+    #[test]
+    fn games_entry_uses_last_deliberate_input_not_decoration_style() {
+        let mut state = Campaign::test_data(vec![0; 65536]);
+        put(&mut state, 0x15c2 + 10, 0x2000);
+        state.data[0x15c2 + 14] = 2;
+        state.data[0x2000 + 3] = 1;
+        state.keyboard_menus = true;
+        assert_eq!(Games::new(&state, 0, Frame::new()).unwrap().selected, None);
+        state.continue_input = ContinueInput::Keyboard;
+        state.keyboard_menus = false;
+        assert_eq!(
+            Games::new(&state, 0, Frame::new()).unwrap().selected,
+            Some(1)
+        );
+    }
     #[test]
     fn menu_hover_tracks_enabled_rows_without_activating_and_clears_outside() {
         let menu = Menu {

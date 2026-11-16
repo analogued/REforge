@@ -469,6 +469,7 @@ impl Session {
             }
         }
         let before = self.phase;
+        let before_menu = self.focus_menu_id();
         let was_visible = self.battle_pointer_visible();
         let timer = matches!(input, Input::Tick(_));
         self.input_inner(assets, input)?;
@@ -481,6 +482,36 @@ impl Session {
             self.campaign.continue_input = method;
             if let Some(scene) = self.naval.as_mut() {
                 scene.view.continue_input = method;
+            }
+        }
+        if self.focus_menu_id().is_some() && self.focus_menu_id() != before_menu {
+            if self.campaign.continue_input == crate::state::ContinueInput::Keyboard {
+                if self.phase == Phase::Rome
+                    && let Some(row) = self.province_selection
+                {
+                    self.selected = row;
+                }
+                let menu = self.navigation_menu()?;
+                let rows = if self.rows() == 0 { 2 } else { self.rows() };
+                let valid = self.selected < rows
+                    && menu.as_ref().is_none_or(|menu| {
+                        menu.items
+                            .get(self.selected)
+                            .is_some_and(|item| !item.disabled)
+                    });
+                let next = if valid {
+                    Some(self.selected)
+                } else if let Some(menu) = menu {
+                    menu.first_enabled()
+                } else {
+                    (rows != 0).then_some(0)
+                };
+                self.highlighted = next.is_some();
+                if let Some(row) = next {
+                    self.selected = row;
+                }
+            } else {
+                self.highlighted = false;
             }
         }
         if self.phase != Phase::BattlePreparation
@@ -665,7 +696,11 @@ impl Session {
                 }
                 let yes = match input {
                     Input::Up | Input::Down | Input::Left | Input::Right => {
-                        self.selected ^= 1;
+                        self.selected = if self.highlighted {
+                            self.selected ^ 1
+                        } else {
+                            0
+                        };
                         self.highlighted = true;
                         None
                     }
@@ -872,7 +907,10 @@ impl Session {
             if self.phase == Phase::Rome {
                 let building =
                     self.province_selection == Some(if self.province == 0 { 3 } else { 4 });
-                if self.province != 0 && self.province_selection == Some(1) {
+                if self.province != 0
+                    && self.province_selection == Some(1)
+                    && self.campaign.continue_input != crate::state::ContinueInput::Keyboard
+                {
                     self.province_selection = Some(0);
                 }
                 self.close_province_modal();
@@ -1128,7 +1166,9 @@ impl Session {
                 self.advance()
             }
             Input::Escape if self.phase == Phase::PlunderConfirmation => {
-                self.province_selection = Some(0);
+                if self.campaign.continue_input != crate::state::ContinueInput::Keyboard {
+                    self.province_selection = Some(0);
+                }
                 self.close_province_modal()
             }
             Input::Left | Input::Right
@@ -1137,7 +1177,11 @@ impl Session {
                     Phase::PlunderConfirmation | Phase::BoardConfirmation
                 ) =>
             {
-                self.selected ^= 1;
+                self.selected = if self.highlighted {
+                    self.selected ^ 1
+                } else {
+                    0
+                };
                 self.highlighted = true;
             }
             Input::Shortcut(key)
@@ -1321,11 +1365,12 @@ impl Session {
                 };
             }
             Input::Up if self.rows() != 0 => {
-                self.highlighted = true;
                 self.move_selection(false)?;
             }
             Input::Down if self.rows() != 0 => {
-                self.highlighted = true;
+                self.move_selection(true)?;
+            }
+            Input::Left | Input::Right if self.rows() != 0 && !self.highlighted => {
                 self.move_selection(true)?;
             }
             Input::Enter => {
@@ -1601,20 +1646,59 @@ impl Session {
         }
     }
 
+    fn navigation_menu(&self) -> Result<Option<crate::province::Menu>> {
+        if self.phase == Phase::BattlePreparation && self.rows() != 0 {
+            return self
+                .battle
+                .as_ref()
+                .ok_or("Missing battle")?
+                .menu(&self.campaign)
+                .map(Some);
+        }
+        if self.phase == Phase::Naval
+            && self
+                .naval
+                .as_ref()
+                .is_some_and(|scene| scene.stage == crate::naval::Stage::Ship)
+        {
+            return self.naval.as_ref().unwrap().menu().map(Some);
+        }
+        self.province_menu()
+            .map(|address| crate::province::Menu::read(&self.campaign, address))
+            .transpose()
+    }
+    fn focus_menu_id(&self) -> Option<(Phase, usize)> {
+        let detail = match self.phase {
+            Phase::BattlePreparation => self.battle.as_ref()?.stage as usize,
+            Phase::Diplomacy => self.diplomacy.as_ref()?.stage as usize,
+            Phase::Naval => self.naval.as_ref()?.stage as usize,
+            _ => 0,
+        };
+        (self.rows() != 0
+            || self.phase == Phase::Naval
+                && self
+                    .naval
+                    .as_ref()
+                    .is_some_and(|s| s.stage == crate::naval::Stage::Reengage))
+        .then_some((self.phase, detail))
+    }
     fn move_selection(&mut self, down: bool) -> Result<()> {
         let rows = self.rows();
-        let menu = self
-            .province_menu()
-            .map(|address| crate::province::Menu::read(&self.campaign, address))
-            .transpose()?;
-        for _ in 0..rows {
-            self.selected = (self.selected + if down { 1 } else { rows - 1 }) % rows;
-            if menu
-                .as_ref()
-                .is_none_or(|menu| !menu.items[self.selected].disabled)
-            {
-                break;
-            }
+        let current = self.highlighted.then_some(self.selected);
+        let next = if let Some(menu) = self.navigation_menu()? {
+            menu.next_focus(current, down)
+        } else if rows != 0 {
+            Some(
+                current
+                    .filter(|&row| row < rows)
+                    .map_or(0, |row| (row + if down { 1 } else { rows - 1 }) % rows),
+            )
+        } else {
+            None
+        };
+        self.highlighted = next.is_some();
+        if let Some(row) = next {
+            self.selected = row;
         }
         Ok(())
     }
@@ -1936,7 +2020,9 @@ impl Session {
                     self.legion_message_return = Phase::Rome;
                     self.phase = Phase::LegionMessage;
                 } else {
-                    self.province_selection = Some(0);
+                    if self.campaign.continue_input != crate::state::ContinueInput::Keyboard {
+                        self.province_selection = Some(0);
+                    }
                     self.close_province_modal();
                 }
             }
@@ -2716,7 +2802,11 @@ impl Session {
                     &mut frame,
                     assets,
                     &self.campaign,
-                    ready.then_some(self.selected),
+                    ready.then_some(if self.highlighted {
+                        self.selected
+                    } else {
+                        usize::MAX
+                    }),
                     self.legion_province,
                 )?;
             }
@@ -2748,7 +2838,11 @@ impl Session {
                         &mut frame,
                         assets,
                         &self.campaign,
-                        (self.phase == Phase::LegionSelect).then_some(self.selected),
+                        (self.phase == Phase::LegionSelect).then_some(if self.highlighted {
+                            self.selected
+                        } else {
+                            usize::MAX
+                        }),
                         self.legion_province,
                     )?;
                 }

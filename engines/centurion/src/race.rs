@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Chariot race selection, preparation and campaign settlement (overlay 4).
 use crate::assets::{Assets, Bitmap, Result, word};
-use crate::games::{menu_input, put};
+use crate::games::{menu_focus, menu_input, put};
 use crate::graphics::Frame;
 use crate::province::{Menu, Panels};
 use crate::rng::OriginalRng;
 use crate::session::Input;
-use crate::state::Campaign;
+use crate::state::{Campaign, ContinueInput};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
@@ -41,6 +41,7 @@ pub struct Race {
     selected: Option<usize>,
     chosen: bool,
     menu: Menu,
+    menu_focus: [Option<usize>; 4],
     circus: Bitmap,
     sprites: Vec<Bitmap>,
     dirty_budget: Option<u16>,
@@ -86,14 +87,17 @@ impl Race {
         }
         put(state, 0x892e, year);
         state.data[0xc2fb] = 0;
+        let menu = Menu::read(state, 0x88e6)?;
+        let selected = menu_focus(&menu, state, None);
         Ok(Self {
             stage: Stage::Type,
             resume: Stage::Type,
             message: String::new(),
             effect: Effect::None,
-            selected: None,
+            selected,
             chosen: false,
-            menu: Menu::read(state, 0x88e6)?,
+            menu,
+            menu_focus: [None; 4],
             circus: assets.bitmap("MRACE", "CIRCUS.CBM")?,
             sprites: assets.sprites("MRACE", "RACE")?,
             dirty_budget: None,
@@ -141,10 +145,35 @@ impl Race {
                 | Stage::ConfirmNoBet
         )
     }
+    fn menu_index(stage: Stage) -> Option<usize> {
+        match stage {
+            Stage::Type => Some(0),
+            Stage::Prepare => Some(1),
+            Stage::Dirty => Some(2),
+            Stage::Bet => Some(3),
+            _ => None,
+        }
+    }
+    fn remember_menu_focus(&mut self) {
+        if let Some(index) = Self::menu_index(self.stage) {
+            self.menu_focus[index] = self.selected;
+        }
+    }
+    fn confirm(&mut self, state: &Campaign, stage: Stage) {
+        self.remember_menu_focus();
+        self.stage = stage;
+        // Enter previously chose No with no focus. Make that default visible.
+        self.selected = (state.continue_input == ContinueInput::Keyboard).then_some(1);
+    }
     fn menu(&mut self, state: &Campaign, stage: Stage) -> Result<()> {
+        let returning = matches!(
+            self.stage,
+            Stage::Prompt | Stage::ConfirmExit | Stage::ConfirmNoBet
+        ) || matches!(self.stage, Stage::Dirty | Stage::Bet)
+            && stage == Stage::Prepare;
+        self.remember_menu_focus();
         self.stage = stage;
         self.prompt_money = None;
-        self.selected = None;
         self.menu = Menu::read(
             state,
             match stage {
@@ -154,9 +183,16 @@ impl Race {
                 _ => 0x88f8,
             },
         )?;
+        let previous = if returning {
+            self.menu_focus[Self::menu_index(stage).unwrap()]
+        } else {
+            None
+        };
+        self.selected = menu_focus(&self.menu, state, previous);
         Ok(())
     }
     fn prompt(&mut self, text: String, resume: Stage, effect: Effect) {
+        self.remember_menu_focus();
         self.message = text;
         self.resume = resume;
         self.effect = effect;
@@ -429,7 +465,10 @@ impl Race {
                     Input::Shortcut(b'n') | Input::Escape => Some(false),
                     Input::Enter | Input::Space => Some(self.selected == Some(0)),
                     Input::Up | Input::Down | Input::Left | Input::Right => {
-                        self.selected = Some(1 - self.selected.unwrap_or(1));
+                        self.selected = Some(match self.selected {
+                            Some(0) => 1,
+                            _ => 0,
+                        });
                         None
                     }
                     Input::Click(x, y) => crate::province::confirmation_hit(
@@ -471,17 +510,16 @@ impl Race {
                         Stage::Dirty => self.leave_dirty(state)?,
                         Stage::Bet => self.menu(state, Stage::Prepare)?,
                         _ => {
-                            self.stage = Stage::ConfirmExit;
-                            self.selected = None;
+                            self.confirm(state, Stage::ConfirmExit);
                         }
                     }
                 } else if let Some(row) = menu_input(&self.menu, &mut self.selected, &input) {
                     self.selected = Some(row);
+                    self.remember_menu_focus();
                     match self.stage {
                         Stage::Type => {
                             if row == 3 {
-                                self.stage = Stage::ConfirmExit;
-                                self.selected = None;
+                                self.confirm(state, Stage::ConfirmExit);
                             } else if word(&state.data, 0x634a)?
                                 < u16::from(state.data[0x87f2 + row])
                             {
@@ -505,8 +543,7 @@ impl Race {
                         Stage::Prepare => match row {
                             0 => {
                                 if word(&state.data, 0xc366)? == 0 && self.available(state)? != 0 {
-                                    self.stage = Stage::ConfirmNoBet;
-                                    self.selected = None;
+                                    self.confirm(state, Stage::ConfirmNoBet);
                                 } else {
                                     self.start(assets, state, rng)?;
                                 }
@@ -520,8 +557,7 @@ impl Race {
                             }
                             2 => self.menu(state, Stage::Bet)?,
                             _ => {
-                                self.stage = Stage::ConfirmExit;
-                                self.selected = None;
+                                self.confirm(state, Stage::ConfirmExit);
                             }
                         },
                         Stage::Dirty => self.dirty(state, rng, row)?,
@@ -862,6 +898,7 @@ mod tests {
                 title: String::new(),
                 items: Vec::new(),
             },
+            menu_focus: [None; 4],
             circus: Bitmap {
                 width: 0,
                 height: 0,
@@ -899,6 +936,107 @@ mod tests {
         // Minimal authored menu: one empty item/string, no original data.
         s.data[0x88f8 + 14] = 1;
         s
+    }
+    fn focus_menus(state: &mut Campaign) {
+        for (index, address) in [0x88e6, 0x88f8, 0x891c, 0x890a].into_iter().enumerate() {
+            let entries = 0x9000 + index * 48;
+            put(state, address + 10, entries as u16);
+            state.data[address + 14] = 3;
+            state.data[entries + 3] = 1;
+        }
+    }
+    #[test]
+    fn keyboard_race_children_start_first_and_returns_restore_the_parent_row() {
+        let assets = Assets::test_data(vec![0; 65536]);
+        let mut state = state();
+        focus_menus(&mut state);
+        state.continue_input = ContinueInput::Keyboard;
+        let mut rng = OriginalRng {
+            first: 15,
+            second: 40,
+        };
+        let mut r = race();
+        r.stage = Stage::Selected;
+        r.menu(&state, Stage::Prepare).unwrap();
+        assert_eq!(r.selected, Some(1));
+        r.selected = Some(2);
+        r.menu(&state, Stage::Bet).unwrap();
+        assert_eq!(r.selected, Some(1));
+        r.selected = Some(2);
+        r.input(&assets, &mut state, &mut rng, Input::Escape)
+            .unwrap();
+        assert_eq!(r.stage, Stage::Prepare);
+        assert_eq!(r.selected, Some(2));
+        r.menu(&state, Stage::Bet).unwrap();
+        assert_eq!(
+            r.selected,
+            Some(1),
+            "a fresh child entry must not revive old child focus"
+        );
+        r.menu(&state, Stage::Prepare).unwrap();
+        assert_eq!(r.selected, Some(2));
+        r.prompt("Report".into(), Stage::Prepare, Effect::None);
+        r.input(&assets, &mut state, &mut rng, Input::Enter)
+            .unwrap();
+        assert_eq!(r.stage, Stage::Prepare);
+        assert_eq!(r.selected, Some(2));
+        for confirmation in [Stage::ConfirmExit, Stage::ConfirmNoBet] {
+            r.confirm(&state, confirmation);
+            assert_eq!(
+                r.selected,
+                Some(1),
+                "keyboard entry must visibly preserve No as the Enter default"
+            );
+            r.input(&assets, &mut state, &mut rng, Input::Enter)
+                .unwrap();
+            assert_eq!(r.stage, Stage::Prepare);
+            assert_eq!(r.selected, Some(2));
+        }
+        r.chosen = false;
+        r.menu(&state, Stage::Type).unwrap();
+        r.selected = Some(2);
+        r.confirm(&state, Stage::ConfirmExit);
+        r.input(&assets, &mut state, &mut rng, Input::Enter)
+            .unwrap();
+        assert_eq!(r.stage, Stage::Type);
+        assert_eq!(r.selected, Some(2));
+        state.continue_input = ContinueInput::Mouse;
+        r.menu(&state, Stage::Bet).unwrap();
+        assert_eq!(r.selected, None);
+        r.menu(&state, Stage::Prepare).unwrap();
+        assert_eq!(r.selected, None);
+    }
+    #[test]
+    fn first_confirmation_arrow_focuses_yes_instead_of_toggling_an_unseen_default() {
+        let assets = Assets::test_data(vec![0; 65536]);
+        let mut state = state();
+        let mut rng = OriginalRng {
+            first: 15,
+            second: 40,
+        };
+        let before = state.data.clone();
+        for confirmation in [Stage::ConfirmExit, Stage::ConfirmNoBet] {
+            for arrow in [Input::Up, Input::Down, Input::Left, Input::Right] {
+                state.continue_input = ContinueInput::Mouse;
+                let mut r = race();
+                r.confirm(&state, confirmation);
+                assert_eq!(r.selected, None);
+                for expected in [Some(0), Some(1), Some(0)] {
+                    r.input(&assets, &mut state, &mut rng, arrow.clone())
+                        .unwrap();
+                    assert_eq!(r.selected, expected);
+                    assert_eq!(r.stage, confirmation);
+                }
+                state.continue_input = ContinueInput::Keyboard;
+                r.confirm(&state, confirmation);
+                assert_eq!(r.selected, Some(1), "keyboard entry retains the No default");
+                r.input(&assets, &mut state, &mut rng, Input::Enter)
+                    .unwrap();
+                assert_eq!(r.stage, Stage::Prepare);
+                assert_eq!(state.data, before);
+                assert_eq!((rng.first, rng.second), (15, 40));
+            }
+        }
     }
     #[test]
     fn menu_hover_selects_without_purchases_and_motion_does_not_acknowledge_race_effects() {

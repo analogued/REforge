@@ -97,6 +97,11 @@ in every style. This does not change the separate continue-prompt rule below.
 Enabled menu and confirmation choices highlight under the mouse in every style.
 Move outside a choice to clear its hover highlight; a click or keyboard
 activation is still required to select it.
+Menus opened by keyboard show focus immediately, and returning to a parent menu
+restores its previous choice. If nothing is highlighted, any arrow establishes
+focus on the first enabled choice; later presses navigate normally, skipping
+disabled items and wrapping. Existing values and confirmation defaults remain
+visible when entering their selectors. Mouse-opened menus wait for hover.
 
 The presets apply all three choices: Original selects Original fleet
 information, Hidden and Mouse; Reforged selects Both, Visible and Mouse. Other

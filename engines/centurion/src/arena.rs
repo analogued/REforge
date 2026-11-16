@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Gladiatorial shows: overlay 3, with animation and AI tables in the original DS.
 use crate::assets::{Assets, Bitmap, Result, word};
-use crate::games::{menu_input, put};
+use crate::games::{menu_focus, menu_input, put};
 use crate::graphics::Frame;
 use crate::province::{Menu, Panels};
 use crate::rng::OriginalRng;
@@ -184,7 +184,7 @@ impl Arena {
                 );
                 item.disabled = false;
             }
-            self.selected = None;
+            self.selected = menu_focus(&self.training, state, None);
             self.stage = Stage::Training;
         }
         Ok(())
@@ -384,7 +384,10 @@ impl Arena {
                         put(state, 0x634a, self.original_treasury);
                         self.cancel(state);
                     }
-                    After::Training => self.stage = Stage::Training,
+                    After::Training => {
+                        self.selected = menu_focus(&self.training, state, self.selected);
+                        self.stage = Stage::Training;
+                    }
                     After::Fight => self.start_fight(assets, state, rng)?,
                     After::Thumbs => self.stage = Stage::Thumbs,
                     After::Done => self.stage = Stage::Done,
@@ -980,6 +983,46 @@ mod tests {
             enthusiastic: false,
             dead: [false; 2],
         }
+    }
+    #[test]
+    fn training_keyboard_entry_and_report_return_expose_enabled_focus() {
+        let mut a = arena(fight());
+        a.training.items = (0..2)
+            .map(|i| crate::province::Item {
+                label: String::new(),
+                shortcut: b'a' + i,
+                disabled: false,
+                rect: (10, 20, 50, 28),
+            })
+            .collect();
+        let assets = Assets::test_data(vec![0; 65536]);
+        let mut state = Campaign::test_data(vec![0; 65536]);
+        let mut rng = OriginalRng {
+            first: 15,
+            second: 40,
+        };
+        a.choose_card(&mut state, &mut rng, 30, 24).unwrap();
+        assert_eq!(a.selected, None);
+        state.continue_input = crate::state::ContinueInput::Keyboard;
+        a.choose_card(&mut state, &mut rng, 30, 24).unwrap();
+        assert_eq!(a.selected, Some(0));
+        a.stage = Stage::Prompt;
+        a.after = After::Training;
+        a.selected = Some(1);
+        a.input(&assets, &mut state, &mut rng, Input::Enter)
+            .unwrap();
+        assert_eq!(a.stage, Stage::Training);
+        assert_eq!(a.selected, Some(1));
+        a.training.items[1].disabled = true;
+        a.stage = Stage::Prompt;
+        a.input(&assets, &mut state, &mut rng, Input::Enter)
+            .unwrap();
+        assert_eq!(a.selected, Some(0));
+        state.continue_input = crate::state::ContinueInput::Mouse;
+        a.stage = Stage::Prompt;
+        a.input(&assets, &mut state, &mut rng, Input::Click(0, 0))
+            .unwrap();
+        assert_eq!(a.selected, None);
     }
     #[test]
     fn training_hover_does_not_buy_and_motion_never_acknowledges_arena_prompts() {

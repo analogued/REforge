@@ -92,6 +92,26 @@ impl Menu {
             !item.disabled && (left..=right).contains(&x) && (top..=bottom).contains(&y)
         })
     }
+    pub fn first_enabled(&self) -> Option<usize> {
+        self.items.iter().position(|item| !item.disabled)
+    }
+    pub fn next_focus(&self, selected: Option<usize>, down: bool) -> Option<usize> {
+        let Some(start) =
+            selected.filter(|&row| self.items.get(row).is_some_and(|item| !item.disabled))
+        else {
+            return self.first_enabled();
+        };
+        let count = self.items.len();
+        (1..=count)
+            .map(|distance| {
+                if down {
+                    (start + distance) % count
+                } else {
+                    (start + count - distance) % count
+                }
+            })
+            .find(|&row| !self.items[row].disabled)
+    }
 }
 
 /// Resident 56B6/585B: boxes in keyboard mode; capped three-line mouse rails.

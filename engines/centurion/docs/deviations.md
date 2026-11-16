@@ -18,6 +18,14 @@ arena/race choices, Game Control and Yes/No confirmations; leaving their hit
 areas clears mouse focus. Hover never activates a choice or acknowledges a
 message. Confirmation hover and clicks use the same title-dependent button
 positions as drawing, correcting the formerly hardcoded areas.
+Keyboard menu entry now exposes the first enabled action, or an existing
+value/confirmation default, immediately. Keyboard return restores valid parent
+focus. Without a visible highlight, any arrow first focuses the first enabled
+item instead of advancing from an invisible selection; subsequent Up/Down
+navigation skips disabled items and wraps. Left/Right does the same initial
+focus step in vertical menus and navigates between choices in confirmations.
+Mouse entry remains hover-only, independently of decoration style. These focus
+changes do not alter acknowledgment input or store anything in DOS save bytes.
 
 Dynamic switches to keyboard decorations after arrow navigation and to mouse
 decorations after actual pointer movement or a click. Stationary pointer polling,

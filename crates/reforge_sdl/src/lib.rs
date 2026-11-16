@@ -607,6 +607,54 @@ impl Window {
         ))
     }
 
+    /// Align the host pointer with an engine pixel after keyboard movement.
+    /// Returns the window-coordinate destination so callers can discard the
+    /// synthetic motion event without treating it as player mouse activity.
+    pub fn warp_mouse_to_frame(&self, point: (i32, i32), frame: (u32, u32)) -> Option<(f32, f32)> {
+        if !self.canvas.window().has_input_focus() || !self.canvas.window().has_mouse_focus() {
+            return None;
+        }
+        if let Some((x, y)) = self
+            .mouse_position()
+            .and_then(|(x, y)| self.frame_point(x, y, frame))
+            && (x.floor() as i32, y.floor() as i32) == point
+        {
+            // SDL need not emit motion when the host pointer is already there.
+            return None;
+        }
+        let (wx, wy) = self.frame_window_point(point, frame)?;
+        // This is absolute pointer synchronization, never FPS-style recentering.
+        sdl3::hint::set("SDL_MOUSE_EMULATE_WARP_WITH_RELATIVE", "0");
+        self._sdl
+            .mouse()
+            .warp_mouse_in_window(self.canvas.window(), wx, wy);
+        Some((wx, wy))
+    }
+
+    fn frame_window_point(&self, point: (i32, i32), frame: (u32, u32)) -> Option<(f32, f32)> {
+        let (width, height, _) = self.canvas.logical_size();
+        if width == 0 || height == 0 || frame.0 == 0 || frame.1 == 0 {
+            return None;
+        }
+        let x = (point.0.clamp(0, frame.0 as i32 - 1) as f32 + 0.5) * width as f32 / frame.0 as f32;
+        let y =
+            (point.1.clamp(0, frame.1 as i32 - 1) as f32 + 0.5) * height as f32 / frame.1 as f32;
+        let (mut wx, mut wy) = (0.0, 0.0);
+        // SAFETY: live main-thread renderer and initialized writable floats.
+        if !unsafe {
+            sdl3::sys::render::SDL_RenderCoordinatesToWindow(
+                self.canvas.raw(),
+                x,
+                y,
+                &mut wx,
+                &mut wy,
+            )
+        } {
+            return None;
+        }
+        Some((wx, wy))
+    }
+
     pub fn set_title(&mut self, title: &str) -> Result<(), String> {
         if title.contains('\0') {
             return Err("window title contains a NUL byte".into());
@@ -1227,6 +1275,74 @@ fn paint<T: RenderTarget>(canvas: &mut Canvas<T>, texture: &Texture<'_>) -> Resu
 mod tests {
     use super::*;
     use sdl3::surface::Surface;
+
+    #[test]
+    fn pointer_destinations_round_trip_through_scaled_letterboxed_framebuffers() {
+        const NAME: &str =
+            "tests::pointer_destinations_round_trip_through_scaled_letterboxed_framebuffers";
+        if std::env::var("REFORGE_POINTER_TEST").as_deref() != Ok(NAME) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--test-threads=1"])
+                .env("REFORGE_POINTER_TEST", NAME)
+                .env("SDL_VIDEODRIVER", "dummy")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let mut display = Window::build(
+            "Pointer projection check",
+            DisplayGeometry::new((320, 200), (320, 240)),
+            settings::RuntimeSettings {
+                renderer: reforge_settings::Renderer::Software,
+                scale: Some(2),
+                vsync: false,
+                ..Default::default()
+            },
+            Presentation::Pixels,
+            true,
+            Session::for_window(Some(2)),
+            None,
+        )
+        .unwrap();
+        for (width, height) in [(640, 480), (971, 673), (1920, 1080)] {
+            display.canvas.window_mut().set_size(width, height).unwrap();
+            for logical in [(320, 240), (320, 200)] {
+                for policy in [
+                    ScalingPolicy::Fit,
+                    ScalingPolicy::Integer,
+                    ScalingPolicy::Stretch,
+                ] {
+                    configure(&mut display.canvas, logical.0, logical.1, policy).unwrap();
+                    for y in [0, 1, 91, 185, 198, 199] {
+                        for x in 0..320 {
+                            let (wx, wy) = display.frame_window_point((x, y), (320, 200)).unwrap();
+                            let (px, py) = display.frame_point(wx, wy, (320, 200)).unwrap();
+                            assert_eq!((px.floor() as i32, py.floor() as i32), (x, y));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(display.frame_window_point((0, 0), (0, 200)).is_none());
+        display.poll_events().for_each(drop);
+        let destination = display.warp_mouse_to_frame((40, 50), (320, 200)).unwrap();
+        assert!(display.poll_events().any(|event| matches!(event,
+            Event::MouseMotion {x, y, ..} if (x - destination.0).abs() < 1.0 && (y - destination.1).abs() < 1.0
+        )));
+        let (x, y) = display.mouse_position().unwrap();
+        let (x, y) = display.frame_point(x, y, (320, 200)).unwrap();
+        assert_eq!((x.floor() as i32, y.floor() as i32), (40, 50));
+        assert!(
+            display.warp_mouse_to_frame((40, 50), (320, 200)).is_none(),
+            "an already aligned pointer needs no synthetic motion"
+        );
+    }
 
     #[test]
     fn frame_upload_reuse_preserves_initialization_retry_and_renderer_recovery() {

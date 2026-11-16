@@ -68,6 +68,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
     let mut previous_tick = 0;
     let mut text_active = false;
     let mut remainder = (0.0, 0.0);
+    let mut pointer_sync = crate::window::PointerSync::default();
     #[cfg(feature = "dev-tools")]
     let mut frames = 0;
     #[cfg(feature = "dev-tools")]
@@ -103,6 +104,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
         #[cfg(not(feature = "dev-tools"))]
         let _ = &mut events;
         let mut modal_batch = menu.is_open();
+        let mut keyboard_pointer = false;
         for event in events {
             if matches!(
                 event,
@@ -120,6 +122,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
                 match win_event {
                     WindowEvent::FocusLost => {
                         focused = false;
+                        pointer_sync.clear();
                         release_controls(assets, session)?;
                     }
                     WindowEvent::FocusGained => focused = true,
@@ -138,6 +141,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
             // This shared variant keeps Escape for the game's original menus.
             if menu.handle_dialog_event(&event) {
                 modal_batch = true;
+                pointer_sync.clear();
                 continue;
             }
             if host_shortcut(&event) == Some(HostShortcut::TogglePause) {
@@ -152,7 +156,9 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
                     keycode: Some(key), ..
                 } => {
                     if let Some(input) = crate::window::key_input(key as u32, session.phase) {
+                        let previous = session.cursor;
                         session.input(assets, input)?;
+                        keyboard_pointer |= session.cursor != previous;
                     }
                 }
                 Event::KeyUp {
@@ -175,12 +181,31 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
                 Event::MouseMotion {
                     x, y, xrel, yrel, ..
                 } => {
+                    if pointer_sync.synthetic_motion((x, y)) {
+                        continue;
+                    }
+                    let pending = pointer_sync.pending();
+                    pointer_sync.real_motion();
                     if session.relative_steering() {
                         if let Some((dx, dy)) = relative_motion((x, y), (xrel, yrel), |x, y| {
                             window.frame_point(x, y, (320, 200))
                         }) {
                             let (dx, dy) = crate::window::mouse_delta(&mut remainder, dx, dy);
                             session.input(assets, Input::MouseDelta(dx, dy))?;
+                        }
+                    } else if keyboard_pointer || pending {
+                        keyboard_pointer = true;
+                        // These events were collected before the keyboard
+                        // movement. Continue from the new game cursor, then
+                        // align the host pointer after this batch is drained.
+                        if let Some((dx, dy)) = relative_motion((x, y), (xrel, yrel), |x, y| {
+                            window.frame_point(x, y, (320, 200))
+                        }) {
+                            let (dx, dy) = crate::window::mouse_delta(&mut remainder, dx, dy);
+                            session.input(
+                                assets,
+                                Input::Mouse(session.cursor.0 + dx, session.cursor.1 + dy),
+                            )?;
                         }
                     } else if let Some((x, y)) = window.frame_point(x, y, (320, 200)) {
                         session.input(assets, Input::Mouse(x.floor() as i32, y.floor() as i32))?;
@@ -189,7 +214,14 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
                 Event::MouseButtonDown {
                     x, y, mouse_btn, ..
                 } => {
-                    if let Some((x, y)) = window.frame_point(x, y, (320, 200)) {
+                    let point = if (keyboard_pointer || pointer_sync.pending())
+                        && !session.relative_steering()
+                    {
+                        Some((session.cursor.0 as f32, session.cursor.1 as f32))
+                    } else {
+                        window.frame_point(x, y, (320, 200))
+                    };
+                    if let Some((x, y)) = point {
                         let input = match mouse_btn {
                             MouseButton::Left => {
                                 Some(Input::Click(x.floor() as i32, y.floor() as i32))
@@ -221,7 +253,12 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
                         // drag, without moving its last valid destination.
                         session.input(
                             assets,
-                            left_release(window.frame_point(x, y, (320, 200)), session.cursor),
+                            left_release(
+                                (!(keyboard_pointer || pointer_sync.pending()))
+                                    .then(|| window.frame_point(x, y, (320, 200)))
+                                    .flatten(),
+                                session.cursor,
+                            ),
                         )?;
                     }
                 }
@@ -230,9 +267,18 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
         }
         let paused = manual_pause || menu.is_open();
         if paused != pause.is_paused() {
+            pointer_sync.clear();
             pause.toggle(Instant::now());
             release_controls(assets, session)?;
             remainder = (0.0, 0.0);
+        }
+        if keyboard_pointer
+            && focused
+            && !paused
+            && !session.relative_steering()
+            && let Some(point) = window.warp_mouse_to_frame(session.cursor, (320, 200))
+        {
+            pointer_sync.warped(point);
         }
         if let Some(output) = &mut audio {
             let settings = window.settings().audio;
@@ -300,7 +346,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
                 session.campaign.sound.drain();
             }
         }
-        if !session.relative_steering() {
+        if !session.relative_steering() && !pointer_sync.pending() {
             remainder = (0.0, 0.0);
         }
         let wants_text = !paused && session.phase == Phase::SaveDescription;

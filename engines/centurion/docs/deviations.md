@@ -119,6 +119,9 @@ is transient presentation state and does not enter campaign saves or alter RNG.
 
 The software pointer uses absolute host mouse coordinates. The host cursor is
 hidden over the window without relative capture or added cursor smoothing.
+Keyboard movement synchronizes the host pointer to the game cursor, so resuming
+mouse movement or clicking continues at that position. Synchronization events
+do not trigger hover or change the selected input decorations.
 The player uses the shared renderer and display preferences, defaulting to the
 original 4:3 display aspect of the 320x200 image. Square pixels and stretch are
 explicit shared presentation choices. The standalone research window retains

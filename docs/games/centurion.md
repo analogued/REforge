@@ -30,6 +30,8 @@ in the launcher or run:
 
 A key or click skips the introduction to the orders prologue; another enters the
 campaign map. Menus accept keyboard navigation, shortcuts and mouse input.
+After moving the pointer with the arrow keys, mouse movement and clicks continue
+from that position.
 
 ## Controls
 

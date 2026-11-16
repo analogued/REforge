@@ -9,6 +9,60 @@ use crate::assets::{Assets, Result};
 use crate::graphics::{HEIGHT, WIDTH};
 use crate::session::{Input, Phase, Session};
 
+/// Warps can arrive on a later event poll (notably on X11). They must not
+/// trigger hover or switch Dynamic decorations back to mouse input.
+#[derive(Default)]
+pub(crate) struct PointerSync {
+    warps: std::collections::VecDeque<(Instant, (f32, f32))>,
+    awaiting: bool,
+}
+
+impl PointerSync {
+    pub(crate) fn warped(&mut self, point: (f32, f32)) {
+        self.warps.retain(|(_, previous)| *previous != point);
+        self.warps.push_back((Instant::now(), point));
+        self.awaiting = true;
+        while self.warps.len() > 32 {
+            self.warps.pop_front();
+        }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.warps.clear();
+        self.awaiting = false;
+    }
+
+    pub(crate) fn pending(&mut self) -> bool {
+        self.warps
+            .retain(|(time, _)| time.elapsed() < Duration::from_secs(1));
+        self.awaiting &= !self.warps.is_empty();
+        self.awaiting
+    }
+
+    pub(crate) fn real_motion(&mut self) {
+        // A backend can coalesce the warp with the first physical motion.
+        // Keep filtering delayed warp echoes, but rebase only this first move.
+        self.awaiting = false;
+    }
+
+    pub(crate) fn synthetic_motion(&mut self, point: (f32, f32)) -> bool {
+        self.pending();
+        let found = self
+            .warps
+            .iter()
+            .position(|(_, (x, y))| (point.0 - x).abs() < 1.0 && (point.1 - y).abs() < 1.0);
+        if let Some(index) = found {
+            if index + 1 == self.warps.len() {
+                self.awaiting = false;
+            }
+            self.warps.remove(index);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[repr(C, align(8))]
 struct Event {
     bytes: [u8; 128],
@@ -91,6 +145,15 @@ unsafe extern "C" {
         x: *mut f32,
         y: *mut f32,
     ) -> bool;
+    fn SDL_RenderCoordinatesToWindow(
+        renderer: *mut c_void,
+        x: f32,
+        y: f32,
+        wx: *mut f32,
+        wy: *mut f32,
+    ) -> bool;
+    fn SDL_WarpMouseInWindow(window: *mut c_void, x: f32, y: f32);
+    fn SDL_GetMouseState(x: *mut f32, y: *mut f32) -> u32;
     fn SDL_HideCursor() -> bool;
     fn SDL_ShowCursor() -> bool;
 }
@@ -273,6 +336,8 @@ pub fn run(
             return Err(error());
         }
         SDL_HideCursor(); // No capture/relative mode; absolute movement remains direct.
+        sdl3::hint::set("SDL_MOUSE_EMULATE_WARP_WITH_RELATIVE", "0");
+        let mut pointer_sync = PointerSync::default();
         let mut pixels = vec![0u32; WIDTH * HEIGHT];
         let mut frames = 0;
         let mut text_active = false;
@@ -306,7 +371,7 @@ pub fn run(
                 session.input(assets, Input::Tick((now - previous_tick) as u32))?;
                 previous_tick = now;
             }
-            if !session.relative_steering() {
+            if !session.relative_steering() && !pointer_sync.pending() {
                 mouse_remainder = (0.0, 0.0);
             }
             let wants_text = session.phase == Phase::SaveDescription;
@@ -319,6 +384,7 @@ pub fn run(
                 text_active = wants_text;
             }
             let mut event = Event { bytes: [0; 128] };
+            let mut keyboard_pointer = false;
             while SDL_PollEvent(&mut event) {
                 let kind = u32::from_ne_bytes(event.bytes[..4].try_into().unwrap());
                 match kind {
@@ -335,8 +401,11 @@ pub fn run(
                             SDL_SetWindowSize(context.window, units * 4, units * 3);
                         }
                     }
-                    0x20f if matches!(session.phase, Phase::Naval | Phase::Games) => {
-                        session.input(assets, Input::ReleaseKey(15))?;
+                    0x20f => {
+                        pointer_sync.clear();
+                        if matches!(session.phase, Phase::Naval | Phase::Games) {
+                            session.input(assets, Input::ReleaseKey(15))?;
+                        }
                     }
                     0x300 => {
                         let key = u32::from_ne_bytes(event.bytes[28..32].try_into().unwrap());
@@ -350,7 +419,9 @@ pub fn run(
                             input
                         };
                         if let Some(input) = input {
+                            let previous = session.cursor;
                             session.input(assets, input)?;
+                            keyboard_pointer |= session.cursor != previous;
                         }
                     }
                     0x301 if matches!(session.phase, Phase::Naval | Phase::Games) => {
@@ -382,6 +453,13 @@ pub fn run(
                     0x400..=0x402 => {
                         let wx = f32::from_ne_bytes(event.bytes[28..32].try_into().unwrap());
                         let wy = f32::from_ne_bytes(event.bytes[32..36].try_into().unwrap());
+                        if kind == 0x400 && pointer_sync.synthetic_motion((wx, wy)) {
+                            continue;
+                        }
+                        let pending = pointer_sync.pending();
+                        if kind == 0x400 {
+                            pointer_sync.real_motion();
+                        }
                         let (mut x, mut y) = (0.0, 0.0);
                         if SDL_RenderCoordinatesFromWindow(context.renderer, wx, wy, &mut x, &mut y)
                         {
@@ -416,6 +494,39 @@ pub fn run(
                                 session.input(assets, Input::ReleaseButton(mask))?;
                                 continue;
                             }
+                            if !session.relative_steering() && (keyboard_pointer || pending) {
+                                if kind == 0x400 {
+                                    keyboard_pointer = true;
+                                    let dx =
+                                        f32::from_ne_bytes(event.bytes[36..40].try_into().unwrap());
+                                    let dy =
+                                        f32::from_ne_bytes(event.bytes[40..44].try_into().unwrap());
+                                    let (mut previous_x, mut previous_y) = (0.0, 0.0);
+                                    if SDL_RenderCoordinatesFromWindow(
+                                        context.renderer,
+                                        wx - dx,
+                                        wy - dy,
+                                        &mut previous_x,
+                                        &mut previous_y,
+                                    ) {
+                                        let (dx, dy) = mouse_delta(
+                                            &mut mouse_remainder,
+                                            x - previous_x,
+                                            (y - previous_y) * 200.0 / 240.0,
+                                        );
+                                        session.input(
+                                            assets,
+                                            Input::Mouse(
+                                                session.cursor.0 + dx,
+                                                session.cursor.1 + dy,
+                                            ),
+                                        )?;
+                                    }
+                                    continue;
+                                }
+                                x = session.cursor.0 as f32;
+                                y = session.cursor.1 as f32 * 240.0 / 200.0;
+                            }
                             let x = x.floor() as i32;
                             let y = (y * 200.0 / 240.0).floor() as i32;
                             let input = if kind == 0x402 && event.bytes[24] == 1 {
@@ -431,6 +542,37 @@ pub fn run(
                         }
                     }
                     _ => {}
+                }
+            }
+            if keyboard_pointer
+                && !session.relative_steering()
+                && SDL_GetWindowFlags(context.window) & 0x600 == 0x600
+            {
+                let (mut wx, mut wy) = (0.0, 0.0);
+                let (mut mouse_x, mut mouse_y) = (0.0, 0.0);
+                SDL_GetMouseState(&mut mouse_x, &mut mouse_y);
+                let (mut current_x, mut current_y) = (0.0, 0.0);
+                let aligned = SDL_RenderCoordinatesFromWindow(
+                    context.renderer,
+                    mouse_x,
+                    mouse_y,
+                    &mut current_x,
+                    &mut current_y,
+                ) && (
+                    current_x.floor() as i32,
+                    (current_y * 200.0 / 240.0).floor() as i32,
+                ) == session.cursor;
+                if !aligned
+                    && SDL_RenderCoordinatesToWindow(
+                        context.renderer,
+                        session.cursor.0 as f32 + 0.5,
+                        (session.cursor.1 as f32 + 0.5) * 240.0 / 200.0,
+                        &mut wx,
+                        &mut wy,
+                    )
+                {
+                    SDL_WarpMouseInWindow(context.window, wx, wy);
+                    pointer_sync.warped((wx, wy));
                 }
             }
             // Internal smoke inputs exercise the same session path without
@@ -542,6 +684,41 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_warps_do_not_count_as_mouse_input_even_when_delayed_or_rounded() {
+        let mut pointer = PointerSync::default();
+        pointer.warped((100.5, 200.5));
+        pointer.warped((110.5, 200.5));
+        assert!(pointer.pending());
+        assert!(!pointer.synthetic_motion((93.0, 202.0)));
+        assert!(pointer.pending(), "real input can precede a delayed warp");
+        assert!(pointer.synthetic_motion((110.0, 200.0)));
+        assert!(
+            !pointer.pending(),
+            "the latest destination has been reached"
+        );
+        assert!(pointer.synthetic_motion((100.0, 200.0)));
+        assert!(!pointer.synthetic_motion((111.0, 200.0)));
+        pointer.warped((120.0, 200.0));
+        pointer.clear();
+        assert!(!pointer.pending());
+        assert!(!pointer.synthetic_motion((120.0, 200.0)));
+        pointer.warped((130.0, 200.0));
+        pointer.warped((130.0, 200.0));
+        assert!(pointer.synthetic_motion((130.0, 200.0)));
+        assert!(
+            !pointer.pending(),
+            "coalesced duplicate warps cannot leave a pending handoff"
+        );
+        pointer.warped((140.0, 200.0));
+        pointer.real_motion();
+        assert!(!pointer.pending());
+        assert!(
+            pointer.synthetic_motion((140.0, 200.0)),
+            "delayed echoes are still filtered"
+        );
+    }
 
     #[test]
     fn relative_motion_retains_fractional_pixels_and_reversals() {

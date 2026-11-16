@@ -89,7 +89,7 @@ fn columns(index: usize) -> &'static [(&'static str, i32)] {
     }
 }
 fn headings(frame: &mut Frame, assets: &Assets, index: usize, y: i32) -> Result<()> {
-    for &(label, center) in columns(index) {
+    for &(label, center) in &columns(index)[1..] {
         frame.center_text(assets, label, center, y, 0)?;
     }
     Ok(())

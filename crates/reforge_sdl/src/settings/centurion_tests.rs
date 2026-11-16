@@ -4,9 +4,10 @@
 use super::machine_tests::{click, draw, dummy_video, label};
 use super::*;
 use reforge_settings::{
-    CENTURION_FLEET_INFORMATION as KEY, CENTURION_MENU_DECORATIONS as DECORATIONS,
-    CENTURION_POPUP_CURSOR as CURSOR, ENHANCEMENTS_SECTION, FleetInformation, Launch,
-    MenuDecorations, Patch, PopupCursor,
+    CENTURION_FLEET_INFORMATION as KEY, CENTURION_MAP_HIGHLIGHT as MAP,
+    CENTURION_MENU_DECORATIONS as DECORATIONS, CENTURION_POPUP_CURSOR as CURSOR,
+    ENHANCEMENTS_SECTION, FleetInformation, Launch, MapHighlight, MenuDecorations, Patch,
+    PopupCursor,
 };
 
 fn click_last(menu: &mut SettingsMenu<'_>, text: &str) {
@@ -119,10 +120,19 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     click(&mut menu, "Original");
     assert_eq!(menu.draft.as_ref().unwrap().game[KEY], "original");
     assert_eq!(menu.draft.as_ref().unwrap().game[CURSOR], "hidden");
+    assert_eq!(menu.draft.as_ref().unwrap().game[MAP], "off");
     assert_eq!(std::fs::read(&path).unwrap(), initial);
     click(&mut menu, "Advanced options");
     assert!(label(&draw(&mut menu, vec![]), "Fleet information").is_some());
     assert!(label(&draw(&mut menu, vec![]), "Menu decorations").is_some());
+    assert!(label(&draw(&mut menu, vec![]), "Map highlight").is_some());
+    click(&mut menu, "Off");
+    click(&mut menu, "On");
+    assert!(!menu.draft.as_ref().unwrap().game.contains_key(MAP));
+    assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
+    click(&mut menu, "Custom");
+    click_last(&mut menu, "Original");
+    assert_eq!(menu.draft.as_ref().unwrap().game[MAP], "off");
     click(&mut menu, "Mouse");
     click(&mut menu, "Keyboard");
     assert_eq!(menu.draft.as_ref().unwrap().game[DECORATIONS], "keyboard");
@@ -138,6 +148,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     click(&mut menu, "Reforged");
     assert!(!menu.draft.as_ref().unwrap().game.contains_key(KEY));
     assert!(!menu.draft.as_ref().unwrap().game.contains_key(CURSOR));
+    assert!(!menu.draft.as_ref().unwrap().game.contains_key(MAP));
     assert!(label(&draw(&mut menu, vec![]), "Both").is_some());
     assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());
     click(&mut menu, "Visible");
@@ -202,6 +213,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.contains("fleet_information = \"original\""));
     assert!(text.contains("popup_cursor = \"hidden\""));
+    assert!(text.contains("map_highlight = \"off\""));
     assert!(!text.contains("preset"));
     assert!(text.contains("master_volume = 61"));
     click(&mut menu, "Hidden");
@@ -292,6 +304,12 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
         !std::fs::read_to_string(&path)
             .unwrap()
             .contains("menu_decorations")
+    );
+    assert_eq!(display.settings().centurion.map_highlight, MapHighlight::On);
+    assert!(
+        !std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("map_highlight")
     );
     assert!(
         std::fs::read_to_string(&path)
@@ -605,6 +623,71 @@ fn centurion_native_settings_capture_and_detail_navigation() {
                         )))
                         .unwrap();
                 }
+            }
+            let mut map_found = false;
+            for _ in 0..80 {
+                let output = sized_draw(&mut menu, metrics, vec![]);
+                let on = label(&output, "On").unwrap();
+                if menu
+                    .context
+                    .memory(|memory| memory.focused())
+                    .and_then(|id| menu.context.read_response(id))
+                    .is_some_and(|response| response.rect.contains(on.center()))
+                {
+                    map_found = true;
+                    break;
+                }
+                pulse(&mut menu, metrics, Key::Tab);
+            }
+            assert!(
+                map_found,
+                "map highlight selector must be reachable: {width} {density}"
+            );
+            pulse(&mut menu, metrics, Key::ArrowLeft);
+            assert_eq!(
+                menu.draft
+                    .as_ref()
+                    .unwrap()
+                    .game_values()
+                    .centurion
+                    .map_highlight,
+                MapHighlight::Off
+            );
+            assert!(label(&sized_draw(&mut menu, metrics, vec![]), "Custom").is_some());
+            menu.handle_gamepad(crate::gamepad::PadEvent {
+                actions: crate::gamepad::Actions {
+                    right: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            menu.prepare(metrics, RuntimeSettings::default());
+            menu.handle_gamepad(Default::default());
+            assert_eq!(
+                menu.draft
+                    .as_ref()
+                    .unwrap()
+                    .game_values()
+                    .centurion
+                    .map_highlight,
+                MapHighlight::On
+            );
+            assert!(label(&sized_draw(&mut menu, metrics, vec![]), "Reforged").is_some());
+            if let Some(directory) = std::env::var_os("REFORGE_CENTURION_SETTINGS_CAPTURE") {
+                for _ in 0..3 {
+                    canvas.clear();
+                    menu.prepare(metrics, RuntimeSettings::default());
+                    menu.paint(&mut canvas).unwrap();
+                }
+                canvas
+                    .read_pixels(None)
+                    .unwrap()
+                    .save_bmp(std::path::PathBuf::from(directory).join(format!(
+                        "{}-map-highlight-{width}x{height}-{}.bmp",
+                        theme.slug(),
+                        (density * 100.0).round() as u32
+                    )))
+                    .unwrap();
             }
         }
     }

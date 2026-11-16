@@ -115,19 +115,54 @@ impl std::str::FromStr for MenuDecorations {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MapHighlight {
+    /// Retain the original map borders without pointer feedback.
+    Off,
+    /// Highlight the province beneath the map pointer.
+    #[default]
+    On,
+}
+impl MapHighlight {
+    pub const ALL: [Self; 2] = [Self::Off, Self::On];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::On => "on",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::On => "On",
+        }
+    }
+}
+impl std::str::FromStr for MapHighlight {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "off" => Ok(Self::Off),
+            "on" => Ok(Self::On),
+            _ => Err("map highlight must be off or on".into()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CenturionOptions {
     pub fleet_information: FleetInformation,
     pub popup_cursor: PopupCursor,
     pub menu_decorations: MenuDecorations,
+    pub map_highlight: MapHighlight,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        CENTURION_FLEET_INFORMATION as KEY, CENTURION_MENU_DECORATIONS as DECORATIONS,
-        CENTURION_POPUP_CURSOR as CURSOR, Draft, ENHANCEMENTS_SECTION, Launch, Patch,
-        RuntimeSettings, Session,
+        CENTURION_FLEET_INFORMATION as KEY, CENTURION_MAP_HIGHLIGHT as MAP,
+        CENTURION_MENU_DECORATIONS as DECORATIONS, CENTURION_POPUP_CURSOR as CURSOR, Draft,
+        ENHANCEMENTS_SECTION, Launch, Patch, RuntimeSettings, Session,
     };
     use std::{
         fs,
@@ -163,6 +198,82 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn map_highlight_validates_defaults_and_remains_per_entry() {
+        let mut values = RuntimeSettings::default();
+        assert_eq!(values.centurion.map_highlight, MapHighlight::On);
+        for choice in MapHighlight::ALL {
+            values.set(MAP, choice.as_str()).unwrap();
+            assert_eq!(values.centurion.map_highlight, choice);
+            assert_eq!(values.get(MAP), choice.as_str());
+        }
+        for invalid in ["", "original", "reforged", "true", "false", "0"] {
+            assert!(values.set(MAP, invalid).is_err());
+            assert_eq!(values.centurion.map_highlight, MapHighlight::On);
+        }
+        assert_eq!(crate::section_index(MAP), ENHANCEMENTS_SECTION);
+
+        let temp = Temp::new();
+        fs::write(temp.path(), "[global.enhancements]\nmap_highlight = 'off'\n[entries.copy.enhancements]\nmap_highlight = 'off' # retain choice\nunknown = 'retained'\n[entries.copy.audio]\nmaster_volume = 43\n").unwrap();
+        let mut session = temp.session("centurion-defender-of-rome");
+        assert_eq!(
+            session.saved.global_values().centurion.map_highlight,
+            MapHighlight::On
+        );
+        assert_eq!(
+            session.effective(&session.saved).centurion.map_highlight,
+            MapHighlight::Off
+        );
+        let mut draft = session.saved.clone();
+        draft.edit(false, MAP, "off".into());
+        assert!(!draft.global.contains_key(MAP));
+        draft.edit_game(CURSOR, "hidden".into(), Some(&session.saved));
+        session.commit(draft).unwrap();
+        assert!(
+            fs::read_to_string(temp.path())
+                .unwrap()
+                .contains("map_highlight = 'off' # retain choice")
+        );
+        assert!(session.saved.has_game_overrides(ENHANCEMENTS_SECTION));
+        let mut draft = session.saved.clone();
+        draft.reset_section(true, ENHANCEMENTS_SECTION);
+        assert_eq!(
+            draft.game_values().centurion.map_highlight,
+            MapHighlight::On
+        );
+        assert!(!draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        session.commit(draft).unwrap();
+        let text = fs::read_to_string(temp.path()).unwrap();
+        let doc = text.parse::<toml_edit::DocumentMut>().unwrap();
+        assert!(
+            doc["entries"]["copy"]["enhancements"]
+                .get("map_highlight")
+                .is_none()
+        );
+        assert!(text.contains("unknown = 'retained'"));
+        assert!(text.contains("master_volume = 43"));
+        let mut other = temp.session("mach-3");
+        other.cli.insert(MAP.into(), "off".into());
+        assert_eq!(
+            other.effective(&other.saved).centurion.map_highlight,
+            MapHighlight::On
+        );
+        fs::write(temp.path(), "[entries.copy.enhancements]\nmap_highlight = 'invalid'\nfleet_information = 'original'\n").unwrap();
+        let session = temp.session("centurion-defender-of-rome");
+        assert!(session.warning.is_some());
+        assert_eq!(
+            session.effective(&session.saved).centurion.map_highlight,
+            MapHighlight::On
+        );
+        assert_eq!(
+            session
+                .effective(&session.saved)
+                .centurion
+                .fleet_information,
+            FleetInformation::Original
+        );
     }
 
     #[test]

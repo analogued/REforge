@@ -11,12 +11,13 @@ use crate::settings_selector::{Choice, Selector};
 use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     ALLEYCAT_MACHINE, ALLEYCAT_MOTION, AlleyCatMachine, AlleyCatMotion, AspectRatio,
-    BTZ_FILE_CURSOR, Backend, CENTURION_FLEET_INFORMATION, CENTURION_MENU_DECORATIONS,
-    CENTURION_POPUP_CURSOR, CONTROL_MODE, CONTROLLER_ACTION, CONTROLLER_BUTTONS,
-    CONTROLLER_MOVEMENT, CenturionOptions, ControlMode, DIGITIZED_SAMPLES, ENHANCEMENTS_SECTION,
-    FileCursorStyle, FleetInformation, FrameLimit, MOTION, MenuDecorations, MotionMode,
-    PopupCursor, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
-    STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
+    BTZ_FILE_CURSOR, Backend, CENTURION_FLEET_INFORMATION, CENTURION_MAP_HIGHLIGHT,
+    CENTURION_MENU_DECORATIONS, CENTURION_POPUP_CURSOR, CONTROL_MODE, CONTROLLER_ACTION,
+    CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, CenturionOptions, ControlMode, DIGITIZED_SAMPLES,
+    ENHANCEMENTS_SECTION, FileCursorStyle, FleetInformation, FrameLimit, MOTION, MapHighlight,
+    MenuDecorations, MotionMode, PopupCursor, Presentation, Renderer, RuntimeSettings,
+    SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory,
+    SoundRenderer,
 };
 mod controller;
 const PAGES: [&str; SECTION_KEYS.len()] = [
@@ -85,6 +86,7 @@ impl RowContext<'_> {
                     | CENTURION_FLEET_INFORMATION
                     | CENTURION_POPUP_CURSOR
                     | CENTURION_MENU_DECORATIONS
+                    | CENTURION_MAP_HIGHLIGHT
                     | ALLEYCAT_MOTION
                     | BTZ_FILE_CURSOR
                     | CONTROL_MODE
@@ -486,7 +488,7 @@ pub(super) fn draw(
                         && menu.centurion_options
                         && original.centurion != value.centurion
                     {
-                        for key in [CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR, CENTURION_MENU_DECORATIONS] {
+                        for key in [CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR, CENTURION_MENU_DECORATIONS, CENTURION_MAP_HIGHLIGHT] {
                             if !cli.contains_key(key) && original.get(key) != value.get(key) {
                                 draft.edit_game(
                                     key,
@@ -801,27 +803,34 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
         fleet_information: FleetInformation::Original,
         popup_cursor: PopupCursor::Hidden,
         menu_decorations: MenuDecorations::Mouse,
+        map_highlight: MapHighlight::Off,
     };
     let reforged = CenturionOptions::default();
     let fleet_state = rows.state(CENTURION_FLEET_INFORMATION, value);
     let cursor_state = rows.state(CENTURION_POPUP_CURSOR, value);
     let decorations_state = rows.state(CENTURION_MENU_DECORATIONS, value);
+    let map_state = rows.state(CENTURION_MAP_HIGHLIGHT, value);
     let preset_state = RowState {
         lock_tooltip: fleet_state
             .lock_tooltip
             .or(cursor_state.lock_tooltip)
-            .or(decorations_state.lock_tooltip),
+            .or(decorations_state.lock_tooltip)
+            .or(map_state.lock_tooltip),
         overridden: fleet_state.overridden
             || cursor_state.overridden
-            || decorations_state.overridden,
-        dirty: fleet_state.dirty || cursor_state.dirty || decorations_state.dirty,
+            || decorations_state.overridden
+            || map_state.overridden,
+        dirty: fleet_state.dirty
+            || cursor_state.dirty
+            || decorations_state.dirty
+            || map_state.dirty,
         tooltip: format!(
-            "Fleet information\n{}\n\nPopup cursor\n{}\n\nMenu decorations\n{}",
-            fleet_state.tooltip, cursor_state.tooltip, decorations_state.tooltip
+            "Fleet information\n{}\n\nPopup cursor\n{}\n\nMenu decorations\n{}\n\nMap highlight\n{}",
+            fleet_state.tooltip, cursor_state.tooltip, decorations_state.tooltip, map_state.tooltip
         ),
         saved: format!(
-            "{} / {} / {}",
-            fleet_state.saved, cursor_state.saved, decorations_state.saved
+            "{} / {} / {} / {}",
+            fleet_state.saved, cursor_state.saved, decorations_state.saved, map_state.saved
         ),
     };
     row(ui, "UI preset", "centurion_ui_preset", preset_state, |ui| {
@@ -885,6 +894,20 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
                         )
                         .show(ui, &mut value.centurion.menu_decorations)
                         .on_hover_text("Mouse and Keyboard retain their respective original menu decorations. Dynamic switches to Keyboard after arrow navigation and to Mouse after pointer movement or a click.");
+                    },
+                );
+                row(
+                    ui,
+                    "Map highlight",
+                    CENTURION_MAP_HIGHLIGHT,
+                    rows.state(CENTURION_MAP_HIGHLIGHT, value),
+                    |ui| {
+                        Selector::new(
+                            CENTURION_MAP_HIGHLIGHT,
+                            MapHighlight::ALL.map(|choice| Choice::new(choice, choice.label())),
+                        )
+                        .show(ui, &mut value.centurion.map_highlight)
+                        .on_hover_text("Highlight the border of the province beneath the map pointer. Off retains the original map borders.");
                     },
                 );
             }),
@@ -1541,7 +1564,8 @@ fn section_has_cli_locks(
                 || cli.contains_key(CONTROL_MODE)
                 || cli.contains_key(CENTURION_FLEET_INFORMATION)
                 || cli.contains_key(CENTURION_POPUP_CURSOR)
-                || cli.contains_key(CENTURION_MENU_DECORATIONS)))
+                || cli.contains_key(CENTURION_MENU_DECORATIONS)
+                || cli.contains_key(CENTURION_MAP_HIGHLIGHT)))
 }
 
 fn paint_lock(painter: &egui::Painter, center: Pos2, colour: Color32) {
@@ -2479,7 +2503,12 @@ mod tests {
         assert!(!section_has_cli_locks(&cli, 2, 1, false));
         assert!(section_has_cli_locks(&cli, 2, 1, true));
         assert!(!section_has_cli_locks(&Default::default(), 2, 1, true));
-        for key in [MOTION, ALLEYCAT_MOTION, CONTROL_MODE] {
+        for key in [
+            MOTION,
+            ALLEYCAT_MOTION,
+            CONTROL_MODE,
+            CENTURION_MAP_HIGHLIGHT,
+        ] {
             let cli = reforge_settings::Patch::from([(key.into(), "original".into())]);
             assert!(section_has_cli_locks(&cli, ENHANCEMENTS_SECTION, 1, true));
             assert!(!section_has_cli_locks(&cli, ENHANCEMENTS_SECTION, 0, true));

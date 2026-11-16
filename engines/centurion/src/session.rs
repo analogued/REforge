@@ -105,6 +105,9 @@ pub struct Session {
     pub fleet_information: reforge_settings::FleetInformation,
     pub popup_cursor: reforge_settings::PopupCursor,
     pub menu_decorations: reforge_settings::MenuDecorations,
+    pub map_highlight: reforge_settings::MapHighlight,
+    /// False when the host pointer leaves the image or the window loses focus.
+    pub map_pointer_active: bool,
     menu_input: crate::state::ContinueInput,
     last_mouse: Option<(i32, i32)>,
     #[cfg(feature = "dev-tools")]
@@ -201,6 +204,8 @@ impl Session {
             fleet_information: reforge_settings::FleetInformation::default(),
             popup_cursor: reforge_settings::PopupCursor::default(),
             menu_decorations: reforge_settings::MenuDecorations::default(),
+            map_highlight: reforge_settings::MapHighlight::default(),
+            map_pointer_active: true,
             menu_input: crate::state::ContinueInput::default(),
             last_mouse: None,
             #[cfg(feature = "dev-tools")]
@@ -449,6 +454,13 @@ impl Session {
         }
     }
     fn apply_input(&mut self, assets: &Assets, input: Input) -> Result<()> {
+        match input {
+            Input::Mouse(x, y) | Input::Click(x, y) | Input::RightClick(x, y) => {
+                self.map_pointer_active = (0..320).contains(&x) && (0..200).contains(&y);
+            }
+            Input::Up | Input::Down | Input::Left | Input::Right => self.map_pointer_active = true,
+            _ => {}
+        }
         #[cfg(feature = "dev-tools")]
         if matches!(input, Input::Mark(_)) {
             return Ok(());
@@ -3041,6 +3053,22 @@ impl Session {
             Phase::Notice if self.notice_return == Phase::Rome => {
                 frame =
                     self.render_province(assets, self.command_menu(), self.province_selection)?;
+            }
+            Phase::Map => {
+                let hovered = if self.map_highlight == reforge_settings::MapHighlight::On
+                    && self.map_pointer_active
+                {
+                    crate::campaign::hovered_province(&self.campaign, self.cursor)?
+                } else {
+                    None
+                };
+                frame = crate::campaign::render_highlighted(
+                    assets,
+                    &self.campaign,
+                    &self.map,
+                    &self.sprites,
+                    hovered,
+                )?;
             }
             _ => frame = crate::campaign::render(assets, &self.campaign, &self.map, &self.sprites)?,
         }

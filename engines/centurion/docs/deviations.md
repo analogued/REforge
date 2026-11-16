@@ -117,6 +117,14 @@ is transient presentation state and does not enter campaign saves or alter RNG.
 
 ## Host presentation and sound
 
+The campaign map highlights the province under the pointer, including during
+keyboard cursor movement. Roman provinces retain a blue outline and other
+provinces retain a brown outline, brightened with a frame-local palette entry.
+Only the existing province border path changes; terrain, units, seas and map
+controls retain their colors. Menus and popup backdrops do not show hover.
+**Map highlight: Off** retains the original static borders; the Reforged
+default is On. This presentation choice does not affect campaign saves or RNG.
+
 The software pointer uses absolute host mouse coordinates. The host cursor is
 hidden over the window without relative capture or added cursor smoothing.
 Keyboard movement synchronizes the host pointer to the game cursor, so resuming

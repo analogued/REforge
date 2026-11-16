@@ -102,7 +102,9 @@ fn cargo_label(state: &Campaign, index: usize) -> Result<String> {
     if index < 3 {
         return state.legion_name(usize::from(cargo));
     }
-    if cargo >= 11 {
+    // Eleven roaming armies are followed by the three permanent fleets' armies.
+    // Their cargo IDs 11..=13 are valid even though they cannot roam on land.
+    if cargo >= 14 {
         return Err("Invalid transported enemy army".into());
     }
     let army = 0xc114 + usize::from(cargo) * 14;
@@ -275,7 +277,15 @@ mod tests {
         }
         assert_eq!(cargo_label(&state, 3).unwrap(), "5000");
         assert_eq!(cargo_label(&state, 4).unwrap(), "None");
-        state.data[0x1117 + 3 * 12] = 11;
+        for (fleet, army) in [(3, 11), (4, 12), (5, 13)] {
+            state.data[0x1117 + fleet * 12] = army as u8;
+            let base = 0xc114 + army * 14;
+            put(&mut state.data, base + 2, 4200);
+            put(&mut state.data, base + 4, 790);
+            state.data[base + 8] = 10;
+            assert_eq!(cargo_label(&state, fleet).unwrap(), "5000");
+        }
+        state.data[0x1117 + 3 * 12] = 14;
         assert!(cargo_label(&state, 3).is_err());
         state.data[0x1117] = 12;
         assert!(cargo_label(&state, 0).is_err());

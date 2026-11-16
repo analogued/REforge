@@ -35,6 +35,8 @@ The enemy table omits Status: the permanent enemy fleets do not use the Roman
 Ready/Moved/Forming turn cycle. Its cargo byte indexes the enemy army table;
 Troops sums that army's infantry, cavalry and elephants. The former native table
 incorrectly treated it as a Roman legion index, producing misleading numerals.
+Enemy army records include eleven roaming slots and three dedicated permanent
+fleet slots; all fourteen are valid cargo references.
 An empty transport displays None. Roman fleet tables now use complete legion
 identifiers rather than just numerals, so I Ital, I Aeg and I Narb are distinct.
 Separate centered column positions accommodate each side's widest names/counts

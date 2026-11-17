@@ -151,6 +151,12 @@ music/effects levels, output-device selection and focus muting affect host audio
 without changing the game's original single sequencer or sound requests.
 
 AdLib output uses software OPL2-compatible synthesis and host PCM playback.
+As in DOS, map music continues during legion/fleet selection, destination
+selection, readiness messages and cancellation. Moving from a province menu
+back to the destination map requests the map score. Committing a valid land
+destination stops it before friendly movement, landing or encounter handling;
+boarding into sea and ordinary fleet sailing do not stop it. Map redraw requests
+the same score without restarting it when it is already selected.
 Audio generation runs independently of window rendering. Interactive pacing
 follows estimated source-sample consumption with a wall-clock fallback; late
 sound requests apply at the next unrendered sample. These host scheduling choices

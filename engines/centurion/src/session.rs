@@ -543,12 +543,7 @@ impl Session {
         if self.phase == Phase::Map && before != Phase::Map && !self.quit {
             self.campaign.sound.play(1);
         }
-        if before == Phase::Map
-            && matches!(
-                self.phase,
-                Phase::Menu | Phase::Rome | Phase::LegionMove | Phase::FleetSelect
-            )
-        {
+        if before == Phase::Map && matches!(self.phase, Phase::Menu | Phase::Rome) {
             self.campaign.sound.stop();
         }
         Ok(())
@@ -2264,6 +2259,9 @@ impl Session {
                 self.cursor = self.campaign.region_coordinate(region)?;
             }
             self.phase = Phase::LegionMove;
+            // Province-menu Move redraws the map and requests its score too;
+            // direct map selection leaves an already playing score untouched.
+            self.campaign.sound.play(1);
             self.moving_legion = Some(index);
             return Ok(());
         }
@@ -2358,6 +2356,9 @@ impl Session {
         match self.campaign.march_legion(index, region)? {
             crate::movement::March::Ignored => {}
             crate::movement::March::Moved => {
+                // Resident 398F stops after committing a land destination,
+                // not while the player is still choosing one.
+                self.campaign.sound.stop();
                 self.finish_march(Some(region))?;
             }
             crate::movement::March::Cancelled => {
@@ -2374,6 +2375,7 @@ impl Session {
                     battlefield_background,
                 ));
                 self.campaign.data[0x1926 + index * 20] = 1;
+                self.campaign.sound.stop();
                 self.advance_encounter(assets)?;
             }
             crate::movement::March::EmbarkPending => {

@@ -43,31 +43,11 @@ pub(crate) struct Hover {
 impl Hover {
     pub fn new(state: &Campaign, map: &Bitmap) -> Result<Self> {
         let mut borders = vec![false; WIDTH * HEIGHT];
-        // These isolated artwork paths also drive the game's ownership borders.
-        // A pen alone is insufficient: terrain uses the same brown.
-        for province in 0..27 {
-            let x = i32::from(word(&state.data, 0x3c52 + province * 4)?);
-            let y = i32::from(word(&state.data, 0x3c54 + province * 4)?);
-            if !(0..319).contains(&x) || !(0..199).contains(&y) {
-                continue;
-            }
-            let pen = map.pixels[y as usize * WIDTH + x as usize];
-            let mut pending = vec![(x, y)];
-            while let Some((x, y)) = pending.pop() {
-                if !(0..319).contains(&x) || !(0..199).contains(&y) {
-                    continue;
-                }
-                let at = y as usize * WIDTH + x as usize;
-                if borders[at] || map.pixels[at] != pen {
-                    continue;
-                }
-                borders[at] = true;
-                pending.extend(neighbours((x, y)));
-            }
-        }
-        // Sea separators share the no-region mask value with unnamed water.
-        // Seed actual joins between named regions, then include their black
-        // bends/endpoints without growing through unnamed water or coast shading.
+        // Black separator lines share the no-region mask value with unnamed
+        // water. Only those black gaps preserve context: colored province borders
+        // and every pixel with a named region follow the normal lookup at once.
+        // Seed actual joins, then include black bends/endpoints without growing
+        // through unnamed water, colored borders, terrain or coast shading.
         let mut regions = Vec::with_capacity(WIDTH * HEIGHT);
         for y in 0..HEIGHT as i32 {
             for x in 0..WIDTH as i32 {
@@ -85,7 +65,7 @@ impl Hover {
                 for (nx, ny) in neighbours((x, y)) {
                     if let Some(n) = pixel_index((nx, ny)).and_then(|i| regions[i]) {
                         if first.is_some_and(|previous| previous != n) {
-                            borders[at] = true;
+                            borders[at] = map.pixels[at] == 0;
                             pending.extend(neighbours((x, y)));
                             break;
                         }
@@ -352,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn border_cache_separates_paths_and_separator_bends_from_unnamed_water() {
+    fn black_separator_cache_leaves_colored_borders_and_named_pixels_live() {
         let mut data = vec![0; 65536];
         let put = |data: &mut [u8], at: usize, value: u16| {
             data[at..at + 2].copy_from_slice(&value.to_le_bytes());
@@ -365,10 +345,6 @@ mod tests {
                 0x3a96 + y * 2,
                 if y == 50 { 0xd010 } else { 0xd000 },
             );
-        }
-        for province in 0..27 {
-            put(&mut data, 0x3c52 + province * 4, 20);
-            put(&mut data, 0x3c54 + province * 4, 20);
         }
         let mut map = Bitmap {
             width: WIDTH,
@@ -383,6 +359,7 @@ mod tests {
             (20, 21, 104),
             (21, 21, 104),
             (60, 60, 104),  // Same pen, separate terrain component.
+            (60, 61, 0),    // Black artwork with a valid named-region hit.
             (100, 35, 106), // Colored join between two named regions.
             (100, 49, 0),
             (100, 50, 0),
@@ -392,17 +369,18 @@ mod tests {
             map.pixels[y * WIDTH + x] = pen;
         }
         let hover = Hover::new(&Campaign::test_data(data), &map).unwrap();
+        for point in [(100, 49), (100, 50), (101, 50), (102, 50)] {
+            assert!(hover.borders[pixel_index(point).unwrap()], "{point:?}");
+        }
         for point in [
             (20, 20),
             (21, 21),
+            (60, 60),
+            (60, 61),
             (100, 35),
-            (100, 50),
-            (101, 50),
-            (102, 50),
+            (250, 35),
+            (250, 50),
         ] {
-            assert!(hover.borders[pixel_index(point).unwrap()], "{point:?}");
-        }
-        for point in [(60, 60), (250, 35), (250, 50)] {
             assert!(!hover.borders[pixel_index(point).unwrap()], "{point:?}");
         }
     }

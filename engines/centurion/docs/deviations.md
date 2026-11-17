@@ -67,9 +67,10 @@ transparent outer padding and include interior holes to keep labels stable while
 crossing a symbol. Keyboard map movement uses the same lookup. Unusually crowded
 stacks keep the place name and show a remaining-unit count to stay on screen.
 
-Province border paths and named-region separator joins are cached from original
-artwork and the region mask. A border retains an already visible region but
-cannot establish one; entering another named region changes it immediately.
+Black separator gaps are cached from original artwork and the region mask.
+Only these black lines retain an already visible region and cannot establish
+one. Colored province borders and other valid named-region hits update the name
+immediately, in step with the territory highlight.
 Unnamed water, map controls, pointer loss and menus clear the context. Captured
 modal backdrops omit the panel as well. These presentation rules leave click
 selection, movement, campaign bytes and RNG unchanged.

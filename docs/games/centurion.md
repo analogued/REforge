@@ -135,8 +135,9 @@ unrelated menus clear it.
 Hover a symbol for unit names, with one row per fleet and any
 embarked legion on that row; the territory or sea name appears underneath.
 Hover elsewhere for the place name alone. Arrow-key cursor movement works too.
-Borders preserve an existing place name until you enter another region; they
-never introduce a panel. Unnamed water, map controls, leaving the map and opening
+Black separator lines preserve an existing place name and never introduce a
+panel. Colored province borders update the name immediately, like the territory
+highlight. Unnamed water, map controls, leaving the map and opening
 menus hide it. This option is Off in both presets; enable it under Advanced
 options when wanted.
 

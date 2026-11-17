@@ -8,7 +8,7 @@ unsupported features and unresolved fidelity issues belong under
 
 ## Presentation settings
 
-Centurion UI's Original/Reforged presets are aliases over five granular choices:
+Centurion UI's Original/Reforged presets are aliases over six granular choices:
 
 | Setting | Original | Reforged (default) |
 | --- | --- | --- |
@@ -16,11 +16,12 @@ Centurion UI's Original/Reforged presets are aliases over five granular choices:
 | Popup cursor | Hidden | Visible |
 | Menu decorations | Mouse | Mouse |
 | Map highlight | Off | On |
+| Map hover info | Off | Off |
 | Applied value indicator | Original | Subdued band |
 
 Nonmatching combinations display Custom. Only the individual choices are saved.
 They apply to open views as well as newly entered ones, without modifying DOS
-campaign bytes or advancing RNG. The preset affects these five settings; the
+campaign bytes or advancing RNG. The preset affects these six settings; the
 input feedback and host adaptations described below also apply with Original.
 
 ### Acknowledgments
@@ -55,6 +56,23 @@ terrain, units, seas and map controls retain their colors. Territory information
 popups keep the inspected province highlighted until dismissal, then resume
 hover at the current pointer. Unrelated menus clear it. Off retains DOS's static
 borders.
+
+### Map hover info
+
+Optional names appear in a compact upper-left map panel; DOS has no equivalent.
+Both presets leave this Off. Named regions show their place name. Hovering a map
+symbol shows local units, with separate fleet rows and each Roman fleet's
+embarked legion on its row, followed by the place name. Hit areas exclude fully
+transparent outer padding and include interior holes to keep labels stable while
+crossing a symbol. Keyboard map movement uses the same lookup. Unusually crowded
+stacks keep the place name and show a remaining-unit count to stay on screen.
+
+Province border paths and named-region separator joins are cached from original
+artwork and the region mask. A border retains an already visible region but
+cannot establish one; entering another named region changes it immediately.
+Unnamed water, map controls, pointer loss and menus clear the context. Captured
+modal backdrops omit the panel as well. These presentation rules leave click
+selection, movement, campaign bytes and RNG unchanged.
 
 ### Applied value indicator
 

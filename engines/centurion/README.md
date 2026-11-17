@@ -32,6 +32,7 @@ raw captures, dumps and investigation scripts are not repository dependencies.
 | [`assets`](src/assets.rs), [`graphics`](src/graphics.rs) | Checked resource decoding, original fonts/bitmaps and indexed frame drawing |
 | [`state`](src/state.rs), [`rng`](src/rng.rs) | Campaign data, original save blocks and random-number rules |
 | [`session`](src/session.rs) | Input, scene transitions, menus and composition of gameplay systems |
+| [`campaign`](src/campaign.rs), [`map_hover`](src/map_hover.rs) | Map symbols, ownership borders and optional hover names |
 | [`battle`](src/battle.rs), [`naval`](src/naval.rs), [`games`](src/games.rs) | Land/naval combat and provincial games, with supporting modules for their simulation |
 | [`music`](src/music.rs), [`sound`](src/sound.rs), [`audio`](src/audio.rs) | Sequencing, sound requests and OPL synthesis |
 | [`player`](src/player.rs), [`audio_output`](src/audio_output.rs) | Shared SDL host, settings, input adaptation and callback playback |

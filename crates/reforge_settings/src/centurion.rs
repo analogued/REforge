@@ -149,6 +149,40 @@ impl std::str::FromStr for MapHighlight {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MapHoverInfo {
+    /// Keep map information available through explicit inspection only.
+    #[default]
+    Off,
+    /// Show information about the map subject beneath the pointer.
+    On,
+}
+impl MapHoverInfo {
+    pub const ALL: [Self; 2] = [Self::Off, Self::On];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::On => "on",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::On => "On",
+        }
+    }
+}
+impl std::str::FromStr for MapHoverInfo {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "off" => Ok(Self::Off),
+            "on" => Ok(Self::On),
+            _ => Err("map hover info must be off or on".into()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum AppliedValueIndicator {
     /// No added tribute mark; retain the white applied difficulty label.
     Original,
@@ -206,6 +240,7 @@ pub struct CenturionOptions {
     pub popup_cursor: PopupCursor,
     pub menu_decorations: MenuDecorations,
     pub map_highlight: MapHighlight,
+    pub map_hover_info: MapHoverInfo,
     pub applied_value_indicator: AppliedValueIndicator,
 }
 
@@ -214,9 +249,9 @@ mod tests {
     use super::*;
     use crate::{
         CENTURION_APPLIED_VALUE_INDICATOR as INDICATOR, CENTURION_FLEET_INFORMATION as KEY,
-        CENTURION_MAP_HIGHLIGHT as MAP, CENTURION_MENU_DECORATIONS as DECORATIONS,
-        CENTURION_POPUP_CURSOR as CURSOR, Draft, ENHANCEMENTS_SECTION, Launch, Patch,
-        RuntimeSettings, Session,
+        CENTURION_MAP_HIGHLIGHT as MAP, CENTURION_MAP_HOVER_INFO as HOVER,
+        CENTURION_MENU_DECORATIONS as DECORATIONS, CENTURION_POPUP_CURSOR as CURSOR, Draft,
+        ENHANCEMENTS_SECTION, Launch, Patch, RuntimeSettings, Session,
     };
     use std::{
         fs,
@@ -252,6 +287,92 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn map_hover_info_validates_and_defaults_to_off() {
+        let mut values = RuntimeSettings::default();
+        assert_eq!(values.centurion.map_hover_info, MapHoverInfo::Off);
+        for choice in MapHoverInfo::ALL {
+            values.set(HOVER, choice.as_str()).unwrap();
+            assert_eq!(values.centurion.map_hover_info, choice);
+            assert_eq!(values.get(HOVER), choice.as_str());
+        }
+        for invalid in ["", "original", "reforged", "true", "false", "0"] {
+            assert!(values.set(HOVER, invalid).is_err());
+            assert_eq!(values.centurion.map_hover_info, MapHoverInfo::On);
+        }
+        assert_eq!(crate::section_index(HOVER), ENHANCEMENTS_SECTION);
+    }
+
+    #[test]
+    fn map_hover_info_is_per_entry_preserves_explicit_values_and_resets_off() {
+        let temp = Temp::new();
+        let missing = temp.session("centurion-defender-of-rome");
+        assert_eq!(
+            missing.effective(&missing.saved).centurion.map_hover_info,
+            MapHoverInfo::Off
+        );
+        for choice in MapHoverInfo::ALL {
+            fs::write(temp.path(), format!("[global.enhancements]\nmap_hover_info = 'on'\n[entries.copy.enhancements]\nmap_hover_info = '{}' # retain choice\nunknown = 'retained'\n[entries.copy.display]\nwindow_mode = 'fullscreen'\n", choice.as_str())).unwrap();
+            let mut session = temp.session("centurion-defender-of-rome");
+            assert_eq!(
+                session.saved.global_values().centurion.map_hover_info,
+                MapHoverInfo::Off
+            );
+            assert_eq!(
+                session.effective(&session.saved).centurion.map_hover_info,
+                choice
+            );
+            let mut draft = session.saved.clone();
+            draft.edit(false, HOVER, "on".into());
+            assert!(!draft.global.contains_key(HOVER));
+            draft.edit_game(CURSOR, "hidden".into(), Some(&session.saved));
+            session.commit(draft).unwrap();
+            let text = fs::read_to_string(temp.path()).unwrap();
+            assert!(text.contains(&format!(
+                "map_hover_info = '{}' # retain choice",
+                choice.as_str()
+            )));
+            assert!(!text.contains(HOVER));
+            assert!(!text.contains("preset"));
+            let mut reset = session.saved.clone();
+            assert!(reset.has_game_overrides(ENHANCEMENTS_SECTION));
+            reset.reset_section(true, ENHANCEMENTS_SECTION);
+            assert!(!reset.has_game_overrides(ENHANCEMENTS_SECTION));
+            assert_eq!(reset.game_values().centurion, CenturionOptions::default());
+            assert!(reset.game_values().fullscreen);
+            session.commit(reset).unwrap();
+            let text = fs::read_to_string(temp.path()).unwrap();
+            let document = text.parse::<toml_edit::DocumentMut>().unwrap();
+            assert!(
+                document["entries"]["copy"]["enhancements"]
+                    .get("map_hover_info")
+                    .is_none()
+            );
+            assert!(text.contains("unknown = 'retained'"));
+        }
+        let mut other = temp.session("mach-3");
+        other.cli.insert(HOVER.into(), "on".into());
+        assert_eq!(
+            other.effective(&other.saved).centurion.map_hover_info,
+            MapHoverInfo::Off
+        );
+        fs::write(temp.path(), "[entries.copy.enhancements]\nmap_hover_info = 'invalid'\nfleet_information = 'original'\n").unwrap();
+        let session = temp.session("centurion-defender-of-rome");
+        assert!(session.warning.is_some());
+        assert!(!session.saved.game.contains_key(HOVER));
+        assert_eq!(
+            session.effective(&session.saved).centurion.map_hover_info,
+            MapHoverInfo::Off
+        );
+        assert_eq!(
+            session
+                .effective(&session.saved)
+                .centurion
+                .fleet_information,
+            FleetInformation::Original
+        );
     }
 
     #[test]

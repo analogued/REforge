@@ -41,6 +41,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
     session.fleet_information = window.settings().centurion.fleet_information;
     session.popup_cursor = window.settings().centurion.popup_cursor;
     session.map_highlight = window.settings().centurion.map_highlight;
+    session.set_map_hover_info(window.settings().centurion.map_hover_info)?;
     session.applied_value_indicator = window.settings().centurion.applied_value_indicator;
     session.set_menu_decorations(window.settings().centurion.menu_decorations);
     let mut texture = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba)?;
@@ -124,13 +125,13 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
                 match win_event {
                     WindowEvent::FocusLost => {
                         focused = false;
-                        session.map_pointer_active = false;
+                        session.set_map_pointer_active(false);
                         pointer_sync.clear();
                         release_controls(assets, session)?;
                     }
                     WindowEvent::FocusGained => focused = true,
-                    WindowEvent::MouseLeave => session.map_pointer_active = false,
-                    WindowEvent::MouseEnter => session.map_pointer_active = true,
+                    WindowEvent::MouseLeave => session.set_map_pointer_active(false),
+                    WindowEvent::MouseEnter => session.set_map_pointer_active(true),
                     _ => {}
                 }
             }
@@ -189,7 +190,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
                     if pointer_sync.synthetic_motion((x, y)) {
                         continue;
                     }
-                    session.map_pointer_active = window.frame_point(x, y, (320, 200)).is_some();
+                    session.set_map_pointer_active(window.frame_point(x, y, (320, 200)).is_some());
                     let pending = pointer_sync.pending();
                     pointer_sync.real_motion();
                     if session.relative_steering() {
@@ -324,9 +325,10 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
         session.fleet_information = window.settings().centurion.fleet_information;
         session.popup_cursor = window.settings().centurion.popup_cursor;
         session.map_highlight = window.settings().centurion.map_highlight;
+        session.set_map_hover_info(window.settings().centurion.map_hover_info)?;
         session.applied_value_indicator = window.settings().centurion.applied_value_indicator;
         if menu.is_open() {
-            session.map_pointer_active = false;
+            session.set_map_pointer_active(false);
         }
         session.set_menu_decorations(window.settings().centurion.menu_decorations);
         gamepads.set_dead_zone(window.settings().stick_dead_zone);

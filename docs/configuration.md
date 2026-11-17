@@ -709,23 +709,27 @@ preferences; the REforge app supplies persistent settings and the common CLI.
 ## Centurion UI preferences
 
 Centurion's **Enhancements** page exposes **Centurion UI** when editing
-**Centurion overrides**. These per-game choices can be edited directly.
-**UI preset** is an alias over its detailed choices: Original selects original
-behaviour and Reforged selects the ergonomic alternatives, which are the defaults.
-Expand **Advanced options** for individual controls. Presets are derived from the
-choices, rather than saved separately.
+**Centurion overrides**. Enable **Override global defaults**, then expand
+**Advanced options** for individual controls. **UI preset** selects Original or
+Reforged; it is derived from the six detailed choices rather than saved separately.
+Other combinations display Custom. Apply updates the presentation immediately;
+Cancel discards pending edits. Existing individual selections are retained.
 
-The first choice, **Fleet information**, selects the DOS fleet-name/location
-notice (**Original**) or the native statistics table (**Detailed**). These are
-alternative views of enemy inspection. Apply changes the current view immediately;
-Cancel discards pending changes. Roman fleet lists and naval mechanics are
-unchanged. With this single binary choice, only Original/Reforged combinations
-exist. Other existing Centurion menu enhancements remain independent. Existing
-fleet-information selections are retained when updating.
+The [Centurion player guide](games/centurion.md#game-specific-options) describes
+fleet information, popup cursor, menu decorations, map highlight, map hover info
+and applied value indicators. Map hover info is optional and Off in both presets.
+It adds upper-left map names with one row per fleet and its embarked legion.
+
+The default Reforged values are:
 
 ```toml
 [entries.centurion-copy.enhancements]
-fleet_information = "detailed" # default; "original" for the DOS notice
+fleet_information = "both"
+popup_cursor = "visible"
+menu_decorations = "mouse"
+map_highlight = "on"
+map_hover_info = "off"
+applied_value_indicator = "subdued-band"
 ```
 
 ## Launcher appearance and quick options

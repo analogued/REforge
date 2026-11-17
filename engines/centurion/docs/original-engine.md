@@ -60,6 +60,21 @@ The native frontend's selectable applied-value styles, including its persistent
 white applied label for both input methods with Original, are documented in
 [deviations](deviations.md#applied-value-indicator).
 
+## Campaign map lookup
+
+The map uses 320 by 200 logical pixels. `DS:3A96` holds one little-endian run-list
+pointer per scanline. Each run is a region byte followed by a nonzero pixel-count
+byte. Region IDs 0–26 identify provinces and 27–36 identify seas; special values
+254 and 255 do not identify a named region. These gaps include both separators
+and unnamed water, so a missing region alone does not identify a border.
+
+`DS:5222` holds region-name string pointers, while `DS:1AB8` holds pairs of
+little-endian x/y words used as map-symbol anchors. The cached `MMAP` `MAP.CBM`
+background contains the original artwork. The 27 province border seeds at
+`DS:3C52` are x/y word pairs selecting isolated four-connected artwork paths;
+their brown pen also occurs in terrain. The replacement's optional hover panel
+is described separately in [deviations](deviations.md#map-hover-info).
+
 ## Mouse and keyboard presentation
 
 DOS selects its menu presentation according to its startup input mode. Mouse

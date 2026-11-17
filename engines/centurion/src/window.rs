@@ -404,14 +404,14 @@ pub fn run(
                         }
                     }
                     0x20f => {
-                        session.map_pointer_active = false;
+                        session.set_map_pointer_active(false);
                         pointer_sync.clear();
                         if matches!(session.phase, Phase::Naval | Phase::Games) {
                             session.input(assets, Input::ReleaseKey(15))?;
                         }
                     }
-                    0x20d => session.map_pointer_active = false,
-                    0x20c => session.map_pointer_active = true,
+                    0x20d => session.set_map_pointer_active(false),
+                    0x20c => session.set_map_pointer_active(true),
                     0x300 => {
                         let key = u32::from_ne_bytes(event.bytes[28..32].try_into().unwrap());
                         let input = key_input(key, session.phase);
@@ -544,8 +544,9 @@ pub fn run(
                                 Input::Mouse(x, y)
                             };
                             session.input(assets, input)?;
-                            session.map_pointer_active =
-                                (0..320).contains(&x) && (0..200).contains(&y);
+                            session.set_map_pointer_active(
+                                (0..320).contains(&x) && (0..200).contains(&y),
+                            );
                         }
                     }
                     _ => {}

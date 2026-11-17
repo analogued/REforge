@@ -252,6 +252,7 @@ impl Recorder {
                 quote(session.fleet_information.as_str()),
             ),
             ("popup_cursor", quote(session.popup_cursor.as_str())),
+            ("map_hover_info", quote(session.map_hover_info.as_str())),
             ("menu_decorations", quote(session.menu_decorations.as_str())),
             (
                 "ui_policy",

@@ -18,8 +18,8 @@ mod controller;
 pub use controller::{ControllerButtons, ControllerMovement, FaceButton};
 mod centurion;
 pub use centurion::{
-    AppliedValueIndicator, CenturionOptions, FleetInformation, MapHighlight, MenuDecorations,
-    PopupCursor,
+    AppliedValueIndicator, CenturionOptions, FleetInformation, MapHighlight, MapHoverInfo,
+    MenuDecorations, PopupCursor,
 };
 mod btz;
 pub use btz::{BtzSettings, FileCursorStyle};
@@ -77,6 +77,8 @@ pub const CENTURION_POPUP_CURSOR: &str = "centurion_popup_cursor";
 pub const CENTURION_MENU_DECORATIONS: &str = "centurion_menu_decorations";
 /// Internal key for Centurion; stored as `enhancements.map_highlight`.
 pub const CENTURION_MAP_HIGHLIGHT: &str = "centurion_map_highlight";
+/// Internal key for Centurion; stored as `enhancements.map_hover_info`.
+pub const CENTURION_MAP_HOVER_INFO: &str = "centurion_map_hover_info";
 /// Internal key for Centurion; stored as `enhancements.applied_value_indicator`.
 pub const CENTURION_APPLIED_VALUE_INDICATOR: &str = "centurion_applied_value_indicator";
 pub const CONTROL_MODE: &str = "control_mode";
@@ -107,6 +109,7 @@ fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
             CENTURION_POPUP_CURSOR,
             CENTURION_MENU_DECORATIONS,
             CENTURION_MAP_HIGHLIGHT,
+            CENTURION_MAP_HOVER_INFO,
             CENTURION_APPLIED_VALUE_INDICATOR,
         ],
         "alley-cat" => &[
@@ -132,6 +135,7 @@ pub fn section_index(key: &str) -> usize {
             | CENTURION_POPUP_CURSOR
             | CENTURION_MENU_DECORATIONS
             | CENTURION_MAP_HIGHLIGHT
+            | CENTURION_MAP_HOVER_INFO
             | CENTURION_APPLIED_VALUE_INDICATOR
     ) {
         return ENHANCEMENTS_SECTION;
@@ -158,6 +162,7 @@ fn stored_key(key: &str) -> &str {
         CENTURION_POPUP_CURSOR => "popup_cursor",
         CENTURION_MENU_DECORATIONS => "menu_decorations",
         CENTURION_MAP_HIGHLIGHT => "map_highlight",
+        CENTURION_MAP_HOVER_INFO => "map_hover_info",
         CENTURION_APPLIED_VALUE_INDICATOR => "applied_value_indicator",
         _ => key,
     }
@@ -173,6 +178,7 @@ fn section(key: &str) -> &'static str {
             | CENTURION_POPUP_CURSOR
             | CENTURION_MENU_DECORATIONS
             | CENTURION_MAP_HIGHLIGHT
+            | CENTURION_MAP_HOVER_INFO
             | CENTURION_APPLIED_VALUE_INDICATOR
     ) {
         "enhancements"
@@ -738,6 +744,7 @@ impl RuntimeSettings {
             CENTURION_POPUP_CURSOR => self.centurion.popup_cursor.as_str().into(),
             CENTURION_MENU_DECORATIONS => self.centurion.menu_decorations.as_str().into(),
             CENTURION_MAP_HIGHLIGHT => self.centurion.map_highlight.as_str().into(),
+            CENTURION_MAP_HOVER_INFO => self.centurion.map_hover_info.as_str().into(),
             CENTURION_APPLIED_VALUE_INDICATOR => {
                 self.centurion.applied_value_indicator.as_str().into()
             }
@@ -797,6 +804,7 @@ impl RuntimeSettings {
             CENTURION_POPUP_CURSOR => self.centurion.popup_cursor = value.parse()?,
             CENTURION_MENU_DECORATIONS => self.centurion.menu_decorations = value.parse()?,
             CENTURION_MAP_HIGHLIGHT => self.centurion.map_highlight = value.parse()?,
+            CENTURION_MAP_HOVER_INFO => self.centurion.map_hover_info = value.parse()?,
             CENTURION_APPLIED_VALUE_INDICATOR => {
                 self.centurion.applied_value_indicator = value.parse()?
             }
@@ -962,6 +970,7 @@ impl Draft {
             patch.remove(CENTURION_POPUP_CURSOR);
             patch.remove(CENTURION_MENU_DECORATIONS);
             patch.remove(CENTURION_MAP_HIGHLIGHT);
+            patch.remove(CENTURION_MAP_HOVER_INFO);
             patch.remove(CENTURION_APPLIED_VALUE_INDICATOR);
         }
         if game && page == 0 {
@@ -984,6 +993,7 @@ impl Draft {
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(CENTURION_POPUP_CURSOR)
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(CENTURION_MENU_DECORATIONS)
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(CENTURION_MAP_HIGHLIGHT)
+            || page == ENHANCEMENTS_SECTION && self.game.contains_key(CENTURION_MAP_HOVER_INFO)
             || page == ENHANCEMENTS_SECTION
                 && self.game.contains_key(CENTURION_APPLIED_VALUE_INDICATOR)
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
@@ -1005,6 +1015,7 @@ impl Draft {
                     | CENTURION_POPUP_CURSOR
                     | CENTURION_MENU_DECORATIONS
                     | CENTURION_MAP_HIGHLIGHT
+                    | CENTURION_MAP_HOVER_INFO
                     | CENTURION_APPLIED_VALUE_INDICATOR
             ) || ALLEYCAT_CONTROL_KEYS.contains(&key))
         {

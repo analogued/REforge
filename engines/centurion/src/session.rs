@@ -109,6 +109,8 @@ pub struct Session {
     pub popup_cursor: reforge_settings::PopupCursor,
     pub menu_decorations: reforge_settings::MenuDecorations,
     pub map_highlight: reforge_settings::MapHighlight,
+    pub map_hover_info: reforge_settings::MapHoverInfo,
+    map_hover: crate::map_hover::Hover,
     /// False when the host pointer leaves the image or the window loses focus.
     pub map_pointer_active: bool,
     menu_input: crate::state::ContinueInput,
@@ -175,6 +177,8 @@ impl Session {
             return Err("Invalid world framebuffer".into());
         }
         let campaign = Campaign::new(assets)?;
+        let map = assets.cached_bitmap("MMAP", "MAP.CBM")?;
+        let map_hover = crate::map_hover::Hover::new(&campaign, &map)?;
         if phase.is_startup() {
             campaign.sound.play(0);
         } else if phase == Phase::Map {
@@ -210,6 +214,8 @@ impl Session {
             popup_cursor: reforge_settings::PopupCursor::default(),
             menu_decorations: reforge_settings::MenuDecorations::default(),
             map_highlight: reforge_settings::MapHighlight::default(),
+            map_hover_info: reforge_settings::MapHoverInfo::default(),
+            map_hover,
             map_pointer_active: true,
             menu_input: crate::state::ContinueInput::default(),
             last_mouse: None,
@@ -225,7 +231,7 @@ impl Session {
             notice: String::new(),
             intro: assets.bitmap("MINIT", "ROMULUS.CBM")?,
             title: assets.bitmap("MINIT", "TITLE.CBM")?,
-            map: assets.cached_bitmap("MMAP", "MAP.CBM")?,
+            map,
             world,
             sprites: assets.sprites("MINIT", "INIT")?,
             intro_sequence: crate::intro::Intro::load(assets)?,
@@ -447,6 +453,32 @@ impl Session {
         self.menu_decorations = choice;
         self.sync_menu_decorations();
     }
+    pub fn set_map_hover_info(&mut self, choice: reforge_settings::MapHoverInfo) -> Result<()> {
+        if self.map_hover_info != choice {
+            self.map_hover_info = choice;
+            self.map_hover.clear();
+            self.refresh_map_hover()?;
+        }
+        Ok(())
+    }
+    pub fn set_map_pointer_active(&mut self, active: bool) {
+        self.map_pointer_active = active;
+        if !active {
+            self.map_hover.clear();
+        }
+    }
+    fn refresh_map_hover(&mut self) -> Result<()> {
+        if self.phase == Phase::Map
+            && self.map_pointer_active
+            && self.map_hover_info == reforge_settings::MapHoverInfo::On
+        {
+            self.map_hover
+                .update(&self.campaign, &self.sprites, self.cursor)?;
+        } else {
+            self.map_hover.clear();
+        }
+        Ok(())
+    }
     fn sync_menu_decorations(&mut self) {
         let keyboard = match self.menu_decorations {
             reforge_settings::MenuDecorations::Mouse => false,
@@ -463,7 +495,7 @@ impl Session {
     fn apply_input(&mut self, assets: &Assets, input: Input) -> Result<()> {
         match input {
             Input::Mouse(x, y) | Input::Click(x, y) | Input::RightClick(x, y) => {
-                self.map_pointer_active = (0..320).contains(&x) && (0..200).contains(&y);
+                self.set_map_pointer_active((0..320).contains(&x) && (0..200).contains(&y));
             }
             Input::Up | Input::Down | Input::Left | Input::Right => self.map_pointer_active = true,
             _ => {}
@@ -557,6 +589,7 @@ impl Session {
         if before == Phase::Map && matches!(self.phase, Phase::Menu | Phase::Rome) {
             self.campaign.sound.stop();
         }
+        self.refresh_map_hover()?;
         Ok(())
     }
 
@@ -1609,7 +1642,7 @@ impl Session {
             return Ok(());
         }
         if self.fleet_destination != Some(target) {
-            self.fleet_background = Some(self.render(assets, false)?);
+            self.fleet_background = Some(self.render_background(assets)?);
             self.fleet_destination = Some(target);
             self.campaign.data[0x1116 + index * 12] = 1;
         }
@@ -1960,7 +1993,7 @@ impl Session {
                 let scene = self.diplomacy.as_mut().ok_or("Missing conversation")?;
                 if !scene.choose(assets, &self.campaign, self.selected)? {
                     let (legion, province) = (scene.legion, scene.province);
-                    let background = self.render(assets, false)?;
+                    let background = self.render_background(assets)?;
                     self.battle = Some(crate::battle::Preparation::new(
                         assets,
                         &mut self.campaign,
@@ -2025,7 +2058,7 @@ impl Session {
                     self.selected = 0;
                     self.highlighted = true;
                 } else {
-                    let background = self.render(assets, false)?;
+                    let background = self.render_background(assets)?;
                     let outcome = self.campaign.begin_recruitment(
                         self.legion_province,
                         self.selected as u8,
@@ -2138,7 +2171,7 @@ impl Session {
                     [0, 7, 1, 2, 3, 5, 6][self.selected]
                 };
                 if action == 2 {
-                    let mut background = self.render(assets, false)?;
+                    let mut background = self.render_background(assets)?;
                     self.province_panels.deactivate_menu(
                         assets,
                         &self.campaign,
@@ -2154,7 +2187,7 @@ impl Session {
                     return Ok(());
                 }
                 if action == 7 {
-                    let mut background = self.render(assets, false)?;
+                    let mut background = self.render_background(assets)?;
                     if self.campaign.local_legions(self.province).is_empty() {
                         self.legion_message_background = Some(background);
                         self.legion_message = self.campaign.string(0x57cc)?;
@@ -2201,7 +2234,7 @@ impl Session {
                                 &self.campaign,
                                 self.province,
                                 slot,
-                                self.render(assets, false)?,
+                                self.render_background(assets)?,
                             )?);
                             self.selected = 0;
                             self.highlighted = false;
@@ -2341,7 +2374,7 @@ impl Session {
     }
 
     fn show_legion_message(&mut self, assets: &Assets, message: String, next: Phase) -> Result<()> {
-        self.legion_message_background = Some(self.render(assets, false)?);
+        self.legion_message_background = Some(self.render_background(assets)?);
         self.legion_message = message;
         self.legion_message_return = next;
         self.phase = Phase::LegionMessage;
@@ -2370,7 +2403,7 @@ impl Session {
             self.moving_legion = Some(index);
             return Ok(());
         }
-        let mut background = self.render(assets, false)?;
+        let mut background = self.render_background(assets)?;
         self.province_panels.deactivate_menu(
             assets,
             &self.campaign,
@@ -2470,7 +2503,7 @@ impl Session {
                 self.finish_march(None)?;
             }
             crate::movement::March::EncounterPending => {
-                let background = self.render(assets, false)?;
+                let background = self.render_background(assets)?;
                 let battlefield_background =
                     crate::campaign::render(assets, &self.campaign, &self.map, &self.sprites)?;
                 self.encounter = Some(crate::encounter::Encounter::new(
@@ -2486,7 +2519,7 @@ impl Session {
             crate::movement::March::EmbarkPending => {
                 let boarding = crate::fleet::Boarding::prepare(&self.campaign, index, region)?;
                 if boarding.left != 0 {
-                    self.legion_message_background = Some(self.render(assets, false)?);
+                    self.legion_message_background = Some(self.render_background(assets)?);
                     self.boarding = Some(boarding);
                     self.phase = Phase::BoardConfirmation;
                     self.selected = 1;
@@ -2762,7 +2795,7 @@ impl Session {
         self.battle_lead_in = 0;
         self.campaign.sound.stop();
         if self.enemies.is_some() {
-            self.enemy_background = Some(self.render(assets, false)?);
+            self.enemy_background = Some(self.render_background(assets)?);
             let enemies = self.enemies.as_mut().unwrap();
             let legion = self
                 .battle
@@ -2908,6 +2941,14 @@ impl Session {
     }
 
     pub fn render(&self, assets: &Assets, cursor: bool) -> Result<Frame> {
+        self.render_view(assets, cursor, true)
+    }
+
+    fn render_background(&self, assets: &Assets) -> Result<Frame> {
+        self.render_view(assets, false, false)
+    }
+
+    fn render_view(&self, assets: &Assets, cursor: bool, hover_info: bool) -> Result<Frame> {
         let mut frame = Frame::new();
         match self.phase {
             Phase::Intro => frame.blit(&self.intro, 0, 0),
@@ -3209,6 +3250,12 @@ impl Session {
                     &self.sprites,
                     hovered,
                 )?;
+                if hover_info
+                    && self.map_hover_info == reforge_settings::MapHoverInfo::On
+                    && self.map_pointer_active
+                {
+                    self.map_hover.render(assets, &self.campaign, &mut frame)?;
+                }
             }
             _ => frame = crate::campaign::render(assets, &self.campaign, &self.map, &self.sprites)?,
         }

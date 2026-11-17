@@ -99,7 +99,7 @@ Original game resources are only read; campaign writes target the save directory
 Open **F10 → Centurion overrides → Enhancements → Centurion UI**. Enable
 **Override global defaults** to edit the game settings, then Apply.
 **UI preset** selects Original or Reforged (the default). Expand **Advanced
-options** to adjust the five choices separately:
+options** to adjust the six choices separately:
 
 | Option | Original preset | Reforged preset |
 | --- | --- | --- |
@@ -107,6 +107,7 @@ options** to adjust the five choices separately:
 | Popup cursor | Hidden | Visible |
 | Menu decorations | Mouse | Mouse |
 | Map highlight | Off | On |
+| Map hover info | Off | Off |
 | Applied value indicator | Original | Subdued band |
 
 **Fleet information** affects enemy inspection. Original shows the DOS
@@ -130,6 +131,15 @@ Roman territory and brown for other territory. Arrow-key movement gives the same
 feedback. Information popups keep their territory highlighted until dismissed;
 unrelated menus clear it.
 
+**Map hover info** optionally shows names in the upper-left corner of the map.
+Hover a symbol for unit names, with one row per fleet and any
+embarked legion on that row; the territory or sea name appears underneath.
+Hover elsewhere for the place name alone. Arrow-key cursor movement works too.
+Borders preserve an existing place name until you enter another region; they
+never introduce a panel. Unnamed water, map controls, leaving the map and opening
+menus hide it. This option is Off in both presets; enable it under Advanced
+options when wanted.
+
 **Applied value indicator** identifies the stored choice in Tribute, Tribute
 Policy, Difficulty Levels and each Fine Tuning category's level menu. Original
 adds no tribute indicator and keeps the applied difficulty white. Hover and
@@ -141,7 +151,7 @@ footer notice.
 
 Other combinations display Custom. The individual choices are saved. Apply
 updates presentation immediately, including open menus and popups; Cancel
-discards pending settings edits. These presets control the five options above.
+discards pending settings edits. These presets control the six options above.
 
 Continue prompts independently follow the last deliberate gameplay input:
 “Click to continue” after a mouse click, or “Hit any key to continue” after a key.

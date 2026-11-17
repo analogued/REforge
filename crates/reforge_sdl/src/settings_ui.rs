@@ -12,12 +12,13 @@ use egui::{Color32, Pos2, Vec2};
 use reforge_settings::{
     ALLEYCAT_MACHINE, ALLEYCAT_MOTION, AlleyCatMachine, AlleyCatMotion, AppliedValueIndicator,
     AspectRatio, BTZ_FILE_CURSOR, Backend, CENTURION_APPLIED_VALUE_INDICATOR,
-    CENTURION_FLEET_INFORMATION, CENTURION_MAP_HIGHLIGHT, CENTURION_MENU_DECORATIONS,
-    CENTURION_POPUP_CURSOR, CONTROL_MODE, CONTROLLER_ACTION, CONTROLLER_BUTTONS,
-    CONTROLLER_MOVEMENT, CenturionOptions, ControlMode, DIGITIZED_SAMPLES, ENHANCEMENTS_SECTION,
-    FileCursorStyle, FleetInformation, FrameLimit, MOTION, MapHighlight, MenuDecorations,
-    MotionMode, PopupCursor, Presentation, Renderer, RuntimeSettings, SECTION_KEYS,
-    SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
+    CENTURION_FLEET_INFORMATION, CENTURION_MAP_HIGHLIGHT, CENTURION_MAP_HOVER_INFO,
+    CENTURION_MENU_DECORATIONS, CENTURION_POPUP_CURSOR, CONTROL_MODE, CONTROLLER_ACTION,
+    CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, CenturionOptions, ControlMode, DIGITIZED_SAMPLES,
+    ENHANCEMENTS_SECTION, FileCursorStyle, FleetInformation, FrameLimit, MOTION, MapHighlight,
+    MapHoverInfo, MenuDecorations, MotionMode, PopupCursor, Presentation, Renderer,
+    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy,
+    SoundCategory, SoundRenderer,
 };
 mod controller;
 const PAGES: [&str; SECTION_KEYS.len()] = [
@@ -87,6 +88,7 @@ impl RowContext<'_> {
                     | CENTURION_POPUP_CURSOR
                     | CENTURION_MENU_DECORATIONS
                     | CENTURION_MAP_HIGHLIGHT
+                    | CENTURION_MAP_HOVER_INFO
                     | CENTURION_APPLIED_VALUE_INDICATOR
                     | ALLEYCAT_MOTION
                     | BTZ_FILE_CURSOR
@@ -489,7 +491,7 @@ pub(super) fn draw(
                         && menu.centurion_options
                         && original.centurion != value.centurion
                     {
-                        for key in [CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR, CENTURION_MENU_DECORATIONS, CENTURION_MAP_HIGHLIGHT, CENTURION_APPLIED_VALUE_INDICATOR] {
+                        for key in [CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR, CENTURION_MENU_DECORATIONS, CENTURION_MAP_HIGHLIGHT, CENTURION_MAP_HOVER_INFO, CENTURION_APPLIED_VALUE_INDICATOR] {
                             if !cli.contains_key(key) && original.get(key) != value.get(key) {
                                 draft.edit_game(
                                     key,
@@ -805,6 +807,7 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
         popup_cursor: PopupCursor::Hidden,
         menu_decorations: MenuDecorations::Mouse,
         map_highlight: MapHighlight::Off,
+        map_hover_info: MapHoverInfo::Off,
         applied_value_indicator: AppliedValueIndicator::Original,
     };
     let reforged = CenturionOptions::default();
@@ -812,6 +815,7 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
     let cursor_state = rows.state(CENTURION_POPUP_CURSOR, value);
     let decorations_state = rows.state(CENTURION_MENU_DECORATIONS, value);
     let map_state = rows.state(CENTURION_MAP_HIGHLIGHT, value);
+    let hover_state = rows.state(CENTURION_MAP_HOVER_INFO, value);
     let indicator_state = rows.state(CENTURION_APPLIED_VALUE_INDICATOR, value);
     let preset_state = RowState {
         lock_tooltip: fleet_state
@@ -819,31 +823,36 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
             .or(cursor_state.lock_tooltip)
             .or(decorations_state.lock_tooltip)
             .or(map_state.lock_tooltip)
+            .or(hover_state.lock_tooltip)
             .or(indicator_state.lock_tooltip),
         overridden: fleet_state.overridden
             || cursor_state.overridden
             || decorations_state.overridden
             || map_state.overridden
+            || hover_state.overridden
             || indicator_state.overridden,
         dirty: fleet_state.dirty
             || cursor_state.dirty
             || decorations_state.dirty
             || map_state.dirty
+            || hover_state.dirty
             || indicator_state.dirty,
         tooltip: format!(
-            "Fleet information\n{}\n\nPopup cursor\n{}\n\nMenu decorations\n{}\n\nMap highlight\n{}\n\nApplied value indicator\n{}",
+            "Fleet information\n{}\n\nPopup cursor\n{}\n\nMenu decorations\n{}\n\nMap highlight\n{}\n\nMap hover info\n{}\n\nApplied value indicator\n{}",
             fleet_state.tooltip,
             cursor_state.tooltip,
             decorations_state.tooltip,
             map_state.tooltip,
+            hover_state.tooltip,
             indicator_state.tooltip
         ),
         saved: format!(
-            "{} / {} / {} / {} / {}",
+            "{} / {} / {} / {} / {} / {}",
             fleet_state.saved,
             cursor_state.saved,
             decorations_state.saved,
             map_state.saved,
+            hover_state.saved,
             indicator_state.saved
         ),
     };
@@ -922,6 +931,20 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
                         )
                         .show(ui, &mut value.centurion.map_highlight)
                         .on_hover_text("Highlight the border of the province beneath the map pointer. Off retains the original map borders.");
+                    },
+                );
+                row(
+                    ui,
+                    "Map hover info",
+                    CENTURION_MAP_HOVER_INFO,
+                    rows.state(CENTURION_MAP_HOVER_INFO, value),
+                    |ui| {
+                        Selector::new(
+                            CENTURION_MAP_HOVER_INFO,
+                            MapHoverInfo::ALL.map(|choice| Choice::new(choice, choice.label())),
+                        )
+                        .show(ui, &mut value.centurion.map_hover_info)
+                        .on_hover_text("Show map information while hovering over a map subject. Off keeps hover information hidden; explicit inspection remains available.");
                     },
                 );
                 row(
@@ -1594,6 +1617,7 @@ fn section_has_cli_locks(
                 || cli.contains_key(CENTURION_POPUP_CURSOR)
                 || cli.contains_key(CENTURION_MENU_DECORATIONS)
                 || cli.contains_key(CENTURION_MAP_HIGHLIGHT)
+                || cli.contains_key(CENTURION_MAP_HOVER_INFO)
                 || cli.contains_key(CENTURION_APPLIED_VALUE_INDICATOR)))
 }
 
@@ -2537,6 +2561,7 @@ mod tests {
             ALLEYCAT_MOTION,
             CONTROL_MODE,
             CENTURION_MAP_HIGHLIGHT,
+            CENTURION_MAP_HOVER_INFO,
             CENTURION_APPLIED_VALUE_INDICATOR,
         ] {
             let cli = reforge_settings::Patch::from([(key.into(), "original".into())]);

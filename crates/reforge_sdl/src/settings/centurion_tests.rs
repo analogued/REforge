@@ -6,9 +6,9 @@ use super::*;
 use reforge_settings::{
     AppliedValueIndicator, CENTURION_APPLIED_VALUE_INDICATOR as INDICATOR,
     CENTURION_FLEET_INFORMATION as KEY, CENTURION_MAP_HIGHLIGHT as MAP,
-    CENTURION_MENU_DECORATIONS as DECORATIONS, CENTURION_POPUP_CURSOR as CURSOR,
-    ENHANCEMENTS_SECTION, FleetInformation, Launch, MapHighlight, MenuDecorations, Patch,
-    PopupCursor,
+    CENTURION_MAP_HOVER_INFO as HOVER, CENTURION_MENU_DECORATIONS as DECORATIONS,
+    CENTURION_POPUP_CURSOR as CURSOR, ENHANCEMENTS_SECTION, FleetInformation, Launch, MapHighlight,
+    MapHoverInfo, MenuDecorations, Patch, PopupCursor,
 };
 
 fn click_last(menu: &mut SettingsMenu<'_>, text: &str) {
@@ -177,6 +177,31 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     assert!(label(&draw(&mut menu, vec![]), "Fleet information").is_some());
     assert!(label(&draw(&mut menu, vec![]), "Menu decorations").is_some());
     assert!(label(&draw(&mut menu, vec![]), "Map highlight").is_some());
+    assert!(label(&draw(&mut menu, vec![]), "Map hover info").is_some());
+    assert_eq!(
+        menu.draft
+            .as_ref()
+            .unwrap()
+            .game_values()
+            .centurion
+            .map_hover_info,
+        MapHoverInfo::Off
+    );
+    click_value_row(&mut menu, "Map hover info", "Off");
+    click_last(&mut menu, "On");
+    assert_eq!(menu.draft.as_ref().unwrap().game[HOVER], "on");
+    assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
+    click(&mut menu, "Custom");
+    click_last(&mut menu, "Original");
+    assert_eq!(
+        menu.draft
+            .as_ref()
+            .unwrap()
+            .game_values()
+            .centurion
+            .map_hover_info,
+        MapHoverInfo::Off
+    );
     assert!(label(&draw(&mut menu, vec![]), "Applied value indicator").is_some());
     for choice in [
         AppliedValueIndicator::SubduedBand,
@@ -254,6 +279,9 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     click(&mut menu, "Mouse");
     click(&mut menu, "Dynamic");
     assert_eq!(menu.draft.as_ref().unwrap().game[DECORATIONS], "dynamic");
+    click_value_row(&mut menu, "Map hover info", "Off");
+    click_last(&mut menu, "On");
+    assert_eq!(menu.draft.as_ref().unwrap().game[HOVER], "on");
     menu.back(); // Escape/controller Back discards the same pending draft as Cancel.
     assert!(!menu.is_open());
     assert_eq!(std::fs::read(&path).unwrap(), initial);
@@ -288,6 +316,15 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
             .applied_value_indicator,
         AppliedValueIndicator::SubduedBand
     );
+    assert_eq!(
+        menu.draft
+            .as_ref()
+            .unwrap()
+            .game_values()
+            .centurion
+            .map_hover_info,
+        MapHoverInfo::Off
+    );
     click(&mut menu, "Reforged");
     click(&mut menu, "Original");
     click(&mut menu, "Apply");
@@ -317,6 +354,9 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     click_value_row(&mut menu, "Applied value indicator", "Original");
     click(&mut menu, "Side marker");
     assert_eq!(menu.draft.as_ref().unwrap().game[INDICATOR], "side-marker");
+    click_value_row(&mut menu, "Map hover info", "Off");
+    click_last(&mut menu, "On");
+    assert_eq!(menu.draft.as_ref().unwrap().game[HOVER], "on");
     assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
     click(&mut menu, "Apply");
     let request = creator
@@ -343,6 +383,15 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     assert_eq!(
         display.settings().centurion.applied_value_indicator,
         AppliedValueIndicator::SideMarker
+    );
+    assert_eq!(
+        display.settings().centurion.map_hover_info,
+        MapHoverInfo::On
+    );
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("map_hover_info = \"on\"")
     );
     assert!(
         std::fs::read_to_string(&path)
@@ -410,6 +459,15 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
             .contains("menu_decorations")
     );
     assert_eq!(display.settings().centurion.map_highlight, MapHighlight::On);
+    assert_eq!(
+        display.settings().centurion.map_hover_info,
+        MapHoverInfo::Off
+    );
+    assert!(
+        !std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("map_hover_info")
+    );
     assert_eq!(
         display.settings().centurion.applied_value_indicator,
         AppliedValueIndicator::SubduedBand
@@ -857,6 +915,55 @@ fn centurion_native_settings_capture_and_detail_navigation() {
                 AppliedValueIndicator::Original
             );
             pulse(&mut menu, metrics, Key::ArrowRight);
+            let mut hover_found = false;
+            for _ in 0..80 {
+                let output = sized_draw(&mut menu, metrics, vec![]);
+                if let Some(value) = label(&output, "Off")
+                    && menu
+                        .context
+                        .memory(|memory| memory.focused())
+                        .and_then(|id| menu.context.read_response(id))
+                        .is_some_and(|response| response.rect.contains(value.center()))
+                {
+                    hover_found = true;
+                    break;
+                }
+                pulse(&mut menu, metrics, Key::Tab);
+            }
+            assert!(
+                hover_found,
+                "map hover info selector must be reachable: {width} {density}"
+            );
+            pulse(&mut menu, metrics, Key::ArrowRight);
+            assert_eq!(
+                menu.draft
+                    .as_ref()
+                    .unwrap()
+                    .game_values()
+                    .centurion
+                    .map_hover_info,
+                MapHoverInfo::On
+            );
+            assert!(label(&sized_draw(&mut menu, metrics, vec![]), "Custom").is_some());
+            menu.handle_gamepad(crate::gamepad::PadEvent {
+                actions: crate::gamepad::Actions {
+                    left: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            menu.prepare(metrics, RuntimeSettings::default());
+            menu.handle_gamepad(Default::default());
+            assert_eq!(
+                menu.draft
+                    .as_ref()
+                    .unwrap()
+                    .game_values()
+                    .centurion
+                    .map_hover_info,
+                MapHoverInfo::Off
+            );
+            assert!(label(&sized_draw(&mut menu, metrics, vec![]), "Reforged").is_some());
             if let Some(directory) = std::env::var_os("REFORGE_CENTURION_SETTINGS_CAPTURE") {
                 for _ in 0..3 {
                     canvas.clear();

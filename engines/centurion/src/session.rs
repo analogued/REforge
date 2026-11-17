@@ -3331,7 +3331,10 @@ impl Session {
                 }
             }
         } else if matches!(self.phase, Phase::SaveSlots | Phase::LoadSlots) {
-            let menu = self.save_load_menu()?;
+            let mut menu = self.save_load_menu()?;
+            for item in &mut menu.items {
+                item.label = item.label.split_whitespace().next().unwrap_or("").into();
+            }
             self.province_panels.plain_menu(
                 assets,
                 &self.campaign,
@@ -3340,6 +3343,14 @@ impl Session {
                 self.highlighted.then_some(self.selected),
             )?;
             for (row, item) in menu.items.iter().enumerate() {
+                let color = if self.highlighted && row == self.selected {
+                    15
+                } else {
+                    0
+                };
+                // The proportional digits 1 and 4 have different advances.
+                // Give every slot's separator the same column as the other rows.
+                frame.text(assets, "-", 56, item.rect.1, color)?;
                 let description = self
                     .load_slot(assets, row)
                     .ok()
@@ -3351,17 +3362,7 @@ impl Session {
                         Some(String::from_utf8_lossy(&save[4..4 + end]).into_owned())
                     })
                     .unwrap_or_else(|| "Empty".into());
-                frame.text(
-                    assets,
-                    &description,
-                    65,
-                    item.rect.1,
-                    if self.highlighted && row == self.selected {
-                        15
-                    } else {
-                        0
-                    },
-                )?;
+                frame.text(assets, &description, 65, item.rect.1, color)?;
             }
         } else if self.phase == Phase::SaveDescription {
             frame.bevel(30, 70, 290, 123, 26);

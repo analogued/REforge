@@ -118,6 +118,8 @@ These rules are independent of decoration style and acknowledgment input.
 Save and Load retain the original slot-panel geometry and the previous Game
 Control view behind them. Native focus whitens both the number prefix and the
 description; DOS draws descriptions black separately from selectable prefixes.
+The hyphens share a fixed column; DOS's proportional digits offset the separators
+for slots 1 and 4 by one pixel.
 The native save-name prompt is a separate panel that additionally identifies
 the destination slot, with the slot list retained behind it. Descriptions still
 prefill from the current campaign, not the selected slot's previous name.

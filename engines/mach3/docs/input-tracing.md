@@ -1,6 +1,6 @@
 # Input tracing
 
-The optional `dev-tools` feature adds `--trace-input PATH` to Mach 3's
+The optional `dev-tools` feature adds `--trace-input PATH` to `mach3`'s
 windowed frontend. It records host events and actual reconstructed control
 polls without changing input processing, game clocks, keyboard priorities or
 native pause rules. REforge forwards its `dev-tools` feature to the engine:

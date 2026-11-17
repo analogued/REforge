@@ -20,7 +20,7 @@ MIT is selected where it is offered.
 
 | Component | Version | Used by / purpose | Selected license |
 | --- | --- | --- | --- |
-| [bzip2](https://crates.io/crates/bzip2/0.5.2) | 0.5.2 | Alley Cat: decompress external restoration patches | [MIT](LICENSES/MIT.txt); bundled libbzip2 terms below |
+| [bzip2](https://crates.io/crates/bzip2/0.5.2) | 0.5.2 | `alleycat`: decompress external restoration patches | [MIT](LICENSES/MIT.txt); bundled libbzip2 terms below |
 | [png](https://crates.io/crates/png/0.17.16) | 0.17.16 | Application preview cache and shared SDL controller artwork | [MIT](LICENSES/MIT.txt) |
 | [unicode-segmentation](https://crates.io/crates/unicode-segmentation/1.12.0) | 1.12.0 | Application: Unicode-aware Symbolic initials | [MIT](LICENSES/MIT.txt) |
 | [blake3](https://crates.io/crates/blake3/1.8.7) | 1.8.7 | Application: original-file verification, release and cache identities; parallel memory-mapped hashing | [CC0-1.0](LICENSES/CC0-1.0.txt) |
@@ -30,7 +30,7 @@ MIT is selected where it is offered.
 | [blip_buf](https://crates.io/crates/blip_buf/0.2.1) | 0.2.1 | Shared audio: optional band-limited speaker renderer | [MIT](LICENSES/MIT.txt) |
 | [toml_edit](https://crates.io/crates/toml_edit/0.22.27) | 0.22.27 | Shared settings: TOML parsing and editing | [MIT](LICENSES/MIT.txt) |
 | [getrandom](https://crates.io/crates/getrandom/0.3.4) | 0.3.4 | Shared settings and application: operating-system randomness for library IDs and launch handoff names | [MIT](LICENSES/MIT.txt) |
-| [libc](https://crates.io/crates/libc/0.2.190) | 0.2.190 | BTZ terminal frontend: terminal readiness polling | [MIT](LICENSES/MIT.txt) |
+| [libc](https://crates.io/crates/libc/0.2.190) | 0.2.190 | `btz` terminal frontend: terminal readiness polling | [MIT](LICENSES/MIT.txt) |
 | [fs2](https://crates.io/crates/fs2/0.4.3) | 0.4.3 | Shared settings and launcher preview cache: file locking | [MIT](LICENSES/MIT.txt) |
 
 BLAKE3 uses the CC0 public-domain dedication offered in its upstream
@@ -132,12 +132,12 @@ The upstream header credits Marcel Sondaar and International Business Machines
 SDL copyright and Zlib notice are retained in the adapted source.
 
 The adaptation selects characters 32–126, adds a blank space glyph and converts
-the byte rows to a Rust table shared by Alley Cat and BTZ. No font rows were
+the byte rows to a Rust table shared by `alleycat` and `btz`. No font rows were
 copied from a game or BIOS dump. Upstream header SHA-256:
 `0c96157b6397485698ac07d20d33858e086c2752403f4d2f57a70acc26fa45df`.
 
-Alley Cat's CGA packing helper in
-[`font.rs`](engines/alleycat/src/font.rs) and BTZ's line-drawing, block and shade
+`alleycat`'s CGA packing helper in
+[`font.rs`](engines/alleycat/src/font.rs) and `btz`'s line-drawing, block and shade
 glyphs in [`display/mod.rs`](engines/btz/src/display/mod.rs) are authored code
 under `GPL-3.0-or-later`.
 

@@ -1,4 +1,4 @@
-# BTZ engine
+# `btz` engine
 
 The `btz` crate implements **BTZ (Better Than Zork)**, a text-adventure
 interpreter, for [REforge](../../README.md). It executes original game wordcode
@@ -16,11 +16,11 @@ selected through immutable definitions.
 
 The windowed and terminal frontends support commands, bookmarks, transcripts,
 restart and exit. Supported games use REforge's game detection and graphical
-launcher; see the [BTZ player guide](../../docs/games/btz.md) for
+launcher; see the [btz player guide](../../docs/games/btz.md) for
 controls and launch options.
 
 > [!NOTE]
-> BTZ support is experimental. One identified DOS release each of Mindwheel,
+> `btz` support is experimental. One identified DOS release each of Mindwheel,
 > Essex, Brimstone and Breakers is supported. Winning routes for Mindwheel,
 > Essex and Breakers have been verified through automated command replay;
 > complete live playthroughs and a winning Brimstone route remain unverified.
@@ -83,7 +83,7 @@ data. These are the current implementation boundaries:
 
 The ASCII bitmap font comes from the shared, SDL-independent
 [`reforge_graphics`](../../crates/reforge_graphics/README.md) crate. Character-screen
-layout, colours and border/block glyphs remain in BTZ's display module.
+layout, colours and border/block glyphs remain in `btz`'s display module.
 
 Launcher previews retain the original title and credits, with the loading label,
 continue prompt and input cursor removed from the preview copy. They use the
@@ -92,7 +92,7 @@ same text rasterizer as gameplay, without advancing the story or opening a host.
 [Interpreter definitions](docs/interpreter-definitions.md) describe the shared
 execution model and the verified differences between DOS implementations.
 The application passes its selected DOS loading profile and resolved file map to
-player and preview loading. BTZ uses that profile's rules and resource layout;
+player and preview loading. `btz` uses that profile's rules and resource layout;
 file identification and fingerprint verification stay in application detection,
 including interpreter-supported diagnostic runs. Raw research probes can use
 explicit inputs and profiles without maintaining a second release catalog.
@@ -159,7 +159,7 @@ without an original secondary-media sample.
 
 ## License
 
-BTZ's authored code and documentation use `GPL-3.0-or-later`; see
+`btz`'s authored code and documentation use `GPL-3.0-or-later`; see
 [LICENSE](../../LICENSE). Third-party dependencies retain the terms listed in
 [THIRD_PARTY.md](../../THIRD_PARTY.md). Original game data is external and is not
 licensed by this project.

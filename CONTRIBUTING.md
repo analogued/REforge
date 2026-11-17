@@ -19,6 +19,16 @@ Keep broad formatting changes separate from functional changes. Preserve
 third-party style and notices. Do not reformat generated files or fixtures whose
 exact contents matter.
 
+## Engine naming
+
+Refer to REforge's engine recreations by their repository/crate identifiers,
+such as `alleycat`, `mach3`, `btz` and `centurion`. Use lowercase identifiers in
+technical headings, engine tables and engine documentation links. Format identifiers as
+code in prose and headings. Keep game titles and player-interface labels in
+their normal spelling, including spaces. Historical names such as BTZ (Better
+Than Zork) retain their proper spelling when referring to the original software.
+Engine identifiers remain distinct from game/catalog IDs such as `mach-3`.
+
 ## Original-software references
 
 Preserve verified original data formats and program behavior in maintained public
@@ -46,10 +56,10 @@ player capabilities or improvements; deviations describe differences from the
 original. Their documentation can overlap:
 
 - A feature that is also a deviation belongs in both the user-facing guide and
-  deviations documentation. BTZ's save/load menu and Mach 3's interpolation are
+  deviations documentation. `btz`'s save/load menu and `mach3`'s interpolation are
   examples.
 - A feature that retains original behavior or compatibility needs feature
-  documentation. BTZ's compatibility with original save files is an example;
+  documentation. `btz`'s compatibility with original save files is an example;
   that compatibility is not itself a deviation.
 - Original bug corrections and changed quirks each deserve a brief mention in
   deviations documentation. They usually need little space in user guides; a
@@ -190,10 +200,10 @@ Run `cargo fmt --all -- --check`,
 `cargo clippy --locked --workspace --all-targets -- -D warnings`, plus the
 feature/build combinations required by the affected crates. Package-scoped
 checks can aid development; shared changes must validate affected games.
-See [Alley Cat checks](engines/alleycat/CONTRIBUTING.md),
-[Mach 3 checks](engines/mach3/CONTRIBUTING.md), and
-[BTZ checks](engines/btz/CONTRIBUTING.md), and
-[Centurion checks](engines/centurion/README.md#validation-and-limits) for their
+See [alleycat checks](engines/alleycat/CONTRIBUTING.md),
+[mach3 checks](engines/mach3/CONTRIBUTING.md),
+[btz checks](engines/btz/CONTRIBUTING.md), and
+[centurion checks](engines/centurion/README.md#validation-and-limits) for their
 feature matrices and tools.
 For application CLI changes, test and lint `-p reforge` with default features,
 `--no-default-features`, `--features dev-tools`, and both options combined.

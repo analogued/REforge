@@ -1,7 +1,7 @@
 # Breakers
 
 Explore an alien world in the DOS edition of Breakers, played through REforge's
-BTZ interpreter with the original story data and background activity.
+`btz` interpreter with the original story data and background activity.
 
 > [!IMPORTANT]
 > REforge does not include original game data. Keep **ADISK.OBJ**, **RUN.EXE**,
@@ -15,7 +15,7 @@ BTZ interpreter with the original story data and background activity.
 > a complete live playthrough remains unverified.
 > Opening artwork keeps the original timing but changes pages without the DOS
 > wipe transitions.
-> See [BTZ compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
+> See [btz compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
 
 Add the game directory to the launcher and select **Play**, or run:
 
@@ -28,7 +28,7 @@ title screen. Press Enter to begin. The default is an SDL text window, with
 sharp pixels or Hyllian CRT presentation and windowed/fullscreen options. For
 an attached terminal, add `--renderer terminal`.
 
-See the [BTZ player guide](btz.md) for commands, keyboard controls, launch options,
+See the [btz player guide](btz.md) for commands, keyboard controls, launch options,
 [bookmarks and transcripts](btz.md#bookmarks-and-transcripts), and timing behavior.
 Bookmarks use the original DOS format; saves can be exchanged with the
 corresponding original release. Replacing an existing Breakers bookmark requires

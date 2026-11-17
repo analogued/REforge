@@ -1,11 +1,11 @@
 # Shared bitmap graphics
 
-`reforge_graphics` provides the common 8×8 printable ASCII font used by Alley Cat
-and BTZ. It has no dependencies, uses `no_std` and is independent of SDL.
+`reforge_graphics` provides the common 8×8 printable ASCII font used by `alleycat`
+and `btz`. It has no dependencies, uses `no_std` and is independent of SDL.
 
 [`font8x8::glyph`](src/font8x8.rs) returns eight bitmap rows for character codes
 32–126, or `None` for other bytes. Bit zero is the leftmost pixel in each row.
-Each engine supplies its pixel packing, colours and screen composition. BTZ's
+Each engine supplies its pixel packing, colours and screen composition. `btz`'s
 border, block and shade glyphs remain in its display module.
 
 The font's upstream notices are retained in the source; provenance and license

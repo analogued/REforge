@@ -1,4 +1,4 @@
-# Mach 3 engine
+# `mach3` engine
 
 The `mach3` crate reconstructs the DOS version of Mach 3 (1987, Loriciels) for
 [REforge](../../README.md). For installation, controls and player options, see

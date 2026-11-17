@@ -1,4 +1,4 @@
-# Contributing to the Alley Cat engine
+# Contributing to the `alleycat` engine
 
 Follow [REforge's contributing guide](../../CONTRIBUTING.md) for formatting,
 commit conventions, licensing and shared validation. The `alleycat` engine is a

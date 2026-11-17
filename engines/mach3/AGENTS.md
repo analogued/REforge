@@ -1,4 +1,4 @@
-# Mach 3 engine instructions
+# `mach3` engine instructions
 
 - Read the combined repository's root `AGENTS.md`, root `CONTRIBUTING.md` and
   this crate's `CONTRIBUTING.md` for shared rules and validation.

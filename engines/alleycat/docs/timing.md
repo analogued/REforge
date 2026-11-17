@@ -1619,7 +1619,7 @@ note/rest gates, counter wrap, native versus host muting, blocking work,
 category gains and PCM continuity across chunk boundaries.
 
 Host playback uses the shared [timestamped queue and recovery policy](../../../crates/reforge_sdl/README.md#host-audio-preferences).
-Alley Cat supplies its paced presentation position separately from its generated
+`alleycat` supplies its paced presentation position separately from its generated
 audio endpoint, so future sound committed by blocking programs survives recovery.
 Pause retains PCM and freezes its presentation timeline; manual pause rebases
 the observation when it discards catch-up debt. Run/title and explicit audio

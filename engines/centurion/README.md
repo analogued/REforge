@@ -1,4 +1,4 @@
-# Centurion engine
+# `centurion` engine
 
 The `centurion` crate reconstructs the DOS 1.00A version of Centurion: Defender
 of Rome for [REforge](../../README.md). It implements province management,

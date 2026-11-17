@@ -211,15 +211,15 @@ impl Recorder {
         write_new(&root.join("initial.ds.rle"), &pack(&session.campaign.data))?;
         let executable = std::env::current_exe().map_err(|e| e.to_string())?;
         fs::copy(&executable, root.join("engine")).map_err(|e| e.to_string())?;
-        let mut names = vec!["CENTURIO.EXE".to_string(), "OVL0.OVL".to_string()];
-        for bank in [
-            "CENT", "MINIT", "MMAP", "BATL", "MGLAD", "MRACE", "MNAVAL", "NAVL", "MNEGO",
-        ] {
-            for extension in ["DAT", "DIR"] {
-                names.push(format!("{bank}.{extension}"));
-            }
-        }
-        let mut paths: Vec<_> = names.iter().map(|n| assets.original().join(n)).collect();
+        let mut paths = assets.recording_sources().to_vec();
+        let names = paths
+            .iter()
+            .map(|path| {
+                path.strip_prefix(assets.original())
+                    .map(|relative| relative.to_string_lossy().into_owned())
+                    .map_err(|e| e.to_string())
+            })
+            .collect::<Result<Vec<_>>>()?;
         paths.push(root.join("engine"));
         let digests = hashes(&paths)?;
         let asset_records = names
@@ -242,6 +242,21 @@ impl Recorder {
         let metadata = object(&[
             ("format", quote("centurion-native-playthrough-v1")),
             ("hash_algorithm", quote("blake3")),
+            (
+                "video",
+                quote(match assets.video {
+                    crate::assets::VideoMode::Vga => "vga",
+                    crate::assets::VideoMode::Ega => "ega",
+                }),
+            ),
+            (
+                "original",
+                quote(
+                    &fs::canonicalize(assets.original())
+                        .map_err(|e| e.to_string())?
+                        .to_string_lossy(),
+                ),
+            ),
             ("tribute_indicator", session.tribute_indicator.to_string()),
             (
                 "applied_value_indicator",

@@ -191,7 +191,9 @@ fn generate(request: &Request, cache: Option<&Path>) -> BTreeMap<String, Source>
                 alleycat::launcher::preview(&inputs, format, variant)
             }
             detection::Engine::Mach3 => mach3::launcher::preview(&inputs, variant),
-            detection::Engine::Centurion => centurion::launcher::preview(&inputs, variant),
+            detection::Engine::Centurion(release) => {
+                centurion::launcher::preview(&inputs, variant, release)
+            }
             detection::Engine::Btz(release) => btz::launcher::preview(&inputs, release, variant),
         }
     })
@@ -224,7 +226,7 @@ fn generate_with(
     let variants = match release.engine() {
         detection::Engine::AlleyCat(format) => alleycat::launcher::preview_variants(format),
         detection::Engine::Mach3 => mach3::launcher::PREVIEW_VARIANTS,
-        detection::Engine::Centurion => centurion::launcher::PREVIEW_VARIANTS,
+        detection::Engine::Centurion(release) => centurion::launcher::preview_variants(release),
         detection::Engine::Btz(_) => btz::launcher::PREVIEW_VARIANTS,
     };
     // Resolve originals lazily, once per job, only if a cached variant cannot

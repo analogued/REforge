@@ -1,12 +1,14 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Catalog-driven player arguments. Raw research tools use run_prototype instead.
+use crate::assets::{DosRelease, VideoMode};
 use reforge_inputs::ResolvedFiles;
 use std::{ffi::OsString, path::PathBuf};
 
 #[derive(Default)]
 pub(crate) struct Options {
     pub original: PathBuf,
+    pub video: VideoMode,
     pub state_dir: Option<PathBuf>,
     pub load: Option<PathBuf>,
     pub scale: Option<u32>,
@@ -22,16 +24,25 @@ pub fn validate_arguments(args: impl Iterator<Item = OsString>) -> Result<(), St
 }
 
 /// Read the exact resources selected and verified by the application detector.
-pub fn run(args: impl Iterator<Item = OsString>, files: &ResolvedFiles) -> Result<(), String> {
-    let Some(options) = parse(args)? else {
+pub fn run(
+    args: impl Iterator<Item = OsString>,
+    files: &ResolvedFiles,
+    release: DosRelease,
+) -> Result<(), String> {
+    let Some(mut options) = parse(args)? else {
         println!(
-            "Centurion: Defender of Rome\n--state-dir DIR: DOS-compatible save slots (default: beside the original installation)\n--load FILE: load a DOS save\n--mute: silent playback\n--original-tribute-menus: hide applied tribute indicators\nF10: Settings; Pause: host pause; Ctrl+Q: exit. Escape retains game back/cancel controls."
+            "Centurion: Defender of Rome\n--video vga|ega: video mode (default VGA; EGA requires DOS 1.00B)\n--state-dir DIR: DOS-compatible save slots (default: beside the original installation)\n--load FILE: load a DOS save\n--mute: silent playback\n--original-tribute-menus: hide applied tribute indicators\nF10: Settings; Pause: host pause; Ctrl+Q: exit. Escape retains game back/cancel controls."
         );
         return Ok(());
     };
+    let video = available_video(options.video, release);
+    if video != options.video {
+        eprintln!("REforge: EGA is unavailable for DOS 1.00A; using VGA");
+        options.video = video;
+    }
     #[cfg(not(feature = "sdl"))]
     {
-        let _ = (options, files);
+        let _ = (options, files, release);
         Err("Interactive Centurion playback requires the sdl feature".into())
     }
     #[cfg(feature = "sdl")]
@@ -45,7 +56,7 @@ pub fn run(args: impl Iterator<Item = OsString>, files: &ResolvedFiles) -> Resul
                 .unwrap_or_else(|| std::path::Path::new("."))
                 .to_owned()
         };
-        let assets = crate::assets::Assets::load(files, root)?;
+        let assets = crate::assets::Assets::load(files, root, release, options.video)?;
         let mut session =
             crate::session::Session::new(&assets, crate::session::Phase::Intro, 0, 0)?;
         session.save_dir = Some(
@@ -60,6 +71,21 @@ pub fn run(args: impl Iterator<Item = OsString>, files: &ResolvedFiles) -> Resul
         }
         crate::player::run(&assets, &mut session, options)?;
         Ok(())
+    }
+}
+
+pub(crate) fn parse_video(value: &str) -> Result<VideoMode, String> {
+    match value {
+        "vga" => Ok(VideoMode::Vga),
+        "ega" => Ok(VideoMode::Ega),
+        _ => Err("Video must be vga or ega".into()),
+    }
+}
+
+fn available_video(video: VideoMode, release: DosRelease) -> VideoMode {
+    match (release, video) {
+        (DosRelease::V100A, VideoMode::Ega) => VideoMode::Vga,
+        _ => video,
     }
 }
 
@@ -82,6 +108,9 @@ fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Option<Options>, St
             }
             "--state-dir" => options.state_dir = Some(PathBuf::from(value()?)),
             "--load" => options.load = Some(PathBuf::from(value()?)),
+            "--video" => {
+                options.video = parse_video(value()?.to_str().ok_or("Video must be vga or ega")?)?;
+            }
             "--mute" => options.mute = true,
             "--original-tribute-menus" => options.original_tribute = true,
             "--scale" => {
@@ -125,6 +154,35 @@ fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Option<Options>, St
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn video_choices_parse_and_are_available_only_for_the_selected_release() {
+        for (value, video) in [("vga", VideoMode::Vga), ("ega", VideoMode::Ega)] {
+            let options = parse(
+                ["--original", "synthetic", "--video", value]
+                    .into_iter()
+                    .map(Into::into),
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(options.video, video);
+            assert_eq!(available_video(video, DosRelease::V100B), video);
+            assert_eq!(available_video(video, DosRelease::V100A), VideoMode::Vga);
+        }
+        assert_eq!(
+            parse(["--original", "synthetic"].into_iter().map(Into::into))
+                .unwrap()
+                .unwrap()
+                .video,
+            VideoMode::Vga
+        );
+        for arguments in [
+            vec!["--original", "synthetic", "--video"],
+            vec!["--original", "synthetic", "--video", "cga"],
+        ] {
+            assert!(validate_arguments(arguments.into_iter().map(Into::into)).is_err());
+        }
+    }
+
     #[test]
     fn player_contract_preserves_paths_and_rejects_research_switches() {
         let parsed = parse(

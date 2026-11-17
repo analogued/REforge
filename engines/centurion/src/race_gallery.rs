@@ -26,13 +26,15 @@ impl Gallery {
         // 151C expands the lower strip into the persistent C0B6 buffer using
         // palette 3, overriding the file's default palette. Restore it opaquely.
         let mut lower = assets.bitmap("MRACE", "GALLERY2.CBM")?;
-        for pixel in &mut lower.pixels {
-            *pixel = assets.data_segment[0x60f0 + usize::from(*pixel)];
+        if assets.video == crate::assets::VideoMode::Vga {
+            for pixel in &mut lower.pixels {
+                *pixel = assets.data_segment[0x60f0 + usize::from(*pixel)];
+            }
+            // Expansion aliases the final packed byte, after palette translation.
+            let end = lower.pixels.len();
+            lower.pixels[end - 1] =
+                assets.data_segment[0x60f0 + usize::from(lower.pixels[end - 2] & 15)];
         }
-        // Expansion aliases the final packed byte, after palette translation.
-        let end = lower.pixels.len();
-        lower.pixels[end - 1] =
-            assets.data_segment[0x60f0 + usize::from(lower.pixels[end - 2] & 15)];
         lower.visible.fill(true);
         background.blit(&lower, 0, 130);
         Ok(Self {

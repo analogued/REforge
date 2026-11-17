@@ -109,6 +109,60 @@ fn alleycat_editions_generate_and_cache_available_machine_variants() {
 }
 
 #[test]
+fn centurion_previews_generate_and_cache_only_the_detected_release_video_modes() {
+    use centurion::assets::DosRelease;
+    for (release_kind, expected) in [
+        (DosRelease::V100A, vec!["vga"]),
+        (DosRelease::V100B, vec!["ega", "vga"]),
+    ] {
+        let release = detection::RELEASES
+            .iter()
+            .find(|release| release.engine() == detection::Engine::Centurion(release_kind))
+            .unwrap();
+        let directory = TestDirectory::new();
+        let mut request = preview_request(&directory.0);
+        request.identity.game = release.game().id().into();
+        request.identity.release = release.id.into();
+        request.identity.preferred = expected[0].into();
+        let mut detections = 0;
+        let mut rendered = Vec::new();
+        let found = generate_with(
+            &request,
+            Some(&directory.0),
+            |_| {
+                detections += 1;
+                Ok(Detected {
+                    game: release.game(),
+                    release,
+                    root: directory.0.clone(),
+                    original: request.identity.original.clone(),
+                    files: BTreeMap::new(),
+                })
+            },
+            |detected, variant| {
+                assert_eq!(
+                    detected.engine(),
+                    detection::Engine::Centurion(release_kind)
+                );
+                rendered.push(variant.to_owned());
+                Ok(frame())
+            },
+        );
+        assert_eq!(detections, 1);
+        assert_eq!(rendered, expected);
+        assert_eq!(found.len(), expected.len());
+        request.identity.allow_generation = false;
+        let cached = generate_with(
+            &request,
+            Some(&directory.0),
+            |_| panic!("cached Centurion previews must not verify originals"),
+            |_, _| panic!("cached Centurion previews must not be regenerated"),
+        );
+        assert_eq!(cached.len(), expected.len());
+    }
+}
+
+#[test]
 fn only_the_missing_or_corrupt_variant_is_regenerated() {
     for corrupt in [false, true] {
         let directory = TestDirectory::new();

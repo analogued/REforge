@@ -4,6 +4,24 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[path = "asset_layout.rs"]
+mod layout;
+
+/// Data layout selected by application release detection.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum DosRelease {
+    #[default]
+    V100A,
+    V100B,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum VideoMode {
+    #[default]
+    Vga,
+    Ega,
+}
+
 pub type Result<T> = std::result::Result<T, String>;
 
 pub fn word(bytes: &[u8], offset: usize) -> Result<u16> {
@@ -132,8 +150,12 @@ struct Bank {
 }
 
 pub struct Assets {
+    pub release: DosRelease,
+    pub video: VideoMode,
     root: PathBuf,
     banks: BTreeMap<String, Bank>,
+    #[cfg(feature = "dev-tools")]
+    sources: Vec<PathBuf>,
     pub data_segment: Vec<u8>,
     pub palette: [[u8; 3]; 256],
 }
@@ -142,29 +164,81 @@ impl Assets {
     #[cfg(test)]
     pub(crate) fn test_data(data_segment: Vec<u8>) -> Self {
         Self {
+            release: DosRelease::V100A,
+            video: VideoMode::Vga,
             root: PathBuf::new(),
             banks: BTreeMap::new(),
+            #[cfg(feature = "dev-tools")]
+            sources: Vec::new(),
             data_segment,
             palette: [[0; 3]; 256],
         }
     }
 
     pub fn open(root: &Path) -> Result<Self> {
-        let ovl = read(&root.join("OVL0.OVL"))?;
-        if ovl.len() != 96_272 || ovl.get(0xb86e..0xb883) != Some(b"Version 1.00A 5/25/90") {
-            return Err("This prototype requires the selected DOS 1.00A reference; OVL0.OVL does not match its layout".into());
-        }
-        Self::parse(root.to_path_buf(), |name| read(&root.join(name)), ovl)
+        Self::open_with_video(root, VideoMode::Vga)
+    }
+
+    /// Explicit raw research entry point; normal play uses catalog-selected roles.
+    pub fn open_with_video(root: &Path, video: VideoMode) -> Result<Self> {
+        let entries: BTreeMap<_, _> = fs::read_dir(root)
+            .map_err(|e| e.to_string())?
+            .map(|entry| {
+                entry.map_err(|e| e.to_string()).map(|e| {
+                    (
+                        e.file_name().to_string_lossy().to_ascii_uppercase(),
+                        e.path(),
+                    )
+                })
+            })
+            .collect::<Result<_>>()?;
+        let read_role = |name: &str| {
+            read(
+                entries
+                    .get(name)
+                    .ok_or_else(|| format!("Missing research resource {name}"))?,
+            )
+        };
+        let ovl = read_role("OVL0.OVL")?;
+        let release = match ovl.get(0xb86e..0xb883) {
+            Some(b"Version 1.00A 5/25/90") => DosRelease::V100A,
+            Some(b"Version 1.00B 5/29/90") => DosRelease::V100B,
+            _ => return Err("Research loader expects DOS 1.00A or 1.00B layout".into()),
+        };
+        let assets = Self::parse(root.to_path_buf(), read_role, ovl, release, video)?;
+        #[cfg(feature = "dev-tools")]
+        let assets = {
+            let mut assets = assets;
+            assets.sources = entries
+                .into_iter()
+                .filter(|(name, _)| {
+                    name == "OVL0.OVL"
+                        || name == "CENTURIO.EXE"
+                        || name.ends_with(".DIR")
+                        || name.ends_with(".DAT")
+                })
+                .map(|(_, path)| path)
+                .collect();
+            assets
+        };
+        Ok(assets)
     }
 
     /// Load only catalog-selected roles; release identification belongs to the app.
     #[cfg(any(feature = "sdl", test))]
-    pub fn load(files: &reforge_inputs::ResolvedFiles, root: PathBuf) -> Result<Self> {
+    pub fn load(
+        files: &reforge_inputs::ResolvedFiles,
+        root: PathBuf,
+        release: DosRelease,
+        video: VideoMode,
+    ) -> Result<Self> {
         let ovl = files.read("OVL0.OVL").map_err(|e| e.to_string())?;
         Self::parse(
             root,
             |name| files.read(name).map_err(|e| e.to_string()),
             ovl,
+            release,
+            video,
         )
     }
 
@@ -172,21 +246,40 @@ impl Assets {
         root: PathBuf,
         read_role: impl Fn(&str) -> Result<Vec<u8>>,
         ovl: Vec<u8>,
+        release: DosRelease,
+        video: VideoMode,
     ) -> Result<Self> {
+        if release == DosRelease::V100A && video == VideoMode::Ega {
+            return Err("The 1.00A distribution does not contain EGA graphics".into());
+        }
         // Runtime tables occupy the resident DOS data segment, including palette
         // maps through 0x6300. Content fingerprints are deliberately absent here.
-        let data_segment = ovl
+        let mut data_segment = ovl
             .get(0xb400..)
             .filter(|ds| ds.len() >= 0x6300)
             .ok_or("Truncated resident data segment")?
             .to_vec();
+        layout::normalize(&mut data_segment, release)?;
+        if video == VideoMode::Ega {
+            // EGA draws the stored nibble directly; VGA alone uses palette tags.
+            for map in data_segment[0x60c0..0x6300].as_chunks_mut::<16>().0 {
+                for (index, color) in map.iter_mut().enumerate() {
+                    *color = index as u8;
+                }
+            }
+        }
 
         let mut banks = BTreeMap::new();
         for name in [
             "CENT", "MINIT", "MMAP", "BATL", "MGLAD", "MRACE", "MNAVAL", "NAVL", "MNEGO",
         ] {
-            let directory = read_role(&format!("{name}.DIR"))?;
-            let data = read_role(&format!("{name}.DAT"))?;
+            let physical = if video == VideoMode::Ega && name.starts_with('M') {
+                format!("E{}", &name[1..])
+            } else {
+                name.to_string()
+            };
+            let directory = read_role(&format!("{physical}.DIR"))?;
+            let data = read_role(&format!("{physical}.DAT"))?;
             if directory.len() % 20 != 0 || data.get(..4) != Some(&[0xca, 0xca, 0xd0, 0xd0]) {
                 return Err(format!("Invalid {name} resource bank"));
             }
@@ -222,8 +315,12 @@ impl Assets {
             banks.insert(name.into(), Bank { data, entries });
         }
         let mut assets = Self {
+            release,
+            video,
             root,
             banks,
+            #[cfg(feature = "dev-tools")]
+            sources: Vec::new(),
             data_segment,
             palette: [[0; 3]; 256],
         };
@@ -237,11 +334,38 @@ impl Assets {
             }
             assets.palette[index] = [expand(rgb[0]), expand(rgb[1]), expand(rgb[2])];
         }
-        // CMAP defines 250 DAC entries. The remaining entries are not inferred.
+        if video == VideoMode::Ega {
+            // Keep logical drawing pens used by native scenes, resolving them
+            // to EGA attributes. The two UI fills are mode-dependent DOS pens.
+            for index in 16..256 {
+                let pen = match index {
+                    26 => 7,
+                    116 => 3,
+                    _ => index & 15,
+                };
+                assets.palette[index] = assets.palette[pen];
+            }
+        }
+        // VGA's CMAP defines 250 DAC entries; the remaining VGA entries stay zero.
         Ok(assets)
     }
 
     pub fn resource(&self, bank: &str, name: &str) -> Result<Vec<u8>> {
+        if self.video == VideoMode::Ega {
+            if bank == "MINIT" && name == "WORLD.LZW" {
+                return Ok(self.bitmap("MINIT", "WORLD.CBM")?.pixels);
+            }
+            if bank == "NAVL" && name == "GALLEYS.LZW" {
+                return Ok(self.bitmap("MNAVAL", "GALLEYS.CBM")?.pixels);
+            }
+        }
+        let ega_menu;
+        let name = if self.video == VideoMode::Ega && bank == "CENT" && name.starts_with("MMENU") {
+            ega_menu = format!("EMENU{}", &name[5..]);
+            ega_menu.as_str()
+        } else {
+            name
+        };
         let bank = self.banks.get(bank).ok_or("Unknown bank")?;
         let &(start, size, flags) = bank
             .entries
@@ -315,7 +439,10 @@ impl Assets {
         // allocation. 88a7 expands forward and reads each source byte twice.
         // For the final pair, its first output overwrites the source before
         // the low nibble is read. Preserve this original aliasing behavior.
-        if bitmap.width == payload[6] as usize * 2 && bitmap.pixels.len() >= 2 {
+        if self.video == VideoMode::Vga
+            && bitmap.width == payload[6] as usize * 2
+            && bitmap.pixels.len() >= 2
+        {
             let end = bitmap.pixels.len();
             let nibble = bitmap.pixels[end - 2] & 15;
             bitmap.pixels[end - 1] =
@@ -385,6 +512,11 @@ impl Assets {
     pub fn original(&self) -> &Path {
         &self.root
     }
+
+    #[cfg(feature = "dev-tools")]
+    pub(crate) fn recording_sources(&self) -> &[PathBuf] {
+        &self.sources
+    }
 }
 
 pub fn read(path: &Path) -> Result<Vec<u8>> {
@@ -424,6 +556,81 @@ mod tests {
         assert_eq!(bitmap.visible, [false, true, true]);
         assert_eq!((bitmap.origin_x, bitmap.origin_y), (1, 2));
     }
+
+    #[test]
+    fn ega_uses_selected_banks_direct_pens_and_packed_backgrounds() {
+        // Authored two-pixel artwork: the nonzero palette tag would produce
+        // different pixels if EGA accidentally reused VGA's tag remapping.
+        let cbm = [2, 0, 0, 0, 0, 0, 1, 1, 0, 7, 1, 0, 0, 0, 1, 0x12];
+        let bank = |members: &[(&str, &[u8])]| {
+            let mut data = vec![0xca, 0xca, 0xd0, 0xd0];
+            let mut directory = Vec::new();
+            for &(name, payload) in members {
+                let mut entry = [0; 20];
+                entry[..4].copy_from_slice(&(data.len() as u32).to_le_bytes());
+                entry[4..6].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+                entry[6..6 + name.len()].copy_from_slice(name.as_bytes());
+                directory.extend(entry);
+                data.extend_from_slice(payload);
+            }
+            (data, directory)
+        };
+        let mut roles = BTreeMap::new();
+        for name in [
+            "CENT", "EINIT", "EMAP", "BATL", "EGLAD", "ERACE", "ENAVAL", "NAVL", "ENEGO",
+        ] {
+            let members: Vec<(&str, &[u8])> = match name {
+                "CENT" => vec![("CMAP.BIN", &[0; 750]), ("EMENUHDR.LZW", b"EGA menu")],
+                "EINIT" => vec![("WORLD.CBM", &cbm)],
+                "EMAP" => vec![("MAP.CBM", &cbm)],
+                "ENAVAL" => vec![("GALLEYS.CBM", &cbm)],
+                _ => Vec::new(),
+            };
+            let (data, directory) = bank(&members);
+            roles.insert(format!("{name}.DAT"), data);
+            roles.insert(format!("{name}.DIR"), directory);
+        }
+        let mut ovl = vec![0; 0xb400 + 0xc410];
+        ovl[0xb400 + 0x60c0..0xb400 + 0x6300].fill(99);
+        for at in (0x970a..0x9714).step_by(2) {
+            ovl[0xb400 + at..0xb400 + at + 2].copy_from_slice(&0xc3b6_u16.to_le_bytes());
+        }
+        let load = |roles: &BTreeMap<String, Vec<u8>>| {
+            Assets::parse(
+                PathBuf::new(),
+                |role| {
+                    roles
+                        .get(role)
+                        .cloned()
+                        .ok_or_else(|| format!("Missing selected {role}"))
+                },
+                ovl.clone(),
+                DosRelease::V100B,
+                VideoMode::Ega,
+            )
+        };
+        let assets = load(&roles).unwrap();
+        assert_eq!(assets.resource("MINIT", "WORLD.LZW").unwrap(), [1, 2]);
+        assert_eq!(assets.resource("NAVL", "GALLEYS.LZW").unwrap(), [1, 2]);
+        assert_eq!(
+            assets.resource("CENT", "MMENUHDR.LZW").unwrap(),
+            b"EGA menu"
+        );
+        assert_eq!(
+            assets.cached_bitmap("MMAP", "MAP.CBM").unwrap().pixels,
+            [1, 2]
+        );
+        // An unselected VGA substitute must never mask a missing EGA role.
+        let removed = roles.remove("EMAP.DAT").unwrap();
+        roles.insert("MMAP.DAT".into(), removed);
+        assert!(
+            load(&roles)
+                .err()
+                .unwrap()
+                .contains("Missing selected EMAP.DAT")
+        );
+    }
+
     #[test]
     fn selected_roles_load_renamed_resources_without_executable_or_fingerprints() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -467,13 +674,19 @@ mod tests {
         }
         assert_eq!(selected.len(), 19);
         let files = reforge_inputs::ResolvedFiles::new(selected.clone());
-        let loaded = Assets::load(&files, directory.clone()).unwrap();
+        let loaded =
+            Assets::load(&files, directory.clone(), DosRelease::V100A, VideoMode::Vga).unwrap();
         assert_eq!(loaded.palette, [[0; 3]; 256]);
         selected.retain(|(role, _)| role != "MINIT.DAT");
         fs::write(directory.join("MINIT.DAT"), [0xca, 0xca, 0xd0, 0xd0]).unwrap();
-        let error = Assets::load(&reforge_inputs::ResolvedFiles::new(selected), directory)
-            .err()
-            .unwrap();
+        let error = Assets::load(
+            &reforge_inputs::ResolvedFiles::new(selected),
+            directory,
+            DosRelease::V100A,
+            VideoMode::Vga,
+        )
+        .err()
+        .unwrap();
         assert!(error.contains("Missing resolved original resource MINIT.DAT"));
     }
 }

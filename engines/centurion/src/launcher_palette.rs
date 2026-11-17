@@ -1,10 +1,17 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Artwork weights and recovered drawing references, read from selected resources.
-use crate::assets::{Assets, Bitmap, Result, word};
+use crate::assets::{Assets, Bitmap, Result, VideoMode, word};
 use reforge_sdl::launcher::{Palette, PaletteHint};
 
 pub(super) fn extract(assets: &Assets) -> Result<Palette> {
+    if assets.video == VideoMode::Ega {
+        return Ok(Palette {
+            colours: assets.palette[..16].to_vec(),
+            weights: None,
+            hint: PaletteHint::Auto,
+        });
+    }
     let mut usage = Usage::default();
     assets.visit_stored_artwork(|pixels, visible| usage.stored(pixels, visible))?;
 
@@ -129,6 +136,18 @@ impl Usage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ega_metadata_uses_only_the_active_sixteen_colours() {
+        let mut assets = Assets::test_data(Vec::new());
+        assets.video = VideoMode::Ega;
+        for (index, colour) in assets.palette.iter_mut().enumerate() {
+            *colour = [index as u8, 0, 0];
+        }
+        let palette = extract(&assets).unwrap();
+        assert_eq!(palette.colours, assets.palette[..16]);
+        assert!(palette.weights.is_none());
+    }
 
     #[test]
     fn weights_count_visible_storage_once_and_variants_only_add_missing_pens() {

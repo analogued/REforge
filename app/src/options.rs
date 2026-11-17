@@ -169,6 +169,13 @@ const SPECS: &[Spec] = &[
         description: "Initial video mode (default cga); F3 switches during play",
     },
     Spec {
+        name: "--video",
+        scope: Scope::Game(Game::Centurion),
+        value: Value::Choice(&["vga", "ega"]),
+        dev: false,
+        description: "Video assets (default vga); ega requires the DOS 1.00B distribution",
+    },
+    Spec {
         name: "--state-dir",
         scope: Scope::Game(Game::Centurion),
         value: Value::Path,
@@ -691,10 +698,19 @@ pub fn prepare_for_detected(
     args: impl IntoIterator<Item = OsString>,
     detected: &crate::detection::Detected,
 ) -> Prepared {
-    prepare(args, detected.game)
+    prepare_for_engine(args, detected.game, Some(detected.engine()))
 }
 
+#[cfg(test)]
 pub(super) fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> Prepared {
+    prepare_for_engine(args, game, None)
+}
+
+fn prepare_for_engine(
+    args: impl IntoIterator<Item = OsString>,
+    game: Game,
+    engine: Option<crate::detection::Engine>,
+) -> Prepared {
     let mut args = args.into_iter().peekable();
     let mut entries = Vec::new();
     let mut warnings = Vec::new();
@@ -757,7 +773,22 @@ pub(super) fn prepare(args: impl IntoIterator<Item = OsString>, game: Game) -> P
                 ));
                 continue;
             };
-            match validate(spec, value, game) {
+            let validated = validate(spec, value, game).and_then(|value| {
+                if spec.name == "--video"
+                    && value == "ega"
+                    && matches!(
+                        engine,
+                        Some(crate::detection::Engine::Centurion(
+                            centurion::assets::DosRelease::V100A
+                        ))
+                    )
+                {
+                    Err("ega requires the DOS 1.00B distribution".into())
+                } else {
+                    Ok(value)
+                }
+            });
+            match validated {
                 Ok(value) => {
                     entries.push(Entry {
                         spec,
@@ -1770,6 +1801,42 @@ mod tests {
         assert_eq!(p.warnings.len(), 1);
         assert!(p.args.is_empty());
     }
+    #[test]
+    fn centurion_video_modes_are_validated_for_the_detected_release() {
+        use crate::detection::{Detected, Engine, RELEASES};
+        use centurion::assets::DosRelease;
+        for release_kind in [DosRelease::V100A, DosRelease::V100B] {
+            let release = RELEASES
+                .iter()
+                .find(|release| release.engine() == Engine::Centurion(release_kind))
+                .unwrap();
+            let detected = Detected {
+                game: Game::Centurion,
+                release,
+                original: "authored-installation".into(),
+                root: "authored-installation".into(),
+                files: Default::default(),
+            };
+            let requested = args(&["--video", "vga", "--video", "ega", "--scale", "2"]);
+            let prepared = prepare_for_detected(requested, &detected);
+            if release_kind == DosRelease::V100A {
+                assert_eq!(prepared.args, args(&["--video", "vga", "--scale", "2"]));
+                assert_eq!(prepared.warnings.len(), 1);
+                assert!(prepared.warnings[0].contains("requires the DOS 1.00B"));
+            } else {
+                assert_eq!(prepared.args, args(&["--video", "ega", "--scale", "2"]));
+                assert!(prepared.warnings.is_empty());
+                accepted(&prepared, Game::Centurion);
+            }
+            let prepared =
+                prepare_for_detected(args(&["--video", "vga", "--video", "invalid"]), &detected);
+            assert_eq!(prepared.args, args(&["--video", "vga"]));
+            assert_eq!(prepared.warnings.len(), 1);
+        }
+        assert!(help(Some(Game::Centurion)).contains("Choices: vga, ega"));
+        assert!(!help(Some(Game::Mach3)).contains("Choices: vga, ega"));
+    }
+
     #[test]
     fn centurion_player_paths_and_flags_are_scoped_and_preserve_arguments() {
         let values = args(&[

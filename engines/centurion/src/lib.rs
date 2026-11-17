@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod arena;
-mod assets;
+pub mod assets;
 mod audio;
 #[cfg(feature = "sdl")]
 mod audio_output;
@@ -76,6 +76,7 @@ pub fn run_prototype() -> std::result::Result<(), String> {
     let mut spawn_probe = None;
     let mut campaign_soak = None;
     let mut mute = false;
+    let mut video = assets::VideoMode::Vga;
     let mut tribute_indicator = true;
     let mut applied_value_indicator = reforge_settings::AppliedValueIndicator::default();
     let mut map_hover_info = reforge_settings::MapHoverInfo::default();
@@ -127,6 +128,7 @@ pub fn run_prototype() -> std::result::Result<(), String> {
                 spawn_probe = Some((PathBuf::from(value()?), PathBuf::from(value()?)))
             }
             "--naval-probe" => naval_probe = Some((value()?, value()?, value()?, value()?)),
+            "--video" => video = cli::parse_video(&value()?)?,
             "--mute" => mute = true,
             "--original-tribute-menus" => tribute_indicator = false,
             "--applied-value-indicator" => applied_value_indicator = value()?.parse()?,
@@ -192,7 +194,7 @@ pub fn run_prototype() -> std::result::Result<(), String> {
             "--with-cursor" => with_cursor = true,
             "--help" | "-h" => {
                 println!(
-                    "Centurion private native prototype\nUsage: centurion-prototype --original DIR [--scale auto|1..16] [--state-dir DIR]\n       [--phase intro|title|credits|prologue|map|menu|about|rome|tribute|tribute-policy|province-list|legions|raise-legion|legion-list] [--seed FIRST,SECOND]\n       [--headless] [--export DIR] [--with-cursor] [--script FILE]\n       [--load FILE] [--save FILE] [--check-assets] [--mute] [--original-tribute-menus]\n       [--music-wav FILE] [--music-trace FILE] [--music-ticks N]\n\nThe timed intro runs automatically. A key/click skips to the orders prologue; another enters the map. Escape/F1 opens the map menu.\nArrow keys and Enter select actions; menu shortcuts: S L N A D Q C.\nMouse selection is supported. Save descriptions accept ASCII text.\nClick owned provinces for Tribute, Province List and local legion recruitment/reinforcement/upgrades. Rome offers global Tribute Policy; other owned provinces offer Plunder.\nLegions -> Move and map right-click support unopposed friendly marches. Arrows move the map cursor; Space selects a province, Enter a legion.\nForeign entry supports scouting, negotiations, peaceful alliances and withdrawal.\nGo to War opens formation/tactic selection, live battles and casualty reports. Space/click pauses; M/R/D order melee/retreat/resume, S displays Roman orders. Select a cohort for arrows/Space/Enter or drag orders.\nForced land battles and roaming-army interceptions resolve before the destination province. Shipbuilding supports all three ship types (Up/Down adjusts, Enter buys, Escape cancels); legions can embark and land using available transports.\nF lists fleets; Space selects a ready local fleet and sea target. Naval arrows steer/change speed; Space/Insert fires arrows, Enter/+ boards, R retreats.\nE or the End Turn button runs recovery, economy, revolts, enemy invasions and yearly events. Defensive battles resume the same turn. H opens provincial festivals or Rome's gladiator shows; Left/Right moves in the arena, Up/Down guards, Left+Up/Down attacks. Rome H -> R opens chariot racing, betting and skulduggery. Race arrows steer/brake; Up whips, Up+Left/Right strikes. Aegyptus now includes Cleopatra's alliance, courtship and animated ending.\nApplied tribute/difficulty feedback defaults to a subdued band; --original-tribute-menus hides added tribute feedback for comparisons.\nOriginal AdLib music and sound effects are enabled throughout the game; --mute disables playback."
+                    "Centurion private native prototype\nUsage: centurion-prototype --original DIR [--video vga|ega] [--scale auto|1..16] [--state-dir DIR]\n       [--phase intro|title|credits|prologue|map|menu|about|rome|tribute|tribute-policy|province-list|legions|raise-legion|legion-list] [--seed FIRST,SECOND]\n       [--headless] [--export DIR] [--with-cursor] [--script FILE]\n       [--load FILE] [--save FILE] [--check-assets] [--mute] [--original-tribute-menus]\n       [--music-wav FILE] [--music-trace FILE] [--music-ticks N]\n\nThe timed intro runs automatically. A key/click skips to the orders prologue; another enters the map. Escape/F1 opens the map menu.\nArrow keys and Enter select actions; menu shortcuts: S L N A D Q C.\nMouse selection is supported. Save descriptions accept ASCII text.\nClick owned provinces for Tribute, Province List and local legion recruitment/reinforcement/upgrades. Rome offers global Tribute Policy; other owned provinces offer Plunder.\nLegions -> Move and map right-click support unopposed friendly marches. Arrows move the map cursor; Space selects a province, Enter a legion.\nForeign entry supports scouting, negotiations, peaceful alliances and withdrawal.\nGo to War opens formation/tactic selection, live battles and casualty reports. Space/click pauses; M/R/D order melee/retreat/resume, S displays Roman orders. Select a cohort for arrows/Space/Enter or drag orders.\nForced land battles and roaming-army interceptions resolve before the destination province. Shipbuilding supports all three ship types (Up/Down adjusts, Enter buys, Escape cancels); legions can embark and land using available transports.\nF lists fleets; Space selects a ready local fleet and sea target. Naval arrows steer/change speed; Space/Insert fires arrows, Enter/+ boards, R retreats.\nE or the End Turn button runs recovery, economy, revolts, enemy invasions and yearly events. Defensive battles resume the same turn. H opens provincial festivals or Rome's gladiator shows; Left/Right moves in the arena, Up/Down guards, Left+Up/Down attacks. Rome H -> R opens chariot racing, betting and skulduggery. Race arrows steer/brake; Up whips, Up+Left/Right strikes. Aegyptus now includes Cleopatra's alliance, courtship and animated ending.\nApplied tribute/difficulty feedback defaults to a subdued band; --original-tribute-menus hides added tribute feedback for comparisons.\nOriginal AdLib music and sound effects are enabled throughout the game; --mute disables playback."
                 );
                 println!(
                     "\n--applied-value-indicator original|subdued-band|side-marker|underline selects applied tribute/difficulty feedback (default: subdued-band).\n--map-hover-info off|on enables map names (default: off)."
@@ -217,7 +219,7 @@ pub fn run_prototype() -> std::result::Result<(), String> {
     );
     let original =
         original.ok_or("Supply --original DIR pointing to the selected writable game copy")?;
-    let assets = Assets::open(&original)?;
+    let assets = Assets::open_with_video(&original, video)?;
     if let Some((input, output)) = spawn_probe {
         return enemy::spawn_observation(&assets, &input, &output);
     }

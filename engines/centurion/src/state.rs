@@ -39,8 +39,10 @@ impl Campaign {
         data.resize(65536, 0);
         // VGA startup at overlay 1:B226 installs these drawing colours.
         // They are not part of the save image.
-        for (offset, value) in [(0x6344, 0x74u16), (0x6346, 0x1a), (0x6348, 0x10c)] {
-            data[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+        if assets.video == crate::assets::VideoMode::Vga {
+            for (offset, value) in [(0x6344, 0x74u16), (0x6346, 0x1a), (0x6348, 0x10c)] {
+                data[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+            }
         }
         let mut blocks = Vec::new();
         for offset in (0x5bde..0x5c42).step_by(4) {

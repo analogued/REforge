@@ -56,7 +56,7 @@ impl Briefing {
             f.blit(&self.flags[p], 38, 5);
         }
         let mut palette = assets.palette;
-        if self.rotated {
+        if self.rotated && assets.video == crate::assets::VideoMode::Vga {
             for (index_table, colors, count, phase) in [
                 (0x9762, 0x9778, 6, s.data[0x9816]),
                 (0x976e, 0x979c, 5, s.data[0x9817]),

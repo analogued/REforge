@@ -50,7 +50,7 @@ fn add_native_options(
     let options = match detected.engine() {
         crate::detection::Engine::AlleyCat(format) => alleycat::launcher::options(format),
         crate::detection::Engine::Mach3 => mach3::launcher::OPTIONS,
-        crate::detection::Engine::Centurion => centurion::launcher::OPTIONS,
+        crate::detection::Engine::Centurion(release) => centurion::launcher::options(release),
         crate::detection::Engine::Btz(_) => btz::launcher::OPTIONS,
     };
     for option in options {

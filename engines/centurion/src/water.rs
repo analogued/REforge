@@ -7,6 +7,7 @@ use crate::session::Phase;
 pub type Palette = [[u8; 3]; 256];
 
 pub struct Water {
+    enabled: bool,
     colors: [[u8; 3]; 5],
     indices: [usize; 5],
     rotation: Option<u8>,
@@ -31,6 +32,7 @@ impl Water {
             }
         }
         Ok(Self {
+            enabled: assets.video == crate::assets::VideoMode::Vga,
             colors,
             indices,
             rotation: None,
@@ -62,7 +64,8 @@ impl Water {
 
     pub fn palette(&self, base: &Palette, phase: Phase) -> Palette {
         let mut palette = *base;
-        if Self::enabled(phase)
+        if self.enabled
+            && Self::enabled(phase)
             && let Some(rotation) = self.rotation
         {
             // Five writes to four destinations: the fifth overwrites the
@@ -84,6 +87,7 @@ mod tests {
 
     fn water() -> Water {
         Water {
+            enabled: true,
             colors: [[1; 3], [2; 3], [3; 3], [4; 3], [5; 3]],
             indices: [162, 163, 164, 165, 166],
             rotation: None,

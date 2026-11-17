@@ -306,7 +306,14 @@ impl Panels {
             .ok_or("Missing menu button")?;
         Ok(Self {
             rome: assets.bitmap("MNEGO", "ROME.CBM")?,
-            border: assets.sprites("CENT", "MMENU")?,
+            border: assets.sprites(
+                "CENT",
+                if assets.video == crate::assets::VideoMode::Ega {
+                    "EMENU"
+                } else {
+                    "MMENU"
+                },
+            )?,
             button,
             morale: assets.sprites("MINIT", "INIT2")?,
         })

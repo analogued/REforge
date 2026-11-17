@@ -1,10 +1,29 @@
 # Original DOS engine reference
 
-This partial reference describes the supported English DOS 1.00A release of
+This partial reference describes the supported English DOS releases of
 Centurion: Defender of Rome. Findings come from recovered program/data behavior
 and controlled execution of original routines. They do not specify other releases
 or establish exhaustive behavior on historical hardware. Original files and raw
-research evidence are external and are not included here.
+research evidence are external and are not included here. Unless stated
+otherwise, addresses refer to the 1.00A layout; the supported 1.00B layout is
+adapted during native loading.
+
+## Release and video layouts
+
+The examined 1.00B release retains the same save block table, font and VGA
+artwork as 1.00A. Its naval re-engagement question moves from `DS:935A` to
+`DS:8EEE`, the outcome strings move forward by `4C`, and five footer pointers at
+`DS:970A` through `DS:9712` refer six bytes later into the naval scratch block.
+Native loading restores its internal arrangement using the supplied text and
+pointers. Version/credits and release-specific new-campaign data are retained.
+
+The 1.00B package also contains EINIT, EMAP, EGLAD, ERACE, ENAVAL and ENEGO
+banks for EGA. Their nibble pixels use direct 16-colour attributes; VGA uses
+the palette tags and maps at `DS:60C0`. EINIT supplies packed `WORLD.CBM` in
+place of VGA's raw `WORLD.LZW`; ENAVAL supplies `GALLEYS.CBM` in place of
+NAVL's raw `GALLEYS.LZW`. EGA uses CENT's EMENU sprites. Initialized drawing
+pens `DS:6344`, `DS:6346`, `DS:6348` are 3, 7, 7; VGA startup replaces them
+with `74`, `1A`, `10C`. VGA DAC cycling does not apply to EGA artwork.
 
 `DS:` addresses below are hexadecimal offsets in the original data segment, not
 file offsets or fixed DOS load addresses. Save offsets and pixel dimensions are

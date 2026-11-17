@@ -128,7 +128,7 @@ impl GameEntry {
         let options = match release.map(|r| r.engine()) {
             Some(detection::Engine::AlleyCat(format)) => alleycat::launcher::options(format),
             Some(detection::Engine::Mach3) => mach3::launcher::OPTIONS,
-            Some(detection::Engine::Centurion) => centurion::launcher::OPTIONS,
+            Some(detection::Engine::Centurion(release)) => centurion::launcher::options(release),
             Some(detection::Engine::Btz(_)) => btz::launcher::OPTIONS,
             None => &[],
         };
@@ -201,7 +201,9 @@ impl GameEntry {
                 alleycat::launcher::preview_variants(format)
             }
             Some(detection::Engine::Mach3) => mach3::launcher::PREVIEW_VARIANTS,
-            Some(detection::Engine::Centurion) => centurion::launcher::PREVIEW_VARIANTS,
+            Some(detection::Engine::Centurion(release)) => {
+                centurion::launcher::preview_variants(release)
+            }
             Some(detection::Engine::Btz(_)) => btz::launcher::PREVIEW_VARIANTS,
             None => return false,
         };
@@ -235,10 +237,9 @@ impl GameEntry {
             .map_or_else(String::new, detection::Edition::features_line)
     }
     pub fn preview_variant(&self) -> &'static str {
-        if self
-            .edition
-            .is_some_and(|edition| edition.game.identity == Game::Centurion)
-        {
+        if self.edition.is_some_and(|edition| {
+            edition.engine == detection::Engine::Centurion(centurion::assets::DosRelease::V100A)
+        }) {
             return centurion::launcher::PREVIEW_VARIANT;
         }
         if self

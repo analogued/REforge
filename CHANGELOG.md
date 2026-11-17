@@ -7,7 +7,8 @@ Unreleased contains changes intended for the next public release.
 
 ### New games
 
-- Added support for Centurion: Defender of Rome (DOS).
+- Added support for Centurion: Defender of Rome (DOS 1.00A VGA and 1.00B
+  VGA/EGA).
 
 ### General
 

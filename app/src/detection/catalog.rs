@@ -145,6 +145,19 @@ pub static CENTURION_DOS: Edition = Edition {
     specs: &CENTURION_DOS_SPECS,
 };
 
+pub static CENTURION_DOS_100B_SPECS: SpecsProfile = SpecsProfile {
+    id: "centurion-dos-vga-ega-adlib",
+    video_features: &["320×200", "VGA", "EGA"],
+    audio_features: &["AdLib"],
+};
+pub static CENTURION_DOS_100B: Edition = Edition {
+    id: "centurion-defender-of-rome-dos-100b",
+    engine: Engine::Centurion(centurion::assets::DosRelease::V100B),
+    label: Some("DOS 1.00B"),
+    specs: &CENTURION_DOS_100B_SPECS,
+    ..CENTURION_DOS
+};
+
 pub static MINDWHEEL: GameMetadata = GameMetadata {
     identity: Game::Mindwheel,
     title: "Mindwheel",
@@ -520,6 +533,165 @@ const CENTURION_DOS_FILES: [FileRecord; 19] = [
     },
 ];
 
+// Complete resource set for the examined 1.00B VGA/EGA distribution.
+const CENTURION_DOS_100B_FILES: [FileRecord; 31] = [
+    FileRecord {
+        name: "BATL.DAT",
+        size: 96_479,
+        blake3: "54e080ab17f5292cfbac0aeb64b4cfcc8c527ce2e4279b22cc7f5b814cc10acf",
+    },
+    FileRecord {
+        name: "BATL.DIR",
+        size: 440,
+        blake3: "7923d581a24f6e16dcc344ec900329086abd383e53abe56a7bf20f723b16becb",
+    },
+    FileRecord {
+        name: "CENT.DAT",
+        size: 14_770,
+        blake3: "ad8db5c5ebf3b4c6f324d6267b7b4e080decd25d2e797374d426f91d317adb20",
+    },
+    FileRecord {
+        name: "CENT.DIR",
+        size: 240,
+        blake3: "3738ef7cfd586e92793fabec8cc60b393713e43b1c35be105968225dd53886f8",
+    },
+    FileRecord {
+        name: "EGLAD.DAT",
+        size: 52_319,
+        blake3: "6cfb35ace345a8fc6e1ef161fe148bfaa6da839dbb633b6ca27a010bc37daef8",
+    },
+    FileRecord {
+        name: "EGLAD.DIR",
+        size: 480,
+        blake3: "8e54d333497dc86f8ae851ffe4cea3f07cc5d7e3e84d2799f93cb6bc8574e580",
+    },
+    FileRecord {
+        name: "EINIT.DAT",
+        size: 25_508,
+        blake3: "5cf5a0185b3b49e6aeb5e438375f8bb0837d5ef916da2ec82ed62a266cbd2299",
+    },
+    FileRecord {
+        name: "EINIT.DIR",
+        size: 140,
+        blake3: "01ab1691c1988856b9de9818663a03022b41d375f1de6038ba677576eca977b0",
+    },
+    FileRecord {
+        name: "EMAP.DAT",
+        size: 20_221,
+        blake3: "70066aefbdccf7095e5504586745737fb9f0d57af3ac868c131c29664731d295",
+    },
+    FileRecord {
+        name: "EMAP.DIR",
+        size: 40,
+        blake3: "d9edfa31feab12a7c02486f0c0e96d676e46894d1fda1f54c858adf788e0eedf",
+    },
+    FileRecord {
+        name: "ENAVAL.DAT",
+        size: 38_654,
+        blake3: "4a97b17b2035ed933357afd11a1b5b711070f0189e002bcae14a633902b83d9b",
+    },
+    FileRecord {
+        name: "ENAVAL.DIR",
+        size: 520,
+        blake3: "7c7e8870e61bf1f9d2efacaa5355523e493781e390da5ec21f111e864cb38e70",
+    },
+    FileRecord {
+        name: "ENEGO.DAT",
+        size: 161_108,
+        blake3: "23806688ae404a50ce81450d2e81bdae9e5ab98eaa8af3b3e279bda3d2170991",
+    },
+    FileRecord {
+        name: "ENEGO.DIR",
+        size: 2_040,
+        blake3: "3c8c46b05c0c724287ddd32b2908553ccc678c191f5723d3ba8e62874369ac7d",
+    },
+    FileRecord {
+        name: "ERACE.DAT",
+        size: 39_629,
+        blake3: "ae1ff8f5386eae29a10bcde3d9ae88775ddc95cdfa4e1bb5101d8fa5971ef370",
+    },
+    FileRecord {
+        name: "ERACE.DIR",
+        size: 280,
+        blake3: "7a2fa352fc5a8420c50ace1eb9a00c1ca1e8587da0f8cfeb03d2b6496d24e762",
+    },
+    FileRecord {
+        name: "MGLAD.DAT",
+        size: 72_758,
+        blake3: "b1d894f65927b1b8e30cba5e4ca6aac0799e4ab55723a4d27926f6a0529557f9",
+    },
+    FileRecord {
+        name: "MGLAD.DIR",
+        size: 480,
+        blake3: "9e55a9850fb4875330b0ce85b56184d36234e72f14d4165e44ebd1a9f7a58384",
+    },
+    FileRecord {
+        name: "MINIT.DAT",
+        size: 41_349,
+        blake3: "5600d4527ea2f9171d85a5f67f3dc8fed38c2234088c4475805b48c36ca49fcf",
+    },
+    FileRecord {
+        name: "MINIT.DIR",
+        size: 140,
+        blake3: "157fb02ddb80ef98e8bf2c131fa8c8e64b02a78a4d6df2eb848f4b1b16609cc7",
+    },
+    FileRecord {
+        name: "MMAP.DAT",
+        size: 23_516,
+        blake3: "f5e53a1858b6503da2526a06900cf60d393432614631aa36134eb7b3672377a9",
+    },
+    FileRecord {
+        name: "MMAP.DIR",
+        size: 40,
+        blake3: "36df7e803168bd2e021e2586381c9444d20292089b2ad47a310e7fe8cb775c60",
+    },
+    FileRecord {
+        name: "MNAVAL.DAT",
+        size: 34_713,
+        blake3: "896915633132339284214caedeaaae09ec412afdd8a22e5c362988fd13c6bc94",
+    },
+    FileRecord {
+        name: "MNAVAL.DIR",
+        size: 500,
+        blake3: "581a17296db1638ea85099644f1c093c3fdeeb0e309b7bc997c043fb8e238fce",
+    },
+    FileRecord {
+        name: "MNEGO.DAT",
+        size: 196_775,
+        blake3: "dd83599faa790222cf3babbc162b03b70f031127bb6d1734d2bc51aee39ebb17",
+    },
+    FileRecord {
+        name: "MNEGO.DIR",
+        size: 2_040,
+        blake3: "fd223c053f85978af305b3c09e825cad8dbac6ec9306bd3359d961de9d805d8e",
+    },
+    FileRecord {
+        name: "MRACE.DAT",
+        size: 49_309,
+        blake3: "62cb9280d5c7dceb526f506567682264419f7dc74aa979f83f48926b3a63a321",
+    },
+    FileRecord {
+        name: "MRACE.DIR",
+        size: 280,
+        blake3: "975390bcd0ad2c0427a9d12c10c5b7ec105d9f613e482e3170898e48e47f67c6",
+    },
+    FileRecord {
+        name: "NAVL.DAT",
+        size: 34_705,
+        blake3: "64c00916a0a92852a4d8afc15c4021f7ee6b7648de8786532ab1208f64159067",
+    },
+    FileRecord {
+        name: "NAVL.DIR",
+        size: 100,
+        blake3: "9ab394013adfba5be1f3b99896d188dca13511f618500e9f81759a117af8f02b",
+    },
+    FileRecord {
+        name: "OVL0.OVL",
+        size: 96_272,
+        blake3: "4c5fc346e56a06d6000240d6166f5bcc504e3abff3e75d1da8f12d112c64b00f",
+    },
+];
+
 pub static RELEASES: &[Release] = &[
     Release {
         id: "alley-cat-dos-7b92bb401f",
@@ -746,6 +918,16 @@ pub static RELEASES: &[Release] = &[
         #[cfg(test)]
         identity_files: &[],
         files: &CENTURION_DOS_FILES,
+    },
+    Release {
+        id: "centurion-defender-of-rome-dos-4d5fd76b5e",
+        // The releases retain the same DOS save schema and option meanings.
+        // Keep the existing key stable; per-install video availability differs.
+        compatibility_id: "centurion-defender-of-rome-dos-100a",
+        edition: &CENTURION_DOS_100B,
+        #[cfg(test)]
+        identity_files: &[],
+        files: &CENTURION_DOS_100B_FILES,
     },
 ];
 

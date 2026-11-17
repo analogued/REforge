@@ -1084,6 +1084,67 @@ fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
 }
 
 #[test]
+fn centurion_video_choices_previews_and_pins_follow_the_detected_release() {
+    use centurion::assets::DosRelease;
+    let releases = [DosRelease::V100A, DosRelease::V100B].map(|profile| {
+        detection::RELEASES
+            .iter()
+            .find(|r| r.engine() == detection::Engine::Centurion(profile))
+            .unwrap()
+    });
+    let fixture = Fixture::for_releases(releases);
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+    let a = state
+        .games
+        .iter()
+        .position(|g| g.release_id == releases[0].id)
+        .unwrap();
+    let b = state
+        .games
+        .iter()
+        .position(|g| g.release_id == releases[1].id)
+        .unwrap();
+    assert_eq!(state.games[a].preview_variant(), "vga");
+    assert_eq!(state.games[b].preview_variant(), "vga");
+    assert!(
+        !state.games[a]
+            .option_choices()
+            .iter()
+            .any(|(label, _)| *label == "Video")
+    );
+    assert!(
+        state.games[b]
+            .option_choices()
+            .iter()
+            .any(|(label, choices)| *label == "Video" && choices.len() == 2)
+    );
+    let ega = state.games[b]
+        .options
+        .iter()
+        .find(|o| o.label == "Video")
+        .unwrap()
+        .choices
+        .iter()
+        .find(|c| c.value == "ega")
+        .unwrap()
+        .label;
+    state.games[b].save_option("Video", ega);
+    assert_eq!(state.games[b].preview_variant(), "ega");
+    assert_eq!(state.games[b].native_arguments(), ["--video", "ega"]);
+    assert_eq!(state.games[a].preview_variant(), "vga");
+    assert!(state.games[a].native_arguments().is_empty());
+    let expected_id = state.games[b].entry_id.clone();
+    let restored = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+    let game = restored
+        .games
+        .iter()
+        .find(|g| g.entry_id == expected_id)
+        .unwrap();
+    assert_eq!(game.preview_variant(), "ega");
+    assert_eq!(game.native_arguments(), ["--video", "ega"]);
+}
+
+#[test]
 fn gallery_mosaics_free_title_space_without_changing_card_geometry() {
     use reforge_sdl::{
         DisplayGeometry,
@@ -2164,7 +2225,9 @@ fn native_engine_previews() {
                         alleycat::launcher::preview(&inputs, format, variant)
                     }
                     detection::Engine::Mach3 => mach3::launcher::preview(&inputs, variant),
-                    detection::Engine::Centurion => centurion::launcher::preview(&inputs, variant),
+                    detection::Engine::Centurion(release) => {
+                        centurion::launcher::preview(&inputs, variant, release)
+                    }
                     detection::Engine::Btz(release) => {
                         btz::launcher::preview(&inputs, release, variant)
                     }

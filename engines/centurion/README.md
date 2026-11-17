@@ -1,10 +1,23 @@
 # `centurion` engine
 
-The `centurion` crate reconstructs the DOS 1.00A version of Centurion: Defender
+The `centurion` crate reconstructs DOS 1.00A and 1.00B of Centurion: Defender
 of Rome for [REforge](../../README.md). It implements province management,
 diplomacy, land and naval battles, gladiator shows, chariot races, Cleopatra and
 the closing presentations. It reads original resources without executing the
 DOS program or sound driver. Audio currently implements AdLib output.
+
+1.00A provides VGA graphics. The supported 1.00B package provides VGA and EGA;
+its launcher Video choice and `--video vga|ega` select original resource banks.
+Both use the same 320×200 logical geometry and DOS save format. Application
+detection selects a typed release profile and verifies all required roles;
+engines read those exact resolved paths, including renamed resources.
+
+The loader adapts 1.00B's moved naval text and footer pointers to the native
+runtime's shared layout without changing its version, credits, new-game data
+or save blocks. EGA selects the E-prefixed graphics banks and menu sprites,
+direct nibble colour maps and EGA drawing pens. Its packed full-screen images
+replace the VGA raw backgrounds. VGA-only DAC cycling and cached expansion
+aliasing are disabled for EGA; normal sprite animation and game timing remain.
 
 For installation, controls, difficulty, saves and presentation options, see the
 [player guide](../../docs/games/centurion.md). Original game assets and saved
@@ -38,17 +51,20 @@ raw captures, dumps and investigation scripts are not repository dependencies.
 | [`player`](src/player.rs), [`audio_output`](src/audio_output.rs) | Shared SDL host, settings, input adaptation and callback playback |
 | [`launcher`](src/launcher.rs), [`launcher_palette`](src/launcher_palette.rs) | Preview rendering and original-resource color extraction |
 
-`centurion::cli::run(args, files)` takes `OsString` arguments excluding the
-executable name and a `reforge_inputs::ResolvedFiles` map. Application detection
-owns release identification and full-file verification. Playback and launcher
+`centurion::cli::run(args, files, release)` takes `OsString` arguments excluding the
+executable name, a `reforge_inputs::ResolvedFiles` map and a typed `DosRelease`.
+Application detection owns release identification and full-file verification.
+Playback and launcher
 previews read exactly those selected paths, including renamed resources, without
 searching for substitutes. Structural parsing and bounds checks remain in the
 engine.
 
 Normal play needs `OVL0.OVL` and the `DAT`/`DIR` pairs for `CENT`, `MINIT`, `MMAP`,
 `BATL`, `MGLAD`, `MRACE`, `MNAVAL`, `NAVL` and `MNEGO`. The nineteen resource
-roles are selected by the application catalog; `CENTURIO.EXE` is not a normal
-player dependency. Launch through REforge as described in the player guide.
+roles are selected by the application catalog for 1.00A. 1.00B also requires
+the six E-prefixed bank pairs listed in the player guide, for 31 roles in total.
+`CENTURIO.EXE` is not a normal player dependency. Launch through REforge as
+described in the player guide.
 
 The default `sdl` feature enables interactive playback and launcher previews.
 `--no-default-features` excludes SDL while retaining headless simulation and raw
@@ -60,7 +76,8 @@ player integration.
 ### Launcher palette
 
 The launcher derives its color mosaic while preparing a preview from the selected
-resources. It counts each stored visible artwork pixel once, including both raw
+resources. EGA exposes its sixteen active colours. VGA counts each stored visible
+artwork pixel once, including both raw
 backgrounds, then includes cached bitmap expansion, province uniform remaps and
 procedural drawing pens. Colors found only through those runtime rules receive
 weight one. The extracted palette preserves CMAP order and RGB values; the shared
@@ -81,8 +98,9 @@ cargo run --locked -p centurion --bin centurion-prototype --features dev-tools -
   --record /path/to/new-recording
 ```
 
-Supply the original-named resource set above plus `CENTURIO.EXE`, whose identity
-is recorded. The output directory must be new; an existing recording is refused.
+Supply the original-named resource set above; `CENTURIO.EXE`, when present, also
+has its identity recorded. The selected video mode is retained for replay. The
+output directory must be new; an existing recording is refused.
 F12 adds a marker without a game action. Use `centurion-prototype --help` for the
 frontend's other diagnostic arguments.
 

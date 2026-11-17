@@ -221,6 +221,13 @@ impl Campaign {
         if commander >= 24 {
             return Err("Invalid legion commander".into());
         }
+        let fleet = usize::from(self.data[at + 17]);
+        // Only detach a reciprocal Roman cargo link; a stale legion-side
+        // index must not evict another legion from its transport.
+        if fleet < 3 && self.data[0x1117 + fleet * 12] == index as u8 {
+            self.data[0x1117 + fleet * 12] = 255;
+        }
+        self.data[at + 17] = 255;
         self.data[at + 13] = 255;
         self.data[at + 12] = 255;
         if self.data[0x1a20 + commander * 6] != 2 {
@@ -366,6 +373,44 @@ mod tests {
         ds[0x5274 + 32..0x5276 + 32].copy_from_slice(&300u16.to_le_bytes());
         Campaign::test_data(ds)
     }
+    #[test]
+    fn removing_embarked_legions_detaches_each_roman_fleet_and_preserves_dead_commanders() {
+        for fleet in 0..3 {
+            for commander_status in [0, 2] {
+                let mut state = state();
+                state.data[0x1924] = 31;
+                state.data[0x1925] = 2;
+                state.data[0x1929] = fleet as u8;
+                state.data[0x1117 + fleet * 12] = 0;
+                state.data[0x1a20] = commander_status;
+                state.retire_legion(0).unwrap();
+                assert_eq!(state.data[0x1924], 255);
+                assert_eq!(state.data[0x1925], 255);
+                assert_eq!(state.data[0x1929], 255);
+                assert_eq!(state.data[0x1117 + fleet * 12], 255);
+                assert_eq!(
+                    state.data[0x1a20],
+                    if commander_status == 2 { 2 } else { 1 }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn removing_a_legion_never_evicts_an_unrelated_transport_cargo() {
+        for (legion, fleet) in [(0, 0), (0, 3), (0, 255), (12, 0)] {
+            let mut state = state();
+            let at = 0x1918 + legion * 20;
+            state.data[at + 17] = fleet;
+            state.data[0x1117] = 2;
+            state.data[0x1117 + 3 * 12] = 0;
+            state.retire_legion(legion).unwrap();
+            assert_eq!(state.data[at + 17], 255);
+            assert_eq!(state.data[0x1117], 2);
+            assert_eq!(state.data[0x1117 + 3 * 12], 0);
+        }
+    }
+
     #[test]
     fn second_defender_can_save_a_revolt_without_refunding_reputation() {
         let mut state = state();

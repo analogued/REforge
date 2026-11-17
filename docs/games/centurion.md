@@ -181,8 +181,13 @@ orders or retreat.
 Enemy conquest adjusts reputation using the province's former status, adopting
 the 1.00B correction to a 1.00A bug that increased reputation when land was lost.
 Scouting also retains "legendary" for the richest treasuries instead of reading
-army-strength labels past the wealth-description table. Both corrections apply
-with every UI preset.
+army-strength labels past the wealth-description table.
+
+Canceling flagship selection when defending counts as retreat. A fleet that
+escapes moves with its cargo and spends its action; the carried legion retains
+its own action state. If no escape sea is available, the fleet and carried
+legion are lost. Removing a destroyed legion also releases its transport so it
+can carry another legion. These 1.00B corrections apply with every UI preset.
 
 Support covers the verified DOS 1.00A distribution and AdLib output. Other sound
 hardware modes are not implemented. Comparisons cover selected screens, mechanics

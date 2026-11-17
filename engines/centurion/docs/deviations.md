@@ -201,6 +201,29 @@ table at 160 talents and starts using the adjacent army-strength descriptions.
 The correction applies with every presentation preset and changes no treasury,
 army, negotiation or random state.
 
+### Defensive fleet retreat
+
+Canceling flagship selection while defending against an enemy-turn naval attack
+now returns the retreat result, as in DOS 1.00B. Escape and right-click use the
+same path. DOS 1.00A instead returns without moving the defending fleet. A
+surviving retreating fleet moves to the first eligible adjacent sea and is
+marked as having acted; its carried legion moves with it but retains its own
+action state. DOS 1.00A does not mark the retreating fleet's action.
+
+The existing escape search and trapped-fleet loss rules are retained. If no
+escape is available, the fleet and carried legion are lost. Offensive
+flagship cancellation still aborts entry into the destination, leaving the fleet
+and cargo at their origin with the fleet's action already spent.
+
+### Destroyed-legion transport links
+
+Removing a destroyed legion clears both its fleet link and the reciprocal
+transport cargo link, adopting the correction observed in DOS 1.00B. The same
+cleanup applies to campaign removal, land-battle settlement and naval losses,
+while preserving a dead commander's status. DOS 1.00A leaves stale links: a
+surviving transport can remain incorrectly occupied, and sailing can later move
+an unrelated legion that reuses the removed legion's slot.
+
 ## Invalid arena offers
 
 DOS can use uninitialized entries when its arena offer roster is exhausted.

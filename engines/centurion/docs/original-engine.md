@@ -170,6 +170,23 @@ A commander's death does not immediately end a battle; replacement handling
 follows. Some tactical positions can remain in a standoff until further orders
 or retreat. The replacement retains these behaviors.
 
+Canceling naval flagship selection returns result 0 in 1.00A and result bit 4
+(retreat) in the examined 1.00B build. An attacking fleet has already spent its
+action; either result aborts entry and leaves it at its origin. During enemy-turn
+defense, bit 4 invokes a forced retreat to the first adjacent sea whose stored
+distance is no greater than the current sea's and which contains no active
+permanent enemy fleet. Cargo moves with the fleet, retaining the legion's action
+state. The 1.00B retreat helper additionally marks the fleet's action spent.
+With no eligible escape, the fleet and its cargo legion are destroyed.
+
+The legion-removal routine is used for battle annihilation, province/revolt
+losses and destroyed transports. In 1.00A it clears the legion's active
+type/location but retains fleet/cargo links. The examined 1.00B routine clears
+both links. The surviving-transport case occurs when its embarked legion is
+annihilated attacking land: stale cargo can prevent boarding another legion or
+move an unrelated legion after the slot is reused. Native corrections are
+described in [deviations](deviations.md#defensive-fleet-retreat).
+
 Map music continues through legion/fleet selection, destination selection,
 readiness messages and cancellation. Returning from a province's Move command
 to the destination map requests the map score. Committing a valid land destination

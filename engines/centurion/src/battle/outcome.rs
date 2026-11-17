@@ -78,12 +78,7 @@ impl Preparation {
             let wins = word(&state.data, 0xc0fa)?.wrapping_add(1);
             put(&mut state.data, 0xc0fa, wins);
         } else if roman_left == 0 {
-            state.data[at + 13] = 255;
-            state.data[at + 12] = 255;
-            let commander = usize::from(state.data[at + 16]);
-            if state.data[0x1a20 + commander * 6] != 2 {
-                state.data[0x1a20 + commander * 6] = 1;
-            }
+            state.retire_legion(self.legion)?;
         } else {
             state.data[at + 11] = state.data[at + 11].saturating_sub(5);
         }
@@ -327,6 +322,57 @@ mod tests {
         assert_eq!(state.data[0x1924], 255);
         assert_eq!(state.data[0x1925], 255);
         assert_eq!(state.data[0x1a20], 2);
+    }
+
+    #[test]
+    fn annihilated_landing_force_frees_transport_and_slot_reuse_cannot_move_new_legion() {
+        let (mut scene, mut state) = result(3);
+        put(&mut scene.units[1], 0, 0);
+        state.data[0x1924] = 31;
+        state.data[0x1929] = 1;
+        state.data[0x1114 + 12] = 31;
+        state.data[0x1116 + 12] = 0;
+        state.data[0x1117 + 12] = 0;
+        put(&mut state.data, 0x110e + 12, 10);
+        scene.prepare_outcome(&mut state).unwrap();
+        assert!(!scene.outcome.as_ref().unwrap().victory);
+        assert_eq!(state.data[0x1929], 255);
+        assert_eq!(state.data[0x1117 + 12], 255);
+        assert_eq!(state.data[0x1116 + 12], 0);
+        assert_eq!(word(&state.data, 0x110e + 12).unwrap(), 10);
+
+        // Recruit into the freed record while the surviving fleet stays at sea.
+        state.data[0x595e] = 12;
+        put(&mut state.data, 0x5274 + 5 * 32, 100);
+        put(&mut state.data, 0x1aac, 100);
+        let mut rng = OriginalRng {
+            first: 1,
+            second: 2,
+        };
+        assert!(state.begin_recruitment(5, 0, &mut rng).unwrap().success);
+        assert_eq!(state.data[0x1924], 5);
+        assert_eq!(state.data[0x1929], 255);
+
+        // Another local legion can use the now empty transport.
+        state.data[0x1924 + 20] = 11;
+        state.data[0x1929 + 20] = 255;
+        put(&mut state.data, 0x191e + 20, 100);
+        state.data[0x8ede] = 50;
+        state.data[0x50ec + 11 * 8..0x50f4 + 11 * 8].fill(255);
+        state.data[0x50ec + 11 * 8] = 31;
+        assert_eq!(
+            crate::fleet::Boarding::prepare(&state, 1, 31)
+                .unwrap()
+                .fleet,
+            1
+        );
+
+        state.data[0x50ec + 31 * 8..0x50f4 + 31 * 8].fill(255);
+        state.data[0x50ec + 31 * 8] = 32;
+        state.finish_fleet_sailing(1, 32).unwrap();
+        assert_eq!(state.data[0x1114 + 12], 32);
+        assert_eq!(state.data[0x1924], 5);
+        assert_eq!(state.data[0x1924 + 20], 11);
     }
 
     #[test]

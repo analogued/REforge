@@ -431,6 +431,7 @@ impl EnemyTurn {
             });
             if let Some(p) = target {
                 s.data[0x1114 + fleet * 12] = p;
+                s.data[0x1116 + fleet * 12] = 1;
                 let cargo = s.data[0x1117 + fleet * 12];
                 if cargo != 255 {
                     s.data[0x1924 + usize::from(cargo) * 20] = p;
@@ -583,7 +584,7 @@ mod tests {
         }
     }
     #[test]
-    fn naval_retreat_uses_first_safe_sea_and_moves_cargo_without_spending_it() {
+    fn naval_retreat_spends_the_fleet_action_and_moves_cargo_without_spending_it() {
         let mut s = state();
         let mut turn = EnemyTurn {
             army: 0,
@@ -594,6 +595,8 @@ mod tests {
         s.data[0x1114] = 31;
         s.data[0x1116] = 0;
         s.data[0x1117] = 2;
+        s.data[0x1924 + 2 * 20] = 31;
+        s.data[0x1926 + 2 * 20] = 2;
         s.data[0x3d55 + 31] = 2;
         s.data[0x3d55 + 30] = 2;
         s.data[0x3d55 + 32] = 1;
@@ -604,7 +607,27 @@ mod tests {
         assert_eq!(turn.naval_returned(&mut s, 4).unwrap(), None);
         assert_eq!(s.data[0x1114], 32);
         assert_eq!(s.data[0x1924 + 2 * 20], 32);
-        assert_eq!(s.data[0x1116], 0);
+        assert_eq!(s.data[0x1116], 1);
+        assert_eq!(s.data[0x1926 + 2 * 20], 2);
+    }
+    #[test]
+    fn non_retreat_naval_results_preserve_fleet_location_and_action() {
+        for result in [0, 2] {
+            let mut s = state();
+            let mut turn = EnemyTurn {
+                army: 0,
+                target: 31,
+                defender: 1,
+                step: Step::AwaitNaval(0),
+            };
+            s.data[0x1114] = 31;
+            s.data[0x1116] = 0;
+            s.data[0x1117] = 2;
+            s.data[0x1924 + 2 * 20] = 31;
+            let before = s.data.clone();
+            assert_eq!(turn.naval_returned(&mut s, result).unwrap(), None);
+            assert_eq!(s.data, before, "result {result}");
+        }
     }
     #[test]
     fn garrison_victory_updates_rome_and_preserves_invaders_old_location() {
@@ -649,6 +672,8 @@ mod tests {
         assert_eq!(s.data[0x1116], 255);
         assert_eq!(s.data[0x1925], 255);
         assert_eq!(s.data[0x1a20], 1);
+        assert_eq!(s.data[0x1117], 255);
+        assert_eq!(s.data[0x1929], 255);
         assert_eq!(word(&s.data, 0x110e).unwrap(), 20);
     }
 }

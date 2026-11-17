@@ -805,7 +805,9 @@ impl Session {
             if stage == N::Ship && matches!(input, Input::Escape | Input::RightClick(..)) {
                 self.naval = None;
                 if self.enemies.is_some() {
-                    return self.finish_enemy_naval(assets, 0);
+                    // Declining a defensive flagship encounter is a retreat,
+                    // as corrected in DOS 1.00B.
+                    return self.finish_enemy_naval(assets, 4);
                 }
                 self.moving_fleet = None;
                 self.fleet_destination = None;

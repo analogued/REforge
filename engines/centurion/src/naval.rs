@@ -52,6 +52,28 @@ fn put(ds: &mut [u8], at: usize, value: u16) {
     ds[at..at + 2].copy_from_slice(&value.to_le_bytes());
 }
 
+fn settle_fleet_losses(view: &mut Campaign, player: usize, enemy: usize) -> Result<u16> {
+    let mut result = 0;
+    for (id, flag) in [(player, 1), (enemy, 2)] {
+        let remaining = (0..3)
+            .map(|k| word(&view.data, 0x110e + id * 12 + k * 2).unwrap_or(0))
+            .fold(0u16, u16::wrapping_add);
+        if remaining == 0 {
+            result |= flag;
+            view.data[0x1116 + id * 12] = 255;
+            let cargo = usize::from(view.data[0x1117 + id * 12]);
+            if cargo != 255 {
+                if flag == 1 {
+                    view.retire_legion(cargo)?;
+                } else {
+                    put(&mut view.data, 0xc11a + cargo * 14, 0);
+                }
+            }
+        }
+    }
+    Ok(if result == 0 { 4 } else { result })
+}
+
 fn footer_hull(value: u8) -> u8 {
     (value as i8).max(0) as u8
 }
@@ -787,32 +809,8 @@ impl Naval {
             counts_footer(frame, assets, ds, self.enemy, self.player)?;
         }
 
-        let mut result = 0;
-        for (id, flag) in [(self.player, 1), (self.enemy, 2)] {
-            let remaining = (0..3)
-                .map(|k| word(ds, 0x110e + id * 12 + k * 2).unwrap_or(0))
-                .fold(0u16, u16::wrapping_add);
-            if remaining == 0 {
-                result |= flag;
-                ds[0x1116 + id * 12] = 255;
-                let cargo = usize::from(ds[0x1117 + id * 12]);
-                if cargo != 255 {
-                    if flag == 1 {
-                        ds[0x1925 + cargo * 20] = 255;
-                        ds[0x1924 + cargo * 20] = 255;
-                        let leader = usize::from(ds[0x1928 + cargo * 20]);
-                        if ds[0x1a20 + leader * 6] != 2 {
-                            ds[0x1a20 + leader * 6] = 1;
-                        }
-                    } else {
-                        put(ds, 0xc11a + cargo * 14, 0);
-                    }
-                }
-            }
-        }
-        if result == 0 {
-            result = 4;
-        }
+        let result = settle_fleet_losses(&mut self.view, self.player, self.enemy)?;
+        let ds = self.view.data.as_mut_slice();
         self.result = result;
         let first = if self.cause == 8 {
             0x8ff2
@@ -992,4 +990,56 @@ fn counts_footer(
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fleet_loss_removes_cargo_links_in_the_settlement_snapshot() {
+        for commander_status in [0, 2] {
+            for enemy_survives in [false, true] {
+                let mut state = Campaign::test_data(vec![0; 65536]);
+                state.data[0x1116 + 12] = 0;
+                state.data[0x1117 + 12] = 2;
+                state.data[0x1924 + 2 * 20] = 31;
+                state.data[0x1925 + 2 * 20] = 2;
+                state.data[0x1929 + 2 * 20] = 1;
+                state.data[0x1a20] = commander_status;
+                state.data[0x1117 + 3 * 12] = 4;
+                put(&mut state.data, 0xc11a + 4 * 14, 500);
+                put(&mut state.data, 0x110e + 3 * 12, u16::from(enemy_survives));
+                let before = state.data.clone();
+                let mut view = state.clone();
+                assert_eq!(
+                    settle_fleet_losses(&mut view, 1, 3).unwrap(),
+                    if enemy_survives { 1 } else { 3 }
+                );
+                assert_eq!(view.data[0x1116 + 12], 255);
+                assert_eq!(view.data[0x1117 + 12], 255);
+                assert_eq!(view.data[0x1924 + 2 * 20], 255);
+                assert_eq!(view.data[0x1925 + 2 * 20], 255);
+                assert_eq!(view.data[0x1929 + 2 * 20], 255);
+                assert_eq!(view.data[0x1a20], if commander_status == 2 { 2 } else { 1 });
+                assert_eq!(
+                    word(&view.data, 0xc11a + 4 * 14).unwrap(),
+                    if enemy_survives { 500 } else { 0 }
+                );
+                assert_eq!(state.data, before);
+            }
+        }
+    }
+
+    #[test]
+    fn surviving_fleets_keep_their_cargo_links_on_retreat() {
+        let mut view = Campaign::test_data(vec![0; 65536]);
+        put(&mut view.data, 0x110e, 1);
+        put(&mut view.data, 0x110e + 3 * 12, 1);
+        view.data[0x1117] = 2;
+        view.data[0x1929 + 2 * 20] = 0;
+        let before = view.data.clone();
+        assert_eq!(settle_fleet_losses(&mut view, 0, 3).unwrap(), 4);
+        assert_eq!(view.data, before);
+    }
 }

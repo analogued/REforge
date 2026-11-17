@@ -51,6 +51,14 @@ four presets, Fine Tuning and Continue. Fine Tuning has the four categories and
 Continue; a category menu has four levels and Continue. The reconstruction uses
 these descriptors in [difficulty](../src/difficulty.rs) and the session renderer.
 
+The difficulty handler paints the applied preset (or Fine Tuning for mixed
+levels) white before entering its input loop. In mouse mode, pointer movement
+does not repaint the labels, so that applied label stays white while browsing.
+Keyboard mode instead clears the previous white label and paints the new focused
+row white during arrow navigation. The stored level changes only on activation.
+The native frontend's independent applied/focus labels are documented in
+[deviations](deviations.md#menu-feedback-and-editing).
+
 ## Mouse and keyboard presentation
 
 DOS selects its menu presentation according to its startup input mode. Mouse

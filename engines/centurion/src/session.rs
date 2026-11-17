@@ -3212,6 +3212,21 @@ impl Session {
                 &menu,
                 self.highlighted.then_some(self.selected),
             )?;
+            let applied = match self.phase {
+                Phase::Difficulty => Some(self.campaign.difficulty_preset().unwrap_or(4)),
+                Phase::DifficultyLevel => {
+                    Some(self.campaign.difficulty_level(self.difficulty_category)?)
+                }
+                _ => None,
+            };
+            if let Some(row) = applied {
+                // The applied value stays white independently of navigation focus.
+                let item = menu
+                    .items
+                    .get(row)
+                    .ok_or("Missing applied difficulty row")?;
+                frame.text(assets, &item.label, item.rect.0 + 11, item.rect.1, 15)?;
+            }
             if self.phase == Phase::FineTuning {
                 for category in 0..4 {
                     frame.text(

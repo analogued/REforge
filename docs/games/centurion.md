@@ -75,6 +75,11 @@ gladiatorial combat and naval battles; the current levels appear beside their
 categories. A level takes effect when selected. Continue or Escape goes back
 without undoing previous selections. These values are preserved in DOS saves.
 
+The applied preset or category level stays white while you browse. Hover or
+keyboard focus also makes a choice white, so two rows can be white at once;
+when focus is on the applied value, only that row is white. If the categories
+have different levels, Fine Tuning is the applied row in the main menu.
+
 ## Saves
 
 The nine slots displayed as 1–9 use DOS-compatible files `0.CSV`–`8.CSV`. By

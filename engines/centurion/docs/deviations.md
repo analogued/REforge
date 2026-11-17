@@ -70,6 +70,13 @@ items and wraps. Left/Right establishes initial focus in vertical menus and
 navigates side-by-side confirmations. Mouse entry otherwise waits for hover.
 These rules are independent of decoration style and acknowledgment input.
 
+Difficulty menus keep the applied preset or category level white independently
+of mouse or keyboard focus. A different focused row is also white; focusing the
+applied row produces one white label. Mixed category levels mark Fine Tuning in
+the main menu. This extends DOS mouse mode's persistent applied label to keyboard
+navigation, where DOS instead moves the white label with focus. Decorations
+continue to follow focus, and browsing does not change the stored difficulty.
+
 Tribute and Tribute Policy add a subdued band and current-level legend for the
 stored value, separate from focus. Local tribute reads that province's value;
 global policy continues to show stored policy after local overrides. This does

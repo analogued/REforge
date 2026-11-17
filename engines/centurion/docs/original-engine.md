@@ -139,6 +139,23 @@ meanings underpin the added native detail panels; DOS shows the original notice.
 
 ## Movement and battle behavior
 
+In DOS 1.00A's enemy-invasion capture path, ownership is cleared before applying
+the reputation adjustment, so the status-dependent multiplier becomes `5 / 4`.
+The examined 1.00B build calculates `floor(reputation * (5 - previous_status) / 4)`
+before clearing ownership instead. For reputation 80 and prior statuses 1–4,
+1.00A produces 100 in each case; 1.00B produces 80, 60, 40 and 20. This release
+comparison was verified with bounded execution of the original instructions;
+it does not establish exhaustive 1.00B support. The native correction is recorded
+in [deviations](deviations.md#province-loss-reputation).
+
+The scouting report indexes four wealth descriptions at `DS:5F52` using the
+province's plunder reserve divided by 40: small, unremarkable, immense and
+legendary. In 1.00A a reserve of 160 or more oversteps this table and reads the
+adjacent army descriptions at `DS:5F5A`, producing insignificant, ordinary or
+strong. The examined 1.00B build caps the index at 3, so reserves of 120–255
+remain legendary. The native engine adopts this
+[correction](deviations.md#scouting-wealth-descriptions).
+
 The map's Enter action selects a legion for movement, while Space selects a
 province or a ready local fleet. The two actions intentionally lead to different
 flows. When a land destination requires an encounter, resident code at `0x398A`

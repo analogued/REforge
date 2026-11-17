@@ -58,6 +58,30 @@ fn block(bytes: &[u8], index: usize) -> Result<String> {
     Ok(String::from_utf8_lossy(&bytes[start..start + end]).into_owned())
 }
 
+fn scout_report(state: &Campaign, province: u8) -> Result<String> {
+    let base = usize::from(province) * 32;
+    // DOS 1.00B caps the four wealth descriptions before the army table.
+    let wealth = usize::from((state.data[0x5284 + base] / 40).min(3));
+    let army = usize::from(
+        word(&state.data, 0x5272 + base)?
+            .wrapping_mul(3)
+            .wrapping_add(word(&state.data, 0x5270 + base)?)
+            / 2500,
+    );
+    let courage = usize::from(state.data[0x527a + base] / 25);
+    Ok(format!(
+        "{}{}{}{}{}{}{}{}",
+        state.string(0x5eab)?,
+        state.province_name(province)?,
+        state.string(0x5eba)?,
+        state.string(word(&state.data, 0x5f52 + wealth * 2)? as usize)?,
+        state.string(0x5ebf)?,
+        state.string(word(&state.data, 0x5f5a + army * 2)? as usize)?,
+        state.string(0x5ece)?,
+        state.string(word(&state.data, 0x5f62 + courage * 2)? as usize)?
+    ))
+}
+
 fn width(assets: &Assets, text: &str) -> Result<i32> {
     let widths = word(&assets.data_segment, 0xa05c)? as usize;
     let tracking = i32::from(assets.data_segment[0xa064]);
@@ -260,25 +284,7 @@ impl Diplomacy {
         let scout = assets.resource("MNEGO", "SCOUT.LZW")?;
         scene.say(assets, &block(&scout, usize::from(province))?, 0, false)?;
         scene.blank(assets, 1)?;
-        let wealth = usize::from(state.data[0x5284 + base] / 40);
-        let army = usize::from(
-            word(&state.data, 0x5272 + base)?
-                .wrapping_mul(3)
-                .wrapping_add(word(&state.data, 0x5270 + base)?)
-                / 2500,
-        );
-        let courage = usize::from(state.data[0x527a + base] / 25);
-        let description = format!(
-            "{}{}{}{}{}{}{}{}",
-            state.string(0x5eab)?,
-            state.province_name(province)?,
-            state.string(0x5eba)?,
-            state.string(word(&state.data, 0x5f52 + wealth * 2)? as usize)?,
-            state.string(0x5ebf)?,
-            state.string(word(&state.data, 0x5f5a + army * 2)? as usize)?,
-            state.string(0x5ece)?,
-            state.string(word(&state.data, 0x5f62 + courage * 2)? as usize)?
-        );
+        let description = scout_report(state, province)?;
         scene.say(assets, &description, 0, false)?;
         Ok(scene)
     }
@@ -638,6 +644,48 @@ mod tests {
 
     fn put(state: &mut Campaign, at: usize, value: u16) {
         state.data[at..at + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    #[test]
+    fn scout_report_keeps_every_treasury_value_in_the_wealth_descriptions() {
+        let mut state = Campaign::test_data(vec![0; 65536]);
+        for (address, text) in [
+            (0x5eab, "Treasury of "),
+            (0x5eba, ": "),
+            (0x5ebf, "; army "),
+            (0x5ece, "; courage "),
+            (0xd000, "small"),
+            (0xd020, "unremarkable"),
+            (0xd040, "immense"),
+            (0xd060, "legendary"),
+            (0xd080, "insignificant"),
+            (0xd0a0, "ordinary"),
+            (0xd0c0, "strong"),
+            (0xd0e0, "huge"),
+            (0xd100, "faint"),
+            (0xd180, "Test province"),
+        ] {
+            state.data[address..address + text.len()].copy_from_slice(text.as_bytes());
+        }
+        put(&mut state, 0x5224, 0xd180);
+        for index in 0..8 {
+            put(&mut state, 0x5f52 + index * 2, 0xd000 + index as u16 * 32);
+        }
+        put(&mut state, 0x5f62, 0xd100);
+        for treasury in 0..=u8::MAX {
+            state.data[0x5284 + 32] = treasury;
+            let wealth = match treasury {
+                0..=39 => "small",
+                40..=79 => "unremarkable",
+                80..=119 => "immense",
+                _ => "legendary",
+            };
+            assert_eq!(
+                scout_report(&state, 1).unwrap(),
+                format!("Treasury of Test province: {wealth}; army insignificant; courage faint"),
+                "treasury {treasury}"
+            );
+        }
     }
 
     #[test]

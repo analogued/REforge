@@ -1,6 +1,6 @@
 # Intentional deviations
 
-These are deliberate differences from DOS 1.00A in the native frontend. For
+These are deliberate differences from DOS 1.00A in the native engine. For
 controls and configuration, see the [player guide](../../../docs/games/centurion.md).
 Recovered original behavior is kept in the [DOS reference](original-engine.md);
 unsupported features and unresolved fidelity issues belong under
@@ -181,6 +181,25 @@ uses estimated source-sample consumption with a wall-clock fallback. These host
 adaptations retain logical scene timers and deterministic headless stepping,
 but do not reproduce CPU/VGA or physical device timing exactly. See the
 [technical limits](../README.md#validation-and-limits).
+
+## Campaign corrections from 1.00B
+
+### Province-loss reputation
+
+When an invading enemy captures a Roman-controlled province, reputation uses
+the province's previous ownership status: `floor(reputation * (5 - status) / 4)`.
+This adopts the correction observed in DOS 1.00B. DOS 1.00A clears ownership
+before the calculation and consequently increases reputation to 125% instead.
+The correction applies with every presentation preset; it changes no province
+capture, score-loss or battle-resolution rules.
+
+### Scouting wealth descriptions
+
+Scouting caps the treasury description at the fourth entry, "legendary," for
+120 talents or more, as in DOS 1.00B. DOS 1.00A reads past the four-entry wealth
+table at 160 talents and starts using the adjacent army-strength descriptions.
+The correction applies with every presentation preset and changes no treasury,
+army, negotiation or random state.
 
 ## Invalid arena offers
 

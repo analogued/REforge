@@ -178,6 +178,12 @@ A commander death does not immediately end a battle; a replacement can be
 assigned afterward. Some formations/orders can reach a standoff until further
 orders or retreat.
 
+Enemy conquest adjusts reputation using the province's former status, adopting
+the 1.00B correction to a 1.00A bug that increased reputation when land was lost.
+Scouting also retains "legendary" for the richest treasuries instead of reading
+army-strength labels past the wealth-description table. Both corrections apply
+with every UI preset.
+
 Support covers the verified DOS 1.00A distribution and AdLib output. Other sound
 hardware modes are not implemented. Comparisons cover selected screens, mechanics
 and complete play sequences, rather than every possible campaign. Timing and

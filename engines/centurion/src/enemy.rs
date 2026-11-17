@@ -339,14 +339,16 @@ impl EnemyTurn {
                             }
                         }
                         s.data[0xc113 + self.army * 14] = self.target;
-                        if s.ownership(self.target)? != 0 {
+                        let previous_status = s.ownership(self.target)?;
+                        if previous_status != 0 {
                             let p = usize::from(self.target) * 32;
                             s.data[0x5287 + p] = 255;
+                            // Use the pre-capture status, as corrected in DOS 1.00B.
+                            s.data[0x634e] = ((5 - i16::from(previous_status))
+                                * i16::from(s.data[0x634e])
+                                / 4) as u8;
                             s.data[0x5285 + p] = 0;
                             s.reset_province_enemy_fleets(self.target)?;
-                            // Ownership has already been cleared at 5192: 125% with byte wrap.
-                            s.data[0x634e] =
-                                (i16::from(s.data[0x634e]).wrapping_mul(125) / 100) as u8;
                             s.change_score(-if self.target > 5 {
                                 5
                             } else if self.target == 2 {
@@ -538,6 +540,47 @@ mod tests {
         assert_eq!(s.data[0xc113], 4);
         assert_eq!(s.data[0x1925], 2);
         assert_eq!(s.data[0x5285 + 11 * 32], 4);
+    }
+    #[test]
+    fn enemy_capture_applies_reputation_from_the_previous_province_status() {
+        for (status, reputation, expected) in [
+            (0, 80, 80),
+            (1, 80, 80),
+            (2, 80, 60),
+            (3, 80, 40),
+            (4, 80, 20),
+            (4, 79, 19),
+            (4, 1, 0),
+            (4, 0, 0),
+            (1, 255, 255),
+        ] {
+            let mut s = state();
+            let mut r = rng();
+            put(&mut s, 0xc11a + 10 * 14, 1000);
+            put(&mut s, 0x594a, 100);
+            s.data[0x3d2e] = 100;
+            s.data[0x5285 + 11 * 32] = status;
+            s.data[0x5287 + 11 * 32] = 2;
+            s.data[0x634e] = reputation;
+            let mut turn = EnemyTurn {
+                army: 10,
+                target: 11,
+                defender: 0,
+                step: Step::Capture,
+            };
+            assert_eq!(turn.next(&mut s, &mut r).unwrap(), EnemyAction::Done);
+            assert_eq!(
+                s.data[0x634e], expected,
+                "status {status}, reputation {reputation}"
+            );
+            assert_eq!(s.ownership(11).unwrap(), 0);
+            assert_eq!(s.data[0xc113 + 10 * 14], 11);
+            assert_eq!(
+                word(&s.data, 0x594a).unwrap(),
+                if status == 0 { 100 } else { 95 }
+            );
+            assert_eq!(s.data[0x5287 + 11 * 32], if status == 0 { 2 } else { 255 });
+        }
     }
     #[test]
     fn naval_retreat_uses_first_safe_sea_and_moves_cargo_without_spending_it() {

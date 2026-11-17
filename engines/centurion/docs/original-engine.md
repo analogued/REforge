@@ -102,9 +102,10 @@ province or a ready local fleet. The two actions intentionally lead to different
 flows. When a land destination requires an encounter, resident code at `0x398A`
 marks the legion Moved before calling the encounter handler at `0x4B3F`.
 Withdrawing from negotiations or canceling formation/tactic selection does not
-restore readiness. Cancellation before combat does not itself move the legion or
-apply battle casualties. This is verified original behavior; its design intent
-is uncertain.
+restore readiness: the attempted expedition has already spent the move. In an
+encounter canceled before any combat, the legion's stored location remains at
+its origin and no battle casualties are applied. The replacement retains this
+behavior.
 
 A commander's death does not immediately end a battle; replacement handling
 follows. Some tactical positions can remain in a standoff until further orders

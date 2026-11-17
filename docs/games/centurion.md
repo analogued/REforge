@@ -140,10 +140,9 @@ showing the stored policy. `--original-tribute-menus` hides the added indicator.
 
 ## Original rules and current limits
 
-Committing a legion to a land destination that triggers an encounter spends its
-move before negotiations or battle setup. Canceling formation/tactic selection does not restore
-that move, even if no fighting occurs. This reproduces DOS behavior; whether
-the cancellation behavior was intended is uncertain.
+A legion's move covers the expedition, even if it ends without a fight. Once
+the legion enters an encounter, withdrawing from negotiations or canceling
+formation/tactic selection leaves its move spent for that turn.
 
 A commander death does not immediately end a battle; a replacement can be
 assigned afterward. Some formations/orders can reach a standoff until further

@@ -15,29 +15,23 @@ MRACE, MNAVAL, NAVL and MNEGO** together in the game directory. All nineteen
 runtime files are required. The original DOS executable is not required by the
 REforge player. Other distributions and platforms are not automatically compatible.
 
-The application verifies the complete required files. Renamed files work when
-their contents match the supported distribution; the engine reads those exact
-verified paths. Existing `0.CSV` through `8.CSV` saves are optional.
+Renamed files work when their contents match the supported distribution.
+Existing `0.CSV` through `8.CSV` saves are optional.
 
 ## Start playing
 
 After [building REforge](../../README.md#getting-started), add the game directory
-in the launcher or run:
+in the launcher or run from the repository root:
 
 ```sh
 ./target/release/reforge --original /path/to/centurion
 ```
 
 A key or click skips the introduction to the orders prologue; another enters the
-campaign map. Menus accept keyboard navigation, shortcuts and mouse input.
-After moving the pointer with the arrow keys, mouse movement and clicks continue
-from that position.
-On the campaign map, the territory under the pointer has a brighter border:
-blue for Roman territory and brown for other territory. Arrow-key cursor
-movement gives the same feedback. **Enhancements → Advanced options → Map
-highlight** can turn this off; Reforged enables it and Original disables it.
-Territory info popups keep their territory highlighted while open. Normal hover
-resumes at the current pointer position on dismissal; unrelated menus clear it.
+campaign map. Click a controlled or allied province to open its management
+panel. Clicking an uncontrolled province or empty sea shows an information
+popup, including any army or fleet there. Enter, Space, Escape or either mouse
+button dismisses it.
 
 ## Controls
 
@@ -47,25 +41,31 @@ resumes at the current pointer position on dismissal; unrelated menus clear it.
 | Host pause / resume | Pause/Break, or controller Start/Menu |
 | Quit / return to launcher | Ctrl+Q or the window close button |
 | Campaign map | Click a province; arrows move the cursor and Space selects it. Enter selects a legion. Escape or F1 opens Game Control. |
-| Province menus | Arrows select, Enter activates, Escape goes back; letters activate labeled shortcuts. |
-| Move a legion | Use the province's Move command, or right-click the map; choose a legion and destination. |
+| Menus | Arrows select, Enter activates, Escape goes back; letters activate labeled shortcuts. Mouse movement highlights choices; click to activate. |
+| Move a legion | Use the province's Move command, Enter on the map, or right-click the map; choose a legion and destination. |
 | Fleets | F lists fleets. Space selects a ready local fleet and its destination. |
 | Ship purchases | Up/Down adjusts quantity; Left/Right selects OK or Cancel. Enter or Space activates the selected action (OK by default); Escape cancels. Both actions also accept mouse clicks. |
 | End Turn | E or the map's End Turn button |
-| Land battle | Space or click pauses. M orders melee, R retreat and D resume; S displays orders. Select a cohort for individual orders or drag a destination. |
+| Land battle | Space or click pauses. M orders melee, R retreat and D resume; S displays orders. Select a cohort for individual orders using arrows and Space/Enter, or drag a destination. |
 | Naval battle | Arrows steer/change speed, Space or Insert fires arrows, Enter or + boards, R retreats. |
 | Gladiator show | Left approaches, Right backs away, Up/Down guards; Left with Up/Down attacks high/low. Up spares and Down kills at judgment. |
 | Chariot race | Arrows steer/brake; Up whips, Up with Left/Right strikes. |
+
+Mouse and keyboard navigation work together. Menus opened by keyboard show
+focus immediately; returning to a parent restores its previous choice. If
+nothing is highlighted, any arrow first highlights the first enabled choice.
+Further presses navigate normally, skipping disabled items and wrapping.
+Selectors also show their current value or confirmation default. Mouse-opened
+menus otherwise wait for hover. After moving the map pointer with arrows,
+mouse movement and clicks continue from that position.
 
 Escape keeps its original game action, including canceling formation/tactic
 selection. Use F10 for shared Settings. Controller navigation is available in
 Settings; campaign and combat gameplay uses the keyboard and mouse.
 
-Settings provides the shared fullscreen, scaling, CRT presentation and audio
-controls. Music and effects levels adjust their host output without changing
-original sequencing. The audio output continues independently of window drawing;
-host pause and Settings pause game time and audio together. See the
-[Settings reference](../configuration.md).
+For fullscreen, scaling, CRT presentation, audio levels and output-device
+selection, see the shared [Settings reference](../configuration.md).
+Settings and host pause suspend game time and audio together.
 
 ## Difficulty
 
@@ -76,105 +76,83 @@ gladiatorial combat and naval battles; the current levels appear beside their
 categories. A level takes effect when selected. Continue or Escape goes back
 without undoing previous selections. These values are preserved in DOS saves.
 
-## Saves and DOS comparison
+## Saves
 
 The nine slots displayed as 1–9 use DOS-compatible files `0.CSV`–`8.CSV`. By
 default, saves are read and written beside the selected game installation, so
-DOS and REforge can share progress. Select a slot again after switching versions
-to load its latest contents. Save prompts identify the destination slot; back up
-wanted files before replacing them.
+DOS and REforge can share progress. Load a slot again after switching versions
+to pick up its latest contents. Save prompts identify the destination slot and
+prefill the current campaign description, with room for 47 ASCII characters.
+Back up wanted files before replacing them.
 
 Choose another save directory with `--state-dir /path/to/saves`. Loading first
 checks that directory, then the original installation for a missing slot. To
 start from a particular campaign file, add `--load /path/to/7.CSV`.
 Original game resources are only read; campaign writes target the save directory.
 
-## Presentation and original rules
+## Game-specific options
 
-Click an uncontrolled province or empty sea to see its name. If a roaming army
-is there, the notice also identifies its origin. Either mouse button, Enter,
-Space or Escape dismisses the popup.
-Controlled and allied provinces open their normal management panels.
+Open **F10 → Centurion overrides → Enhancements → Centurion UI**. Enable
+**Override global defaults** to edit the game settings, then Apply.
+**UI preset** selects Original or Reforged (the default). Expand **Advanced
+options** to adjust the four choices separately:
 
-Menus combine keyboard-style selection boxes with mouse-hover highlighting.
-Tribute and Tribute Policy also mark the currently applied level with a subdued
-band. `--original-tribute-menus` hides that added indicator for comparisons.
-In Settings, select **Centurion overrides → Enhancements** to edit **Centurion UI**.
-**UI preset** selects Original or Reforged (the default) for the options in that
-section. Expand **Advanced options** to adjust the individual choices.
-**Fleet information** offers Original (the DOS name/location notice), Detailed
-(the ship and troop table), and Both (table and notice together). **Both** is the
-Reforged default. One key or click dismisses either view or their combination.
-**Popup cursor** offers Visible (the Reforged default) and Hidden (DOS behavior).
-It applies to acknowledgment messages and read-only lists, including reports in
-battles and games. Interactive choices and Yes/No buttons retain their cursor.
-**Menu decorations** offers Mouse (the default rails), Keyboard (square
-selectors), and Dynamic. Dynamic switches to Keyboard after arrow navigation
-and to Mouse after pointer movement or a click. Both input methods remain usable
-in every style. This does not change the separate continue-prompt rule below.
-Enabled menu and confirmation choices highlight under the mouse in every style.
-Move outside a choice to clear its hover highlight; a click or keyboard
-activation is still required to select it.
-Menus opened by keyboard show focus immediately, and returning to a parent menu
-restores its previous choice. If nothing is highlighted, any arrow establishes
-focus on the first enabled choice; later presses navigate normally, skipping
-disabled items and wrapping. Existing values and confirmation defaults remain
-visible when entering their selectors. Mouse-opened menus wait for hover.
+| Option | Original preset | Reforged preset |
+| --- | --- | --- |
+| Fleet information | Original | Both |
+| Popup cursor | Hidden | Visible |
+| Menu decorations | Mouse | Mouse |
+| Map highlight | Off | On |
 
-The presets apply all three choices: Original selects Original fleet
-information, Hidden and Mouse; Reforged selects Both, Visible and Mouse. Other
-combinations show Custom. Only the individual choices are saved. Apply takes effect
-immediately, including on an open popup; Cancel discards pending edits.
+**Fleet information** affects enemy inspection. Original shows the DOS
+name/location notice; Detailed shows ship counts and an embarked Troops total;
+Both shows the table above the notice. Troops includes infantry, cavalry and
+elephants; an empty transport shows None. Marauding armies at sea show their full
+name and separate infantry, cavalry and elephant counts instead of ship counts.
+One key or click dismisses the whole view. Roman fleet tables always show full
+legion names and fleet readiness, with columns that make room for longer names.
 
-Continue prompts follow the last deliberate gameplay input: a mouse click gives
-“Click to continue”; a key gives “Hit any key to continue”. Mouse motion, button
-releases and timer updates do not switch the wording. Either input method can
-still dismiss an acknowledgment regardless of its current wording.
+**Popup cursor** controls the pointer on acknowledgment messages and read-only
+lists, including reports. Interactive choices keep their pointer in either mode.
 
-The Fleet information choice affects enemy inspection. Roman tables use centered
-columns with complete legion names (such as I Ital and I Aeg) and fleet readiness.
-They start with spacing close to DOS and make room for longer names by moving
-only the necessary ship/Legion columns left. All rows in a panel stay aligned.
-Enemy tables keep fixed positions and show centered ship counts and an embarked
-Troops total, without a Status column. Troops includes infantry, cavalry and
-elephants; no embarked army
-shows None. Counts use plain decimal digits, as in the original numeric tables.
-Marauding armies travelling by sea use the same information setting. Their panel
-shows the full army name and separate Infantry, Cavalry and Elephants counts.
-Both also keeps the original name/location notice. Ship counts are omitted:
-the game generates their temporary ships only when a naval battle begins.
-Fleet movement, selection rules and naval mechanics are unchanged. Other menu
-presentation changes above are independent of this preset. These choices are
-described in the engine's
-[deviations reference](../../engines/centurion/docs/deviations.md).
+**Menu decorations** selects Mouse rails, Keyboard square selectors, or Dynamic.
+Dynamic switches to Keyboard after arrow navigation and to Mouse after pointer
+movement or a click. Both input methods and choice highlighting work in every
+style.
+
+**Map highlight** brightens the territory border under the pointer: blue for
+Roman territory and brown for other territory. Arrow-key movement gives the same
+feedback. Information popups keep their territory highlighted until dismissed;
+unrelated menus clear it.
+
+Other combinations display Custom. The individual choices are saved. Apply
+updates presentation immediately, including open popups; Cancel discards pending
+settings edits. These presets control the four options above.
+
+Continue prompts independently follow the last deliberate gameplay input:
+“Click to continue” after a mouse click, or “Hit any key to continue” after a key.
+Pointer motion does not switch the wording. Either input method still dismisses
+the acknowledgment.
+
+Tribute and Tribute Policy mark the currently applied level with a subdued band,
+separate from the brighter selection highlight. Changing global policy updates
+controlled provinces; local tribute can then override it. The global menu keeps
+showing the stored policy. `--original-tribute-menus` hides the added indicator.
+
+## Original rules and current limits
 
 Several surprising original rules are retained. Canceling formation/tactic
 selection spends that legion's action. A commander death does not immediately
 end a battle; a replacement can be assigned afterward. Some formations/orders
-can reach a standoff until further orders or retreat. Saves preserve these
-original mechanics.
+can reach a standoff until further orders or retreat.
 
-## Development recording and limits
+Support covers the verified DOS 1.00A distribution and AdLib output. Other sound
+hardware modes are not implemented. Comparisons cover selected screens, mechanics
+and complete play sequences, rather than every possible campaign. Timing and
+some original undefined-state behavior can still differ from DOS.
 
-Recording is available in the standalone `centurion-prototype` research frontend
-with the opt-in `dev-tools` feature; it is separate from normal launcher play.
-From the repository root:
-
-```sh
-cargo run -p centurion --features dev-tools --bin centurion-prototype -- \
-  --original /path/to/centurion --state-dir /path/to/centurion \
-  --record /path/to/new-recording
-```
-
-F12 adds a marker. Recording directories must be new; separate
-sessions neither overwrite nor append to an existing recording. Recordings
-preserve original-derived state and images and should remain outside source control.
-Normal builds exclude recording support.
-
-Support covers the verified DOS distribution and AdLib output. Other sound
-hardware modes and the original fine-tuning settings are not implemented.
-Selected screens, mechanics and complete play sequences have been compared;
-this does not establish exhaustive DOS parity. CPU-dependent naval polling,
-interrupt timing and original uninitialized racing state remain fidelity limits.
-See the [engine documentation](../../engines/centurion/README.md) for the research
-frontend, validation and technical limits.
+For implementation, development tools and technical limits, see the
+[engine documentation](../../engines/centurion/README.md). Original behavior and
+deliberate changes are described separately in the
+[DOS reference](../../engines/centurion/docs/original-engine.md) and
+[deviations reference](../../engines/centurion/docs/deviations.md).

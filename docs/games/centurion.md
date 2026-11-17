@@ -42,7 +42,7 @@ button dismisses it.
 | Campaign map | Click a province; arrows move the cursor and Space selects it. Enter selects a legion. Escape or F1 opens Game Control. |
 | Menus | Arrows select, Enter activates, Escape goes back; letters activate labeled shortcuts. Mouse movement highlights choices; click to activate. |
 | Move a legion | Use the province's Move command, Enter on the map, or right-click the map; choose a legion and destination. |
-| Fleets | F lists fleets. Space selects a ready local fleet and its destination. |
+| Fleets | F lists fleets. Space or left click selects a local fleet and its destination. When several fleets share a sea, hover or use arrows to highlight a row, then click or press Enter/Space; 1–3 selects a row directly. |
 | Ship purchases | Up/Down adjusts quantity; Left/Right selects OK or Cancel. Enter or Space activates the selected action (OK by default); Escape cancels. Both actions also accept mouse clicks. |
 | End Turn | E or the map's End Turn button |
 | Land battle | Space or click pauses. M orders melee, R retreat and D resume; S displays orders. Select a cohort for individual orders using arrows and Space/Enter, or drag a destination. |

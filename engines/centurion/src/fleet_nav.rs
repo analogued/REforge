@@ -164,9 +164,16 @@ impl Table {
         }
         Ok(())
     }
-    fn row(&self, frame: &mut Frame, assets: &Assets, index: usize, y: i32) -> Result<()> {
+    fn row(
+        &self,
+        frame: &mut Frame,
+        assets: &Assets,
+        index: usize,
+        y: i32,
+        color: u8,
+    ) -> Result<()> {
         for ((_, center), text) in self.columns.iter().zip(&self.rows[index]) {
-            frame.center_text(assets, text, *center, y, 0)?;
+            frame.center_text(assets, text, *center, y, color)?;
         }
         Ok(())
     }
@@ -223,7 +230,13 @@ pub fn local(
     }
     for number in 0..ids.len() {
         let y = 15 + prefix + number as i32 * 10;
-        table.row(frame, assets, number, y)?;
+        table.row(
+            frame,
+            assets,
+            number,
+            y,
+            if selected == Some(number) { 15 } else { 0 },
+        )?;
     }
     Ok(())
 }
@@ -237,7 +250,7 @@ pub fn movement(
     let table = Table::read(assets, state, &[index])?;
     frame.bevel(2, 0, 317, 31, 26);
     table.headings(frame, assets, 5)?;
-    table.row(frame, assets, 0, 16)?;
+    table.row(frame, assets, 0, 16, 0)?;
     for target in if sprites.is_empty() {
         Vec::new()
     } else {
@@ -332,7 +345,7 @@ pub fn complete_list(frame: &mut Frame, assets: &Assets, state: &Campaign) -> Re
     )?;
     table.headings(frame, assets, top + 22)?;
     for number in 0..ids.len() {
-        table.row(frame, assets, number, top + 32 + number as i32 * 8)?;
+        table.row(frame, assets, number, top + 32 + number as i32 * 8, 0)?;
     }
     Ok(())
 }

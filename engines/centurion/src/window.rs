@@ -252,7 +252,9 @@ pub(crate) fn key_input(key: u32, phase: Phase) -> Option<Input> {
         0x4000004f => Some(Input::Right),
         97..=122 => Some(Input::Shortcut(key as u8)),
         49..=53 if phase == Phase::BattlePreparation => Some(Input::Shortcut(key as u8)),
-        49..=51 if phase == Phase::LegionSelect => Some(Input::Shortcut(key as u8)),
+        49..=51 if matches!(phase, Phase::LegionSelect | Phase::FleetSelect) => {
+            Some(Input::Shortcut(key as u8))
+        }
         // The original BIOS input accepts nonzero characters and Insert.
         // These were previously omitted from the frontend's game-key mapping.
         9 | 32..=126 | 0x40000049
@@ -748,6 +750,23 @@ mod tests {
                 matches!(key_input(key, Phase::BattlePreparation), Some(Input::Shortcut(value)) if u32::from(value) == key)
             );
             assert!(key_input(key, Phase::Map).is_none());
+        }
+    }
+
+    #[test]
+    fn local_unit_selectors_accept_navigation_and_number_keys() {
+        for phase in [Phase::LegionSelect, Phase::FleetSelect] {
+            for key in 49..=51 {
+                assert!(
+                    matches!(key_input(key, phase), Some(Input::Shortcut(value)) if u32::from(value) == key)
+                );
+            }
+            assert!(key_input(52, phase).is_none());
+            assert!(matches!(key_input(0x40000052, phase), Some(Input::Up)));
+            assert!(matches!(key_input(0x40000051, phase), Some(Input::Down)));
+            assert!(matches!(key_input(13, phase), Some(Input::Enter)));
+            assert!(matches!(key_input(32, phase), Some(Input::Enter)));
+            assert!(matches!(key_input(27, phase), Some(Input::Escape)));
         }
     }
 

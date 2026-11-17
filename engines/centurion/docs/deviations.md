@@ -82,8 +82,10 @@ style; difficulty still uses the selected style.
 ## Menu feedback and editing
 
 Enabled choices highlight on hover throughout menus and confirmations, including
-Hold Games, arena/race choices and Game Control. Leaving a hit area clears mouse
-focus; motion never activates a choice or acknowledges a message. Confirmation
+Hold Games, arena/race choices, Game Control and the local fleet selector. The
+fleet selector highlights the entire focused row, including its statistics.
+Leaving a hit area clears mouse focus; motion never activates a choice or
+acknowledges a message. Confirmation
 drawing, hover and clicks share their title-dependent button positions.
 
 Keyboard entry immediately exposes the first enabled action or an existing

@@ -115,8 +115,12 @@ items and wraps. Left/Right establishes initial focus in vertical menus and
 navigates side-by-side confirmations. Mouse entry otherwise waits for hover.
 These rules are independent of decoration style and acknowledgment input.
 
-The save-name prompt additionally identifies the destination slot. Descriptions
-still prefill from the current campaign, not the selected slot's previous name.
+Save and Load retain the original slot-panel geometry and the previous Game
+Control view behind them. Native focus whitens both the number prefix and the
+description; DOS draws descriptions black separately from selectable prefixes.
+The native save-name prompt is a separate panel that additionally identifies
+the destination slot, with the slot list retained behind it. Descriptions still
+prefill from the current campaign, not the selected slot's previous name.
 
 Ship quantity editors always show OK and Cancel, whereas DOS substitutes an
 Enter/ESC instruction line in keyboard mode. Hover and keyboard focus use the

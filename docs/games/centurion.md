@@ -82,6 +82,9 @@ levels, Fine Tuning is the applied row in the main menu.
 
 ## Saves
 
+Save Game and Load Game open the original nine-row panels over the Game Control
+menu. Hover or use arrows to select a slot, then click or press Enter.
+
 The nine slots displayed as 1–9 use DOS-compatible files `0.CSV`–`8.CSV`. By
 default, saves are read and written beside the selected game installation, so
 DOS and REforge can share progress. Load a slot again after switching versions

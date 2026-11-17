@@ -123,6 +123,7 @@ pub struct Session {
     recording: Option<crate::record::Recorder>,
     pub description: String,
     slot: usize,
+    save_load_background: Option<Frame>,
     difficulty_category: usize,
     notice: String,
     intro: Bitmap,
@@ -227,6 +228,7 @@ impl Session {
             recording: None,
             description: String::new(),
             slot: 0,
+            save_load_background: None,
             difficulty_category: 0,
             notice: String::new(),
             intro: assets.bitmap("MINIT", "ROMULUS.CBM")?,
@@ -1494,7 +1496,9 @@ impl Session {
     }
 
     fn menu_hit(&self, x: i32, y: i32) -> Option<usize> {
-        if self.difficulty_menu_address().is_some() {
+        if self.difficulty_menu_address().is_some()
+            || matches!(self.phase, Phase::SaveSlots | Phase::LoadSlots)
+        {
             return self.navigation_menu().ok().flatten()?.hit(x, y);
         }
         if self.phase == Phase::Naval && self.rows() != 0 {
@@ -1756,6 +1760,9 @@ impl Session {
     }
 
     fn navigation_menu(&self) -> Result<Option<crate::province::Menu>> {
+        if matches!(self.phase, Phase::SaveSlots | Phase::LoadSlots) {
+            return self.save_load_menu().map(Some);
+        }
         if let Some(address) = self.difficulty_menu_address() {
             let mut menu = crate::province::Menu::read(&self.campaign, address)?;
             if self.phase == Phase::DifficultyLevel {
@@ -1789,6 +1796,18 @@ impl Session {
         self.province_menu()
             .map(|address| crate::province::Menu::read(&self.campaign, address))
             .transpose()
+    }
+
+    fn save_load_menu(&self) -> Result<crate::province::Menu> {
+        let mut menu = crate::province::Menu::read(&self.campaign, 0x5bcc)?;
+        // The DOS handlers install this title in the shared slot descriptor.
+        // Keep presentation changes out of campaign data and DOS saves.
+        menu.title = self.campaign.string(if self.phase == Phase::SaveSlots {
+            0x5b18
+        } else {
+            0x5b4a
+        })?;
+        Ok(menu)
     }
     fn focus_menu_id(&self) -> Option<(Phase, usize)> {
         let detail = match self.phase {
@@ -2273,6 +2292,9 @@ impl Session {
                 self.close_province_modal();
             }
             Phase::Menu => {
+                if self.selected < 2 {
+                    self.save_load_background = Some(self.render_background(assets)?);
+                }
                 self.phase = match self.selected {
                     0 => Phase::SaveSlots,
                     1 => Phase::LoadSlots,
@@ -2336,6 +2358,7 @@ impl Session {
             Phase::SaveSlots => {
                 self.slot = self.selected;
                 self.description = self.campaign.string(0xa8f0)?;
+                self.save_load_background = Some(self.render_background(assets)?);
                 self.phase = Phase::SaveDescription;
             }
             Phase::LoadSlots => {
@@ -3235,6 +3258,13 @@ impl Session {
                 frame =
                     self.render_province(assets, self.command_menu(), self.province_selection)?;
             }
+            Phase::SaveSlots | Phase::LoadSlots | Phase::SaveDescription => {
+                frame = if let Some(background) = &self.save_load_background {
+                    background.clone()
+                } else {
+                    crate::campaign::render(assets, &self.campaign, &self.map, &self.sprites)?
+                };
+            }
             Phase::Map => {
                 let hovered = if self.map_highlight == reforge_settings::MapHighlight::On
                     && self.map_pointer_active
@@ -3301,27 +3331,15 @@ impl Session {
                 }
             }
         } else if matches!(self.phase, Phase::SaveSlots | Phase::LoadSlots) {
-            let title = if self.phase == Phase::SaveSlots {
-                "Select a Save Position"
-            } else {
-                "Select a Game to Load"
-            };
-            frame.bevel(30, 40, 290, 166, 26);
-            frame.center_text(assets, title, 160, 46, 15)?;
-            crate::province::decorate_menu(
-                &mut frame,
-                &self.sprites[1],
+            let menu = self.save_load_menu()?;
+            self.province_panels.plain_menu(
+                assets,
                 &self.campaign,
-                &(0..self.rows())
-                    .map(|row| {
-                        let top = 68 + row as i32 * 10;
-                        (39, top, 284, top + 10)
-                    })
-                    .collect::<Vec<_>>(),
+                &mut frame,
+                &menu,
                 self.highlighted.then_some(self.selected),
-                true,
-            );
-            for row in 0..self.rows() {
+            )?;
+            for (row, item) in menu.items.iter().enumerate() {
                 let description = self
                     .load_slot(assets, row)
                     .ok()
@@ -3333,12 +3351,11 @@ impl Session {
                         Some(String::from_utf8_lossy(&save[4..4 + end]).into_owned())
                     })
                     .unwrap_or_else(|| "Empty".into());
-                let label = format!("{}  {description}", row + 1);
                 frame.text(
                     assets,
-                    &label,
-                    50,
-                    68 + row as i32 * 10,
+                    &description,
+                    65,
+                    item.rect.1,
                     if self.highlighted && row == self.selected {
                         15
                     } else {

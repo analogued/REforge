@@ -37,6 +37,24 @@ This is a partial field map, not a complete save specification. Presentation
 preferences such as cursor visibility, menu decorations and continue-prompt
 input are native host state and do not add fields to the DOS save image.
 
+### Save and load panels
+
+The slot selector descriptor at `DS:5BCC` uses bounds `(30,40)` to `(290,159)`
+over the Game Control menu. Its nine 12-byte row records start at `DS:5B60`;
+absolute row bounds are `(36,63+10n)` to `(284,73+10n)` for zero-based row `n`.
+The generic menu renderer draws the static `1 -` through `9 -` prefixes at x=47;
+the save/load handlers draw descriptions separately at x=65 on the same rows.
+The title is centered at `(160,46)`.
+
+Resident Save (`7784`) installs title `DS:5B18`, “Select a Save Position,” in the
+shared descriptor. Load (`78F0`) installs `DS:5B4A`, “Select a Game to Load.”
+Descriptions are drawn black separately from the descriptor labels; keyboard
+selection can whiten the number prefix without repainting the description.
+The original description editor instead uses title `DS:5B30`, “Enter a Game
+Description,” and edits at the selected row's description position. The native
+prompt and focus improvements are described in
+[deviations](deviations.md#menu-feedback-and-editing).
+
 ### Difficulty menus
 
 The four difficulty bytes at `DS:048E` through `DS:0491` use levels 0–3 for

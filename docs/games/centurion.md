@@ -16,7 +16,6 @@ runtime files are required. The original DOS executable is not required by the
 REforge player. Other distributions and platforms are not automatically compatible.
 
 Renamed files work when their contents match the supported distribution.
-Existing `0.CSV` through `8.CSV` saves are optional.
 
 ## Start playing
 

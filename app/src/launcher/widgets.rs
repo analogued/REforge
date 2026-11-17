@@ -248,9 +248,8 @@ pub fn palette_size(palette: &PaletteDisplay, dot_size: f32) -> Vec2 {
         )
     } else {
         Vec2::new(
-            palette.colours.len() as f32 * dot_size
-                + palette.colours.len().saturating_sub(1) as f32 * 3.0,
-            dot_size,
+            palette.columns as f32 * dot_size + palette.columns.saturating_sub(1) as f32 * 3.0,
+            palette.rows as f32 * dot_size + palette.rows.saturating_sub(1) as f32 * 3.0,
         )
     }
 }
@@ -298,8 +297,9 @@ pub fn paint_palette_at(
         Color32::from_gray(172)
     };
     for (i, [r, g, b]) in palette.colours.iter().enumerate() {
-        let x = (origin.x + i as f32 * (size + gap)).round();
-        let sq = Rect::from_min_size(Pos2::new(x, origin.y.round()), Vec2::splat(size.round()));
+        let x = (origin.x + (i % palette.columns) as f32 * (size + gap)).round();
+        let y = (origin.y + (i / palette.columns) as f32 * (size + gap)).round();
+        let sq = Rect::from_min_size(Pos2::new(x, y), Vec2::splat(size.round()));
         match ap.tokens.palette_shape {
             PaletteShape::Square => {
                 painter.rect_filled(sq, 0.0, Color32::from_rgb(*r, *g, *b));

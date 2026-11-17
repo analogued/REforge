@@ -17,6 +17,19 @@ use std::{
     time::{Duration, Instant},
 };
 
+fn ordered_swatch_rows(
+    mut palette: Cow<'_, reforge_sdl::launcher::PaletteDisplay>,
+    rows: usize,
+) -> Cow<'_, reforge_sdl::launcher::PaletteDisplay> {
+    // Keep every hardware colour in native order, using the existing dots.
+    if !palette.mosaic && palette.colours.len() == 16 {
+        let display = palette.to_mut();
+        display.rows = rows;
+        display.columns = 16 / rows;
+    }
+    palette
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LayoutVariant {
     #[default]
@@ -345,7 +358,7 @@ impl GameEntry {
             .get(self.preview_variant())
             .and_then(|s| s.palette.as_ref())
         {
-            return Cow::Borrowed(palette);
+            return ordered_swatch_rows(Cow::Borrowed(palette), 2);
         }
         let values = self.option_values();
         let choice = self.options.iter().find_map(|option| {
@@ -357,7 +370,10 @@ impl GameEntry {
         });
         let colours = choice.and_then(|c| c.palette).unwrap_or(&[]);
         let hint = choice.map(|c| c.palette_hint).unwrap_or_default();
-        Cow::Owned(reforge_sdl::launcher::prepare_palette(colours, None, hint))
+        ordered_swatch_rows(
+            Cow::Owned(reforge_sdl::launcher::prepare_palette(colours, None, hint)),
+            2,
+        )
     }
     pub fn gallery_palette_display(&self) -> Cow<'_, reforge_sdl::launcher::PaletteDisplay> {
         if let Some(palette) = self
@@ -365,11 +381,11 @@ impl GameEntry {
             .get(self.preview_variant())
             .and_then(|source| source.gallery_palette.as_ref())
         {
-            return Cow::Borrowed(palette);
+            return ordered_swatch_rows(Cow::Borrowed(palette), 4);
         }
         let display = self.palette_display();
         if !display.mosaic {
-            return display;
+            return ordered_swatch_rows(display, 4);
         }
         // Static metadata has no source weights. Runtime palettes are prepared
         // with their full weights by the preview worker, including cache loads.

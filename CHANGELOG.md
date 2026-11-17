@@ -20,8 +20,9 @@ Unreleased contains changes intended for the next public release.
 - Keep Gallery sizing stable at resize boundaries, avoiding unnecessary column
   changes and jumps to large single-column cards when scrolling begins.
 - Show larger game palettes as launcher mosaics, using taller shapes in Gallery
-  to leave more room for game names while keeping card heights unchanged. Small
-  palettes retain their original order and layout.
+  to leave more room for game names while keeping card heights unchanged. Arrange
+  16-colour swatches in four rows in Gallery and two rows in List and Split,
+  preserving their original order, styling and existing line spacing.
 - Restore pending display choices correctly when switching back before Apply,
   including renderer backends, manual scaling and explicit global defaults.
 

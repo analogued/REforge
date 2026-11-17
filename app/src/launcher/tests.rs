@@ -4,6 +4,7 @@
 use super::*;
 
 mod lifecycle;
+mod palettes;
 mod split_height;
 use model::EntryStatus;
 use reforge_sdl::egui::{Context, Pos2, RawInput, Rect, Vec2};

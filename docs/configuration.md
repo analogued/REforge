@@ -978,10 +978,13 @@ recover allows missing variants to be retried without discarding good images.
 Library status verification is separate.
 
 Palette swatches preserve the engine's supplied order for small palettes (up to
-16 colours), including CGA, monochrome and the current text palettes. Larger
-palettes use mosaics of 2-point squares or circles with 1-point gaps, following
-the active theme. Split and Compact use six rows; Gallery uses thirteen rows
-beside the title and developer lines, leaving more room for game names without
+16 colours), including CGA, monochrome and the current text palettes. Ordered
+16-colour swatches use a 4-by-4 grid in Gallery and two rows of eight in List
+and Split. They retain the existing dot size, theme shape and outline, without
+changing card heights or text line spacing. Smaller swatches stay in one row.
+Larger palettes use mosaics of 2-point squares or circles with 1-point gaps,
+following the active theme. Split and Compact use six rows; Gallery uses thirteen
+rows beside the title and developer lines, leaving more room for game names without
 increasing card height. The taller Gallery mosaic occupies one extra point of
 bottom padding.
 

@@ -350,6 +350,7 @@ fn draw_game_card(
     let dot_size = 6.0;
     let size = palette_size(&palette, dot_size);
     let dots_w = size.x;
+    let shares_metadata_line = palette.rows > 1;
     let title_right = rect.right() - pad - dots_w - 8.0;
     paint_title(
         ui.painter(),
@@ -366,13 +367,13 @@ fn draw_game_card(
         game.library_line()
     };
     let sub_position = Pos2::new(rect.left() + pad, text_top + 19.0);
-    let sub_right = if palette.mosaic {
+    let sub_right = if shares_metadata_line {
         title_right
     } else {
         rect.right() - pad
     };
-    let sub_rect = if palette.mosaic {
-        // The taller mosaic also shares the developer/status line. Keep long
+    let sub_rect = if shares_metadata_line {
+        // Multi-row palettes also share the developer/status line. Keep long
         // labels and the missing-files marker out of its colour cells.
         let font = FontId::proportional(11.5);
         let height = ui
@@ -411,7 +412,7 @@ fn draw_game_card(
         // padding without changing card height or gallery grid fitting.
         Pos2::new(
             rect.right() - pad - dots_w,
-            if palette.mosaic {
+            if shares_metadata_line {
                 text_top
             } else {
                 text_top + 7.5 - size.y * 0.5

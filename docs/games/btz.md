@@ -1,8 +1,8 @@
-# BTZ games
+# Games using `btz`
 
-Play Mindwheel, Essex, Brimstone and Breakers for DOS through the BTZ interpreter,
-with their original text layout, interactive commands and background story
-activity.
+Play Mindwheel, Essex, Brimstone and Breakers for DOS through REforge's `btz`
+interpreter, with their original text layout, interactive commands and background
+story activity.
 
 > [!IMPORTANT]
 > REforge does not include original BTZ assets or data. You must provide
@@ -62,7 +62,7 @@ reforge --original /path/to/game --renderer terminal
 
 Terminal play uses the terminal already attached to the process. It does not
 open a terminal application. Choose **Renderer: Graphical / Terminal** in the
-launch options, or **Terminal** in BTZ's per-game Rendering settings. Terminal
+launch options, or **Terminal** in `btz`'s per-game Rendering settings. Terminal
 is available when a terminal is attached; the choice applies at game startup.
 Display and Window launch options are disabled during terminal play. Graphical
 preferences are retained and apply again when you select Graphical, including

@@ -12,10 +12,10 @@ controller options. Linux is the current development platform.
 
 | Engine | Games | Player guide |
 | --- | --- | --- |
-| Alley Cat | Alley Cat | [Playing Alley Cat](docs/games/alleycat.md) |
-| Mach 3 | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
-| BTZ | Mindwheel, Essex, Brimstone: The Dream of Gawain, Breakers | [Playing BTZ games](docs/games/btz.md) |
-| Centurion | Centurion: Defender of Rome | [Playing Centurion](docs/games/centurion.md) |
+| `alleycat` | Alley Cat | [Playing Alley Cat](docs/games/alleycat.md) |
+| `mach3` | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
+| `btz` | Mindwheel, Essex, Brimstone: The Dream of Gawain, Breakers | [Playing btz games](docs/games/btz.md) |
+| `centurion` | Centurion: Defender of Rome | [Playing Centurion](docs/games/centurion.md) |
 
 Supported inputs include verified DOS distributions and Alley Cat’s PC Booter
 image. See each guide for the required files and current limitations.
@@ -84,12 +84,12 @@ shared globally or overridden for an individual game.
 
 Alley Cat and Mach 3 also accept **P** to pause. By default, the left stick or
 D-pad supplies movement, and the bottom face button performs the main action.
-Alley Cat offers controller layout templates in Settings. BTZ uses keyboard
-commands; controllers navigate Settings and file dialogs. Game-specific controls
+Alley Cat offers controller layout templates in Settings. The `btz` engine uses
+keyboard commands; controllers navigate Settings and file dialogs. Game-specific controls
 are in the player guides.
 
-[BTZ games](docs/games/btz.md) support the normal SDL text display and optional
-terminal play using `--renderer terminal`.
+The [btz engine](docs/games/btz.md) supports the normal SDL text display and
+optional terminal play using `--renderer terminal`.
 
 See the [settings reference](docs/configuration.md) for all options, saved-file
 locations and command-line overrides. For available launch options, run:
@@ -112,8 +112,8 @@ Notable user-facing changes are recorded in the [changelog](CHANGELOG.md).
 
 For source layout, validation and contribution guidance, see
 [CONTRIBUTING.md](CONTRIBUTING.md) and the technical engine documentation for
-[Alley Cat](engines/alleycat/README.md), [Mach 3](engines/mach3/README.md), and
-[BTZ](engines/btz/README.md).
+[alleycat](engines/alleycat/README.md), [mach3](engines/mach3/README.md),
+[btz](engines/btz/README.md), and [centurion](engines/centurion/README.md).
 
 The shared [`reforge_disc`](crates/reforge_disc/README.md) component provides
 read-only ISO-9660/directory indexing and bounded file streams for engine data

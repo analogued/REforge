@@ -1,7 +1,7 @@
 # Mindwheel
 
 Begin a journey through four minds in the DOS edition of Mindwheel, played
-through REforge's BTZ interpreter.
+through REforge's `btz` interpreter.
 
 > [!IMPORTANT]
 > REforge does not include original game data. Keep **ADISK.OBJ**, **GO.EXE**
@@ -13,7 +13,7 @@ through REforge's BTZ interpreter.
 > [!NOTE]
 > Support is experimental. An automated test has reached the winning ending;
 > a complete live playthrough remains unverified.
-> See [BTZ compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
+> See [btz compatibility notes](../../engines/btz/README.md#reference-and-compatibility).
 
 Add the game directory to the launcher and select **Play**, or run:
 
@@ -25,7 +25,7 @@ The default is an SDL text window, with sharp pixels or Hyllian CRT presentation
 and windowed/fullscreen options. Enter dismisses the title. For an attached
 terminal, add `--renderer terminal`.
 
-See the [BTZ player guide](btz.md) for commands, keyboard controls, launch options,
+See the [btz player guide](btz.md) for commands, keyboard controls, launch options,
 [bookmarks and transcripts](btz.md#bookmarks-and-transcripts), and timing behavior.
 Bookmarks use the original DOS format, so saves can be exchanged with the
 corresponding original game release.

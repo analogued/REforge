@@ -43,7 +43,7 @@ its native pixel grid and aspect-corrected base display size; the shared menu an
 renderer use that same metadata. Global labels are Original display / Square
 pixels; game labels include the resolved ratios. Centurion, Alley Cat and Mach 3's
 colour mode use 320×200 pixels on a 4:3 display, giving square pixels an 8:5 ratio.
-Mach 3's monochrome mode and BTZ's text raster use 640×200 pixels, so
+Mach 3's monochrome mode and `btz`'s text raster use 640×200 pixels, so
 Square pixels becomes 16:5 while Original stays 4:3.
 An expanded upload texture does not change the engine's native pixel geometry.
 Future engines may supply other ratios without changing the shared menu.
@@ -94,7 +94,7 @@ Next-launch-only settings such as Mach 3's Digitized samples require a registere
 game with configuration enabled and are disabled otherwise.
 Cancel, Escape and F10 discard unapplied edits. **Reset section** clears only the
 selected global section when editing Global defaults. When editing a game, the
-button is **Restore defaults** on Controls and Enhancements, BTZ's Display page
+button is **Restore defaults** on Controls and Enhancements, `btz`'s Display page
 and Mach 3's Audio page, or **Restore global defaults** on the other pages.
 It clears only that game's overrides for the selected section: shared fields inherit global
 preferences, and game-only fields return to their built-in defaults. Display,
@@ -210,7 +210,7 @@ same release or another release with the same game ID and explicit
 `compatibility_id`, meaning compatible saves and persistent option semantics.
 Matching hashes, titles or platforms alone never establish compatibility. The
 stored release ID and paths change; entry identity, overrides and its reserved
-save namespace remain intact. Saved files are not moved. BTZ games' default
+save namespace remain intact. Saved files are not moved. `btz` games' default
 save directory follows the selected game-data directory. A directory already
 registered to another entry is rejected.
 Files changed to another release in place require explicit Relocate as well.
@@ -221,10 +221,10 @@ preferences. Original files and saves stay on disk. Manually removing a library
 record can leave unreferenced preferences/saves; adding the game again allocates
 a fresh ID rather than reclaiming them.
 
-Saving is engine-specific. BTZ implements native bookmarks and text
+Saving is engine-specific. `btz` implements native bookmarks and text
 transcripts. Relative filenames default to the directory containing `ADISK.OBJ`;
 `--save-dir` changes that base, and absolute filenames select their own location.
-See the [BTZ guide](games/btz.md#bookmarks-and-transcripts) for prompts,
+See the [btz guide](games/btz.md#bookmarks-and-transcripts) for prompts,
 overwrite behavior and fixed-file options. Alley Cat and Mach 3 currently do not
 provide gameplay save/restore.
 
@@ -232,7 +232,7 @@ The application reserves a layout of `saves/<entry-id>/` under
 `$XDG_DATA_HOME/reforge` (default `~/.local/share/reforge`) on Linux,
 `%APPDATA%/REforge` on Windows and
 `~/Library/Application Support/REforge` on macOS. No save folders are created by
-adding a game. BTZ uses its native format and game-data-relative default,
+adding a game. `btz` uses its native format and game-data-relative default,
 not this reserved namespace. Future REforge-owned save formats should record
 format version and compatibility group rather than require an exact release hash.
 
@@ -323,18 +323,18 @@ Explicit CLI values form the final temporary layer.
 | aspect_ratio | `"original"`, `"square"` |
 | scaling_policy | `"integer"`, `"fit"`, `"stretch"` |
 | sampling | `"nearest"`, `"linear"` |
-| renderer | `"auto"`, `"gpu"`, `"sdl"`, `"software"`; `"terminal"` for BTZ entries only |
+| renderer | `"auto"`, `"gpu"`, `"sdl"`, `"software"`; `"terminal"` for `btz` entries only |
 | backend | `"auto"`, `"vulkan"`, `"opengl"`, `"opengles2"`, `"direct3d11"`, `"direct3d12"`, `"metal"` |
 | vsync | `true`, `false` |
 | frame_limit | `"display"`, `"60"`, `"120"`, `"unlimited"` |
-| file_cursor | `"pulsing-underline"` (default), `"blinking-underline"`, `"steady-block"`; BTZ entries only |
+| file_cursor | `"pulsing-underline"` (default), `"blinking-underline"`, `"steady-block"`; `btz` entries only |
 
-BTZ's `file_cursor` belongs in `[entries.<entry-id>.display]` and cannot be set
+`btz`'s `file_cursor` belongs in `[entries.<entry-id>.display]` and cannot be set
 globally. In Settings it appears under **Text interface**, at the end of
 the game's Display page as **Cursor style**. It affects command input and file
 dialogs in both frontends. Terminal play uses a steady underline for Pulsing
 underline and delegates the other shapes and blink rate to the terminal. See the
-[BTZ controls](games/btz.md#commands-and-controls).
+[btz controls](games/btz.md#commands-and-controls).
 
 The menu offers platform choices and compiled SDL renderer drivers. Direct3D
 and Metal are not offered on Linux. A renderer change resets an unlocked,
@@ -351,8 +351,8 @@ only this run. Those controls are disabled in both editing scopes. Each scope
 shows the active CLI value in the locked control. Apply never copies CLI values
 into the file; the saved preferences remain available on the next ordinary run.
 
-Terminal is a BTZ-only startup renderer. It uses the process's attached
-input/output terminal and does not open a terminal application or an SDL game
+Terminal is a startup renderer available to `btz` games. It uses the process's
+attached input/output terminal and does not open a terminal application or an SDL game
 window. It is available through `--renderer terminal`, including builds without
 SDL, or in per-entry Settings when a terminal is attached. It cannot be a global
 default or replace a running SDL game window. Other games warn and ignore the
@@ -361,8 +361,8 @@ Terminal CLI choice.
 Window, backend and CRT preferences are retained and ignored during terminal
 play. Their controls are disabled while Terminal is selected; explicit CLI
 graphics overrides warn and are ignored for that run. Selecting Graphical in
-the BTZ launch options restores the graphical renderer preference. See
-[BTZ launch instructions](games/btz.md#start-playing).
+the `btz` launch options restores the graphical renderer preference. See
+[btz launch instructions](games/btz.md#start-playing).
 
 Preferences record requests rather than temporary runtime outcomes. Auto stays
 Auto; unavailable backend/VSync requests are not replaced in the file by their
@@ -447,7 +447,7 @@ runner remains silent. Engines declare supported Music, Speech and Sound effects
 unsupported game groups remain visible but disabled. Global category defaults
 can still be edited. Latency controls and stereo processing are not implemented.
 
-BTZ's Ctrl+G keyboard bell uses PC-speaker synthesis in graphical play and
+`btz`'s Ctrl+G keyboard bell uses PC-speaker synthesis in graphical play and
 belongs to Sound effects. Master volume, Effects volume, output device and focus
 mute apply. Its terminal frontend sends BEL and respects sound-off or zero
 Master/Effects volume; the terminal controls the actual sound, flash and volume.
@@ -460,7 +460,7 @@ desktop/system volume: neither is read back into preferences or modified by them
 Native single-speaker interruptions/priorities are preserved; lowering an effect
 does not resume music that the original game interrupted. In Alley Cat and
 Mach 3's continuous synthesis, later category changes use a five-millisecond gain
-ramp without resetting synthesis/filter history. BTZ applies Effects
+ramp without resetting synthesis/filter history. `btz` applies Effects
 changes to subsequent bells and discards pending bell presentation on a change.
 
 Enable sound and Master volume operate on host output. Native sound routines,
@@ -606,7 +606,7 @@ The first available recognized controller is used, with a replacement selected
 if it disconnects. Device-open failures warn and leave keyboard play available.
 The table shows the default bindings.
 
-| Controller input   | Alley Cat                        | Mach 3          | BTZ games |
+| Controller input   | Alley Cat                        | Mach 3          | `btz` games |
 | ------------------ | -------------------------------- | --------------- | --------- |
 | Left stick / D-pad | Move, jump and swim              | Steer           | Navigate menus |
 | Bottom face button | Contextual action (keyboard Alt) | Fire            | Confirm menu control |
@@ -614,7 +614,7 @@ The table shows the default bindings.
 | Back/View          | Toggle settings                  | Toggle settings | Toggle settings |
 
 The bottom face button advances Alley Cat and Mach 3's title/start screens.
-BTZ games use controllers for Settings and file-dialog navigation; game commands
+`btz` games use controllers for Settings and file-dialog navigation; game commands
 and filename text still use the keyboard. B cancels a filename prompt and the
 shoulders change focus. Terminal play uses its terminal's keyboard input.
 
@@ -798,7 +798,7 @@ Preview badges follow the same option order, omitting choices without badge text
 PC speaker contributes no badge; Enhanced PCM contributes `PCM`, following `CRT`
 when CRT treatment is enabled.
 
-BTZ's quick options are Renderer (Graphical/Terminal), Display and Window.
+`btz`'s quick options are Renderer (Graphical/Terminal), Display and Window.
 Terminal disables Display and Window controls while retaining their values;
 its preview badge replaces graphical option badges for that mode.
 
@@ -942,7 +942,7 @@ and generates missing or corrupt images from verified originals. It warms the
 available visual variants (CGA/PCjr for Alley Cat, colour/monochrome for Mach 3).
 Mach 3 uses its first splash screen. Alley Cat uses its intro, advanced
 with fixed seed `0xcafe` and the normal virtual startup loop until the cat sits
-on the fence with the SynSoft footer visible. BTZ uses the game's original
+on the fence with the SynSoft footer visible. `btz` uses the game's original
 title screen, with the loading label, continue prompt and input cursor removed
 from the preview copy. Its single monochrome image is shared by graphical and
 terminal launch choices. Preview generation has no effect on the player's

@@ -1,4 +1,4 @@
-# Alley Cat engine instructions
+# `alleycat` engine instructions
 
 - Read the combined repository's root `AGENTS.md`, root `CONTRIBUTING.md` and
   this crate's `CONTRIBUTING.md`. They define shared rules and validation.

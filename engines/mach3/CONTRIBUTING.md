@@ -1,4 +1,4 @@
-# Contributing to the Mach 3 engine
+# Contributing to the `mach3` engine
 
 Follow [REforge's contributing guide](../../CONTRIBUTING.md) for formatting,
 commit conventions, licensing and shared validation. The `mach3` engine is a

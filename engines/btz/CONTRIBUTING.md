@@ -1,4 +1,4 @@
-# Contributing to BTZ
+# Contributing to the `btz` engine
 
 Follow [REforge's contributing guide](../../CONTRIBUTING.md) for formatting,
 commit conventions, licensing and shared validation. The `btz` engine is a package
@@ -45,7 +45,7 @@ not require original game files or a desktop.
 
 REforge identifies and verifies the release, then passes a shared
 `reforge_inputs::ResolvedFiles` and an explicit `player::DosRelease` to player
-and preview loading. BTZ reads exactly those selected paths and uses the supplied
+and preview loading. `btz` reads exactly those selected paths and uses the supplied
 profile's interpreter rules and resource layout. It retains format and bounds
 checks without hashing files again, guessing profiles or discovering replacement
 files. Research callers can construct resolved inputs explicitly; doing so is

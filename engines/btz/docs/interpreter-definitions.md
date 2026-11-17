@@ -6,7 +6,7 @@ story routines. It preserves recovered behavior independently of whether the
 replacement needs the original mechanism. The scope is the four catalogued DOS
 releases, not an established chronology of official interpreter versions.
 
-BTZ uses one VM and integrated `Session`. An immutable `Interpreter` definition
+`btz` uses one VM and integrated `Session`. An immutable `Interpreter` definition
 selects the behavior that differs between identified implementations. Executable
 resource locations live separately in `DosResources`; relocated text tables or
 prompts do not by themselves imply different VM semantics.

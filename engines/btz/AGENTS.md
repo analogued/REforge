@@ -1,4 +1,4 @@
-# BTZ engine instructions
+# `btz` engine instructions
 
 Follow the repository AGENTS.md and CONTRIBUTING.md. Read this crate's README.md
 for support and architecture, CONTRIBUTING.md for validation, and the linked

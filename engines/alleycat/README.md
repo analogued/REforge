@@ -1,13 +1,14 @@
-# Alley Cat
+# `alleycat` engine
 
-A Rust reconstruction of **Alley Cat** for modern desktop systems, initially
-targeting Linux. It includes the alley, all five ordinary rooms, the underwater
+The `alleycat` crate reconstructs **Alley Cat** for modern desktop systems,
+initially targeting Linux. It includes the alley, all five ordinary rooms, the underwater
 section and the hearts bonus scene, with actors, damage, progression and
 PC Speaker music and effects, with three-voice PCjr intro music for the
 supported booter and restored DOS inputs. Original hardware timing remains
 approximate; the [timing reference](docs/timing.md) describes the model and its limits,
 including the deferred physical PCjr timing comparison.
-Alley Cat is the `alleycat` engine crate in **REforge**.
+
+The engine is part of **REforge**.
 
 The [original-engine reference](docs/original-engine.md) preserves recovered DOS
 and PC booter format and hardware details for historical study and reconstruction, including

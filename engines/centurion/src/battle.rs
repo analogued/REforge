@@ -5,7 +5,7 @@ mod combat;
 mod controls;
 mod motion;
 mod outcome;
-use crate::assets::{Assets, Bitmap, Result, word};
+use crate::assets::{Assets, Bitmap, Result, VideoMode, word};
 use crate::graphics::Frame;
 use crate::province::Menu;
 use crate::rng::OriginalRng;
@@ -144,18 +144,27 @@ impl Preparation {
             return Err("Roaming army origin outside province table".into());
         }
         let enemy_province = enemy_province as u8;
-        let terrain = assets.bitmap(
+        // VGA composes detailed terrain and water. EGA's original loader uses
+        // the opaque BB1/BB2 cached backgrounds from the same BATL bank.
+        let desert = match assets.video {
+            VideoMode::Ega => ds[0x5279 + base] != 0,
+            VideoMode::Vga => ds[0x5279 + base] == 1,
+        };
+        let mut terrain = assets.bitmap(
             "BATL",
-            if ds[0x5279 + base] == 1 {
-                "DESERT.CBM"
-            } else {
-                "BATTLENW.CBM"
+            match (assets.video, desert) {
+                (VideoMode::Ega, false) => "BB1.CBM",
+                (VideoMode::Ega, true) => "BB2.CBM",
+                (VideoMode::Vga, false) => "BATTLENW.CBM",
+                (VideoMode::Vga, true) => "DESERT.CBM",
             },
         )?;
-        let mut terrain = terrain;
+        if assets.video == VideoMode::Ega {
+            terrain.visible.fill(true);
+        }
         let mut frame = previous.clone();
         frame.blit(&terrain, 0, 0);
-        if ds[0x5279 + base] != 1 {
+        if assets.video == VideoMode::Vga && !desert {
             frame.blit(&assets.bitmap("BATL", "WATER.CBM")?, 0, 0);
         }
         terrain.pixels = frame.pixels;

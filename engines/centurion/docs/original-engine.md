@@ -25,6 +25,14 @@ NAVL's raw `GALLEYS.LZW`. EGA uses CENT's EMENU sprites. Initialized drawing
 pens `DS:6344`, `DS:6346`, `DS:6348` are 3, 7, 7; VGA startup replaces them
 with `74`, `1A`, `10C`. VGA DAC cycling does not apply to EGA artwork.
 
+Land battles share the BATL bank and troop sprites across video modes, but
+select different terrain resources. VGA composes `BATTLENW.CBM` with
+`WATER.CBM` for grassland, or uses `DESERT.CBM`. EGA uses the opaque cached
+backgrounds `BB1.CBM` (grassland) and `BB2.CBM` (desert), with direct EGA
+colours and no separate water layer. The detailed VGA backgrounds are not
+intended to be displayed through the EGA palette. The examined 1.00B loader
+at `BBC7` branches on the video mode before selecting these resources.
+
 `DS:` addresses below are hexadecimal offsets in the original data segment, not
 file offsets or fixed DOS load addresses. Save offsets and pixel dimensions are
 decimal. The [engine README](../README.md) describes replacement interfaces and

@@ -86,6 +86,22 @@ python3 tools/package_release.py --no-default-features
 Generation fails if this leaves placeholder MIT copyright notices. Use an online
 run when the required upstream texts are not available locally.
 
+## Windows CI artifacts
+
+The single Windows/stable job builds natively on Windows Server 2022 using the
+x64 MSVC toolchain. After its checks pass, the workflow uploads
+`reforge-windows-x86_64`, retained for seven days. Download it from the workflow
+run's Artifacts section and extract it before running `reforge.exe`.
+
+The test bundle includes `SDL3.dll`, REforge's license, generated dependency
+notices, SDL's license and a `BUILD.txt` identifying the exact source commit.
+Keep the DLL beside the executable. The Microsoft Visual C++ x64 runtime is a
+prerequisite. Original game files are external, as with other builds.
+
+These unsigned CI builds support testing; they are not published releases.
+Passing CI covers compilation, automated tests and a DLL-loading/version smoke
+check, not validation of native GPU rendering or physical devices.
+
 ## Notice generation and maintenance
 
 The generator scans the application's enabled Cargo graph for the specified

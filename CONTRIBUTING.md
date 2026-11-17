@@ -172,11 +172,18 @@ is a loading contract, not a cryptographic proof or persistent verification cach
 
 ### Checks
 
-GitHub Actions runs Linux checks on pushes and pull requests to `main`, and can
-also be started manually. It checks formatting, workspace tests and Clippy with
-normal, headless and development feature combinations, selected software-rendered
-launcher tests, and the minimum supported Rust version. SDL3 is built from a pinned
-release; tests use synthetic fixtures and need no original game files or desktop.
+GitHub Actions runs Linux checks and one Windows/stable job on pushes and pull
+requests to `main`, and can also be started manually. Linux checks formatting,
+workspace tests and Clippy with normal, headless and development feature
+combinations, selected software-rendered launcher tests, and the minimum supported
+Rust version. SDL3 is built from a pinned release; tests use synthetic fixtures
+and need no original game files or desktop.
+
+Windows uses the x64 MSVC toolchain, normal workspace tests, all-feature Clippy,
+selected software UI tests and a release player build. It uploads a short-lived
+test artifact with SDL3 and dependency notices; see
+[Windows CI artifacts](docs/releases.md#windows-ci-artifacts). Native GPU and
+physical audio/controller behavior still require manual platform testing.
 
 Run `cargo fmt --all -- --check`,
 `cargo test --locked --workspace`, and

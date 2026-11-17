@@ -55,6 +55,11 @@ About Centurion in the game menu shows the original author and copyright credits
 and release version in the original centered dialog. Its continue prompt and
 cursor follow the same presentation settings as other acknowledgment messages.
 
+Difficulty Levels offers the four original presets and Fine Tuning for land
+battles, chariot racing, gladiatorial combat and naval battles. Presets set all
+four together; a Fine Tuning selection changes only its category. Continue or
+Escape returns through the menus without undoing levels already selected.
+
 | Context | Controls |
 | --- | --- |
 | Campaign map | Click a province; arrows move the map cursor, Space selects a province, Enter selects a legion. Escape or F1 opens the game menu. |
@@ -146,8 +151,8 @@ cargo clippy --locked -p centurion --all-targets --features dev-tools -- -D warn
 cargo clippy --locked -p centurion --all-targets --no-default-features -- -D warnings
 ```
 
-The playable scope does not imply complete DOS parity. Difficulty presets work;
-original fine tuning is not implemented.
+The playable scope does not imply complete DOS parity. Original difficulty
+presets and per-category Fine Tuning are supported.
 Audio currently implements AdLib, without the other original sound hardware
 modes. Comparisons cover selected frames, routines and play sequences rather
 than every possible campaign.

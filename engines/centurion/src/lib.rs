@@ -11,6 +11,7 @@ mod battle;
 mod campaign;
 mod cleopatra;
 pub mod cli;
+mod difficulty;
 mod diplomacy;
 mod encounter;
 mod ending;

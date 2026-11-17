@@ -67,6 +67,15 @@ original sequencing. The audio output continues independently of window drawing;
 host pause and Settings pause game time and audio together. See the
 [Settings reference](../configuration.md).
 
+## Difficulty
+
+Game Control → Difficulty Levels offers Galley Slave, Legionnaire, Senator and
+Emperor presets. Each preset sets all four categories and returns to the map.
+Fine Tuning lets you choose separate levels for land battles, chariot races,
+gladiatorial combat and naval battles; the current levels appear beside their
+categories. A level takes effect when selected. Continue or Escape goes back
+without undoing previous selections. These values are preserved in DOS saves.
+
 ## Saves and DOS comparison
 
 The nine slots displayed as 1–9 use DOS-compatible files `0.CSV`–`8.CSV`. By

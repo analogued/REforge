@@ -51,6 +51,8 @@ pub enum Phase {
     LoadSlots,
     SaveDescription,
     Difficulty,
+    FineTuning,
+    DifficultyLevel,
     Notice,
 }
 
@@ -118,6 +120,7 @@ pub struct Session {
     recording: Option<crate::record::Recorder>,
     pub description: String,
     slot: usize,
+    difficulty_category: usize,
     notice: String,
     intro: Bitmap,
     title: Bitmap,
@@ -216,6 +219,7 @@ impl Session {
             recording: None,
             description: String::new(),
             slot: 0,
+            difficulty_category: 0,
             notice: String::new(),
             intro: assets.bitmap("MINIT", "ROMULUS.CBM")?,
             title: assets.bitmap("MINIT", "TITLE.CBM")?,
@@ -304,7 +308,8 @@ impl Session {
             Phase::PlunderConfirmation | Phase::BoardConfirmation => 2,
             Phase::Tribute | Phase::TributePolicy => 6,
             Phase::SaveSlots | Phase::LoadSlots => 9,
-            Phase::Difficulty => 4,
+            Phase::Difficulty => 6,
+            Phase::FineTuning | Phase::DifficultyLevel => 5,
             _ => 0,
         }
     }
@@ -525,6 +530,10 @@ impl Session {
             } else {
                 self.highlighted = false;
             }
+        }
+        if before != self.phase && matches!(self.phase, Phase::Difficulty | Phase::DifficultyLevel)
+        {
+            self.highlighted = true;
         }
         if self.phase != Phase::BattlePreparation
             || (was_visible || timer) && self.battle_pointer_visible()
@@ -1270,6 +1279,17 @@ impl Session {
                     self.activate(assets)?;
                 }
             }
+            Input::Shortcut(key) if self.difficulty_menu_address().is_some() => {
+                if let Some(menu) = self.navigation_menu()?
+                    && let Some(row) = menu
+                        .items
+                        .iter()
+                        .position(|item| item.shortcut == key.to_ascii_lowercase())
+                {
+                    self.selected = row;
+                    self.activate(assets)?;
+                }
+            }
             Input::Shortcut(key) if self.phase == Phase::Menu => {
                 if let Some(row) = b"slnadqc"
                     .iter()
@@ -1385,6 +1405,14 @@ impl Session {
             Input::Escape if self.phase == Phase::Notice && self.notice_return == Phase::Rome => {
                 self.advance()
             }
+            Input::Escape if self.phase == Phase::DifficultyLevel => {
+                self.phase = Phase::FineTuning;
+                self.selected = self.difficulty_category;
+            }
+            Input::Escape if self.phase == Phase::FineTuning => {
+                self.phase = Phase::Difficulty;
+                self.selected = self.campaign.difficulty_preset().unwrap_or(4);
+            }
             Input::Escape => {
                 if self.phase.is_startup() {
                     self.advance();
@@ -1431,6 +1459,9 @@ impl Session {
     }
 
     fn menu_hit(&self, x: i32, y: i32) -> Option<usize> {
+        if self.difficulty_menu_address().is_some() {
+            return self.navigation_menu().ok().flatten()?.hit(x, y);
+        }
         if self.phase == Phase::Naval && self.rows() != 0 {
             return self.naval.as_ref()?.menu().ok()?.hit(x, y);
         }
@@ -1680,7 +1711,30 @@ impl Session {
         }
     }
 
+    fn difficulty_menu_address(&self) -> Option<usize> {
+        match self.phase {
+            Phase::Difficulty => Some(crate::difficulty::MENU),
+            Phase::FineTuning => Some(crate::difficulty::TUNING_MENU),
+            Phase::DifficultyLevel => Some(crate::difficulty::LEVEL_MENU),
+            _ => None,
+        }
+    }
+
     fn navigation_menu(&self) -> Result<Option<crate::province::Menu>> {
+        if let Some(address) = self.difficulty_menu_address() {
+            let mut menu = crate::province::Menu::read(&self.campaign, address)?;
+            if self.phase == Phase::DifficultyLevel {
+                menu.title = format!(
+                    "{}{}",
+                    self.campaign.string(word(
+                        &self.campaign.data,
+                        0x52e + self.difficulty_category * 12
+                    )? as usize)?,
+                    self.campaign.string(0x426)?
+                );
+            }
+            return Ok(Some(menu));
+        }
         if self.phase == Phase::BattlePreparation && self.rows() != 0 {
             return self
                 .battle
@@ -2190,7 +2244,11 @@ impl Session {
                     6 => Phase::Map,
                     _ => return Err("Invalid menu selection".into()),
                 };
-                self.selected = 0;
+                self.selected = if self.phase == Phase::Difficulty {
+                    self.campaign.difficulty_preset().unwrap_or(4)
+                } else {
+                    0
+                };
                 if matches!(
                     self.phase,
                     Phase::SaveSlots | Phase::LoadSlots | Phase::Difficulty
@@ -2198,9 +2256,36 @@ impl Session {
                     self.highlighted = true;
                 }
             }
-            Phase::Difficulty => {
-                self.campaign.data[0x48e..0x492].fill(self.selected as u8);
-                self.phase = Phase::Map;
+            Phase::Difficulty => match self.selected {
+                0..=3 => {
+                    self.campaign.set_difficulty_preset(self.selected)?;
+                    self.phase = Phase::Map;
+                }
+                4 => {
+                    self.difficulty_category = 0;
+                    self.selected = 0;
+                    self.phase = Phase::FineTuning;
+                }
+                5 => self.phase = Phase::Map,
+                _ => return Err("Invalid difficulty selection".into()),
+            },
+            Phase::FineTuning => {
+                if self.selected < 4 {
+                    self.difficulty_category = self.selected;
+                    self.selected = self.campaign.difficulty_level(self.difficulty_category)?;
+                    self.phase = Phase::DifficultyLevel;
+                } else {
+                    self.phase = Phase::Difficulty;
+                    self.selected = self.campaign.difficulty_preset().unwrap_or(4);
+                }
+            }
+            Phase::DifficultyLevel => {
+                if self.selected < 4 {
+                    self.campaign
+                        .set_difficulty_level(self.difficulty_category, self.selected)?;
+                }
+                self.phase = Phase::FineTuning;
+                self.selected = self.difficulty_category;
             }
             Phase::SaveSlots => {
                 self.slot = self.selected;
@@ -3118,14 +3203,31 @@ impl Session {
             .render(assets, &mut frame, self.phase, self.phase_ticks)?;
         if self.phase == Phase::Menu {
             self.render_game_menu(assets, &mut frame)?;
-        } else if matches!(
-            self.phase,
-            Phase::SaveSlots | Phase::LoadSlots | Phase::Difficulty
-        ) {
-            let title = match self.phase {
-                Phase::SaveSlots => "Select a Save Position",
-                Phase::LoadSlots => "Select a Game to Load",
-                _ => "Difficulty Level Menu",
+        } else if self.difficulty_menu_address().is_some() {
+            let menu = self.navigation_menu()?.ok_or("Missing difficulty menu")?;
+            self.province_panels.plain_menu(
+                assets,
+                &self.campaign,
+                &mut frame,
+                &menu,
+                self.highlighted.then_some(self.selected),
+            )?;
+            if self.phase == Phase::FineTuning {
+                for category in 0..4 {
+                    frame.text(
+                        assets,
+                        &self.campaign.difficulty_label(category)?,
+                        195,
+                        102 + category as i32 * 10,
+                        15,
+                    )?;
+                }
+            }
+        } else if matches!(self.phase, Phase::SaveSlots | Phase::LoadSlots) {
+            let title = if self.phase == Phase::SaveSlots {
+                "Select a Save Position"
+            } else {
+                "Select a Game to Load"
             };
             frame.bevel(30, 40, 290, 166, 26);
             frame.center_text(assets, title, 160, 46, 15)?;
@@ -3143,22 +3245,18 @@ impl Session {
                 true,
             );
             for row in 0..self.rows() {
-                let label = if self.phase == Phase::Difficulty {
-                    ["Galley Slave", "Legionnaire", "Senator", "Emperor"][row].to_string()
-                } else {
-                    let description = self
-                        .load_slot(assets, row)
-                        .ok()
-                        .and_then(|save| {
-                            if save.len() != 1780 || save.get(..4) != Some(b"10A\0") {
-                                return None;
-                            }
-                            let end = save[4..52].iter().position(|b| *b == 0).unwrap_or(48);
-                            Some(String::from_utf8_lossy(&save[4..4 + end]).into_owned())
-                        })
-                        .unwrap_or_else(|| "Empty".into());
-                    format!("{}  {description}", row + 1)
-                };
+                let description = self
+                    .load_slot(assets, row)
+                    .ok()
+                    .and_then(|save| {
+                        if save.len() != 1780 || save.get(..4) != Some(b"10A\0") {
+                            return None;
+                        }
+                        let end = save[4..52].iter().position(|b| *b == 0).unwrap_or(48);
+                        Some(String::from_utf8_lossy(&save[4..4 + end]).into_owned())
+                    })
+                    .unwrap_or_else(|| "Empty".into());
+                let label = format!("{}  {description}", row + 1);
                 frame.text(
                     assets,
                     &label,

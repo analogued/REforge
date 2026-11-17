@@ -85,8 +85,9 @@ jump physics. To use the original polling behavior, open
 **Original**, then Apply.
 
 **Machine:** the DOS conversion (including its disk image) and PC booter offer
-CGA (the default) and PCjr. The restored DOS inputs default to PCjr. Choose in
-the launcher or under **Settings → Alley Cat overrides → Display → Machine**. Enable
+**IBM PC (CGA)** (the default) and **IBM PCjr**. The restored DOS inputs default
+to IBM PCjr. Choose in the launcher or under
+**Settings → Alley Cat overrides → Display → Machine**. Enable
 **Override global defaults**, choose the machine and Apply. Settings and the
 launcher share this choice; during play it applies on the next launch. You can
 also use `--machine cga` or `--machine pcjr`. The old `tandy` spelling remains an

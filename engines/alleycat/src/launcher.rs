@@ -15,8 +15,8 @@ pub const OPTIONS: &[OptionDefinition] = &[
         choices: &[
             Choice {
                 value: "cga",
-                label: "IBM CGA",
-                short_label: "CGA",
+                label: "IBM PC (CGA)",
+                short_label: "PC (CGA)",
                 badge: Some("CGA"),
                 palette: Some(&CGA),
                 palette_hint: reforge_sdl::launcher::PaletteHint::Auto,

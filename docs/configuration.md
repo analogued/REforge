@@ -491,8 +491,9 @@ Audio buffering uses the existing latency policy, and output remains mono.
 ## Alley Cat machine
 
 **Alley Cat overrides → Display → Machine** exposes the same choices as the
-launcher: CGA and PCjr. The original DOS conversion and PC booter default to CGA;
-restored DOS inputs default to PCjr, preserving their enhanced presentation.
+launcher: **IBM PC (CGA)** and **IBM PCjr**. The original DOS conversion and PC
+booter default to IBM PC (CGA); restored DOS inputs default to IBM PCjr,
+preserving their enhanced presentation.
 Enable **Override global defaults**, select the machine and Apply. There is no
 global machine preference.
 

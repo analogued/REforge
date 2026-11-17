@@ -7,8 +7,8 @@ use reforge_settings::{ALLEYCAT_MACHINE, Launch, Patch};
 
 const CGA: Choice = Choice {
     value: "cga",
-    label: "IBM CGA",
-    short_label: "CGA",
+    label: "IBM PC (CGA)",
+    short_label: "PC (CGA)",
     badge: None,
     palette: None,
     palette_hint: crate::launcher::PaletteHint::Auto,
@@ -155,9 +155,9 @@ fn machine_choices_share_launcher_storage_and_apply_cancel_reset() {
         menu.scope = 1;
         menu.game_editing[0] = true;
         let (selected, away, away_value) = if machines.default == "pcjr" {
-            ("IBM PCjr", "IBM CGA", "cga")
+            ("IBM PCjr", "IBM PC (CGA)", "cga")
         } else {
-            ("IBM CGA", "IBM PCjr", "pcjr")
+            ("IBM PC (CGA)", "IBM PCjr", "pcjr")
         };
         click(&mut menu, selected);
         assert!(label(&draw(&mut menu, vec![]), "Tandy").is_none());
@@ -332,7 +332,7 @@ fn machine_selector_locks_cli_overrides_and_disables_unsavable_runs() {
         click(&mut menu, "IBM PCjr");
         let output = draw(&mut menu, vec![]);
         assert!(
-            label(&output, "IBM CGA").is_none(),
+            label(&output, "IBM PC (CGA)").is_none(),
             "locked selector must not open"
         );
         assert!(menu.draft.as_ref().unwrap().game.is_empty());
@@ -430,8 +430,8 @@ fn legacy_machine_alias_migrates_and_keeps_explicit_override() {
             );
             let saved = menu.draft.clone();
             click(&mut menu, "IBM PCjr");
-            click(&mut menu, "IBM CGA");
-            click(&mut menu, "IBM CGA");
+            click(&mut menu, "IBM PC (CGA)");
+            click(&mut menu, "IBM PC (CGA)");
             click(&mut menu, "IBM PCjr");
             assert_eq!(menu.draft, saved, "round trip preserves the explicit pin");
             assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());

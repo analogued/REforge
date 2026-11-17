@@ -2008,7 +2008,7 @@ fn duplicate_game_copies_keep_independent_quick_options_and_display_titles() {
     assert_eq!(state.games[0].option_values()["Machine"], "IBM PCjr");
     assert_eq!(
         state.games[duplicate_index].option_values()["Machine"],
-        "IBM CGA"
+        "IBM PC (CGA)"
     );
     assert_eq!(state.games[0].option_values()["Window"], "Fullscreen");
     assert_eq!(

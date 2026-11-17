@@ -212,8 +212,9 @@ attributed adaptation of the same glyphs from
 [`reforge_graphics`](../../crates/reforge_graphics/README.md), including in
 headless builds.
 
-`--machine pcjr` selects PCjr graphics and mode-specific timing rules. The
-DOS conversion and PC booter default to `cga`; restored DOS inputs default to
+`--machine cga` selects the **IBM PC (CGA)** profile; `--machine pcjr` selects
+**IBM PCjr** graphics and mode-specific timing rules. The DOS conversion and PC
+booter default to `cga`; restored DOS inputs default to
 `pcjr`. The old `--machine tandy` spelling remains an alias for `pcjr`, and stored
 Tandy choices migrate to explicit PCjr overrides. In PCjr mode the booter uses
 its full-build text colours and three-voice intro music automatically; there is

@@ -558,6 +558,13 @@ impl Session {
             self.quit = true;
             return Ok(());
         }
+        if self.phase == Phase::About && input.continue_input().is_some() {
+            if let Input::Click(x, y) | Input::RightClick(x, y) = input {
+                self.cursor = (x.clamp(0, 319), y.clamp(0, 199));
+            }
+            self.advance();
+            return Ok(());
+        }
         if self.phase == Phase::VictoryCredits {
             let finished = if let Input::Tick(count) = input {
                 self.advance_time(count);
@@ -3176,17 +3183,15 @@ impl Session {
             frame.rect(40, 99, 240, 13, 8);
             frame.text(assets, &self.description, 43, 101, 15)?;
         } else if self.phase == Phase::About {
-            frame.acknowledgment_popup = true;
-            frame.bevel(18, 48, 302, 152, 26);
-            frame.text(
+            crate::legion::message(
+                &mut frame,
                 assets,
+                &self.campaign,
                 &format!(
-                    "CENTURION\nDefender of Rome\nVersion 1.00A 5/25/90\n{}",
-                    self.campaign.continue_footer()?
+                    "{}{}",
+                    self.campaign.string(0x5ee)?,
+                    self.campaign.string(0x46e)?
                 ),
-                34,
-                64,
-                15,
             )?;
         } else if self.phase == Phase::Notice {
             frame.acknowledgment_popup = true;

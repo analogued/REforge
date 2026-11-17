@@ -51,6 +51,10 @@ arrows move selection and Enter activates it. Escape usually returns to the
 previous screen. A key or click skips the intro to the orders prologue; another
 enters the campaign map.
 
+About Centurion in the game menu shows the original author and copyright credits
+and release version in the original centered dialog. Its continue prompt and
+cursor follow the same presentation settings as other acknowledgment messages.
+
 | Context | Controls |
 | --- | --- |
 | Campaign map | Click a province; arrows move the map cursor, Space selects a province, Enter selects a legion. Escape or F1 opens the game menu. |

@@ -75,10 +75,10 @@ gladiatorial combat and naval battles; the current levels appear beside their
 categories. A level takes effect when selected. Continue or Escape goes back
 without undoing previous selections. These values are preserved in DOS saves.
 
-The applied preset or category level stays white while you browse. Hover or
-keyboard focus also makes a choice white, so two rows can be white at once;
-when focus is on the applied value, only that row is white. If the categories
-have different levels, Fine Tuning is the applied row in the main menu.
+The applied preset or category level stays marked while you browse, using the
+Applied value indicator described under
+[Game-specific options](#game-specific-options). If the categories have different
+levels, Fine Tuning is the applied row in the main menu.
 
 ## Saves
 
@@ -99,7 +99,7 @@ Original game resources are only read; campaign writes target the save directory
 Open **F10 → Centurion overrides → Enhancements → Centurion UI**. Enable
 **Override global defaults** to edit the game settings, then Apply.
 **UI preset** selects Original or Reforged (the default). Expand **Advanced
-options** to adjust the four choices separately:
+options** to adjust the five choices separately:
 
 | Option | Original preset | Reforged preset |
 | --- | --- | --- |
@@ -107,6 +107,7 @@ options** to adjust the four choices separately:
 | Popup cursor | Hidden | Visible |
 | Menu decorations | Mouse | Mouse |
 | Map highlight | Off | On |
+| Applied value indicator | Original | Subdued band |
 
 **Fleet information** affects enemy inspection. Original shows the DOS
 name/location notice; Detailed shows ship counts and an embarked Troops total;
@@ -129,19 +130,29 @@ Roman territory and brown for other territory. Arrow-key movement gives the same
 feedback. Information popups keep their territory highlighted until dismissed;
 unrelated menus clear it.
 
+**Applied value indicator** identifies the stored choice in Tribute, Tribute
+Policy, Difficulty Levels and each Fine Tuning category's level menu. Original
+adds no tribute indicator and keeps the applied difficulty white. Hover and
+keyboard focus are also white, so a different focused difficulty gives two white
+rows; focusing the applied difficulty gives one. Subdued band, the Reforged
+default, marks the applied row with gray shading. Side marker and Underline mark
+it without shading the row. Focus remains white in each style. No style adds a
+footer notice.
+
 Other combinations display Custom. The individual choices are saved. Apply
-updates presentation immediately, including open popups; Cancel discards pending
-settings edits. These presets control the four options above.
+updates presentation immediately, including open menus and popups; Cancel
+discards pending settings edits. These presets control the five options above.
 
 Continue prompts independently follow the last deliberate gameplay input:
 “Click to continue” after a mouse click, or “Hit any key to continue” after a key.
 Pointer motion does not switch the wording. Either input method still dismisses
 the acknowledgment.
 
-Tribute and Tribute Policy mark the currently applied level with a subdued band,
-separate from the brighter selection highlight. Changing global policy updates
-controlled provinces; local tribute can then override it. The global menu keeps
-showing the stored policy. `--original-tribute-menus` hides the added indicator.
+Tribute reads the selected province's level; Tribute Policy reads the stored
+global policy. Changing global policy updates controlled provinces, and local
+tribute can then override it. The global menu keeps showing the stored policy.
+For comparisons, `--original-tribute-menus` hides added tribute indicators
+regardless of the selected style.
 
 ## Original rules and current limits
 

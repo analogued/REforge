@@ -4,6 +4,7 @@
 use super::machine_tests::{click, draw, dummy_video, label};
 use super::*;
 use reforge_settings::{
+    AppliedValueIndicator, CENTURION_APPLIED_VALUE_INDICATOR as INDICATOR,
     CENTURION_FLEET_INFORMATION as KEY, CENTURION_MAP_HIGHLIGHT as MAP,
     CENTURION_MENU_DECORATIONS as DECORATIONS, CENTURION_POPUP_CURSOR as CURSOR,
     ENHANCEMENTS_SECTION, FleetInformation, Launch, MapHighlight, MenuDecorations, Patch,
@@ -33,6 +34,55 @@ fn click_last(menu: &mut SettingsMenu<'_>, text: &str) {
     let position = found
         .last()
         .unwrap_or_else(|| panic!("missing {text}"))
+        .center();
+    for pressed in [true, false] {
+        draw(
+            menu,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+}
+
+fn click_value_row(menu: &mut SettingsMenu<'_>, row: &str, value: &str) {
+    fn labels(shape: &egui::Shape, text: &str, result: &mut Vec<egui::Rect>) {
+        match shape {
+            egui::Shape::Text(shape) if shape.galley.text() == text => {
+                result.push(shape.visual_bounding_rect())
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    labels(shape, text, result);
+                }
+            }
+            _ => {}
+        }
+    }
+    draw(menu, vec![]);
+    let output = draw(menu, vec![]);
+    let row_y = label(&output, row)
+        .unwrap_or_else(|| panic!("missing row {row}"))
+        .center()
+        .y;
+    let mut found = Vec::new();
+    for shape in &output.shapes {
+        labels(&shape.shape, value, &mut found);
+    }
+    let position = found
+        .iter()
+        .min_by(|a, b| {
+            (a.center().y - row_y)
+                .abs()
+                .total_cmp(&(b.center().y - row_y).abs())
+        })
+        .unwrap_or_else(|| panic!("missing value {value} for {row}"))
         .center();
     for pressed in [true, false] {
         draw(
@@ -121,11 +171,40 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     assert_eq!(menu.draft.as_ref().unwrap().game[KEY], "original");
     assert_eq!(menu.draft.as_ref().unwrap().game[CURSOR], "hidden");
     assert_eq!(menu.draft.as_ref().unwrap().game[MAP], "off");
+    assert_eq!(menu.draft.as_ref().unwrap().game[INDICATOR], "original");
     assert_eq!(std::fs::read(&path).unwrap(), initial);
     click(&mut menu, "Advanced options");
     assert!(label(&draw(&mut menu, vec![]), "Fleet information").is_some());
     assert!(label(&draw(&mut menu, vec![]), "Menu decorations").is_some());
     assert!(label(&draw(&mut menu, vec![]), "Map highlight").is_some());
+    assert!(label(&draw(&mut menu, vec![]), "Applied value indicator").is_some());
+    for choice in [
+        AppliedValueIndicator::SubduedBand,
+        AppliedValueIndicator::SideMarker,
+        AppliedValueIndicator::Underline,
+    ] {
+        let current = menu
+            .draft
+            .as_ref()
+            .unwrap()
+            .game_values()
+            .centurion
+            .applied_value_indicator;
+        click_value_row(&mut menu, "Applied value indicator", current.label());
+        click_last(&mut menu, choice.label());
+        assert_eq!(
+            menu.draft
+                .as_ref()
+                .unwrap()
+                .game_values()
+                .centurion
+                .applied_value_indicator,
+            choice
+        );
+        assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
+    }
+    click(&mut menu, "Custom");
+    click_last(&mut menu, "Original");
     click(&mut menu, "Off");
     click(&mut menu, "On");
     assert!(!menu.draft.as_ref().unwrap().game.contains_key(MAP));
@@ -133,6 +212,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     click(&mut menu, "Custom");
     click_last(&mut menu, "Original");
     assert_eq!(menu.draft.as_ref().unwrap().game[MAP], "off");
+    assert_eq!(menu.draft.as_ref().unwrap().game[INDICATOR], "original");
     click(&mut menu, "Mouse");
     click(&mut menu, "Keyboard");
     assert_eq!(menu.draft.as_ref().unwrap().game[DECORATIONS], "keyboard");
@@ -140,7 +220,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     click(&mut menu, "Custom");
     click_last(&mut menu, "Original");
     assert!(!menu.draft.as_ref().unwrap().game.contains_key(DECORATIONS));
-    click_last(&mut menu, "Original");
+    click_value_row(&mut menu, "Fleet information", "Original");
     click(&mut menu, "Detailed");
     assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
     assert_eq!(menu.draft.as_ref().unwrap().game[KEY], "detailed");
@@ -149,6 +229,8 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     assert!(!menu.draft.as_ref().unwrap().game.contains_key(KEY));
     assert!(!menu.draft.as_ref().unwrap().game.contains_key(CURSOR));
     assert!(!menu.draft.as_ref().unwrap().game.contains_key(MAP));
+    assert!(!menu.draft.as_ref().unwrap().game.contains_key(INDICATOR));
+    assert!(label(&draw(&mut menu, vec![]), "Subdued band").is_some());
     assert!(label(&draw(&mut menu, vec![]), "Both").is_some());
     assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());
     click(&mut menu, "Visible");
@@ -197,6 +279,15 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
             .menu_decorations,
         MenuDecorations::Mouse
     );
+    assert_eq!(
+        menu.draft
+            .as_ref()
+            .unwrap()
+            .game_values()
+            .centurion
+            .applied_value_indicator,
+        AppliedValueIndicator::SubduedBand
+    );
     click(&mut menu, "Reforged");
     click(&mut menu, "Original");
     click(&mut menu, "Apply");
@@ -214,14 +305,18 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     assert!(text.contains("fleet_information = \"original\""));
     assert!(text.contains("popup_cursor = \"hidden\""));
     assert!(text.contains("map_highlight = \"off\""));
+    assert!(text.contains("applied_value_indicator = \"original\""));
     assert!(!text.contains("preset"));
     assert!(text.contains("master_volume = 61"));
     click(&mut menu, "Hidden");
     click(&mut menu, "Visible");
-    click_last(&mut menu, "Original");
+    click_value_row(&mut menu, "Fleet information", "Original");
     click(&mut menu, "Detailed");
     click(&mut menu, "Mouse");
     click(&mut menu, "Dynamic");
+    click_value_row(&mut menu, "Applied value indicator", "Original");
+    click(&mut menu, "Side marker");
+    assert_eq!(menu.draft.as_ref().unwrap().game[INDICATOR], "side-marker");
     assert!(label(&draw(&mut menu, vec![]), "Custom").is_some());
     click(&mut menu, "Apply");
     let request = creator
@@ -244,6 +339,15 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
         std::fs::read_to_string(&path)
             .unwrap()
             .contains("menu_decorations = \"dynamic\"")
+    );
+    assert_eq!(
+        display.settings().centurion.applied_value_indicator,
+        AppliedValueIndicator::SideMarker
+    );
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("applied_value_indicator = \"side-marker\"")
     );
     click(&mut menu, "Restore defaults");
     assert_eq!(
@@ -306,6 +410,15 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
             .contains("menu_decorations")
     );
     assert_eq!(display.settings().centurion.map_highlight, MapHighlight::On);
+    assert_eq!(
+        display.settings().centurion.applied_value_indicator,
+        AppliedValueIndicator::SubduedBand
+    );
+    assert!(
+        !std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("applied_value_indicator")
+    );
     assert!(
         !std::fs::read_to_string(&path)
             .unwrap()
@@ -673,6 +786,77 @@ fn centurion_native_settings_capture_and_detail_navigation() {
                 MapHighlight::On
             );
             assert!(label(&sized_draw(&mut menu, metrics, vec![]), "Reforged").is_some());
+            let mut indicator_found = false;
+            for _ in 0..80 {
+                let output = sized_draw(&mut menu, metrics, vec![]);
+                if let Some(value) = label(&output, "Subdued band")
+                    && menu
+                        .context
+                        .memory(|memory| memory.focused())
+                        .and_then(|id| menu.context.read_response(id))
+                        .is_some_and(|response| response.rect.contains(value.center()))
+                {
+                    indicator_found = true;
+                    break;
+                }
+                pulse(&mut menu, metrics, Key::Tab);
+            }
+            assert!(
+                indicator_found,
+                "applied value selector must be reachable: {width} {density}"
+            );
+            pulse(&mut menu, metrics, Key::ArrowRight);
+            assert_eq!(
+                menu.draft
+                    .as_ref()
+                    .unwrap()
+                    .game_values()
+                    .centurion
+                    .applied_value_indicator,
+                AppliedValueIndicator::SideMarker
+            );
+            assert!(label(&sized_draw(&mut menu, metrics, vec![]), "Custom").is_some());
+            menu.handle_gamepad(crate::gamepad::PadEvent {
+                actions: crate::gamepad::Actions {
+                    right: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            menu.prepare(metrics, RuntimeSettings::default());
+            menu.handle_gamepad(Default::default());
+            assert_eq!(
+                menu.draft
+                    .as_ref()
+                    .unwrap()
+                    .game_values()
+                    .centurion
+                    .applied_value_indicator,
+                AppliedValueIndicator::Underline
+            );
+            pulse(&mut menu, metrics, Key::ArrowLeft);
+            pulse(&mut menu, metrics, Key::ArrowLeft);
+            assert_eq!(
+                menu.draft
+                    .as_ref()
+                    .unwrap()
+                    .game_values()
+                    .centurion
+                    .applied_value_indicator,
+                AppliedValueIndicator::SubduedBand
+            );
+            assert!(label(&sized_draw(&mut menu, metrics, vec![]), "Reforged").is_some());
+            pulse(&mut menu, metrics, Key::ArrowLeft);
+            assert_eq!(
+                menu.draft
+                    .as_ref()
+                    .unwrap()
+                    .game_values()
+                    .centurion
+                    .applied_value_indicator,
+                AppliedValueIndicator::Original
+            );
+            pulse(&mut menu, metrics, Key::ArrowRight);
             if let Some(directory) = std::env::var_os("REFORGE_CENTURION_SETTINGS_CAPTURE") {
                 for _ in 0..3 {
                     canvas.clear();

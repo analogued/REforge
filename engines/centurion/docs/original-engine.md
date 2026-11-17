@@ -56,8 +56,9 @@ levels) white before entering its input loop. In mouse mode, pointer movement
 does not repaint the labels, so that applied label stays white while browsing.
 Keyboard mode instead clears the previous white label and paints the new focused
 row white during arrow navigation. The stored level changes only on activation.
-The native frontend's independent applied/focus labels are documented in
-[deviations](deviations.md#menu-feedback-and-editing).
+The native frontend's selectable applied-value styles, including its persistent
+white applied label for both input methods with Original, are documented in
+[deviations](deviations.md#applied-value-indicator).
 
 ## Mouse and keyboard presentation
 

@@ -244,6 +244,10 @@ impl Recorder {
             ("hash_algorithm", quote("blake3")),
             ("tribute_indicator", session.tribute_indicator.to_string()),
             (
+                "applied_value_indicator",
+                quote(session.applied_value_indicator.as_str()),
+            ),
+            (
                 "fleet_information",
                 quote(session.fleet_information.as_str()),
             ),
@@ -252,7 +256,7 @@ impl Recorder {
             (
                 "ui_policy",
                 quote(
-                    "selectable mouse/keyboard/dynamic menu decorations; applied tribute shading when enabled; selectable enemy fleet information; intentional differences from DOS menus",
+                    "selectable mouse/keyboard/dynamic menu decorations; selectable applied tribute/difficulty indicators without footer notices; selectable enemy fleet information; intentional differences from DOS menus",
                 ),
             ),
             (

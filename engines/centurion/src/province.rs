@@ -52,6 +52,54 @@ pub struct Menu {
     pub items: Vec<Item>,
     pub joined_decoration: bool,
 }
+
+/// Applied values are independent of hover/keyboard focus and menu decorations.
+pub fn applied_value_indicator(
+    assets: &Assets,
+    frame: &mut Frame,
+    menu: &Menu,
+    row: usize,
+    focused: Option<usize>,
+    style: reforge_settings::AppliedValueIndicator,
+) -> Result<()> {
+    use reforge_settings::AppliedValueIndicator;
+
+    let item = menu.items.get(row).ok_or("Missing applied value row")?;
+    let (x, y, right, bottom) = item.rect;
+    match style {
+        AppliedValueIndicator::Original => {
+            // Tribute omits this call in Original; difficulty keeps its white label.
+            frame.text(assets, &item.label, x + 11, y, 15)?;
+        }
+        AppliedValueIndicator::SubduedBand => {
+            frame.rect(x + 10, y, menu.rect.2 - x - 20, bottom - y, 8);
+            frame.text(
+                assets,
+                &item.label,
+                x + 11,
+                y,
+                if focused == Some(row) { 15 } else { 7 },
+            )?;
+        }
+        AppliedValueIndicator::SideMarker => {
+            frame.rect(right - 2, y + 2, 3, 6, 8);
+        }
+        AppliedValueIndicator::Underline => {
+            let ds = &assets.data_segment;
+            let widths = word(ds, 0xa05c)? as usize;
+            let tracking = i32::from(ds[0xa064]);
+            let width: i32 = item
+                .label
+                .bytes()
+                .filter(|byte| (32..128).contains(byte))
+                .map(|byte| i32::from(ds[widths + usize::from(byte - 32)]) + tracking)
+                .sum();
+            frame.rect(x + 11, bottom, (width - tracking).max(0), 1, 8);
+        }
+    }
+    Ok(())
+}
+
 impl Menu {
     pub fn read(state: &Campaign, address: usize) -> Result<Self> {
         let ds = &state.data;
@@ -463,48 +511,6 @@ impl Panels {
         self.menu(assets, state, &mut frame, menu, selected)?;
         Ok(frame)
     }
-    /// Approved UI aid: distinguish the applied level from transient focus.
-    pub fn tribute_indicator(
-        &self,
-        assets: &Assets,
-        state: &Campaign,
-        frame: &mut Frame,
-        address: usize,
-        province: u8,
-        selected: Option<usize>,
-    ) -> Result<()> {
-        let level = match address {
-            TRIBUTE_MENU => state.tribute(province)?,
-            POLICY_MENU => state.data[0x5fc0],
-            _ => return Ok(()),
-        };
-        if level >= 5 {
-            return Ok(());
-        }
-        let menu = Menu::read(state, address)?;
-        let item = &menu.items[usize::from(level)];
-        let (x, y, _, bottom) = item.rect;
-        frame.rect(x + 10, y, menu.rect.2 - x - 20, bottom - y, 8);
-        frame.text(
-            assets,
-            &item.label,
-            x + 11,
-            y,
-            if selected == Some(usize::from(level)) {
-                15
-            } else {
-                7
-            },
-        )?;
-        frame.text(
-            assets,
-            "Shaded: current",
-            menu.rect.0 + 11,
-            menu.rect.3 - 18,
-            8,
-        )?;
-        Ok(())
-    }
     pub fn list(
         &self,
         assets: &Assets,
@@ -565,6 +571,92 @@ impl Panels {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn applied_value_styles_keep_focus_separate_and_leave_the_footer_untouched() {
+        use reforge_settings::AppliedValueIndicator;
+
+        let mut data = vec![0; 65536];
+        for (at, address) in [(0xa05c, 512u16), (0xa05e, 608), (0xa060, 704)] {
+            data[at..at + 2].copy_from_slice(&address.to_le_bytes());
+        }
+        data[0xa062] = 1;
+        data[0xa064] = 1;
+        data[512..608].fill(1);
+        data[608..704].fill(1);
+        data[704..800].fill(0x80);
+        let assets = Assets::test_data(data);
+        let menu = Menu {
+            rect: (6, 79, 156, 197),
+            title: String::new(),
+            items: (0..2)
+                .map(|row| Item {
+                    label: "A".into(),
+                    shortcut: b'a',
+                    disabled: false,
+                    rect: (12, 102 + row * 10, 144, 112 + row * 10),
+                })
+                .collect(),
+            joined_decoration: true,
+        };
+        for style in AppliedValueIndicator::ALL {
+            for focus in [None, Some(0), Some(1)] {
+                let mut frame = Frame::new();
+                frame.pixels.fill(26);
+                for (row, item) in menu.items.iter().enumerate() {
+                    frame
+                        .text(
+                            &assets,
+                            &item.label,
+                            item.rect.0 + 11,
+                            item.rect.1,
+                            if focus == Some(row) { 15 } else { 0 },
+                        )
+                        .unwrap();
+                }
+                applied_value_indicator(&assets, &mut frame, &menu, 0, focus, style).unwrap();
+                let applied_color = match style {
+                    AppliedValueIndicator::Original => 15,
+                    AppliedValueIndicator::SubduedBand if focus != Some(0) => 7,
+                    _ if focus == Some(0) => 15,
+                    _ => 0,
+                };
+                assert_eq!(frame.pixels[103 * 320 + 23], applied_color);
+                assert_eq!(
+                    frame.pixels[113 * 320 + 23],
+                    if focus == Some(1) { 15 } else { 0 }
+                );
+                assert_eq!(
+                    frame.pixels[103 * 320 + 24],
+                    if style == AppliedValueIndicator::SubduedBand {
+                        8
+                    } else {
+                        26
+                    }
+                );
+                assert_eq!(
+                    frame.pixels[104 * 320 + 143],
+                    if matches!(
+                        style,
+                        AppliedValueIndicator::SideMarker | AppliedValueIndicator::SubduedBand
+                    ) {
+                        8
+                    } else {
+                        26
+                    }
+                );
+                assert_eq!(
+                    frame.pixels[112 * 320 + 23],
+                    if style == AppliedValueIndicator::Underline {
+                        8
+                    } else {
+                        26
+                    }
+                );
+                assert!(frame.pixels[170 * 320..194 * 320].iter().all(|&p| p == 26));
+            }
+        }
+    }
 
     #[test]
     fn confirmation_hits_follow_multiline_titles_and_leave_the_gap_inactive() {

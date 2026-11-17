@@ -8,7 +8,7 @@ unsupported features and unresolved fidelity issues belong under
 
 ## Presentation settings
 
-Centurion UI's Original/Reforged presets are aliases over four granular choices:
+Centurion UI's Original/Reforged presets are aliases over five granular choices:
 
 | Setting | Original | Reforged (default) |
 | --- | --- | --- |
@@ -16,10 +16,11 @@ Centurion UI's Original/Reforged presets are aliases over four granular choices:
 | Popup cursor | Hidden | Visible |
 | Menu decorations | Mouse | Mouse |
 | Map highlight | Off | On |
+| Applied value indicator | Original | Subdued band |
 
 Nonmatching combinations display Custom. Only the individual choices are saved.
 They apply to open views as well as newly entered ones, without modifying DOS
-campaign bytes or advancing RNG. The preset affects these four settings; the
+campaign bytes or advancing RNG. The preset affects these five settings; the
 input feedback and host adaptations described below also apply with Original.
 
 ### Acknowledgments
@@ -55,6 +56,29 @@ popups keep the inspected province highlighted until dismissal, then resume
 hover at the current pointer. Unrelated menus clear it. Off retains DOS's static
 borders.
 
+### Applied value indicator
+
+One style applies to Tribute, Tribute Policy, the main Difficulty menu and each
+Fine Tuning category's level menu. Original adds no tribute indicator and keeps
+the applied difficulty white independently of mouse or keyboard focus. A
+different focused difficulty is also white; focusing the applied row produces
+one white label. Mixed category levels mark Fine Tuning in the main menu. This
+extends DOS mouse mode's persistent applied label to keyboard navigation, where
+DOS instead moves the white label with focus.
+
+Subdued band, the Reforged default, shades the applied row and uses gray text
+until it is focused. Side marker and Underline add a neutral mark while leaving
+the unfocused label black. In all three added styles, the focused label is white
+and remains independent of the stored value. None of these styles adds a footer
+notice. The Fine Tuning overview retains its existing current-level column.
+Decorations continue to follow focus alone.
+
+Local tribute reads that province's stored value; global policy continues to
+show stored policy after local overrides. These indicators change no tribute,
+income, difficulty, activation rule or random draw. `--original-tribute-menus`
+suppresses added indicators in the tribute menus independently of the selected
+style; difficulty still uses the selected style.
+
 ## Menu feedback and editing
 
 Enabled choices highlight on hover throughout menus and confirmations, including
@@ -69,19 +93,6 @@ advancing from an invisible selection. Subsequent navigation skips disabled
 items and wraps. Left/Right establishes initial focus in vertical menus and
 navigates side-by-side confirmations. Mouse entry otherwise waits for hover.
 These rules are independent of decoration style and acknowledgment input.
-
-Difficulty menus keep the applied preset or category level white independently
-of mouse or keyboard focus. A different focused row is also white; focusing the
-applied row produces one white label. Mixed category levels mark Fine Tuning in
-the main menu. This extends DOS mouse mode's persistent applied label to keyboard
-navigation, where DOS instead moves the white label with focus. Decorations
-continue to follow focus, and browsing does not change the stored difficulty.
-
-Tribute and Tribute Policy add a subdued band and current-level legend for the
-stored value, separate from focus. Local tribute reads that province's value;
-global policy continues to show stored policy after local overrides. This does
-not change tribute, income, activation rules or RNG. `--original-tribute-menus`
-removes the indicator independently of the preset.
 
 The save-name prompt additionally identifies the destination slot. Descriptions
 still prefill from the current campaign, not the selected slot's previous name.

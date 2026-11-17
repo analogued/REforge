@@ -149,20 +149,74 @@ impl std::str::FromStr for MapHighlight {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum AppliedValueIndicator {
+    /// No added tribute mark; retain the white applied difficulty label.
+    Original,
+    /// A subdued background band distinguishes the applied value from focus.
+    #[default]
+    SubduedBand,
+    /// A compact mark beside the applied row.
+    SideMarker,
+    /// Underline the applied row's label.
+    Underline,
+}
+impl AppliedValueIndicator {
+    pub const ALL: [Self; 4] = [
+        Self::Original,
+        Self::SubduedBand,
+        Self::SideMarker,
+        Self::Underline,
+    ];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Original => "original",
+            Self::SubduedBand => "subdued-band",
+            Self::SideMarker => "side-marker",
+            Self::Underline => "underline",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Original => "Original",
+            Self::SubduedBand => "Subdued band",
+            Self::SideMarker => "Side marker",
+            Self::Underline => "Underline",
+        }
+    }
+}
+impl std::str::FromStr for AppliedValueIndicator {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "original" => Ok(Self::Original),
+            "subdued-band" => Ok(Self::SubduedBand),
+            "side-marker" => Ok(Self::SideMarker),
+            "underline" => Ok(Self::Underline),
+            _ => Err(
+                "applied value indicator must be original, subdued-band, side-marker or underline"
+                    .into(),
+            ),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CenturionOptions {
     pub fleet_information: FleetInformation,
     pub popup_cursor: PopupCursor,
     pub menu_decorations: MenuDecorations,
     pub map_highlight: MapHighlight,
+    pub applied_value_indicator: AppliedValueIndicator,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        CENTURION_FLEET_INFORMATION as KEY, CENTURION_MAP_HIGHLIGHT as MAP,
-        CENTURION_MENU_DECORATIONS as DECORATIONS, CENTURION_POPUP_CURSOR as CURSOR, Draft,
-        ENHANCEMENTS_SECTION, Launch, Patch, RuntimeSettings, Session,
+        CENTURION_APPLIED_VALUE_INDICATOR as INDICATOR, CENTURION_FLEET_INFORMATION as KEY,
+        CENTURION_MAP_HIGHLIGHT as MAP, CENTURION_MENU_DECORATIONS as DECORATIONS,
+        CENTURION_POPUP_CURSOR as CURSOR, Draft, ENHANCEMENTS_SECTION, Launch, Patch,
+        RuntimeSettings, Session,
     };
     use std::{
         fs,
@@ -198,6 +252,114 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn applied_value_indicator_validates_and_defaults_to_subdued_band() {
+        let mut values = RuntimeSettings::default();
+        assert_eq!(
+            values.centurion.applied_value_indicator,
+            AppliedValueIndicator::SubduedBand
+        );
+        for choice in AppliedValueIndicator::ALL {
+            values.set(INDICATOR, choice.as_str()).unwrap();
+            assert_eq!(values.centurion.applied_value_indicator, choice);
+            assert_eq!(values.get(INDICATOR), choice.as_str());
+        }
+        for invalid in ["", "reforged", "on", "off", "subdued_band", "true"] {
+            assert!(values.set(INDICATOR, invalid).is_err());
+            assert_eq!(
+                values.centurion.applied_value_indicator,
+                AppliedValueIndicator::Underline
+            );
+        }
+        assert_eq!(crate::section_index(INDICATOR), ENHANCEMENTS_SECTION);
+    }
+
+    #[test]
+    fn applied_value_indicator_is_per_entry_preserves_choices_and_resets() {
+        let temp = Temp::new();
+        let missing = temp.session("centurion-defender-of-rome");
+        assert_eq!(
+            missing
+                .effective(&missing.saved)
+                .centurion
+                .applied_value_indicator,
+            AppliedValueIndicator::SubduedBand
+        );
+        for choice in AppliedValueIndicator::ALL {
+            fs::write(temp.path(), format!("[global.enhancements]\napplied_value_indicator = 'original'\n[entries.copy.enhancements]\napplied_value_indicator = '{}' # retain choice\nmenu_decorations = 'dynamic'\nunknown = 'retained'\n[entries.copy.display]\nwindow_mode = 'fullscreen'\n", choice.as_str())).unwrap();
+            let mut session = temp.session("centurion-defender-of-rome");
+            assert_eq!(
+                session
+                    .saved
+                    .global_values()
+                    .centurion
+                    .applied_value_indicator,
+                AppliedValueIndicator::SubduedBand
+            );
+            assert_eq!(
+                session
+                    .effective(&session.saved)
+                    .centurion
+                    .applied_value_indicator,
+                choice
+            );
+            let mut draft = session.saved.clone();
+            draft.edit(false, INDICATOR, "original".into());
+            assert!(!draft.global.contains_key(INDICATOR));
+            draft.edit_game(CURSOR, "hidden".into(), Some(&session.saved));
+            session.commit(draft).unwrap();
+            let text = fs::read_to_string(temp.path()).unwrap();
+            assert!(text.contains(&format!(
+                "applied_value_indicator = '{}' # retain choice",
+                choice.as_str()
+            )));
+            assert!(!text.contains(INDICATOR));
+            assert!(!text.contains("preset"));
+            let mut reset = session.saved.clone();
+            assert!(reset.has_game_overrides(ENHANCEMENTS_SECTION));
+            reset.reset_section(true, ENHANCEMENTS_SECTION);
+            assert!(!reset.has_game_overrides(ENHANCEMENTS_SECTION));
+            assert_eq!(reset.game_values().centurion, CenturionOptions::default());
+            assert!(reset.game_values().fullscreen);
+            session.commit(reset).unwrap();
+            let text = fs::read_to_string(temp.path()).unwrap();
+            let document = text.parse::<toml_edit::DocumentMut>().unwrap();
+            assert!(
+                document["entries"]["copy"]["enhancements"]
+                    .get("applied_value_indicator")
+                    .is_none()
+            );
+            assert!(text.contains("unknown = 'retained'"));
+        }
+        let mut other = temp.session("mach-3");
+        other.cli.insert(INDICATOR.into(), "original".into());
+        assert_eq!(
+            other
+                .effective(&other.saved)
+                .centurion
+                .applied_value_indicator,
+            AppliedValueIndicator::SubduedBand
+        );
+        fs::write(temp.path(), "[entries.copy.enhancements]\napplied_value_indicator = 'invalid'\nfleet_information = 'original'\n").unwrap();
+        let session = temp.session("centurion-defender-of-rome");
+        assert!(session.warning.is_some());
+        assert!(!session.saved.game.contains_key(INDICATOR));
+        assert_eq!(
+            session
+                .effective(&session.saved)
+                .centurion
+                .applied_value_indicator,
+            AppliedValueIndicator::SubduedBand
+        );
+        assert_eq!(
+            session
+                .effective(&session.saved)
+                .centurion
+                .fleet_information,
+            FleetInformation::Original
+        );
     }
 
     #[test]

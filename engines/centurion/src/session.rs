@@ -104,6 +104,7 @@ pub struct Session {
     pub quit: bool,
     pub save_dir: Option<PathBuf>,
     pub tribute_indicator: bool,
+    pub applied_value_indicator: reforge_settings::AppliedValueIndicator,
     pub fleet_information: reforge_settings::FleetInformation,
     pub popup_cursor: reforge_settings::PopupCursor,
     pub menu_decorations: reforge_settings::MenuDecorations,
@@ -204,6 +205,7 @@ impl Session {
             quit: false,
             save_dir: None,
             tribute_indicator: true,
+            applied_value_indicator: reforge_settings::AppliedValueIndicator::default(),
             fleet_information: reforge_settings::FleetInformation::default(),
             popup_cursor: reforge_settings::PopupCursor::default(),
             menu_decorations: reforge_settings::MenuDecorations::default(),
@@ -1813,15 +1815,26 @@ impl Session {
             menu,
             selected,
         )?;
-        if self.tribute_indicator {
-            self.province_panels.tribute_indicator(
-                assets,
-                &self.campaign,
-                &mut frame,
-                menu,
-                self.province,
-                selected,
-            )?;
+        if self.tribute_indicator
+            && self.applied_value_indicator != reforge_settings::AppliedValueIndicator::Original
+        {
+            let applied = match menu {
+                crate::province::TRIBUTE_MENU => {
+                    Some(usize::from(self.campaign.tribute(self.province)?))
+                }
+                crate::province::POLICY_MENU => Some(usize::from(self.campaign.data[0x5fc0])),
+                _ => None,
+            };
+            if let Some(row) = applied.filter(|&row| row < 5) {
+                crate::province::applied_value_indicator(
+                    assets,
+                    &mut frame,
+                    &crate::province::Menu::read(&self.campaign, menu)?,
+                    row,
+                    selected,
+                    self.applied_value_indicator,
+                )?;
+            }
         }
         Ok(frame)
     }
@@ -3220,12 +3233,14 @@ impl Session {
                 _ => None,
             };
             if let Some(row) = applied {
-                // The applied value stays white independently of navigation focus.
-                let item = menu
-                    .items
-                    .get(row)
-                    .ok_or("Missing applied difficulty row")?;
-                frame.text(assets, &item.label, item.rect.0 + 11, item.rect.1, 15)?;
+                crate::province::applied_value_indicator(
+                    assets,
+                    &mut frame,
+                    &menu,
+                    row,
+                    self.highlighted.then_some(self.selected),
+                    self.applied_value_indicator,
+                )?;
             }
             if self.phase == Phase::FineTuning {
                 for category in 0..4 {

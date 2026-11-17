@@ -274,7 +274,7 @@ fn centurion_100b_has_a_distinct_profile_and_complete_vga_ega_manifest() {
     assert_eq!(b.id, "centurion-defender-of-rome-dos-4d5fd76b5e");
     assert_eq!(identity::release_id(b).unwrap(), b.id);
     assert_eq!(b.edition.label, Some("DOS 1.00B"));
-    assert_eq!(b.edition.specs.video_features, ["320×200", "VGA", "EGA"]);
+    assert_eq!(b.edition.specs.video_features, ["320×200", "VGA / EGA"]);
     assert_eq!(b.files.len(), 31);
     assert!(a.compatible_with(b) && b.compatible_with(a));
     let names: HashSet<_> = b.files.iter().map(|file| file.name).collect();

@@ -147,7 +147,7 @@ pub static CENTURION_DOS: Edition = Edition {
 
 pub static CENTURION_DOS_100B_SPECS: SpecsProfile = SpecsProfile {
     id: "centurion-dos-vga-ega-adlib",
-    video_features: &["320×200", "VGA", "EGA"],
+    video_features: &["320×200", "VGA / EGA"],
     audio_features: &["AdLib"],
 };
 pub static CENTURION_DOS_100B: Edition = Edition {

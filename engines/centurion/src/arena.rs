@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Gladiatorial shows: overlay 3, with animation and AI tables in the original DS.
-use crate::assets::{Assets, Bitmap, Result, word};
+use crate::assets::{Assets, Bitmap, Result, VideoMode, word};
 use crate::games::{menu_focus, menu_input, put};
 use crate::graphics::Frame;
 use crate::province::{Menu, Panels};
@@ -521,7 +521,7 @@ impl Arena {
             let mut f = Frame::new();
             f.blit(&self.arena[0], 0, 0);
             f.blit(&self.floor, 0, 126);
-            fight.render(&mut f, &state.data)?;
+            fight.render(&mut f, &state.data, assets.video)?;
             if matches!(self.stage, Stage::Thumbs | Stage::Final)
                 || (self.stage == Stage::Prompt && matches!(self.after, After::Thumbs))
             {
@@ -865,7 +865,7 @@ impl Fight {
         );
         Ok(())
     }
-    fn render(&self, frame: &mut Frame, data: &[u8]) -> Result<()> {
+    fn render(&self, frame: &mut Frame, data: &[u8], video: VideoMode) -> Result<()> {
         let mut draw = |side: usize| -> Result<()> {
             let u = &self.units[side];
             let sprite = usize::from(data[u.sequence + usize::from(u.draw_animation) * 4 + 2]);
@@ -901,7 +901,13 @@ impl Fight {
             } else {
                 (0, length)
             };
-            frame.rect(if side == 0 { 191 } else { 0 }, 188, 129, 6, 54);
+            frame.rect(
+                if side == 0 { 191 } else { 0 },
+                188,
+                129,
+                6,
+                video.color(54, 8),
+            );
             frame.rect(left + i32::from(side == 0), 188, right - left, 6, 4);
         }
         Ok(())
@@ -938,6 +944,29 @@ mod tests {
             cheers: 0,
             jeers: 0,
             level: 1,
+        }
+    }
+
+    #[test]
+    fn health_bars_clear_with_the_original_video_pen() {
+        let mut fight = fight();
+        for fighter in &mut fight.units {
+            fighter.sprites.push(Bitmap {
+                width: 1,
+                height: 1,
+                origin_x: 0,
+                origin_y: 0,
+                pixels: vec![0],
+                visible: vec![false],
+            });
+        }
+        let data = vec![0; 65536];
+        for (video, background) in [(VideoMode::Vga, 54), (VideoMode::Ega, 8)] {
+            let mut frame = Frame::new();
+            fight.render(&mut frame, &data, video).unwrap();
+            assert_eq!(frame.pixels[190 * 320 + 50], background);
+            assert_eq!(frame.pixels[190 * 320 + 200], background);
+            assert_eq!(frame.pixels[190 * 320 + 10], 4);
         }
     }
     fn arena(fight: Fight) -> Arena {

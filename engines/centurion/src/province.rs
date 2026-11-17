@@ -276,7 +276,7 @@ impl Panels {
     ) -> Result<Frame> {
         let mut frame = Frame::new();
         frame.rect(0, 0, 320, 200, 116);
-        frame.rect(0, 0, 320, 32, 23);
+        frame.rect(0, 0, 320, 32, assets.video.color(23, 11));
         if u16::from(state.data[0x58a6 + usize::from(province)]) <= rng.bounded(100) {
             frame.blit(
                 &assets.bitmap("MNEGO", &format!("SKY{}.CBM", rng.bounded(4)))?,

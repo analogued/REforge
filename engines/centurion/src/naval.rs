@@ -560,7 +560,7 @@ impl Naval {
         for _ in 0..count {
             self.ticks = self.ticks.wrapping_add(1);
             if self.stage == Stage::Briefing {
-                self.briefing.advance(&mut self.view);
+                self.briefing.advance(&mut self.view, assets.video);
                 state.data[0x9816..0x9818].copy_from_slice(&self.view.data[0x9816..0x9818]);
                 continue;
             }

@@ -33,6 +33,25 @@ colours and no separate water layer. The detailed VGA backgrounds are not
 intended to be displayed through the EGA palette. The examined 1.00B loader
 at `BBC7` branches on the video mode before selecting these resources.
 
+The original video-mode word at `DS:9B26` is 2 for VGA and 4 for EGA;
+0 selects no drawing, and 6 selects CGA. Several procedural fills also differ
+by mode rather than simply truncating a VGA palette index. These drawing pens
+are decimal palette indices:
+
+| Fill | VGA | EGA |
+| --- | --- | --- |
+| Plain province sky | 23 | 11 |
+| Naval briefing pennant clear | 128 | 11 |
+| Gladiator health-bar background | 54 | 8 |
+| Race field and preparation background | 17 | 7 |
+| Race dashboard | 0 | `DS:6346` (initialized to 7) |
+
+The EGA race-streak writer uses two fixed bits within a planar byte: its first
+pixel is at `floor(x / 8) * 8 + 2` with pen 15 and the following pixel uses pen 8.
+VGA writes pens 82 and 86 at x and x+1. Both retain the original clipping quirk:
+a streak beginning at y=170 is omitted, but one beginning above it can reach
+that final row. EGA naval pennant animation does not run the VGA palette rings.
+
 `DS:` addresses below are hexadecimal offsets in the original data segment, not
 file offsets or fixed DOS load addresses. Save offsets and pixel dimensions are
 decimal. The [engine README](../README.md) describes replacement interfaces and

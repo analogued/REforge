@@ -22,6 +22,16 @@ pub enum VideoMode {
     Ega,
 }
 
+impl VideoMode {
+    /// Original drawing routines sometimes select different pens by video mode.
+    pub(crate) const fn color(self, vga: u8, ega: u8) -> u8 {
+        match self {
+            Self::Vga => vga,
+            Self::Ega => ega,
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, String>;
 
 pub fn word(bytes: &[u8], offset: usize) -> Result<u16> {

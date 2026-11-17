@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Chariot race selection, preparation and campaign settlement (overlay 4).
-use crate::assets::{Assets, Bitmap, Result, word};
+use crate::assets::{Assets, Bitmap, Result, VideoMode, word};
 use crate::games::{menu_focus, menu_input, put};
 use crate::graphics::Frame;
 use crate::province::{Menu, Panels};
@@ -736,11 +736,10 @@ impl Race {
         self.stage = Stage::Done;
         Ok(())
     }
-    fn background(&self, state: &Campaign) -> Frame {
+    fn background(&self, video: VideoMode) -> Frame {
         let mut frame = Frame::new();
         frame.blit(&self.circus, 0, 0);
-        frame.rect(0, 61, 320, 139, 17);
-        let _ = state;
+        frame.rect(0, 61, 320, 139, video.color(17, 7));
         frame
     }
     fn card(&self, assets: &Assets, state: &Campaign, frame: &mut Frame, id: usize) -> Result<()> {
@@ -791,7 +790,7 @@ impl Race {
             }
             return Ok(frame);
         }
-        let mut background = self.background(state);
+        let mut background = self.background(assets.video);
         let stage = if self.stage == Stage::Prompt {
             self.resume
         } else if matches!(self.stage, Stage::ConfirmExit | Stage::ConfirmNoBet) {
@@ -841,7 +840,7 @@ impl Race {
                 },
                 self.selected,
             )?;
-            background.pixels[61 * 320..79 * 320].fill(17);
+            background.pixels[61 * 320..79 * 320].fill(assets.video.color(17, 7));
             if stage == Stage::Bet {
                 background.rect(10, 150, 136, 31, 26);
                 let kind = usize::from(state.data[0xc2fc]);

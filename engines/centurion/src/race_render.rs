@@ -1,13 +1,14 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Race field, linked actor sprites, dashboard and persistent course-map dots.
-use crate::assets::{Assets, Bitmap, Result};
+use crate::assets::{Assets, Bitmap, Result, VideoMode};
 use crate::games::put;
 use crate::graphics::Frame;
 use crate::race_motion::{Motion, actor, w};
 use crate::state::Campaign;
 
 pub struct View {
+    video: VideoMode,
     pub frame: Frame,
     header: Vec<u8>,
     sprites: Vec<Bitmap>,
@@ -15,6 +16,7 @@ pub struct View {
     med: Vec<Bitmap>,
     track: Vec<(i32, i32)>,
 }
+
 fn narrow(f: &mut Frame, l: i32, t: i32, r: i32, b: i32) {
     f.rect(l, t, r - l + 1, b - t + 1, 26);
     f.rect(l, t, 2, b - t + 1, 8);
@@ -28,8 +30,14 @@ impl View {
     pub fn new(assets: &Assets, state: &mut Campaign) -> Result<Self> {
         let mut frame = Frame::new();
         frame.blit(&assets.bitmap("MRACE", "CIRCUS.CBM")?, 0, 0);
-        frame.rect(0, 61, 320, 139, 17);
-        frame.bevel(1, 171, 318, 198, 0);
+        frame.rect(0, 61, 320, 139, assets.video.color(17, 7));
+        frame.bevel(
+            1,
+            171,
+            318,
+            198,
+            assets.video.color(0, w(state, 0x6346) as u8),
+        );
         narrow(&mut frame, 11, 180, 127, 189);
         narrow(&mut frame, 196, 176, 312, 184);
         narrow(&mut frame, 196, 185, 312, 193);
@@ -80,6 +88,7 @@ impl View {
             put(state, at, 220);
         }
         let mut view = Self {
+            video: assets.video,
             header: frame.pixels[..61 * 320].to_vec(),
             frame,
             sprites: assets.sprites("MRACE", "RACE")?,
@@ -134,12 +143,18 @@ impl View {
     }
     pub fn update(&mut self, s: &mut Campaign, motion: &Motion) -> Result<()> {
         let mut field = Frame::new();
-        field.rect(0, 61, 320, 110, 17);
+        field.rect(0, 61, 320, 110, self.video.color(17, 7));
         for &(x, y, bits) in &motion.streaks {
+            // EGA's planar writer uses fixed bits 5/4 within an eight-pixel
+            // byte, rather than VGA's two adjacent indexed pixels at x.
+            let x = match self.video {
+                VideoMode::Vga => x,
+                VideoMode::Ega => (x >> 3) * 8 + 2,
+            };
             for offset in 0..16 {
                 if bits & (0x8000 >> offset) != 0 && y < 170 && (61..=170).contains(&(y + offset)) {
-                    field.point(x, y + offset, 82);
-                    field.point(x + 1, y + offset, 86);
+                    field.point(x, y + offset, self.video.color(82, 15));
+                    field.point(x + 1, y + offset, self.video.color(86, 8));
                 }
             }
         }
@@ -189,5 +204,47 @@ impl View {
             put(s, at, 0);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn streaks_keep_original_video_colors_alignment_and_inclusive_bottom_quirk() {
+        for video in [VideoMode::Vga, VideoMode::Ega] {
+            let mut state = Campaign::test_data(vec![0; 65536]);
+            state.data[0xc301] = 5;
+            let mut view = View {
+                video,
+                frame: Frame::new(),
+                header: vec![0; 61 * 320],
+                sprites: Vec::new(),
+                laps: Vec::new(),
+                med: Vec::new(),
+                track: Vec::new(),
+            };
+            let motion = Motion {
+                streaks: vec![(101, 70, 0xa000), (5, 169, 0xffff), (9, 170, 0xffff)],
+                crash_presentation: true,
+                ..Motion::default()
+            };
+            view.update(&mut state, &motion).unwrap();
+            let (x, first, second, background) = match video {
+                VideoMode::Vga => (101, 82, 86, 17),
+                VideoMode::Ega => (98, 15, 8, 7),
+            };
+            for y in [70, 72] {
+                assert_eq!(view.frame.pixels[y * 320 + x], first);
+                assert_eq!(view.frame.pixels[y * 320 + x + 1], second);
+            }
+            assert_eq!(view.frame.pixels[71 * 320 + x], background);
+            let bottom_x = if video == VideoMode::Vga { 5 } else { 2 };
+            assert_eq!(view.frame.pixels[170 * 320 + bottom_x], first);
+            // A streak beginning at the bottom boundary is omitted, while a
+            // streak beginning above it may paint the inclusive final row.
+            assert_eq!(view.frame.pixels[170 * 320 + 10], background);
+        }
     }
 }

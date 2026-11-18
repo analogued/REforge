@@ -20,8 +20,8 @@ Unreleased contains changes intended for the next public release.
 - Set the launcher minimum to 630 × 520 logical pixels so Gallery can fit six
   4:3 cards in two rows. Choose 4:3, Per row (default), or Whole gallery
   under Launcher settings to set how Gallery chooses its preview frame aspect.
-- Keep Gallery sizing stable at resize boundaries, avoiding unnecessary column
-  changes and jumps to large single-column cards when scrolling begins.
+- Give Gallery cards more room in scrolling libraries. Keep two rows in view
+  where possible, and use extra rows in taller windows when the library fits.
 - Show larger game palettes as launcher mosaics, using taller shapes in Gallery
   to leave more room for game names while keeping card heights unchanged. Arrange
   16-colour swatches in four rows in Gallery and two rows in List and Split,

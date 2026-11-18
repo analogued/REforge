@@ -2471,51 +2471,54 @@ fn gallery_options_toggle_preserves_preview_positions_and_sizes() {
 }
 
 #[test]
-fn gallery_one_pixel_resizing_keeps_readable_columns_when_scrolling_starts() {
-    let fixture = Fixture::new(11);
+fn gallery_renders_roomier_cards_at_narrow_wide_and_maximized_sizes() {
+    let fixture = Fixture::new(12);
     let mut h = Harness::new(
         &fixture,
         ThemeId::CrispLight,
         LayoutVariant::GalleryShelf,
         true,
     );
-    h.density = 2.25;
-    let mut previous_width: Option<f32> = None;
-    // Sweep both sides of the reported height boundary, one physical pixel at
-    // a time. Inspect the full UI, including ScrollArea scrollbar allocation.
-    for physical_height in 1757..=1797 {
-        h.size = Vec2::new(1405.0, physical_height as f32) / h.density;
-        let output = h.settle();
-        let previews: Vec<_> = output.shapes.iter().filter_map(|s| match &s.shape {
-            egui::Shape::Mesh(m) if matches!(m.texture_id, egui::TextureId::Managed(id) if id > 0) => Some(m.calc_bounds()),
-            _ => None,
-        }).collect();
-        assert_eq!(
-            previews.len(),
-            11,
-            "height {physical_height}: previews disappeared below the viewport"
-        );
-        let columns: std::collections::BTreeSet<_> = previews
-            .iter()
-            .map(|rect| (rect.left() * h.density).round() as i32)
-            .collect();
-        assert_eq!(
-            columns.len(),
-            3,
-            "height {physical_height}: grid reflowed unexpectedly"
-        );
-        let width = previews[0].width();
-        assert!(
-            width < 160.0,
-            "height {physical_height}: cards jumped to a larger size"
-        );
-        if let Some(previous) = previous_width {
+    for density in [1.0, 2.25] {
+        h.density = density;
+        for (width, height, expected_columns, expected_card_width) in [
+            (657.0, 560.0, 3, 196.0),
+            (831.0, 560.0, 4, 186.0),
+            (1300.0, 560.0, 5, 218.0),
+            (1360.0, 560.0, 6, 207.0),
+            (1300.0, 720.0, 4, 292.0),
+            (1707.0, 901.0, 4, 269.0),
+        ] {
+            h.size = Vec2::new(width, height);
+            let output = h.settle();
+            let previews: Vec<_> = output.shapes.iter().filter_map(|s| match &s.shape {
+                egui::Shape::Mesh(m) if matches!(m.texture_id, egui::TextureId::Managed(id) if id > 0) => Some(m.calc_bounds().shrink(2.0)),
+                _ => None,
+            }).collect();
             assert!(
-                (width - previous).abs() <= 3.0,
-                "height {physical_height}: preview jumped from {previous} to {width}"
+                previews.len() >= 2 * expected_columns,
+                "at {width} × {height}"
+            );
+            if height == 901.0 {
+                assert_eq!(
+                    previews.len(),
+                    12,
+                    "maximized Gallery should show all previews"
+                );
+            }
+            let columns: std::collections::BTreeSet<_> = previews
+                .iter()
+                .map(|rect| (rect.left() * density).round() as i32)
+                .collect();
+            assert_eq!(columns.len(), expected_columns, "at {width} × {height}");
+            let card_width = previews[0].width() + 18.0;
+            // The native chrome and font rounding determine the exact viewport
+            // height available to the fitter at each display scale.
+            assert!(
+                (card_width - expected_card_width).abs() <= 4.0,
+                "at {width} × {height}, density {density}: width {card_width}, expected {expected_card_width}"
             );
         }
-        previous_width = Some(width);
     }
 }
 

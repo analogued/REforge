@@ -227,6 +227,7 @@ pub fn draw(
 const GALLERY_GAP: f32 = 16.0;
 const MAX_CARD_WIDTH: f32 = 292.0;
 const MIN_CARD_WIDTH: f32 = 144.0;
+const GALLERY_WIDTH_COVERAGE: f32 = 0.9;
 const CARD_PADDING: f32 = 9.0;
 const CARD_CHROME_HEIGHT: f32 = CARD_PADDING + 7.0 + 46.0;
 type Aspect = (u32, u32);
@@ -303,35 +304,52 @@ impl GalleryGrid {
     }
     fn fit(count: usize, available: Vec2) -> Self {
         let count = count.max(1);
-        let min_width = MIN_CARD_WIDTH.min(available.x).max(1.0);
-        let max_columns = (((available.x + GALLERY_GAP) / (min_width + GALLERY_GAP)) as usize)
+        if available.x < MIN_CARD_WIDTH {
+            return Self {
+                columns: 1,
+                rows: count,
+                card_width: available.x.max(1.0),
+            };
+        }
+        let max_columns = (((available.x + GALLERY_GAP) / (MIN_CARD_WIDTH + GALLERY_GAP)) as usize)
             .max(1)
             .min(count);
-        let width_for_columns = |cols| {
-            ((available.x - (cols - 1) as f32 * GALLERY_GAP) / cols as f32)
-                .clamp(1.0, MAX_CARD_WIDTH)
+        // Size the visible cards against two 4:3 rows so the rest of the
+        // library can scroll and preview aspect changes only adjust row heights.
+        let cap = fitting_card_width(2, available.y, MAX_CARD_WIDTH).unwrap_or(MIN_CARD_WIDTH);
+        let columns_for_width = |width: f32| {
+            (((width + GALLERY_GAP) / (cap + GALLERY_GAP)).ceil() as usize).clamp(1, max_columns)
         };
+        let target_width = available.x * GALLERY_WIDTH_COVERAGE;
+        let columns = columns_for_width(target_width);
+        let grid = Self {
+            columns,
+            rows: count.div_ceil(columns),
+            card_width: width_for_columns(available.x, columns).min(cap),
+        };
+
+        // A taller window can give the whole library more room. Prefer that
+        // arrangement when it uses the target width across extra rows, or
+        // packs the cards more evenly at a size comparable to filling the width.
+        Self::fit_entire_library(count, available, max_columns)
+            .filter(|full| {
+                let fills_width_with_extra_rows = full.rows > 2 && full.width() >= target_width;
+                let more_rows_or_fewer_empty_slots = full.rows > grid.rows
+                    || (full.rows == grid.rows && full.columns < grid.columns);
+                let full_width_card_size =
+                    width_for_columns(available.x, columns_for_width(available.x)).min(cap);
+                fills_width_with_extra_rows
+                    || (more_rows_or_fewer_empty_slots && full.card_width >= full_width_card_size)
+            })
+            .unwrap_or(grid)
+    }
+
+    fn fit_entire_library(count: usize, available: Vec2, max_columns: usize) -> Option<Self> {
         let mut best: Option<Self> = None;
         for columns in 1..=max_columns {
             let rows = count.div_ceil(columns);
-            // Fit the 4:3 reference so switching the aspect setting or loading
-            // a wide preview only changes row heights. Search the actual
-            // rounded dimensions so a rounding plateau cannot hide a fit.
-            let mut low = min_width.ceil() as usize;
-            let mut high = width_for_columns(columns).floor() as usize;
-            let mut fitting_width = None;
-            while low <= high {
-                let width = low + (high - low) / 2;
-                let height = rows as f32 * card_height(width as f32)
-                    + rows.saturating_sub(1) as f32 * GALLERY_GAP;
-                if height <= available.y {
-                    fitting_width = Some(width as f32);
-                    low = width + 1;
-                } else {
-                    high = width - 1;
-                }
-            }
-            let Some(card_width) = fitting_width else {
+            let limit = width_for_columns(available.x, columns);
+            let Some(card_width) = fitting_card_width(rows, available.y, limit) else {
                 continue;
             };
             let candidate = Self {
@@ -348,19 +366,33 @@ impl GalleryGrid {
                 best = Some(candidate);
             }
         }
-        // Continue at the readable minimum when the last fitting layout starts
-        // to overflow, rather than jumping back to maximum-width cards. Use the
-        // fewest possible rows, then avoid unnecessary empty positions, matching
-        // the fitting path's tie-break at the minimum-width boundary.
-        best.unwrap_or_else(|| {
-            let rows = count.div_ceil(max_columns);
-            Self {
-                columns: count.div_ceil(rows),
-                rows,
-                card_width: min_width,
-            }
-        })
+        best
     }
+}
+
+fn width_for_columns(width: f32, columns: usize) -> f32 {
+    ((width - (columns - 1) as f32 * GALLERY_GAP) / columns as f32)
+        .min(MAX_CARD_WIDTH)
+        .floor()
+}
+
+fn fitting_card_width(rows: usize, height: f32, limit: f32) -> Option<f32> {
+    // Search actual rounded heights so a rounding plateau cannot hide a fit.
+    let mut low = MIN_CARD_WIDTH as usize;
+    let mut high = limit as usize;
+    let mut fitting_width = None;
+    while low <= high {
+        let width = low + (high - low) / 2;
+        let total_height =
+            rows as f32 * card_height(width as f32) + (rows - 1) as f32 * GALLERY_GAP;
+        if total_height <= height {
+            fitting_width = Some(width as f32);
+            low = width + 1;
+        } else {
+            high = width - 1;
+        }
+    }
+    fitting_width
 }
 
 fn card_height(card_w: f32) -> f32 {

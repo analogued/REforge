@@ -771,15 +771,14 @@ preview's bottom while the text and a 12-point gap fit above it; otherwise Play
 flows lower. Short windows scroll the content instead of squeezing it. Gallery
 and Compact preview sizing are independent of this preference.
 
-Gallery chooses the largest card width that fits the available space with
-rounded 4:3 frames, up to 292 logical points. Equal-size arrangements prefer
-fewer empty positions, then fewer rows. This reference keeps column widths
-stable as images load or the frame option changes. The selected aspect
-determines the final height of each row. When the library cannot fit at the
-144-point readable minimum, cards stay at that minimum and the gallery scrolls
-vertically, using as few rows and empty positions as the width permits. If the
-viewport itself is narrower than the minimum, cards fit its width. The centred
-grid uses 16-point gaps and aligns an incomplete last row to its first column.
+Gallery sizes cards for two visible rows, up to 292 logical points wide.
+It adds columns to cover 90% of the available width where possible, and
+keeps cards at least 144 points wide where space permits. Additional rows
+scroll. When the entire library fits, Gallery can use more rows to fill a tall
+window or choose a more even grid with comparably sized cards. Card sizing
+uses rounded 4:3 frames as its reference, and the selected aspect determines
+the final height of each row. The centred grid uses 16-point gaps and aligns
+an incomplete last row to its first column.
 
 The first launch uses Classic Dark and Split. Unknown stored appearance values
 fall back for display without rewriting them until the player changes that choice.

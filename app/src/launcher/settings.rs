@@ -101,7 +101,11 @@ pub fn run(
             state.reload_preferences();
             pads.set_dead_zone(global_dead_zone(&state.config));
         }
-        gui.prepare(metrics, |ctx| layouts::draw(ctx, state));
+        let now = Instant::now();
+        gui.prepare(metrics, |ctx| {
+            preview::begin_frame(ctx, metrics, now);
+            layouts::draw(ctx, state);
+        });
         let bg = catalog::ResolvedAppearance::resolve(state.saved_theme)
             .theme
             .palette

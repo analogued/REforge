@@ -1,15 +1,23 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Preview-local compositing: one cached physical-resolution texture per frame/content.
+//! Preview compositing and cached textures for the launcher.
 mod coverage;
+mod resize;
 pub(super) mod sources;
 #[cfg(test)]
 mod tests;
 use coverage::FrameMask;
-use reforge_sdl::egui::{self, Color32, Pos2, Rect, Shape, TextureHandle, TextureOptions, Vec2};
+use reforge_sdl::{
+    egui::{
+        self, Color32, Pos2, Rect, Shape, Stroke, StrokeKind, TextureHandle, TextureOptions, Vec2,
+    },
+    preview::Frame,
+    settings::UiMetrics,
+};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 const BASE: Color32 = Color32::from_rgb(16, 19, 24);
@@ -49,6 +57,14 @@ impl FrameKey {
     fn base(self) -> Color32 {
         dim(BASE, self.dimmed)
     }
+    fn stroke(self) -> Stroke {
+        let colour = if self.light {
+            Color32::from_black_alpha(38)
+        } else {
+            Color32::from_white_alpha(22)
+        };
+        Stroke::new(1.0_f32, colour)
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct TextureKey {
@@ -56,18 +72,25 @@ struct TextureKey {
     colours: Vec<[u8; 3]>,
     image: Option<(String, bool)>,
 }
+impl TextureKey {
+    fn same_artwork(&self, other: &Self) -> bool {
+        self.image == other.image
+            && self.colours == other.colours
+            && self.frame.radius == other.frame.radius
+            && self.frame.light == other.frame.light
+            && self.frame.dimmed == other.frame.dimmed
+    }
+}
 struct CachedTexture {
     key: TextureKey,
     handle: TextureHandle,
 }
 #[derive(Default)]
-struct Cache {
+struct Compositor {
     masks: VecDeque<(FrameKey, Arc<FrameMask>)>,
-    textures: VecDeque<CachedTexture>,
     mask_bytes: usize,
-    texture_bytes: usize,
 }
-impl Cache {
+impl Compositor {
     fn mask(&mut self, key: FrameKey) -> Arc<FrameMask> {
         if let Some(index) = self.masks.iter().position(|(k, _)| *k == key) {
             let item = self.masks.remove(index).unwrap();
@@ -82,23 +105,9 @@ impl Cache {
         self.trim_masks(MASK_BUDGET);
         mask
     }
-    fn texture(&mut self, ctx: &egui::Context, key: TextureKey) -> TextureHandle {
-        self.texture_with_source(ctx, key, None)
-    }
-    fn texture_with_source(
-        &mut self,
-        ctx: &egui::Context,
-        key: TextureKey,
-        source: Option<&reforge_sdl::preview::Frame>,
-    ) -> TextureHandle {
-        if let Some(index) = self.textures.iter().position(|t| t.key == key) {
-            let item = self.textures.remove(index).unwrap();
-            let handle = item.handle.clone();
-            self.textures.push_back(item);
-            return handle;
-        }
+    fn render(&mut self, key: &TextureKey, source: Option<&Frame>) -> egui::ColorImage {
         let mask = self.mask(key.frame);
-        let image = if let Some(source) = source {
+        if let Some(source) = source {
             let content = reforge_sdl::preview::render(
                 source,
                 [key.frame.width as usize, key.frame.height as usize],
@@ -132,7 +141,58 @@ impl Cache {
                     dim(Color32::from_rgb(r, g, b), key.frame.dimmed)
                 },
             )
-        };
+        }
+    }
+    fn trim_masks(&mut self, budget: usize) {
+        while self.mask_bytes > budget && self.masks.len() > 1 {
+            self.mask_bytes -= self.masks.pop_front().unwrap().1.byte_size();
+        }
+    }
+}
+
+#[derive(Default)]
+struct Cache {
+    compositor: Compositor,
+    textures: VecDeque<CachedTexture>,
+    texture_bytes: usize,
+    resize: Option<resize::Resize>,
+}
+impl Cache {
+    fn texture(
+        &mut self,
+        ctx: &egui::Context,
+        key: TextureKey,
+        source: Option<&Arc<Frame>>,
+    ) -> Option<TextureHandle> {
+        if let Some(texture) = self.cached_texture(|cached| *cached == key) {
+            return Some(texture);
+        }
+        if let Some(resize) = &mut self.resize {
+            if let Some(image) = resize.take_ready(&key) {
+                return Some(self.upload(ctx, key, image));
+            }
+            if resize.defer(&key, source) {
+                return self.cached_texture(|cached| cached.same_artwork(&key));
+            }
+        }
+        let image = self.compositor.render(&key, source.map(Arc::as_ref));
+        Some(self.upload(ctx, key, image))
+    }
+
+    fn cached_texture(&mut self, matches: impl Fn(&TextureKey) -> bool) -> Option<TextureHandle> {
+        let index = self.textures.iter().rposition(|item| matches(&item.key))?;
+        let item = self.textures.remove(index).unwrap();
+        let handle = item.handle.clone();
+        self.textures.push_back(item);
+        Some(handle)
+    }
+
+    fn upload(
+        &mut self,
+        ctx: &egui::Context,
+        key: TextureKey,
+        image: egui::ColorImage,
+    ) -> TextureHandle {
         let handle = ctx.load_texture("launcher-preview", image, TextureOptions::NEAREST);
         self.texture_bytes += handle.byte_size();
         self.textures.push_back(CachedTexture {
@@ -142,15 +202,26 @@ impl Cache {
         self.trim_textures(TEXTURE_BUDGET);
         handle
     }
-    fn trim_masks(&mut self, budget: usize) {
-        while self.mask_bytes > budget && self.masks.len() > 1 {
-            self.mask_bytes -= self.masks.pop_front().unwrap().1.byte_size();
-        }
-    }
     fn trim_textures(&mut self, budget: usize) {
         while self.texture_bytes > budget && self.textures.len() > 1 {
             self.texture_bytes -= self.textures.pop_front().unwrap().handle.byte_size();
         }
+    }
+}
+
+fn cache(ctx: &egui::Context) -> Arc<Mutex<Cache>> {
+    ctx.data_mut(|data| {
+        data.get_temp_mut_or_default::<Arc<Mutex<Cache>>>(egui::Id::new("launcher-preview-cache"))
+            .clone()
+    })
+}
+
+pub(super) fn begin_frame(ctx: &egui::Context, metrics: UiMetrics, now: Instant) {
+    let cache = cache(ctx);
+    let mut cache = cache.lock().unwrap();
+    match &mut cache.resize {
+        Some(resize) => resize.begin_frame(metrics, now),
+        None => cache.resize = Some(resize::Resize::new(metrics, now)),
     }
 }
 
@@ -196,13 +267,13 @@ pub(super) fn paint(
         colours: colours.to_vec(),
         image: None,
     };
-    let cache = painter.ctx().data_mut(|data| {
-        data.get_temp_mut_or_default::<Arc<Mutex<Cache>>>(egui::Id::new("launcher-preview-cache"))
-            .clone()
-    });
-    let texture = cache.lock().unwrap().texture(painter.ctx(), key);
-    paint_texture(painter, &texture, min - Vec2::splat(MARGIN as f32));
-    Rect::from_min_max(min / d, max / d)
+    let frame = key.frame;
+    let snapped = Rect::from_min_max(min / d, max / d);
+    if !paint_texture(painter, key, min, None) {
+        painter.rect_filled(snapped, frame.radius, frame.base());
+        painter.rect_stroke(snapped, frame.radius, frame.stroke(), StrokeKind::Inside);
+    }
+    snapped
 }
 /// Real images share the same neutral frame/coverage as Symbolic artwork.
 /// The entire native-size result is composed once, preventing translucent frame
@@ -214,17 +285,17 @@ pub(super) fn paint_image(
     light: bool,
     source: &sources::Source,
     crt: bool,
-) -> Rect {
+) -> Option<Rect> {
     let d = painter.pixels_per_point();
     if !rect.is_finite() || !rect.is_positive() || !painter.clip_rect().intersects(rect.expand(1.0))
     {
-        return rect;
+        return Some(rect);
     }
     let min = (rect.min * d).round();
     let max = (rect.max * d).round();
     let size = max - min;
     if size.x < 1.0 || size.y < 1.0 || size.x * size.y > 16.0 * 1024.0 * 1024.0 {
-        return rect;
+        return Some(rect);
     }
     let key = TextureKey {
         frame: FrameKey {
@@ -238,21 +309,35 @@ pub(super) fn paint_image(
         colours: vec![],
         image: Some((source.id.clone(), crt)),
     };
-    let cache = painter.ctx().data_mut(|data| {
-        data.get_temp_mut_or_default::<Arc<Mutex<Cache>>>(egui::Id::new("launcher-preview-cache"))
-            .clone()
-    });
-    let texture =
-        cache
-            .lock()
-            .unwrap()
-            .texture_with_source(painter.ctx(), key, Some(&source.frame));
-    paint_texture(painter, &texture, min - Vec2::splat(MARGIN as f32));
-    Rect::from_min_max(min / d, max / d)
+    paint_texture(painter, key, min, Some(&source.frame))
+        .then(|| Rect::from_min_max(min / d, max / d))
 }
 
-fn paint_texture(painter: &egui::Painter, texture: &TextureHandle, min: Pos2) {
-    let bounds = texture_bounds(min, texture.size_vec2(), painter.pixels_per_point());
+fn paint_texture(
+    painter: &egui::Painter,
+    key: TextureKey,
+    min: Pos2,
+    source: Option<&Arc<Frame>>,
+) -> bool {
+    let [width, height] = key.frame.size();
+    let Some(texture) = cache(painter.ctx())
+        .lock()
+        .unwrap()
+        .texture(painter.ctx(), key, source)
+    else {
+        return false;
+    };
+    draw_texture(
+        painter,
+        &texture,
+        min - Vec2::splat(MARGIN as f32),
+        Vec2::new(width as f32, height as f32),
+    );
+    true
+}
+
+fn draw_texture(painter: &egui::Painter, texture: &TextureHandle, min: Pos2, size: Vec2) {
+    let bounds = texture_bounds(min, size, painter.pixels_per_point());
     painter.add(Shape::image(
         texture.id(),
         bounds,

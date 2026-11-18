@@ -27,7 +27,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::mpsc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use widgets::UiAction;
 
@@ -436,7 +436,10 @@ pub fn run() -> Result<(), String> {
         previews.poll(&mut state.games);
         gui.set_theme(catalog::ResolvedAppearance::resolve(state.effective_theme()).theme);
         let mut action = None;
-        gui.prepare(Gui::metrics(&canvas)?, |ctx| {
+        let metrics = Gui::metrics(&canvas)?;
+        let now = Instant::now();
+        gui.prepare(metrics, |ctx| {
+            preview::begin_frame(ctx, metrics, now);
             action = state.draw(ctx, picker.is_some());
         });
         text_input(&canvas, picker.is_none() && gui.wants_text_input());

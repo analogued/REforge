@@ -22,6 +22,8 @@ Unreleased contains changes intended for the next public release.
   under Launcher settings to set how Gallery chooses its preview frame aspect.
 - Give Gallery cards more room in scrolling libraries. Keep two rows in view
   where possible, and use extra rows in taller windows when the library fits.
+- Keep launcher previews responsive during window resizing by scaling cached
+  artwork and rebuilding the final-size previews in the background.
 - Show larger game palettes as launcher mosaics, using taller shapes in Gallery
   to leave more room for game names while keeping card heights unchanged. Arrange
   16-colour swatches in four rows in Gallery and two rows in List and Split,

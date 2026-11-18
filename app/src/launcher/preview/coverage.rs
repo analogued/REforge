@@ -3,7 +3,7 @@
 //! CPU evaluation of egui's preview contour, kept out of the shared painter.
 use super::{FrameKey, MARGIN};
 use reforge_sdl::egui::{
-    self, Color32, Pos2, Shape, Stroke, StrokeKind,
+    self, Color32, Pos2, Shape, StrokeKind,
     epaint::{ClippedShape, Mesh, Primitive, Tessellator},
 };
 
@@ -18,14 +18,7 @@ pub(super) struct FrameMask {
 }
 fn meshes(key: FrameKey, fill: Color32, neutral: bool) -> Vec<Mesh> {
     let rect = key.rect();
-    let stroke = Stroke::new(
-        1.0_f32,
-        if key.light {
-            Color32::from_black_alpha(38)
-        } else {
-            Color32::from_white_alpha(22)
-        },
-    );
+    let stroke = key.stroke();
     let shapes = if neutral {
         vec![
             Shape::rect_filled(rect, key.radius, fill),

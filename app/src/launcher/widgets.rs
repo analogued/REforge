@@ -337,7 +337,7 @@ pub fn paint_preview_in_rect(
     } else {
         game.previews.get(game.preview_variant())
     };
-    let rect = if let Some(source) = source {
+    let preview = source.and_then(|source| {
         super::preview::paint_image(
             painter,
             rect,
@@ -346,7 +346,8 @@ pub fn paint_preview_in_rect(
             source,
             game.crt_preview(),
         )
-    } else {
+    });
+    let rect = preview.unwrap_or_else(|| {
         let rect = super::preview::paint(
             painter,
             rect,
@@ -357,7 +358,7 @@ pub fn paint_preview_in_rect(
         );
         paint_symbolic(painter, rect, game);
         rect
-    };
+    });
     let inner = rect.shrink(1.0);
     if show_badge && !game.status.is_missing() && !game.full_mode_label().is_empty() {
         let label = game.full_mode_label();

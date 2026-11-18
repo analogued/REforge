@@ -43,17 +43,20 @@ fn masks_and_textures_are_reused_until_their_actual_inputs_change() {
         image: None,
         colours: vec![[0, 0, 0], [0, 170, 170], [170, 0, 170], [170, 170, 170]],
     };
-    let first = cache.texture(&ctx, key.clone());
+    let first = cache.texture(&ctx, key.clone(), None).unwrap();
     for _ in 0..10 {
-        assert_eq!(cache.texture(&ctx, key.clone()).id(), first.id());
+        assert_eq!(
+            cache.texture(&ctx, key.clone(), None).unwrap().id(),
+            first.id()
+        );
     }
-    assert_eq!(cache.masks.len(), 1);
+    assert_eq!(cache.compositor.masks.len(), 1);
     assert_eq!(cache.textures.len(), 1);
-    let mask = cache.masks[0].1.clone();
+    let mask = cache.compositor.masks[0].1.clone();
     let mut other = key.clone();
     other.colours[1] = [0, 255, 255];
-    assert_ne!(cache.texture(&ctx, other).id(), first.id());
-    assert!(Arc::ptr_eq(&mask, &cache.masks[0].1));
+    assert_ne!(cache.texture(&ctx, other, None).unwrap().id(), first.id());
+    assert!(Arc::ptr_eq(&mask, &cache.compositor.masks[0].1));
     for change in [
         frame(1.0, 2, false, Vec2::new(113.0, 85.0), false),
         frame(2.25, 6, false, Vec2::new(253.0, 190.0), false),
@@ -62,9 +65,9 @@ fn masks_and_textures_are_reused_until_their_actual_inputs_change() {
     ] {
         let mut other = key.clone();
         other.frame = change;
-        assert_ne!(cache.texture(&ctx, other).id(), first.id());
+        assert_ne!(cache.texture(&ctx, other, None).unwrap().id(), first.id());
     }
-    assert_eq!(cache.masks.len(), 5);
+    assert_eq!(cache.compositor.masks.len(), 5);
     // A new renderer/Gui owns a new context and texture manager, never a global cache.
     for _ in 0..3 {
         let _ = ctx.run(Default::default(), |ctx| {
@@ -102,13 +105,14 @@ fn resized_entries_evict_old_masks_and_textures_with_bounded_memory() {
                 image: None,
                 colours: vec![[170, 0, 170]],
             },
+            None,
         );
-        cache.trim_masks(160_000);
+        cache.compositor.trim_masks(160_000);
         cache.trim_textures(64_000);
-        assert!(cache.mask_bytes <= 160_000 || cache.masks.len() == 1);
+        assert!(cache.compositor.mask_bytes <= 160_000 || cache.compositor.masks.len() == 1);
         assert!(cache.texture_bytes <= 64_000 || cache.textures.len() == 1);
     }
-    assert!(cache.masks.len() < 12);
+    assert!(cache.compositor.masks.len() < 12);
     assert!(cache.textures.len() < 12);
 }
 
@@ -185,7 +189,7 @@ fn native_composed_previews_preserve_content_frame_and_physical_sampling() {
                     let max = (rect.max * d).round();
                     let key = frame(d, radius, light, max - min, false);
                     let start = std::time::Instant::now();
-                    let mask = cache.mask(key);
+                    let mask = cache.compositor.mask(key);
                     generation += start.elapsed();
                     let neutral = mask.compose(key.size()[1], |_| key.base());
                     for fixture in 0..3 {
@@ -213,10 +217,11 @@ fn native_composed_previews_preserve_content_frame_and_physical_sampling() {
                                         image.clone(),
                                         TextureOptions::NEAREST,
                                     );
-                                    paint_texture(
+                                    draw_texture(
                                         &ctx.layer_painter(egui::LayerId::background()),
                                         &texture,
                                         position,
+                                        texture.size_vec2(),
                                     );
                                     let p = ctx.layer_painter(egui::LayerId::background());
                                     let reference = Rect::from_min_max(
@@ -422,10 +427,11 @@ fn native_physical_quads(
                             },
                             TextureOptions::NEAREST,
                         );
-                        paint_texture(
+                        draw_texture(
                             &ctx.layer_painter(egui::LayerId::background()),
                             &texture,
                             Pos2::new(x as f32, 75.0),
+                            texture.size_vec2(),
                         );
                         handle = Some(texture);
                     },
@@ -503,37 +509,37 @@ fn generation_costs_at_compact_large_and_high_density_sizes() {
 #[test]
 fn real_images_reuse_frames_and_invalidate_textures_for_source_and_treatment() {
     let ctx = egui::Context::default();
-    let frame = reforge_sdl::preview::Frame::new(
-        reforge_sdl::DisplayGeometry::new((2, 2), (4, 3)),
-        [128, 128, 128, 255].repeat(4),
-    )
-    .unwrap();
+    let frame = Arc::new(
+        Frame::new(
+            reforge_sdl::DisplayGeometry::new((2, 2), (4, 3)),
+            [128, 128, 128, 255].repeat(4),
+        )
+        .unwrap(),
+    );
     let mut cache = Cache::default();
     let key = TextureKey {
         frame: frame_key_for_image(),
         colours: vec![],
         image: Some(("source-one".into(), false)),
     };
-    let plain = cache.texture_with_source(&ctx, key.clone(), Some(&frame));
+    let plain = cache.texture(&ctx, key.clone(), Some(&frame)).unwrap();
     assert_eq!(
         plain.id(),
-        cache
-            .texture_with_source(&ctx, key.clone(), Some(&frame))
-            .id()
+        cache.texture(&ctx, key.clone(), Some(&frame)).unwrap().id()
     );
     let mut crt = key.clone();
     crt.image.as_mut().unwrap().1 = true;
     assert_ne!(
         plain.id(),
-        cache.texture_with_source(&ctx, crt, Some(&frame)).id()
+        cache.texture(&ctx, crt, Some(&frame)).unwrap().id()
     );
     let mut other = key;
     other.image.as_mut().unwrap().0 = "source-two".into();
     assert_ne!(
         plain.id(),
-        cache.texture_with_source(&ctx, other, Some(&frame)).id()
+        cache.texture(&ctx, other, Some(&frame)).unwrap().id()
     );
-    assert_eq!(cache.masks.len(), 1);
+    assert_eq!(cache.compositor.masks.len(), 1);
 }
 fn frame_key_for_image() -> FrameKey {
     frame(2.25, 6, false, Vec2::new(350.0, 263.0), false)

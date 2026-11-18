@@ -1184,16 +1184,16 @@ impl Session {
         values
     }
     pub fn commit(&mut self, draft: Draft) -> Result<(), String> {
-        self.commit_with_launcher(draft, None)
+        self.commit_with_launcher(draft, launcher::Edits::default())
     }
-    /// Apply game/default edits and an optional launcher-only preference in one
+    /// Apply game/default edits and launcher-only preference edits in one
     /// locked, atomic configuration update. Unchanged launcher values are omitted.
     pub fn commit_with_launcher(
         &mut self,
         mut draft: Draft,
-        split_preview_height: Option<u16>,
+        launcher_edits: launcher::Edits,
     ) -> Result<(), String> {
-        if let Some(height) = split_preview_height {
+        if let Some(height) = launcher_edits.split_preview_height {
             launcher::validate_split_preview_height(height)?;
         }
         if self.blocked {
@@ -1224,7 +1224,7 @@ impl Session {
                 self.entry_id.as_deref(),
                 &self.saved,
                 &draft,
-                split_preview_height,
+                launcher_edits,
             )?;
         }
         self.saved = draft;
@@ -1488,15 +1488,13 @@ fn save_changes(
     entry: Option<&str>,
     old: &Draft,
     new: &Draft,
-    split_preview_height: Option<u16>,
+    launcher_edits: launcher::Edits,
 ) -> Result<(), String> {
     edit_document(path, "settings", |doc| {
         if let Some(entry) = entry {
             migrate_legacy_settings(doc, game, entry);
         }
-        if let Some(height) = split_preview_height {
-            launcher::write_split_preview_height(doc, height)?;
-        }
+        launcher::write_edits(doc, launcher_edits)?;
         doc["schema_version"] = toml_edit::value(2);
         for (before, after, route) in [
             (&old.global, &new.global, vec!["global"]),

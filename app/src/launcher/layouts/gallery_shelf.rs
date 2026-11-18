@@ -1,11 +1,14 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Gallery Shelf layout with the shared theme selector.
+use std::collections::BTreeMap;
+
 use reforge_sdl::ui::ButtonActivation;
 use reforge_sdl::{
     egui::{self, Align, FontId, Layout, Pos2, Rect, RichText, Sense, Vec2},
     settings::Gui,
 };
+use reforge_settings::launcher::GalleryPreviewAspect;
 
 use super::super::{
     catalog::ResolvedAppearance,
@@ -184,15 +187,21 @@ pub fn draw(
                     let avail_w = ui.available_width();
                     let grid =
                         GalleryGrid::fit(state.games.len(), Vec2::new(avail_w, gallery_height));
-                    let left_pad = ((avail_w - grid.size().x) * 0.5).max(0.0);
-                    let top_pad = ((gallery_height - grid.size().y) * 0.5).max(0.0);
+                    let aspects = row_aspects(
+                        state.games.iter().map(preview_aspect),
+                        grid.columns,
+                        state.gallery_preview_aspect,
+                    );
+                    let height = gallery_height_for(grid.card_width, aspects.iter().copied());
+                    let left_pad = ((avail_w - grid.width()) * 0.5).max(0.0);
+                    let top_pad = ((gallery_height - height) * 0.5).max(0.0);
                     ui.add_space(top_pad);
                     ui.spacing_mut().item_spacing.y = GALLERY_GAP;
 
                     let selected_id = state.selected.clone();
                     let mut next_selected = selected_id.clone();
 
-                    for chunk in state.games.chunks(grid.columns) {
+                    for (chunk, aspect) in state.games.chunks(grid.columns).zip(aspects) {
                         ui.horizontal(|ui| {
                             if left_pad > 0.0 {
                                 ui.add_space(left_pad);
@@ -200,7 +209,8 @@ pub fn draw(
                             ui.spacing_mut().item_spacing.x = GALLERY_GAP;
                             for game in chunk {
                                 let is_sel = selected_id.as_deref() == Some(game.entry_id.as_str());
-                                let resp = draw_game_card(ui, ap, game, grid.card_width, is_sel);
+                                let resp =
+                                    draw_game_card(ui, ap, game, grid.card_width, aspect, is_sel);
                                 if resp.activated() || resp.has_focus() {
                                     next_selected = Some(game.entry_id.clone());
                                 }
@@ -217,6 +227,70 @@ pub fn draw(
 const GALLERY_GAP: f32 = 16.0;
 const MAX_CARD_WIDTH: f32 = 292.0;
 const MIN_CARD_WIDTH: f32 = 144.0;
+const CARD_PADDING: f32 = 9.0;
+const CARD_CHROME_HEIGHT: f32 = CARD_PADDING + 7.0 + 46.0;
+type Aspect = (u32, u32);
+const FOUR_THREE: Aspect = (4, 3);
+
+fn preview_aspect(game: &GameEntry) -> Aspect {
+    game.previews
+        .get(game.preview_variant())
+        .map(|source| {
+            source
+                .frame
+                .geometry()
+                .ratio(reforge_sdl::AspectRatio::Original)
+        })
+        .unwrap_or(FOUR_THREE)
+}
+
+fn most_common_aspect(aspects: impl IntoIterator<Item = Aspect>) -> Aspect {
+    let mut votes = BTreeMap::new();
+    for aspect in aspects {
+        *votes.entry(aspect).or_insert(0usize) += 1;
+    }
+    let most_votes = votes.values().copied().max().unwrap_or(0);
+    let mut leaders = votes.into_iter().filter(|&(_, count)| count == most_votes);
+    match (leaders.next(), leaders.next()) {
+        (Some((aspect, _)), None) => aspect,
+        _ => FOUR_THREE,
+    }
+}
+
+fn row_aspects(
+    aspects: impl ExactSizeIterator<Item = Aspect>,
+    columns: usize,
+    policy: GalleryPreviewAspect,
+) -> Vec<Aspect> {
+    let rows = aspects.len().div_ceil(columns);
+    match policy {
+        GalleryPreviewAspect::FourThree => vec![FOUR_THREE; rows],
+        GalleryPreviewAspect::WholeGallery => vec![most_common_aspect(aspects); rows],
+        GalleryPreviewAspect::PerRow => aspects
+            .collect::<Vec<_>>()
+            .chunks(columns)
+            .map(|row| most_common_aspect(row.iter().copied()))
+            .collect(),
+    }
+}
+
+fn screen_width(card_width: f32) -> f32 {
+    (card_width - 2.0 * CARD_PADDING).max(1.0)
+}
+
+fn screen_height(card_width: f32, (width, height): Aspect) -> f32 {
+    (screen_width(card_width) * (height as f32 / width as f32))
+        .round()
+        .max(1.0)
+}
+
+fn gallery_height_for(card_width: f32, aspects: impl ExactSizeIterator<Item = Aspect>) -> f32 {
+    let gaps = aspects.len().saturating_sub(1) as f32 * GALLERY_GAP;
+    aspects
+        .map(|aspect| CARD_CHROME_HEIGHT + screen_height(card_width, aspect))
+        .sum::<f32>()
+        + gaps
+}
 
 struct GalleryGrid {
     columns: usize,
@@ -224,13 +298,8 @@ struct GalleryGrid {
     card_width: f32,
 }
 impl GalleryGrid {
-    fn size(&self) -> Vec2 {
-        Vec2::new(
-            self.columns as f32 * self.card_width
-                + self.columns.saturating_sub(1) as f32 * GALLERY_GAP,
-            self.rows as f32 * card_height(self.card_width)
-                + self.rows.saturating_sub(1) as f32 * GALLERY_GAP,
-        )
+    fn width(&self) -> f32 {
+        self.columns as f32 * self.card_width + self.columns.saturating_sub(1) as f32 * GALLERY_GAP
     }
     fn fit(count: usize, available: Vec2) -> Self {
         let count = count.max(1);
@@ -245,9 +314,9 @@ impl GalleryGrid {
         let mut best: Option<Self> = None;
         for columns in 1..=max_columns {
             let rows = count.div_ceil(columns);
-            // Search the actual rounded geometry used by draw_game_card.
-            // Inverting an unrounded height can reject an otherwise fitting
-            // column count, or miss a larger width on a rounding plateau.
+            // Fit the 4:3 reference so switching the aspect setting or loading
+            // a wide preview only changes row heights. Search the actual
+            // rounded dimensions so a rounding plateau cannot hide a fit.
             let mut low = min_width.ceil() as usize;
             let mut high = width_for_columns(columns).floor() as usize;
             let mut fitting_width = None;
@@ -295,10 +364,7 @@ impl GalleryGrid {
 }
 
 fn card_height(card_w: f32) -> f32 {
-    let pad = 9.0;
-    let screen_w = (card_w - pad * 2.0).max(96.0);
-    let screen_h = (screen_w * 0.65).round();
-    pad + screen_h + 7.0 + 46.0
+    CARD_CHROME_HEIGHT + screen_height(card_w, FOUR_THREE)
 }
 
 fn draw_game_card(
@@ -306,12 +372,13 @@ fn draw_game_card(
     ap: &ResolvedAppearance,
     game: &GameEntry,
     card_w: f32,
+    aspect: Aspect,
     selected: bool,
 ) -> egui::Response {
-    let pad = 9.0;
-    let screen_w = (card_w - pad * 2.0).max(96.0);
-    let screen_h = (screen_w * 0.65).round();
-    let card_h = card_height(card_w);
+    let pad = CARD_PADDING;
+    let screen_w = screen_width(card_w);
+    let screen_h = screen_height(card_w, aspect);
+    let card_h = CARD_CHROME_HEIGHT + screen_h;
 
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(card_w, card_h), Sense::click_and_drag());

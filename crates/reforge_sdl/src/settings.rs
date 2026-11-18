@@ -101,7 +101,7 @@ pub struct SettingsMenu<'a> {
     pub(super) scope: usize,
     pub(super) game_overrides: bool,
     pub(super) launcher_options: Option<LauncherOptions>,
-    pub(super) pending_launcher_height: Option<u16>,
+    pub(super) pending_launcher: reforge_settings::launcher::Edits,
     #[cfg(test)]
     pub(super) cancel_rect: Option<egui::Rect>,
     #[cfg(test)]
@@ -137,10 +137,25 @@ pub struct SettingsMenu<'a> {
 pub(super) struct LauncherOptions {
     pub saved_height: u16,
     pub height: u16,
+    pub saved_gallery_aspect: reforge_settings::launcher::GalleryPreviewAspect,
+    pub gallery_aspect: reforge_settings::launcher::GalleryPreviewAspect,
 }
 impl LauncherOptions {
     pub fn changed(&self) -> bool {
-        self.height != self.saved_height
+        self.height != self.saved_height || self.gallery_aspect != self.saved_gallery_aspect
+    }
+
+    pub fn edits(&self) -> reforge_settings::launcher::Edits {
+        reforge_settings::launcher::Edits {
+            split_preview_height: (self.height != self.saved_height).then_some(self.height),
+            gallery_preview_aspect: (self.gallery_aspect != self.saved_gallery_aspect)
+                .then_some(self.gallery_aspect),
+        }
+    }
+
+    fn revert(&mut self) {
+        self.height = self.saved_height;
+        self.gallery_aspect = self.saved_gallery_aspect;
     }
 }
 
@@ -177,6 +192,8 @@ impl<'a> SettingsMenu<'a> {
         self.launcher_options = Some(LauncherOptions {
             saved_height: preferences.split_preview_height,
             height: preferences.split_preview_height,
+            saved_gallery_aspect: preferences.gallery_preview_aspect,
+            gallery_aspect: preferences.gallery_preview_aspect,
         });
         self
     }
@@ -329,7 +346,7 @@ impl<'a> SettingsMenu<'a> {
             scope: 0,
             game_overrides: true,
             launcher_options: None,
-            pending_launcher_height: None,
+            pending_launcher: Default::default(),
             #[cfg(test)]
             cancel_rect: None,
             #[cfg(test)]
@@ -385,9 +402,9 @@ impl<'a> SettingsMenu<'a> {
         }
         self.draft = None;
         self.pending = None;
-        self.pending_launcher_height = None;
+        self.pending_launcher = Default::default();
         if let Some(launcher) = &mut self.launcher_options {
-            launcher.height = launcher.saved_height;
+            launcher.revert();
         }
         self.game_reset = [false; reforge_settings::SECTION_KEYS.len()];
         self.global_reset = [false; reforge_settings::SECTION_KEYS.len()];
@@ -454,7 +471,7 @@ impl<'a> SettingsMenu<'a> {
 
     pub fn set_error(&mut self, error: String) {
         self.pending = None;
-        self.pending_launcher_height = None;
+        self.pending_launcher = Default::default();
         self.error = Some(error);
     }
 
@@ -689,9 +706,9 @@ impl<'a> SettingsMenu<'a> {
                 self.open = false;
                 self.draft = None;
                 self.pending = None;
-                self.pending_launcher_height = None;
+                self.pending_launcher = Default::default();
                 if let Some(launcher) = &mut self.launcher_options {
-                    launcher.height = launcher.saved_height;
+                    launcher.revert();
                 }
             }
             crate::settings_navigation::paint_focus(ctx);
@@ -721,18 +738,23 @@ impl<'a> SettingsMenu<'a> {
     /// draft and dirty markers available for retry without rewriting CLI values.
     pub fn applied(&mut self) {
         if let Some(draft) = self.pending.take() {
-            let height = self.pending_launcher_height.take();
+            let edits = std::mem::take(&mut self.pending_launcher);
             let result = self
                 .creator
                 .session
                 .borrow_mut()
-                .commit_with_launcher(draft.clone(), height);
+                .commit_with_launcher(draft, edits);
             match result {
                 Ok(()) => {
                     self.draft = Some(self.creator.session.borrow().saved.clone());
                     self.error = None;
-                    if let (Some(launcher), Some(height)) = (&mut self.launcher_options, height) {
-                        launcher.saved_height = height;
+                    if let Some(launcher) = &mut self.launcher_options {
+                        if let Some(height) = edits.split_preview_height {
+                            launcher.saved_height = height;
+                        }
+                        if let Some(aspect) = edits.gallery_preview_aspect {
+                            launcher.saved_gallery_aspect = aspect;
+                        }
                     }
                     self.game_reset = [false; reforge_settings::SECTION_KEYS.len()];
                     self.global_reset = [false; reforge_settings::SECTION_KEYS.len()];

@@ -747,12 +747,21 @@ F2 selects Split, F3 Gallery and F4 Compact. Appearance choices are independent:
 theme = "classic-dark"
 layout = "split"
 split_preview_height = 180
+gallery_preview_aspect = "per-row"
 ```
 
 In Settings opened from the launcher, the separate **Launcher** page controls
 **Split preview height** with a slider from 144 to 192 logical pixels; the default
 is 180. Apply saves the choice for all games. Cancel discards pending changes.
 This page is separate from game settings and does not appear during play.
+
+Under **Gallery view**, **Preview aspect ratio** offers **4:3**, **Per row**
+(the default) and **Whole gallery**. The majority options use the most common
+original preview aspect in the row or the full gallery. Ties and unavailable
+preview geometry use 4:3. Images keep their proportions, with black bars where
+the preview frame and image have different aspects. The launcher minimum is
+630 × 520 logical pixels when the display has room, enough for three columns
+and two rows of 4:3 cards.
 
 Split previews share the selected height and keep their original display aspect
 ratio. At the default height a 4:3 preview is 240 × 180, and a 16:9 preview is
@@ -762,15 +771,15 @@ preview's bottom while the text and a 12-point gap fit above it; otherwise Play
 flows lower. Short windows scroll the content instead of squeezing it. Gallery
 and Compact preview sizing are independent of this preference.
 
-Gallery fits the library using the largest cards that fit both the available
-width and height, up to 292 logical points wide. Equal-size arrangements prefer
-fewer empty positions, then fewer rows. Fitting uses the actual rounded preview
-height. When the library cannot fit at the 144-point readable minimum, cards
-stay at that minimum and the gallery scrolls vertically, using as few rows and
-empty positions as the width permits. Crossing that height boundary therefore
-does not reset the grid to maximum-size cards. If the viewport itself is narrower
-than the minimum, cards fit its width. Gaps remain 16 points; the whole grid is
-centred, with an incomplete last row aligned to its first column.
+Gallery chooses the largest card width that fits the available space with
+rounded 4:3 frames, up to 292 logical points. Equal-size arrangements prefer
+fewer empty positions, then fewer rows. This reference keeps column widths
+stable as images load or the frame option changes. The selected aspect
+determines the final height of each row. When the library cannot fit at the
+144-point readable minimum, cards stay at that minimum and the gallery scrolls
+vertically, using as few rows and empty positions as the width permits. If the
+viewport itself is narrower than the minimum, cards fit its width. The centred
+grid uses 16-point gaps and aligns an incomplete last row to its first column.
 
 The first launch uses Classic Dark and Split. Unknown stored appearance values
 fall back for display without rewriting them until the player changes that choice.
@@ -922,7 +931,7 @@ Split details keep the original single-line tagline spacing, including when the
 tagline is absent. A second line uses the existing gaps above and below without
 moving the credits, specs or Play button. Taglines have no ellipsis or tooltip.
 Keep catalog taglines short enough to fit within two lines at the launcher's
-630 × 470 logical UI unit minimum. A rendering regression check enforces this
+630 × 520 logical UI unit minimum. A rendering regression check enforces this
 across themes and representative display densities; tagline length does not
 raise the runtime window minimum.
 

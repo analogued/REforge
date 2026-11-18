@@ -1870,7 +1870,7 @@ fn native_painter_capture_matrix_and_modal_navigation() {
     if let Some(directory) = &capture {
         std::fs::create_dir_all(directory).unwrap();
     }
-    for logical in [(630_u32, 470_u32), (1000_u32, 720_u32)] {
+    for logical in [super::MIN_LOGICAL_SIZE, (1000, 720)] {
         for density in [1.0_f32, 1.5, 2.25] {
             let pixels = (
                 (logical.0 as f32 * density).round() as u32,
@@ -2359,6 +2359,74 @@ fn native_engine_previews() {
 }
 
 #[test]
+fn gallery_settings_render_three_cards_per_row_at_the_minimum() {
+    use reforge_sdl::{DisplayGeometry, preview::Frame};
+    use reforge_settings::launcher::{Edits, GalleryPreviewAspect};
+
+    let fixture = Fixture::new(6);
+    let mut h = Harness::new(
+        &fixture,
+        ThemeId::CrispLight,
+        LayoutVariant::GalleryShelf,
+        true,
+    );
+    h.size = Vec2::new(MIN_LOGICAL_SIZE.0 as f32, MIN_LOGICAL_SIZE.1 as f32);
+    assert_eq!(h.state.gallery_preview_aspect, GalleryPreviewAspect::PerRow);
+    let mut session = Session::load(Launch {
+        game_id: "standalone".into(),
+        path: Some(fixture.config.clone()),
+        entry_id: None,
+        cli: Default::default(),
+    });
+    for (game, ratio) in h.state.games.iter_mut().zip([
+        (320, 180),
+        (1920, 1080),
+        (320, 240),
+        (2560, 1080),
+        (5120, 2160),
+        (1280, 720),
+    ]) {
+        let frame = Frame::new(DisplayGeometry::new((2, 1), ratio), vec![255; 8]).unwrap();
+        game.previews.insert(
+            game.preview_variant().into(),
+            preview::sources::Source::new(game.entry_id.clone(), std::sync::Arc::new(frame)),
+        );
+    }
+    for (policy, expected_heights) in [
+        (GalleryPreviewAspect::PerRow, [95.0, 71.0]),
+        (GalleryPreviewAspect::WholeGallery, [95.0, 95.0]),
+        (GalleryPreviewAspect::FourThree, [127.0, 127.0]),
+    ] {
+        session
+            .commit_with_launcher(
+                session.saved.clone(),
+                Edits {
+                    gallery_preview_aspect: Some(policy),
+                    ..Edits::default()
+                },
+            )
+            .unwrap();
+        h.state.reload_preferences();
+        let output = h.settle();
+        let previews: Vec<_> = output.shapes.iter().filter_map(|s| match &s.shape {
+            egui::Shape::Mesh(m) if matches!(m.texture_id, egui::TextureId::Managed(id) if id > 0) => Some(m.calc_bounds().shrink(2.0)),
+            _ => None,
+        }).collect();
+        assert_eq!(previews.len(), 6);
+        for (row, expected_height) in previews.as_chunks::<3>().0.iter().zip(expected_heights) {
+            assert!(row.windows(2).all(|pair| pair[0].right() < pair[1].left()));
+            for rect in row {
+                assert_eq!(rect.top(), row[0].top());
+                assert_eq!(rect.width(), 169.0);
+                assert_eq!(rect.height(), expected_height);
+                assert!(rect.min.x >= 0.0 && rect.max.x <= h.size.x);
+                assert!(rect.bottom() + 53.0 <= h.state.content_bottom);
+            }
+        }
+    }
+}
+
+#[test]
 fn gallery_options_toggle_preserves_preview_positions_and_sizes() {
     let preview_rects = |output: &egui::FullOutput| {
         output.shapes.iter().filter_map(|shape|match &shape.shape {
@@ -2415,7 +2483,7 @@ fn gallery_one_pixel_resizing_keeps_readable_columns_when_scrolling_starts() {
     let mut previous_width: Option<f32> = None;
     // Sweep both sides of the reported height boundary, one physical pixel at
     // a time. Inspect the full UI, including ScrollArea scrollbar allocation.
-    for physical_height in 1640..=1680 {
+    for physical_height in 1757..=1797 {
         h.size = Vec2::new(1405.0, physical_height as f32) / h.density;
         let output = h.settle();
         let previews: Vec<_> = output.shapes.iter().filter_map(|s| match &s.shape {

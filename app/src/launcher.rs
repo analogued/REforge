@@ -287,7 +287,7 @@ fn show_folder(canvas: &WindowCanvas, initial: Option<&Path>) -> mpsc::Receiver<
     }
     receiver
 }
-const MIN_LOGICAL_SIZE: (u32, u32) = (630, 470);
+const MIN_LOGICAL_SIZE: (u32, u32) = (630, 520);
 
 fn canvas(video: &sdl3::VideoSubsystem) -> Result<WindowCanvas, String> {
     let mut window = video

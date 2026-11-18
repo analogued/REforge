@@ -597,6 +597,7 @@ pub(super) fn draw(
                         if menu.page == LAUNCHER_PAGE {
                             if let Some(launcher) = menu.launcher_options.as_mut() {
                                 launcher.height = reforge_settings::launcher::DEFAULT_SPLIT_PREVIEW_HEIGHT;
+                                launcher.gallery_aspect = Default::default();
                             }
                         } else if menu.scope == 0 {
                             draft.reset_section(false, menu.page);
@@ -624,8 +625,8 @@ pub(super) fn draw(
                             draft.game.clone_from(&saved.game);
                         }
                         menu.pending = Some(draft.clone());
-                        menu.pending_launcher_height = menu.launcher_options.as_ref()
-                            .filter(|launcher| launcher.changed()).map(|launcher| launcher.height);
+                        menu.pending_launcher = menu.launcher_options.as_ref()
+                            .map_or_else(Default::default, crate::settings::LauncherOptions::edits);
                     }
                     let cancel = group_control(ui.button("Cancel"), Group::Footer);
                     #[cfg(test)]
@@ -659,7 +660,8 @@ fn launcher_controls(
     storage: bool,
 ) {
     use reforge_settings::launcher::{
-        DEFAULT_SPLIT_PREVIEW_HEIGHT, MAX_SPLIT_PREVIEW_HEIGHT, MIN_SPLIT_PREVIEW_HEIGHT,
+        DEFAULT_SPLIT_PREVIEW_HEIGHT, GalleryPreviewAspect, MAX_SPLIT_PREVIEW_HEIGHT,
+        MIN_SPLIT_PREVIEW_HEIGHT,
     };
     section(ui, "Split view");
     let saved = format!("{} px", launcher.saved_height);
@@ -671,7 +673,7 @@ fn launcher_controls(
         RowState {
             lock_tooltip: None,
             overridden: false,
-            dirty: launcher.changed(),
+            dirty: launcher.height != launcher.saved_height,
             tooltip,
             saved,
         },
@@ -704,6 +706,28 @@ fn launcher_controls(
         },
     );
     ui.weak("144–192 logical pixels · previews shrink to fit narrow windows.");
+    section(ui, "Gallery view");
+    let saved = launcher.saved_gallery_aspect.label();
+    row(
+        ui,
+        "Preview aspect ratio",
+        "gallery_preview_aspect",
+        RowState {
+            lock_tooltip: None,
+            overridden: false,
+            dirty: launcher.gallery_aspect != launcher.saved_gallery_aspect,
+            tooltip: format!("Default: Per row\nSaved: {saved}"),
+            saved: saved.into(),
+        },
+        |ui| {
+            Selector::new(
+                "gallery_preview_aspect",
+                GalleryPreviewAspect::ALL.map(|aspect| Choice::new(aspect, aspect.label())),
+            )
+            .show(ui, &mut launcher.gallery_aspect)
+            .on_hover_text("Use 4:3 frames or follow the most common preview aspect ratio in each row or the whole gallery.");
+        },
+    );
     if !storage {
         ui.weak("Temporary launcher settings · configuration is disabled.");
     }

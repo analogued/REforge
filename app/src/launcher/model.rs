@@ -583,6 +583,7 @@ pub struct State {
     pub layout: LayoutVariant,
     pub saved_theme: ThemeId,
     pub split_preview_height: u16,
+    pub gallery_preview_aspect: reforge_settings::launcher::GalleryPreviewAspect,
     pub preview_draft: ThemeId,
     pub preview_open: bool,
     pub preview_focus_pending: bool,
@@ -636,12 +637,13 @@ impl State {
         verify: impl FnMut(&Entry) -> Result<Detected, String>,
     ) -> Self {
         let pref = reforge_settings::launcher::load(&config);
-        let (theme, layout, selected, preview_height, error) = match pref {
+        let (theme, layout, selected, preview_height, gallery_preview_aspect, error) = match pref {
             Ok(p) => (
                 ThemeId::from_slug(&p.theme).unwrap_or_default(),
                 LayoutVariant::parse(&p.layout),
                 p.selected_entry,
                 p.split_preview_height,
+                p.gallery_preview_aspect,
                 None,
             ),
             Err(e) => (
@@ -649,6 +651,7 @@ impl State {
                 LayoutVariant::default(),
                 None,
                 reforge_settings::launcher::DEFAULT_SPLIT_PREVIEW_HEIGHT,
+                Default::default(),
                 Some((e, true)),
             ),
         };
@@ -663,6 +666,7 @@ impl State {
             layout,
             saved_theme: theme,
             split_preview_height: preview_height,
+            gallery_preview_aspect,
             preview_draft: theme,
             preview_open: false,
             preview_focus_pending: false,
@@ -698,7 +702,10 @@ impl State {
     }
     pub fn reload_preferences(&mut self) {
         match reforge_settings::launcher::load(&self.config) {
-            Ok(preferences) => self.split_preview_height = preferences.split_preview_height,
+            Ok(preferences) => {
+                self.split_preview_height = preferences.split_preview_height;
+                self.gallery_preview_aspect = preferences.gallery_preview_aspect;
+            }
             Err(error) => self.notify(error, true),
         }
         for game in &mut self.games {

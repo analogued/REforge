@@ -14,12 +14,62 @@ pub const MIN_SPLIT_PREVIEW_HEIGHT: u16 = 144;
 pub const MAX_SPLIT_PREVIEW_HEIGHT: u16 = 192;
 pub const DEFAULT_SPLIT_PREVIEW_HEIGHT: u16 = 180;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum GalleryPreviewAspect {
+    FourThree,
+    #[default]
+    PerRow,
+    WholeGallery,
+}
+
+impl GalleryPreviewAspect {
+    pub const ALL: [Self; 3] = [Self::FourThree, Self::PerRow, Self::WholeGallery];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::FourThree => "4:3",
+            Self::PerRow => "Per row",
+            Self::WholeGallery => "Whole gallery",
+        }
+    }
+
+    const fn slug(self) -> &'static str {
+        match self {
+            Self::FourThree => "4:3",
+            Self::PerRow => "per-row",
+            Self::WholeGallery => "whole-gallery",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Edits {
+    pub split_preview_height: Option<u16>,
+    pub gallery_preview_aspect: Option<GalleryPreviewAspect>,
+}
+
+pub(crate) fn write_edits(doc: &mut DocumentMut, edits: Edits) -> Result<(), String> {
+    if let Some(height) = edits.split_preview_height {
+        write_split_preview_height(doc, height)?;
+    }
+    if let Some(aspect) = edits.gallery_preview_aspect {
+        preferences(doc)?;
+        set_string(
+            table_mut(doc, &["launcher"])?,
+            "gallery_preview_aspect",
+            aspect.slug(),
+        );
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Preferences {
     pub theme: String,
     pub layout: String,
     pub selected_entry: Option<String>,
     pub split_preview_height: u16,
+    pub gallery_preview_aspect: GalleryPreviewAspect,
 }
 
 impl Default for Preferences {
@@ -29,6 +79,7 @@ impl Default for Preferences {
             layout: "split".into(),
             selected_entry: None,
             split_preview_height: DEFAULT_SPLIT_PREVIEW_HEIGHT,
+            gallery_preview_aspect: GalleryPreviewAspect::default(),
         }
     }
 }
@@ -174,6 +225,15 @@ fn preferences(doc: &DocumentMut) -> Result<Preferences, String> {
                 .ok_or("Invalid launcher split_preview_height; settings file preserved")?;
             validate_split_preview_height(height)?;
             preferences.split_preview_height = height;
+        }
+        if let Some(item) = table.get("gallery_preview_aspect") {
+            let value = item
+                .as_str()
+                .ok_or("Invalid launcher gallery_preview_aspect; settings file preserved")?;
+            preferences.gallery_preview_aspect = GalleryPreviewAspect::ALL
+                .into_iter()
+                .find(|aspect| aspect.slug() == value)
+                .unwrap_or_default();
         }
         if let Some(item) = table.get("selected_entry") {
             preferences.selected_entry = Some(
@@ -369,9 +429,19 @@ mod tests {
         save_layout(&path, "gallery").unwrap();
         save_native_option(&path, "other-copy", "machine", Some("pcjr")).unwrap();
         session
-            .commit_with_launcher(draft.clone(), Some(156))
+            .commit_with_launcher(
+                draft.clone(),
+                Edits {
+                    split_preview_height: Some(156),
+                    gallery_preview_aspect: Some(GalleryPreviewAspect::WholeGallery),
+                },
+            )
             .unwrap();
         assert_eq!(load(&path).unwrap().split_preview_height, 156);
+        assert_eq!(
+            load(&path).unwrap().gallery_preview_aspect,
+            GalleryPreviewAspect::WholeGallery
+        );
         assert_eq!(load(&path).unwrap().layout, "gallery");
         assert_eq!(
             native_options(&path, "other-copy").unwrap()["machine"],
@@ -382,14 +452,30 @@ mod tests {
         draft.global.insert("master_volume".into(), "35".into());
         assert!(
             session
-                .commit_with_launcher(draft.clone(), Some(193))
+                .commit_with_launcher(
+                    draft.clone(),
+                    Edits {
+                        split_preview_height: Some(193),
+                        gallery_preview_aspect: Some(GalleryPreviewAspect::FourThree)
+                    }
+                )
                 .is_err()
         );
         assert_eq!(session.saved, saved);
         assert_eq!(fs::read(&path).unwrap(), before);
         fs::write(&path, "[launcher]\nsplit_preview_height = 'bad'\n").unwrap();
         let before = fs::read(&path).unwrap();
-        assert!(session.commit_with_launcher(draft, Some(180)).is_err());
+        assert!(
+            session
+                .commit_with_launcher(
+                    draft,
+                    Edits {
+                        split_preview_height: Some(180),
+                        ..Edits::default()
+                    }
+                )
+                .is_err()
+        );
         assert_eq!(session.saved, saved);
         assert_eq!(fs::read(&path).unwrap(), before);
     }

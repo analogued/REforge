@@ -141,6 +141,48 @@ fn launcher_section_is_opt_in_and_height_apply_cancel_reset_are_separate() {
         180
     );
     assert!(label(&draw(&mut menu, vec![]), "No pending changes").is_some());
+    use reforge_settings::launcher::GalleryPreviewAspect;
+    assert_eq!(
+        menu.launcher_options.as_ref().unwrap().gallery_aspect,
+        GalleryPreviewAspect::PerRow
+    );
+    click(&mut menu, "Per row");
+    click(&mut menu, "Whole gallery");
+    assert_eq!(
+        menu.launcher_options.as_ref().unwrap().gallery_aspect,
+        GalleryPreviewAspect::WholeGallery
+    );
+    menu.back();
+    assert!(!menu.is_open());
+    assert_eq!(
+        menu.launcher_options.as_ref().unwrap().gallery_aspect,
+        GalleryPreviewAspect::PerRow
+    );
+    menu.toggle();
+    menu.prepare(display.ui_metrics(), display.settings());
+    click(&mut menu, "Per row");
+    click(&mut menu, "4:3");
+    click(&mut menu, "Apply");
+    menu.applied();
+    assert_eq!(
+        reforge_settings::launcher::load(&path)
+            .unwrap()
+            .gallery_preview_aspect,
+        GalleryPreviewAspect::FourThree
+    );
+    click(&mut menu, "Reset section");
+    assert_eq!(
+        menu.launcher_options.as_ref().unwrap().gallery_aspect,
+        GalleryPreviewAspect::PerRow
+    );
+    click(&mut menu, "Apply");
+    menu.applied();
+    assert_eq!(
+        reforge_settings::launcher::load(&path)
+            .unwrap()
+            .gallery_preview_aspect,
+        GalleryPreviewAspect::PerRow
+    );
     std::fs::remove_file(&path).unwrap();
     std::fs::remove_file(path.with_extension("lock")).unwrap();
 }
@@ -151,7 +193,7 @@ fn launcher_section_native_capture_at_minimum_and_large_sizes() {
     use crate::ui::themes::{ResolvedAppearance, ThemeId};
     let sdl = sdl3::init().unwrap();
     let video = sdl.video().unwrap();
-    for (width, height, density) in [(630, 470, 2.25_f32), (1000, 720, 1.0)] {
+    for (width, height, density) in [(630, 520, 2.25_f32), (1000, 720, 1.0)] {
         let pixels = (
             (width as f32 * density).round() as u32,
             (height as f32 * density).round() as u32,

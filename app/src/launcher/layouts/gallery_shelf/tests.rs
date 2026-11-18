@@ -2,33 +2,69 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+fn grid_height(grid: &GalleryGrid) -> f32 {
+    gallery_height_for(grid.card_width, std::iter::repeat_n(FOUR_THREE, grid.rows))
+}
+
+#[test]
+fn gallery_votes_use_exact_aspects_and_include_partial_rows() {
+    let wide = (16, 9);
+    let ultra = (21, 9);
+    let entries = [wide, wide, FOUR_THREE, ultra, ultra, FOUR_THREE, ultra];
+    for (policy, expected) in [
+        (GalleryPreviewAspect::FourThree, [FOUR_THREE; 3]),
+        (GalleryPreviewAspect::PerRow, [wide, ultra, ultra]),
+        (GalleryPreviewAspect::WholeGallery, [ultra; 3]),
+    ] {
+        assert_eq!(row_aspects(entries.into_iter(), 3, policy), expected);
+    }
+    assert_eq!(
+        row_aspects(
+            [wide, FOUR_THREE].into_iter(),
+            2,
+            GalleryPreviewAspect::PerRow
+        ),
+        [FOUR_THREE]
+    );
+    assert_eq!(
+        row_aspects(
+            [wide, ultra].into_iter(),
+            2,
+            GalleryPreviewAspect::WholeGallery
+        ),
+        [FOUR_THREE]
+    );
+}
+
 #[test]
 fn rounded_height_does_not_discard_a_larger_four_column_layout() {
     let available = Vec2::new(1126.6666, 610.8);
     let grid = GalleryGrid::fit(11, available);
-    assert_eq!((grid.columns, grid.rows, grid.card_width), (4, 3, 218.0));
-    assert!(grid.size().y <= available.y);
-    // The old inverse estimated 219 points, rejected it after rounding, then
-    // selected five columns of 212-point cards. One point smaller fits.
-    assert!(3.0 * card_height(219.0) + 2.0 * GALLERY_GAP > available.y);
+    assert_eq!((grid.columns, grid.rows, grid.card_width), (4, 3, 191.0));
+    assert!(grid_height(&grid) <= available.y);
+    // The next pixel is too tall until the exact height boundary. The
+    // search then finds both widths on the rounded height plateau.
+    assert!(3.0 * card_height(192.0) + 2.0 * GALLERY_GAP > available.y);
     // Searching actual heights also finds the last width on a rounding plateau.
     assert_eq!(
         GalleryGrid::fit(11, Vec2::new(1126.6666, 611.0)).card_width,
-        220.0
+        193.0
     );
 }
 
 #[test]
 fn one_pixel_less_height_starts_scrolling_without_enlarging_or_reflowing_cards() {
     for density in [1.0, 1.5, 2.0, 2.25] {
-        let available = Vec2::new(588.4444, 624.0);
+        let available = Vec2::new(588.4444, 676.0);
         let before = GalleryGrid::fit(11, available);
         let after = GalleryGrid::fit(11, available - Vec2::new(0.0, 1.0 / density));
-        for grid in [&before, &after] {
-            assert_eq!((grid.columns, grid.rows, grid.card_width), (3, 4, 144.0));
-        }
-        assert!(before.size().y <= available.y);
-        assert!(after.size().y > available.y - 1.0 / density);
+        assert_eq!(
+            (before.columns, before.rows, before.card_width),
+            (3, 4, 145.0)
+        );
+        assert_eq!((after.columns, after.rows, after.card_width), (3, 4, 144.0));
+        assert!(grid_height(&before) <= available.y);
+        assert!(grid_height(&after) > available.y - 1.0 / density);
     }
 }
 
@@ -84,7 +120,7 @@ fn fitting_matches_an_exhaustive_search_of_actual_card_sizes() {
                     );
                 } else {
                     assert_eq!(actual.card_width, MIN_CARD_WIDTH);
-                    assert!(actual.size().x <= width);
+                    assert!(actual.width() <= width);
                 }
             }
         }

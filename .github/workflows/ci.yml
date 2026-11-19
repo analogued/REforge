@@ -193,7 +193,13 @@ jobs:
         run: cargo build --locked --release -p reforge --bin reforge
 
       - name: Install notice generator
-        run: cargo install cargo-about --version 0.9.2 --locked
+        run: |
+          $about = Get-Command cargo-about -ErrorAction SilentlyContinue
+          if (!$about -or (& $about.Source --version) -ne 'cargo-about 0.9.2') {
+            cargo install cargo-about --version 0.9.2 --locked --features cli --force
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          cargo about --version
 
       - name: Generate dependency notices
         run: python tools/package_release.py --notices-only --target x86_64-pc-windows-msvc --output-dir "$env:RUNNER_TEMP/reforge-windows-x86_64"

@@ -47,11 +47,15 @@ def notices(args, target, project_version):
     ]
     if args.offline:
         command.append("--offline")
-    result = run(command)
-    # Preserve upstream-fetch and scanning warnings even on a successful exit.
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
-    data = json.loads(result.stdout)
+    # cargo-about rejects redirected JSON stdout when PowerShell is an ancestor,
+    # even when Python owns the pipe. Let it write UTF-8 directly on every host.
+    with tempfile.TemporaryDirectory(prefix="reforge-notices-") as temporary:
+        output = Path(temporary) / "licenses.json"
+        result = run([*command, "--output-file", str(output)])
+        # Preserve upstream-fetch and scanning warnings even on a successful exit.
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        data = json.loads(output.read_text(encoding="utf-8"))
     if not data["licenses"]:
         raise ValueError("No dependency licenses were generated")
     for license in data["licenses"]:

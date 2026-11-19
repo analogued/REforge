@@ -806,7 +806,6 @@ fn date(time: SystemTime) -> String {
 pub(crate) mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::UNIX_EPOCH;
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     pub(crate) struct Directory(pub PathBuf);
     impl Directory {
@@ -1212,6 +1211,8 @@ pub(crate) mod tests {
     #[cfg(unix)]
     #[test]
     fn local_dates_follow_timezone_and_daylight_saving() {
+        use std::time::UNIX_EPOCH;
+
         const NAME: &str =
             "player::file_dialog::tests::local_dates_follow_timezone_and_daylight_saving";
         if std::env::var("REFORGE_BTZ_LOCAL_DATE").as_deref() != Ok("child") {

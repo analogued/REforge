@@ -60,8 +60,8 @@ pub fn run(assets: &Assets, kind: &str, side: &str, input: &str, output: &str) -
         .map_err(|e| e.to_string());
     }
     let mut geometry = Geometry::new(assets)?;
-    for side in 0..2 {
-        geometry.bounds[side] = (
+    for (side, bounds) in geometry.bounds.iter_mut().enumerate() {
+        *bounds = (
             signed(&ds, 0xc3f0 + side * 8),
             signed(&ds, 0xc3f2 + side * 8),
             signed(&ds, 0xc3f4 + side * 8),

@@ -145,7 +145,9 @@ impl TestDirectory {
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).unwrap();
-        Self(path)
+        // Library persistence canonicalizes roots; fixture expectations must
+        // use the same spelling even when Windows temp_dir() uses short names.
+        Self(path.canonicalize().unwrap())
     }
 }
 impl Drop for TestDirectory {

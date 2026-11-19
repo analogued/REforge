@@ -666,6 +666,9 @@ impl Fixture {
             NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir(&directory).unwrap();
+        // Match the library's root spelling, including Windows long/verbatim
+        // paths when temp_dir() returns a short-name alias such as RUNNER~1.
+        let directory = directory.canonicalize().unwrap();
         let fixture = Self {
             library: directory.join("library.toml"),
             config: directory.join("config.toml"),

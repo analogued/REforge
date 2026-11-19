@@ -141,13 +141,13 @@ impl Arena {
             return self.prompt(state, 0x7cc2, After::Done);
         }
         self.offered = true;
-        for slot in 0..6 {
+        for offer in &mut self.offers {
             let start = rng.bounded(10) as u8;
             let id = (0..10)
                 .map(|n| (start + n) % 10)
                 .find(|&id| state.data[record(id) + 5] == 0)
                 .ok_or("Gladiator roster has fewer than six available fighters")?;
-            self.offers[slot] = id;
+            *offer = id;
             state.data[record(id) + 5] = 3;
         }
         self.draw_offers = self.offers;
@@ -894,8 +894,8 @@ impl Fight {
         frame.rect(79, 20, 156, 1, 0);
         frame.rect(80, 19, 154, 1, 0);
         self.bar(frame, data)?;
-        for side in 0..2 {
-            let length = i32::from(self.units[side].health.max(0)) * 128 / 50;
+        for (side, unit) in self.units.iter().enumerate() {
+            let length = i32::from(unit.health.max(0)) * 128 / 50;
             let (left, right) = if side == 0 {
                 (319 - length, 319)
             } else {

@@ -332,8 +332,8 @@ mod tests {
             t.observe(p, p.at, false);
             if let Some(before) = before {
                 assert_eq!(t.sample(p.at).unwrap().reason, "tracking");
-                for i in 0..3 {
-                    assert!((before.anchors[i] - t.sample(p.at).unwrap().anchors[i]).abs() < 1e-10);
+                for (before, after) in before.anchors.iter().zip(t.sample(p.at).unwrap().anchors) {
+                    assert!((before - after).abs() < 1e-10);
                 }
             }
         }

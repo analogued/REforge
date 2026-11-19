@@ -42,6 +42,18 @@ Unreleased contains changes intended for the next public release.
 - Add support for three more variants: NewRisingSun's Tandy enhancement, the
   DOS disk image and the PC Booter release.
 
+### Centurion
+
+- Read and write DOS campaign saves, allowing progress to be shared with
+  the original game.
+- Reforged UI options include territory border highlighting and indicators
+  for applied tribute and difficulty levels, with Original presentation
+  available.
+- Expanded enemy fleet information shows ship counts and embarked troops.
+  Optional map hover information identifies places, legions and fleets.
+- Mouse and keyboard menu feedback, with an optional Dynamic decoration
+  style that follows the last input method.
+
 ## 2026.2.1 (2026-11-06)
 
 ### General

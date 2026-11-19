@@ -1556,6 +1556,15 @@ fn save_changes(
     })
 }
 
+struct DocumentLock(fs::File);
+impl Drop for DocumentLock {
+    fn drop(&mut self) {
+        // Unix subprocess startup can briefly inherit the open-file description.
+        // Closing only our fd leaves its flock held until the child execs.
+        let _ = fs2::FileExt::unlock(&self.0);
+    }
+}
+
 pub(crate) fn edit_document<T>(
     path: &Path,
     kind: &str,
@@ -1582,6 +1591,7 @@ pub(crate) fn edit_document<T>(
         .map_err(|e| e.to_string())?;
     fs2::FileExt::try_lock_exclusive(&lock)
         .map_err(|e| format!("{kind} file is busy; retry: {e}"))?;
+    let _lock = DocumentLock(lock);
     let mut doc = read_document(path, kind)?;
     let value = edit(&mut doc)?;
     let temporary = parent.join(format!(
@@ -1832,6 +1842,36 @@ mod tests {
             path: Some(path),
             cli: Patch::new(),
         })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn document_lock_release_does_not_wait_for_inherited_handles() {
+        let directory = TestDir::new();
+        let path = directory.file();
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(path.with_extension("lock"))
+            .unwrap();
+        fs2::FileExt::try_lock_exclusive(&file).unwrap();
+        let guard = DocumentLock(file);
+        // A duplicate shares the open-file description, just like an fd
+        // inherited while another thread starts a subprocess on Unix.
+        let inherited = guard.0.try_clone().unwrap();
+        drop(guard);
+        edit_document(&path, "settings", |document| {
+            document["written"] = toml_edit::value(true);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            read_document(&path, "settings").unwrap()["written"].as_bool(),
+            Some(true)
+        );
+        drop(inherited);
     }
     #[test]
     fn btz_cursor_is_game_scoped_persistent_and_retained_in_terminal_play() {

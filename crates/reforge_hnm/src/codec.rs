@@ -119,19 +119,19 @@ fn hsq(payload: &[u8], expected_len: usize) -> io::Result<Decoded> {
         return Err(invalid("HSQ packed size disagrees with raster data"));
     }
     let pixels = expand_lz(&mut input, len, LzBitOrder::LowFirst16)?;
-    if input.pos != packed {
+    if pixels.len() != len || input.pos != packed {
         return Err(invalid("HSQ terminator disagrees with declared size"));
     }
     Ok(Decoded { pixels })
 }
 
 /// HNM4 IZ reuses the HSQ command encoding with a wider, high-first bit queue.
-pub(crate) fn expand_hnm4_keyframe(payload: &[u8], len: usize) -> io::Result<Vec<u8>> {
+pub(crate) fn expand_hnm4_keyframe(payload: &[u8], limit: usize) -> io::Result<Vec<u8>> {
     let mut input = Input {
         bytes: payload,
         pos: 0,
     };
-    expand_lz(&mut input, len, LzBitOrder::HighFirst32)
+    expand_lz(&mut input, limit, LzBitOrder::HighFirst32)
 }
 
 fn expand_lz(input: &mut Input<'_>, len: usize, order: LzBitOrder) -> io::Result<Vec<u8>> {
@@ -164,9 +164,6 @@ fn expand_lz(input: &mut Input<'_>, len: usize, order: LzBitOrder) -> io::Result
             (256 - usize::from(input.byte()?), count)
         };
         repeat_backwards(&mut output, distance, count, len)?;
-    }
-    if output.len() != len {
-        return Err(invalid("raster terminator precedes end of output"));
     }
     Ok(output)
 }

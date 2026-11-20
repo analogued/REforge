@@ -19,7 +19,7 @@ use std::io;
 pub const WIDTH: usize = 320;
 pub const HEIGHT: usize = 200;
 
-/// Palette entries retain their encoded channel values (VGA DAC values in Dune).
+/// Palette entries retain their encoded channel values, such as VGA DAC levels.
 /// Undefined entries must be inherited from the engine, not invented by the codec.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Palette {

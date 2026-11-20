@@ -118,3 +118,32 @@ fn hnm4_rejects_invalid_packets_without_advancing() {
         assert!(decoder.next_frame().unwrap().is_some());
     }
 }
+
+#[test]
+fn hnm4_padded_allocation_and_partial_keyframe_follow_raster_geometry() {
+    let mut partial = vec![4, 0, 2, 0xfe];
+    // Eight literal bits, then the end marker.
+    partial.extend(0xff40_0000u32.to_le_bytes());
+    partial.extend(32..40);
+    partial.extend([0, 0, 0]);
+    let mut movie = movie(&[
+        frame(&[keyframe()]),
+        frame(&[chunk(b"IZ", &partial)]),
+        frame(&[chunk(b"IU", &[0x20, 7, 0x60, 2, 15, 0x80])]),
+    ]);
+    movie[28..32].copy_from_slice(&24u32.to_le_bytes());
+    let mut decoder = Hnm4::new(Cursor::new(&movie), Palette::default()).unwrap();
+    decoder.next_frame().unwrap().unwrap();
+    assert_eq!(
+        decoder.next_frame().unwrap().unwrap().pixels,
+        [32, 34, 36, 38, 33, 35, 37, 39, 8, 10, 12, 14, 9, 11, 13, 15]
+    );
+    assert_eq!(
+        decoder.next_frame().unwrap().unwrap().pixels,
+        [32, 34, 36, 38, 33, 35, 37, 39, 8, 10, 12, 15, 9, 11, 13, 15]
+    );
+    assert!(decoder.next_frame().unwrap().is_none());
+
+    movie[28..32].copy_from_slice(&8u32.to_le_bytes());
+    assert!(Hnm4::new(Cursor::new(movie), Palette::default()).is_err());
+}

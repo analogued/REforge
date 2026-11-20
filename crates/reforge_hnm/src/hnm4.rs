@@ -3,11 +3,13 @@
 
 use std::io::{self, Read, Seek, SeekFrom};
 
-use crate::{HEIGHT, Palette, WIDTH, codec, container::palette_block, invalid, unsupported};
+use crate::{Palette, codec, container::palette_block, invalid, unsupported};
 
 const HEADER_SIZE: u64 = 64;
 const KEYFRAME_HEADER_SIZE: usize = 4;
 const CHUNK_HEADER_SIZE: usize = 8;
+const MAX_WIDTH: usize = 320;
+const MAX_HEIGHT: usize = 200;
 
 /// One HNM4 picture and accumulated palette. Pixels are tightly packed in
 /// display row order. Palette channels retain their encoded VGA DAC values.
@@ -50,16 +52,16 @@ impl<R: Read + Seek> Hnm4<R> {
         let width = usize::from(u16::from_le_bytes(header[8..10].try_into().unwrap()));
         let height = usize::from(u16::from_le_bytes(header[10..12].try_into().unwrap()));
         if width == 0
-            || width > WIDTH
+            || width > MAX_WIDTH
             || height == 0
-            || height > HEIGHT
+            || height > MAX_HEIGHT
             || !height.is_multiple_of(2)
         {
             return Err(unsupported("unsupported HNM4 picture geometry"));
         }
         let raster_size = width * height;
-        if u32_from(&header[28..]) as usize != raster_size {
-            return Err(invalid("HNM4 allocation disagrees with picture geometry"));
+        if (u32_from(&header[28..]) as usize) < raster_size {
+            return Err(invalid("HNM4 allocation is smaller than the picture"));
         }
 
         let declared_size = u64::from(u32_from(&header[12..]));
@@ -78,9 +80,6 @@ impl<R: Read + Seek> Hnm4<R> {
             return Err(invalid("invalid HNM4 frame area or file size"));
         }
 
-        // Gold's final IU fill can touch one unpresented pixel pair. Keep
-        // that pair inside the allocation, separate from the visible raster.
-        let backing_size = raster_size + usize::from(width == WIDTH && height == HEIGHT) * 2;
         Ok(Self {
             reader,
             width,
@@ -93,8 +92,8 @@ impl<R: Read + Seek> Hnm4<R> {
             initial_palette: inherited_palette.clone(),
             palette: inherited_palette,
             packet: Vec::new(),
-            target: vec![0; backing_size],
-            previous: vec![0; backing_size],
+            target: vec![0; raster_size],
+            previous: vec![0; raster_size],
             pixels: vec![0; raster_size],
         })
     }
@@ -173,7 +172,6 @@ impl<R: Read + Seek> Hnm4<R> {
         self.reader.read_exact(&mut self.packet)?;
 
         let mut palette = self.palette.clone();
-        let visible = self.pixels.len();
         let mut picture = false;
         let mut chunks = self.packet.as_slice();
         while !chunks.is_empty() {
@@ -189,16 +187,11 @@ impl<R: Read + Seek> Hnm4<R> {
                     palette_block(body, &mut palette)?;
                 }
                 b"IZ" if !picture => {
-                    let data = body
-                        .get(KEYFRAME_HEADER_SIZE..)
-                        .ok_or_else(|| invalid("truncated HNM4 keyframe header"))?;
-                    let raster = codec::expand_hnm4_keyframe(data, visible)?;
-                    self.target[..visible].copy_from_slice(&raster);
-                    self.previous[..visible].copy_from_slice(&raster);
+                    Self::decode_keyframe(self.width, body, &mut self.target, &mut self.previous)?;
                     picture = true;
                 }
                 b"IU" if !picture && self.index != 0 && head[6] & 1 == 0 => {
-                    decode_interframe(body, self.width, visible, &mut self.target, &self.previous)?;
+                    decode_interframe(body, self.width, &mut self.target, &self.previous)?;
                     picture = true;
                 }
                 b"SD" => {}
@@ -210,7 +203,8 @@ impl<R: Read + Seek> Hnm4<R> {
         if !picture {
             return Err(invalid("HNM4 superchunk has no picture"));
         }
-        for (interlaced, output) in self.target[..visible]
+        for (interlaced, output) in self
+            .target
             .chunks_exact(self.width * 2)
             .zip(self.pixels.chunks_exact_mut(self.width * 2))
         {
@@ -227,6 +221,34 @@ impl<R: Read + Seek> Hnm4<R> {
         self.position = end;
         Ok(())
     }
+
+    fn decode_keyframe(
+        width: usize,
+        body: &[u8],
+        target: &mut [u8],
+        previous: &mut [u8],
+    ) -> io::Result<()> {
+        let (header, data) = body
+            .split_first_chunk::<KEYFRAME_HEADER_SIZE>()
+            .ok_or_else(|| invalid("truncated HNM4 keyframe header"))?;
+        let raster = codec::expand_hnm4_keyframe(data, target.len())?;
+        if raster.len() != target.len() {
+            let packed_width = usize::from(u16::from_le_bytes([header[0], header[1]]));
+            let packed_height = usize::from(header[2]);
+            if packed_width != width
+                || packed_height == 0
+                || !packed_height.is_multiple_of(2)
+                || packed_width * packed_height != raster.len()
+            {
+                return Err(invalid("HNM4 keyframe disagrees with picture geometry"));
+            }
+        }
+        // A keyframe can refresh a prefix of complete row pairs. The
+        // remaining rows stay as they were in the target buffer.
+        target[..raster.len()].copy_from_slice(&raster);
+        previous.copy_from_slice(target);
+        Ok(())
+    }
 }
 
 fn u32_from(bytes: &[u8]) -> u32 {
@@ -240,10 +262,10 @@ fn u24_from(bytes: &[u8]) -> usize {
 fn decode_interframe(
     mut input: &[u8],
     width: usize,
-    visible: usize,
     target: &mut [u8],
     previous: &[u8],
 ) -> io::Result<()> {
+    let visible = target.len();
     let mut dest = 0;
     loop {
         let Some((&command, tail)) = input.split_first() else {
@@ -253,14 +275,7 @@ fn decode_interframe(
         let pairs = usize::from(command & 31);
         if pairs != 0 {
             let reference = u16::from_le_bytes(take(&mut input)?);
-            copy_pairs(
-                command,
-                reference,
-                width,
-                dest,
-                &mut target[..visible],
-                &previous[..visible],
-            )?;
+            copy_pairs(command, reference, width, dest, target, previous)?;
             dest += pairs * 2;
             continue;
         }
@@ -274,7 +289,7 @@ fn decode_interframe(
             }
             0x20 => {
                 let [pairs] = take(&mut input)?;
-                dest = terminal_skip_or_fill(dest, pairs, visible, target.len(), input)?;
+                dest = short_run_end(dest, pairs, visible, input)?;
             }
             0x40 => {
                 let pairs = u16::from_le_bytes(take(&mut input)?);
@@ -285,7 +300,7 @@ fn decode_interframe(
                 if pairs == 0 {
                     return Err(invalid("zero-length HNM4 interframe fill"));
                 }
-                let end = terminal_skip_or_fill(dest, pairs, visible, target.len(), input)?;
+                let end = short_run_end(dest, pairs, visible, input)?;
                 target[dest..end].fill(index);
                 dest = end;
             }
@@ -294,22 +309,17 @@ fn decode_interframe(
     }
 }
 
-fn terminal_skip_or_fill(
-    dest: usize,
-    pairs: u8,
-    visible: usize,
-    backing_size: usize,
-    remaining: &[u8],
-) -> io::Result<usize> {
-    let end = interframe_end(dest, usize::from(pairs) * 2, backing_size)?;
-    if end > visible
-        && (dest != visible - 2 || remaining.first().is_none_or(|next| next & 0x9f != 0x80))
-    {
-        return Err(invalid(
-            "unexpected HNM4 interframe command outside visible raster",
-        ));
+fn short_run_end(dest: usize, pairs: u8, visible: usize, remaining: &[u8]) -> io::Result<usize> {
+    let end = dest + usize::from(pairs) * 2;
+    if end <= visible {
+        return Ok(end);
     }
-    Ok(end)
+    // A byte skip or fill can end one pair past the raster immediately
+    // before the terminator. Only its visible prefix affects decoded pixels.
+    if end == visible + 2 && remaining.first().is_some_and(|next| next & 0x9f == 0x80) {
+        return Ok(visible);
+    }
+    Err(invalid("HNM4 interframe destination exceeds raster"))
 }
 
 fn interframe_end(dest: usize, len: usize, limit: usize) -> io::Result<usize> {
@@ -372,19 +382,20 @@ mod tests {
 
     #[test]
     fn hnm4_accepts_one_terminal_pair_for_byte_skip_or_fill() {
-        let visible = WIDTH * HEIGHT;
-        let mut target = vec![5; visible + 2];
-        let previous = vec![0; visible + 2];
-        let skip_to_last_pair = [0x40, 0xff, 0x7c];
+        let width = 6;
+        let visible = width * 4;
+        let mut target = vec![5; visible];
+        let previous = vec![0; visible];
+        let skip_to_last_pair = [0x40, 11, 0];
         let mut packet = Vec::from(skip_to_last_pair);
         packet.extend([0x20, 2, 0x80]);
-        decode_interframe(&packet, WIDTH, visible, &mut target, &previous).unwrap();
-        assert_eq!(target[visible - 2..], [5, 5, 5, 5]);
+        decode_interframe(&packet, width, &mut target, &previous).unwrap();
+        assert_eq!(target[visible - 2..], [5, 5]);
 
         packet.truncate(skip_to_last_pair.len());
         packet.extend([0x60, 2, 17, 0x80]);
-        decode_interframe(&packet, WIDTH, visible, &mut target, &previous).unwrap();
-        assert_eq!(target[visible - 2..], [17, 17, 17, 17]);
+        decode_interframe(&packet, width, &mut target, &previous).unwrap();
+        assert_eq!(target[visible - 4..], [5, 5, 17, 17]);
 
         let malformed: [&[u8]; 5] = [
             &[0x20, 3, 0x80],
@@ -396,7 +407,7 @@ mod tests {
         for invalid in malformed {
             packet.truncate(skip_to_last_pair.len());
             packet.extend(invalid);
-            assert!(decode_interframe(&packet, WIDTH, visible, &mut target, &previous).is_err());
+            assert!(decode_interframe(&packet, width, &mut target, &previous).is_err());
         }
     }
 }

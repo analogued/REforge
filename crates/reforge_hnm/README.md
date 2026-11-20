@@ -96,27 +96,29 @@ canvas/background too when replaying dependent updates.
 ## HNM4 output
 
 `Hnm4::new(reader, inherited_palette)` accepts the standard double-buffered
-HNM4 profile used in Dragon Lore Gold 2.0. `next_frame()` borrows a complete
+HNM4 profile. `next_frame()` borrows a complete
 indexed raster in display row order and the current palette. Copy the bytes
 before advancing if they must outlive that call. `rewind()` resets both raster
 buffers and restores the inherited palette.
 
 The reader uses the header's frame count and frame-area boundary, and checks
 each 24-bit superchunk and chunk length against that boundary. Frame data ends
-before the TAB trailer. In Dragon Lore Gold, the header's nominal file length
-can end at the trailer's offset even though the resource contains the trailer.
+before the TAB trailer. A stream's nominal file length may include the trailer
+or end at its offset. The frame allocation field can exceed the visible extent
+and the decoded buffers are sized to the visible geometry.
 
 `PL` updates the VGA palette. An `IZ` keyframe expands an HSQ-style raster using
-a 32-bit high-first bit queue and refreshes both buffers. An `IU` interframe
-writes into the older buffer. Skips preserve its pixels, and the previous-frame
+a 32-bit high-first bit queue and refreshes both buffers. A keyframe may
+describe a shorter, full-width raster covering complete row pairs. The
+target buffer retains the rows below it before being copied to the other
+buffer. An `IU` interframe writes into the older buffer. Skips preserve its
+pixels, and the previous-frame
 flag selects the latest buffer as the source. Pixel pair references and swaps
 operate on the packed raster before deinterleaving its rows for display.
 
-Gold's DOS interframe routine permits a final byte skip or fill from raster
-offset 63,998 to 64,002 in certain 320×200 pictures. The next command terminates
-the frame. A fill writes the last two visible bytes and one unpresented pair.
-REforge bounds that specific operation to a two-byte guard. All reference
-sources and the returned raster are limited to the visible extent.
+A byte skip or fill just before the interframe terminator can end one pixel
+pair past the raster. Only the visible prefix contributes to the result. All
+other commands and reference sources are bounded by the visible extent.
 
 The decoder skips bounded `SD` chunks. It supports raster dimensions up to
 320×200 with an even height and an initial keyframe. HNM4A, `IB` bitmap chunks,
@@ -136,7 +138,9 @@ palette inheritance, rewind and malformed inputs. Local validation decoded all
 223 HNM4 archive entries in the English GOG DOS payload. All 5,144 frames of
 the Cryo and Mindscape logos, English title, castle opening and greeting
 matched indexed pixels and raw palette bytes from the original decoder.
-Original-data comparisons are kept outside the repository.
+The Lost Eden DOS corpus adds 152 streams and 28,395 decoded pictures. It
+exercises padded allocations, shorter keyframes and terminal skips on
+320×160 rasters. Original-data comparisons are kept outside the repository.
 
 From the workspace, run:
 

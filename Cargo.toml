@@ -1,5 +1,5 @@
 [workspace]
-members = ["app", "engines/alleycat", "engines/mach3", "engines/btz", "engines/centurion", "crates/reforge_sdl", "crates/reforge_audio", "crates/reforge_graphics", "crates/reforge_settings", "crates/reforge_inputs", "crates/reforge_disc", "crates/reforge_hnm"]
+members = ["app", "engines/alleycat", "engines/mach3", "engines/btz", "engines/centurion", "crates/reforge_sdl", "crates/reforge_audio", "crates/reforge_graphics", "crates/reforge_settings", "crates/reforge_inputs", "crates/reforge_disc", "crates/reforge_cryo_archive", "crates/reforge_hnm"]
 default-members = ["app"]
 resolver = "3"
 

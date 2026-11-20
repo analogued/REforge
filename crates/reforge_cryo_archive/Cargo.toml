@@ -1,0 +1,11 @@
+[package]
+name = "reforge_cryo_archive"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license.workspace = true
+description = "Read-only ordered directory for Cryo DOS resource archives"
+
+[dependencies]
+reforge_disc = { path = "../reforge_disc" }

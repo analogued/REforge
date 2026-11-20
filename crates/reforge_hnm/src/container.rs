@@ -153,7 +153,7 @@ impl<R: Read + Seek> Hnm1<R> {
     }
 }
 
-fn palette_block(bytes: &[u8], palette: &mut Palette) -> io::Result<usize> {
+pub(crate) fn palette_block(bytes: &[u8], palette: &mut Palette) -> io::Result<usize> {
     let mut pos = 0;
     loop {
         let range = bytes

@@ -5,4 +5,4 @@ edition = "2024"
 rust-version = "1.88"
 publish = false
 license.workspace = true
-description = "Streamed HNM1 movie decoding with explicit revision boundaries"
+description = "Streamed HNM1 and HNM4 video decoding"

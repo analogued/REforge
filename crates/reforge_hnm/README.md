@@ -3,16 +3,19 @@
 # REforge HNM reader
 
 `reforge_hnm` decodes the observed early HNM1 movie profile into indexed bitmap
-updates, palette state and ordered typed chunks. It has no runtime dependencies,
-contains no original game data and does not mount images or install games.
+updates, palette state and ordered typed chunks. It also decodes standard HNM4
+video into indexed display rasters and palette state. The crate has no runtime
+dependencies and contains no original game data.
 Authored code/documentation use GPL-3.0-or-later; see [LICENSE](../../LICENSE).
 
-## Input and output
+## Inputs
 
 Supply an isolated movie stream implementing `Read + Seek`. For CD resources,
 `reforge_disc::Region::open()` provides such a bounded stream without extraction.
 The application selects/verifies physical originals; this crate only validates
-the selected format and never identifies a game or searches for substitutes.
+the selected format. Choose `Hnm1` or `Hnm4` explicitly.
+
+## HNM1 output
 
 ```rust,no_run
 use std::{fs::File, io};
@@ -61,12 +64,7 @@ for standalone resources. Its result is bytes, without assuming a bitmap.
 `expand_rle8()` exposes the row-bounded eight-bit RLE stage for sprite banks
 using that same encoding; geometry is supplied explicitly.
 
-## Supported profile and boundaries
-
-Use `Hnm1` explicitly. It is not an automatic HNM revision detector. HNM0, HNM4,
-HNM4 variants and HNM6 are different formats and are not implemented. A filename
-ending in `.HNM` does not establish compatibility. Future revision decoders can
-coexist without changing HNM1 parsing rules.
+### HNM1 profile
 
 The implemented profile has:
 
@@ -95,17 +93,50 @@ holds 64,000 indices. Successful frames commit palette/index state atomically.
 After an error, decoding stays stopped until `rewind()`; reset the separate
 canvas/background too when replaying dependent updates.
 
+## HNM4 output
+
+`Hnm4::new(reader, inherited_palette)` accepts the standard double-buffered
+HNM4 profile used in Dragon Lore Gold 2.0. `next_frame()` borrows a complete
+indexed raster in display row order and the current palette. Copy the bytes
+before advancing if they must outlive that call. `rewind()` resets both raster
+buffers and restores the inherited palette.
+
+The reader uses the header's frame count and frame-area boundary, and checks
+each 24-bit superchunk and chunk length against that boundary. Frame data ends
+before the TAB trailer. In Dragon Lore Gold, the header's nominal file length
+can end at the trailer's offset even though the resource contains the trailer.
+
+`PL` updates the VGA palette. An `IZ` keyframe expands an HSQ-style raster using
+a 32-bit high-first bit queue and refreshes both buffers. An `IU` interframe
+writes into the older buffer. Skips preserve its pixels, and the previous-frame
+flag selects the latest buffer as the source. Pixel pair references and swaps
+operate on the packed raster before deinterleaving its rows for display.
+
+Gold's DOS interframe routine permits a final byte skip or fill from raster
+offset 63,998 to 64,002 in certain 320×200 pictures. The next command terminates
+the frame. A fill writes the last two visible bytes and one unpresented pair.
+REforge bounds that specific operation to a two-byte guard. All reference
+sources and the returned raster are limited to the visible extent.
+
+The decoder skips bounded `SD` chunks. It supports raster dimensions up to
+320×200 with an even height and an initial keyframe. HNM4A, `IB` bitmap chunks,
+eight-bit palettes, HNM0 and HNM6 are outside the supported profiles.
+
 ## Format references and validation
 
 The implementation is authored from format descriptions and original-program
-observations; no third-party decoder implementation or game data is included.
-References: [HNM family overview](https://wiki.multimedia.cx/index.php/HNM) and
-[HNM1 description](https://wiki.multimedia.cx/index.php/HNM_(1)). The latter's
-codec-173 description is outside the implemented profile.
+observations. The [HNM1 description](https://wiki.multimedia.cx/index.php/HNM_(1))
+and [HNM4 description](https://wiki.multimedia.cx/index.php/HNM4) document
+the container and codecs. The Dragon Lore Gold 2.0 DOS decoder establishes
+the terminal IU fill and skip behavior, the buffer rotation and the order of
+backline pair writes. No third-party decoder source is used.
 
-Public tests use authored synthetic streams, covering palette inheritance,
-ordered side chunks, raw/HSQ/RLE bitmap paths, composition, rewind and malformed
-inputs. Private original-data comparisons remain outside the repository.
+Public tests use authored synthetic streams covering decoding, composition,
+palette inheritance, rewind and malformed inputs. Local validation decoded all
+223 HNM4 archive entries in the English GOG DOS payload. All 5,144 frames of
+the Cryo and Mindscape logos, English title, castle opening and greeting
+matched indexed pixels and raw palette bytes from the original decoder.
+Original-data comparisons are kept outside the repository.
 
 From the workspace, run:
 

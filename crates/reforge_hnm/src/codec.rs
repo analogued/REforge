@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! HNM1 raster decompression, independent of palette and canvas composition.
+//! Raster decompression, independent of palette and canvas composition.
 //! Implemented from the published format description and checked against original
 //! data. No third-party decoder implementation is included.
 
@@ -44,22 +44,37 @@ impl<'a> Input<'a> {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy)]
+enum LzBitOrder {
+    LowFirst16,
+    HighFirst32,
+}
+
 struct Bits {
-    word: u16,
+    order: LzBitOrder,
+    word: u32,
     left: u8,
 }
 
 impl Bits {
-    fn lsb(&mut self, input: &mut Input<'_>) -> io::Result<bool> {
+    fn next(&mut self, input: &mut Input<'_>) -> io::Result<bool> {
         if self.left == 0 {
-            self.word = input.word()?;
-            self.left = 16;
+            (self.word, self.left) = match self.order {
+                LzBitOrder::LowFirst16 => (u32::from(input.word()?), 16),
+                LzBitOrder::HighFirst32 => {
+                    (u32::from_le_bytes(input.take(4)?.try_into().unwrap()), 32)
+                }
+            };
         }
-        let set = self.word & 1 != 0;
-        self.word >>= 1;
         self.left -= 1;
-        Ok(set)
+        Ok(match self.order {
+            LzBitOrder::LowFirst16 => {
+                let set = self.word & 1 != 0;
+                self.word >>= 1;
+                set
+            }
+            LzBitOrder::HighFirst32 => self.word & (1 << self.left) != 0,
+        })
     }
 }
 
@@ -103,18 +118,38 @@ fn hsq(payload: &[u8], expected_len: usize) -> io::Result<Decoded> {
     if packed < 6 || packed != payload.len() {
         return Err(invalid("HSQ packed size disagrees with raster data"));
     }
-    input.bytes = &payload[..packed];
+    let pixels = expand_lz(&mut input, len, LzBitOrder::LowFirst16)?;
+    if input.pos != packed {
+        return Err(invalid("HSQ terminator disagrees with declared size"));
+    }
+    Ok(Decoded { pixels })
+}
+
+/// HNM4 IZ reuses the HSQ command encoding with a wider, high-first bit queue.
+pub(crate) fn expand_hnm4_keyframe(payload: &[u8], len: usize) -> io::Result<Vec<u8>> {
+    let mut input = Input {
+        bytes: payload,
+        pos: 0,
+    };
+    expand_lz(&mut input, len, LzBitOrder::HighFirst32)
+}
+
+fn expand_lz(input: &mut Input<'_>, len: usize, order: LzBitOrder) -> io::Result<Vec<u8>> {
     let mut output = reserve(len)?;
-    let mut bits = Bits::default();
+    let mut bits = Bits {
+        order,
+        word: 0,
+        left: 0,
+    };
     loop {
-        if bits.lsb(&mut input)? {
+        if bits.next(input)? {
             if output.len() == len {
-                return Err(invalid("HSQ literal exceeds output size"));
+                return Err(invalid("raster literal exceeds output size"));
             }
             output.push(input.byte()?);
             continue;
         }
-        let (distance, count) = if bits.lsb(&mut input)? {
+        let (distance, count) = if bits.next(input)? {
             let pair = input.word()?;
             let mut count = usize::from(pair & 7);
             if count == 0 {
@@ -125,16 +160,15 @@ fn hsq(payload: &[u8], expected_len: usize) -> io::Result<Decoded> {
             }
             (8192 - usize::from(pair >> 3), count + 2)
         } else {
-            let count =
-                usize::from(bits.lsb(&mut input)?) * 2 + usize::from(bits.lsb(&mut input)?) + 2;
+            let count = usize::from(bits.next(input)?) * 2 + usize::from(bits.next(input)?) + 2;
             (256 - usize::from(input.byte()?), count)
         };
         repeat_backwards(&mut output, distance, count, len)?;
     }
-    if output.len() != len || input.pos != packed {
-        return Err(invalid("HSQ terminator disagrees with declared size"));
+    if output.len() != len {
+        return Err(invalid("raster terminator precedes end of output"));
     }
-    Ok(Decoded { pixels: output })
+    Ok(output)
 }
 
 /// Expand the second-stage signed-control raster encoding. Output is eight-bit

@@ -1,18 +1,19 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! HNM1 decoding, separate from game sequencing, audio playback and presentation.
+//! HNM1 and standard HNM4 decoding, separate from game sequencing and timing.
 //!
-//! This is the headerless-tag HNM1 family, not HNM0, HNM4 or HNM6. Callers
-//! explicitly select this decoder after resolving their original resource.
-//! Frames have no implicit playback rate; the caller owns the original timing.
+//! Callers explicitly select a decoder after resolving their original resource.
+//! Frames have no implicit playback rate.
 #![forbid(unsafe_code)]
 
 mod canvas;
 mod codec;
 mod container;
+mod hnm4;
 
 pub use canvas::Canvas;
 pub use container::Hnm1;
+pub use hnm4::{Hnm4, Hnm4Frame};
 use std::io;
 
 pub const WIDTH: usize = 320;

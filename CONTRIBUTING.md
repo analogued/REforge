@@ -96,9 +96,10 @@ Update workspace dependencies
 ```
 
 Keep the subject concise, preferably 50 characters or fewer, including any scope
-prefix. Prioritize clarity over exact length. For substantive changes, use the
-body to explain the reason and relevant behavior changes. Wrap body text around
-72 characters where practical.
+prefix. Prioritize clarity over exact length. For substantive changes, aim for
+one or two sentences in the body explaining the problem and solution. Add detail
+only when needed to understand the change. Wrap body text around 72 characters
+where practical.
 
 The default branch is `main`. Keep each commit focused on a coherent change,
 avoiding unrelated changes across areas. Broader structural commits are acceptable

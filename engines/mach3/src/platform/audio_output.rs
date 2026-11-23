@@ -118,10 +118,13 @@ fn output_filter(mode: AudioRenderer) -> OutputFilter {
 }
 
 pub(super) fn resolve_renderer(renderer: SoundRenderer, default: AudioRenderer) -> AudioRenderer {
-    match renderer {
-        SoundRenderer::GameDefault => default,
-        SoundRenderer::Speaker => AudioRenderer::Speaker,
+    let renderers = match default {
+        AudioRenderer::Speaker => [SoundRenderer::Speaker, SoundRenderer::EnhancedPcm],
+        AudioRenderer::EnhancedPcm => [SoundRenderer::EnhancedPcm, SoundRenderer::Speaker],
+    };
+    match renderer.resolve(&renderers) {
         SoundRenderer::EnhancedPcm => AudioRenderer::EnhancedPcm,
+        _ => AudioRenderer::Speaker,
     }
 }
 
@@ -216,6 +219,25 @@ pub(super) fn samples_at(tick: u64) -> u64 {
 #[cfg(test)]
 mod response_tests {
     use super::*;
+
+    #[test]
+    fn shared_defaults_and_unsupported_renderers_follow_the_engine_default() {
+        for default in [AudioRenderer::Speaker, AudioRenderer::EnhancedPcm] {
+            assert_eq!(
+                resolve_renderer(SoundRenderer::GameDefault, default),
+                default
+            );
+            assert_eq!(resolve_renderer(SoundRenderer::Adlib, default), default);
+            assert_eq!(
+                resolve_renderer(SoundRenderer::Speaker, default),
+                AudioRenderer::Speaker
+            );
+            assert_eq!(
+                resolve_renderer(SoundRenderer::EnhancedPcm, default),
+                AudioRenderer::EnhancedPcm
+            );
+        }
+    }
 
     #[test]
     fn switching_between_speaker_and_pcm_drains_the_old_response_mid_chunk() {

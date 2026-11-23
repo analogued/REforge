@@ -6,6 +6,7 @@ pub use reforge_audio::category::{CategoryVolumes, SoundCategory};
 pub enum SoundRenderer {
     #[default]
     GameDefault,
+    Adlib,
     Speaker,
     EnhancedPcm,
 }
@@ -13,8 +14,31 @@ impl SoundRenderer {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::GameDefault => "default",
+            Self::Adlib => "adlib",
             Self::Speaker => "speaker",
             Self::EnhancedPcm => "enhanced-pcm",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::GameDefault => "Game default",
+            Self::Adlib => "AdLib",
+            Self::Speaker => "PC speaker",
+            Self::EnhancedPcm => "Enhanced PCM",
+        }
+    }
+    /// Resolve an inherited alias or unsupported choice against this run's
+    /// concrete capabilities. The first concrete choice is the engine default.
+    /// Resolution never changes stored preferences or creates an override.
+    pub fn resolve(self, renderers: &[Self]) -> Self {
+        if self != Self::GameDefault && renderers.contains(&self) {
+            self
+        } else {
+            renderers
+                .iter()
+                .copied()
+                .find(|renderer| *renderer != Self::GameDefault)
+                .unwrap_or(Self::GameDefault)
         }
     }
 }
@@ -23,9 +47,10 @@ impl std::str::FromStr for SoundRenderer {
     fn from_str(s: &str) -> Result<Self, String> {
         match s {
             "default" => Ok(Self::GameDefault),
+            "adlib" => Ok(Self::Adlib),
             "speaker" => Ok(Self::Speaker),
             "enhanced-pcm" => Ok(Self::EnhancedPcm),
-            _ => Err("sound renderer must be default, speaker or enhanced-pcm".into()),
+            _ => Err("sound renderer must be default, adlib, speaker or enhanced-pcm".into()),
         }
     }
 }

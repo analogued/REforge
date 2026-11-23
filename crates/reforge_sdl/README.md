@@ -437,7 +437,14 @@ audio preferences in one menu transaction. A failed explicit device open retains
 the old endpoint; an audio startup failure permits silent simulation and unrelated
 video edits. Focus gain changes never alter engine input or pause state. The
 engine declares available sound renderers through `SettingsMenu::with_audio_renderers`;
-without that capability, game audio controls are disabled.
+without that capability, game audio controls are disabled. The first concrete
+renderer is the game default. Shared `SoundRenderer::resolve` handles inherited
+default aliases and unsupported choices without changing saved values.
+`with_startup_audio_renderers` uses the same setting, selector and transaction,
+but marks selection changes for the next launch and requires per-entry storage.
+The engine resolves the startup selection once before creating its sound driver;
+Apply does not replace the running backend. Live renderers use
+`with_audio_renderers` and continue to observe changes during play.
 `with_audio_categories` declares supported Music/Speech/Effects volume groups.
 These levels belong in synthesis; the SDL endpoint keeps Master (80% default)
 and focus gain separate, and never changes the desktop mixer volume. Category

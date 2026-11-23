@@ -45,6 +45,11 @@ no removal version has been selected yet.
   Display/Controls fields into per-entry Enhancements tables. Retire the helper,
   its call, the legacy-section read fallback and migration-only tests together.
   Keep ordinary Enhancements loading, saving and reset coverage.
+- **Centurion sound preferences (currently Unreleased):**
+  `migrate_centurion_sound` in `crates/reforge_settings/src/lib.rs` moves the
+  former per-entry `launcher.sound` choice into shared `audio.audio_renderer`.
+  Retire its call and migration-only tests together; retain shared audio
+  inheritance, startup selection and reset coverage.
 
 ## Build a package
 

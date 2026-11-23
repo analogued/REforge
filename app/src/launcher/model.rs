@@ -418,13 +418,12 @@ impl GameEntry {
         }
         args
     }
-    /// Startup choices exposed in Settings are read by the child's profile
-    /// binding. Passing saved pins as CLI overrides would lock those selectors.
+    /// The saved Alley Cat machine is read by the child's profile binding.
+    /// Passing it as a CLI override would lock the in-game selector.
     pub fn launch_arguments(&self) -> Vec<String> {
         let args = self.native_arguments();
         let startup_argument = match self.game_id.as_str() {
             "alley-cat" => "--machine",
-            "centurion-defender-of-rome" => "--sound",
             _ => return args,
         };
         args.as_chunks::<2>()
@@ -492,6 +491,27 @@ impl GameEntry {
                     };
                     (o.default.into(), saved)
                 }
+            };
+            let supported_audio: Vec<_> = o
+                .choices
+                .iter()
+                .filter_map(|choice| choice.value.parse::<reforge_settings::SoundRenderer>().ok())
+                .collect();
+            let resolve_audio = |text: &str| {
+                text.parse::<reforge_settings::SoundRenderer>()
+                    .unwrap_or_default()
+                    .resolve(&supported_audio)
+                    .as_str()
+            };
+            let default = if matches!(o.storage, Storage::Shared("audio_renderer")) {
+                resolve_audio(&default).to_owned()
+            } else {
+                default
+            };
+            let saved = if matches!(o.storage, Storage::Shared("audio_renderer")) {
+                saved.map(resolve_audio)
+            } else {
+                saved
             };
             let choice = o
                 .choices

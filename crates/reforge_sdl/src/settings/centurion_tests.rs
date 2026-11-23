@@ -117,7 +117,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     ));
     std::fs::write(
         &path,
-        "[entries.copy.audio]\nmaster_volume = 61\n[entries.copy.launcher]\nsound = 'pc-speaker'\n",
+        "[entries.copy.audio]\nmaster_volume = 61\naudio_renderer = 'speaker'\n",
     )
     .unwrap();
     let initial = std::fs::read(&path).unwrap();
@@ -156,8 +156,8 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     assert!(label(&output, "UI preset").is_some());
     assert!(label(&output, "Reforged").is_some());
     assert_eq!(
-        menu.draft.as_ref().unwrap().game_values().centurion.sound,
-        reforge_settings::CenturionSoundDevice::PcSpeaker
+        menu.draft.as_ref().unwrap().game_values().audio.renderer,
+        reforge_settings::SoundRenderer::Speaker
     );
     assert!(
         !menu.game_editing[ENHANCEMENTS_SECTION],
@@ -994,7 +994,8 @@ fn centurion_native_settings_capture_and_detail_navigation() {
 
 #[test]
 fn sound_device_shares_launcher_pin_and_audio_apply_cancel_reset() {
-    use reforge_settings::{CENTURION_SOUND, CenturionSoundDevice, SoundCategory, SoundRenderer};
+    use reforge_settings::{SoundCategory, SoundRenderer};
+    const SOUND: &str = "audio_renderer";
     if !dummy_video(
         "settings::centurion_tests::sound_device_shares_launcher_pin_and_audio_apply_cancel_reset",
     ) {
@@ -1023,7 +1024,7 @@ fn sound_device_shares_launcher_pin_and_audio_apply_cancel_reset() {
     let creator = display.texture_creator();
     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
         .with_centurion_options()
-        .with_audio_renderers(&[SoundRenderer::GameDefault])
+        .with_startup_audio_renderers(&[SoundRenderer::Adlib, SoundRenderer::Speaker])
         .with_audio_categories(&[SoundCategory::Music, SoundCategory::Effects]);
     menu.toggle();
     menu.prepare(display.ui_metrics(), display.settings());
@@ -1037,10 +1038,7 @@ fn sound_device_shares_launcher_pin_and_audio_apply_cancel_reset() {
     assert!(label(&output, "Applies on next launch.").is_some());
     click(&mut menu, "AdLib");
     click(&mut menu, "PC speaker");
-    assert_eq!(
-        menu.draft.as_ref().unwrap().game[CENTURION_SOUND],
-        "pc-speaker"
-    );
+    assert_eq!(menu.draft.as_ref().unwrap().game[SOUND], "speaker");
     assert!(!path.exists());
     menu.back();
     menu.toggle();
@@ -1049,8 +1047,8 @@ fn sound_device_shares_launcher_pin_and_audio_apply_cancel_reset() {
     menu.page = 2;
     menu.game_editing[2] = true;
     assert_eq!(
-        menu.draft.as_ref().unwrap().game_values().centurion.sound,
-        CenturionSoundDevice::Adlib
+        menu.draft.as_ref().unwrap().game_values().audio.renderer,
+        SoundRenderer::GameDefault
     );
     click(&mut menu, "AdLib");
     click(&mut menu, "PC speaker");
@@ -1061,24 +1059,18 @@ fn sound_device_shares_launcher_pin_and_audio_apply_cancel_reset() {
         .effective(menu.pending.as_ref().unwrap());
     display.apply_settings(request).unwrap();
     menu.applied();
-    assert_eq!(
-        reforge_settings::launcher::native_options(&path, "copy").unwrap()["sound"],
-        "pc-speaker"
-    );
+    assert_eq!(creator.session.borrow().saved.game[SOUND], "speaker");
     // Unrelated presentation presets must not alter the chosen sound device.
     menu.page = ENHANCEMENTS_SECTION;
     click(&mut menu, "Reforged");
     click(&mut menu, "Original");
     assert_eq!(
-        menu.draft.as_ref().unwrap().game_values().centurion.sound,
-        CenturionSoundDevice::PcSpeaker
+        menu.draft.as_ref().unwrap().game_values().audio.renderer,
+        SoundRenderer::Speaker
     );
     click(&mut menu, "Original");
     click(&mut menu, "Reforged");
-    assert_eq!(
-        menu.draft.as_ref().unwrap().game[CENTURION_SOUND],
-        "pc-speaker"
-    );
+    assert_eq!(menu.draft.as_ref().unwrap().game[SOUND], "speaker");
     menu.page = 2;
     click(&mut menu, "Restore defaults");
     click(&mut menu, "Apply");
@@ -1088,17 +1080,14 @@ fn sound_device_shares_launcher_pin_and_audio_apply_cancel_reset() {
         .effective(menu.pending.as_ref().unwrap());
     display.apply_settings(request).unwrap();
     menu.applied();
-    assert!(
-        !reforge_settings::launcher::native_options(&path, "copy")
-            .unwrap()
-            .contains_key("sound")
-    );
+    assert!(!creator.session.borrow().saved.game.contains_key(SOUND));
     std::fs::remove_file(path).unwrap();
 }
 
 #[test]
 fn sound_device_cli_lock_and_unregistered_runs_cannot_change_next_launch() {
-    use reforge_settings::{CENTURION_SOUND, SoundRenderer};
+    use reforge_settings::SoundRenderer;
+    const SOUND: &str = "audio_renderer";
     if !dummy_video(
         "settings::centurion_tests::sound_device_cli_lock_and_unregistered_runs_cannot_change_next_launch",
     ) {
@@ -1123,7 +1112,7 @@ fn sound_device_cli_lock_and_unregistered_runs_cannot_change_next_launch() {
                 ("vsync".into(), "false".into()),
             ])
             .into_iter()
-            .chain(locked.then(|| (CENTURION_SOUND.into(), "pc-speaker".into())))
+            .chain(locked.then(|| (SOUND.into(), "speaker".into())))
             .collect(),
         }
         .install();
@@ -1131,7 +1120,7 @@ fn sound_device_cli_lock_and_unregistered_runs_cannot_change_next_launch() {
         let creator = display.texture_creator();
         let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
             .with_centurion_options()
-            .with_audio_renderers(&[SoundRenderer::GameDefault]);
+            .with_startup_audio_renderers(&[SoundRenderer::Adlib, SoundRenderer::Speaker]);
         menu.toggle();
         menu.prepare(display.ui_metrics(), display.settings());
         menu.scope = 1;
@@ -1152,14 +1141,7 @@ fn sound_device_cli_lock_and_unregistered_runs_cannot_change_next_launch() {
         }
         click(&mut menu, selected);
         assert!(label(&draw(&mut menu, vec![]), alternative).is_none());
-        assert!(
-            !menu
-                .draft
-                .as_ref()
-                .unwrap()
-                .game
-                .contains_key(CENTURION_SOUND)
-        );
+        assert!(!menu.draft.as_ref().unwrap().game.contains_key(SOUND));
         assert!(!path.exists());
     }
 }

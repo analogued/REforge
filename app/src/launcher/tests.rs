@@ -1137,12 +1137,9 @@ fn centurion_video_choices_previews_and_pins_follow_the_detected_release() {
             .label;
         state.games[b].save_option("Video", ega);
         assert_eq!(state.games[b].preview_variant(), "ega");
-        assert_eq!(
-            state.games[b].native_arguments(),
-            ["--video", "ega", "--sound", "adlib"]
-        );
+        assert_eq!(state.games[b].native_arguments(), ["--video", "ega"]);
         assert_eq!(state.games[a].preview_variant(), "vga");
-        assert_eq!(state.games[a].native_arguments(), ["--sound", "adlib"]);
+        assert!(state.games[a].native_arguments().is_empty());
         let expected_id = state.games[b].entry_id.clone();
         let restored = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
         let game = restored
@@ -1151,10 +1148,7 @@ fn centurion_video_choices_previews_and_pins_follow_the_detected_release() {
             .find(|g| g.entry_id == expected_id)
             .unwrap();
         assert_eq!(game.preview_variant(), "ega");
-        assert_eq!(
-            game.native_arguments(),
-            ["--video", "ega", "--sound", "adlib"]
-        );
+        assert_eq!(game.native_arguments(), ["--video", "ega"]);
     }
 }
 
@@ -2637,9 +2631,9 @@ fn centurion_video_pin_survives_relocating_between_graphics_sets() {
             assert_eq!(
                 game.native_arguments(),
                 if release.id == full.id {
-                    vec!["--video", "ega", "--sound", "adlib"]
+                    vec!["--video", "ega"]
                 } else {
-                    vec!["--sound", "adlib"]
+                    vec![]
                 }
             );
             assert_eq!(
@@ -2663,7 +2657,7 @@ fn centurion_sound_pins_are_per_entry_and_leave_video_previews_unchanged() {
     assert_eq!(state.games[0].option_values()["Sound"], "AdLib");
     state.games[0].save_option("Sound", "PC speaker");
     assert_eq!(state.games[0].preview_variant(), preview);
-    assert_eq!(state.games[0].native_arguments(), ["--sound", "pc-speaker"]);
+    assert!(state.games[0].native_arguments().is_empty());
     let restored = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
     for game in &restored.games {
         assert_eq!(
@@ -2688,7 +2682,6 @@ fn centurion_sound_pins_are_per_entry_and_leave_video_previews_unchanged() {
 
 #[test]
 fn centurion_sound_settings_and_launcher_share_pins_without_cli_locks() {
-    use reforge_settings::CENTURION_SOUND;
     for release in detection::RELEASES
         .iter()
         .filter(|release| release.game() == detection::Game::Centurion)
@@ -2705,7 +2698,7 @@ fn centurion_sound_settings_and_launcher_share_pins_without_cli_locks() {
         let native = game.native_arguments();
         let carried = game.launch_arguments();
         assert!(!carried.iter().any(|arg| arg == "--sound"));
-        assert_eq!(carried.len() + 2, native.len());
+        assert_eq!(carried, native);
         if ega {
             assert_eq!(carried, ["--video", "ega"]);
         }
@@ -2733,11 +2726,11 @@ fn centurion_sound_settings_and_launcher_share_pins_without_cli_locks() {
                 .map(std::ffi::OsString::from)
                 .collect::<Vec<_>>()
         );
-        assert!(!launch.cli.contains_key(CENTURION_SOUND));
+        assert!(!launch.cli.contains_key("audio_renderer"));
         let mut session = Session::load(launch);
-        assert_eq!(session.saved.game[CENTURION_SOUND], "pc-speaker");
+        assert_eq!(session.saved.game["audio_renderer"], "speaker");
         let mut draft = session.saved.clone();
-        draft.edit_game(CENTURION_SOUND, "adlib".into(), Some(&session.saved));
+        draft.edit_game("audio_renderer", "adlib".into(), Some(&session.saved));
         session.commit(draft).unwrap();
         game.reload_preferences();
         assert_eq!(game.option_values()["Sound"], "AdLib");
@@ -2745,4 +2738,39 @@ fn centurion_sound_settings_and_launcher_share_pins_without_cli_locks() {
             assert_eq!(game.option_values()["Video"], "EGA");
         }
     }
+}
+
+#[test]
+fn centurion_sound_resolves_global_defaults_and_entry_aliases_without_rewriting() {
+    use reforge_settings::Patch;
+    let release = detection::RELEASES
+        .iter()
+        .find(|r| r.game() == detection::Game::Centurion)
+        .unwrap();
+    let fixture = Fixture::for_releases([release]);
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+    let id = state.games[0].entry_id.clone();
+    let mut session = Session::load(Launch {
+        game_id: detection::Game::Centurion.id().into(),
+        entry_id: Some(id.clone()),
+        path: Some(fixture.config.clone()),
+        cli: Patch::new(),
+    });
+    let mut draft = session.saved.clone();
+    draft.edit(false, "audio_renderer", "speaker".into());
+    session.commit(draft).unwrap();
+    state.games[0].reload_preferences();
+    assert_eq!(state.games[0].option_values()["Sound"], "PC speaker");
+    let mut draft = session.saved.clone();
+    draft.game.insert("audio_renderer".into(), "default".into());
+    session.commit(draft).unwrap();
+    let before = std::fs::read(&fixture.config).unwrap();
+    state.games[0].reload_preferences();
+    assert_eq!(state.games[0].option_values()["Sound"], "AdLib");
+    assert_eq!(std::fs::read(&fixture.config).unwrap(), before);
+    let mut draft = session.saved.clone();
+    draft.reset_section(true, 2);
+    session.commit(draft).unwrap();
+    state.games[0].reload_preferences();
+    assert_eq!(state.games[0].option_values()["Sound"], "PC speaker");
 }

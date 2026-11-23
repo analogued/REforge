@@ -123,13 +123,15 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
             Some("--config") => prefs.path = remaining.next().map(PathBuf::from),
             Some("--sound") if game == Game::Centurion => {
                 if let Some(value) = remaining.next() {
-                    if let Some(text) = value.to_str()
-                        && let Ok(device) = text.parse::<reforge_settings::CenturionSoundDevice>()
-                    {
-                        prefs.cli.insert(
-                            reforge_settings::CENTURION_SOUND.into(),
-                            device.as_str().into(),
-                        );
+                    let renderer = match value.to_str() {
+                        Some("adlib") => Some(reforge_settings::SoundRenderer::Adlib),
+                        Some("pc-speaker") => Some(reforge_settings::SoundRenderer::Speaker),
+                        _ => None,
+                    };
+                    if let Some(renderer) = renderer {
+                        prefs
+                            .cli
+                            .insert("audio_renderer".into(), renderer.as_str().into());
                     }
                     args.extend([arg, value]);
                 }
@@ -372,11 +374,12 @@ mod tests {
             assert!(prepared.warnings.is_empty());
             let (launch, forwarded) = launch_settings(prepared.args, Game::Centurion);
             assert_eq!(
-                launch
-                    .cli
-                    .get(reforge_settings::CENTURION_SOUND)
-                    .map(String::as_str),
-                Some(device)
+                launch.cli.get("audio_renderer").map(String::as_str),
+                Some(if device == "pc-speaker" {
+                    "speaker"
+                } else {
+                    device
+                })
             );
             assert_eq!(forwarded, args(&["--sound", device]));
         }
@@ -384,13 +387,13 @@ mod tests {
             let prepared = options::prepare(args(&["--sound", "pc-speaker"]), game);
             assert!(!prepared.warnings.is_empty());
             let (launch, forwarded) = launch_settings(prepared.args, game);
-            assert!(!launch.cli.contains_key(reforge_settings::CENTURION_SOUND));
+            assert!(!launch.cli.contains_key("audio_renderer"));
             assert!(forwarded.is_empty());
         }
         let prepared = options::prepare(args(&["--sound", "roland"]), Game::Centurion);
         assert!(!prepared.warnings.is_empty());
         let (launch, forwarded) = launch_settings(prepared.args, Game::Centurion);
-        assert!(!launch.cli.contains_key(reforge_settings::CENTURION_SOUND));
+        assert!(!launch.cli.contains_key("audio_renderer"));
         assert!(forwarded.is_empty());
     }
 

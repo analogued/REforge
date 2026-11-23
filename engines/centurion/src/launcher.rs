@@ -5,6 +5,7 @@ use crate::assets::LoadingProfile;
 use reforge_sdl::launcher::{Choice, DISPLAY, OptionDefinition, PaletteHint, Storage, WINDOW};
 #[path = "launcher_palette.rs"]
 mod palette;
+pub use crate::audio::AUDIO_RENDERERS;
 
 /// Options for an installation with only verified VGA artwork.
 pub const OPTIONS: &[OptionDefinition] = &[SOUND, DISPLAY, WINDOW];
@@ -20,7 +21,7 @@ const SOUND: OptionDefinition = OptionDefinition {
             palette_hint: PaletteHint::Auto,
         },
         Choice {
-            value: "pc-speaker",
+            value: "speaker",
             label: "PC speaker",
             short_label: "PC speaker",
             badge: Some("PC speaker"),
@@ -29,10 +30,7 @@ const SOUND: OptionDefinition = OptionDefinition {
         },
     ],
     default: "adlib",
-    storage: Storage::Native {
-        key: "sound",
-        argument: "--sound",
-    },
+    storage: Storage::Shared("audio_renderer"),
 };
 const OPTIONS_VGA_EGA: &[OptionDefinition] = &[
     OptionDefinition {
@@ -171,7 +169,7 @@ mod tests {
             for ega in [false, true] {
                 let sound = options(LoadingProfile::new(release, ega))
                     .iter()
-                    .find(|option| option.key() == "sound")
+                    .find(|option| option.key() == "audio_renderer")
                     .unwrap();
                 assert_eq!(sound.default, "adlib");
                 assert_eq!(
@@ -180,13 +178,22 @@ mod tests {
                         .iter()
                         .map(|choice| choice.value)
                         .collect::<Vec<_>>(),
-                    ["adlib", "pc-speaker"]
+                    ["adlib", "speaker"]
                 );
                 for choice in sound.choices {
                     crate::cli::validate_arguments(
-                        ["--original", "synthetic", "--sound", choice.value]
-                            .into_iter()
-                            .map(Into::into),
+                        [
+                            "--original",
+                            "synthetic",
+                            "--sound",
+                            if choice.value == "speaker" {
+                                "pc-speaker"
+                            } else {
+                                choice.value
+                            },
+                        ]
+                        .into_iter()
+                        .map(Into::into),
                     )
                     .unwrap();
                 }

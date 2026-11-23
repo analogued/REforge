@@ -249,7 +249,7 @@ mod tests {
 
     #[cfg(feature = "sdl")]
     #[test]
-    fn saved_centurion_sound_is_forwarded_without_locking_the_settings_choice() {
+    fn saved_centurion_sound_is_loaded_as_shared_settings_without_cli_arguments() {
         let temp = Temp::new();
         let config = temp.0.join("config.toml");
         let release = RELEASES
@@ -265,7 +265,7 @@ mod tests {
         reforge_settings::launcher::save_native_option(
             &config,
             &entry,
-            reforge_settings::CENTURION_SOUND,
+            "sound",
             Some("pc-speaker"),
         )
         .unwrap();
@@ -290,32 +290,32 @@ mod tests {
             assert_eq!(launch.entry_id.as_deref(), Some(entry.as_str()));
             assert_eq!(
                 forwarded,
-                [
-                    OsString::from("--sound"),
-                    OsString::from(if explicit { "adlib" } else { "pc-speaker" })
-                ]
+                if explicit {
+                    vec![OsString::from("--sound"), OsString::from("adlib")]
+                } else {
+                    Vec::new()
+                }
             );
             assert_eq!(
-                launch
-                    .cli
-                    .get(reforge_settings::CENTURION_SOUND)
-                    .map(String::as_str),
+                launch.cli.get("audio_renderer").map(String::as_str),
                 explicit.then_some("adlib")
             );
             let session = Session::load(launch);
+            assert_eq!(session.saved.game["audio_renderer"], "speaker");
             assert_eq!(
-                session.saved.game[reforge_settings::CENTURION_SOUND],
-                "pc-speaker"
-            );
-            assert_eq!(
-                session.effective(&session.saved).centurion.sound.as_str(),
-                if explicit { "adlib" } else { "pc-speaker" }
+                session
+                    .effective(&session.saved)
+                    .audio
+                    .renderer
+                    .resolve(centurion::launcher::AUDIO_RENDERERS)
+                    .as_str(),
+                if explicit { "adlib" } else { "speaker" }
             );
         }
-        assert_eq!(
-            reforge_settings::launcher::native_options(&config, &entry).unwrap()
-                [reforge_settings::CENTURION_SOUND],
-            "pc-speaker"
+        assert!(
+            !reforge_settings::launcher::native_options(&config, &entry)
+                .unwrap()
+                .contains_key("sound")
         );
     }
 }

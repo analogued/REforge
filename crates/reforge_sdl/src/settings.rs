@@ -109,6 +109,7 @@ pub struct SettingsMenu<'a> {
     pub(super) audio_devices: Vec<String>,
     pub(super) audio_devices_loaded: bool,
     pub(super) audio_renderers: Vec<reforge_settings::SoundRenderer>,
+    pub(super) audio_renderer_next_launch: bool,
     pub(super) audio_categories: Vec<reforge_settings::SoundCategory>,
     pub(super) mach3_options: bool,
     pub(super) alleycat_options: bool,
@@ -248,7 +249,19 @@ impl<'a> SettingsMenu<'a> {
     /// can still be edited.
     pub fn with_audio_renderers(mut self, renderers: &[reforge_settings::SoundRenderer]) -> Self {
         self.audio_renderers = renderers.to_vec();
+        self.audio_renderer_next_launch = false;
         self
+    }
+    /// Use the same audio selection, inheritance and persistence as live
+    /// renderers, but save changes for the next launch. Such edits require a
+    /// registered entry so a running game cannot offer an ineffective change.
+    pub fn with_startup_audio_renderers(
+        self,
+        renderers: &[reforge_settings::SoundRenderer],
+    ) -> Self {
+        let mut menu = self.with_audio_renderers(renderers);
+        menu.audio_renderer_next_launch = true;
+        menu
     }
     /// Declare semantic groups implemented by the engine's audio adapter.
     pub fn with_audio_categories(mut self, categories: &[reforge_settings::SoundCategory]) -> Self {
@@ -356,6 +369,7 @@ impl<'a> SettingsMenu<'a> {
             audio_devices: Vec::new(),
             audio_devices_loaded: false,
             audio_renderers: Vec::new(),
+            audio_renderer_next_launch: false,
             audio_categories: Vec::new(),
             mach3_options: false,
             alleycat_options: false,

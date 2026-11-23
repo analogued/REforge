@@ -47,14 +47,16 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
     let mut texture = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba)?;
     let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
         .with_centurion_options()
-        .with_audio_renderers(&[reforge_settings::SoundRenderer::GameDefault])
+        .with_startup_audio_renderers(crate::launcher::AUDIO_RENDERERS)
         .with_audio_categories(&[
             reforge_settings::SoundCategory::Music,
             reforge_settings::SoundCategory::Effects,
         ]);
     // Keep synthesis running when muted: the callback remains the shared game
     // clock, so changing volume never changes scene pacing or original cues.
-    let mut audio = match crate::audio_output::Output::new(options.sound) {
+    let sound = crate::audio::SoundDevice::from_renderer(window.settings().audio.renderer);
+    session.sound_device = sound;
+    let mut audio = match crate::audio_output::Output::new(sound) {
         Ok(output) => Some(output),
         Err(error) => {
             eprintln!("REforge: audio unavailable: {error}; continuing silently");

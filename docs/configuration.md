@@ -426,8 +426,9 @@ pairs discard the pair's overrides at that scope and warn.
 Audio preferences use `[global.audio]` and `[entries.<entry-id>.audio]` with the
 same draft, sparse overrides and section reset rules. Sound renderer selection
 is enabled in game overrides for engines/runs that provide alternative rendering.
-Centurion instead shows its startup Sound device choice, described below. Shared levels,
-devices and focus defaults can be edited globally even from a silent game.
+Centurion labels that same shared selection Sound device and applies it on the
+next launch. Shared levels, devices and focus defaults can be edited globally
+even from a silent game.
 
 | Key | Values | Built-in default |
 | --- | --- | --- |
@@ -436,7 +437,7 @@ devices and focus defaults can be edited globally even from a silent game.
 | music_volume | Integer 0–100 | 100 |
 | speech_volume | Integer 0–100 | 100 |
 | effects_volume | Integer 0–100 | 100 |
-| audio_renderer | `"default"`, `"speaker"`, `"enhanced-pcm"` | `"default"` |
+| audio_renderer | `"default"`, `"adlib"`, `"speaker"`, `"enhanced-pcm"` | `"default"` |
 | output_device | `"default"` or exact detected device name | `"default"` |
 | mute_unfocused | `true`, `false` | `true` |
 
@@ -450,12 +451,20 @@ runner remains silent. Engines declare supported Music, Speech and Sound effects
 unsupported game groups remain visible but disabled. Global category defaults
 can still be edited. Latency controls and stereo processing are not implemented.
 
+All engines use the same audio-selection setting, inheritance, sparse overrides
+and default resolution. `"default"` resolves to the engine's first supported
+choice: AdLib for Centurion, PC speaker for Mach 3, Alley Cat and graphical BTZ.
+A supported explicit global choice is inherited unless the entry overrides it;
+an unsupported choice resolves to the engine default without rewriting the
+stored preference. Per-game menus show concrete supported choices. Opening a
+menu does not replace the default alias or create an override.
+
 Centurion's **Audio → Sound device** selects AdLib or PC speaker for the next
-launch, sharing the launcher's **Sound** choice at
-`[entries.<entry-id>.launcher] sound = "adlib" | "pc-speaker"`. It is per entry,
-with AdLib as the built-in default, and does not inherit a global device choice.
-Apply saves it; Cancel discards it; restoring Audio defaults clears the saved
-choice. An explicit `--sound` is temporary and locks the control for that run.
+launch, sharing `audio_renderer` with the launcher's **Sound** choice. Apply
+saves it; Cancel discards it; restoring Audio defaults clears the entry's choice
+and restores inheritance. An explicit `--sound adlib|pc-speaker` is temporary and
+locks the same setting for that run. Existing per-entry `launcher.sound` choices
+migrate to `audio.audio_renderer`; an existing canonical choice takes precedence.
 Unregistered launches cannot save next-launch edits. Master/category volumes,
 host output device and focus muting still apply during play.
 

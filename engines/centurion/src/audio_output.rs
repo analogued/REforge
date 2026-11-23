@@ -222,6 +222,22 @@ mod tests {
         let after = output.clock_frames().unwrap();
         assert!(after > before + SAMPLE_RATE as u64 / 5);
         assert!(output.is_active());
+        // Saving the other shared renderer is a next-launch choice. Host gain
+        // updates must retain the current driver, stream clock and playing cue.
+        output
+            .set_host_audio(
+                &reforge_settings::AudioSettings {
+                    renderer: reforge_settings::SoundRenderer::Speaker,
+                    volume: 100,
+                    ..Default::default()
+                },
+                true,
+                false,
+            )
+            .unwrap();
+        assert_eq!(output.sound_device, SoundDevice::Adlib);
+        assert!(output.clock_frames().unwrap() >= after);
+        assert!(output.is_active());
         output
             .sender
             .try_send(Request {

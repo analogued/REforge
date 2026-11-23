@@ -8,7 +8,43 @@ use reforge_audio::opl::{Nuked, Opl};
 use std::io::Write;
 use std::path::Path;
 
-pub use reforge_settings::CenturionSoundDevice as SoundDevice;
+/// Original sound hardware selected at launch, independently of host output.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SoundDevice {
+    #[default]
+    Adlib,
+    PcSpeaker,
+}
+
+#[cfg(any(feature = "sdl", test))]
+pub const AUDIO_RENDERERS: &[reforge_settings::SoundRenderer] = &[
+    reforge_settings::SoundRenderer::Adlib,
+    reforge_settings::SoundRenderer::Speaker,
+];
+
+impl SoundDevice {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "adlib" => Ok(Self::Adlib),
+            "pc-speaker" => Ok(Self::PcSpeaker),
+            _ => Err("Sound must be adlib or pc-speaker".into()),
+        }
+    }
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Adlib => "adlib",
+            Self::PcSpeaker => "pc-speaker",
+        }
+    }
+    /// Resolve inherited/default host preferences once, before music starts.
+    #[cfg(any(feature = "sdl", test))]
+    pub fn from_renderer(renderer: reforge_settings::SoundRenderer) -> Self {
+        match renderer.resolve(AUDIO_RENDERERS) {
+            reforge_settings::SoundRenderer::Speaker => Self::PcSpeaker,
+            _ => Self::Adlib,
+        }
+    }
+}
 
 pub const SAMPLE_RATE: u32 = 48_000;
 
@@ -456,5 +492,39 @@ mod tests {
         assert_eq!(whole.sequencer.tick, split.sequencer.tick);
         assert_eq!(tick_frame(1_193_182), 0x3fff * 48_000);
         assert!(split.render(&mut [0; 3]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+    use reforge_settings::{Draft, SoundRenderer};
+
+    #[test]
+    fn shared_renderer_resolves_startup_device_and_inherited_preferences() {
+        for (renderer, expected) in [
+            (SoundRenderer::GameDefault, SoundDevice::Adlib),
+            (SoundRenderer::Adlib, SoundDevice::Adlib),
+            (SoundRenderer::Speaker, SoundDevice::PcSpeaker),
+            (SoundRenderer::EnhancedPcm, SoundDevice::Adlib),
+        ] {
+            assert_eq!(SoundDevice::from_renderer(renderer), expected);
+        }
+        let mut draft = Draft::default();
+        draft.edit(false, "audio_renderer", "speaker".into());
+        assert_eq!(
+            SoundDevice::from_renderer(draft.game_values().audio.renderer),
+            SoundDevice::PcSpeaker
+        );
+        draft.edit(true, "audio_renderer", "adlib".into());
+        assert_eq!(
+            SoundDevice::from_renderer(draft.game_values().audio.renderer),
+            SoundDevice::Adlib
+        );
+        draft.game.insert("audio_renderer".into(), "default".into());
+        assert_eq!(
+            SoundDevice::from_renderer(draft.game_values().audio.renderer),
+            SoundDevice::Adlib
+        );
     }
 }

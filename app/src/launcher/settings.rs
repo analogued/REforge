@@ -62,7 +62,7 @@ pub fn run(
             .with_audio_categories(&SoundCategory::ALL),
         Some("centurion-defender-of-rome") => menu
             .with_centurion_options()
-            .with_audio_renderers(&[SoundRenderer::GameDefault])
+            .with_startup_audio_renderers(centurion::launcher::AUDIO_RENDERERS)
             .with_audio_categories(&[SoundCategory::Music, SoundCategory::Effects]),
         Some("mindwheel" | "essex" | "brimstone" | "breakers") => {
             use std::io::IsTerminal;

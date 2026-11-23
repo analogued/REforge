@@ -13,12 +13,12 @@ use reforge_settings::{
     ALLEYCAT_MACHINE, ALLEYCAT_MOTION, AlleyCatMachine, AlleyCatMotion, AppliedValueIndicator,
     AspectRatio, BTZ_FILE_CURSOR, Backend, CENTURION_APPLIED_VALUE_INDICATOR,
     CENTURION_FLEET_INFORMATION, CENTURION_MAP_HIGHLIGHT, CENTURION_MAP_HOVER_INFO,
-    CENTURION_MENU_DECORATIONS, CENTURION_POPUP_CURSOR, CENTURION_SOUND, CONTROL_MODE,
-    CONTROLLER_ACTION, CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, CenturionOptions,
-    CenturionSoundDevice, ControlMode, DIGITIZED_SAMPLES, ENHANCEMENTS_SECTION, FileCursorStyle,
-    FleetInformation, FrameLimit, MOTION, MapHighlight, MapHoverInfo, MenuDecorations, MotionMode,
-    PopupCursor, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
-    STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
+    CENTURION_MENU_DECORATIONS, CENTURION_POPUP_CURSOR, CONTROL_MODE, CONTROLLER_ACTION,
+    CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, CenturionOptions, ControlMode, DIGITIZED_SAMPLES,
+    ENHANCEMENTS_SECTION, FileCursorStyle, FleetInformation, FrameLimit, MOTION, MapHighlight,
+    MapHoverInfo, MenuDecorations, MotionMode, PopupCursor, Presentation, Renderer,
+    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy,
+    SoundCategory, SoundRenderer,
 };
 mod controller;
 const PAGES: [&str; SECTION_KEYS.len()] = [
@@ -83,7 +83,6 @@ impl RowContext<'_> {
             if matches!(
                 key,
                 DIGITIZED_SAMPLES
-                    | CENTURION_SOUND
                     | ALLEYCAT_MACHINE
                     | CENTURION_FLEET_INFORMATION
                     | CENTURION_POPUP_CURSOR
@@ -415,7 +414,7 @@ pub(super) fn draw(
                                         &menu.audio_categories,
                                         enabled,
                                         menu.mach3_options,
-                                        menu.centurion_options,
+                                        menu.audio_renderer_next_launch,
                                         game_storage,
                                     );
                                 } else if menu.page == 3 {
@@ -505,18 +504,6 @@ pub(super) fn draw(
                     }
                     if menu.page == 2
                         && menu.scope == 1
-                        && menu.centurion_options
-                        && original.centurion.sound != value.centurion.sound
-                        && !cli.contains_key(CENTURION_SOUND)
-                    {
-                        draft.edit_game(
-                            CENTURION_SOUND,
-                            value.get(CENTURION_SOUND),
-                            (!menu.game_reset[menu.page]).then_some(&saved),
-                        );
-                    }
-                    if menu.page == 2
-                        && menu.scope == 1
                         && menu.mach3_options
                         && original.mach3 != value.mach3
                         && !cli.contains_key(DIGITIZED_SAMPLES)
@@ -574,7 +561,7 @@ pub(super) fn draw(
                     let reset_label = if menu.page == LAUNCHER_PAGE || menu.scope == 0 {
                         "Reset section"
                     } else if menu.page == 3 || menu.page == ENHANCEMENTS_SECTION
-                        || (menu.page == 2 && (menu.mach3_options || menu.centurion_options))
+                        || (menu.page == 2 && (menu.mach3_options || menu.audio_renderer_next_launch))
                         || (menu.page == 0 && menu.btz_terminal.is_some())
                         || (menu.page == 0 && menu.alleycat_options)
                     {
@@ -847,12 +834,8 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
         map_highlight: MapHighlight::Off,
         map_hover_info: MapHoverInfo::Off,
         applied_value_indicator: AppliedValueIndicator::Original,
-        sound: value.centurion.sound,
     };
-    let reforged = CenturionOptions {
-        sound: value.centurion.sound,
-        ..CenturionOptions::default()
-    };
+    let reforged = CenturionOptions::default();
     let fleet_state = rows.state(CENTURION_FLEET_INFORMATION, value);
     let cursor_state = rows.state(CENTURION_POPUP_CURSOR, value);
     let decorations_state = rows.state(CENTURION_MENU_DECORATIONS, value);
@@ -1454,7 +1437,7 @@ fn audio_controls(
     categories: &[SoundCategory],
     section_editable: bool,
     mach3_options: bool,
-    centurion_options: bool,
+    next_launch: bool,
     game_storage: bool,
 ) {
     let scope = rows.scope;
@@ -1543,41 +1526,40 @@ fn audio_controls(
             );
         }
         section(ui, "Playback");
-        if scope != 1 || !centurion_options {
+    });
+    let startup = scope == 1 && next_launch;
+    ui.add_enabled_ui(
+        if startup {
+            section_editable && game_storage
+        } else {
+            output_enabled
+        },
+        |ui| {
+            let mut state = rows.state("audio_renderer", value);
+            if startup
+                && let Some(reason) = &mut state.lock_tooltip
+            {
+                let explanation = "Locked for this run by the command-line sound selection.\nRemove the command-line argument to edit this setting.\nSaved preferences are unchanged.";
+                state.tooltip = state.tooltip.replacen(reason.as_str(), explanation, 1);
+                *reason = explanation.into();
+            }
             row(
                 ui,
-                "Sound renderer",
+                if startup { "Sound device" } else { "Sound renderer" },
                 "audio_renderer",
-                rows.state("audio_renderer", value),
+                state,
                 |ui| {
                     ui.add_enabled_ui(scope == 1 && available, |ui| {
                         sound_renderer_control(ui, &mut value.audio.renderer, renderers, scope);
                     });
                 },
             );
-        }
-        if scope == 0 {
-            ui.weak(
-                "Sound renderer is selected per game; Game default follows its original hardware.",
-            );
-        }
-    });
-    if scope == 1 && centurion_options {
-        ui.add_enabled_ui(section_editable && game_storage, |ui| {
-            row(
-                ui,
-                "Sound device",
-                CENTURION_SOUND,
-                rows.state(CENTURION_SOUND, value),
-                |ui| {
-                    Selector::new(
-                        CENTURION_SOUND,
-                        CenturionSoundDevice::ALL.map(|device| Choice::new(device, device.label())),
-                    )
-                    .show(ui, &mut value.centurion.sound);
-                },
-            );
-        });
+        },
+    );
+    if scope == 0 {
+        ui.weak("Sound renderer is selected per game; Game default follows its original hardware.");
+    }
+    if startup {
         ui.weak(if game_storage {
             "Applies on next launch."
         } else {
@@ -1659,9 +1641,8 @@ fn sound_renderer_control(
     renderers: &[SoundRenderer],
     scope: usize,
 ) -> egui::Response {
-    let game_default = renderers.first().copied().unwrap_or_default();
-    let displayed = if scope == 1 && *renderer == SoundRenderer::GameDefault {
-        game_default
+    let displayed = if scope == 1 {
+        renderer.resolve(renderers)
     } else {
         *renderer
     };
@@ -1670,7 +1651,7 @@ fn sound_renderer_control(
         .then_some(SoundRenderer::GameDefault)
         .into_iter()
         .chain(renderers.iter().copied())
-        .map(|renderer| Choice::new(renderer, sound_renderer_label(renderer)));
+        .map(|renderer| Choice::new(renderer, renderer.label()));
     let mut response = Selector::new("audio_renderer", choices).show(ui, &mut selected);
     // Resolving the display alias must not create a saved override. Commit only
     // a deliberate selection, preserving default-valued drafts on open/reset.
@@ -1681,14 +1662,6 @@ fn sound_renderer_control(
     response
 }
 
-fn sound_renderer_label(renderer: SoundRenderer) -> &'static str {
-    match renderer {
-        SoundRenderer::GameDefault => "Game default",
-        SoundRenderer::Speaker => "PC speaker",
-        SoundRenderer::EnhancedPcm => "Enhanced PCM",
-    }
-}
-
 fn section_has_cli_locks(
     cli: &reforge_settings::Patch,
     page: usize,
@@ -1697,7 +1670,6 @@ fn section_has_cli_locks(
 ) -> bool {
     SECTION_KEYS[page].iter().any(|key| cli.contains_key(*key))
         || (page == 2 && scope == 1 && mach3_options && cli.contains_key(DIGITIZED_SAMPLES))
-        || (page == 2 && scope == 1 && cli.contains_key(CENTURION_SOUND))
         || (page == ENHANCEMENTS_SECTION
             && scope == 1
             && (mach3_options && cli.contains_key(MOTION)
@@ -2224,6 +2196,56 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn renderer_resolution_is_shared_by_startup_live_and_single_device_choices() {
+        for (renderers, stored, displayed) in [
+            (
+                &[SoundRenderer::Adlib, SoundRenderer::Speaker][..],
+                SoundRenderer::GameDefault,
+                "AdLib",
+            ),
+            (
+                &[SoundRenderer::Adlib, SoundRenderer::Speaker][..],
+                SoundRenderer::Speaker,
+                "PC speaker",
+            ),
+            (
+                &[SoundRenderer::Adlib, SoundRenderer::Speaker][..],
+                SoundRenderer::EnhancedPcm,
+                "AdLib",
+            ),
+            (
+                &[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm][..],
+                SoundRenderer::GameDefault,
+                "PC speaker",
+            ),
+            (
+                &[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm][..],
+                SoundRenderer::Adlib,
+                "PC speaker",
+            ),
+            (
+                &[SoundRenderer::Speaker][..],
+                SoundRenderer::Adlib,
+                "PC speaker",
+            ),
+        ] {
+            let context = egui::Context::default();
+            let mut renderer = stored;
+            let output = context.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let response = sound_renderer_control(ui, &mut renderer, renderers, 1);
+                    assert!(!response.changed());
+                });
+            });
+            assert!(renderer_text(&output, displayed).is_some());
+            assert_eq!(
+                renderer, stored,
+                "display resolution must not create an override"
+            );
+        }
+    }
 
     fn renderer_frame(
         context: &egui::Context,

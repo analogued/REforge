@@ -440,8 +440,10 @@ devices and focus defaults can be edited globally even from a silent game.
 | output_device | `"default"` or exact detected device name | `"default"` |
 | mute_unfocused | `true`, `false` | `true` |
 
-Mach 3's normal timed playback supports PC speaker and Enhanced PCM; Game default
-selects its original speaker renderer. Development-only step/static previews remain
+Mach 3's normal timed playback supports PC speaker and Enhanced PCM. The internal
+`"default"` alias selects its original speaker renderer; the per-game menu shows
+PC speaker rather than a separate default choice. Opening the menu preserves
+the alias without creating an override. Development-only step/static previews remain
 silent. Alley Cat supports PC Speaker playback and full-build PCjr
 three-voice title music, with Music and Effects categories; its uniform-step diagnostic
 runner remains silent. Engines declare supported Music, Speech and Sound effects groups;

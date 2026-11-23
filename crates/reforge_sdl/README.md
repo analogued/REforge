@@ -252,6 +252,9 @@ primitives with that theme. Ordinary egui widgets receive the same palette.
 
 Esc or F10 opens the Compact Display, CRT & Colour, Audio and Controls pages in each engine.
 Games with optional improvements also expose an Enhancements page.
+Per-game Sound renderer choices show concrete renderers. Engines declare their
+default first in `with_audio_renderers`; the stored `default` alias displays as
+that renderer without creating an override merely by opening the menu.
 Modal dialogs retain Escape for cancel/back; F10 can open Settings above them.
 Controls offers a shared stick dead zone and Alley Cat controller layouts.
 Enhancements groups Alley Cat's input response and scene movement, and Mach 3's

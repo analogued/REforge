@@ -1551,13 +1551,7 @@ fn audio_controls(
                 rows.state("audio_renderer", value),
                 |ui| {
                     ui.add_enabled_ui(scope == 1 && available, |ui| {
-                        Selector::new(
-                            "audio_renderer",
-                            std::iter::once(&SoundRenderer::GameDefault)
-                                .chain(renderers)
-                                .map(|r| Choice::new(*r, sound_renderer_label(*r))),
-                        )
-                        .show(ui, &mut value.audio.renderer);
+                        sound_renderer_control(ui, &mut value.audio.renderer, renderers, scope);
                     });
                 },
             );
@@ -1659,6 +1653,34 @@ fn audio_controls(
         );
     });
 }
+fn sound_renderer_control(
+    ui: &mut egui::Ui,
+    renderer: &mut SoundRenderer,
+    renderers: &[SoundRenderer],
+    scope: usize,
+) -> egui::Response {
+    let game_default = renderers.first().copied().unwrap_or_default();
+    let displayed = if scope == 1 && *renderer == SoundRenderer::GameDefault {
+        game_default
+    } else {
+        *renderer
+    };
+    let mut selected = displayed;
+    let choices = (scope == 0 || renderers.is_empty())
+        .then_some(SoundRenderer::GameDefault)
+        .into_iter()
+        .chain(renderers.iter().copied())
+        .map(|renderer| Choice::new(renderer, sound_renderer_label(renderer)));
+    let mut response = Selector::new("audio_renderer", choices).show(ui, &mut selected);
+    // Resolving the display alias must not create a saved override. Commit only
+    // a deliberate selection, preserving default-valued drafts on open/reset.
+    if selected != displayed {
+        *renderer = selected;
+        response.mark_changed();
+    }
+    response
+}
+
 fn sound_renderer_label(renderer: SoundRenderer) -> &'static str {
     match renderer {
         SoundRenderer::GameDefault => "Game default",
@@ -2202,6 +2224,142 @@ mod tests {
     }
 
     use super::*;
+
+    fn renderer_frame(
+        context: &egui::Context,
+        renderer: &mut SoundRenderer,
+        scope: usize,
+        events: Vec<egui::Event>,
+    ) -> (egui::FullOutput, egui::Response) {
+        let mut response = None;
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    Pos2::ZERO,
+                    Vec2::new(900.0, 650.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                crate::settings_navigation::begin_frame(ctx);
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    response = Some(sound_renderer_control(
+                        ui,
+                        renderer,
+                        &[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm],
+                        scope,
+                    ));
+                });
+            },
+        );
+        (output, response.unwrap())
+    }
+
+    fn renderer_text(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
+        output.shapes.iter().find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == label => {
+                Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+            }
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn sound_renderer_default_alias_displays_concrete_game_choice_without_editing() {
+        use crate::settings_selector::{InputMode, set_mode};
+
+        for mode in [InputMode::Mouse, InputMode::Keyboard, InputMode::Controller] {
+            let context = egui::Context::default();
+            style(&context);
+            set_mode(&context, mode);
+            let mut renderer = SoundRenderer::GameDefault;
+            for scope in [1, 0, 1] {
+                // Repeat after layout settles, including scope round trips.
+                for _ in 0..3 {
+                    let (output, response) = renderer_frame(&context, &mut renderer, scope, vec![]);
+                    let label = if scope == 1 {
+                        "PC speaker"
+                    } else {
+                        "Game default"
+                    };
+                    assert!(renderer_text(&output, label).is_some());
+                    assert_eq!(renderer, SoundRenderer::GameDefault);
+                    assert!(!response.changed());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sound_renderer_navigation_cycles_only_concrete_game_choices() {
+        use crate::settings_selector::{InputMode, set_mode};
+
+        for mode in [InputMode::Keyboard, InputMode::Controller] {
+            let context = egui::Context::default();
+            style(&context);
+            set_mode(&context, mode);
+            let mut renderer = SoundRenderer::GameDefault;
+            let (_, response) = renderer_frame(&context, &mut renderer, 1, vec![]);
+            response.request_focus();
+            for key in [egui::Key::ArrowRight, egui::Key::ArrowLeft] {
+                for expected in [SoundRenderer::EnhancedPcm, SoundRenderer::Speaker] {
+                    let events = [true, false]
+                        .into_iter()
+                        .map(|pressed| egui::Event::Key {
+                            key,
+                            physical_key: Some(key),
+                            pressed,
+                            repeat: false,
+                            modifiers: egui::Modifiers::NONE,
+                        })
+                        .collect();
+                    let (_, response) = renderer_frame(&context, &mut renderer, 1, events);
+                    assert_eq!(renderer, expected);
+                    assert!(response.changed());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sound_renderer_mouse_popup_offers_and_saves_only_concrete_game_choices() {
+        let context = egui::Context::default();
+        style(&context);
+        let mut renderer = SoundRenderer::EnhancedPcm;
+        let (_, response) = renderer_frame(&context, &mut renderer, 1, vec![]);
+        let click = |pos, pressed| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        };
+        renderer_frame(
+            &context,
+            &mut renderer,
+            1,
+            click(response.rect.center(), true),
+        );
+        renderer_frame(
+            &context,
+            &mut renderer,
+            1,
+            click(response.rect.center(), false),
+        );
+        let (output, _) = renderer_frame(&context, &mut renderer, 1, vec![]);
+        assert!(renderer_text(&output, "Game default").is_none());
+        let speaker = renderer_text(&output, "PC speaker").unwrap().center();
+        assert!(renderer_text(&output, "Enhanced PCM").is_some());
+        renderer_frame(&context, &mut renderer, 1, click(speaker, true));
+        let (_, response) = renderer_frame(&context, &mut renderer, 1, click(speaker, false));
+        assert_eq!(renderer, SoundRenderer::Speaker);
+        assert!(response.changed());
+    }
 
     #[test]
     fn themed_control_text_contrasts_with_its_canvas_or_focused_fill() {

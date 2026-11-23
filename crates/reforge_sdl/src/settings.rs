@@ -242,8 +242,10 @@ impl<'a> SettingsMenu<'a> {
         drop(session);
         self
     }
-    /// Declare available engine renderers; absence leaves game audio controls
-    /// disabled while shared defaults can still be edited.
+    /// Declare available engine renderers, with the engine default first.
+    /// Game settings display that concrete renderer for the internal default
+    /// alias. Absence leaves game audio controls disabled while shared defaults
+    /// can still be edited.
     pub fn with_audio_renderers(mut self, renderers: &[reforge_settings::SoundRenderer]) -> Self {
         self.audio_renderers = renderers.to_vec();
         self
@@ -1661,8 +1663,9 @@ mod tests {
             .install();
             let display = crate::Window::new("settings storage", 320, 240, Some(4)).unwrap();
             let creator = display.texture_creator();
-            let mut menu =
-                SettingsMenu::new(&creator, VideoCapabilities::default()).with_mach3_options(None);
+            let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
+                .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
+                .with_mach3_options(None);
             menu.toggle();
             menu.prepare(display.ui_metrics(), display.settings());
             menu.scope = 1;
@@ -1676,6 +1679,11 @@ mod tests {
                 "Override global defaults · this run only"
             };
             assert!(label(&output, checkbox).is_some());
+            assert!(label(&output, "PC speaker").is_some());
+            assert_eq!(
+                menu.draft.as_ref().unwrap().game_values().audio.renderer,
+                SoundRenderer::GameDefault,
+            );
             let sample = label(&output, "On").unwrap().center();
             // Try to open the sample selector: temporary runs must not offer
             // next-launch edits that cannot survive to the next launch.

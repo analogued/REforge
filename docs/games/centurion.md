@@ -12,24 +12,30 @@ the closing victory presentations. Music and effects use AdLib synthesis.
 
 Keep `OVL0.OVL` and the `DAT`/`DIR` pairs for **CENT, MINIT, MMAP, BATL, MGLAD,
 MRACE, MNAVAL, NAVL and MNEGO** together in the game directory. All nineteen
-runtime files are required for 1.00A. The supported 1.00B distribution additionally
-requires the `DAT`/`DIR` pairs for **EINIT, EMAP, EGLAD, ERACE, ENAVAL and ENEGO**,
-which provide its EGA mode. The original DOS executable is not required by the
-REforge player. Other distributions and platforms are not automatically compatible.
+runtime files are required for either DOS version. EGA additionally needs all
+`DAT`/`DIR` pairs for **EINIT, EMAP, EGLAD, ERACE, ENAVAL and ENEGO**. REforge
+offers EGA when the complete set matches its verified file fingerprints;
+missing or mismatched EGA files leave VGA available. The original DOS executable
+is not required by the REforge player. Other distributions and platforms are not
+automatically compatible.
 
-Renamed files work when their contents match the supported distribution.
+Renamed files work when their contents match the supported distribution. After
+adding or removing EGA banks from a library installation, use **Relocate…** to
+select its directory again and update the detected video choices.
 
 ## Video mode
 
-For DOS 1.00B, the launcher's **Video** choice offers **VGA** (default) and
-**EGA**. It is saved separately for each library entry and takes effect at launch,
-like Mach 3's video choice. Both use 320×200 game pixels with a 4:3 display aspect.
-EGA uses the supplied 16-colour artwork. DOS 1.00A remains VGA-only.
+With complete EGA banks, either DOS version offers **VGA** (default) and **EGA**
+in the launcher's **Video** choice. It is saved separately for each library entry
+and takes effect at launch, like Mach 3's video choice. Both use 320×200 game
+pixels with a 4:3 display aspect. EGA uses the supplied 16-colour artwork.
+The supported 1.00A EGA combination uses the same bank fingerprints as 1.00B;
+it does not identify a separately examined historical 1.00A EGA distribution.
 
 Direct launches accept `--video vga` or `--video ega`. Unsupported EGA selection
-for 1.00A warns and uses VGA. The two modes share the selected installation's
-save slots and game rules. Each release retains its own new-campaign data,
-including 1.00B's higher initial plunder reserve in Pontus.
+without complete EGA banks warns and uses VGA. The two modes share the selected
+installation's save slots and game rules. Each release retains its own
+new-campaign data, including 1.00B's higher initial plunder reserve in Pontus.
 
 ## Start playing
 
@@ -203,7 +209,7 @@ its own action state. If no escape sea is available, the fleet and carried
 legion are lost. Removing a destroyed legion also releases its transport so it
 can carry another legion. These 1.00B corrections apply with every UI preset.
 
-Support covers the verified DOS 1.00A/VGA and 1.00B/VGA/EGA distributions and
+Support covers DOS 1.00A and 1.00B with VGA, optional matching EGA banks and
 AdLib output. Other sound hardware modes are not implemented. Comparisons cover
 selected screens, mechanics
 and complete play sequences, rather than every possible campaign. Timing and

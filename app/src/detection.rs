@@ -36,7 +36,7 @@ pub enum Game {
 pub enum Engine {
     AlleyCat(alleycat::assets::InputFormat),
     Mach3,
-    Centurion(centurion::assets::DosRelease),
+    Centurion(centurion::assets::LoadingProfile),
     Btz(btz::player::DosRelease),
 }
 
@@ -46,7 +46,10 @@ impl Game {
         match self {
             Self::AlleyCat => Engine::AlleyCat(alleycat::assets::InputFormat::Cat),
             Self::Mach3 => Engine::Mach3,
-            Self::Centurion => Engine::Centurion(centurion::assets::DosRelease::V100A),
+            Self::Centurion => Engine::Centurion(centurion::assets::LoadingProfile::new(
+                centurion::assets::DosRelease::V100A,
+                false,
+            )),
             Self::Mindwheel => Engine::Btz(DosRelease::Mindwheel),
             Self::Essex => Engine::Btz(DosRelease::Essex),
             Self::Brimstone => Engine::Btz(DosRelease::Brimstone),

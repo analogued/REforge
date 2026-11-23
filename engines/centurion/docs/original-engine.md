@@ -17,8 +17,14 @@ artwork as 1.00A. Its naval re-engagement question moves from `DS:935A` to
 Native loading restores its internal arrangement using the supplied text and
 pointers. Version/credits and release-specific new-campaign data are retained.
 
-The 1.00B package also contains EINIT, EMAP, EGLAD, ERACE, ENAVAL and ENEGO
-banks for EGA. Their nibble pixels use direct 16-colour attributes; VGA uses
+Both examined programs contain EGA loading and drawing paths; the supplied
+1.00A package lacks the six E-prefixed bank pairs. The 1.00B package contains
+EINIT, EMAP, EGLAD, ERACE, ENAVAL and ENEGO banks for EGA. REforge also accepts
+these exact bank contents with 1.00A, based on matching shared artwork and
+compatible resource layouts. This combination is distinct from finding an
+original 1.00A package containing EGA banks.
+
+Their nibble pixels use direct 16-colour attributes; VGA uses
 the palette tags and maps at `DS:60C0`. EINIT supplies packed `WORLD.CBM` in
 place of VGA's raw `WORLD.LZW`; ENAVAL supplies `GALLEYS.CBM` in place of
 NAVL's raw `GALLEYS.LZW`. EGA uses CENT's EMENU sprites. Initialized drawing

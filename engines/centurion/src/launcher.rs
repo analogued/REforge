@@ -1,14 +1,14 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Engine-owned video choices, scene previews and display geometry.
-use crate::assets::DosRelease;
+use crate::assets::LoadingProfile;
 use reforge_sdl::launcher::{Choice, DISPLAY, OptionDefinition, PaletteHint, Storage, WINDOW};
 #[path = "launcher_palette.rs"]
 mod palette;
 
-/// DOS 1.00A's supported distribution contains VGA artwork only.
+/// Options for an installation with only verified VGA artwork.
 pub const OPTIONS: &[OptionDefinition] = &[DISPLAY, WINDOW];
-const OPTIONS_100B: &[OptionDefinition] = &[
+const OPTIONS_VGA_EGA: &[OptionDefinition] = &[
     OptionDefinition {
         label: "Video",
         choices: &[
@@ -39,23 +39,25 @@ const OPTIONS_100B: &[OptionDefinition] = &[
     WINDOW,
 ];
 
-pub const fn options(release: DosRelease) -> &'static [OptionDefinition] {
-    match release {
-        DosRelease::V100A => OPTIONS,
-        DosRelease::V100B => OPTIONS_100B,
+pub const fn options(profile: LoadingProfile) -> &'static [OptionDefinition] {
+    if profile.ega {
+        OPTIONS_VGA_EGA
+    } else {
+        OPTIONS
     }
 }
 
 pub const PREVIEW_OPTION: &str = "video";
 pub const PREVIEW_VARIANT: &str = "vga";
 pub const PREVIEW_VARIANTS: &[&str] = &[PREVIEW_VARIANT];
-const PREVIEW_VARIANTS_100B: &[&str] = &["vga", "ega"];
+const PREVIEW_VARIANTS_VGA_EGA: &[&str] = &["vga", "ega"];
 pub const PREVIEW_REVISION: u32 = 2;
 
-pub const fn preview_variants(release: DosRelease) -> &'static [&'static str] {
-    match release {
-        DosRelease::V100A => PREVIEW_VARIANTS,
-        DosRelease::V100B => PREVIEW_VARIANTS_100B,
+pub const fn preview_variants(profile: LoadingProfile) -> &'static [&'static str] {
+    if profile.ega {
+        PREVIEW_VARIANTS_VGA_EGA
+    } else {
+        PREVIEW_VARIANTS
     }
 }
 
@@ -66,13 +68,14 @@ pub fn geometry(_: &std::collections::BTreeMap<String, String>) -> reforge_sdl::
 pub fn preview(
     files: &reforge_inputs::ResolvedFiles,
     variant: &str,
-    release: DosRelease,
+    profile: LoadingProfile,
 ) -> Result<reforge_sdl::preview::Frame, String> {
-    if !preview_variants(release).contains(&variant) {
-        return Err("Unknown Centurion preview variant for this release".into());
+    if !preview_variants(profile).contains(&variant) {
+        return Err("Unknown Centurion preview variant for this installation".into());
     }
     let video = crate::cli::parse_video(variant)?;
-    let assets = crate::assets::Assets::load(files, std::path::PathBuf::new(), release, video)?;
+    let assets =
+        crate::assets::Assets::load(files, std::path::PathBuf::new(), profile.release, video)?;
     let session = crate::session::Session::new(&assets, crate::session::Phase::Title, 0, 0)?;
     let frame = session.render(&assets, false)?;
     reforge_sdl::preview::Frame::new(geometry(&Default::default()), rgba(&frame, &assets))?
@@ -96,34 +99,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn video_choices_and_previews_follow_the_detected_release() {
-        assert_eq!(preview_variants(DosRelease::V100A), ["vga"]);
-        assert_eq!(preview_variants(DosRelease::V100B), ["vga", "ega"]);
-        assert!(
-            options(DosRelease::V100A)
+    fn video_choices_and_previews_follow_the_detected_graphics_capabilities() {
+        use crate::assets::DosRelease;
+        for release in [DosRelease::V100A, DosRelease::V100B] {
+            let vga = LoadingProfile::new(release, false);
+            let complete = LoadingProfile::new(release, true);
+            assert_eq!(preview_variants(vga), ["vga"]);
+            assert_eq!(preview_variants(complete), ["vga", "ega"]);
+            assert!(options(vga).iter().all(|option| option.key() != "video"));
+            let video = options(complete)
                 .iter()
-                .all(|option| option.key() != "video")
-        );
-        let video = options(DosRelease::V100B)
-            .iter()
-            .find(|option| option.key() == "video")
-            .unwrap();
-        assert_eq!(video.default, "vga");
-        assert_eq!(
-            video
-                .choices
-                .iter()
-                .map(|choice| choice.value)
-                .collect::<Vec<_>>(),
-            ["vga", "ega"]
-        );
-        for choice in video.choices {
-            crate::cli::validate_arguments(
-                ["--original", "synthetic", "--video", choice.value]
-                    .into_iter()
-                    .map(Into::into),
-            )
-            .unwrap();
+                .find(|option| option.key() == "video")
+                .unwrap();
+            assert_eq!(video.default, "vga");
+            assert_eq!(
+                video
+                    .choices
+                    .iter()
+                    .map(|choice| choice.value)
+                    .collect::<Vec<_>>(),
+                ["vga", "ega"]
+            );
+            for choice in video.choices {
+                crate::cli::validate_arguments(
+                    ["--original", "synthetic", "--video", choice.value]
+                        .into_iter()
+                        .map(Into::into),
+                )
+                .unwrap();
+            }
+            assert!(
+                preview(&reforge_inputs::ResolvedFiles::default(), "ega", vga)
+                    .err()
+                    .unwrap()
+                    .contains("Unknown Centurion preview variant")
+            );
         }
     }
 

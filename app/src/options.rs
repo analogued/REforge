@@ -173,7 +173,7 @@ const SPECS: &[Spec] = &[
         scope: Scope::Game(Game::Centurion),
         value: Value::Choice(&["vga", "ega"]),
         dev: false,
-        description: "Video assets (default vga); ega requires the DOS 1.00B distribution",
+        description: "Video assets (default vga); ega requires the complete verified EGA resource set",
     },
     Spec {
         name: "--state-dir",
@@ -779,11 +779,11 @@ fn prepare_for_engine(
                     && matches!(
                         engine,
                         Some(crate::detection::Engine::Centurion(
-                            centurion::assets::DosRelease::V100A
+                            centurion::assets::LoadingProfile { ega: false, .. }
                         ))
                     )
                 {
-                    Err("ega requires the DOS 1.00B distribution".into())
+                    Err("ega requires the complete verified EGA resource set".into())
                 } else {
                     Ok(value)
                 }
@@ -1804,12 +1804,10 @@ mod tests {
     #[test]
     fn centurion_video_modes_are_validated_for_the_detected_release() {
         use crate::detection::{Detected, Engine, RELEASES};
-        use centurion::assets::DosRelease;
-        for release_kind in [DosRelease::V100A, DosRelease::V100B] {
-            let release = RELEASES
-                .iter()
-                .find(|release| release.engine() == Engine::Centurion(release_kind))
-                .unwrap();
+        for release in RELEASES.iter().filter(|r| r.game() == Game::Centurion) {
+            let Engine::Centurion(profile) = release.engine() else {
+                unreachable!()
+            };
             let detected = Detected {
                 game: Game::Centurion,
                 release,
@@ -1819,10 +1817,10 @@ mod tests {
             };
             let requested = args(&["--video", "vga", "--video", "ega", "--scale", "2"]);
             let prepared = prepare_for_detected(requested, &detected);
-            if release_kind == DosRelease::V100A {
+            if !profile.ega {
                 assert_eq!(prepared.args, args(&["--video", "vga", "--scale", "2"]));
                 assert_eq!(prepared.warnings.len(), 1);
-                assert!(prepared.warnings[0].contains("requires the DOS 1.00B"));
+                assert!(prepared.warnings[0].contains("complete verified EGA resource set"));
             } else {
                 assert_eq!(prepared.args, args(&["--video", "ega", "--scale", "2"]));
                 assert!(prepared.warnings.is_empty());

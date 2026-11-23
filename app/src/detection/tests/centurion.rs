@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use super::*;
+use ::centurion::assets::{DosRelease, LoadingProfile};
 use std::{collections::HashSet, sync::LazyLock};
 
 fn production() -> &'static Release {
@@ -71,11 +72,11 @@ fn centurion_catalog_identity_covers_every_runtime_role() {
     );
     assert_eq!(
         release.engine(),
-        Engine::Centurion(::centurion::assets::DosRelease::V100A)
+        Engine::Centurion(LoadingProfile::new(DosRelease::V100A, false))
     );
     assert_eq!(
         release.game().engine(),
-        Engine::Centurion(::centurion::assets::DosRelease::V100A)
+        Engine::Centurion(LoadingProfile::new(DosRelease::V100A, false))
     );
     assert_eq!(release.game().id(), "centurion-defender-of-rome");
     assert!(!release.game().is_btz());
@@ -109,7 +110,7 @@ fn centurion_authored_resources_keep_resolved_paths_when_every_file_is_renamed()
             assert_eq!(found.game, Game::Centurion);
             assert_eq!(
                 found.engine(),
-                Engine::Centurion(::centurion::assets::DosRelease::V100A)
+                Engine::Centurion(LoadingProfile::new(DosRelease::V100A, false))
             );
             assert_eq!(found.original, directory.0);
             assert_eq!(found.files.len(), 19);
@@ -203,7 +204,7 @@ fn production_centurion_routing_uses_the_complete_catalog_manifest() {
     assert_eq!(found.release.id, release.id);
     assert_eq!(
         found.engine(),
-        Engine::Centurion(::centurion::assets::DosRelease::V100A)
+        Engine::Centurion(LoadingProfile::new(DosRelease::V100A, false))
     );
     assert_eq!(found.files.len(), release.files.len());
     assert_eq!(hashed, paths.iter().cloned().collect());
@@ -216,7 +217,7 @@ fn production_b() -> &'static Release {
     RELEASES
         .iter()
         .find(|release| {
-            release.engine() == Engine::Centurion(::centurion::assets::DosRelease::V100B)
+            release.engine() == Engine::Centurion(LoadingProfile::new(DosRelease::V100B, true))
         })
         .unwrap()
 }
@@ -297,7 +298,7 @@ fn centurion_100b_detection_preserves_renamed_and_lowercase_role_paths() {
             let found = detect_with(input, synthetic_b(), file_size, hash_file).unwrap();
             assert_eq!(
                 found.engine(),
-                Engine::Centurion(::centurion::assets::DosRelease::V100B)
+                Engine::Centurion(LoadingProfile::new(DosRelease::V100B, true))
             );
             assert_eq!(found.files.len(), 31);
             for (file, actual) in production_b().files.iter().zip(&paths) {
@@ -377,7 +378,199 @@ fn production_centurion_100b_routing_uses_every_required_role() {
     assert_eq!(found.release.id, release.id);
     assert_eq!(
         found.engine(),
-        Engine::Centurion(::centurion::assets::DosRelease::V100B)
+        Engine::Centurion(LoadingProfile::new(DosRelease::V100B, true))
     );
     assert_eq!(hashed, paths.iter().cloned().collect());
+}
+
+fn graphics_production(version: DosRelease, ega: bool) -> &'static Release {
+    RELEASES
+        .iter()
+        .find(|release| release.engine() == Engine::Centurion(LoadingProfile::new(version, ega)))
+        .unwrap()
+}
+
+fn variant_bytes(record: &FileRecord) -> Vec<u8> {
+    // Preserve only the catalog's equality relationships, using authored bytes.
+    format!(
+        "Authored variant fixture {}: {}\n",
+        record.name, record.blake3
+    )
+    .into_bytes()
+}
+
+fn graphics_catalog() -> &'static [Release] {
+    static CATALOG: LazyLock<Vec<Release>> = LazyLock::new(|| {
+        RELEASES
+            .iter()
+            .filter(|release| release.game() == Game::Centurion)
+            .map(|release| {
+                let files = release
+                    .files
+                    .iter()
+                    .map(|record| {
+                        let bytes = variant_bytes(record);
+                        FileRecord {
+                            name: record.name,
+                            size: bytes.len() as u64,
+                            blake3: Box::leak(
+                                blake3::hash(&bytes).to_hex().to_string().into_boxed_str(),
+                            ),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                Release {
+                    id: release.id,
+                    compatibility_id: "authored-centurion-graphics",
+                    edition: release.edition,
+                    identity_files: &[],
+                    files: Box::leak(files.into_boxed_slice()),
+                }
+            })
+            .collect()
+    });
+    &CATALOG
+}
+
+fn graphics_catalog_reversed() -> &'static [Release] {
+    static REVERSED: LazyLock<Vec<Release>> = LazyLock::new(|| {
+        graphics_catalog()
+            .iter()
+            .rev()
+            .map(|release| Release { ..*release })
+            .collect()
+    });
+    &REVERSED
+}
+
+#[test]
+fn centurion_graphics_profiles_have_stable_complete_identities_and_shared_ega_banks() {
+    let variants = RELEASES
+        .iter()
+        .filter(|release| release.game() == Game::Centurion)
+        .collect::<Vec<_>>();
+    assert_eq!(variants.len(), 4);
+    for version in [DosRelease::V100A, DosRelease::V100B] {
+        let vga = graphics_production(version, false);
+        let ega = graphics_production(version, true);
+        assert_eq!(vga.files.len(), 19);
+        assert_eq!(ega.files.len(), 31);
+        assert_eq!(vga.edition.specs.video_features, ["320×200", "VGA"]);
+        assert_eq!(ega.edition.specs.video_features, ["320×200", "VGA / EGA"]);
+        for release in [vga, ega] {
+            assert_eq!(identity::release_id(release).unwrap(), release.id);
+            assert!(release.identity_files.is_empty());
+            assert!(variants.iter().all(|other| release.compatible_with(other)));
+        }
+        for base in vga.files {
+            let complete = ega
+                .files
+                .iter()
+                .find(|file| file.name == base.name)
+                .unwrap();
+            assert_eq!((base.size, base.blake3), (complete.size, complete.blake3));
+        }
+    }
+    let a = graphics_production(DosRelease::V100A, true);
+    let b = graphics_production(DosRelease::V100B, true);
+    let ega_files = a
+        .files
+        .iter()
+        .filter(|file| file.name.starts_with('E'))
+        .collect::<Vec<_>>();
+    assert_eq!(ega_files.len(), 12);
+    for file in ega_files {
+        let other = b
+            .files
+            .iter()
+            .find(|other| file.name == other.name)
+            .unwrap();
+        assert_eq!((file.size, file.blake3), (other.size, other.blake3));
+    }
+}
+
+#[test]
+fn centurion_complete_graphics_win_independently_of_order_names_and_input_anchor() {
+    for catalog in [graphics_catalog(), graphics_catalog_reversed()] {
+        for version in [DosRelease::V100A, DosRelease::V100B] {
+            for renamed in [false, true] {
+                let complete = graphics_production(version, true);
+                let directory = TestDirectory::new();
+                let paths = complete
+                    .files
+                    .iter()
+                    .enumerate()
+                    .map(|(index, record)| {
+                        let name = if renamed {
+                            format!("authored-part-{index:02}")
+                        } else {
+                            record.name.to_lowercase()
+                        };
+                        directory.write(&name, &variant_bytes(record))
+                    })
+                    .collect::<Vec<_>>();
+                for anchor in std::iter::once(&directory.0).chain(paths.iter()) {
+                    let found = detect_with(anchor, catalog, file_size, hash_file).unwrap();
+                    assert_eq!(found.release.id, complete.id);
+                    assert_eq!(found.engine(), complete.engine());
+                    for (record, path) in complete.files.iter().zip(&paths) {
+                        assert_eq!(found.inputs().path(record.name).unwrap(), path);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn centurion_incomplete_or_corrupted_ega_banks_fall_back_to_verified_vga() {
+    for catalog in [graphics_catalog(), graphics_catalog_reversed()] {
+        for version in [DosRelease::V100A, DosRelease::V100B] {
+            let complete = graphics_production(version, true);
+            let vga = graphics_production(version, false);
+            let directory = TestDirectory::new();
+            for record in complete.files {
+                directory.write(record.name, &variant_bytes(record));
+            }
+            for record in complete
+                .files
+                .iter()
+                .filter(|record| record.name.starts_with('E'))
+            {
+                let path = directory.0.join(record.name);
+                let bytes = variant_bytes(record);
+                fs::remove_file(&path).unwrap();
+                let mut corrupt = bytes.clone();
+                corrupt[0] ^= 1;
+                for replacement in [None, Some(corrupt), Some(b"wrong size".to_vec())] {
+                    if let Some(bytes) = replacement {
+                        fs::write(&path, bytes).unwrap();
+                    }
+                    // Anchor to the installation or a surviving core resource;
+                    // selecting a bad EGA file itself is deliberately not a VGA anchor.
+                    for anchor in [&directory.0, &directory.0.join("OVL0.OVL")] {
+                        let found = detect_with(anchor, catalog, file_size, hash_file).unwrap();
+                        assert_eq!(found.release.id, vga.id, "{}", record.name);
+                        assert_eq!(found.engine(), vga.engine());
+                        assert_eq!(found.files.len(), 19);
+                    }
+                }
+                fs::write(&path, bytes).unwrap();
+            }
+            for record in complete
+                .files
+                .iter()
+                .filter(|record| record.name.starts_with('E'))
+            {
+                fs::remove_file(directory.0.join(record.name)).unwrap();
+            }
+            assert_eq!(
+                detect_with(&directory.0, catalog, file_size, hash_file)
+                    .unwrap()
+                    .release
+                    .id,
+                vga.id
+            );
+        }
+    }
 }

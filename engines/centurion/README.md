@@ -6,11 +6,13 @@ diplomacy, land and naval battles, gladiator shows, chariot races, Cleopatra and
 the closing presentations. It reads original resources without executing the
 DOS program or sound driver. Audio currently implements AdLib output.
 
-1.00A provides VGA graphics. The supported 1.00B package provides VGA and EGA;
-its launcher Video choice and `--video vga|ega` select original resource banks.
-Both use the same 320×200 logical geometry and DOS save format. Application
-detection selects a typed release profile and verifies all required roles;
-engines read those exact resolved paths, including renamed resources.
+Both releases support VGA, with EGA available when all six additional EGA bank
+pairs match the application catalog. The launcher Video choice and
+`--video vga|ega` select the available original resource banks. Both modes use
+the same 320×200 logical geometry and DOS save format. Application detection
+selects the release layout and graphics capabilities independently and verifies
+all required roles; engines read those exact resolved paths, including renamed
+resources.
 
 The loader adapts 1.00B's moved naval text and footer pointers to the native
 runtime's shared layout without changing its version, credits, new-game data
@@ -51,8 +53,9 @@ raw captures, dumps and investigation scripts are not repository dependencies.
 | [`player`](src/player.rs), [`audio_output`](src/audio_output.rs) | Shared SDL host, settings, input adaptation and callback playback |
 | [`launcher`](src/launcher.rs), [`launcher_palette`](src/launcher_palette.rs) | Preview rendering and original-resource color extraction |
 
-`centurion::cli::run(args, files, release)` takes `OsString` arguments excluding the
-executable name, a `reforge_inputs::ResolvedFiles` map and a typed `DosRelease`.
+`centurion::cli::run(args, files, profile)` takes `OsString` arguments excluding the
+executable name, a `reforge_inputs::ResolvedFiles` map and a typed `LoadingProfile`.
+The profile holds the `DosRelease` layout and verified EGA capability.
 Application detection owns release identification and full-file verification.
 Playback and launcher
 previews read exactly those selected paths, including renamed resources, without
@@ -61,8 +64,11 @@ engine.
 
 Normal play needs `OVL0.OVL` and the `DAT`/`DIR` pairs for `CENT`, `MINIT`, `MMAP`,
 `BATL`, `MGLAD`, `MRACE`, `MNAVAL`, `NAVL` and `MNEGO`. The nineteen resource
-roles are selected by the application catalog for 1.00A. 1.00B also requires
-the six E-prefixed bank pairs listed in the player guide, for 31 roles in total.
+roles are selected by the application catalog for either VGA-only profile. EGA
+profiles additionally require the six E-prefixed bank pairs listed in the player
+guide, for 31 roles in total. The 1.00A EGA profile uses the verified 1.00B bank
+hashes, based on matching shared artwork and compatible resource names/layouts;
+it does not identify a separately examined historical 1.00A EGA package.
 `CENTURIO.EXE` is not a normal player dependency. Launch through REforge as
 described in the player guide.
 

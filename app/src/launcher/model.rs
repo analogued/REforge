@@ -251,7 +251,10 @@ impl GameEntry {
     }
     pub fn preview_variant(&self) -> &'static str {
         if self.edition.is_some_and(|edition| {
-            edition.engine == detection::Engine::Centurion(centurion::assets::DosRelease::V100A)
+            matches!(
+                edition.engine,
+                detection::Engine::Centurion(centurion::assets::LoadingProfile { ega: false, .. })
+            )
         }) {
             return centurion::launcher::PREVIEW_VARIANT;
         }

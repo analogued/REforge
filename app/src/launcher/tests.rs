@@ -1089,63 +1089,67 @@ fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
 
 #[test]
 fn centurion_video_choices_previews_and_pins_follow_the_detected_release() {
-    use centurion::assets::DosRelease;
-    let releases = [DosRelease::V100A, DosRelease::V100B].map(|profile| {
-        detection::RELEASES
+    use centurion::assets::{DosRelease, LoadingProfile};
+    for version in [DosRelease::V100A, DosRelease::V100B] {
+        let releases = [false, true].map(|ega| {
+            detection::RELEASES
+                .iter()
+                .find(|r| {
+                    r.engine() == detection::Engine::Centurion(LoadingProfile::new(version, ega))
+                })
+                .unwrap()
+        });
+        let fixture = Fixture::for_releases(releases);
+        let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+        let a = state
+            .games
             .iter()
-            .find(|r| r.engine() == detection::Engine::Centurion(profile))
+            .position(|g| g.release_id == releases[0].id)
+            .unwrap();
+        let b = state
+            .games
+            .iter()
+            .position(|g| g.release_id == releases[1].id)
+            .unwrap();
+        assert_eq!(state.games[a].preview_variant(), "vga");
+        assert_eq!(state.games[b].preview_variant(), "vga");
+        assert!(
+            !state.games[a]
+                .option_choices()
+                .iter()
+                .any(|(label, _)| *label == "Video")
+        );
+        assert!(
+            state.games[b]
+                .option_choices()
+                .iter()
+                .any(|(label, choices)| *label == "Video" && choices.len() == 2)
+        );
+        let ega = state.games[b]
+            .options
+            .iter()
+            .find(|o| o.label == "Video")
             .unwrap()
-    });
-    let fixture = Fixture::for_releases(releases);
-    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
-    let a = state
-        .games
-        .iter()
-        .position(|g| g.release_id == releases[0].id)
-        .unwrap();
-    let b = state
-        .games
-        .iter()
-        .position(|g| g.release_id == releases[1].id)
-        .unwrap();
-    assert_eq!(state.games[a].preview_variant(), "vga");
-    assert_eq!(state.games[b].preview_variant(), "vga");
-    assert!(
-        !state.games[a]
-            .option_choices()
+            .choices
             .iter()
-            .any(|(label, _)| *label == "Video")
-    );
-    assert!(
-        state.games[b]
-            .option_choices()
+            .find(|c| c.value == "ega")
+            .unwrap()
+            .label;
+        state.games[b].save_option("Video", ega);
+        assert_eq!(state.games[b].preview_variant(), "ega");
+        assert_eq!(state.games[b].native_arguments(), ["--video", "ega"]);
+        assert_eq!(state.games[a].preview_variant(), "vga");
+        assert!(state.games[a].native_arguments().is_empty());
+        let expected_id = state.games[b].entry_id.clone();
+        let restored = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+        let game = restored
+            .games
             .iter()
-            .any(|(label, choices)| *label == "Video" && choices.len() == 2)
-    );
-    let ega = state.games[b]
-        .options
-        .iter()
-        .find(|o| o.label == "Video")
-        .unwrap()
-        .choices
-        .iter()
-        .find(|c| c.value == "ega")
-        .unwrap()
-        .label;
-    state.games[b].save_option("Video", ega);
-    assert_eq!(state.games[b].preview_variant(), "ega");
-    assert_eq!(state.games[b].native_arguments(), ["--video", "ega"]);
-    assert_eq!(state.games[a].preview_variant(), "vga");
-    assert!(state.games[a].native_arguments().is_empty());
-    let expected_id = state.games[b].entry_id.clone();
-    let restored = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
-    let game = restored
-        .games
-        .iter()
-        .find(|g| g.entry_id == expected_id)
-        .unwrap();
-    assert_eq!(game.preview_variant(), "ega");
-    assert_eq!(game.native_arguments(), ["--video", "ega"]);
+            .find(|g| g.entry_id == expected_id)
+            .unwrap();
+        assert_eq!(game.preview_variant(), "ega");
+        assert_eq!(game.native_arguments(), ["--video", "ega"]);
+    }
 }
 
 #[test]
@@ -2589,6 +2593,53 @@ fn split_preview_resizes_smoothly_and_keeps_fitting_badges_visible() {
                     previous = Some(rect);
                 }
             }
+        }
+    }
+}
+
+#[test]
+fn centurion_video_pin_survives_relocating_between_graphics_sets() {
+    use centurion::assets::{DosRelease, LoadingProfile};
+    for version in [DosRelease::V100A, DosRelease::V100B] {
+        let find = |ega| {
+            detection::RELEASES
+                .iter()
+                .find(|r| {
+                    r.engine() == detection::Engine::Centurion(LoadingProfile::new(version, ega))
+                })
+                .unwrap()
+        };
+        let full = find(true);
+        let vga = find(false);
+        let fixture = Fixture::for_releases([full]);
+        let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+        let id = state.games[0].entry_id.clone();
+        state.games[0].save_option("Video", "EGA");
+        let entry = state.library.entries[0].clone();
+        for release in [vga, full] {
+            state
+                .library
+                .relocate_at(&id, release.id, &entry.original, &entry.directory)
+                .unwrap();
+            state.refresh();
+            let game = &state.games[0];
+            assert_eq!(game.entry_id, id);
+            assert_eq!(
+                game.preview_variant(),
+                if release.id == full.id { "ega" } else { "vga" }
+            );
+            assert_eq!(
+                game.native_arguments(),
+                if release.id == full.id {
+                    vec!["--video", "ega"]
+                } else {
+                    vec![]
+                }
+            );
+            assert_eq!(
+                reforge_settings::launcher::native_options(&fixture.config, &id).unwrap()["video"],
+                "ega"
+            );
         }
     }
 }

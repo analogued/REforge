@@ -152,10 +152,34 @@ pub static CENTURION_DOS_100B_SPECS: SpecsProfile = SpecsProfile {
 };
 pub static CENTURION_DOS_100B: Edition = Edition {
     id: "centurion-defender-of-rome-dos-100b",
-    engine: Engine::Centurion(centurion::assets::DosRelease::V100B),
+    engine: Engine::Centurion(centurion::assets::LoadingProfile::new(
+        centurion::assets::DosRelease::V100B,
+        true,
+    )),
     label: Some("DOS 1.00B"),
     specs: &CENTURION_DOS_100B_SPECS,
     ..CENTURION_DOS
+};
+
+// Graphics availability describes the verified resource set, independently of
+// the DOS program/data layout. Keep the existing editions and release IDs stable.
+pub static CENTURION_DOS_EGA: Edition = Edition {
+    id: "centurion-defender-of-rome-dos-100a-ega",
+    engine: Engine::Centurion(centurion::assets::LoadingProfile::new(
+        centurion::assets::DosRelease::V100A,
+        true,
+    )),
+    specs: &CENTURION_DOS_100B_SPECS,
+    ..CENTURION_DOS
+};
+pub static CENTURION_DOS_100B_VGA: Edition = Edition {
+    id: "centurion-defender-of-rome-dos-100b-vga",
+    engine: Engine::Centurion(centurion::assets::LoadingProfile::new(
+        centurion::assets::DosRelease::V100B,
+        false,
+    )),
+    specs: &CENTURION_DOS_SPECS,
+    ..CENTURION_DOS_100B
 };
 
 pub static MINDWHEEL: GameMetadata = GameMetadata {
@@ -692,6 +716,22 @@ const CENTURION_DOS_100B_FILES: [FileRecord; 31] = [
     },
 ];
 
+// All shared banks match byte for byte. The examined A package lacks its
+// EGA-only banks: recognize the B EGA banks with A's own campaign and overlay.
+// This is an assembled supported combination, not a separately verified A package.
+const CENTURION_DOS_EGA_FILES: [FileRecord; 31] = {
+    let mut files = CENTURION_DOS_100B_FILES;
+    files[2] = CENTURION_DOS_FILES[2]; // CENT.DAT: A campaign template
+    files[30] = CENTURION_DOS_FILES[18]; // OVL0.OVL: A layout
+    files
+};
+const CENTURION_DOS_100B_VGA_FILES: [FileRecord; 19] = {
+    let mut files = CENTURION_DOS_FILES;
+    files[2] = CENTURION_DOS_100B_FILES[2];
+    files[18] = CENTURION_DOS_100B_FILES[30];
+    files
+};
+
 pub static RELEASES: &[Release] = &[
     Release {
         id: "alley-cat-dos-7b92bb401f",
@@ -928,6 +968,22 @@ pub static RELEASES: &[Release] = &[
         #[cfg(test)]
         identity_files: &[],
         files: &CENTURION_DOS_100B_FILES,
+    },
+    Release {
+        id: "centurion-defender-of-rome-dos-65d635b70a",
+        compatibility_id: "centurion-defender-of-rome-dos-100a",
+        edition: &CENTURION_DOS_EGA,
+        #[cfg(test)]
+        identity_files: &[],
+        files: &CENTURION_DOS_EGA_FILES,
+    },
+    Release {
+        id: "centurion-defender-of-rome-dos-95afd5852a",
+        compatibility_id: "centurion-defender-of-rome-dos-100a",
+        edition: &CENTURION_DOS_100B_VGA,
+        #[cfg(test)]
+        identity_files: &[],
+        files: &CENTURION_DOS_100B_VGA_FILES,
     },
 ];
 

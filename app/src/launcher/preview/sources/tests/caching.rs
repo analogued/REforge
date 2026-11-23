@@ -110,15 +110,18 @@ fn alleycat_editions_generate_and_cache_available_machine_variants() {
 
 #[test]
 fn centurion_previews_generate_and_cache_only_the_detected_release_video_modes() {
-    use centurion::assets::DosRelease;
-    for (release_kind, expected) in [
-        (DosRelease::V100A, vec!["vga"]),
-        (DosRelease::V100B, vec!["ega", "vga"]),
-    ] {
-        let release = detection::RELEASES
-            .iter()
-            .find(|release| release.engine() == detection::Engine::Centurion(release_kind))
-            .unwrap();
+    for release in detection::RELEASES
+        .iter()
+        .filter(|r| r.game() == detection::Game::Centurion)
+    {
+        let detection::Engine::Centurion(profile) = release.engine() else {
+            unreachable!()
+        };
+        let expected = if profile.ega {
+            vec!["ega", "vga"]
+        } else {
+            vec!["vga"]
+        };
         let directory = TestDirectory::new();
         let mut request = preview_request(&directory.0);
         request.identity.game = release.game().id().into();
@@ -140,10 +143,7 @@ fn centurion_previews_generate_and_cache_only_the_detected_release_video_modes()
                 })
             },
             |detected, variant| {
-                assert_eq!(
-                    detected.engine(),
-                    detection::Engine::Centurion(release_kind)
-                );
+                assert_eq!(detected.engine(), release.engine());
                 rendered.push(variant.to_owned());
                 Ok(frame())
             },

@@ -15,6 +15,19 @@ pub enum DosRelease {
     V100B,
 }
 
+/// Release layout and graphics capabilities selected by application detection.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LoadingProfile {
+    pub release: DosRelease,
+    pub ega: bool,
+}
+
+impl LoadingProfile {
+    pub const fn new(release: DosRelease, ega: bool) -> Self {
+        Self { release, ega }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum VideoMode {
     #[default]
@@ -259,9 +272,6 @@ impl Assets {
         release: DosRelease,
         video: VideoMode,
     ) -> Result<Self> {
-        if release == DosRelease::V100A && video == VideoMode::Ega {
-            return Err("The 1.00A distribution does not contain EGA graphics".into());
-        }
         // Runtime tables occupy the resident DOS data segment, including palette
         // maps through 0x6300. Content fingerprints are deliberately absent here.
         let mut data_segment = ovl
@@ -605,7 +615,7 @@ mod tests {
         for at in (0x970a..0x9714).step_by(2) {
             ovl[0xb400 + at..0xb400 + at + 2].copy_from_slice(&0xc3b6_u16.to_le_bytes());
         }
-        let load = |roles: &BTreeMap<String, Vec<u8>>| {
+        let load = |roles: &BTreeMap<String, Vec<u8>>, release| {
             Assets::parse(
                 PathBuf::new(),
                 |role| {
@@ -615,30 +625,35 @@ mod tests {
                         .ok_or_else(|| format!("Missing selected {role}"))
                 },
                 ovl.clone(),
-                DosRelease::V100B,
+                release,
                 VideoMode::Ega,
             )
         };
-        let assets = load(&roles).unwrap();
-        assert_eq!(assets.resource("MINIT", "WORLD.LZW").unwrap(), [1, 2]);
-        assert_eq!(assets.resource("NAVL", "GALLEYS.LZW").unwrap(), [1, 2]);
-        assert_eq!(
-            assets.resource("CENT", "MMENUHDR.LZW").unwrap(),
-            b"EGA menu"
-        );
-        assert_eq!(
-            assets.cached_bitmap("MMAP", "MAP.CBM").unwrap().pixels,
-            [1, 2]
-        );
+        for release in [DosRelease::V100A, DosRelease::V100B] {
+            let assets = load(&roles, release).unwrap();
+            assert_eq!(assets.release, release);
+            assert_eq!(assets.resource("MINIT", "WORLD.LZW").unwrap(), [1, 2]);
+            assert_eq!(assets.resource("NAVL", "GALLEYS.LZW").unwrap(), [1, 2]);
+            assert_eq!(
+                assets.resource("CENT", "MMENUHDR.LZW").unwrap(),
+                b"EGA menu"
+            );
+            assert_eq!(
+                assets.cached_bitmap("MMAP", "MAP.CBM").unwrap().pixels,
+                [1, 2]
+            );
+        }
         // An unselected VGA substitute must never mask a missing EGA role.
         let removed = roles.remove("EMAP.DAT").unwrap();
         roles.insert("MMAP.DAT".into(), removed);
-        assert!(
-            load(&roles)
-                .err()
-                .unwrap()
-                .contains("Missing selected EMAP.DAT")
-        );
+        for release in [DosRelease::V100A, DosRelease::V100B] {
+            assert!(
+                load(&roles, release)
+                    .err()
+                    .unwrap()
+                    .contains("Missing selected EMAP.DAT")
+            );
+        }
     }
 
     #[test]

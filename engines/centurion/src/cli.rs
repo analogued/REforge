@@ -1,7 +1,7 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Catalog-driven player arguments. Raw research tools use run_prototype instead.
-use crate::assets::{DosRelease, VideoMode};
+use crate::assets::{LoadingProfile, VideoMode};
 use reforge_inputs::ResolvedFiles;
 use std::{ffi::OsString, path::PathBuf};
 
@@ -27,22 +27,22 @@ pub fn validate_arguments(args: impl Iterator<Item = OsString>) -> Result<(), St
 pub fn run(
     args: impl Iterator<Item = OsString>,
     files: &ResolvedFiles,
-    release: DosRelease,
+    profile: LoadingProfile,
 ) -> Result<(), String> {
     let Some(mut options) = parse(args)? else {
         println!(
-            "Centurion: Defender of Rome\n--video vga|ega: video mode (default VGA; EGA requires DOS 1.00B)\n--state-dir DIR: DOS-compatible save slots (default: beside the original installation)\n--load FILE: load a DOS save\n--mute: silent playback\n--original-tribute-menus: hide applied tribute indicators\nF10: Settings; Pause: host pause; Ctrl+Q: exit. Escape retains game back/cancel controls."
+            "Centurion: Defender of Rome\n--video vga|ega: video mode (default VGA; EGA requires all six EGA bank pairs)\n--state-dir DIR: DOS-compatible save slots (default: beside the original installation)\n--load FILE: load a DOS save\n--mute: silent playback\n--original-tribute-menus: hide applied tribute indicators\nF10: Settings; Pause: host pause; Ctrl+Q: exit. Escape retains game back/cancel controls."
         );
         return Ok(());
     };
-    let video = available_video(options.video, release);
+    let video = available_video(options.video, profile);
     if video != options.video {
-        eprintln!("REforge: EGA is unavailable for DOS 1.00A; using VGA");
+        eprintln!("REforge: EGA resources are unavailable for this installation; using VGA");
         options.video = video;
     }
     #[cfg(not(feature = "sdl"))]
     {
-        let _ = (options, files, release);
+        let _ = (options, files, profile);
         Err("Interactive Centurion playback requires the sdl feature".into())
     }
     #[cfg(feature = "sdl")]
@@ -56,7 +56,7 @@ pub fn run(
                 .unwrap_or_else(|| std::path::Path::new("."))
                 .to_owned()
         };
-        let assets = crate::assets::Assets::load(files, root, release, options.video)?;
+        let assets = crate::assets::Assets::load(files, root, profile.release, options.video)?;
         let mut session =
             crate::session::Session::new(&assets, crate::session::Phase::Intro, 0, 0)?;
         session.save_dir = Some(
@@ -82,10 +82,11 @@ pub(crate) fn parse_video(value: &str) -> Result<VideoMode, String> {
     }
 }
 
-fn available_video(video: VideoMode, release: DosRelease) -> VideoMode {
-    match (release, video) {
-        (DosRelease::V100A, VideoMode::Ega) => VideoMode::Vga,
-        _ => video,
+fn available_video(video: VideoMode, profile: LoadingProfile) -> VideoMode {
+    if video == VideoMode::Ega && !profile.ega {
+        VideoMode::Vga
+    } else {
+        video
     }
 }
 
@@ -155,7 +156,8 @@ fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Option<Options>, St
 mod tests {
     use super::*;
     #[test]
-    fn video_choices_parse_and_are_available_only_for_the_selected_release() {
+    fn video_choices_parse_and_follow_the_detected_graphics_capabilities() {
+        use crate::assets::DosRelease;
         for (value, video) in [("vga", VideoMode::Vga), ("ega", VideoMode::Ega)] {
             let options = parse(
                 ["--original", "synthetic", "--video", value]
@@ -165,8 +167,16 @@ mod tests {
             .unwrap()
             .unwrap();
             assert_eq!(options.video, video);
-            assert_eq!(available_video(video, DosRelease::V100B), video);
-            assert_eq!(available_video(video, DosRelease::V100A), VideoMode::Vga);
+            for release in [DosRelease::V100A, DosRelease::V100B] {
+                assert_eq!(
+                    available_video(video, LoadingProfile::new(release, true)),
+                    video
+                );
+                assert_eq!(
+                    available_video(video, LoadingProfile::new(release, false)),
+                    VideoMode::Vga
+                );
+            }
         }
         assert_eq!(
             parse(["--original", "synthetic"].into_iter().map(Into::into))

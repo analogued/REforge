@@ -5,7 +5,7 @@
 use reforge_sdl::{
     FrameFormat, FrameTexture, HostPause, HostShortcut, Window, game_title,
     host_shortcut as shared_host_shortcut,
-    settings::{SettingsMenu, VideoCapabilities},
+    settings::{SettingsAvailability, SettingsMenu},
 };
 use std::collections::{BTreeSet, VecDeque};
 
@@ -35,6 +35,36 @@ use crate::{
     gameplay::{DisplayMode, Ending, Gameplay, PauseState, ScriptRules, SessionState},
     startup::{Screen, StartupFrames},
 };
+
+fn settings_capabilities(mode: DisplayMode) -> reforge_sdl::settings::SettingsCapabilities {
+    let video = match mode {
+        DisplayMode::Monochrome => "mono",
+        DisplayMode::Color => "cga",
+    };
+    crate::launcher::settings_capabilities(&std::collections::BTreeMap::from([(
+        "video".into(),
+        video.into(),
+    )]))
+}
+
+fn settings_menu<'a>(
+    creator: &'a reforge_sdl::FrameCreator,
+    mode: DisplayMode,
+    options: &Options,
+    availability: SettingsAvailability,
+) -> SettingsMenu<'a> {
+    let mut menu = SettingsMenu::for_game(creator, settings_capabilities(mode), availability);
+    if let Some(samples) = options.digitized_samples {
+        menu = menu.with_temporary_override(
+            reforge_sdl::settings::DIGITIZED_SAMPLES,
+            samples.to_string(),
+        );
+    }
+    if let Some(motion) = options.motion {
+        menu = menu.with_temporary_override(reforge_sdl::settings::MOTION, motion.as_str());
+    }
+    menu
+}
 
 // Modes 4 and 6 share a 4:3 display, but have different native pixel grids.
 // display_rgb's doubled colour texture is an implementation detail, not mode 6.

@@ -3,9 +3,13 @@
 //! Engine-owned video/sound choices, scene previews and display geometry.
 use crate::assets::LoadingProfile;
 use reforge_sdl::launcher::{Choice, DISPLAY, OptionDefinition, PaletteHint, Storage, WINDOW};
+use reforge_sdl::settings::{
+    ApplyTiming, ControlCapabilities, ControllerLayouts, DisplayCapabilities, EngineOptions,
+    SettingsCapabilities, VideoCapabilities,
+};
 #[path = "launcher_palette.rs"]
 mod palette;
-pub use crate::audio::AUDIO_RENDERERS;
+pub use crate::audio::AUDIO;
 
 /// Options for an installation with only verified VGA artwork.
 pub const OPTIONS: &[OptionDefinition] = &[SOUND, DISPLAY, WINDOW];
@@ -29,8 +33,9 @@ const SOUND: OptionDefinition = OptionDefinition {
             palette_hint: PaletteHint::Auto,
         },
     ],
-    default: "adlib",
+    default: AUDIO.default.as_str(),
     storage: Storage::Shared("audio_renderer"),
+    apply: AUDIO.apply,
 };
 const OPTIONS_VGA_EGA: &[OptionDefinition] = &[
     OptionDefinition {
@@ -58,6 +63,7 @@ const OPTIONS_VGA_EGA: &[OptionDefinition] = &[
             key: "video",
             argument: "--video",
         },
+        apply: ApplyTiming::NextLaunch,
     },
     SOUND,
     DISPLAY,
@@ -69,6 +75,30 @@ pub const fn options(profile: LoadingProfile) -> &'static [OptionDefinition] {
         OPTIONS_VGA_EGA
     } else {
         OPTIONS
+    }
+}
+
+/// Declare settings once for every host of this engine and detected release.
+pub fn settings_capabilities(
+    profile: LoadingProfile,
+    native: &std::collections::BTreeMap<String, String>,
+) -> SettingsCapabilities {
+    let quick_options = options(profile);
+    SettingsCapabilities {
+        game_id: "centurion-defender-of-rome",
+        audio: AUDIO,
+        display: DisplayCapabilities {
+            geometry: geometry(native),
+            video: VideoCapabilities::DEFAULT,
+            machine: None,
+            mode: quick_options.iter().find(|option| option.key() == "video"),
+            frontend: None,
+        },
+        controls: ControlCapabilities {
+            controller_layouts: ControllerLayouts::None,
+        },
+        options: EngineOptions::Centurion,
+        quick_options,
     }
 }
 
@@ -122,6 +152,45 @@ pub(crate) fn rgba(frame: &crate::graphics::Frame, assets: &crate::assets::Asset
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_declarations_require_verified_ega_and_restart_for_device_changes() {
+        for release in [
+            crate::assets::DosRelease::V100A,
+            crate::assets::DosRelease::V100B,
+        ] {
+            for ega in [false, true] {
+                let profile = LoadingProfile::new(release, ega);
+                let caps = settings_capabilities(profile, &Default::default());
+                assert_eq!(caps.validate(), Ok(()));
+                assert_eq!(caps.display.mode.is_some(), ega);
+                if let Some(video) = caps.display.mode {
+                    assert_eq!(video.key(), "video");
+                    assert_eq!(video.default, "vga");
+                    assert_eq!(video.apply, ApplyTiming::NextLaunch);
+                }
+                assert_eq!(
+                    caps.quick_options
+                        .iter()
+                        .map(|option| (option.key(), option.default))
+                        .collect::<Vec<_>>(),
+                    options(profile)
+                        .iter()
+                        .map(|option| (option.key(), option.default))
+                        .collect::<Vec<_>>(),
+                );
+                assert_eq!(caps.audio.default, reforge_settings::SoundRenderer::Adlib);
+                assert_eq!(caps.audio.apply, ApplyTiming::NextLaunch);
+                assert_eq!(
+                    caps.audio.categories,
+                    [
+                        reforge_settings::SoundCategory::Music,
+                        reforge_settings::SoundCategory::Effects
+                    ]
+                );
+            }
+        }
+    }
 
     #[test]
     fn video_choices_and_previews_follow_the_detected_graphics_capabilities() {

@@ -3,7 +3,10 @@
 //! Compact settings pages. Editing is separate from activation and persistence.
 //! Register interactive responses with control/group_control/value_control (or Selector/collapsing)
 //! so keyboard/controller navigation targets settings rather than scroll geometry.
-use crate::settings::{SettingsMenu, VideoCapabilities};
+use crate::settings::{
+    ApplyTiming, AudioCapabilities, ControllerLayouts, EngineOptions, SettingsMenu,
+    VideoCapabilities,
+};
 use crate::settings_navigation::{
     Group, Kind, collapsing, control, group_control, primary_footer_control, value_control,
 };
@@ -157,6 +160,19 @@ pub(super) fn draw(
     let global_storage = session.has_global_storage();
     let game_storage = session.has_game_storage();
     drop(session);
+    let capabilities = menu.capabilities;
+    let mach3_options = capabilities.options == EngineOptions::Mach3;
+    let alleycat_options = capabilities.options == EngineOptions::AlleyCat;
+    let centurion_options = capabilities.options == EngineOptions::Centurion;
+    let alleycat_machines = capabilities.display.machine;
+    let terminal = capabilities
+        .display
+        .frontend
+        .map(|_| menu.availability.terminal);
+    let controller_layouts =
+        capabilities.controls.controller_layouts == ControllerLayouts::AlleyCat;
+    let audio = capabilities.audio;
+    let audio_playback = menu.availability.audio_playback;
     let draft = menu.draft.as_mut().expect("open draft");
     let windowed_scale = menu.creator.windowed_scale.get();
     let geometry = menu.creator.geometry.get();
@@ -218,7 +234,7 @@ pub(super) fn draw(
                     menu.navigation.focus_first = false;
                 }
             });
-            let controls_visible = menu.scope == 1 && menu.alleycat_options;
+            let controls_visible = menu.scope == 1 && controller_layouts;
             ui.separator();
             let body = ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
@@ -227,7 +243,7 @@ pub(super) fn draw(
                     for (page, label) in PAGES.into_iter()
                         .chain(menu.launcher_options.is_some().then_some("Launcher"))
                         .enumerate() {
-                        if page == ENHANCEMENTS_SECTION && !menu.alleycat_options && !menu.mach3_options && !menu.centurion_options {
+                        if page == ENHANCEMENTS_SECTION && !alleycat_options && !mach3_options && !centurion_options {
                             continue;
                         }
                         if page == LAUNCHER_PAGE {
@@ -298,7 +314,7 @@ pub(super) fn draw(
                         return;
                     }
                     ui.heading(PAGES[menu.page]);
-                    if section_has_cli_locks(&cli, menu.page, menu.scope, menu.mach3_options) {
+                    if section_has_cli_locks(&cli, menu.page, menu.scope, mach3_options) {
                         cli_notice(ui);
                     }
                     if menu.page == ENHANCEMENTS_SECTION {
@@ -391,14 +407,14 @@ pub(super) fn draw(
                                         rows,
                                         &mut menu.display_edits[menu.scope],
                                         DisplayOptions {
-                                            capabilities: menu.capabilities,
+                                            capabilities: capabilities.display.video,
                                             geometry,
                                             windowed_scale,
                                             original_renderer: original.renderer,
-                                            alleycat_machines: (menu.scope == 1).then_some(menu.alleycat_machines).flatten(),
+                                            alleycat_machines: (menu.scope == 1).then_some(alleycat_machines).flatten(),
                                             game_storage,
                                             terminal: (menu.scope == 1)
-                                                .then_some(menu.btz_terminal)
+                                                .then_some(terminal)
                                                 .flatten(),
                                         },
                                     );
@@ -410,11 +426,10 @@ pub(super) fn draw(
                                         &mut value,
                                         rows,
                                         &menu.audio_devices,
-                                        &menu.audio_renderers,
-                                        &menu.audio_categories,
+                                        audio,
+                                        audio_playback,
                                         enabled,
-                                        menu.mach3_options,
-                                        menu.audio_renderer_next_launch,
+                                        mach3_options,
                                         game_storage,
                                     );
                                 } else if menu.page == 3 {
@@ -426,14 +441,14 @@ pub(super) fn draw(
                                         menu.controller_style,
                                     );
                                 } else if menu.page == ENHANCEMENTS_SECTION {
-                                    enhancement_controls(ui, &mut value, rows, menu.mach3_options, menu.alleycat_options, menu.centurion_options);
+                                    enhancement_controls(ui, &mut value, rows, mach3_options, alleycat_options, centurion_options);
                                 }
                             });
                             crate::settings_navigation::scroll_focus(ui, first);
                         });
                     if menu.page == 0
                         && menu.scope == 1
-                        && let Some(machines) = menu.alleycat_machines
+                        && let Some(machines) = alleycat_machines
                         && original.alleycat.machine != value.alleycat.machine
                         && !cli.contains_key(ALLEYCAT_MACHINE)
                     {
@@ -453,7 +468,7 @@ pub(super) fn draw(
                     }
                     if menu.page == 0
                         && menu.scope == 1
-                        && menu.btz_terminal.is_some()
+                        && terminal.is_some()
                         && original.btz != value.btz
                         && !cli.contains_key(BTZ_FILE_CURSOR)
                     {
@@ -465,7 +480,7 @@ pub(super) fn draw(
                     }
                     if menu.page == ENHANCEMENTS_SECTION
                         && menu.scope == 1
-                        && menu.mach3_options
+                        && mach3_options
                         && original.mach3.motion != value.mach3.motion
                         && !cli.contains_key(MOTION)
                     {
@@ -477,7 +492,7 @@ pub(super) fn draw(
                     }
                     if menu.page == ENHANCEMENTS_SECTION
                         && menu.scope == 1
-                        && menu.alleycat_options
+                        && alleycat_options
                         && original.alleycat.motion != value.alleycat.motion
                         && !cli.contains_key(ALLEYCAT_MOTION)
                     {
@@ -489,7 +504,7 @@ pub(super) fn draw(
                     }
                     if menu.page == ENHANCEMENTS_SECTION
                         && menu.scope == 1
-                        && menu.centurion_options
+                        && centurion_options
                         && original.centurion != value.centurion
                     {
                         for key in [CENTURION_FLEET_INFORMATION, CENTURION_POPUP_CURSOR, CENTURION_MENU_DECORATIONS, CENTURION_MAP_HIGHLIGHT, CENTURION_MAP_HOVER_INFO, CENTURION_APPLIED_VALUE_INDICATOR] {
@@ -504,7 +519,7 @@ pub(super) fn draw(
                     }
                     if menu.page == 2
                         && menu.scope == 1
-                        && menu.mach3_options
+                        && mach3_options
                         && original.mach3 != value.mach3
                         && !cli.contains_key(DIGITIZED_SAMPLES)
                     {
@@ -561,9 +576,9 @@ pub(super) fn draw(
                     let reset_label = if menu.page == LAUNCHER_PAGE || menu.scope == 0 {
                         "Reset section"
                     } else if menu.page == 3 || menu.page == ENHANCEMENTS_SECTION
-                        || (menu.page == 2 && (menu.mach3_options || menu.audio_renderer_next_launch))
-                        || (menu.page == 0 && menu.btz_terminal.is_some())
-                        || (menu.page == 0 && menu.alleycat_options)
+                        || (menu.page == 2 && (mach3_options || audio.apply == ApplyTiming::NextLaunch))
+                        || (menu.page == 0 && terminal.is_some())
+                        || (menu.page == 0 && alleycat_options)
                     {
                         "Restore defaults"
                     } else {
@@ -1433,15 +1448,14 @@ fn audio_controls(
     value: &mut RuntimeSettings,
     rows: RowContext<'_>,
     devices: &[String],
-    renderers: &[SoundRenderer],
-    categories: &[SoundCategory],
+    audio: AudioCapabilities,
+    audio_playback: bool,
     section_editable: bool,
     mach3_options: bool,
-    next_launch: bool,
     game_storage: bool,
 ) {
     let scope = rows.scope;
-    let available = !renderers.is_empty();
+    let available = audio_playback && !audio.renderers.is_empty();
     if !available {
         ui.weak("Audio playback is unavailable in this run. Shared defaults can still be saved.");
     }
@@ -1496,7 +1510,7 @@ fn audio_controls(
                 rows.state(category.key(), value),
                 volume_width,
                 |ui| {
-                    ui.add_enabled_ui(scope == 0 || categories.contains(&category), |ui| {
+                    ui.add_enabled_ui(scope == 0 || audio.categories.contains(&category), |ui| {
                         ui.spacing_mut().slider_width = slider_track_width(ui, 56.0);
                         value_control(
                             ui.add(
@@ -1527,7 +1541,7 @@ fn audio_controls(
         }
         section(ui, "Playback");
     });
-    let startup = scope == 1 && next_launch;
+    let startup = scope == 1 && audio.apply == ApplyTiming::NextLaunch;
     ui.add_enabled_ui(
         if startup {
             section_editable && game_storage
@@ -1550,7 +1564,7 @@ fn audio_controls(
                 state,
                 |ui| {
                     ui.add_enabled_ui(scope == 1 && available, |ui| {
-                        sound_renderer_control(ui, &mut value.audio.renderer, renderers, scope);
+                        sound_renderer_control(ui, &mut value.audio.renderer, audio, scope);
                     });
                 },
             );
@@ -1638,19 +1652,19 @@ fn audio_controls(
 fn sound_renderer_control(
     ui: &mut egui::Ui,
     renderer: &mut SoundRenderer,
-    renderers: &[SoundRenderer],
+    audio: AudioCapabilities,
     scope: usize,
 ) -> egui::Response {
     let displayed = if scope == 1 {
-        renderer.resolve(renderers)
+        audio.resolve(*renderer)
     } else {
         *renderer
     };
     let mut selected = displayed;
-    let choices = (scope == 0 || renderers.is_empty())
+    let choices = (scope == 0 || audio.renderers.is_empty())
         .then_some(SoundRenderer::GameDefault)
         .into_iter()
-        .chain(renderers.iter().copied())
+        .chain(audio.renderers.iter().copied())
         .map(|renderer| Choice::new(renderer, renderer.label()));
     let mut response = Selector::new("audio_renderer", choices).show(ui, &mut selected);
     // Resolving the display alias must not create a saved override. Commit only
@@ -2235,7 +2249,17 @@ mod tests {
             let mut renderer = stored;
             let output = context.run(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    let response = sound_renderer_control(ui, &mut renderer, renderers, 1);
+                    let response = sound_renderer_control(
+                        ui,
+                        &mut renderer,
+                        AudioCapabilities {
+                            renderers,
+                            default: renderers[0],
+                            categories: &[],
+                            apply: ApplyTiming::Live,
+                        },
+                        1,
+                    );
                     assert!(!response.changed());
                 });
             });
@@ -2245,6 +2269,93 @@ mod tests {
                 "display resolution must not create an override"
             );
         }
+    }
+
+    #[test]
+    fn silent_host_keeps_global_audio_editable_and_game_controls_disabled() {
+        for (scope, playback, editable) in [(0, false, true), (1, false, false), (1, true, true)] {
+            let context = egui::Context::default();
+            style(&context);
+            let mut value = RuntimeSettings::default();
+            let initial = value.audio.enabled;
+            let mut point = Pos2::ZERO;
+            for step in 0..4 {
+                let output = context.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            Pos2::ZERO,
+                            Vec2::new(900.0, 900.0),
+                        )),
+                        events: if step < 2 {
+                            vec![]
+                        } else {
+                            vec![
+                                egui::Event::PointerMoved(point),
+                                egui::Event::PointerButton {
+                                    pos: point,
+                                    button: egui::PointerButton::Primary,
+                                    pressed: step == 2,
+                                    modifiers: egui::Modifiers::NONE,
+                                },
+                            ]
+                        },
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            audio_controls(
+                                ui,
+                                &mut value,
+                                RowContext {
+                                    base: &RuntimeSettings::default(),
+                                    previous: &RuntimeSettings::default(),
+                                    scope,
+                                    overrides: Overrides::default(),
+                                    cli: &Default::default(),
+                                },
+                                &[],
+                                AudioCapabilities {
+                                    renderers: &[SoundRenderer::Speaker],
+                                    default: SoundRenderer::Speaker,
+                                    categories: &SoundCategory::ALL,
+                                    apply: ApplyTiming::Live,
+                                },
+                                playback,
+                                true,
+                                false,
+                                true,
+                            );
+                        });
+                    },
+                );
+                point = renderer_text(&output, "Enable sound").unwrap().center();
+            }
+            assert_eq!(value.audio.enabled != initial, editable);
+        }
+    }
+
+    #[test]
+    fn explicit_audio_default_can_follow_other_menu_choices_without_pinning() {
+        let context = egui::Context::default();
+        let mut renderer = SoundRenderer::GameDefault;
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let response = sound_renderer_control(
+                    ui,
+                    &mut renderer,
+                    AudioCapabilities {
+                        renderers: &[SoundRenderer::Speaker, SoundRenderer::Adlib],
+                        default: SoundRenderer::Adlib,
+                        categories: &[],
+                        apply: ApplyTiming::NextLaunch,
+                    },
+                    1,
+                );
+                assert!(!response.changed());
+            });
+        });
+        assert!(renderer_text(&output, "AdLib").is_some());
+        assert_eq!(renderer, SoundRenderer::GameDefault);
     }
 
     fn renderer_frame(
@@ -2269,7 +2380,12 @@ mod tests {
                     response = Some(sound_renderer_control(
                         ui,
                         renderer,
-                        &[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm],
+                        AudioCapabilities {
+                            renderers: &[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm],
+                            default: SoundRenderer::Speaker,
+                            categories: &[],
+                            apply: ApplyTiming::Live,
+                        },
                         scope,
                     ));
                 });
@@ -2891,11 +3007,15 @@ mod tests {
                                     cli: &cli,
                                 },
                                 &[],
-                                &[SoundRenderer::Speaker],
-                                &SoundCategory::ALL,
+                                AudioCapabilities {
+                                    renderers: &[SoundRenderer::Speaker],
+                                    default: SoundRenderer::Speaker,
+                                    categories: &SoundCategory::ALL,
+                                    apply: ApplyTiming::Live,
+                                },
+                                true,
                                 section_editable,
                                 mach3,
-                                false,
                                 true,
                             );
                         });

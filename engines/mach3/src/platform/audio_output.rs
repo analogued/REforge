@@ -118,11 +118,15 @@ fn output_filter(mode: AudioRenderer) -> OutputFilter {
 }
 
 pub(super) fn resolve_renderer(renderer: SoundRenderer, default: AudioRenderer) -> AudioRenderer {
-    let renderers = match default {
-        AudioRenderer::Speaker => [SoundRenderer::Speaker, SoundRenderer::EnhancedPcm],
-        AudioRenderer::EnhancedPcm => [SoundRenderer::EnhancedPcm, SoundRenderer::Speaker],
+    let default = match default {
+        AudioRenderer::Speaker => SoundRenderer::Speaker,
+        AudioRenderer::EnhancedPcm => SoundRenderer::EnhancedPcm,
     };
-    match renderer.resolve(&renderers) {
+    let capabilities = reforge_sdl::settings::AudioCapabilities {
+        default,
+        ..crate::launcher::AUDIO
+    };
+    match capabilities.resolve(renderer) {
         SoundRenderer::EnhancedPcm => AudioRenderer::EnhancedPcm,
         _ => AudioRenderer::Speaker,
     }

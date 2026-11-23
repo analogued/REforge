@@ -21,7 +21,6 @@ use crate::{
     timer::{Clock, ClockEvent, Progress, SampleStart, SampleTask, Stamp, Wait},
 };
 use reforge_audio::{PIT_HZ, speaker::PcSpeaker};
-use reforge_sdl::settings::SoundRenderer;
 #[cfg(feature = "dev-tools")]
 use std::time::Duration;
 use std::{cell::RefCell, rc::Rc, time::Instant};
@@ -1055,7 +1054,9 @@ pub(super) fn run(
     let mut status = simulation.status();
     let mut window = Window::new_with_geometry(
         &game_title(GAME_NAME, Some(status)),
-        display_geometry(simulation.display_mode()),
+        settings_capabilities(simulation.display_mode())
+            .display
+            .geometry,
         options.scale,
         options.presentation,
     )?;
@@ -1063,12 +1064,13 @@ pub(super) fn run(
     let mut gamepads = reforge_sdl::gamepad::Gamepads::new(window.settings().stick_dead_zone);
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
-    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
-        .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
-        .with_audio_categories(&reforge_audio::category::SoundCategory::ALL)
-        .with_mach3_options(options.digitized_samples)
-        .with_mach3_motion(options.motion);
-    let samples = menu.mach3_startup_settings().digitized_samples;
+    let mut menu = settings_menu(
+        &creator,
+        simulation.display_mode(),
+        &options,
+        SettingsAvailability::default(),
+    );
+    let samples = menu.startup_settings().mach3.digitized_samples;
     simulation
         .initial
         .as_mut()

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Shared Settings edits persist normally and configure subsequent game launches.
 use super::*;
-use reforge_sdl::settings::{SettingsMenu, VideoCapabilities};
+use reforge_sdl::settings::{SettingsAvailability, SettingsMenu, VideoCapabilities};
 
 pub fn run(
     canvas: &mut WindowCanvas,
@@ -21,13 +21,13 @@ pub fn run(
         Ok(native) => (native.unwrap_or_default(), None),
         Err(error) => (Default::default(), Some(error)),
     };
-    let geometry = match game.as_deref() {
-        Some("alley-cat") => alleycat::launcher::geometry(&native),
-        Some("mach-3") => mach3::launcher::geometry(&native),
-        Some("centurion-defender-of-rome") => centurion::launcher::geometry(&native),
-        Some("mindwheel" | "essex" | "brimstone" | "breakers") => btz::windowed::GEOMETRY,
-        _ => reforge_sdl::DisplayGeometry::new((320, 200), (320, 240)),
-    };
+    let capabilities = state
+        .selected_game()
+        .and_then(|game| game.settings_capabilities(&native));
+    let geometry = capabilities.map_or_else(
+        || reforge_sdl::DisplayGeometry::new((320, 200), (320, 240)),
+        |capabilities| capabilities.display.geometry,
+    );
     let guard = reforge_settings::Launch {
         game_id: game.clone().unwrap_or_else(|| "standalone".into()),
         entry_id,
@@ -37,41 +37,24 @@ pub fn run(
     .install();
     let creator = FrameCreator::for_ui_with_geometry(canvas, geometry);
     drop(guard);
-    let mut menu =
-        SettingsMenu::new(&creator, VideoCapabilities::default()).with_launcher_options();
-    menu.set_controller_style(pads.style());
-    use reforge_settings::{SoundCategory, SoundRenderer};
-    menu = match game.as_deref() {
-        Some("alley-cat") => menu
-            .with_alleycat_options()
-            .with_alleycat_machines(
-                state
-                    .selected_game()
-                    .and_then(|game| {
-                        game.options
-                            .iter()
-                            .find(|option| option.key() == reforge_settings::ALLEYCAT_MACHINE)
-                    })
-                    .unwrap_or(&alleycat::launcher::OPTIONS[0]),
-            )
-            .with_audio_renderers(&[SoundRenderer::Speaker])
-            .with_audio_categories(&[SoundCategory::Music, SoundCategory::Effects]),
-        Some("mach-3") => menu
-            .with_mach3_options(None)
-            .with_audio_renderers(&[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm])
-            .with_audio_categories(&SoundCategory::ALL),
-        Some("centurion-defender-of-rome") => menu
-            .with_centurion_options()
-            .with_startup_audio_renderers(centurion::launcher::AUDIO_RENDERERS)
-            .with_audio_categories(&[SoundCategory::Music, SoundCategory::Effects]),
-        Some("mindwheel" | "essex" | "brimstone" | "breakers") => {
+    let mut menu = match capabilities {
+        Some(capabilities) => {
             use std::io::IsTerminal;
-            menu.with_btz_options(std::io::stdin().is_terminal() && std::io::stdout().is_terminal())
-                .with_audio_renderers(&[SoundRenderer::Speaker])
-                .with_audio_categories(&[SoundCategory::Effects])
+            SettingsMenu::for_game(
+                &creator,
+                capabilities,
+                SettingsAvailability {
+                    terminal: std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
+                    ..SettingsAvailability::default()
+                },
+            )
         }
-        _ => menu.with_global_defaults_only(),
-    };
+        None => {
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_global_defaults_only()
+        }
+    }
+    .with_launcher_options();
+    menu.set_controller_style(pads.style());
     menu.set_theme(catalog::ResolvedAppearance::resolve(state.saved_theme).theme);
     menu.set_status("Changes apply when a game starts.".into());
     menu.toggle();

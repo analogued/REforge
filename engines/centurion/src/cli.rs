@@ -72,7 +72,7 @@ pub fn run(
         if let Some(path) = &options.load {
             session.campaign.load(&crate::assets::read(path)?)?;
         }
-        crate::player::run(&assets, &mut session, options)?;
+        crate::player::run(&assets, &mut session, options, profile)?;
         Ok(())
     }
 }

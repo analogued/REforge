@@ -919,7 +919,9 @@ pub(super) fn run(
     let mut input = ControlInput::default();
     let mut window = Window::new_with_geometry(
         &game_title(GAME_NAME, Some(screen_status(Screen::Splash))),
-        display_geometry(game.session.controls.preferences.display_mode),
+        settings_capabilities(game.session.controls.preferences.display_mode)
+            .display
+            .geometry,
         scale,
         options.presentation,
     )?;
@@ -948,10 +950,17 @@ pub(super) fn run(
     let mut gamepads = reforge_sdl::gamepad::Gamepads::new(window.settings().stick_dead_zone);
     let mut texture =
         FrameTexture::new(&creator, WIDTH as u32 * 2, HEIGHT as u32, FrameFormat::Rgb)?;
-    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
-        .with_mach3_options(options.digitized_samples);
+    let mut menu = settings_menu(
+        &creator,
+        game.session.controls.preferences.display_mode,
+        &options,
+        SettingsAvailability {
+            audio_playback: false,
+            ..SettingsAvailability::default()
+        },
+    );
     game.session.controls.preferences.digitized_samples_enabled =
-        menu.mach3_startup_settings().digitized_samples;
+        menu.startup_settings().mach3.digitized_samples;
     let mut menu_pause = MenuPause::default();
     let mut presentation = Presentation::default();
     let mut shown = presentation.screen();

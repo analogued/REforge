@@ -138,13 +138,9 @@ impl GameEntry {
             .iter()
             .find(|r| r.id == entry.release_id && r.game().id() == entry.game_id);
         let edition = release.map(|r| r.edition);
-        let options = match release.map(|r| r.engine()) {
-            Some(detection::Engine::AlleyCat(format)) => alleycat::launcher::options(format),
-            Some(detection::Engine::Mach3) => mach3::launcher::OPTIONS,
-            Some(detection::Engine::Centurion(release)) => centurion::launcher::options(release),
-            Some(detection::Engine::Btz(_)) => btz::launcher::OPTIONS,
-            None => &[],
-        };
+        let options = release
+            .map(|release| crate::capabilities::settings(release, &BTreeMap::new()).quick_options)
+            .unwrap_or(&[]);
         Self {
             entry_id: entry.entry_id.clone(),
             title: entry.title.clone(),
@@ -178,6 +174,15 @@ impl GameEntry {
             native_preferences_loaded: false,
             config,
         }
+    }
+    pub fn settings_capabilities(
+        &self,
+        native: &BTreeMap<String, String>,
+    ) -> Option<reforge_sdl::settings::SettingsCapabilities> {
+        detection::RELEASES
+            .iter()
+            .find(|release| release.id == self.release_id && release.game().id() == self.game_id)
+            .map(|release| crate::capabilities::settings(release, native))
     }
     pub fn matches_installation(&self, entry: &Entry) -> bool {
         self.entry_id == entry.entry_id
@@ -455,6 +460,10 @@ impl GameEntry {
                 BTreeMap::new()
             }
         };
+        let audio = self
+            .settings_capabilities(&native)
+            .map(|capabilities| capabilities.audio)
+            .unwrap_or(reforge_settings::AudioCapabilities::NONE);
         let global = session.saved.global_values();
         let mut p = Preferences::default();
         for o in self.options {
@@ -492,15 +501,12 @@ impl GameEntry {
                     (o.default.into(), saved)
                 }
             };
-            let supported_audio: Vec<_> = o
-                .choices
-                .iter()
-                .filter_map(|choice| choice.value.parse::<reforge_settings::SoundRenderer>().ok())
-                .collect();
             let resolve_audio = |text: &str| {
-                text.parse::<reforge_settings::SoundRenderer>()
-                    .unwrap_or_default()
-                    .resolve(&supported_audio)
+                audio
+                    .resolve(
+                        text.parse::<reforge_settings::SoundRenderer>()
+                            .unwrap_or_default(),
+                    )
                     .as_str()
             };
             let default = if matches!(o.storage, Storage::Shared("audio_renderer")) {

@@ -4,8 +4,13 @@
 //! Host settings UI, painted through SDL geometry on every renderer.
 //! Game input and clocks remain the responsibility of each engine adapter.
 
+mod capabilities;
 mod gui;
 mod textures;
+pub use capabilities::{
+    ControlCapabilities, ControllerLayouts, DisplayCapabilities, EngineOptions,
+    SettingsAvailability, SettingsCapabilities,
+};
 pub use gui::Gui;
 
 use std::{collections::HashMap, time::Instant};
@@ -25,8 +30,9 @@ use crate::settings_selector::InputMode;
 
 use reforge_settings::Draft;
 pub use reforge_settings::{
-    AlleyCatMotion, AlleyCatSettings, AudioSettings, ControlMode, ControllerButtons,
-    ControllerMovement, FaceButton, MotionMode, RuntimeSettings, SoundRenderer,
+    ALLEYCAT_MOTION, AlleyCatMotion, AlleyCatSettings, ApplyTiming, AudioCapabilities,
+    AudioSettings, ControlMode, ControllerButtons, ControllerMovement, DIGITIZED_SAMPLES,
+    FaceButton, MOTION, MotionMode, RuntimeSettings, SoundCategory, SoundRenderer,
 };
 /// An engine can restrict shared choices when its implementation requires it.
 #[derive(Clone, Copy, Debug)]
@@ -39,16 +45,17 @@ pub struct VideoCapabilities {
 
 impl Default for VideoCapabilities {
     fn default() -> Self {
-        Self {
-            min_scale: 1,
-            max_scale: 16,
-            allow_auto: true,
-            allow_fullscreen: true,
-        }
+        Self::DEFAULT
     }
 }
 
 impl VideoCapabilities {
+    pub const DEFAULT: Self = Self {
+        min_scale: 1,
+        max_scale: 16,
+        allow_auto: true,
+        allow_fullscreen: true,
+    };
     pub fn permits(&self, settings: RuntimeSettings) -> bool {
         let scale_allowed = match settings.scale {
             None => self.allow_auto,
@@ -89,7 +96,8 @@ pub struct SettingsMenu<'a> {
     pub(super) creator: &'a FrameCreator,
     pub(super) context: egui::Context,
     theme: crate::ui::Theme,
-    pub(super) capabilities: VideoCapabilities,
+    pub(super) capabilities: SettingsCapabilities,
+    pub(super) availability: SettingsAvailability,
     pub(super) open: bool,
     events: Vec<MenuEvent>,
     pub(super) navigation: crate::settings_navigation::Navigation,
@@ -108,15 +116,7 @@ pub struct SettingsMenu<'a> {
     pub(super) apply_rect: Option<egui::Rect>,
     pub(super) audio_devices: Vec<String>,
     pub(super) audio_devices_loaded: bool,
-    pub(super) audio_renderers: Vec<reforge_settings::SoundRenderer>,
-    pub(super) audio_renderer_next_launch: bool,
-    pub(super) audio_categories: Vec<reforge_settings::SoundCategory>,
-    pub(super) mach3_options: bool,
-    pub(super) alleycat_options: bool,
-    pub(super) centurion_options: bool,
-    pub(super) alleycat_machines: Option<&'static crate::launcher::OptionDefinition>,
     pub(super) controller_style: crate::gamepad::ControllerStyle,
-    pub(super) btz_terminal: Option<bool>,
     pub(super) game_editing: [bool; reforge_settings::SECTION_KEYS.len()],
     pub(super) page: usize,
     // A section reset prevents edit round trips from restoring cleared keys.
@@ -166,6 +166,56 @@ enum MenuEvent {
 }
 
 impl<'a> SettingsMenu<'a> {
+    pub fn for_game(
+        creator: &'a FrameCreator,
+        capabilities: SettingsCapabilities,
+        availability: SettingsAvailability,
+    ) -> Self {
+        Self::new(creator, capabilities.display.video).with_capabilities(capabilities, availability)
+    }
+
+    pub fn with_capabilities(
+        mut self,
+        capabilities: SettingsCapabilities,
+        availability: SettingsAvailability,
+    ) -> Self {
+        assert!(
+            capabilities.validate().is_ok(),
+            "invalid engine settings capabilities: {:?}",
+            capabilities.validate()
+        );
+        {
+            let mut session = self.creator.session.borrow_mut();
+            if session.game_id == "standalone" && capabilities.game_id != "standalone" {
+                session.game_id = capabilities.game_id.into();
+            }
+        }
+        self.capabilities = capabilities;
+        self.availability = availability;
+        self
+    }
+
+    /// Temporary launch values are displayed and locked, never saved as edits.
+    pub fn with_temporary_override(mut self, key: &str, value: impl Into<String>) -> Self {
+        let value = value.into();
+        let mut normalized = RuntimeSettings::default();
+        if normalized.set(key, &value).is_ok() {
+            self.creator
+                .session
+                .borrow_mut()
+                .cli
+                .insert(key.into(), normalized.get(key));
+        } else {
+            self.error = Some(format!("Invalid temporary setting {key}"));
+        }
+        self
+    }
+
+    pub fn startup_settings(&self) -> RuntimeSettings {
+        let session = self.creator.session.borrow();
+        session.effective(&session.saved)
+    }
+
     /// Show shared preferences without a game-override scope, for example before
     /// a launcher has any games. Applying preserves all existing game settings.
     pub fn with_global_defaults_only(mut self) -> Self {
@@ -198,130 +248,6 @@ impl<'a> SettingsMenu<'a> {
         });
         self
     }
-    /// Expose Centurion's game-only presentation preferences.
-    pub fn with_centurion_options(mut self) -> Self {
-        let mut session = self.creator.session.borrow_mut();
-        if session.game_id == "standalone" {
-            session.game_id = "centurion-defender-of-rome".into();
-        }
-        self.centurion_options = session.game_id == "centurion-defender-of-rome";
-        drop(session);
-        self
-    }
-    /// Expose Alley Cat's game-only input and presentation preferences.
-    pub fn with_alleycat_options(mut self) -> Self {
-        let mut session = self.creator.session.borrow_mut();
-        if session.game_id == "standalone" {
-            session.game_id = "alley-cat".into();
-        }
-        self.alleycat_options = session.game_id == "alley-cat";
-        drop(session);
-        self
-    }
-    /// Use the engine's release-specific Machine choices and default. The
-    /// selection shares the launcher's saved pin and applies on the next launch.
-    pub fn with_alleycat_machines(
-        mut self,
-        machine: &'static crate::launcher::OptionDefinition,
-    ) -> Self {
-        if self.alleycat_options {
-            self.alleycat_machines = Some(machine);
-        }
-        self
-    }
-
-    /// Expose terminal play as a BTZ-only startup choice. A launcher supplies
-    /// whether its child can inherit an interactive terminal; SDL play passes
-    /// false because an existing game window cannot switch host mid-session.
-    pub fn with_btz_options(mut self, terminal_available: bool) -> Self {
-        let mut session = self.creator.session.borrow_mut();
-        if session.game_id == "standalone" {
-            session.game_id = "mindwheel".into();
-        }
-        self.btz_terminal =
-            reforge_settings::supports_terminal(&session.game_id).then_some(terminal_available);
-        drop(session);
-        self
-    }
-    /// Declare available engine renderers, with the engine default first.
-    /// Game settings display that concrete renderer for the internal default
-    /// alias. Absence leaves game audio controls disabled while shared defaults
-    /// can still be edited.
-    pub fn with_audio_renderers(mut self, renderers: &[reforge_settings::SoundRenderer]) -> Self {
-        self.audio_renderers = renderers.to_vec();
-        self.audio_renderer_next_launch = false;
-        self
-    }
-    /// Use the same audio selection, inheritance and persistence as live
-    /// renderers, but save changes for the next launch. Such edits require a
-    /// registered entry so a running game cannot offer an ineffective change.
-    pub fn with_startup_audio_renderers(
-        self,
-        renderers: &[reforge_settings::SoundRenderer],
-    ) -> Self {
-        let mut menu = self.with_audio_renderers(renderers);
-        menu.audio_renderer_next_launch = true;
-        menu
-    }
-    /// Declare semantic groups implemented by the engine's audio adapter.
-    pub fn with_audio_categories(mut self, categories: &[reforge_settings::SoundCategory]) -> Self {
-        self.audio_categories = categories.to_vec();
-        self
-    }
-    /// Expose Mach 3's native startup switch, independently of host audio.
-    /// Standalone previews retain in-memory settings; app launches use their
-    /// configured per-game storage. An explicit CLI value is temporary/locked.
-    pub fn with_mach3_options(mut self, samples: Option<bool>) -> Self {
-        {
-            let mut session = self.creator.session.borrow_mut();
-            if session.game_id == "standalone" {
-                session.game_id = "mach-3".into();
-            }
-            self.mach3_options = session.game_id == "mach-3";
-            if self.mach3_options {
-                if let Some(value) = samples {
-                    session.cli.insert(
-                        reforge_settings::DIGITIZED_SAMPLES.into(),
-                        value.to_string(),
-                    );
-                }
-            }
-        }
-        self
-    }
-    /// A command-line motion choice is temporary and locked like shared display
-    /// overrides. Ordinary menu edits remain per-game and apply live.
-    pub fn with_mach3_motion(self, motion: Option<reforge_settings::MotionMode>) -> Self {
-        if self.mach3_options
-            && let Some(motion) = motion
-        {
-            self.creator
-                .session
-                .borrow_mut()
-                .cli
-                .insert(reforge_settings::MOTION.into(), motion.as_str().into());
-        }
-        self
-    }
-    /// Temporarily lock Alley Cat's live presentation choice for this run.
-    pub fn with_alleycat_motion(self, motion: Option<reforge_settings::AlleyCatMotion>) -> Self {
-        if self.alleycat_options
-            && let Some(motion) = motion
-        {
-            self.creator.session.borrow_mut().cli.insert(
-                reforge_settings::ALLEYCAT_MOTION.into(),
-                motion.as_str().into(),
-            );
-        }
-        self
-    }
-
-    /// Resolve once before starting simulation. Saving a later draft does not
-    /// change the running game's native sample flag.
-    pub fn mach3_startup_settings(&self) -> reforge_settings::Mach3Settings {
-        let session = self.creator.session.borrow();
-        session.effective(&session.saved).mach3
-    }
     /// Apply UI colours without changing Settings geometry, draft or navigation.
     pub fn set_theme(&mut self, theme: crate::ui::Theme) {
         self.theme = theme;
@@ -349,7 +275,14 @@ impl<'a> SettingsMenu<'a> {
             creator,
             context,
             theme,
-            capabilities,
+            capabilities: SettingsCapabilities {
+                display: DisplayCapabilities {
+                    video: capabilities,
+                    ..SettingsCapabilities::basic(creator.geometry.get()).display
+                },
+                ..SettingsCapabilities::basic(creator.geometry.get())
+            },
+            availability: SettingsAvailability::default(),
             open: false,
             events: Vec::new(),
             navigation: Default::default(),
@@ -368,15 +301,7 @@ impl<'a> SettingsMenu<'a> {
             apply_rect: None,
             audio_devices: Vec::new(),
             audio_devices_loaded: false,
-            audio_renderers: Vec::new(),
-            audio_renderer_next_launch: false,
-            audio_categories: Vec::new(),
-            mach3_options: false,
-            alleycat_options: false,
-            centurion_options: false,
-            alleycat_machines: None,
             controller_style: Default::default(),
-            btz_terminal: None,
             game_editing: [false; reforge_settings::SECTION_KEYS.len()],
             page: 0,
             game_reset: [false; reforge_settings::SECTION_KEYS.len()],
@@ -741,7 +666,7 @@ impl<'a> SettingsMenu<'a> {
             .map(|draft| self.creator.session.borrow().effective(draft));
         if request
             .as_ref()
-            .is_some_and(|value| !self.capabilities.permits(value.clone()))
+            .is_some_and(|value| !self.capabilities.display.video.permits(value.clone()))
         {
             self.set_error("These display settings are unavailable for this game".into());
             None
@@ -1146,6 +1071,8 @@ mod launcher_tests;
 mod machine_tests;
 #[cfg(test)]
 mod round_trip_tests;
+#[cfg(test)]
+mod test_builders;
 
 #[cfg(test)]
 mod tests {
@@ -1193,7 +1120,13 @@ mod tests {
             creator.session.borrow_mut().game_id = game.into();
             let menu = SettingsMenu::new(&creator, VideoCapabilities::default())
                 .with_btz_options(available);
-            assert_eq!(menu.btz_terminal, expected);
+            assert_eq!(
+                menu.capabilities
+                    .display
+                    .frontend
+                    .map(|_| menu.availability.terminal),
+                expected
+            );
         }
         let before = display.settings();
         let mut requested = before.clone();
@@ -1360,7 +1293,7 @@ mod tests {
         // A terminal startup choice disables graphics, but cursor selection
         // remains editable and is used by the terminal frontend too.
         creator.session.borrow_mut().cli.remove("renderer");
-        menu.btz_terminal = Some(true);
+        menu.availability.terminal = true;
         menu.game_editing[0] = true;
         menu.draft
             .as_mut()

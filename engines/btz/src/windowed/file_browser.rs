@@ -515,8 +515,11 @@ mod tests {
         let mut loaded = loaded(&dir);
         let request = host(&mut loaded);
         let creator = window.texture_creator();
-        let mut menu =
-            SettingsMenu::new(&creator, VideoCapabilities::default()).with_btz_options(false);
+        let mut menu = SettingsMenu::for_game(
+            &creator,
+            crate::launcher::settings_capabilities(),
+            SettingsAvailability::default(),
+        );
         for operation in [
             request.clone(),
             HostRequest::LoadBookmark,

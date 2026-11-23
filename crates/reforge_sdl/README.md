@@ -252,16 +252,29 @@ primitives with that theme. Ordinary egui widgets receive the same palette.
 
 Esc or F10 opens the Compact Display, CRT & Colour, Audio and Controls pages in each engine.
 Games with optional improvements also expose an Enhancements page.
-Per-game Sound renderer choices show concrete renderers. Engines declare their
-default first in `with_audio_renderers`; the stored `default` alias displays as
-that renderer without creating an override merely by opening the menu.
+Each engine supplies one `SettingsCapabilities` declaration to launcher and player
+hosts through `SettingsMenu::for_game`. It groups explicit audio defaults,
+supported renderers and volume categories, display geometry and scale constraints,
+release-specific machine/video choices, controller layouts, typed engine panels
+and launcher quick options. `OptionDefinition` metadata is shared with the launcher;
+`ApplyTiming` distinguishes live changes from next-launch selections. Engines
+remain responsible for applying their native settings and running their hardware
+adapters. Live frame geometry remains authoritative after video mode changes.
+
+`SettingsAvailability` describes the current host separately: an interactive
+terminal can be unavailable even when supported by the engine, and a silent
+development preview can disable playback controls without changing the engine's
+audio declaration. Per-game Sound renderer choices show concrete renderers. The
+stored `default` alias displays as the engine's explicitly declared default
+without creating an override merely by opening the menu.
 Modal dialogs retain Escape for cancel/back; F10 can open Settings above them.
 Controls offers a shared stick dead zone and Alley Cat controller layouts.
 Enhancements groups Alley Cat's input response and scene movement, and Mach 3's
 scene and player-craft movement. Alley Cat offers Reforged / Original scene
 movement. Applying changes it live; Cancel keeps the active
-and saved choice. `with_alleycat_motion` supplies a temporary command-line choice
-and locks the corresponding game control without saving it.
+and saved choice. `with_temporary_override` supplies normalized command-line
+choices and locks the corresponding game controls without saving them. `startup_settings` resolves
+the effective preferences before the engine creates its native adapters.
 Selectors switch live between dropdowns for mouse input and horizontal carousels
 for keyboard/controller navigation. F10 and Escape retain the last established
 input mode; the initial mode uses dropdowns. Opening from a controller selects
@@ -436,16 +449,16 @@ for simple direct playback, but engine streaming uses the timestamped queue.
 audio preferences in one menu transaction. A failed explicit device open retains
 the old endpoint; an audio startup failure permits silent simulation and unrelated
 video edits. Focus gain changes never alter engine input or pause state. The
-engine declares available sound renderers through `SettingsMenu::with_audio_renderers`;
-without that capability, game audio controls are disabled. The first concrete
-renderer is the game default. Shared `SoundRenderer::resolve` handles inherited
-default aliases and unsupported choices without changing saved values.
-`with_startup_audio_renderers` uses the same setting, selector and transaction,
-but marks selection changes for the next launch and requires per-entry storage.
-The engine resolves the startup selection once before creating its sound driver;
-Apply does not replace the running backend. Live renderers use
-`with_audio_renderers` and continue to observe changes during play.
-`with_audio_categories` declares supported Music/Speech/Effects volume groups.
+engine declares audio through `SettingsCapabilities::audio`. Without supported
+renderers or playback in the current host, game audio controls are disabled.
+`AudioCapabilities::resolve` handles inherited default aliases and unsupported
+choices using the explicit default, independently of menu order and without
+changing saved values. `ApplyTiming::NextLaunch` uses the same setting, selector
+and transaction, but marks selection changes for the next launch and requires
+per-entry storage. The engine resolves that selection once before creating its
+sound driver; Apply does not replace the running backend. Engines declaring
+`ApplyTiming::Live` continue to observe changes during play. Audio capabilities
+also declare supported Music/Speech/Effects volume groups.
 These levels belong in synthesis; the SDL endpoint keeps Master (80% default)
 and focus gain separate, and never changes the desktop mixer volume. Category
 changes discard old queued mixed audio and let the engine update its gains at

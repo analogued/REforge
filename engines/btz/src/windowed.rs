@@ -23,7 +23,7 @@ use reforge_sdl::{
         event::{Event, WindowEvent},
         keyboard::{Keycode, Mod},
     },
-    settings::{Gui, SettingsMenu, VideoCapabilities},
+    settings::{Gui, SettingsAvailability, SettingsMenu},
 };
 use reforge_settings::RuntimeSettings;
 use std::{
@@ -316,9 +316,10 @@ fn complete_file_request(
 }
 
 pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Result<(), String> {
+    let capabilities = crate::launcher::settings_capabilities();
     let mut window = Window::new_with_geometry(
         &game_title(title, None),
-        GEOMETRY,
+        capabilities.display.geometry,
         preferences.scale,
         preferences.presentation,
     )?;
@@ -332,10 +333,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
         display::HEIGHT as u32,
         FrameFormat::Rgb,
     )?;
-    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
-        .with_btz_options(false)
-        .with_audio_renderers(&[reforge_settings::SoundRenderer::Speaker])
-        .with_audio_categories(&[reforge_settings::SoundCategory::Effects]);
+    let mut menu = SettingsMenu::for_game(&creator, capabilities, SettingsAvailability::default());
     let mut gui = Gui::new(&creator);
     let pointers = file_browser::Pointers::new();
     let mut overlay = Overlay::default();
@@ -853,8 +851,11 @@ mod tests {
             .unwrap();
         let canvas = window.into_canvas();
         let creator = reforge_sdl::FrameCreator::for_ui(&canvas);
-        let mut menu =
-            SettingsMenu::new(&creator, VideoCapabilities::default()).with_btz_options(false);
+        let mut menu = SettingsMenu::for_game(
+            &creator,
+            crate::launcher::settings_capabilities(),
+            SettingsAvailability::default(),
+        );
         let mut gui = Gui::new(&creator);
         let mut overlay = Overlay::default();
         let metrics = Gui::metrics(&canvas).unwrap();

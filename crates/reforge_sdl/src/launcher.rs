@@ -24,7 +24,7 @@ pub struct Choice {
     pub palette_hint: PaletteHint,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Storage {
     /// An existing preference managed by the shared Settings transaction.
     Shared(&'static str),
@@ -43,6 +43,7 @@ pub struct OptionDefinition {
     pub choices: &'static [Choice],
     pub default: &'static str,
     pub storage: Storage,
+    pub apply: reforge_settings::ApplyTiming,
 }
 
 impl OptionDefinition {
@@ -76,6 +77,7 @@ pub const DISPLAY: OptionDefinition = OptionDefinition {
     ],
     default: "pixels",
     storage: Storage::Shared("presentation"),
+    apply: reforge_settings::ApplyTiming::Live,
 };
 
 pub const WINDOW: OptionDefinition = OptionDefinition {
@@ -100,6 +102,7 @@ pub const WINDOW: OptionDefinition = OptionDefinition {
     ],
     default: "windowed",
     storage: Storage::Shared("window_mode"),
+    apply: reforge_settings::ApplyTiming::Live,
 };
 
 #[cfg(test)]

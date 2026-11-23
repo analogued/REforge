@@ -29,6 +29,58 @@ pub(super) fn loaded_game_entry(entry: &Entry, config: PathBuf, verify: bool) ->
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn launcher_settings_share_engine_declarations_and_keep_host_availability_separate() {
+    let fixture = Fixture::for_releases(detection::RELEASES.iter());
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, false);
+    let declaration = |options: &[reforge_sdl::launcher::OptionDefinition]| {
+        options
+            .iter()
+            .map(|option| {
+                (
+                    option.label,
+                    option.storage,
+                    option.default,
+                    option.apply,
+                    option
+                        .choices
+                        .iter()
+                        .map(|choice| (choice.value, choice.label))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    for game in &mut state.games {
+        let capabilities = game.settings_capabilities(&Default::default()).unwrap();
+        assert_eq!(
+            declaration(game.options),
+            declaration(capabilities.quick_options)
+        );
+        assert_eq!(capabilities.game_id, game.game_id);
+        if capabilities.display.frontend.is_some() {
+            game.terminal_available = false;
+            assert!(!game.choice_enabled("Renderer", "Terminal"));
+            let unavailable = game.settings_capabilities(&Default::default()).unwrap();
+            game.terminal_available = true;
+            assert!(game.choice_enabled("Renderer", "Terminal"));
+            let available = game.settings_capabilities(&Default::default()).unwrap();
+            assert_eq!(
+                declaration(unavailable.quick_options),
+                declaration(available.quick_options)
+            );
+            assert_eq!(
+                unavailable.display.frontend.unwrap().storage,
+                available.display.frontend.unwrap().storage
+            );
+        }
+    }
+    // Unrecognized library records cannot borrow another game's settings.
+    let game = &mut state.games[0];
+    game.release_id = "unrecognized-release".into();
+    assert!(game.settings_capabilities(&Default::default()).is_none());
+}
+
+#[test]
 fn library_refresh_retains_cached_previews_when_originals_become_unavailable() {
     let fixture = Fixture::new(1);
     let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);

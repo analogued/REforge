@@ -16,11 +16,20 @@ pub enum SoundDevice {
     PcSpeaker,
 }
 
+/// Original devices and explicit default, also used by headless settings tests.
 #[cfg(any(feature = "sdl", test))]
-pub const AUDIO_RENDERERS: &[reforge_settings::SoundRenderer] = &[
-    reforge_settings::SoundRenderer::Adlib,
-    reforge_settings::SoundRenderer::Speaker,
-];
+pub const AUDIO: reforge_settings::AudioCapabilities = reforge_settings::AudioCapabilities {
+    renderers: &[
+        reforge_settings::SoundRenderer::Adlib,
+        reforge_settings::SoundRenderer::Speaker,
+    ],
+    default: reforge_settings::SoundRenderer::Adlib,
+    categories: &[
+        reforge_settings::SoundCategory::Music,
+        reforge_settings::SoundCategory::Effects,
+    ],
+    apply: reforge_settings::ApplyTiming::NextLaunch,
+};
 
 impl SoundDevice {
     pub fn parse(value: &str) -> Result<Self> {
@@ -39,7 +48,7 @@ impl SoundDevice {
     /// Resolve inherited/default host preferences once, before music starts.
     #[cfg(any(feature = "sdl", test))]
     pub fn from_renderer(renderer: reforge_settings::SoundRenderer) -> Self {
-        match renderer.resolve(AUDIO_RENDERERS) {
+        match AUDIO.resolve(renderer) {
             reforge_settings::SoundRenderer::Speaker => Self::PcSpeaker,
             _ => Self::Adlib,
         }

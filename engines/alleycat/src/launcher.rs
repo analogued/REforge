@@ -5,9 +5,21 @@
 
 use crate::{alley::Machine, assets::InputFormat};
 use reforge_sdl::launcher::{Choice, DISPLAY, OptionDefinition, Storage, WINDOW};
+use reforge_sdl::settings::{
+    ApplyTiming, AudioCapabilities, ControlCapabilities, ControllerLayouts, DisplayCapabilities,
+    EngineOptions, SettingsCapabilities, SoundCategory, SoundRenderer, VideoCapabilities,
+};
 
 const CGA: [[u8; 3]; 4] = Machine::Cga.rgb_colors();
 const PCJR: [[u8; 3]; 4] = Machine::Pcjr.rgb_colors();
+
+/// Audio devices, default and application policy shared by launcher and player.
+pub const AUDIO: AudioCapabilities = AudioCapabilities {
+    renderers: &[SoundRenderer::Speaker],
+    default: SoundRenderer::Speaker,
+    categories: &[SoundCategory::Music, SoundCategory::Effects],
+    apply: ApplyTiming::Live,
+};
 
 pub const OPTIONS: &[OptionDefinition] = &[
     OptionDefinition {
@@ -35,6 +47,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
             key: "machine",
             argument: "--machine",
         },
+        apply: ApplyTiming::NextLaunch,
     },
     DISPLAY,
     WINDOW,
@@ -66,6 +79,30 @@ pub fn geometry(
     _native: &std::collections::BTreeMap<String, String>,
 ) -> reforge_sdl::DisplayGeometry {
     crate::platform::DISPLAY_GEOMETRY
+}
+
+/// Declare settings once for every host of this engine and detected release.
+pub fn settings_capabilities(
+    format: InputFormat,
+    native: &std::collections::BTreeMap<String, String>,
+) -> SettingsCapabilities {
+    let quick_options = options(format);
+    SettingsCapabilities {
+        game_id: "alley-cat",
+        audio: AUDIO,
+        display: DisplayCapabilities {
+            geometry: geometry(native),
+            video: VideoCapabilities::DEFAULT,
+            machine: Some(&quick_options[0]),
+            mode: None,
+            frontend: None,
+        },
+        controls: ControlCapabilities {
+            controller_layouts: ControllerLayouts::AlleyCat,
+        },
+        options: EngineOptions::AlleyCat,
+        quick_options,
+    }
 }
 
 pub const PREVIEW_OPTION: &str = "machine";
@@ -120,6 +157,49 @@ pub fn preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_declarations_preserve_machine_defaults_and_shared_controls() {
+        for (format, default) in [
+            (InputFormat::Cat, "cga"),
+            (InputFormat::PcBooter, "cga"),
+            (InputFormat::DosDiskImage, "cga"),
+            (InputFormat::Tandy, "pcjr"),
+            (InputFormat::CatWithPatch, "pcjr"),
+        ] {
+            let caps = settings_capabilities(format, &Default::default());
+            assert_eq!(caps.validate(), Ok(()));
+            assert_eq!(caps.display.machine.unwrap().default, default);
+            assert_eq!(caps.display.machine.unwrap().apply, ApplyTiming::NextLaunch);
+            assert_eq!(
+                caps.quick_options
+                    .iter()
+                    .map(|option| (option.key(), option.default))
+                    .collect::<Vec<_>>(),
+                options(format)
+                    .iter()
+                    .map(|option| (option.key(), option.default))
+                    .collect::<Vec<_>>(),
+            );
+            assert_eq!(
+                caps.controls.controller_layouts,
+                ControllerLayouts::AlleyCat
+            );
+            assert_eq!(
+                caps.audio.resolve(SoundRenderer::GameDefault),
+                SoundRenderer::Speaker
+            );
+            assert_eq!(
+                caps.audio.resolve(SoundRenderer::Adlib),
+                SoundRenderer::Speaker
+            );
+            assert_eq!(
+                caps.audio.categories,
+                [SoundCategory::Music, SoundCategory::Effects]
+            );
+            assert_eq!(caps.audio.apply, ApplyTiming::Live);
+        }
+    }
 
     #[test]
     fn machine_modes_share_native_and_display_geometry() {

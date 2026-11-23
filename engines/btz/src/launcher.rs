@@ -3,6 +3,18 @@
 //! Player presentation choices; the interpreter remains frontend independent.
 
 use reforge_sdl::launcher::{Choice, DISPLAY, OptionDefinition, Storage, WINDOW};
+use reforge_sdl::settings::{
+    ApplyTiming, AudioCapabilities, ControlCapabilities, ControllerLayouts, DisplayCapabilities,
+    EngineOptions, SettingsCapabilities, SoundCategory, SoundRenderer, VideoCapabilities,
+};
+
+/// Audio devices, default and application policy shared by launcher and player.
+pub const AUDIO: AudioCapabilities = AudioCapabilities {
+    renderers: &[SoundRenderer::Speaker],
+    default: SoundRenderer::Speaker,
+    categories: &[SoundCategory::Effects],
+    apply: ApplyTiming::Live,
+};
 
 pub const OPTIONS: &[OptionDefinition] = &[
     OptionDefinition {
@@ -27,12 +39,34 @@ pub const OPTIONS: &[OptionDefinition] = &[
         ],
         default: "graphical",
         storage: Storage::TerminalMode,
+        apply: ApplyTiming::NextLaunch,
     },
     DISPLAY,
     WINDOW,
 ];
 
 /// Change when the title recipe or native rasterization changes.
+/// Declare settings once for every host of this engine and detected release.
+pub fn settings_capabilities() -> SettingsCapabilities {
+    let quick_options = OPTIONS;
+    SettingsCapabilities {
+        game_id: "mindwheel",
+        audio: AUDIO,
+        display: DisplayCapabilities {
+            geometry: crate::windowed::GEOMETRY,
+            video: VideoCapabilities::DEFAULT,
+            machine: None,
+            mode: None,
+            frontend: Some(&quick_options[0]),
+        },
+        controls: ControlCapabilities {
+            controller_layouts: ControllerLayouts::None,
+        },
+        options: EngineOptions::Btz,
+        quick_options,
+    }
+}
+
 pub const PREVIEW_REVISION: u32 = 2;
 /// Renderer choice does not change the original title screen.
 pub const PREVIEW_VARIANT: &str = "text";
@@ -121,6 +155,27 @@ fn title_frame(source: &[u8]) -> Result<reforge_sdl::preview::Frame, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graphical_player_declares_effects_and_a_next_launch_frontend() {
+        let caps = settings_capabilities();
+        assert_eq!(caps.validate(), Ok(()));
+        assert_eq!(caps.game_id, "mindwheel");
+        assert_eq!(caps.display.geometry, crate::windowed::GEOMETRY);
+        assert_eq!(
+            caps.display.frontend.unwrap().apply,
+            ApplyTiming::NextLaunch
+        );
+        assert!(caps.display.machine.is_none());
+        assert!(caps.display.mode.is_none());
+        assert_eq!(caps.controls.controller_layouts, ControllerLayouts::None);
+        assert_eq!(
+            caps.audio.resolve(SoundRenderer::Adlib),
+            SoundRenderer::Speaker
+        );
+        assert_eq!(caps.audio.categories, [SoundCategory::Effects]);
+        assert_eq!(caps.audio.apply, ApplyTiming::Live);
+    }
 
     #[test]
     fn preview_removes_status_loading_and_cursor_without_altering_title_or_source() {

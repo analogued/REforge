@@ -13,7 +13,9 @@ use std::{
 };
 use toml_edit::{DocumentMut, Item};
 mod audio;
-pub use audio::{AudioSettings, CategoryVolumes, SoundCategory, SoundRenderer};
+pub use audio::{
+    ApplyTiming, AudioCapabilities, AudioSettings, CategoryVolumes, SoundCategory, SoundRenderer,
+};
 mod controller;
 pub use controller::{ControllerButtons, ControllerMovement, FaceButton};
 mod centurion;

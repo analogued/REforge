@@ -18,7 +18,7 @@ use reforge_sdl::sdl3::{
     pixels::Color,
     render::FRect,
 };
-use reforge_sdl::settings::{ControllerMovement, SettingsMenu, VideoCapabilities};
+use reforge_sdl::settings::{ControllerMovement, SettingsAvailability, SettingsMenu};
 pub use reforge_sdl::{FrameCreator, Window as Display};
 use reforge_sdl::{FrameFormat, FrameTexture, HostShortcut, host_shortcut};
 use std::collections::HashSet;
@@ -170,14 +170,14 @@ impl<'a> Window<'a> {
             display,
             frame: FrameTexture::new(creator, width, height, FrameFormat::Rgba)?,
             quit: false,
-            settings: SettingsMenu::new(creator, VideoCapabilities::default())
-                .with_alleycat_options()
-                .with_alleycat_machines(&crate::launcher::OPTIONS[0])
-                .with_audio_renderers(&[reforge_sdl::settings::SoundRenderer::Speaker])
-                .with_audio_categories(&[
-                    reforge_audio::category::SoundCategory::Music,
-                    reforge_audio::category::SoundCategory::Effects,
-                ]),
+            settings: SettingsMenu::for_game(
+                creator,
+                crate::launcher::settings_capabilities(
+                    crate::assets::InputFormat::Cat,
+                    &Default::default(),
+                ),
+                SettingsAvailability::default(),
+            ),
             settings_was_open: false,
             #[cfg(feature = "dev-tools")]
             motion_label: None,
@@ -188,9 +188,10 @@ impl<'a> Window<'a> {
     }
 
     pub(crate) fn with_input_format(mut self, format: crate::assets::InputFormat) -> Self {
-        self.settings = self
-            .settings
-            .with_alleycat_machines(&crate::launcher::options(format)[0]);
+        self.settings = self.settings.with_capabilities(
+            crate::launcher::settings_capabilities(format, &Default::default()),
+            SettingsAvailability::default(),
+        );
         self
     }
 
@@ -202,8 +203,10 @@ impl<'a> Window<'a> {
             crate::motion::SceneMode::Reforged => reforge_sdl::AlleyCatMotion::Reforged,
             crate::motion::SceneMode::Original => reforge_sdl::AlleyCatMotion::Original,
         });
-        self.settings = self.settings.with_alleycat_motion(motion);
         if let Some(motion) = motion {
+            self.settings = self
+                .settings
+                .with_temporary_override(reforge_sdl::settings::ALLEYCAT_MOTION, motion.as_str());
             let mut requested = self.display.settings();
             if requested.alleycat.motion != motion {
                 requested.alleycat.motion = motion;

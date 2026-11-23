@@ -3,9 +3,21 @@
 //! Engine-owned launcher choices and clean, static native scene previews.
 
 use reforge_sdl::launcher::{Choice, DISPLAY, OptionDefinition, Storage, WINDOW};
+use reforge_sdl::settings::{
+    ApplyTiming, AudioCapabilities, ControlCapabilities, ControllerLayouts, DisplayCapabilities,
+    EngineOptions, SettingsCapabilities, SoundCategory, SoundRenderer, VideoCapabilities,
+};
 
 // Mode 6 uses one-bit pixels, not the synthetic four-grey mockup palette.
 const MONO: [[u8; 3]; 2] = [[0, 0, 0], [255, 255, 255]];
+
+/// Audio devices, default and application policy shared by launcher and player.
+pub const AUDIO: AudioCapabilities = AudioCapabilities {
+    renderers: &[SoundRenderer::Speaker, SoundRenderer::EnhancedPcm],
+    default: SoundRenderer::Speaker,
+    categories: &SoundCategory::ALL,
+    apply: ApplyTiming::Live,
+};
 
 pub const OPTIONS: &[OptionDefinition] = &[
     OptionDefinition {
@@ -33,6 +45,7 @@ pub const OPTIONS: &[OptionDefinition] = &[
             key: "video",
             argument: "--video",
         },
+        apply: ApplyTiming::Live,
     },
     DISPLAY,
     WINDOW,
@@ -56,8 +69,9 @@ pub const OPTIONS: &[OptionDefinition] = &[
                 palette_hint: reforge_sdl::launcher::PaletteHint::Auto,
             },
         ],
-        default: "speaker",
+        default: AUDIO.default.as_str(),
         storage: Storage::Shared("audio_renderer"),
+        apply: AUDIO.apply,
     },
 ];
 
@@ -71,6 +85,29 @@ pub fn geometry(
         crate::frame::WIDTH as u32
     };
     reforge_sdl::DisplayGeometry::new((width, crate::frame::HEIGHT as u32), (320, 240))
+}
+
+/// Declare settings once for every host of this engine and detected release.
+pub fn settings_capabilities(
+    native: &std::collections::BTreeMap<String, String>,
+) -> SettingsCapabilities {
+    let quick_options = OPTIONS;
+    SettingsCapabilities {
+        game_id: "mach-3",
+        audio: AUDIO,
+        display: DisplayCapabilities {
+            geometry: geometry(native),
+            video: VideoCapabilities::DEFAULT,
+            machine: None,
+            mode: Some(&quick_options[0]),
+            frontend: None,
+        },
+        controls: ControlCapabilities {
+            controller_layouts: ControllerLayouts::None,
+        },
+        options: EngineOptions::Mach3,
+        quick_options,
+    }
 }
 
 pub const PREVIEW_OPTION: &str = "video";
@@ -113,6 +150,39 @@ pub fn preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn declarations_share_live_audio_and_selected_video_geometry() {
+        for mode in ["cga", "mono"] {
+            let native = std::collections::BTreeMap::from([("video".into(), mode.into())]);
+            let caps = settings_capabilities(&native);
+            assert_eq!(caps.validate(), Ok(()));
+            assert_eq!(caps.display.geometry, geometry(&native));
+            assert_eq!(caps.display.mode.unwrap().key(), "video");
+            assert_eq!(caps.display.mode.unwrap().apply, ApplyTiming::Live);
+            assert_eq!(caps.audio.default, SoundRenderer::Speaker);
+            assert_eq!(caps.audio.categories, SoundCategory::ALL);
+            assert_eq!(caps.audio.apply, ApplyTiming::Live);
+            assert_eq!(
+                caps.audio.resolve(SoundRenderer::Adlib),
+                SoundRenderer::Speaker
+            );
+            assert_eq!(
+                caps.audio.resolve(SoundRenderer::EnhancedPcm),
+                SoundRenderer::EnhancedPcm
+            );
+            assert_eq!(
+                caps.quick_options
+                    .iter()
+                    .map(|option| (option.key(), option.default))
+                    .collect::<Vec<_>>(),
+                OPTIONS
+                    .iter()
+                    .map(|option| (option.key(), option.default))
+                    .collect::<Vec<_>>(),
+            );
+        }
+    }
 
     #[test]
     fn video_modes_keep_corrected_aspect_but_distinct_pixel_geometry() {

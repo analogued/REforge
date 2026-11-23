@@ -3,6 +3,8 @@
 
 //! Application orchestration shared by the normal player and diagnostic tools.
 
+#[cfg(feature = "sdl")]
+mod capabilities;
 pub mod detection;
 #[cfg(feature = "sdl")]
 mod launch_handoff;

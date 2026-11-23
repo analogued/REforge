@@ -452,8 +452,8 @@ unsupported game groups remain visible but disabled. Global category defaults
 can still be edited. Latency controls and stereo processing are not implemented.
 
 All engines use the same audio-selection setting, inheritance, sparse overrides
-and default resolution. `"default"` resolves to the engine's first supported
-choice: AdLib for Centurion, PC speaker for Mach 3, Alley Cat and graphical BTZ.
+and default resolution. `"default"` resolves to the engine's declared default:
+AdLib for Centurion, PC speaker for Mach 3, Alley Cat and graphical BTZ.
 A supported explicit global choice is inherited unless the entry overrides it;
 an unsupported choice resolves to the engine default without rewriting the
 stored preference. Per-game menus show concrete supported choices. Opening a

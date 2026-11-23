@@ -2,6 +2,70 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Host audio preferences; native sound execution remains engine-owned.
 pub use reforge_audio::category::{CategoryVolumes, SoundCategory};
+
+/// When an engine can apply a selected option, independently of its storage.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ApplyTiming {
+    #[default]
+    Live,
+    NextLaunch,
+}
+
+/// Engine-owned audio choices shared by Settings, launchers and playback.
+/// Defaults are explicit and do not depend on presentation order.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AudioCapabilities {
+    pub renderers: &'static [SoundRenderer],
+    pub default: SoundRenderer,
+    pub categories: &'static [SoundCategory],
+    pub apply: ApplyTiming,
+}
+
+impl AudioCapabilities {
+    pub const NONE: Self = Self {
+        renderers: &[],
+        default: SoundRenderer::GameDefault,
+        categories: &[],
+        apply: ApplyTiming::Live,
+    };
+
+    /// Resolve aliases and unsupported inherited choices without editing them.
+    pub fn resolve(self, selection: SoundRenderer) -> SoundRenderer {
+        if selection != SoundRenderer::GameDefault && self.renderers.contains(&selection) {
+            selection
+        } else {
+            self.default
+        }
+    }
+
+    pub fn validate(self) -> Result<(), &'static str> {
+        if self.renderers.is_empty() {
+            return if self.default == SoundRenderer::GameDefault && self.categories.is_empty() {
+                Ok(())
+            } else {
+                Err("unavailable audio cannot declare a renderer or categories")
+            };
+        }
+        if self.default == SoundRenderer::GameDefault || !self.renderers.contains(&self.default) {
+            return Err("audio default must be a supported concrete renderer");
+        }
+        for (index, renderer) in self.renderers.iter().enumerate() {
+            if *renderer == SoundRenderer::GameDefault {
+                return Err("audio choices must not contain the default alias");
+            }
+            if self.renderers[..index].contains(renderer) {
+                return Err("audio choices must be unique");
+            }
+        }
+        for (index, category) in self.categories.iter().enumerate() {
+            if self.categories[..index].contains(category) {
+                return Err("audio categories must be unique");
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SoundRenderer {
     #[default]
@@ -11,7 +75,7 @@ pub enum SoundRenderer {
     EnhancedPcm,
 }
 impl SoundRenderer {
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::GameDefault => "default",
             Self::Adlib => "adlib",
@@ -27,21 +91,8 @@ impl SoundRenderer {
             Self::EnhancedPcm => "Enhanced PCM",
         }
     }
-    /// Resolve an inherited alias or unsupported choice against this run's
-    /// concrete capabilities. The first concrete choice is the engine default.
-    /// Resolution never changes stored preferences or creates an override.
-    pub fn resolve(self, renderers: &[Self]) -> Self {
-        if self != Self::GameDefault && renderers.contains(&self) {
-            self
-        } else {
-            renderers
-                .iter()
-                .copied()
-                .find(|renderer| *renderer != Self::GameDefault)
-                .unwrap_or(Self::GameDefault)
-        }
-    }
 }
+
 impl std::str::FromStr for SoundRenderer {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, String> {
@@ -136,5 +187,76 @@ impl AudioSettings {
             _ => return Err("unknown audio setting".into()),
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+
+    const AUDIO: AudioCapabilities = AudioCapabilities {
+        renderers: &[SoundRenderer::Speaker, SoundRenderer::Adlib],
+        default: SoundRenderer::Adlib,
+        categories: &[SoundCategory::Music, SoundCategory::Effects],
+        apply: ApplyTiming::NextLaunch,
+    };
+
+    #[test]
+    fn explicit_default_is_independent_of_choice_order_and_keeps_aliases_unmodified() {
+        assert_eq!(AUDIO.validate(), Ok(()));
+        for selection in [SoundRenderer::GameDefault, SoundRenderer::EnhancedPcm] {
+            let saved = selection;
+            assert_eq!(AUDIO.resolve(selection), SoundRenderer::Adlib);
+            assert_eq!(selection, saved);
+        }
+        for selection in AUDIO.renderers {
+            assert_eq!(AUDIO.resolve(*selection), *selection);
+        }
+        let reversed = AudioCapabilities {
+            renderers: &[SoundRenderer::Adlib, SoundRenderer::Speaker],
+            ..AUDIO
+        };
+        assert_eq!(reversed.resolve(SoundRenderer::GameDefault), AUDIO.default);
+        assert_eq!(AudioCapabilities::NONE.validate(), Ok(()));
+        assert_eq!(
+            AudioCapabilities::NONE.resolve(SoundRenderer::Adlib),
+            SoundRenderer::GameDefault
+        );
+    }
+
+    #[test]
+    fn inconsistent_audio_capabilities_are_rejected() {
+        for invalid in [
+            AudioCapabilities {
+                default: SoundRenderer::GameDefault,
+                ..AUDIO
+            },
+            AudioCapabilities {
+                default: SoundRenderer::EnhancedPcm,
+                ..AUDIO
+            },
+            AudioCapabilities {
+                renderers: &[SoundRenderer::Adlib, SoundRenderer::Adlib],
+                ..AUDIO
+            },
+            AudioCapabilities {
+                renderers: &[SoundRenderer::GameDefault, SoundRenderer::Adlib],
+                ..AUDIO
+            },
+            AudioCapabilities {
+                categories: &[SoundCategory::Music, SoundCategory::Music],
+                ..AUDIO
+            },
+            AudioCapabilities {
+                renderers: &[],
+                ..AUDIO
+            },
+            AudioCapabilities {
+                categories: &[SoundCategory::Effects],
+                ..AudioCapabilities::NONE
+            },
+        ] {
+            assert!(invalid.validate().is_err(), "{invalid:?}");
+        }
     }
 }

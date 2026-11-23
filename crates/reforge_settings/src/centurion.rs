@@ -290,45 +290,6 @@ mod tests {
     }
 
     #[test]
-    fn shared_audio_resolves_aliases_and_unsupported_values_without_editing() {
-        let centurion = [SoundRenderer::Adlib, SoundRenderer::Speaker];
-        let mach = [SoundRenderer::Speaker, SoundRenderer::EnhancedPcm];
-        let speaker = [SoundRenderer::Speaker];
-        for (capabilities, expected) in [
-            (&centurion[..], SoundRenderer::Adlib),
-            (&mach[..], SoundRenderer::Speaker),
-            (&speaker[..], SoundRenderer::Speaker),
-        ] {
-            let value = SoundRenderer::GameDefault;
-            assert_eq!(value.resolve(capabilities), expected);
-            assert_eq!(value, SoundRenderer::GameDefault);
-        }
-        assert_eq!(
-            SoundRenderer::Speaker.resolve(&centurion),
-            SoundRenderer::Speaker
-        );
-        assert_eq!(
-            SoundRenderer::EnhancedPcm.resolve(&centurion),
-            SoundRenderer::Adlib
-        );
-        assert_eq!(SoundRenderer::Adlib.resolve(&mach), SoundRenderer::Speaker);
-        assert_eq!(
-            SoundRenderer::Adlib.resolve(&[]),
-            SoundRenderer::GameDefault
-        );
-        assert_eq!(
-            SoundRenderer::GameDefault.resolve(&[SoundRenderer::GameDefault]),
-            SoundRenderer::GameDefault
-        );
-        assert_eq!(SoundRenderer::Adlib.as_str(), "adlib");
-        assert_eq!(
-            "adlib".parse::<SoundRenderer>().unwrap(),
-            SoundRenderer::Adlib
-        );
-        assert_eq!(SoundRenderer::Adlib.label(), "AdLib");
-    }
-
-    #[test]
     fn centurion_audio_uses_shared_inheritance_storage_and_reset() {
         let temp = Temp::new();
         fs::write(temp.path(), "schema_version = 2\n[global.audio]\naudio_renderer = 'speaker'\n[entries.copy.audio]\nmaster_volume = 62\n").unwrap();
@@ -368,11 +329,13 @@ mod tests {
             SoundRenderer::GameDefault
         );
         assert_eq!(
-            session
-                .effective(&session.saved)
-                .audio
-                .renderer
-                .resolve(&[SoundRenderer::Adlib, SoundRenderer::Speaker]),
+            crate::AudioCapabilities {
+                renderers: &[SoundRenderer::Adlib, SoundRenderer::Speaker],
+                default: SoundRenderer::Adlib,
+                categories: &[],
+                apply: crate::ApplyTiming::NextLaunch,
+            }
+            .resolve(session.effective(&session.saved).audio.renderer),
             SoundRenderer::Adlib
         );
     }

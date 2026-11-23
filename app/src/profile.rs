@@ -47,12 +47,7 @@ fn add_native_options(
 ) -> Result<(), String> {
     use reforge_sdl::launcher::Storage;
     let saved = reforge_settings::launcher::native_options(config, id)?;
-    let options = match detected.engine() {
-        crate::detection::Engine::AlleyCat(format) => alleycat::launcher::options(format),
-        crate::detection::Engine::Mach3 => mach3::launcher::OPTIONS,
-        crate::detection::Engine::Centurion(release) => centurion::launcher::options(release),
-        crate::detection::Engine::Btz(_) => btz::launcher::OPTIONS,
-    };
+    let options = crate::capabilities::settings(detected.release, &saved).quick_options;
     for option in options {
         if let Storage::Native { key, argument } = option.storage
             && !args.iter().any(|arg| arg == argument)
@@ -303,11 +298,9 @@ mod tests {
             let session = Session::load(launch);
             assert_eq!(session.saved.game["audio_renderer"], "speaker");
             assert_eq!(
-                session
-                    .effective(&session.saved)
+                crate::capabilities::settings(release, &Default::default())
                     .audio
-                    .renderer
-                    .resolve(centurion::launcher::AUDIO_RENDERERS)
+                    .resolve(session.effective(&session.saved).audio.renderer)
                     .as_str(),
                 if explicit { "adlib" } else { "speaker" }
             );

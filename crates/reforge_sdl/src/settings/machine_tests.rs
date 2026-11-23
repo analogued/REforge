@@ -25,6 +25,7 @@ const LEGACY: OptionDefinition = OptionDefinition {
     label: "Machine",
     choices: &[CGA, PCJR],
     default: "cga",
+    apply: reforge_settings::ApplyTiming::NextLaunch,
     storage: Storage::Native {
         key: "machine",
         argument: "--machine",

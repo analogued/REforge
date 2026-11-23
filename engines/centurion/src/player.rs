@@ -6,7 +6,7 @@ use crate::{
     cli::Options,
     session::{Input, Phase, Session},
 };
-use reforge_sdl::settings::{SettingsMenu, VideoCapabilities};
+use reforge_sdl::settings::{SettingsAvailability, SettingsMenu};
 use reforge_sdl::{
     FrameFormat, FrameTexture, HostPause, HostShortcut, Presentation, Window, host_shortcut,
 };
@@ -24,10 +24,16 @@ impl Drop for Cursor {
     }
 }
 
-pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> Result<()> {
+pub(crate) fn run(
+    assets: &Assets,
+    session: &mut Session,
+    options: Options,
+    profile: crate::assets::LoadingProfile,
+) -> Result<()> {
+    let capabilities = crate::launcher::settings_capabilities(profile, &Default::default());
     let mut window = Window::new_with_geometry(
         &reforge_sdl::game_title("Centurion: Defender of Rome", None),
-        crate::launcher::geometry(&Default::default()),
+        capabilities.display.geometry,
         options.scale,
         if options.hyllian {
             Presentation::Hyllian
@@ -45,13 +51,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
     session.applied_value_indicator = window.settings().centurion.applied_value_indicator;
     session.set_menu_decorations(window.settings().centurion.menu_decorations);
     let mut texture = FrameTexture::new(&creator, 320, 200, FrameFormat::Rgba)?;
-    let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default())
-        .with_centurion_options()
-        .with_startup_audio_renderers(crate::launcher::AUDIO_RENDERERS)
-        .with_audio_categories(&[
-            reforge_settings::SoundCategory::Music,
-            reforge_settings::SoundCategory::Effects,
-        ]);
+    let mut menu = SettingsMenu::for_game(&creator, capabilities, SettingsAvailability::default());
     // Keep synthesis running when muted: the callback remains the shared game
     // clock, so changing volume never changes scene pacing or original cues.
     let sound = crate::audio::SoundDevice::from_renderer(window.settings().audio.renderer);

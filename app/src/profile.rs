@@ -246,4 +246,76 @@ mod tests {
             assert_eq!(args, [OsString::from("--machine"), OsString::from("cga")]);
         }
     }
+
+    #[cfg(feature = "sdl")]
+    #[test]
+    fn saved_centurion_sound_is_forwarded_without_locking_the_settings_choice() {
+        let temp = Temp::new();
+        let config = temp.0.join("config.toml");
+        let release = RELEASES
+            .iter()
+            .find(|r| r.game() == Game::Centurion)
+            .unwrap();
+        let root = temp.0.join("game");
+        let mut library =
+            Library::new(temp.0.join("library.toml")).with_storage(config.clone(), None);
+        let entry = library
+            .add(Game::Centurion.id(), release.id, "Centurion", &root)
+            .unwrap();
+        reforge_settings::launcher::save_native_option(
+            &config,
+            &entry,
+            reforge_settings::CENTURION_SOUND,
+            Some("pc-speaker"),
+        )
+        .unwrap();
+        let detected = Detected {
+            files: Default::default(),
+            game: Game::Centurion,
+            release,
+            original: root.clone(),
+            root,
+        };
+        for explicit in [false, true] {
+            let (mut launch, mut forwarded) = crate::launch_settings(
+                if explicit {
+                    vec!["--sound".into(), "adlib".into()]
+                } else {
+                    Vec::new()
+                },
+                Game::Centurion,
+            );
+            launch.path = Some(config.clone());
+            bind(&mut launch, &detected, &mut forwarded).unwrap();
+            assert_eq!(launch.entry_id.as_deref(), Some(entry.as_str()));
+            assert_eq!(
+                forwarded,
+                [
+                    OsString::from("--sound"),
+                    OsString::from(if explicit { "adlib" } else { "pc-speaker" })
+                ]
+            );
+            assert_eq!(
+                launch
+                    .cli
+                    .get(reforge_settings::CENTURION_SOUND)
+                    .map(String::as_str),
+                explicit.then_some("adlib")
+            );
+            let session = Session::load(launch);
+            assert_eq!(
+                session.saved.game[reforge_settings::CENTURION_SOUND],
+                "pc-speaker"
+            );
+            assert_eq!(
+                session.effective(&session.saved).centurion.sound.as_str(),
+                if explicit { "adlib" } else { "pc-speaker" }
+            );
+        }
+        assert_eq!(
+            reforge_settings::launcher::native_options(&config, &entry).unwrap()
+                [reforge_settings::CENTURION_SOUND],
+            "pc-speaker"
+        );
+    }
 }

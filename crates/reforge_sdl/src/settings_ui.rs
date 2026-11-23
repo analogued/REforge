@@ -13,12 +13,12 @@ use reforge_settings::{
     ALLEYCAT_MACHINE, ALLEYCAT_MOTION, AlleyCatMachine, AlleyCatMotion, AppliedValueIndicator,
     AspectRatio, BTZ_FILE_CURSOR, Backend, CENTURION_APPLIED_VALUE_INDICATOR,
     CENTURION_FLEET_INFORMATION, CENTURION_MAP_HIGHLIGHT, CENTURION_MAP_HOVER_INFO,
-    CENTURION_MENU_DECORATIONS, CENTURION_POPUP_CURSOR, CONTROL_MODE, CONTROLLER_ACTION,
-    CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, CenturionOptions, ControlMode, DIGITIZED_SAMPLES,
-    ENHANCEMENTS_SECTION, FileCursorStyle, FleetInformation, FrameLimit, MOTION, MapHighlight,
-    MapHoverInfo, MenuDecorations, MotionMode, PopupCursor, Presentation, Renderer,
-    RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS, STICK_DEAD_ZONE, Sampling, ScalingPolicy,
-    SoundCategory, SoundRenderer,
+    CENTURION_MENU_DECORATIONS, CENTURION_POPUP_CURSOR, CENTURION_SOUND, CONTROL_MODE,
+    CONTROLLER_ACTION, CONTROLLER_BUTTONS, CONTROLLER_MOVEMENT, CenturionOptions,
+    CenturionSoundDevice, ControlMode, DIGITIZED_SAMPLES, ENHANCEMENTS_SECTION, FileCursorStyle,
+    FleetInformation, FrameLimit, MOTION, MapHighlight, MapHoverInfo, MenuDecorations, MotionMode,
+    PopupCursor, Presentation, Renderer, RuntimeSettings, SECTION_KEYS, SHADER_PARAMETERS,
+    STICK_DEAD_ZONE, Sampling, ScalingPolicy, SoundCategory, SoundRenderer,
 };
 mod controller;
 const PAGES: [&str; SECTION_KEYS.len()] = [
@@ -83,6 +83,7 @@ impl RowContext<'_> {
             if matches!(
                 key,
                 DIGITIZED_SAMPLES
+                    | CENTURION_SOUND
                     | ALLEYCAT_MACHINE
                     | CENTURION_FLEET_INFORMATION
                     | CENTURION_POPUP_CURSOR
@@ -414,6 +415,7 @@ pub(super) fn draw(
                                         &menu.audio_categories,
                                         enabled,
                                         menu.mach3_options,
+                                        menu.centurion_options,
                                         game_storage,
                                     );
                                 } else if menu.page == 3 {
@@ -503,6 +505,18 @@ pub(super) fn draw(
                     }
                     if menu.page == 2
                         && menu.scope == 1
+                        && menu.centurion_options
+                        && original.centurion.sound != value.centurion.sound
+                        && !cli.contains_key(CENTURION_SOUND)
+                    {
+                        draft.edit_game(
+                            CENTURION_SOUND,
+                            value.get(CENTURION_SOUND),
+                            (!menu.game_reset[menu.page]).then_some(&saved),
+                        );
+                    }
+                    if menu.page == 2
+                        && menu.scope == 1
                         && menu.mach3_options
                         && original.mach3 != value.mach3
                         && !cli.contains_key(DIGITIZED_SAMPLES)
@@ -560,7 +574,7 @@ pub(super) fn draw(
                     let reset_label = if menu.page == LAUNCHER_PAGE || menu.scope == 0 {
                         "Reset section"
                     } else if menu.page == 3 || menu.page == ENHANCEMENTS_SECTION
-                        || (menu.page == 2 && menu.mach3_options)
+                        || (menu.page == 2 && (menu.mach3_options || menu.centurion_options))
                         || (menu.page == 0 && menu.btz_terminal.is_some())
                         || (menu.page == 0 && menu.alleycat_options)
                     {
@@ -833,8 +847,12 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
         map_highlight: MapHighlight::Off,
         map_hover_info: MapHoverInfo::Off,
         applied_value_indicator: AppliedValueIndicator::Original,
+        sound: value.centurion.sound,
     };
-    let reforged = CenturionOptions::default();
+    let reforged = CenturionOptions {
+        sound: value.centurion.sound,
+        ..CenturionOptions::default()
+    };
     let fleet_state = rows.state(CENTURION_FLEET_INFORMATION, value);
     let cursor_state = rows.state(CENTURION_POPUP_CURSOR, value);
     let decorations_state = rows.state(CENTURION_MENU_DECORATIONS, value);
@@ -1436,6 +1454,7 @@ fn audio_controls(
     categories: &[SoundCategory],
     section_editable: bool,
     mach3_options: bool,
+    centurion_options: bool,
     game_storage: bool,
 ) {
     let scope = rows.scope;
@@ -1524,29 +1543,53 @@ fn audio_controls(
             );
         }
         section(ui, "Playback");
-        row(
-            ui,
-            "Sound renderer",
-            "audio_renderer",
-            rows.state("audio_renderer", value),
-            |ui| {
-                ui.add_enabled_ui(scope == 1 && available, |ui| {
-                    Selector::new(
-                        "audio_renderer",
-                        std::iter::once(&SoundRenderer::GameDefault)
-                            .chain(renderers)
-                            .map(|r| Choice::new(*r, sound_renderer_label(*r))),
-                    )
-                    .show(ui, &mut value.audio.renderer);
-                });
-            },
-        );
+        if scope != 1 || !centurion_options {
+            row(
+                ui,
+                "Sound renderer",
+                "audio_renderer",
+                rows.state("audio_renderer", value),
+                |ui| {
+                    ui.add_enabled_ui(scope == 1 && available, |ui| {
+                        Selector::new(
+                            "audio_renderer",
+                            std::iter::once(&SoundRenderer::GameDefault)
+                                .chain(renderers)
+                                .map(|r| Choice::new(*r, sound_renderer_label(*r))),
+                        )
+                        .show(ui, &mut value.audio.renderer);
+                    });
+                },
+            );
+        }
         if scope == 0 {
             ui.weak(
                 "Sound renderer is selected per game; Game default follows its original hardware.",
             );
         }
     });
+    if scope == 1 && centurion_options {
+        ui.add_enabled_ui(section_editable && game_storage, |ui| {
+            row(
+                ui,
+                "Sound device",
+                CENTURION_SOUND,
+                rows.state(CENTURION_SOUND, value),
+                |ui| {
+                    Selector::new(
+                        CENTURION_SOUND,
+                        CenturionSoundDevice::ALL.map(|device| Choice::new(device, device.label())),
+                    )
+                    .show(ui, &mut value.centurion.sound);
+                },
+            );
+        });
+        ui.weak(if game_storage {
+            "Applies on next launch."
+        } else {
+            "Sound device requires saved game settings; it applies on next launch."
+        });
+    }
     // The native option shares Audio's override/reset control, but its default
     // is built in rather than inherited from a global digitized-samples value.
     if scope == 1 && mach3_options {
@@ -1632,6 +1675,7 @@ fn section_has_cli_locks(
 ) -> bool {
     SECTION_KEYS[page].iter().any(|key| cli.contains_key(*key))
         || (page == 2 && scope == 1 && mach3_options && cli.contains_key(DIGITIZED_SAMPLES))
+        || (page == 2 && scope == 1 && cli.contains_key(CENTURION_SOUND))
         || (page == ENHANCEMENTS_SECTION
             && scope == 1
             && (mach3_options && cli.contains_key(MOTION)
@@ -2671,6 +2715,7 @@ mod tests {
                                 &SoundCategory::ALL,
                                 section_editable,
                                 mach3,
+                                false,
                                 true,
                             );
                         });

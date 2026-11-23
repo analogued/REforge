@@ -2685,3 +2685,64 @@ fn centurion_sound_pins_are_per_entry_and_leave_video_previews_unchanged() {
         );
     }
 }
+
+#[test]
+fn centurion_sound_settings_and_launcher_share_pins_without_cli_locks() {
+    use reforge_settings::CENTURION_SOUND;
+    for release in detection::RELEASES
+        .iter()
+        .filter(|release| release.game() == detection::Game::Centurion)
+    {
+        let fixture = Fixture::for_releases([release]);
+        let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+        let entry = state.library.entries[0].clone();
+        let game = &mut state.games[0];
+        let ega = game.options.iter().any(|option| option.label == "Video");
+        if ega {
+            game.save_option("Video", "EGA");
+        }
+        game.save_option("Sound", "PC speaker");
+        let native = game.native_arguments();
+        let carried = game.launch_arguments();
+        assert!(!carried.iter().any(|arg| arg == "--sound"));
+        assert_eq!(carried.len() + 2, native.len());
+        if ega {
+            assert_eq!(carried, ["--video", "ega"]);
+        }
+        let (mut launch, mut forwarded) = crate::launch_settings(
+            carried.into_iter().map(Into::into).collect(),
+            detection::Game::Centurion,
+        );
+        launch.path = Some(fixture.config.clone());
+        crate::profile::bind(
+            &mut launch,
+            &detection::Detected {
+                game: detection::Game::Centurion,
+                release,
+                original: entry.original.clone(),
+                root: entry.directory.clone(),
+                files: Default::default(),
+            },
+            &mut forwarded,
+        )
+        .unwrap();
+        assert_eq!(
+            forwarded,
+            native
+                .iter()
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>()
+        );
+        assert!(!launch.cli.contains_key(CENTURION_SOUND));
+        let mut session = Session::load(launch);
+        assert_eq!(session.saved.game[CENTURION_SOUND], "pc-speaker");
+        let mut draft = session.saved.clone();
+        draft.edit_game(CENTURION_SOUND, "adlib".into(), Some(&session.saved));
+        session.commit(draft).unwrap();
+        game.reload_preferences();
+        assert_eq!(game.option_values()["Sound"], "AdLib");
+        if ega {
+            assert_eq!(game.option_values()["Video"], "EGA");
+        }
+    }
+}

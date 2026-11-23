@@ -18,8 +18,8 @@ mod controller;
 pub use controller::{ControllerButtons, ControllerMovement, FaceButton};
 mod centurion;
 pub use centurion::{
-    AppliedValueIndicator, CenturionOptions, FleetInformation, MapHighlight, MapHoverInfo,
-    MenuDecorations, PopupCursor,
+    AppliedValueIndicator, CenturionOptions, CenturionSoundDevice, FleetInformation, MapHighlight,
+    MapHoverInfo, MenuDecorations, PopupCursor,
 };
 mod btz;
 pub use btz::{BtzSettings, FileCursorStyle};
@@ -69,6 +69,8 @@ pub const MOTION: &str = "motion";
 /// Both games persist their own value as `enhancements.motion`.
 pub const ALLEYCAT_MOTION: &str = "alleycat_motion";
 pub const BTZ_FILE_CURSOR: &str = "file_cursor";
+/// Centurion startup sound device, shared with the launcher native option store.
+pub const CENTURION_SOUND: &str = "sound";
 /// Internal key for Centurion; stored as `enhancements.fleet_information`.
 pub const CENTURION_FLEET_INFORMATION: &str = "centurion_fleet_information";
 /// Internal key for Centurion; stored as `enhancements.popup_cursor`.
@@ -105,6 +107,7 @@ fn game_keys(game: &str) -> impl Iterator<Item = &'static str> {
     let keys: &[&str] = match game {
         "mach-3" => &[DIGITIZED_SAMPLES, MOTION],
         "centurion-defender-of-rome" => &[
+            CENTURION_SOUND,
             CENTURION_FLEET_INFORMATION,
             CENTURION_POPUP_CURSOR,
             CENTURION_MENU_DECORATIONS,
@@ -140,7 +143,7 @@ pub fn section_index(key: &str) -> usize {
     ) {
         return ENHANCEMENTS_SECTION;
     }
-    if key == DIGITIZED_SAMPLES {
+    if matches!(key, DIGITIZED_SAMPLES | CENTURION_SOUND) {
         return 2;
     }
     if ALLEYCAT_CONTROL_KEYS.contains(&key) {
@@ -182,7 +185,7 @@ fn section(key: &str) -> &'static str {
             | CENTURION_APPLIED_VALUE_INDICATOR
     ) {
         "enhancements"
-    } else if key == ALLEYCAT_MACHINE {
+    } else if matches!(key, ALLEYCAT_MACHINE | CENTURION_SOUND) {
         "launcher"
     } else if key == DIGITIZED_SAMPLES {
         "gameplay"
@@ -740,6 +743,7 @@ impl RuntimeSettings {
             MOTION => self.mach3.motion.as_str().into(),
             ALLEYCAT_MOTION => self.alleycat.motion.as_str().into(),
             BTZ_FILE_CURSOR => self.btz.file_cursor.as_str().into(),
+            CENTURION_SOUND => self.centurion.sound.as_str().into(),
             CENTURION_FLEET_INFORMATION => self.centurion.fleet_information.as_str().into(),
             CENTURION_POPUP_CURSOR => self.centurion.popup_cursor.as_str().into(),
             CENTURION_MENU_DECORATIONS => self.centurion.menu_decorations.as_str().into(),
@@ -800,6 +804,7 @@ impl RuntimeSettings {
             MOTION => self.mach3.motion = value.parse()?,
             ALLEYCAT_MOTION => self.alleycat.motion = value.parse()?,
             BTZ_FILE_CURSOR => self.btz.file_cursor = value.parse()?,
+            CENTURION_SOUND => self.centurion.sound = value.parse()?,
             CENTURION_FLEET_INFORMATION => self.centurion.fleet_information = value.parse()?,
             CENTURION_POPUP_CURSOR => self.centurion.popup_cursor = value.parse()?,
             CENTURION_MENU_DECORATIONS => self.centurion.menu_decorations = value.parse()?,
@@ -956,6 +961,7 @@ impl Draft {
         patch.retain(|key, _| !SECTION_KEYS[page].contains(&key.as_str()));
         if game && page == 2 {
             patch.remove(DIGITIZED_SAMPLES);
+            patch.remove(CENTURION_SOUND);
         }
         if game && page == 3 {
             patch.retain(|key, _| {
@@ -997,6 +1003,7 @@ impl Draft {
             || page == ENHANCEMENTS_SECTION
                 && self.game.contains_key(CENTURION_APPLIED_VALUE_INDICATOR)
             || page == 2 && self.game.contains_key(DIGITIZED_SAMPLES)
+            || page == 2 && self.game.contains_key(CENTURION_SOUND)
             || page == 3
                 && ALLEYCAT_CONTROL_KEYS
                     .iter()
@@ -1011,6 +1018,7 @@ impl Draft {
                     | ALLEYCAT_MOTION
                     | BTZ_FILE_CURSOR
                     | ALLEYCAT_MACHINE
+                    | CENTURION_SOUND
                     | CENTURION_FLEET_INFORMATION
                     | CENTURION_POPUP_CURSOR
                     | CENTURION_MENU_DECORATIONS
@@ -1387,7 +1395,10 @@ fn read_draft(
                 for name in ["display", "crt", "audio", "controls", "enhancements"]
                     .into_iter()
                     .chain((game == "mach-3").then_some("gameplay"))
-                    .chain((game == "alley-cat").then_some("launcher"))
+                    .chain(
+                        matches!(game, "alley-cat" | "centurion-defender-of-rome")
+                            .then_some("launcher"),
+                    )
                 {
                     if table.get(name).is_some_and(|v| !v.is_table_like()) {
                         *warning = Some(format!("Invalid {name} section; using inherited values"));

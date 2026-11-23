@@ -121,6 +121,19 @@ fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Laun
         match arg.to_str() {
             Some("--no-config") => no_config = true,
             Some("--config") => prefs.path = remaining.next().map(PathBuf::from),
+            Some("--sound") if game == Game::Centurion => {
+                if let Some(value) = remaining.next() {
+                    if let Some(text) = value.to_str()
+                        && let Ok(device) = text.parse::<reforge_settings::CenturionSoundDevice>()
+                    {
+                        prefs.cli.insert(
+                            reforge_settings::CENTURION_SOUND.into(),
+                            device.as_str().into(),
+                        );
+                    }
+                    args.extend([arg, value]);
+                }
+            }
             Some(
                 name @ ("--window-mode"
                 | "--renderer"
@@ -350,6 +363,35 @@ mod tests {
             Some("pcjr")
         );
         assert_eq!(forwarded, args(&["--machine", "pcjr"]));
+    }
+
+    #[test]
+    fn explicit_centurion_sound_device_is_forwarded_and_locked_as_temporary() {
+        for device in ["adlib", "pc-speaker"] {
+            let prepared = options::prepare(args(&["--sound", device]), Game::Centurion);
+            assert!(prepared.warnings.is_empty());
+            let (launch, forwarded) = launch_settings(prepared.args, Game::Centurion);
+            assert_eq!(
+                launch
+                    .cli
+                    .get(reforge_settings::CENTURION_SOUND)
+                    .map(String::as_str),
+                Some(device)
+            );
+            assert_eq!(forwarded, args(&["--sound", device]));
+        }
+        for game in [Game::AlleyCat, Game::Mach3, Game::Mindwheel] {
+            let prepared = options::prepare(args(&["--sound", "pc-speaker"]), game);
+            assert!(!prepared.warnings.is_empty());
+            let (launch, forwarded) = launch_settings(prepared.args, game);
+            assert!(!launch.cli.contains_key(reforge_settings::CENTURION_SOUND));
+            assert!(forwarded.is_empty());
+        }
+        let prepared = options::prepare(args(&["--sound", "roland"]), Game::Centurion);
+        assert!(!prepared.warnings.is_empty());
+        let (launch, forwarded) = launch_settings(prepared.args, Game::Centurion);
+        assert!(!launch.cli.contains_key(reforge_settings::CENTURION_SOUND));
+        assert!(forwarded.is_empty());
     }
 
     #[test]

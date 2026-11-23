@@ -48,6 +48,8 @@ pub(super) fn dummy_video(test: &str) -> bool {
         .env("SDL_VIDEO_DRIVER", "dummy")
         .env("SDL_VIDEODRIVER", "dummy")
         .env("SDL_RENDER_DRIVER", "software")
+        .env("SDL_AUDIO_DRIVER", "dummy")
+        .env("SDL_AUDIODRIVER", "dummy")
         .output()
         .unwrap();
     assert!(

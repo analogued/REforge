@@ -40,10 +40,11 @@ new-campaign data, including 1.00B's higher initial plunder reserve in Pontus.
 
 ## Sound
 
-The launcher's **Sound** choice offers **AdLib** (default) and **PC speaker**
-for either DOS version and either video mode. It is saved separately for each
-library entry and takes effect at launch. PC speaker plays the original game's
-single-voice arrangement.
+The launcher's **Sound** choice and **Settings → Centurion overrides → Audio →
+Sound device** offer **AdLib** (default) and **PC speaker** for either DOS version
+and either video mode. They share one choice saved for each library entry.
+Settings changes take effect on the next launch; they do not switch the running
+sound arrangement. PC speaker plays the original game's single-voice arrangement.
 
 Direct launches accept `--sound adlib` or `--sound pc-speaker`. Volume,
 music/effects levels, output-device selection and focus muting remain in shared

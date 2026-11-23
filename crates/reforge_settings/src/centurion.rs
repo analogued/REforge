@@ -1,6 +1,42 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Centurion-only presentation choices, independent of campaign state.
+//! Centurion-only startup and presentation choices, independent of campaign state.
+
+/// Original sound arrangement selected at launch, not the host output device.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CenturionSoundDevice {
+    #[default]
+    Adlib,
+    PcSpeaker,
+}
+impl CenturionSoundDevice {
+    pub const ALL: [Self; 2] = [Self::Adlib, Self::PcSpeaker];
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Adlib => "adlib",
+            Self::PcSpeaker => "pc-speaker",
+        }
+    }
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Adlib => "AdLib",
+            Self::PcSpeaker => "PC speaker",
+        }
+    }
+    pub fn parse(value: &str) -> Result<Self, String> {
+        value.parse()
+    }
+}
+impl std::str::FromStr for CenturionSoundDevice {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "adlib" => Ok(Self::Adlib),
+            "pc-speaker" => Ok(Self::PcSpeaker),
+            _ => Err("Sound must be adlib or pc-speaker".into()),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum FleetInformation {
@@ -236,6 +272,7 @@ impl std::str::FromStr for AppliedValueIndicator {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CenturionOptions {
+    pub sound: CenturionSoundDevice,
     pub fleet_information: FleetInformation,
     pub popup_cursor: PopupCursor,
     pub menu_decorations: MenuDecorations,
@@ -250,8 +287,9 @@ mod tests {
     use crate::{
         CENTURION_APPLIED_VALUE_INDICATOR as INDICATOR, CENTURION_FLEET_INFORMATION as KEY,
         CENTURION_MAP_HIGHLIGHT as MAP, CENTURION_MAP_HOVER_INFO as HOVER,
-        CENTURION_MENU_DECORATIONS as DECORATIONS, CENTURION_POPUP_CURSOR as CURSOR, Draft,
-        ENHANCEMENTS_SECTION, Launch, Patch, RuntimeSettings, Session,
+        CENTURION_MENU_DECORATIONS as DECORATIONS, CENTURION_POPUP_CURSOR as CURSOR,
+        CENTURION_SOUND as SOUND, Draft, ENHANCEMENTS_SECTION, Launch, Patch, RuntimeSettings,
+        Session,
     };
     use std::{
         fs,
@@ -287,6 +325,209 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn sound_device_validates_and_defaults_to_adlib() {
+        let mut values = RuntimeSettings::default();
+        assert_eq!(values.centurion.sound, CenturionSoundDevice::Adlib);
+        for choice in CenturionSoundDevice::ALL {
+            assert_eq!(
+                CenturionSoundDevice::parse(choice.as_str()).unwrap(),
+                choice
+            );
+            values.set(SOUND, choice.as_str()).unwrap();
+            assert_eq!(values.centurion.sound, choice);
+            assert_eq!(values.get(SOUND), choice.as_str());
+        }
+        for invalid in ["", "default", "speaker", "roland", "AdLib", "true"] {
+            assert!(values.set(SOUND, invalid).is_err());
+            assert_eq!(values.centurion.sound, CenturionSoundDevice::PcSpeaker);
+        }
+        assert_eq!(crate::section_index(SOUND), 2);
+        assert!(!crate::AUDIO_KEYS.contains(&SOUND));
+    }
+
+    #[test]
+    fn sound_device_shares_launcher_storage_and_resets_only_with_audio() {
+        let temp = Temp::new();
+        crate::launcher::save_native_option(&temp.path(), "copy", SOUND, Some("pc-speaker"))
+            .unwrap();
+        crate::launcher::save_native_option(&temp.path(), "copy", "future_option", Some("keep"))
+            .unwrap();
+        crate::launcher::save_native_option(&temp.path(), "other-copy", SOUND, Some("pc-speaker"))
+            .unwrap();
+        let mut session = temp.session("centurion-defender-of-rome");
+        assert_eq!(
+            session.saved.game_values().centurion.sound,
+            CenturionSoundDevice::PcSpeaker
+        );
+        assert!(session.saved.has_game_overrides(2));
+        assert!(!session.saved.has_game_overrides(ENHANCEMENTS_SECTION));
+        let mut draft = session.saved.clone();
+        draft.edit_game(SOUND, "adlib".into(), Some(&session.saved));
+        session.commit(draft).unwrap();
+        assert_eq!(
+            temp.session("centurion-defender-of-rome")
+                .saved
+                .game_values()
+                .centurion
+                .sound,
+            CenturionSoundDevice::Adlib
+        );
+        assert!(
+            !crate::launcher::native_options(&temp.path(), "copy")
+                .unwrap()
+                .contains_key(SOUND)
+        );
+        let mut draft = session.saved.clone();
+        draft.edit_game(SOUND, "pc-speaker".into(), Some(&session.saved));
+        session.commit(draft).unwrap();
+        assert_eq!(
+            crate::launcher::native_options(&temp.path(), "copy").unwrap()[SOUND],
+            "pc-speaker"
+        );
+        let mut draft = session.saved.clone();
+        draft.reset_section(true, ENHANCEMENTS_SECTION);
+        draft.reset_section(false, 2);
+        assert_eq!(
+            draft.game_values().centurion.sound,
+            CenturionSoundDevice::PcSpeaker
+        );
+        draft.reset_section(true, 2);
+        assert!(!draft.has_game_overrides(2));
+        assert_eq!(
+            draft.game_values().centurion.sound,
+            CenturionSoundDevice::Adlib
+        );
+        session.commit(draft).unwrap();
+        let native = crate::launcher::native_options(&temp.path(), "copy").unwrap();
+        assert!(!native.contains_key(SOUND));
+        assert_eq!(native["future_option"], "keep");
+        assert_eq!(
+            crate::launcher::native_options(&temp.path(), "other-copy").unwrap()[SOUND],
+            "pc-speaker"
+        );
+    }
+
+    #[test]
+    fn sound_device_never_inherits_global_or_other_game_values() {
+        let temp = Temp::new();
+        fs::write(temp.path(), "[global.launcher]\nsound = 'pc-speaker'\n[entries.copy.launcher]\nsound = 'pc-speaker'\n").unwrap();
+        for game in [
+            "centurion-defender-of-rome",
+            "mach-3",
+            "alley-cat",
+            "mindwheel",
+        ] {
+            let mut session = temp.session(game);
+            assert_eq!(
+                session.saved.global_values().centurion.sound,
+                CenturionSoundDevice::Adlib
+            );
+            let mut draft = session.saved.clone();
+            draft.edit(false, SOUND, "pc-speaker".into());
+            assert!(!draft.global.contains_key(SOUND));
+            if game != "centurion-defender-of-rome" {
+                session.cli.insert(SOUND.into(), "pc-speaker".into());
+                assert!(!session.saved.game.contains_key(SOUND));
+                assert_eq!(
+                    session.effective(&session.saved).centurion.sound,
+                    CenturionSoundDevice::Adlib
+                );
+                draft.edit(true, SOUND, "adlib".into());
+                session.commit(draft).unwrap();
+            }
+        }
+        let document = fs::read_to_string(temp.path())
+            .unwrap()
+            .parse::<toml_edit::DocumentMut>()
+            .unwrap();
+        assert_eq!(
+            document["global"]["launcher"][SOUND].as_str(),
+            Some("pc-speaker")
+        );
+        assert_eq!(
+            document["entries"]["copy"]["launcher"][SOUND].as_str(),
+            Some("pc-speaker")
+        );
+    }
+
+    #[test]
+    fn sound_cli_is_temporary_and_unrelated_saves_keep_concurrent_launcher_edits() {
+        let temp = Temp::new();
+        crate::launcher::save_native_option(&temp.path(), "copy", SOUND, Some("adlib")).unwrap();
+        let mut session = temp.session("centurion-defender-of-rome");
+        session.cli.insert(SOUND.into(), "pc-speaker".into());
+        assert_eq!(
+            session.effective(&session.saved).centurion.sound,
+            CenturionSoundDevice::PcSpeaker
+        );
+        assert_eq!(
+            session.saved.game_values().centurion.sound,
+            CenturionSoundDevice::Adlib
+        );
+        let mut draft = session.saved.clone();
+        draft.edit(true, "master_volume", "70".into());
+        session.commit(draft).unwrap();
+        assert_eq!(
+            crate::launcher::native_options(&temp.path(), "copy").unwrap()[SOUND],
+            "adlib"
+        );
+        // A pending unrelated settings edit must not replace a newer native pin.
+        crate::launcher::save_native_option(&temp.path(), "copy", SOUND, Some("pc-speaker"))
+            .unwrap();
+        let mut draft = session.saved.clone();
+        draft.edit(true, "vsync", "false".into());
+        session.commit(draft).unwrap();
+        assert_eq!(
+            temp.session("centurion-defender-of-rome")
+                .saved
+                .game_values()
+                .centurion
+                .sound,
+            CenturionSoundDevice::PcSpeaker
+        );
+        assert_eq!(
+            crate::launcher::native_options(&temp.path(), "copy").unwrap()[SOUND],
+            "pc-speaker"
+        );
+    }
+
+    #[test]
+    fn invalid_sound_values_and_malformed_launcher_sections_remain_intact() {
+        let temp = Temp::new();
+        for invalid in ["unknown", "default", "speaker"] {
+            fs::write(
+                temp.path(),
+                format!(
+                    "[entries.copy.launcher]\nsound = '{invalid}' # retain\nfuture_flag = true\n"
+                ),
+            )
+            .unwrap();
+            let mut session = temp.session("centurion-defender-of-rome");
+            assert!(session.warning.is_some());
+            assert!(!session.saved.game.contains_key(SOUND));
+            assert_eq!(
+                session.saved.game_values().centurion.sound,
+                CenturionSoundDevice::Adlib
+            );
+            let mut draft = session.saved.clone();
+            draft.edit(true, "vsync", "false".into());
+            session.commit(draft).unwrap();
+            let text = fs::read_to_string(temp.path()).unwrap();
+            assert!(text.contains(&format!("sound = '{invalid}' # retain")));
+            assert!(text.contains("future_flag = true"));
+        }
+        let original = "[entries.copy]\nlauncher = 'broken'\n";
+        fs::write(temp.path(), original).unwrap();
+        let mut session = temp.session("centurion-defender-of-rome");
+        assert!(session.warning.is_some());
+        let mut draft = session.saved.clone();
+        draft.edit(false, "vsync", "false".into());
+        draft.edit(true, SOUND, "pc-speaker".into());
+        assert!(session.commit(draft).is_err());
+        assert_eq!(fs::read_to_string(temp.path()).unwrap(), original);
     }
 
     #[test]

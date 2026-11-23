@@ -418,17 +418,19 @@ impl GameEntry {
         }
         args
     }
-    /// Saved Alley Cat machine preferences are read by the child's profile
-    /// binding. Passing them as CLI overrides would lock the in-game selector.
+    /// Startup choices exposed in Settings are read by the child's profile
+    /// binding. Passing saved pins as CLI overrides would lock those selectors.
     pub fn launch_arguments(&self) -> Vec<String> {
         let args = self.native_arguments();
-        if self.game_id != "alley-cat" {
-            return args;
-        }
+        let startup_argument = match self.game_id.as_str() {
+            "alley-cat" => "--machine",
+            "centurion-defender-of-rome" => "--sound",
+            _ => return args,
+        };
         args.as_chunks::<2>()
             .0
             .iter()
-            .filter(|pair| pair[0] != "--machine")
+            .filter(|pair| pair[0] != startup_argument)
             .flatten()
             .cloned()
             .collect()

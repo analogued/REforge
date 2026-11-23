@@ -425,7 +425,8 @@ pairs discard the pair's overrides at that scope and warn.
 
 Audio preferences use `[global.audio]` and `[entries.<entry-id>.audio]` with the
 same draft, sparse overrides and section reset rules. Sound renderer selection
-is enabled in game overrides for engines/runs that provide audio. Shared levels,
+is enabled in game overrides for engines/runs that provide alternative rendering.
+Centurion instead shows its startup Sound device choice, described below. Shared levels,
 devices and focus defaults can be edited globally even from a silent game.
 
 | Key | Values | Built-in default |
@@ -446,6 +447,15 @@ three-voice title music, with Music and Effects categories; its uniform-step dia
 runner remains silent. Engines declare supported Music, Speech and Sound effects groups;
 unsupported game groups remain visible but disabled. Global category defaults
 can still be edited. Latency controls and stereo processing are not implemented.
+
+Centurion's **Audio → Sound device** selects AdLib or PC speaker for the next
+launch, sharing the launcher's **Sound** choice at
+`[entries.<entry-id>.launcher] sound = "adlib" | "pc-speaker"`. It is per entry,
+with AdLib as the built-in default, and does not inherit a global device choice.
+Apply saves it; Cancel discards it; restoring Audio defaults clears the saved
+choice. An explicit `--sound` is temporary and locks the control for that run.
+Unregistered launches cannot save next-launch edits. Master/category volumes,
+host output device and focus muting still apply during play.
 
 `btz`'s Ctrl+G keyboard bell uses PC-speaker synthesis in graphical play and
 belongs to Sound effects. Master volume, Effects volume, output device and focus

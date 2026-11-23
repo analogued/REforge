@@ -47,7 +47,8 @@ Unreleased contains changes intended for the next public release.
 ### Centurion
 
 - Choose AdLib or the original PC speaker sound arrangement independently of
-  video mode, with the choice saved for each library entry.
+  video mode, from launcher options or Audio overrides in Settings. The choice
+  is saved for each library entry and applies on the next launch.
 - Read and write DOS campaign saves, allowing progress to be shared with
   the original game.
 - Reforged UI options include territory border highlighting and indicators

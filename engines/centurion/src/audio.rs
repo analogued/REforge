@@ -8,28 +8,7 @@ use reforge_audio::opl::{Nuked, Opl};
 use std::io::Write;
 use std::path::Path;
 
-/// Original sound hardware selected for this launch, independently of host output.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum SoundDevice {
-    #[default]
-    Adlib,
-    PcSpeaker,
-}
-impl SoundDevice {
-    pub fn parse(value: &str) -> Result<Self> {
-        match value {
-            "adlib" => Ok(Self::Adlib),
-            "pc-speaker" => Ok(Self::PcSpeaker),
-            _ => Err("Sound must be adlib or pc-speaker".into()),
-        }
-    }
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Adlib => "adlib",
-            Self::PcSpeaker => "pc-speaker",
-        }
-    }
-}
+pub use reforge_settings::CenturionSoundDevice as SoundDevice;
 
 pub const SAMPLE_RATE: u32 = 48_000;
 

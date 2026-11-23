@@ -176,7 +176,9 @@ playback, and Ctrl+Q exits. Escape retains its original game actions.
 Shared volume, music/effects levels, output-device selection and focus muting
 control host audio without changing the original single sequencer or sound
 requests. AdLib output uses software OPL2-compatible synthesis; PC speaker
-output uses the shared PIT/speaker model and filtered host PCM. The launcher
+output uses the shared PIT/speaker model and
+[small-speaker response](../../../crates/reforge_audio/README.md#replaceable-signal-rendering)
+without normalizing its gain against AdLib. The launcher
 Sound choice or `--sound adlib|pc-speaker` selects the original arrangement at
 launch, with AdLib as the default rather than probing physical DOS hardware.
 Callback generation is independent of window rendering; scheduling

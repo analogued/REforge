@@ -9,7 +9,7 @@ use crate::{
     assets::{GraphicsAssets, Sprite},
     sound::{Resource, Tone},
 };
-use reforge_audio::render::{CategorizedRenderer, Config};
+use reforge_audio::render::{CategorizedRenderer, Config, OutputFilter};
 use reforge_sdl::audio::{
     Playback,
     queue::{Policy, Queue},
@@ -450,13 +450,14 @@ fn rules_with_commands(commands: &[u8]) -> ScriptRules {
 
 fn signal(chunk: u32) -> Rc<RefCell<Synthesis>> {
     let mut synthesis = Synthesis::new().unwrap();
-    synthesis.renderer = CategorizedRenderer::new(
+    synthesis.renderer = CategorizedRenderer::with_filter(
         Config {
             clock_hz: PIT_HZ as u32,
             sample_rate: RATE,
             chunk_ticks: chunk,
         },
         0,
+        OutputFilter::PcSpeaker,
     )
     .unwrap();
     Rc::new(RefCell::new(synthesis))

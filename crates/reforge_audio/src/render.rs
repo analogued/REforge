@@ -8,7 +8,11 @@ pub use mixer::CategoryMixer;
 #[cfg(feature = "blip")]
 mod blip;
 #[cfg(feature = "blip")]
+mod speaker_filter;
+#[cfg(feature = "blip")]
 pub use blip::BlipRenderer;
+#[cfg(feature = "blip")]
+pub use speaker_filter::OutputFilter;
 #[cfg(feature = "blip")]
 mod categorized;
 #[cfg(feature = "blip")]

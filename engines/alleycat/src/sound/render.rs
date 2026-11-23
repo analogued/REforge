@@ -8,7 +8,7 @@ use reforge_audio::{
     category::{CategoryVolumes, SoundCategory},
     pit::CountOnePolicy,
     psg::TonePsg,
-    render::{CategorizedRenderer, Config},
+    render::{CategorizedRenderer, Config, OutputFilter},
     speaker::PcSpeaker,
 };
 
@@ -20,13 +20,14 @@ struct SpeakerRenderer {
 }
 impl SpeakerRenderer {
     pub fn new(volumes: CategoryVolumes) -> Result<Self, String> {
-        let mut renderer = CategorizedRenderer::new(
+        let mut renderer = CategorizedRenderer::with_filter(
             Config {
                 clock_hz: PIT_HZ as u32,
                 sample_rate: RATE,
                 chunk_ticks: (PIT_HZ / 100) as u32,
             },
             0,
+            OutputFilter::PcSpeaker,
         )
         .map_err(|e| e.to_string())?;
         renderer.set_volumes(volumes).map_err(|e| e.to_string())?;

@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded adapter for the pinned Rust blip_buf dependency.
 
-use super::{Config, Error, MAX_LEVEL, Output, SignalRenderer};
+use super::{
+    Config, Error, MAX_LEVEL, Output, OutputFilter, SignalRenderer, speaker_filter::SpeakerFilter,
+};
 use blip_buf::{BlipBuf, MAX_FRAME, MAX_RATIO};
 
 // Backend timing precision, checked against the pinned implementation. These
@@ -18,10 +20,21 @@ pub struct BlipRenderer {
     samples_written: u64,
     stopped: bool,
     scratch: Vec<i16>,
+    filter: Option<Box<SpeakerFilter>>,
 }
 
 impl BlipRenderer {
     pub fn new(config: Config, epoch: u64, initial_level: i16) -> Result<Self, Error> {
+        Self::with_filter(config, epoch, initial_level, OutputFilter::None)
+    }
+
+    pub fn with_filter(
+        config: Config,
+        epoch: u64,
+        initial_level: i16,
+        filter: OutputFilter,
+    ) -> Result<Self, Error> {
+        let filter = filter.build(config.sample_rate)?;
         if config.clock_hz == 0 || config.sample_rate == 0 || config.chunk_ticks == 0 {
             return Err(Error::Invalid(
                 "renderer rates and chunk length must be positive",
@@ -68,11 +81,21 @@ impl BlipRenderer {
             samples_written: 0,
             stopped: false,
             scratch: vec![0; MAX_FRAME as usize],
+            filter: filter.map(Box::new),
         })
     }
 
     pub fn config(&self) -> Config {
         self.config
+    }
+    /// Drain to the desired timestamp before changing presentation response.
+    /// Keeps resampler/device time; starts the new response with zero history.
+    pub fn set_filter(&mut self, filter: OutputFilter) -> Result<(), Error> {
+        if self.filter.is_some() == (filter == OutputFilter::PcSpeaker) {
+            return Ok(());
+        }
+        self.filter = filter.build(self.config.sample_rate)?.map(Box::new);
+        Ok(())
     }
     pub(super) fn chunk_end(&self) -> Option<u64> {
         self.frame_start
@@ -111,6 +134,9 @@ impl BlipRenderer {
             return Err(Error::Backend("incomplete synthesis buffer drain"));
         }
         if count != 0 {
+            if let Some(filter) = &mut self.filter {
+                filter.process(&mut self.scratch[..count]);
+            }
             output(&self.scratch[..count])?;
             self.samples_written = self
                 .samples_written

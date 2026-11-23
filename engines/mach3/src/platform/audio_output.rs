@@ -8,7 +8,7 @@ use crate::{
 };
 use reforge_audio::{
     PIT_HZ,
-    render::{CategorizedRenderer, Config},
+    render::{CategorizedRenderer, Config, OutputFilter},
 };
 use reforge_sdl::{
     audio::{
@@ -40,13 +40,14 @@ impl Synthesis {
     }
     pub(super) fn with_mode(mode: AudioRenderer) -> Result<Self, String> {
         Ok(Self {
-            renderer: CategorizedRenderer::new(
+            renderer: CategorizedRenderer::with_filter(
                 Config {
                     clock_hz: PIT_HZ as u32,
                     sample_rate: RATE,
                     chunk_ticks: SYNTHESIS_CHUNK_TICKS as u32,
                 },
                 0,
+                output_filter(mode),
             )
             .map_err(|e| e.to_string())?,
             policy: RenderingPolicy::new(mode, false),
@@ -57,6 +58,10 @@ impl Synthesis {
     }
     pub(super) fn set_mode(&mut self, mode: AudioRenderer, tick: u64) {
         if let Some(level) = self.policy.set_mode(mode) {
+            self.advance(tick, None);
+            if let Err(error) = self.renderer.set_filter(output_filter(mode)) {
+                self.error = Some(error.to_string());
+            }
             self.advance(tick, Some(level));
             self.blocks.clear();
         }
@@ -102,6 +107,13 @@ impl Synthesis {
         if let Err(error) = result {
             self.error = Some(error.to_string());
         }
+    }
+}
+
+fn output_filter(mode: AudioRenderer) -> OutputFilter {
+    match mode {
+        AudioRenderer::Speaker => OutputFilter::PcSpeaker,
+        AudioRenderer::EnhancedPcm => OutputFilter::None,
     }
 }
 
@@ -199,4 +211,47 @@ impl AudioOutput {
 
 pub(super) fn samples_at(tick: u64) -> u64 {
     (u128::from(tick) * u128::from(RATE) / u128::from(PIT_HZ)) as u64
+}
+
+#[cfg(test)]
+mod response_tests {
+    use super::*;
+
+    #[test]
+    fn switching_between_speaker_and_pcm_drains_the_old_response_mid_chunk() {
+        for (before, after) in [
+            (AudioRenderer::Speaker, AudioRenderer::EnhancedPcm),
+            (AudioRenderer::EnhancedPcm, AudioRenderer::Speaker),
+        ] {
+            let mut implicit = Synthesis::with_mode(before).unwrap();
+            let mut explicit = Synthesis::with_mode(before).unwrap();
+            for signal in [&mut implicit, &mut explicit] {
+                signal.advance(0, Some(8192));
+                signal.advance(100, Some(0));
+                signal.advance(700, Some(8192));
+            }
+            // 4,101 is inside the 11,931-tick synthesis chunk. The switch
+            // must emit the old interval even without an explicit caller drain.
+            explicit.advance(4101, None);
+            let frames_before = explicit.generated;
+            explicit.set_mode(after, 4101);
+            implicit.set_mode(after, 4101);
+            assert_eq!(implicit.generated, frames_before);
+            assert!(implicit.blocks.is_empty());
+            for signal in [&mut implicit, &mut explicit] {
+                signal.advance(5101, Some(8192));
+                signal.advance(6001, Some(0));
+                signal.advance(30_000, None);
+                assert!(signal.error.is_none());
+            }
+            let pcm = |s: &Synthesis| {
+                s.blocks
+                    .iter()
+                    .flat_map(|b| b.samples.iter().copied())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(pcm(&implicit), pcm(&explicit));
+            assert_eq!(implicit.generated, explicit.generated);
+        }
+    }
 }

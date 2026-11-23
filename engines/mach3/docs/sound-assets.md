@@ -416,7 +416,9 @@ frontend supplies explicit bootstrap pins/vectors and the DOS allocation name
 or a universal DOS heap assumption.
 
 By default, PC speaker drive edges feed the shared signal renderer at their
-simulation ticks. The windowed frontend synthesizes 48 kHz mono signed 16-bit
+simulation ticks, using the
+[shared small-speaker response](../../../crates/reforge_audio/README.md#replaceable-signal-rendering)
+after digital reconstruction. The windowed frontend synthesizes 48 kHz mono signed 16-bit
 PCM and feeds timestamped blocks to the shared
 [`reforge_sdl::audio::queue`](../../../crates/reforge_sdl/README.md). Its
 shared policy prefills 50 ms, preserves buffer-covered interruptions, and
@@ -464,6 +466,9 @@ before the backend's high-pass filtering. No automatic loudness normalization
 or clipping repair is applied in live output. The shared blip renderer retains
 filter history across chunks and handoffs; its hold/filter response is not a
 reconstruction of a Sound Blaster's analog filtering.
+Enhanced PCM does not apply the additional PC speaker response. Switching
+rendering modes drains the old interval before changing response, retaining
+device/resampler time and restarting only the added response history.
 
 `SourceBegin` selects midpoint silence until the first visit. `SourceEnd`
 selects midpoint again and suppresses the remaining sample-derived PWM pulse.
@@ -529,7 +534,8 @@ Add `--wav` alongside `--device` to render the same execution into
 `speaker.wav` and `enhanced-pcm.wav`, using separate instances of the shared replaceable
 [signal renderer](../../../crates/reforge_audio/README.md#replaceable-signal-rendering).
 The default is mono signed 16-bit PCM at 48,000 Hz; `--sample-rate HZ` selects a
-different rate and `--audio-chunk-ticks TICKS` selects an internal synthesis
+different rate above 8,600 Hz (required by the speaker response), and
+`--audio-chunk-ticks TICKS` selects an internal synthesis
 chunk bound (default 11,931 PIT clocks). Both accept positive decimal integers
 and require `--wav`. The backend checks rate and chunk limits before creating
 the output directory.

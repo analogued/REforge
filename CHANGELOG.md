@@ -12,6 +12,8 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Soften PC speaker output with shared small-speaker filtering across games,
+  using DOSBox Staging's response parameters.
 - Group Alley Cat and Mach 3 motion options and Alley Cat input response under
   Enhancements in Settings.
 - Use equal-height previews in Split view, with Play aligned to the preview when

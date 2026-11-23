@@ -11,7 +11,7 @@ volumes. Classification belongs to the engine, independently of source encoding.
 With `blip`, `render::CategorizedRenderer` routes one observed signal into these
 groups without creating concurrent native voices or changing interruption rules.
 It filters each group independently before applying volume, preserving previous
-groups' decay tails. A reference signal retains exact original PCM at unity;
+groups' decay tails. A reference signal retains exact single-signal PCM at unity;
 non-unity mixing uses clamped signed output. Gain changes ramp over five
 milliseconds after startup. Work buffers are bounded to one synthesis chunk.
 Master gain and device output remain outside this crate.
@@ -159,6 +159,29 @@ output samples. This is a defined digital rendering path, not a measured physica
 speaker response. Finishing at a horizon emits only its committed interval;
 it does not invent later device time to flush the filter tail. A different
 renderer can receive the same timed levels before this backend's filtering.
+
+PC speaker callers select `OutputFilter::PcSpeaker` with
+`BlipRenderer::with_filter` or `CategorizedRenderer::with_filter`. After Blip
+reconstruction, this applies third-order Butterworth high-pass filtering at
+120 Hz and low-pass filtering at 4,300 Hz. These design parameters credit
+[DOSBox Staging](../../THIRD_PARTY.md#pc-speaker-response-design-credit);
+REforge independently implements the filters using a first-order section and a
+Q=1 biquad per cutoff, with bilinear prewarping and continuous double-precision
+state. Only final output is rounded and clamped to signed 16-bit PCM.
+The response approximates small-speaker bandwidth rather than a particular
+measured speaker/case. It does not reproduce Staging's impulse synthesizer or
+change device gain to normalize PC speaker against AdLib.
+
+The response requires an output rate above 8,600 Hz so both cutoffs lie below
+Nyquist. `new` retains the existing digital reconstruction without this added
+response, for PSG and enhanced PCM output and low-rate research probes.
+`set_filter` changes presentation at a drained timestamp, preserving resampler
+and device time but starting the new response with zero history; selecting the
+same filter retains history. Category renderers apply the response separately
+to each group and the unity reference before volume mixing, preserving each
+group's decay and gain. PC speaker output uses this response in all engines;
+AdLib, Tandy PSG and Mach 3 enhanced PCM retain their existing paths. Paired Mach 3
+speaker/enhanced WAV exports therefore require rates above 8,600 Hz.
 
 Host pause should freeze the simulation timeline and retain renderer state.
 Mute or disabled host output must still execute devices and handlers; callers

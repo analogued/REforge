@@ -4,7 +4,7 @@
 
 use reforge_audio::{
     PIT_HZ,
-    render::{BlipRenderer, Config, Error, SignalRenderer},
+    render::{BlipRenderer, Config, Error, OutputFilter, SignalRenderer},
     speaker::PcSpeaker,
 };
 
@@ -21,8 +21,9 @@ fn renderer(rate: u32, chunk: u32) -> BlipRenderer {
     .unwrap()
 }
 
-fn pattern(rate: u32, chunk: u32, finishes: &[u64]) -> Vec<i16> {
+fn pattern(rate: u32, chunk: u32, finishes: &[u64], filter: OutputFilter) -> Vec<i16> {
     let mut renderer = renderer(rate, chunk);
+    renderer.set_filter(filter).unwrap();
     let mut pcm = Vec::new();
     let mut output = |block: &[i16]| {
         pcm.extend_from_slice(block);
@@ -57,16 +58,22 @@ fn pattern(rate: u32, chunk: u32, finishes: &[u64]) -> Vec<i16> {
 #[test]
 fn synthesis_and_finish_partitions_preserve_continuous_pcm_at_several_rates() {
     for rate in [8000, 32000, 44100, 48000, 96000] {
-        let one = pattern(rate, 11931, &[]);
-        assert_eq!(
-            one,
-            pattern(
-                rate,
-                137,
-                &[1, 77, 137, 138, 199, 32768, 65536, 131072, 301017]
-            )
-        );
-        assert!(one.iter().any(|sample| *sample != 0));
+        for filter in [OutputFilter::None, OutputFilter::PcSpeaker] {
+            if rate == 8000 && filter == OutputFilter::PcSpeaker {
+                continue;
+            }
+            let one = pattern(rate, 11931, &[], filter);
+            assert_eq!(
+                one,
+                pattern(
+                    rate,
+                    137,
+                    &[1, 77, 137, 138, 199, 32768, 65536, 131072, 301017],
+                    filter,
+                )
+            );
+            assert!(one.iter().any(|sample| *sample != 0));
+        }
     }
 }
 
@@ -88,9 +95,10 @@ fn long_silent_or_held_intervals_split_without_a_graphics_body_limit() {
     assert_eq!(renderer.tick(), PIT_HZ * 20);
 }
 
-fn device_render(chunk: u32, rate: u32) -> (PcSpeaker, Vec<i16>) {
+fn device_render(chunk: u32, rate: u32, filter: OutputFilter) -> (PcSpeaker, Vec<i16>) {
     let mut device = PcSpeaker::new(0, [true; 3]);
     let mut renderer = renderer(rate, chunk);
+    renderer.set_filter(filter).unwrap();
     let mut pcm = Vec::new();
     let mut output = |samples: &[i16]| {
         pcm.extend_from_slice(samples);
@@ -147,10 +155,61 @@ fn device_render(chunk: u32, rate: u32) -> (PcSpeaker, Vec<i16>) {
 
 #[test]
 fn odd_tones_gate_changes_and_pwm_reload_render_independently_of_chunking() {
-    let (device, pcm) = device_render(11931, 48000);
-    assert_eq!((device.clone(), pcm.clone()), device_render(499, 48000));
-    assert_eq!(device, device_render(1000, 44100).0);
-    assert!(pcm.iter().any(|sample| *sample != 0));
+    let baseline = device_render(11931, 48000, OutputFilter::None).0;
+    for filter in [OutputFilter::None, OutputFilter::PcSpeaker] {
+        let (device, pcm) = device_render(11931, 48000, filter);
+        assert_eq!(
+            (device.clone(), pcm.clone()),
+            device_render(499, 48000, filter)
+        );
+        assert_eq!(device, device_render(1000, 44100, filter).0);
+        assert_eq!(device, baseline);
+        assert!(pcm.iter().any(|sample| *sample != 0));
+    }
+}
+
+#[test]
+fn speaker_response_reduces_treble_without_changing_sample_count_or_clock() {
+    let raw = pattern(48_000, 11931, &[], OutputFilter::None);
+    let filtered = pattern(48_000, 11931, &[], OutputFilter::PcSpeaker);
+    assert_eq!(raw.len(), filtered.len());
+    // This square wave's fundamental is about 7.75 kHz, above the 4.3 kHz
+    // low-pass cutoff. Compare steady state, excluding startup transients.
+    let power = |samples: &[i16]| {
+        samples[4800..]
+            .iter()
+            .map(|s| f64::from(*s).powi(2))
+            .sum::<f64>()
+    };
+    assert!(power(&filtered) < power(&raw) * 0.03);
+}
+
+#[test]
+fn response_selection_validates_nyquist_and_reapplying_keeps_history() {
+    for rate in [8000, 8600] {
+        let mut raw = renderer(rate, 1000);
+        assert!(raw.set_filter(OutputFilter::PcSpeaker).is_err());
+        raw.finish_until(1000, &mut |_| Ok(())).unwrap();
+    }
+    let (mut a, mut b) = (renderer(48_000, 1000), renderer(48_000, 1000));
+    for r in [&mut a, &mut b] {
+        r.set_filter(OutputFilter::PcSpeaker).unwrap();
+        r.level_at(0, 8192, &mut |_| Ok(())).unwrap();
+        r.finish_until(1000, &mut |_| Ok(())).unwrap();
+    }
+    b.set_filter(OutputFilter::PcSpeaker).unwrap();
+    let (mut expected, mut actual) = (Vec::new(), Vec::new());
+    a.finish_until(20000, &mut |s| {
+        expected.extend_from_slice(s);
+        Ok(())
+    })
+    .unwrap();
+    b.finish_until(20000, &mut |s| {
+        actual.extend_from_slice(s);
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(expected, actual);
 }
 
 #[test]

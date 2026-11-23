@@ -97,6 +97,14 @@ This policy applies only to pairing frames. Other presentation drawing costs,
 including the shared large cat's approach animation, retain their measured
 allowances. The older DOSBox timing profile retains its byte-based drawing costs.
 
+## Speaker presentation
+
+PC speaker output uses the
+[shared small-speaker response](../../../crates/reforge_audio/README.md#replaceable-signal-rendering)
+after digital waveform reconstruction. This approximates speaker bandwidth
+without changing sound commands, PIT execution or category gains. Tandy PSG
+output retains its separate digital rendering path.
+
 ## Scene and sprite composition
 
 The original draws into display memory in stages and restores saved sprite

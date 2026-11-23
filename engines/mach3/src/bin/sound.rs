@@ -11,7 +11,7 @@ use mach3::{
     },
 };
 use reforge_audio::{
-    render::{self, BlipRenderer, Config, SignalRenderer},
+    render::{self, BlipRenderer, Config, OutputFilter, SignalRenderer},
     speaker::{Events, PcSpeaker},
     wav::WavWriter,
 };
@@ -43,6 +43,7 @@ port61 context supplies unmodeled upper read bits, with lower speaker bits check
 --wav requires --device and writes paired offline mono 16-bit speaker.wav and enhanced-pcm.wav\n\
 from the same execution, at 48000 Hz by default.\n\
 --sample-rate and --audio-chunk-ticks require --wav; both are positive decimal integers.\n\
+The PC speaker response requires a sample rate above 8600 Hz.\n\
 Audio chunks default to 11931 PIT ticks. No live audio playback is involved.";
 
 fn invalid(message: impl Into<String>) -> Error {
@@ -197,8 +198,16 @@ impl PairedAudio {
                 .open(destination.join(name))?;
             Ok::<_, Error>(RenderedWav {
                 policy: RenderingPolicy::new(mode, false),
-                renderer: BlipRenderer::new(config, tick, 0)
-                    .map_err(|error| invalid(error.to_string()))?,
+                renderer: BlipRenderer::with_filter(
+                    config,
+                    tick,
+                    0,
+                    match mode {
+                        AudioRenderer::Speaker => OutputFilter::PcSpeaker,
+                        AudioRenderer::EnhancedPcm => OutputFilter::None,
+                    },
+                )
+                .map_err(|error| invalid(error.to_string()))?,
                 wav: WavWriter::new(file, config.sample_rate)?,
             })
         };
@@ -685,7 +694,8 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, Er
     });
     // Validate the renderer configuration before creating any output directory.
     if let Some(config) = audio {
-        BlipRenderer::new(config, 0, 0).map_err(|error| invalid(error.to_string()))?;
+        BlipRenderer::with_filter(config, 0, 0, OutputFilter::PcSpeaker)
+            .map_err(|error| invalid(error.to_string()))?;
     }
     Ok(Options {
         context_path,
@@ -1118,7 +1128,7 @@ mod tests {
         }
         // Replay only the shared hardware's drive edges through the original
         // speaker mapping, independently of either rendering policy.
-        let mut reference = BlipRenderer::new(
+        let mut reference = BlipRenderer::with_filter(
             Config {
                 clock_hz: PIT_CLOCK_HZ,
                 sample_rate: 48_000,
@@ -1126,6 +1136,7 @@ mod tests {
             },
             0,
             8192,
+            OutputFilter::PcSpeaker,
         )
         .unwrap();
         let mut reference_pcm = Vec::new();

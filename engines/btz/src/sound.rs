@@ -5,7 +5,7 @@
 use reforge_audio::{
     PIT_HZ,
     category::SoundCategory,
-    render::{BlipRenderer, Config, MAX_LEVEL, SignalRenderer},
+    render::{BlipRenderer, Config, MAX_LEVEL, OutputFilter, SignalRenderer},
     speaker::PcSpeaker,
 };
 use reforge_sdl::audio::{
@@ -26,7 +26,7 @@ const TAIL_MS: u64 = 20;
 fn samples(volume: u8) -> Result<Vec<i16>, String> {
     let generate = || -> Result<Vec<i16>, Box<dyn std::error::Error>> {
         let mut speaker = PcSpeaker::new(0, [false; 3]);
-        let mut renderer = BlipRenderer::new(
+        let mut renderer = BlipRenderer::with_filter(
             Config {
                 clock_hz: PIT_HZ as u32,
                 sample_rate: RATE,
@@ -34,6 +34,7 @@ fn samples(volume: u8) -> Result<Vec<i16>, String> {
             },
             0,
             0,
+            OutputFilter::PcSpeaker,
         )?;
         let mut pcm = Vec::new();
         let mut collect = |block: &[i16]| {

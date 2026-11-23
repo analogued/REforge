@@ -71,6 +71,22 @@ Neither `c-reference-tests` nor `stereo-ext` is enabled, so this dependency
 requires no C/C++ compiler. Centurion enables `opl` for its AdLib output, so
 default application builds include this dependency.
 
+## PC speaker response design credit
+
+The PC speaker response in
+[`speaker_filter.rs`](crates/reforge_audio/src/render/speaker_filter.rs)
+credits DOSBox Staging for its choice of third-order Butterworth high-pass
+filter at 120 Hz and third-order Butterworth low-pass filter at 4,300 Hz.
+The reference is `PcSpeakerImpulse::SetFilterState` in
+[`pcspeaker_impulse.cpp` at v0.83.0](https://github.com/dosbox-staging/dosbox-staging/blob/7b40053b7ac580843d0461eba8c36a47a990e66c/src/hardware/audio/pcspeaker_impulse.cpp),
+commit `7b40053b7ac580843d0461eba8c36a47a990e66c`.
+
+REforge independently implements the mathematical filter design and coefficient
+calculation in Rust. No Staging or upstream filter-library implementation code
+is copied, adapted or translated. This is a design credit, separate from the
+imported shader below; the authored implementation uses GPL-3.0-or-later.
+Waveform reconstruction continues to use the `blip_buf` dependency listed above.
+
 ## Statically linked libbzip2
 
 Alley Cat's bzip2 dependency enables `static`, compiling the unmodified libbzip2

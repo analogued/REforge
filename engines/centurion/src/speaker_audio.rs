@@ -6,7 +6,7 @@ use crate::audio::{SAMPLE_RATE, tick_frame};
 use crate::intro::PIT_HZ;
 use crate::speaker::Sequencer;
 use reforge_audio::{
-    render::{BlipRenderer, Config, MAX_LEVEL, SignalRenderer},
+    render::{BlipRenderer, Config, MAX_LEVEL, OutputFilter, SignalRenderer},
     speaker::{Events, PcSpeaker},
 };
 use std::collections::VecDeque;
@@ -28,7 +28,7 @@ impl Music {
     pub fn from_sequencer(sequence: Sequencer) -> Result<Self> {
         // Model the driver's low two port-61 bits, not unrelated refresh/status pins.
         let device = PcSpeaker::new(0, [true; 3]);
-        let renderer = BlipRenderer::new(
+        let renderer = BlipRenderer::with_filter(
             Config {
                 clock_hz: reforge_audio::PIT_HZ as u32,
                 sample_rate: SAMPLE_RATE,
@@ -36,6 +36,7 @@ impl Music {
             },
             0,
             0,
+            OutputFilter::PcSpeaker,
         )
         .map_err(|e| e.to_string())?;
         let mut music = Self {

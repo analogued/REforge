@@ -3,7 +3,7 @@
 //! Volume groups for one observed signal, preserving its original interruptions.
 //! Filtering occurs per group so a previous group's decay retains its own gain.
 
-use super::{BlipRenderer, CategoryMixer, Config, Error, Output, SignalRenderer};
+use super::{BlipRenderer, CategoryMixer, Config, Error, Output, OutputFilter, SignalRenderer};
 use crate::category::{CategoryVolumes, SoundCategory};
 
 pub struct CategorizedRenderer {
@@ -18,12 +18,15 @@ pub struct CategorizedRenderer {
 }
 impl CategorizedRenderer {
     pub fn new(config: Config, epoch: u64) -> Result<Self, Error> {
+        Self::with_filter(config, epoch, OutputFilter::None)
+    }
+    pub fn with_filter(config: Config, epoch: u64, filter: OutputFilter) -> Result<Self, Error> {
         Ok(Self {
-            reference: BlipRenderer::new(config, epoch, 0)?,
+            reference: BlipRenderer::with_filter(config, epoch, 0, filter)?,
             groups: [
-                BlipRenderer::new(config, epoch, 0)?,
-                BlipRenderer::new(config, epoch, 0)?,
-                BlipRenderer::new(config, epoch, 0)?,
+                BlipRenderer::with_filter(config, epoch, 0, filter)?,
+                BlipRenderer::with_filter(config, epoch, 0, filter)?,
+                BlipRenderer::with_filter(config, epoch, 0, filter)?,
             ],
             scratch: std::array::from_fn(|_| Vec::new()),
             category: SoundCategory::Effects,
@@ -32,6 +35,15 @@ impl CategorizedRenderer {
             mixed: Vec::new(),
             stopped: false,
         })
+    }
+    /// Drain to the desired timestamp first. Per-category response histories
+    /// restart together; device/resampler time and volume ramps are retained.
+    pub fn set_filter(&mut self, filter: OutputFilter) -> Result<(), Error> {
+        self.reference.set_filter(filter)?;
+        for group in &mut self.groups {
+            group.set_filter(filter)?;
+        }
+        Ok(())
     }
     /// Startup levels are immediate; later changes use five-millisecond ramps.
     /// This does not change or restart the source signal or its device clock.
@@ -157,145 +169,151 @@ mod tests {
     }
     #[test]
     fn unity_matches_single_signal_across_category_handoffs_and_long_waits() {
-        let mut original = BlipRenderer::new(config(), 0, 0).unwrap();
-        let mut grouped = CategorizedRenderer::new(config(), 0).unwrap();
-        let (mut expected, mut actual) = (Vec::new(), Vec::new());
-        for (tick, category, level) in [
-            (0, SoundCategory::Music, 4096),
-            (53, SoundCategory::Music, 8192),
-            (703, SoundCategory::Speech, 0),
-            (790, SoundCategory::Speech, 4096),
-            (16001, SoundCategory::Effects, 8192),
-            (17007, SoundCategory::Effects, 0),
-        ] {
+        for filter in [OutputFilter::None, OutputFilter::PcSpeaker] {
+            let mut original = BlipRenderer::with_filter(config(), 0, 0, filter).unwrap();
+            let mut grouped = CategorizedRenderer::with_filter(config(), 0, filter).unwrap();
+            let (mut expected, mut actual) = (Vec::new(), Vec::new());
+            for (tick, category, level) in [
+                (0, SoundCategory::Music, 4096),
+                (53, SoundCategory::Music, 8192),
+                (703, SoundCategory::Speech, 0),
+                (790, SoundCategory::Speech, 4096),
+                (16001, SoundCategory::Effects, 8192),
+                (17007, SoundCategory::Effects, 0),
+            ] {
+                original
+                    .level_at(tick, level, &mut |s| {
+                        expected.extend_from_slice(s);
+                        Ok(())
+                    })
+                    .unwrap();
+                grouped
+                    .level_at(tick, category, level, &mut |s| {
+                        actual.extend_from_slice(s);
+                        Ok(())
+                    })
+                    .unwrap();
+            }
             original
-                .level_at(tick, level, &mut |s| {
+                .finish_until(1_200_000, &mut |s| {
                     expected.extend_from_slice(s);
                     Ok(())
                 })
                 .unwrap();
             grouped
-                .level_at(tick, category, level, &mut |s| {
+                .finish_until(1_200_000, &mut |s| {
                     actual.extend_from_slice(s);
                     Ok(())
                 })
                 .unwrap();
+            assert_eq!(expected, actual);
         }
-        original
-            .finish_until(1_200_000, &mut |s| {
-                expected.extend_from_slice(s);
-                Ok(())
-            })
-            .unwrap();
-        grouped
-            .finish_until(1_200_000, &mut |s| {
-                actual.extend_from_slice(s);
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(expected, actual);
     }
     #[test]
     fn live_gain_ramps_reach_half_volume_without_restarting_synthesis() {
-        let mut full = CategorizedRenderer::new(config(), 0).unwrap();
-        let mut adjusted = CategorizedRenderer::new(config(), 0).unwrap();
-        let (mut reference, mut actual) = (Vec::new(), Vec::new());
-        for tick in (0..80_000).step_by(500) {
-            if tick == 20_000 {
-                full.finish_until(tick, &mut |s| {
+        for filter in [OutputFilter::None, OutputFilter::PcSpeaker] {
+            let mut full = CategorizedRenderer::with_filter(config(), 0, filter).unwrap();
+            let mut adjusted = CategorizedRenderer::with_filter(config(), 0, filter).unwrap();
+            let (mut reference, mut actual) = (Vec::new(), Vec::new());
+            for tick in (0..80_000).step_by(500) {
+                if tick == 20_000 {
+                    full.finish_until(tick, &mut |s| {
+                        reference.extend_from_slice(s);
+                        Ok(())
+                    })
+                    .unwrap();
+                    adjusted
+                        .finish_until(tick, &mut |s| {
+                            actual.extend_from_slice(s);
+                            Ok(())
+                        })
+                        .unwrap();
+                    adjusted
+                        .set_volumes(CategoryVolumes([50, 100, 100]))
+                        .unwrap();
+                }
+                let level = if tick % 1000 == 0 { 8192 } else { 0 };
+                full.level_at(tick, SoundCategory::Music, level, &mut |s| {
                     reference.extend_from_slice(s);
                     Ok(())
                 })
                 .unwrap();
                 adjusted
-                    .finish_until(tick, &mut |s| {
+                    .level_at(tick, SoundCategory::Music, level, &mut |s| {
                         actual.extend_from_slice(s);
                         Ok(())
                     })
                     .unwrap();
-                adjusted
-                    .set_volumes(CategoryVolumes([50, 100, 100]))
-                    .unwrap();
             }
-            let level = if tick % 1000 == 0 { 8192 } else { 0 };
-            full.level_at(tick, SoundCategory::Music, level, &mut |s| {
+            full.finish_until(80_000, &mut |s| {
                 reference.extend_from_slice(s);
                 Ok(())
             })
             .unwrap();
             adjusted
-                .level_at(tick, SoundCategory::Music, level, &mut |s| {
+                .finish_until(80_000, &mut |s| {
                     actual.extend_from_slice(s);
                     Ok(())
                 })
                 .unwrap();
-        }
-        full.finish_until(80_000, &mut |s| {
-            reference.extend_from_slice(s);
-            Ok(())
-        })
-        .unwrap();
-        adjusted
-            .finish_until(80_000, &mut |s| {
-                actual.extend_from_slice(s);
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(reference.len(), actual.len());
-        assert_eq!(&reference[..700], &actual[..700]);
-        for (&full, &half) in reference.iter().zip(&actual).skip(1500) {
-            assert_eq!(half, (f64::from(full) * 0.5).round() as i16);
+            assert_eq!(reference.len(), actual.len());
+            assert_eq!(&reference[..700], &actual[..700]);
+            for (&full, &half) in reference.iter().zip(&actual).skip(1500) {
+                assert_eq!(half, (f64::from(full) * 0.5).round() as i16);
+            }
         }
     }
 
     #[test]
     fn muted_group_is_silent_without_muting_the_following_group() {
-        let mut renderer = CategorizedRenderer::new(config(), 0).unwrap();
-        renderer
-            .set_volumes(CategoryVolumes([100, 0, 100]))
-            .unwrap();
-        renderer.finish_until(20_000, &mut |_| Ok(())).unwrap();
-        let mut muted = Vec::new();
-        for tick in (20_000..60_000).step_by(500) {
+        for filter in [OutputFilter::None, OutputFilter::PcSpeaker] {
+            let mut renderer = CategorizedRenderer::with_filter(config(), 0, filter).unwrap();
             renderer
-                .level_at(
-                    tick,
-                    SoundCategory::Speech,
-                    if tick % 1000 == 0 { 8192 } else { 0 },
-                    &mut |s| {
-                        muted.extend_from_slice(s);
-                        Ok(())
-                    },
-                )
+                .set_volumes(CategoryVolumes([100, 0, 100]))
                 .unwrap();
-        }
-        renderer
-            .finish_until(60_000, &mut |s| {
-                muted.extend_from_slice(s);
-                Ok(())
-            })
-            .unwrap();
-        assert!(muted.iter().all(|s| *s == 0));
-        let mut audible = Vec::new();
-        for tick in (60_000..100_000).step_by(500) {
+            renderer.finish_until(20_000, &mut |_| Ok(())).unwrap();
+            let mut muted = Vec::new();
+            for tick in (20_000..60_000).step_by(500) {
+                renderer
+                    .level_at(
+                        tick,
+                        SoundCategory::Speech,
+                        if tick % 1000 == 0 { 8192 } else { 0 },
+                        &mut |s| {
+                            muted.extend_from_slice(s);
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+            }
             renderer
-                .level_at(
-                    tick,
-                    SoundCategory::Effects,
-                    if tick % 1000 == 0 { 8192 } else { 0 },
-                    &mut |s| {
-                        audible.extend_from_slice(s);
-                        Ok(())
-                    },
-                )
+                .finish_until(60_000, &mut |s| {
+                    muted.extend_from_slice(s);
+                    Ok(())
+                })
                 .unwrap();
+            assert!(muted.iter().all(|s| *s == 0));
+            let mut audible = Vec::new();
+            for tick in (60_000..100_000).step_by(500) {
+                renderer
+                    .level_at(
+                        tick,
+                        SoundCategory::Effects,
+                        if tick % 1000 == 0 { 8192 } else { 0 },
+                        &mut |s| {
+                            audible.extend_from_slice(s);
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+            }
+            renderer
+                .finish_until(100_000, &mut |s| {
+                    audible.extend_from_slice(s);
+                    Ok(())
+                })
+                .unwrap();
+            assert!(audible.iter().any(|s| *s != 0));
         }
-        renderer
-            .finish_until(100_000, &mut |s| {
-                audible.extend_from_slice(s);
-                Ok(())
-            })
-            .unwrap();
-        assert!(audible.iter().any(|s| *s != 0));
     }
 }

@@ -138,7 +138,9 @@ the [shared configuration guide](../../../docs/configuration.md).
 The original BIOS bell blocks execution while sounding. Windowed playback uses
 an asynchronous speaker tone, allowing execution to continue, with shared volume,
 mute and output-device controls. Its tone follows a DOSBox-X BIOS reference
-rather than claiming one sound for every original PC BIOS. Terminal play sends
+rather than claiming one sound for every original PC BIOS. Its PCM uses the
+[shared small-speaker response](../../../crates/reforge_audio/README.md#replaceable-signal-rendering).
+Terminal play sends
 BEL and lets terminal preferences determine audible or visual feedback.
 
 Unix terminals encode arrows and function keys as sequences beginning with

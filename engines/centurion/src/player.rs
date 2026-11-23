@@ -54,7 +54,7 @@ pub(crate) fn run(assets: &Assets, session: &mut Session, options: Options) -> R
         ]);
     // Keep synthesis running when muted: the callback remains the shared game
     // clock, so changing volume never changes scene pacing or original cues.
-    let mut audio = match crate::audio_output::Output::new() {
+    let mut audio = match crate::audio_output::Output::new(options.sound) {
         Ok(output) => Some(output),
         Err(error) => {
             eprintln!("REforge: audio unavailable: {error}; continuing silently");

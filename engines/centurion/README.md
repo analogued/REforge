@@ -4,7 +4,7 @@ The `centurion` crate reconstructs DOS 1.00A and 1.00B of Centurion: Defender
 of Rome for [REforge](../../README.md). It implements province management,
 diplomacy, land and naval battles, gladiator shows, chariot races, Cleopatra and
 the closing presentations. It reads original resources without executing the
-DOS program or sound driver. Audio currently implements AdLib output.
+DOS program or sound driver. Audio implements AdLib and PC speaker output.
 
 Both releases support VGA, with EGA available when all six additional EGA bank
 pairs match the application catalog. The launcher Video choice and
@@ -20,6 +20,12 @@ or save blocks. EGA selects the E-prefixed graphics banks and menu sprites,
 direct nibble colour maps and EGA drawing pens. Its packed full-screen images
 replace the VGA raw backgrounds. VGA-only DAC cycling and cached expansion
 aliasing are disabled for EGA; normal sprite animation and game timing remain.
+
+The launcher Sound choice and `--sound adlib|pc-speaker` select the original
+sound arrangement, independently of video mode. AdLib remains the default.
+PC speaker sequencing uses the supplied speaker driver's note tables and the
+shared `reforge_audio` PIT/speaker model; host synthesis does not execute the
+original driver instructions. Roland and Tandy output remain unsupported.
 
 For installation, controls, difficulty, saves and presentation options, see the
 [player guide](../../docs/games/centurion.md). Original game assets and saved
@@ -49,7 +55,7 @@ raw captures, dumps and investigation scripts are not repository dependencies.
 | [`session`](src/session.rs) | Input, scene transitions, menus and composition of gameplay systems |
 | [`campaign`](src/campaign.rs), [`map_hover`](src/map_hover.rs) | Map symbols, ownership borders and optional hover names |
 | [`battle`](src/battle.rs), [`naval`](src/naval.rs), [`games`](src/games.rs) | Land/naval combat and provincial games, with supporting modules for their simulation |
-| [`music`](src/music.rs), [`sound`](src/sound.rs), [`audio`](src/audio.rs) | Sequencing, sound requests and OPL synthesis |
+| [`music`](src/music.rs), [`speaker`](src/speaker.rs), [`sound`](src/sound.rs), [`audio`](src/audio.rs) | AdLib/PC speaker sequencing, sound requests and synthesis |
 | [`player`](src/player.rs), [`audio_output`](src/audio_output.rs) | Shared SDL host, settings, input adaptation and callback playback |
 | [`launcher`](src/launcher.rs), [`launcher_palette`](src/launcher_palette.rs) | Preview rendering and original-resource color extraction |
 
@@ -136,7 +142,7 @@ Shared changes also follow the workspace checks in
 [CONTRIBUTING.md](../../CONTRIBUTING.md#validation). Original-data comparisons
 remain external. They cover selected frames, routines and complete play sequences,
 not every possible campaign. Playable scope does not establish exhaustive DOS
-parity. Other releases/platforms and non-AdLib sound modes remain unsupported.
+parity. Other releases/platforms and Roland/Tandy sound modes remain unsupported.
 
 Enemy inspection has a known co-location difference: the native selection path
 prioritizes local Roman fleets. Controlled DOS captures instead follow the

@@ -130,7 +130,7 @@ pub static CENTURION: GameMetadata = GameMetadata {
 pub static CENTURION_DOS_SPECS: SpecsProfile = SpecsProfile {
     id: "centurion-dos-vga-adlib",
     video_features: &["320×200", "VGA"],
-    audio_features: &["AdLib"],
+    audio_features: &["AdLib / PC speaker"],
 };
 pub static CENTURION_DOS: Edition = Edition {
     id: "centurion-defender-of-rome-dos-100a",
@@ -148,7 +148,7 @@ pub static CENTURION_DOS: Edition = Edition {
 pub static CENTURION_DOS_100B_SPECS: SpecsProfile = SpecsProfile {
     id: "centurion-dos-vga-ega-adlib",
     video_features: &["320×200", "VGA / EGA"],
-    audio_features: &["AdLib"],
+    audio_features: &["AdLib / PC speaker"],
 };
 pub static CENTURION_DOS_100B: Edition = Edition {
     id: "centurion-defender-of-rome-dos-100b",

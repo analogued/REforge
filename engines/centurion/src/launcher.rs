@@ -1,13 +1,39 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Engine-owned video choices, scene previews and display geometry.
+//! Engine-owned video/sound choices, scene previews and display geometry.
 use crate::assets::LoadingProfile;
 use reforge_sdl::launcher::{Choice, DISPLAY, OptionDefinition, PaletteHint, Storage, WINDOW};
 #[path = "launcher_palette.rs"]
 mod palette;
 
 /// Options for an installation with only verified VGA artwork.
-pub const OPTIONS: &[OptionDefinition] = &[DISPLAY, WINDOW];
+pub const OPTIONS: &[OptionDefinition] = &[SOUND, DISPLAY, WINDOW];
+const SOUND: OptionDefinition = OptionDefinition {
+    label: "Sound",
+    choices: &[
+        Choice {
+            value: "adlib",
+            label: "AdLib",
+            short_label: "AdLib",
+            badge: None,
+            palette: None,
+            palette_hint: PaletteHint::Auto,
+        },
+        Choice {
+            value: "pc-speaker",
+            label: "PC speaker",
+            short_label: "PC speaker",
+            badge: Some("PC speaker"),
+            palette: None,
+            palette_hint: PaletteHint::Auto,
+        },
+    ],
+    default: "adlib",
+    storage: Storage::Native {
+        key: "sound",
+        argument: "--sound",
+    },
+};
 const OPTIONS_VGA_EGA: &[OptionDefinition] = &[
     OptionDefinition {
         label: "Video",
@@ -35,6 +61,7 @@ const OPTIONS_VGA_EGA: &[OptionDefinition] = &[
             argument: "--video",
         },
     },
+    SOUND,
     DISPLAY,
     WINDOW,
 ];
@@ -134,6 +161,36 @@ mod tests {
                     .unwrap()
                     .contains("Unknown Centurion preview variant")
             );
+        }
+    }
+
+    #[test]
+    fn sound_choices_apply_to_every_release_and_graphics_profile() {
+        use crate::assets::DosRelease;
+        for release in [DosRelease::V100A, DosRelease::V100B] {
+            for ega in [false, true] {
+                let sound = options(LoadingProfile::new(release, ega))
+                    .iter()
+                    .find(|option| option.key() == "sound")
+                    .unwrap();
+                assert_eq!(sound.default, "adlib");
+                assert_eq!(
+                    sound
+                        .choices
+                        .iter()
+                        .map(|choice| choice.value)
+                        .collect::<Vec<_>>(),
+                    ["adlib", "pc-speaker"]
+                );
+                for choice in sound.choices {
+                    crate::cli::validate_arguments(
+                        ["--original", "synthetic", "--sound", choice.value]
+                            .into_iter()
+                            .map(Into::into),
+                    )
+                    .unwrap();
+                }
+            }
         }
     }
 

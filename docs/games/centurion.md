@@ -2,7 +2,8 @@
 
 Govern provinces, negotiate alliances and expand Rome through land and naval
 battles. The DOS campaign includes gladiator shows, chariot races, Cleopatra and
-the closing victory presentations. Music and effects use AdLib synthesis.
+the closing victory presentations. Music and effects offer AdLib synthesis or
+the original PC speaker arrangement.
 
 > [!IMPORTANT]
 > REforge does not include original Centurion assets or data. Supply your own
@@ -36,6 +37,21 @@ Direct launches accept `--video vga` or `--video ega`. Unsupported EGA selection
 without complete EGA banks warns and uses VGA. The two modes share the selected
 installation's save slots and game rules. Each release retains its own
 new-campaign data, including 1.00B's higher initial plunder reserve in Pontus.
+
+## Sound
+
+The launcher's **Sound** choice offers **AdLib** (default) and **PC speaker**
+for either DOS version and either video mode. It is saved separately for each
+library entry and takes effect at launch. PC speaker plays the original game's
+single-voice arrangement.
+
+Direct launches accept `--sound adlib` or `--sound pc-speaker`. Volume,
+music/effects levels, output-device selection and focus muting remain in shared
+Settings. The Sound choice selects the emulated game hardware; output-device
+selection chooses the host speakers or headphones.
+
+The examined originals also contain Roland MT-32/LAPC-I and Tandy sound drivers;
+those two modes are not implemented in REforge.
 
 ## Start playing
 
@@ -210,9 +226,8 @@ legion are lost. Removing a destroyed legion also releases its transport so it
 can carry another legion. These 1.00B corrections apply with every UI preset.
 
 Support covers DOS 1.00A and 1.00B with VGA, optional matching EGA banks and
-AdLib output. Other sound hardware modes are not implemented. Comparisons cover
-selected screens, mechanics
-and complete play sequences, rather than every possible campaign. Timing and
+AdLib or PC speaker output. Roland and Tandy sound modes are not implemented.
+Comparisons cover selected screens, mechanics and complete play sequences, rather than every possible campaign. Timing and
 some original undefined-state behavior can still differ from DOS.
 
 For implementation, development tools and technical limits, see the

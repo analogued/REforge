@@ -257,6 +257,7 @@ impl Recorder {
                         .to_string_lossy(),
                 ),
             ),
+            ("sound", quote(session.sound_device.as_str())),
             ("tribute_indicator", session.tribute_indicator.to_string()),
             (
                 "applied_value_indicator",

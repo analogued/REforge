@@ -175,8 +175,11 @@ playback, and Ctrl+Q exits. Escape retains its original game actions.
 
 Shared volume, music/effects levels, output-device selection and focus muting
 control host audio without changing the original single sequencer or sound
-requests. AdLib output uses software OPL2-compatible synthesis and host PCM
-playback. Callback generation is independent of window rendering; scheduling
+requests. AdLib output uses software OPL2-compatible synthesis; PC speaker
+output uses the shared PIT/speaker model and filtered host PCM. The launcher
+Sound choice or `--sound adlib|pc-speaker` selects the original arrangement at
+launch, with AdLib as the default rather than probing physical DOS hardware.
+Callback generation is independent of window rendering; scheduling
 uses estimated source-sample consumption with a wall-clock fallback. These host
 adaptations retain logical scene timers and deterministic headless stepping,
 but do not reproduce CPU/VGA or physical device timing exactly. See the

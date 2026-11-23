@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Owned, sample-timestamped playback. No game state or host clock is accessed.
 use crate::assets::Result;
-use crate::audio::{Music, SAMPLE_RATE};
+use crate::audio::SAMPLE_RATE;
+use crate::audio_playback::Music;
 use crate::intro::{PIT_DIVISOR, PIT_HZ};
 use std::collections::VecDeque;
 

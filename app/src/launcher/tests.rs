@@ -1137,9 +1137,12 @@ fn centurion_video_choices_previews_and_pins_follow_the_detected_release() {
             .label;
         state.games[b].save_option("Video", ega);
         assert_eq!(state.games[b].preview_variant(), "ega");
-        assert_eq!(state.games[b].native_arguments(), ["--video", "ega"]);
+        assert_eq!(
+            state.games[b].native_arguments(),
+            ["--video", "ega", "--sound", "adlib"]
+        );
         assert_eq!(state.games[a].preview_variant(), "vga");
-        assert!(state.games[a].native_arguments().is_empty());
+        assert_eq!(state.games[a].native_arguments(), ["--sound", "adlib"]);
         let expected_id = state.games[b].entry_id.clone();
         let restored = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
         let game = restored
@@ -1148,7 +1151,10 @@ fn centurion_video_choices_previews_and_pins_follow_the_detected_release() {
             .find(|g| g.entry_id == expected_id)
             .unwrap();
         assert_eq!(game.preview_variant(), "ega");
-        assert_eq!(game.native_arguments(), ["--video", "ega"]);
+        assert_eq!(
+            game.native_arguments(),
+            ["--video", "ega", "--sound", "adlib"]
+        );
     }
 }
 
@@ -2631,9 +2637,9 @@ fn centurion_video_pin_survives_relocating_between_graphics_sets() {
             assert_eq!(
                 game.native_arguments(),
                 if release.id == full.id {
-                    vec!["--video", "ega"]
+                    vec!["--video", "ega", "--sound", "adlib"]
                 } else {
-                    vec![]
+                    vec!["--sound", "adlib"]
                 }
             );
             assert_eq!(
@@ -2641,5 +2647,41 @@ fn centurion_video_pin_survives_relocating_between_graphics_sets() {
                 "ega"
             );
         }
+    }
+}
+
+#[test]
+fn centurion_sound_pins_are_per_entry_and_leave_video_previews_unchanged() {
+    let releases = detection::RELEASES
+        .iter()
+        .filter(|release| release.game() == detection::Game::Centurion)
+        .collect::<Vec<_>>();
+    let fixture = Fixture::for_releases(releases);
+    let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+    let selected = state.games[0].entry_id.clone();
+    let preview = state.games[0].preview_variant();
+    assert_eq!(state.games[0].option_values()["Sound"], "AdLib");
+    state.games[0].save_option("Sound", "PC speaker");
+    assert_eq!(state.games[0].preview_variant(), preview);
+    assert_eq!(state.games[0].native_arguments(), ["--sound", "pc-speaker"]);
+    let restored = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
+    for game in &restored.games {
+        assert_eq!(
+            game.option_values()["Sound"],
+            if game.entry_id == selected {
+                "PC speaker"
+            } else {
+                "AdLib"
+            }
+        );
+        assert_eq!(
+            game.option_choices()
+                .iter()
+                .find(|(label, _)| *label == "Sound")
+                .unwrap()
+                .1
+                .len(),
+            2
+        );
     }
 }

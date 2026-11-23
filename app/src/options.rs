@@ -176,6 +176,13 @@ const SPECS: &[Spec] = &[
         description: "Video assets (default vga); ega requires the complete verified EGA resource set",
     },
     Spec {
+        name: "--sound",
+        scope: Scope::Game(Game::Centurion),
+        value: Value::Choice(&["adlib", "pc-speaker"]),
+        dev: false,
+        description: "Original sound device (default adlib)",
+    },
+    Spec {
         name: "--state-dir",
         scope: Scope::Game(Game::Centurion),
         value: Value::Path,
@@ -1833,6 +1840,30 @@ mod tests {
         }
         assert!(help(Some(Game::Centurion)).contains("Choices: vga, ega"));
         assert!(!help(Some(Game::Mach3)).contains("Choices: vga, ega"));
+    }
+
+    #[test]
+    fn centurion_sound_choices_are_scoped_and_invalid_replacements_keep_the_previous_value() {
+        for sound in ["adlib", "pc-speaker"] {
+            let prepared = prepare(args(&["--sound", sound]), Game::Centurion);
+            assert!(prepared.warnings.is_empty());
+            assert_eq!(prepared.args, args(&["--sound", sound]));
+            accepted(&prepared, Game::Centurion);
+        }
+        let prepared = prepare(
+            args(&["--sound", "pc-speaker", "--sound", "roland", "--scale", "2"]),
+            Game::Centurion,
+        );
+        assert_eq!(
+            prepared.args,
+            args(&["--sound", "pc-speaker", "--scale", "2"])
+        );
+        assert_eq!(prepared.warnings.len(), 1);
+        let prepared = prepare(args(&["--sound", "pc-speaker"]), Game::Mach3);
+        assert!(prepared.args.is_empty());
+        assert_eq!(prepared.warnings.len(), 1);
+        assert!(help(Some(Game::Centurion)).contains("Choices: adlib, pc-speaker"));
+        assert!(!help(Some(Game::Mach3)).contains("Choices: adlib, pc-speaker"));
     }
 
     #[test]

@@ -8,6 +8,29 @@ use reforge_audio::opl::{Nuked, Opl};
 use std::io::Write;
 use std::path::Path;
 
+/// Original sound hardware selected for this launch, independently of host output.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SoundDevice {
+    #[default]
+    Adlib,
+    PcSpeaker,
+}
+impl SoundDevice {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "adlib" => Ok(Self::Adlib),
+            "pc-speaker" => Ok(Self::PcSpeaker),
+            _ => Err("Sound must be adlib or pc-speaker".into()),
+        }
+    }
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Adlib => "adlib",
+            Self::PcSpeaker => "pc-speaker",
+        }
+    }
+}
+
 pub const SAMPLE_RATE: u32 = 48_000;
 
 pub fn tick_frame(tick: u64) -> u64 {
@@ -107,6 +130,7 @@ impl Music {
 pub fn export(
     assets: &Assets,
     song: u8,
+    device: SoundDevice,
     ticks: u32,
     wav: Option<&Path>,
     trace: Option<&Path>,
@@ -115,17 +139,34 @@ pub fn export(
         return Err("Music ticks must be 1..72000".into());
     }
     if let Some(path) = trace {
-        let mut sequencer = Sequencer::song(assets, song)?;
         let mut file =
             std::io::BufWriter::new(std::fs::File::create(path).map_err(|e| e.to_string())?);
-        writeln!(file, "tick\tregister\tvalue").map_err(|e| e.to_string())?;
-        for tick in 0..=ticks {
-            if tick != 0 {
-                sequencer.advance()?;
+        match device {
+            SoundDevice::Adlib => {
+                let mut sequencer = Sequencer::song(assets, song)?;
+                writeln!(file, "tick\tregister\tvalue").map_err(|e| e.to_string())?;
+                for tick in 0..=ticks {
+                    if tick != 0 {
+                        sequencer.advance()?;
+                    }
+                    for write in sequencer.take_writes() {
+                        writeln!(file, "{}\t{}\t{}", write.tick, write.register, write.value)
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
             }
-            for write in sequencer.take_writes() {
-                writeln!(file, "{}\t{}\t{}", write.tick, write.register, write.value)
-                    .map_err(|e| e.to_string())?;
+            SoundDevice::PcSpeaker => {
+                let mut sequencer = crate::speaker::Sequencer::song(assets, song)?;
+                writeln!(file, "tick\tport\tvalue").map_err(|e| e.to_string())?;
+                for tick in 0..=ticks {
+                    if tick != 0 {
+                        sequencer.advance()?;
+                    }
+                    for write in sequencer.take_writes() {
+                        writeln!(file, "{}\t{}\t{}", write.tick, write.port, write.value)
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
             }
         }
         file.flush().map_err(|e| e.to_string())?;
@@ -149,7 +190,7 @@ pub fn export(
         header.extend_from_slice(b"data");
         header.extend_from_slice(&data_bytes.to_le_bytes());
         file.write_all(&header).map_err(|e| e.to_string())?;
-        let mut music = Music::song(assets, song)?;
+        let mut music = crate::audio_playback::Music::song(assets, song, device)?;
         let mut remaining = frames;
         let mut peak = 0;
         while remaining != 0 {
@@ -175,7 +216,8 @@ pub fn export(
             return Err("Music export was silent".into());
         }
         println!(
-            "music-check: frames={frames} peak={peak} wav={}",
+            "music-check: frames={frames} peak={peak} device={} wav={}",
+            device.as_str(),
             path.display()
         );
     }
@@ -183,7 +225,10 @@ pub fn export(
 }
 
 /// Private conformance harness: the same play/tick/stop schedule as the DOS client.
-pub fn export_suite(assets: &Assets, path: &Path) -> Result<()> {
+pub fn export_suite(assets: &Assets, path: &Path, device: SoundDevice) -> Result<()> {
+    if device == SoundDevice::PcSpeaker {
+        return export_speaker_suite(assets, path);
+    }
     let mut file = std::io::BufWriter::new(std::fs::File::create(path).map_err(|e| e.to_string())?);
     writeln!(file, "pass\tscore\tevent\ttick\tregister\tvalue").map_err(|e| e.to_string())?;
     let mut player = Sequencer::intro(assets)?;
@@ -227,6 +272,60 @@ pub fn export_suite(assets: &Assets, path: &Path) -> Result<()> {
                         file,
                         "{pass}\t{id}\t{kind}\t{}\t{}\t{}",
                         write.tick, write.register, write.value
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+    file.flush().map_err(|e| e.to_string())
+}
+
+fn export_speaker_suite(assets: &Assets, path: &Path) -> Result<()> {
+    let mut file = std::io::BufWriter::new(std::fs::File::create(path).map_err(|e| e.to_string())?);
+    writeln!(file, "pass\tscore\tevent\ttick\tport\tvalue").map_err(|e| e.to_string())?;
+    let mut player = crate::speaker::Sequencer::song(assets, 0)?;
+    player.take_writes();
+    for pass in 0..2 {
+        for id in 0..17 {
+            let data = crate::music::song_data(assets, id)?;
+            let mut pos = usize::from(crate::assets::word(&data, 0)?);
+            let mut status = 0;
+            let mut ticks = 1u32;
+            for _ in 0..data.len() {
+                let first = *data.get(pos).ok_or("Truncated speaker score")?;
+                if first & 128 != 0 {
+                    status = first;
+                    pos += 1;
+                    if status == 252 {
+                        break;
+                    }
+                }
+                pos += if status & 240 == 192 { 1 } else { 2 };
+                ticks += u32::from(*data.get(pos).ok_or("Truncated speaker score delay")?);
+                pos += 1;
+            }
+            if pass == 0 || id == 0 {
+                player = crate::speaker::Sequencer::song(assets, id)?;
+            } else {
+                player.tick = 0;
+                player.restart(data)?;
+            }
+            for event in 0..=ticks * 2 + 21 {
+                let kind = if event == 0 {
+                    "play"
+                } else if event == ticks * 2 + 21 {
+                    player.stop();
+                    "stop"
+                } else {
+                    player.advance()?;
+                    "tick"
+                };
+                for write in player.take_writes() {
+                    writeln!(
+                        file,
+                        "{pass}\t{id}\t{kind}\t{}\t{}\t{}",
+                        write.tick, write.port, write.value
                     )
                     .map_err(|e| e.to_string())?;
                 }

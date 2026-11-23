@@ -89,6 +89,7 @@ mod input;
 pub use input::Input;
 
 pub struct Session {
+    pub(crate) sound_device: crate::audio::SoundDevice,
     pub phase: Phase,
     pub selected: usize,
     highlighted: bool,
@@ -191,6 +192,7 @@ impl Session {
             _ => 0,
         };
         let mut session = Self {
+            sound_device: crate::audio::SoundDevice::default(),
             phase,
             selected,
             highlighted: false,

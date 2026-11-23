@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Centurion's owned music commands/cues, adapted to the shared PCM transport.
 use crate::assets::{Assets, Result};
-use crate::audio::{Music, SAMPLE_RATE};
+use crate::audio::{SAMPLE_RATE, SoundDevice};
+use crate::audio_playback::Music;
 use crate::audio_timeline::{Change, Completion, MAX_PENDING, Progress, Request, Timeline};
 use reforge_sdl::audio::callback::{Output as Device, Source, Spec};
 use std::collections::VecDeque;
@@ -64,6 +65,7 @@ pub struct Output {
     status: Arc<Mutex<Status>>,
     prepared: bool,
     resumed: bool,
+    sound_device: SoundDevice,
 }
 impl Output {
     pub fn progress(&self) -> Result<Progress> {
@@ -89,7 +91,7 @@ impl Output {
         self.resumed && self.status.lock().is_ok_and(|s| s.progress.playing)
     }
 
-    pub fn new() -> Result<Self> {
+    pub fn new(sound_device: SoundDevice) -> Result<Self> {
         let (sender, inbox) = mpsc::sync_channel(MAX_PENDING);
         let status = Arc::new(Mutex::new(Status::default()));
         let playback = Playback {
@@ -110,6 +112,7 @@ impl Output {
             status,
             prepared: false,
             resumed: false,
+            sound_device,
         })
     }
 
@@ -153,7 +156,7 @@ impl Output {
             // the game thread; only owned Centurion data crosses the mailbox.
             let change = match command {
                 crate::sound::Command::Play(id) if !self.prepared => {
-                    let music = Box::new(Music::song(assets, id)?);
+                    let music = Box::new(Music::song(assets, id, self.sound_device)?);
                     self.prepared = true;
                     Change::Start { id, music }
                 }
@@ -200,7 +203,7 @@ mod tests {
             );
             return;
         }
-        let mut output = Output::new().unwrap();
+        let mut output = Output::new(SoundDevice::Adlib).unwrap();
         output
             .sender
             .try_send(Request {
@@ -244,7 +247,7 @@ mod tests {
         drop(output);
         // A callback failure is returned to the main thread, without unwinding
         // through C or silently dropping malformed music.
-        let mut output = Output::new().unwrap();
+        let mut output = Output::new(SoundDevice::Adlib).unwrap();
         output
             .sender
             .try_send(Request {

@@ -14,8 +14,8 @@ use super::super::{
     switchers::{self, AnchorPlacement},
     widgets::{
         UiAction, draw_launch_options_rows, draw_palette, draw_preview_screen,
-        draw_provenance_inline, paint_title, primary_button, quiet_text_button, secondary_button,
-        section_rule,
+        draw_provenance_inline, paint_palette_at, paint_title, primary_button, quiet_text_button,
+        secondary_button, section_rule,
     },
 };
 
@@ -360,15 +360,64 @@ fn draw_hero_details(
     let galley = ui.painter().layout_job(job);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     ui.add_space(4.0);
-    let specs = ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        draw_palette(ui, ap, &game.palette_display(), 6.5);
-        ui.label(
-            RichText::new(game.features_line())
-                .size(11.5)
-                .color(ap.tokens.text_muted),
-        );
-    });
+    let palette = game.palette_display();
+    let features = game.features_line();
+    // Fixed hardware palettes declare their sizes in the choices. Resource-
+    // extracted palettes can grow when another preview/mode is selected; only
+    // those, or known palettes above four colours, need the compact16 reserve.
+    let compact_palette_possible = game
+        .options
+        .iter()
+        .flat_map(|option| option.choices)
+        .filter_map(|choice| choice.palette.map(<[_]>::len))
+        .max()
+        .is_none_or(|colours| colours > 4);
+    // A wrapped label normally indents its first row by the preceding swatch.
+    // Keep that compact flow unless changing between four and sixteen colours
+    // would add a text row. Then use full-width text below a shared-height
+    // swatch row, so palette size cannot move Play or the launch options.
+    let separate_specs = compact_palette_possible
+        && !palette.mosaic
+        && !palette.colours.is_empty()
+        && palette.colours.len() <= 16
+        && {
+            let rows = |columns: usize| {
+                let mut job = egui::text::LayoutJob::simple(
+                    features.clone(),
+                    FontId::proportional(11.5),
+                    ap.tokens.text_muted,
+                    width,
+                );
+                job.first_row_min_height = 16.0;
+                if let Some(section) = job.sections.first_mut() {
+                    section.leading_space =
+                        columns as f32 * 6.5 + columns.saturating_sub(1) as f32 * 3.0 + 8.0;
+                }
+                ui.painter().layout_job(job).rows.len()
+            };
+            rows(4) != rows(8)
+        };
+    let specs = if separate_specs {
+        ui.vertical(|ui| {
+            let (row, _) = ui.allocate_exact_size(Vec2::new(width, 16.0), Sense::hover());
+            paint_palette_at(ui.painter(), ap, row.min, &palette, 6.5);
+            ui.label(
+                RichText::new(&features)
+                    .size(11.5)
+                    .color(ap.tokens.text_muted),
+            );
+        })
+    } else {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            draw_palette(ui, ap, &palette, 6.5);
+            ui.label(
+                RichText::new(&features)
+                    .size(11.5)
+                    .color(ap.tokens.text_muted),
+            );
+        })
+    };
     let tagline_top = rect
         .top()
         .min(specs.response.rect.top() - galley.size().y - 1.0)

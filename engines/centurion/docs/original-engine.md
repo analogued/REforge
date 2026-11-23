@@ -40,7 +40,7 @@ intended to be displayed through the EGA palette. The examined 1.00B loader
 at `BBC7` branches on the video mode before selecting these resources.
 
 The original video-mode word at `DS:9B26` is 2 for VGA and 4 for EGA;
-0 selects no drawing, and 6 selects CGA. Several procedural fills also differ
+0 selects no drawing, and 6 selects Tandy 16-colour graphics. Several procedural fills also differ
 by mode rather than simply truncating a VGA palette index. These drawing pens
 are decimal palette indices:
 
@@ -62,6 +62,35 @@ that final row. EGA naval pennant animation does not run the VGA palette rings.
 file offsets or fixed DOS load addresses. Save offsets and pixel dimensions are
 decimal. The [engine README](../README.md) describes replacement interfaces and
 fidelity limits; [deviations](deviations.md) records deliberate changes.
+
+## Original sound devices
+
+Both examined releases contain four executable driver resources in `CENT`:
+`ADLIB.LZW`, `SPEAKER.LZW`, `ROLAND.LZW` and `TANDY.LZW`. Their contents match
+between releases. Startup accepts `adlib`/`ad`, `pc`, `roland`/`mt`/`lapc`, and
+`tn` respectively; `nosnd` disables sound. Roland uses the MPU-401 ports for
+MT-32/LAPC-I output. There is no separate Sound Blaster driver or selector in
+these builds; AdLib-compatible FM hardware uses the AdLib path.
+
+The 730-byte speaker driver reads the same seventeen score resources as the
+other drivers. The score header chooses a single channel and transposition at
+offsets `4B` and `4C`. Matching note events program PIT channel 2, with the
+frequency divisors read from the supplied driver's note table. Port `61h` bits
+0 and 1 gate the output. Note-off, stop and the non-looping end marker disable
+the speaker; the looping marker returns to the score's event start. The speaker
+arrangement ignores instrument and pitch-bend events. One supplied intro note
+indexes immediately past the 96-word divisor table into the selected-channel
+and transposition bytes; reconstruction retains that read of the current state.
+
+Host playback places driver callbacks at the same 48 kHz sample boundaries as
+AdLib playback. Between callbacks the shared PIT runs at its nominal clock,
+and a filtered digital speaker signal supplies host PCM; this does not model
+physical speaker acoustics or instruction-level port-write spacing.
+
+REforge selects AdLib or PC speaker through its own launcher/CLI options; the
+original device selectors above are historical DOS arguments, not REforge flags.
+The replacement preserves the score-selection and interruption rules without
+executing original driver code.
 
 ## Campaign saves
 

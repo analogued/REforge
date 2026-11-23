@@ -17,7 +17,7 @@ sdl3 = { version = "=0.20.0", default-features = false, optional = true }
 reforge_sdl = { path = "../../crates/reforge_sdl", optional = true }
 reforge_inputs = { path = "../../crates/reforge_inputs" }
 reforge_settings = { path = "../../crates/reforge_settings" }
-reforge_audio = { path = "../../crates/reforge_audio", default-features = false, features = ["opl"] }
+reforge_audio = { path = "../../crates/reforge_audio", default-features = false, features = ["opl", "blip"] }
 
 [[bin]]
 name = "centurion-prototype"

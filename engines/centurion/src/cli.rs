@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Catalog-driven player arguments. Raw research tools use run_prototype instead.
 use crate::assets::{LoadingProfile, VideoMode};
+use crate::audio::SoundDevice;
 use reforge_inputs::ResolvedFiles;
 use std::{ffi::OsString, path::PathBuf};
 
@@ -9,6 +10,7 @@ use std::{ffi::OsString, path::PathBuf};
 pub(crate) struct Options {
     pub original: PathBuf,
     pub video: VideoMode,
+    pub sound: SoundDevice,
     pub state_dir: Option<PathBuf>,
     pub load: Option<PathBuf>,
     pub scale: Option<u32>,
@@ -31,7 +33,7 @@ pub fn run(
 ) -> Result<(), String> {
     let Some(mut options) = parse(args)? else {
         println!(
-            "Centurion: Defender of Rome\n--video vga|ega: video mode (default VGA; EGA requires all six EGA bank pairs)\n--state-dir DIR: DOS-compatible save slots (default: beside the original installation)\n--load FILE: load a DOS save\n--mute: silent playback\n--original-tribute-menus: hide applied tribute indicators\nF10: Settings; Pause: host pause; Ctrl+Q: exit. Escape retains game back/cancel controls."
+            "Centurion: Defender of Rome\n--video vga|ega: video mode (default VGA; EGA requires all six EGA bank pairs)\n--sound adlib|pc-speaker: original sound device (default AdLib)\n--state-dir DIR: DOS-compatible save slots (default: beside the original installation)\n--load FILE: load a DOS save\n--mute: silent playback\n--original-tribute-menus: hide applied tribute indicators\nF10: Settings; Pause: host pause; Ctrl+Q: exit. Escape retains game back/cancel controls."
         );
         return Ok(());
     };
@@ -59,6 +61,7 @@ pub fn run(
         let assets = crate::assets::Assets::load(files, root, profile.release, options.video)?;
         let mut session =
             crate::session::Session::new(&assets, crate::session::Phase::Intro, 0, 0)?;
+        session.sound_device = options.sound;
         session.save_dir = Some(
             options
                 .state_dir
@@ -111,6 +114,13 @@ fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Option<Options>, St
             "--load" => options.load = Some(PathBuf::from(value()?)),
             "--video" => {
                 options.video = parse_video(value()?.to_str().ok_or("Video must be vga or ega")?)?;
+            }
+            "--sound" => {
+                options.sound = SoundDevice::parse(
+                    value()?
+                        .to_str()
+                        .ok_or("Sound must be adlib or pc-speaker")?,
+                )?;
             }
             "--mute" => options.mute = true,
             "--original-tribute-menus" => options.original_tribute = true,
@@ -188,6 +198,39 @@ mod tests {
         for arguments in [
             vec!["--original", "synthetic", "--video"],
             vec!["--original", "synthetic", "--video", "cga"],
+        ] {
+            assert!(validate_arguments(arguments.into_iter().map(Into::into)).is_err());
+        }
+    }
+
+    #[test]
+    fn sound_choices_parse_independently_of_video_mode() {
+        assert_eq!(
+            parse(["--original", "synthetic"].into_iter().map(Into::into))
+                .unwrap()
+                .unwrap()
+                .sound,
+            SoundDevice::Adlib
+        );
+        for (name, sound) in [
+            ("adlib", SoundDevice::Adlib),
+            ("pc-speaker", SoundDevice::PcSpeaker),
+        ] {
+            for video in ["vga", "ega"] {
+                let options = parse(
+                    ["--original", "synthetic", "--video", video, "--sound", name]
+                        .into_iter()
+                        .map(Into::into),
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(options.sound, sound);
+            }
+        }
+        for arguments in [
+            vec!["--original", "synthetic", "--sound"],
+            vec!["--original", "synthetic", "--sound", "roland"],
+            vec!["--original", "synthetic", "--sound", "PC-Speaker"],
         ] {
             assert!(validate_arguments(arguments.into_iter().map(Into::into)).is_err());
         }

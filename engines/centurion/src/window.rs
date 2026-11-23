@@ -347,7 +347,7 @@ pub fn run(
         let mut audio = if mute {
             None
         } else {
-            match crate::audio_output::Output::new() {
+            match crate::audio_output::Output::new(session.sound_device) {
                 Ok(output) => Some(output),
                 Err(message) => {
                     eprintln!(

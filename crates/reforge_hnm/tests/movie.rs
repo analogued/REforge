@@ -103,6 +103,33 @@ fn compressed_raw_and_row_rle_follow_the_same_coordinates_and_geometry() {
 }
 
 #[test]
+fn split_raster_and_empty_indexed_packet_can_be_read_out_of_order() {
+    let mut meta = typed(b"pl", &[20, 1, 1, 2, 3, 255, 255]);
+    meta.extend(raw(1, 1, 254, 0, 0, &[4]));
+    let mut packed = vec![10, 2, 1, 254];
+    let mut header = [10u8, 0, 4, 0, 0, 0];
+    header[5] = 173 - 10 - 4;
+    packed.extend(header);
+    packed.extend([2, 0, 3, 0]); // coordinates are outside the compression
+    packed.extend([5, 0x80, 0, 6]); // literal, overlapping copy of two, literal
+    packed.extend([0x80, 0x6e]); // literal, run of three, run of four, run of two
+    let bytes = movie(&[255, 255], &[meta, b"RM\0\0".to_vec(), packed], false);
+    let mut decoder = Hnm1::new(Cursor::new(bytes), Palette::default()).unwrap();
+    assert!(decoder.next_frame().unwrap().unwrap().palette.defined[20]);
+    let frame = decoder.indexed_frame(2).unwrap();
+    assert!(!frame.palette.defined[20]);
+    let video = frame.video.unwrap();
+    assert_eq!((video.x, video.y), (2, 3));
+    assert_eq!(video.pixels, [5, 5, 5, 5, 5, 5, 5, 5, 6, 6]);
+    assert!(decoder.indexed_frame(3).is_err());
+    let empty = decoder.next_frame().unwrap().unwrap();
+    assert!(empty.palette.defined[20]);
+    assert_eq!(empty.chunks[0].tag, *b"RM");
+    assert!(empty.video.is_none());
+    assert_eq!(decoder.next_frame().unwrap().unwrap().video, Some(video));
+}
+
+#[test]
 fn opaque_overlay_and_direct_updates_preserve_different_background_regions() {
     let mut canvas = Canvas::from_pixels(vec![9; WIDTH * HEIGHT]).unwrap();
     let mut frame = Video {

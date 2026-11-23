@@ -91,7 +91,7 @@ pub fn expand_hsq(bytes: &[u8]) -> io::Result<Vec<u8>> {
         return Err(invalid("truncated HSQ header"));
     }
     let expected = u16::from_le_bytes(bytes[..2].try_into().unwrap()) as usize;
-    codec::decode(bytes, expected).map(|decoded| decoded.pixels)
+    codec::decode_hsq(bytes, expected).map(|decoded| decoded.pixels)
 }
 
 /// Expand tightly packed eight-bit signed-control raster RLE with row-local

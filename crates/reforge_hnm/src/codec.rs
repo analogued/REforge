@@ -47,6 +47,7 @@ impl<'a> Input<'a> {
 #[derive(Clone, Copy)]
 enum LzBitOrder {
     LowFirst16,
+    HighFirst16,
     HighFirst32,
 }
 
@@ -60,7 +61,7 @@ impl Bits {
     fn next(&mut self, input: &mut Input<'_>) -> io::Result<bool> {
         if self.left == 0 {
             (self.word, self.left) = match self.order {
-                LzBitOrder::LowFirst16 => (u32::from(input.word()?), 16),
+                LzBitOrder::LowFirst16 | LzBitOrder::HighFirst16 => (u32::from(input.word()?), 16),
                 LzBitOrder::HighFirst32 => {
                     (u32::from_le_bytes(input.take(4)?.try_into().unwrap()), 32)
                 }
@@ -73,7 +74,7 @@ impl Bits {
                 self.word >>= 1;
                 set
             }
-            LzBitOrder::HighFirst32 => self.word & (1 << self.left) != 0,
+            LzBitOrder::HighFirst16 | LzBitOrder::HighFirst32 => self.word & (1 << self.left) != 0,
         })
     }
 }
@@ -123,6 +124,101 @@ fn hsq(payload: &[u8], expected_len: usize) -> io::Result<Decoded> {
         return Err(invalid("HSQ terminator disagrees with declared size"));
     }
     Ok(Decoded { pixels })
+}
+
+/// Checksum-173 rasters keep coordinates outside the compressed pixel stream.
+/// Paired backreferences produce the bytes for a separate run/literal stream.
+fn split_raster(payload: &[u8], expected_len: usize) -> io::Result<Decoded> {
+    let mut input = Input {
+        bytes: payload,
+        pos: 0,
+    };
+    let len = usize::from(input.word()?);
+    let sample_count = usize::from(input.word()?);
+    let flags = input.byte()?;
+    input.byte()?;
+    if len != expected_len || sample_count > len || flags & !0xc4 != 0 {
+        return Err(invalid("invalid split raster header"));
+    }
+
+    let coordinates = if flags & 4 == 0 { 4 } else { 0 };
+    let mut pixels = reserve(coordinates + len)?;
+    pixels.extend_from_slice(input.take(coordinates)?);
+    let mut samples = reserve(sample_count)?;
+    let bias = (flags & 0x40) << 1;
+    let mut second = None;
+    while samples.len() < sample_count {
+        let command = input.byte()?;
+        if command & 0x80 == 0 {
+            samples.push(if command == 0 { 0 } else { command + bias });
+            continue;
+        }
+        let pair = if let Some(low) = second.take() {
+            low
+        } else {
+            let pair = input.byte()?;
+            second = Some(pair & 15);
+            pair >> 4
+        };
+        let distance = usize::from(command & 127) * 2 + usize::from(pair & 1) + 1;
+        repeat_backwards(
+            &mut samples,
+            distance,
+            usize::from(pair >> 1) + 2,
+            sample_count,
+        )?;
+    }
+
+    let mut bits = Bits {
+        order: LzBitOrder::HighFirst16,
+        word: 0,
+        left: 0,
+    };
+    let mut next_extended = None;
+    for sample in samples {
+        let run = if bits.next(&mut input)? {
+            let mut prefix = 0;
+            while prefix < 3 && bits.next(&mut input)? {
+                prefix += 1;
+            }
+            let rotated = if flags & 0x80 == 0 {
+                prefix
+            } else {
+                (prefix + 3) % 4
+            };
+            if rotated < 3 {
+                rotated + 2
+            } else {
+                split_extended_run(&mut input, &mut next_extended)?
+            }
+        } else {
+            1
+        };
+        if run > coordinates + len - pixels.len() {
+            return Err(invalid("split raster run exceeds output size"));
+        }
+        pixels.resize(pixels.len() + run, sample);
+    }
+    // Some encoders include a final control word after the last sample.
+    if pixels.len() != coordinates + len || !matches!(payload.len() - input.pos, 0 | 2) {
+        return Err(invalid("split raster size disagrees with header"));
+    }
+    Ok(Decoded { pixels })
+}
+
+fn split_extended_run(input: &mut Input<'_>, next: &mut Option<u8>) -> io::Result<usize> {
+    let nibble = if let Some(low) = next.take() {
+        low
+    } else {
+        let pair = input.byte()?;
+        *next = Some(pair & 15);
+        pair >> 4
+    };
+    if nibble == 0 {
+        Ok(usize::from(input.byte()?) + 20)
+    } else {
+        Ok(usize::from(nibble) + 4)
+    }
 }
 
 /// HNM4 IZ reuses the HSQ command encoding with a wider, high-first bit queue.
@@ -210,19 +306,32 @@ pub(crate) fn decode_rle(
 }
 
 pub(crate) fn decode(payload: &[u8], expected_len: usize) -> io::Result<Decoded> {
-    let header = payload
-        .get(..6)
-        .ok_or_else(|| invalid("truncated raster header"))?;
-    let checksum = header
-        .iter()
-        .fold(0u8, |sum, &value| sum.wrapping_add(value));
-    match checksum {
+    match checksum(payload)? {
         171 => hsq(payload, expected_len),
+        173 => split_raster(payload, expected_len),
         _ => Err(io::Error::new(
             ErrorKind::Unsupported,
             "unsupported HNM1 raster compression checksum",
         )),
     }
+}
+
+pub(crate) fn decode_hsq(payload: &[u8], expected_len: usize) -> io::Result<Decoded> {
+    if checksum(payload)? != 171 {
+        return Err(io::Error::new(
+            ErrorKind::Unsupported,
+            "unsupported HSQ raster compression checksum",
+        ));
+    }
+    hsq(payload, expected_len)
+}
+
+fn checksum(payload: &[u8]) -> io::Result<u8> {
+    Ok(payload
+        .get(..6)
+        .ok_or_else(|| invalid("truncated raster header"))?
+        .iter()
+        .fold(0u8, |sum, &byte| sum.wrapping_add(byte)))
 }
 
 #[cfg(test)]
@@ -264,6 +373,18 @@ mod tests {
     }
 
     #[test]
+    fn split_raster_rotated_prefix_uses_both_paired_run_lengths() {
+        let mut block = vec![28u8, 0, 2, 0, 0x84, 0];
+        block[5] = 173 - 28 - 2 - 0x84;
+        block.extend([7, 8, 0, 0xa0, 0x10, 3]);
+        let expected = [[7; 5].as_slice(), &[8; 23]].concat();
+        assert_eq!(decode(&block, 28).unwrap().pixels, expected);
+        assert!(decode_hsq(&block, 28).is_err());
+        *block.last_mut().unwrap() = 4;
+        assert!(decode(&block, 28).is_err());
+    }
+
+    #[test]
     fn hsq_rejects_truncation_bad_spans_and_sizes() {
         let x = hsq_block(&[0x51, 0, b'A', 255, 0, 0, 0], 4);
         for len in 0..x.len() {
@@ -289,7 +410,7 @@ mod tests {
 
     #[test]
     fn unverified_codec_types_are_explicitly_unsupported() {
-        for checksum in [172u8, 173] {
+        for checksum in [172u8, 174] {
             let x = [1, 0, 0, 0, 0, checksum - 1];
             assert_eq!(decode(&x, 1).unwrap_err().kind(), ErrorKind::Unsupported);
         }

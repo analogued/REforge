@@ -87,6 +87,15 @@ impl<R: Read + Seek> Hnm1<R> {
         self.reader
     }
 
+    /// Decode one selected packet using the header palette as its starting point.
+    /// Prior packets and the sequential decoder position are left untouched.
+    pub fn indexed_frame(&mut self, index: usize) -> io::Result<Frame> {
+        if index >= self.frame_count() {
+            return Err(invalid("HNM1 frame index exceeds the packet table"));
+        }
+        self.read_packet(index, self.initial_palette.clone())
+    }
+
     /// Decode one superchunk. Errors stop iteration until an explicit rewind;
     /// partially decoded state is never committed as a successful frame.
     pub fn next_frame(&mut self) -> io::Result<Option<Frame>> {
@@ -96,16 +105,22 @@ impl<R: Read + Seek> Hnm1<R> {
         if self.index == self.frame_count() {
             return Ok(None);
         }
-        let result = self.read_frame();
-        if result.is_err() {
-            self.failed = true;
+        match self.read_packet(self.index, self.palette.clone()) {
+            Ok(frame) => {
+                self.index += 1;
+                self.palette = frame.palette.clone();
+                Ok(Some(frame))
+            }
+            Err(error) => {
+                self.failed = true;
+                Err(error)
+            }
         }
-        result.map(Some)
     }
 
-    fn read_frame(&mut self) -> io::Result<Frame> {
-        let start = self.offsets[self.index];
-        let len = (self.offsets[self.index + 1] - start) as usize;
+    fn read_packet(&mut self, index: usize, mut palette: Palette) -> io::Result<Frame> {
+        let start = self.offsets[index];
+        let len = (self.offsets[index + 1] - start) as usize;
         self.reader
             .seek(SeekFrom::Start(self.header_size + u64::from(start)))?;
         let mut packet = vec![0; len];
@@ -113,10 +128,16 @@ impl<R: Read + Seek> Hnm1<R> {
         if len < 2 || u16::from_le_bytes(packet[..2].try_into().unwrap()) as usize != len {
             return Err(invalid("HNM1 superchunk size disagrees with frame index"));
         }
-        let mut palette = self.palette.clone();
         let mut pos = 2;
         let mut chunks = Vec::new();
         let mut video = None;
+        if packet.get(2..) == Some(b"RM\0\0") {
+            chunks.push(Chunk {
+                tag: *b"RM",
+                data: Vec::new(),
+            });
+            pos = packet.len();
+        }
         while pos < packet.len() {
             if packet.len() - pos < 4 {
                 return Err(invalid("truncated HNM1 chunk header"));
@@ -141,15 +162,12 @@ impl<R: Read + Seek> Hnm1<R> {
             chunks.push(Chunk { tag, data });
             pos += len;
         }
-        let frame = Frame {
-            index: self.index,
-            palette: palette.clone(),
+        Ok(Frame {
+            index,
+            palette,
             chunks,
             video,
-        };
-        self.index += 1;
-        self.palette = palette;
-        Ok(frame)
+        })
     }
 }
 

@@ -71,20 +71,21 @@ The implemented profile has:
 - A little-endian 16-bit header size, palette ranges, FF padding and a required
   32-bit relative superchunk-offset table ending at the movie's logical EOF.
 - Bounded 16-bit superchunks and typed chunks, with an optional final bitmap.
-- Raw bitmap data or checksum-171 HSQ expansion. Outer width flags independently
-  select compression (0200), direct framebuffer output (0400), and signed
-  row-local raster RLE (8000) for ordinary updates. Direct output bypasses RLE
-  composition. RLE follows optional HSQ expansion; it is not the
-  separately described checksum-173 overlay codec. Rows have no alignment pad.
+  An exact six-byte `RM` placeholder is exposed as a chunk with no bitmap.
+- Raw bitmap data, checksum-171 HSQ expansion, and checksum-173 split-stream
+  raster expansion. The split format keeps coordinates outside the compressed
+  stream and expands samples before consuming the run controls.
+- Outer width flags select compression (0200), direct framebuffer output
+  (0400), and signed row-local raster RLE (8000) for ordinary updates. Direct
+  output bypasses the row-local RLE stage. Rows have no alignment padding.
 - Palette range updates, including count zero meaning 256 entries, and unchanged
   frames with a zero bitmap dimension.
 
-Checksums 172/173, other bitmap flags/modes and geometry above 320×200 are
-explicitly unsupported. Shared format support does not imply all games described
-as using HNM1 have been tested. Validation currently covers the selected Dune CD
-executable's profile and its HNM/LOP resources; looping LOP playback is caller
-policy. Some Dune paths use other destination strides/scaling or reserve palette
-entry zero. Those engine policies are deliberately separate from the codec.
+Checksum 172, other bitmap flags and modes, and geometry above 320×200 remain
+unsupported. HNM1 validation covers the selected Dune CD HNM/LOP resources and
+all 111 actor and portrait archive entries across both discs of the English
+Dragon Lore Gold 2.0 GOG DOS release. Dune-specific strides, scaling, palette
+entry zero and LOP looping belong to the caller.
 
 Indexing reads only the at-most-65,535-byte header. `next_frame()` reads one
 bounded superchunk and validates output sizes/backreferences/RLE row boundaries.
@@ -92,6 +93,10 @@ Each decompressed intermediate fits the format's 16-bit size field; a canvas
 holds 64,000 indices. Successful frames commit palette/index state atomically.
 After an error, decoding stays stopped until `rewind()`; reset the separate
 canvas/background too when replaying dependent updates.
+
+`indexed_frame(index)` reads a selected superchunk using the header palette
+and preserves sequential state. Use it for resources which select packets
+independently. The caller still owns any inherited raster or other game state.
 
 ## HNM4 output
 

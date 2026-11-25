@@ -14,7 +14,7 @@ controller options. Linux is the current development platform.
 | --- | --- | --- |
 | `alleycat` | Alley Cat | [Playing Alley Cat](docs/games/alleycat.md) |
 | `mach3` | Mach 3 | [Playing Mach 3](docs/games/mach3.md) |
-| `btz` | Mindwheel, Essex, Brimstone: The Dream of Gawain, Breakers | [Playing btz games](docs/games/btz.md) |
+| `btz` | Mindwheel, Essex, Brimstone: The Dream of Gawain, Breakers | [Playing BTZ games](docs/games/btz.md) |
 | `centurion` | Centurion: Defender of Rome | [Playing Centurion](docs/games/centurion.md) |
 
 Supported inputs include verified DOS distributions and Alley Cat’s PC Booter

@@ -1,4 +1,4 @@
-# Games using `btz`
+# Playing BTZ games
 
 Play Mindwheel, Essex, Brimstone and Breakers for DOS through REforge's `btz`
 interpreter, with their original text layout, interactive commands and background

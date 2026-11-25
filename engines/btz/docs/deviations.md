@@ -2,7 +2,7 @@
 # Deliberate deviations from the original
 
 This records intentional presentation and usability changes to the four
-supported DOS games. The [btz player guide](../../../docs/games/btz.md) explains
+supported DOS games. The [BTZ player guide](../../../docs/games/btz.md) explains
 how to use these features. Missing features, reconstruction bugs and unresolved
 timing/input fidelity questions remain in the
 [compatibility notes](../README.md#reference-and-compatibility) and

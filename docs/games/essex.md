@@ -25,7 +25,7 @@ The default is an SDL text window, with sharp pixels or Hyllian CRT presentation
 and windowed/fullscreen options. Enter dismisses the title. For an attached
 terminal, add `--renderer terminal`.
 
-See the [btz player guide](btz.md) for commands, keyboard controls, launch options,
+See the [BTZ player guide](btz.md) for commands, keyboard controls, launch options,
 [bookmarks and transcripts](btz.md#bookmarks-and-transcripts), and timing behavior.
 Bookmarks use the original DOS format, so saves can be exchanged with the
 corresponding original game release.

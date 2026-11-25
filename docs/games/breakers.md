@@ -28,7 +28,7 @@ title screen. Press Enter to begin. The default is an SDL text window, with
 sharp pixels or Hyllian CRT presentation and windowed/fullscreen options. For
 an attached terminal, add `--renderer terminal`.
 
-See the [btz player guide](btz.md) for commands, keyboard controls, launch options,
+See the [BTZ player guide](btz.md) for commands, keyboard controls, launch options,
 [bookmarks and transcripts](btz.md#bookmarks-and-transcripts), and timing behavior.
 Bookmarks use the original DOS format; saves can be exchanged with the
 corresponding original release. Replacing an existing Breakers bookmark requires

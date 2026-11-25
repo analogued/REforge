@@ -210,7 +210,7 @@ same release or another release with the same game ID and explicit
 `compatibility_id`, meaning compatible saves and persistent option semantics.
 Matching hashes, titles or platforms alone never establish compatibility. The
 stored release ID and paths change; entry identity, overrides and its reserved
-save namespace remain intact. Saved files are not moved. `btz` games' default
+save namespace remain intact. Saved files are not moved. BTZ games' default
 save directory follows the selected game-data directory. A directory already
 registered to another entry is rejected.
 Files changed to another release in place require explicit Relocate as well.
@@ -224,7 +224,7 @@ a fresh ID rather than reclaiming them.
 Saving is engine-specific. `btz` implements native bookmarks and text
 transcripts. Relative filenames default to the directory containing `ADISK.OBJ`;
 `--save-dir` changes that base, and absolute filenames select their own location.
-See the [btz guide](games/btz.md#bookmarks-and-transcripts) for prompts,
+See the [BTZ guide](games/btz.md#bookmarks-and-transcripts) for prompts,
 overwrite behavior and fixed-file options. Alley Cat and Mach 3 currently do not
 provide gameplay save/restore.
 
@@ -334,7 +334,7 @@ globally. In Settings it appears under **Text interface**, at the end of
 the game's Display page as **Cursor style**. It affects command input and file
 dialogs in both frontends. Terminal play uses a steady underline for Pulsing
 underline and delegates the other shapes and blink rate to the terminal. See the
-[btz controls](games/btz.md#commands-and-controls).
+[BTZ controls](games/btz.md#commands-and-controls).
 
 The menu offers platform choices and compiled SDL renderer drivers. Direct3D
 and Metal are not offered on Linux. A renderer change resets an unlocked,
@@ -351,7 +351,7 @@ only this run. Those controls are disabled in both editing scopes. Each scope
 shows the active CLI value in the locked control. Apply never copies CLI values
 into the file; the saved preferences remain available on the next ordinary run.
 
-Terminal is a startup renderer available to `btz` games. It uses the process's
+Terminal is a startup renderer available to BTZ games. It uses the process's
 attached input/output terminal and does not open a terminal application or an SDL game
 window. It is available through `--renderer terminal`, including builds without
 SDL, or in per-entry Settings when a terminal is attached. It cannot be a global
@@ -362,7 +362,7 @@ Window, backend and CRT preferences are retained and ignored during terminal
 play. Their controls are disabled while Terminal is selected; explicit CLI
 graphics overrides warn and are ignored for that run. Selecting Graphical in
 the `btz` launch options restores the graphical renderer preference. See
-[btz launch instructions](games/btz.md#start-playing).
+[BTZ launch instructions](games/btz.md#start-playing).
 
 Preferences record requests rather than temporary runtime outcomes. Auto stays
 Auto; unavailable backend/VSync requests are not replaced in the file by their
@@ -628,7 +628,7 @@ The first available recognized controller is used, with a replacement selected
 if it disconnects. Device-open failures warn and leave keyboard play available.
 The table shows the default bindings.
 
-| Controller input   | Alley Cat                        | Mach 3          | `btz` games |
+| Controller input   | Alley Cat                        | Mach 3          | BTZ games |
 | ------------------ | -------------------------------- | --------------- | --------- |
 | Left stick / D-pad | Move, jump and swim              | Steer           | Navigate menus |
 | Bottom face button | Contextual action (keyboard Alt) | Fire            | Confirm menu control |
@@ -636,7 +636,7 @@ The table shows the default bindings.
 | Back/View          | Toggle settings                  | Toggle settings | Toggle settings |
 
 The bottom face button advances Alley Cat and Mach 3's title/start screens.
-`btz` games use controllers for Settings and file-dialog navigation; game commands
+BTZ games use controllers for Settings and file-dialog navigation; game commands
 and filename text still use the keyboard. B cancels a filename prompt and the
 shoulders change focus. Terminal play uses its terminal's keyboard input.
 

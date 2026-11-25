@@ -16,7 +16,7 @@ selected through immutable definitions.
 
 The windowed and terminal frontends support commands, bookmarks, transcripts,
 restart and exit. Supported games use REforge's game detection and graphical
-launcher; see the [btz player guide](../../docs/games/btz.md) for
+launcher; see the [BTZ player guide](../../docs/games/btz.md) for
 controls and launch options.
 
 > [!NOTE]

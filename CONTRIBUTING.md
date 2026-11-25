@@ -23,10 +23,11 @@ exact contents matter.
 
 Refer to REforge's engine recreations by their repository/crate identifiers,
 such as `alleycat`, `mach3`, `btz` and `centurion`. Use lowercase identifiers in
-technical headings, engine tables and engine documentation links. Format identifiers as
-code in prose and headings. Keep game titles and player-interface labels in
-their normal spelling, including spaces. Historical names such as BTZ (Better
-Than Zork) retain their proper spelling when referring to the original software.
+technical headings, engine tables and engine documentation links. Format
+identifiers as code in prose and headings. Keep game titles and player-interface
+labels in their normal spelling, including spaces. Historical names such as
+BTZ (Better Than Zork) retain their proper spelling when referring to the original
+software or its games, including player-guide titles such as "Playing BTZ games".
 Engine identifiers remain distinct from game/catalog IDs such as `mach-3`.
 
 ## Original-software references

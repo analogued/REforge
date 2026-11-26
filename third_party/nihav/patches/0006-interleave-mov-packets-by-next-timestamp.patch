@@ -1,0 +1,147 @@
+diff --git a/nihav-commonfmt/src/demuxers/mov/mod.rs b/nihav-commonfmt/src/demuxers/mov/mod.rs
+index 35aaf414c387db030b7a747af2321a07be21fe1e..b1c64d85e381837f39f803f8cd5476404238e490 100644
+--- a/nihav-commonfmt/src/demuxers/mov/mod.rs
++++ b/nihav-commonfmt/src/demuxers/mov/mod.rs
+@@ -1,4 +1,5 @@
+ // REforge added handling for repeated top-level movie metadata in 2026.
++// REforge corrected packet interleaving across tracks in 2026.
+ 
+ use nihav_core::demuxers::*;
+ use nihav_registry::register::*;
+@@ -575,51 +576,26 @@ impl<'a> DemuxCore<'a> for MOVDemuxer<'a> {
+     }
+ 
+     fn get_frame(&mut self, strmgr: &mut StreamManager) -> DemuxerResult<NAPacket> {
+-        if self.tracks.is_empty() {
+-            return Err(DemuxerError::EOF);
+-        }
+-        let mut has_all_time = true;
+-        let mut min_ts = u64::MAX;
+-        for (trk_no, trk) in self.tracks.iter().enumerate() {
+-            if strmgr.is_ignored(trk_no) {
++        // Compare each track's next sample, including tracks with sparse packets.
++        // Time from the preceding packet would let audio run ahead of video.
++        let mut earliest = None;
++        for (index, track) in self.tracks.iter_mut().enumerate() {
++            if track.track_str_ids.iter().all(|&id| strmgr.is_ignored(id)) {
+                 continue;
+             }
+-            if let Some(ts) = trk.pkt_demux.cur_ts {
+-                min_ts = min_ts.min(ts);
+-            } else {
+-                has_all_time = false;
+-                break;
+-            }
+-        }
+-        if has_all_time {
+-            for (trk_no, track) in self.tracks.iter_mut().enumerate() {
+-                if let Some(ts) = track.pkt_demux.cur_ts {
+-                    if ts == min_ts {
+-                        let first = track.pkt_demux.is_first();
+-                        if let Some((cts, offset, size, is_kf)) = track.pkt_demux.get_next_chunk() {
+-                            self.cur_track = trk_no + 1;
+-                            return process_packet(self.src, strmgr, track, cts, offset, size, first, is_kf);
+-                        }
+-                    }
++            if let Some(time) = track.pkt_demux.next_decode_time_ns()? {
++                let candidate = (time, index);
++                if earliest.is_none_or(|previous| candidate < previous) {
++                    earliest = Some(candidate);
+                 }
+             }
+         }
+-
+-        for _ in 0..self.tracks.len() {
+-            if self.cur_track >= self.tracks.len() {
+-                self.cur_track = 0;
+-            }
+-            let track = &mut self.tracks[self.cur_track];
+-            self.cur_track += 1;
+-            if strmgr.is_ignored(self.cur_track - 1) {
+-                continue;
+-            }
+-            let first = track.pkt_demux.is_first();
+-            if let Some((cts, offset, size, is_kf)) = track.pkt_demux.get_next_chunk() {
+-                return process_packet(self.src, strmgr, track, cts, offset, size, first, is_kf);
+-            }
+-        }
+-        Err(DemuxerError::EOF)
++        let (_, index) = earliest.ok_or(DemuxerError::EOF)?;
++        let track = &mut self.tracks[index];
++        let first = track.pkt_demux.is_first();
++        let (ts, offset, size, keyframe) = track.pkt_demux.get_next_chunk()
++            .ok_or(DemuxerError::InvalidData)?;
++        process_packet(self.src, strmgr, track, ts, offset, size, first, keyframe)
+     }
+ 
+     fn seek(&mut self, time: NATimePoint, seek_index: &SeekIndex) -> DemuxerResult<()> {
+diff --git a/nihav-commonfmt/src/demuxers/mov/pktread.rs b/nihav-commonfmt/src/demuxers/mov/pktread.rs
+index 09131dd21f72afe5b5ae8a25fc06e9cefa55588c..8162003cd2033c54e66f1c9b543e7a20151bff66 100644
+--- a/nihav-commonfmt/src/demuxers/mov/pktread.rs
++++ b/nihav-commonfmt/src/demuxers/mov/pktread.rs
+@@ -1,4 +1,5 @@
+ // REforge added video sample durations and corrected stts run boundaries in 2026.
++// REforge added packet-head timestamps for track interleaving in 2026.
+ 
+ use nihav_core::demuxers::*;
+ 
+@@ -130,7 +131,6 @@ pub struct QTPacketDemuxer {
+     pub tb_den:         u32,
+     pub cur_chunk:      usize,
+     pub cur_sample:     usize,
+-    pub cur_ts:         Option<u64>,
+     pub samples_left:   usize,
+     pub last_offset:    u64,
+     pub duration:       u32,
+@@ -277,6 +277,20 @@ impl QTPacketDemuxer {
+         }
+         Some(chunk_start)
+     }
++    pub fn next_decode_time_ns(&mut self) -> DemuxerResult<Option<u128>> {
++        let has_packet = if self.mode == PacketMode::OneToOne {
++            self.cur_sample < self.chunk_sizes.len()
++        } else {
++            self.samples_left != 0 || self.cur_chunk < self.chunk_offsets.len()
++        };
++        if !has_packet {
++            return Ok(None);
++        }
++        let dts = self.timesearch.map_time(self.cur_sample as u32, &self.time_to_sample);
++        let ns = u128::from(dts) * u128::from(self.tb_num) * 1_000_000_000;
++        let time = ns.checked_div(u128::from(self.tb_den)).ok_or(DemuxerError::InvalidData)?;
++        Ok(Some(time))
++    }
+     pub fn get_next_chunk(&mut self) -> Option<(NATimeInfo, u64, usize, bool)> {
+         let dts_val = self.timesearch.map_time(self.cur_sample as u32, &self.time_to_sample);
+         let pts = if let Some(dts_corr) = self.ctts_map.map(self.cur_sample as u64) {
+@@ -386,7 +400,6 @@ impl QTPacketDemuxer {
+         };
+         self.cur_sample = pts as usize;
+         self.samples_left = 0;
+-        self.cur_ts = None;
+         if forced && pts.abs_diff(tgt_pts) > 5 * u64::from(self.tb_den) {
+             self.cur_sample = tgt_pts as usize;
+         }
+diff --git a/nihav-commonfmt/src/demuxers/mov/track.rs b/nihav-commonfmt/src/demuxers/mov/track.rs
+index 58dbc8e4b3913f9c6435c2729c07d1d35e22c569..722803dce55f4024243a30e9510a354ef92308d8 100644
+--- a/nihav-commonfmt/src/demuxers/mov/track.rs
++++ b/nihav-commonfmt/src/demuxers/mov/track.rs
+@@ -1,3 +1,5 @@
++// REforge removed the previous-packet timestamp from MOV interleaving in 2026.
++
+ use nihav_core::demuxers::*;
+ use nihav_registry::register::*;
+ use nihav_codec_support::codecs::qt_pal::*;
+@@ -1059,12 +1061,6 @@ pub fn process_packet(src: &mut dyn ByteIO, strmgr: &StreamManager, track: &mut
+             }
+             cur_desc as usize - 1
+         } else { 0 };
+-    if let Some(cpts) = ts.get_pts() {
+-        let cts = NATimeInfo::rescale_ts(cpts, ts.tb_num, ts.tb_den, 1, 1000);
+-        track.pkt_demux.cur_ts = Some(cts);
+-    } else {
+-        track.pkt_demux.cur_ts = None;
+-    }
+     let str_idx = if cur_desc < track.track_str_ids.len() { cur_desc } else { 0 };
+     let stream = strmgr.get_stream(track.track_str_ids[str_idx]);
+     if stream.is_none() { return Err(DemuxerError::InvalidData); }

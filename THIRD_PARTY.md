@@ -83,8 +83,9 @@ Photo JPEG, Cinepak, QuickTime IMA ADPCM and QDesign Music (QDMC).
 REforge adds Cargo license metadata and omits the vendored crates' test-only
 dependencies. In `nihav-core/src/refs.rs` it replaces manual shared mutable
 references with copy-on-write buffers. It adds baseline JPEG restart handling
-in the two `src/codecs/jpeg.rs` files, and corrects MOV sample durations and
-repeated movie metadata in `nihav-commonfmt/src/demuxers/mov/`. The
+in the two `src/codecs/jpeg.rs` files, and corrects MOV sample durations,
+repeated movie metadata, and packet interleaving in
+`nihav-commonfmt/src/demuxers/mov/`. The
 [import instructions](third_party/nihav/README.md) describe how to reapply
 the [patch series](third_party/nihav/patches). The vendored code retains its
 AGPL terms. The adapter is authored under GPL-3.0-or-later and the code is

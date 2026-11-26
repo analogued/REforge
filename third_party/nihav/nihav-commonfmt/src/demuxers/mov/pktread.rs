@@ -1,4 +1,5 @@
 // REforge added video sample durations and corrected stts run boundaries in 2026.
+// REforge added packet-head timestamps for track interleaving in 2026.
 
 use nihav_core::demuxers::*;
 
@@ -130,7 +131,6 @@ pub struct QTPacketDemuxer {
     pub tb_den:         u32,
     pub cur_chunk:      usize,
     pub cur_sample:     usize,
-    pub cur_ts:         Option<u64>,
     pub samples_left:   usize,
     pub last_offset:    u64,
     pub duration:       u32,
@@ -277,6 +277,20 @@ impl QTPacketDemuxer {
         }
         Some(chunk_start)
     }
+    pub fn next_decode_time_ns(&mut self) -> DemuxerResult<Option<u128>> {
+        let has_packet = if self.mode == PacketMode::OneToOne {
+            self.cur_sample < self.chunk_sizes.len()
+        } else {
+            self.samples_left != 0 || self.cur_chunk < self.chunk_offsets.len()
+        };
+        if !has_packet {
+            return Ok(None);
+        }
+        let dts = self.timesearch.map_time(self.cur_sample as u32, &self.time_to_sample);
+        let ns = u128::from(dts) * u128::from(self.tb_num) * 1_000_000_000;
+        let time = ns.checked_div(u128::from(self.tb_den)).ok_or(DemuxerError::InvalidData)?;
+        Ok(Some(time))
+    }
     pub fn get_next_chunk(&mut self) -> Option<(NATimeInfo, u64, usize, bool)> {
         let dts_val = self.timesearch.map_time(self.cur_sample as u32, &self.time_to_sample);
         let pts = if let Some(dts_corr) = self.ctts_map.map(self.cur_sample as u64) {
@@ -386,7 +400,6 @@ impl QTPacketDemuxer {
         };
         self.cur_sample = pts as usize;
         self.samples_left = 0;
-        self.cur_ts = None;
         if forced && pts.abs_diff(tgt_pts) > 5 * u64::from(self.tb_den) {
             self.cur_sample = tgt_pts as usize;
         }

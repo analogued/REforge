@@ -1,3 +1,5 @@
+// REforge removed the previous-packet timestamp from MOV interleaving in 2026.
+
 use nihav_core::demuxers::*;
 use nihav_registry::register::*;
 use nihav_codec_support::codecs::qt_pal::*;
@@ -1059,12 +1061,6 @@ pub fn process_packet(src: &mut dyn ByteIO, strmgr: &StreamManager, track: &mut 
             }
             cur_desc as usize - 1
         } else { 0 };
-    if let Some(cpts) = ts.get_pts() {
-        let cts = NATimeInfo::rescale_ts(cpts, ts.tb_num, ts.tb_den, 1, 1000);
-        track.pkt_demux.cur_ts = Some(cts);
-    } else {
-        track.pkt_demux.cur_ts = None;
-    }
     let str_idx = if cur_desc < track.track_str_ids.len() { cur_desc } else { 0 };
     let stream = strmgr.get_stream(track.track_str_ids[str_idx]);
     if stream.is_none() { return Err(DemuxerError::InvalidData); }

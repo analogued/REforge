@@ -1,4 +1,5 @@
 // REforge added handling for repeated top-level movie metadata in 2026.
+// REforge corrected packet interleaving across tracks in 2026.
 
 use nihav_core::demuxers::*;
 use nihav_registry::register::*;
@@ -575,51 +576,26 @@ impl<'a> DemuxCore<'a> for MOVDemuxer<'a> {
     }
 
     fn get_frame(&mut self, strmgr: &mut StreamManager) -> DemuxerResult<NAPacket> {
-        if self.tracks.is_empty() {
-            return Err(DemuxerError::EOF);
-        }
-        let mut has_all_time = true;
-        let mut min_ts = u64::MAX;
-        for (trk_no, trk) in self.tracks.iter().enumerate() {
-            if strmgr.is_ignored(trk_no) {
+        // Compare each track's next sample, including tracks with sparse packets.
+        // Time from the preceding packet would let audio run ahead of video.
+        let mut earliest = None;
+        for (index, track) in self.tracks.iter_mut().enumerate() {
+            if track.track_str_ids.iter().all(|&id| strmgr.is_ignored(id)) {
                 continue;
             }
-            if let Some(ts) = trk.pkt_demux.cur_ts {
-                min_ts = min_ts.min(ts);
-            } else {
-                has_all_time = false;
-                break;
-            }
-        }
-        if has_all_time {
-            for (trk_no, track) in self.tracks.iter_mut().enumerate() {
-                if let Some(ts) = track.pkt_demux.cur_ts {
-                    if ts == min_ts {
-                        let first = track.pkt_demux.is_first();
-                        if let Some((cts, offset, size, is_kf)) = track.pkt_demux.get_next_chunk() {
-                            self.cur_track = trk_no + 1;
-                            return process_packet(self.src, strmgr, track, cts, offset, size, first, is_kf);
-                        }
-                    }
+            if let Some(time) = track.pkt_demux.next_decode_time_ns()? {
+                let candidate = (time, index);
+                if earliest.is_none_or(|previous| candidate < previous) {
+                    earliest = Some(candidate);
                 }
             }
         }
-
-        for _ in 0..self.tracks.len() {
-            if self.cur_track >= self.tracks.len() {
-                self.cur_track = 0;
-            }
-            let track = &mut self.tracks[self.cur_track];
-            self.cur_track += 1;
-            if strmgr.is_ignored(self.cur_track - 1) {
-                continue;
-            }
-            let first = track.pkt_demux.is_first();
-            if let Some((cts, offset, size, is_kf)) = track.pkt_demux.get_next_chunk() {
-                return process_packet(self.src, strmgr, track, cts, offset, size, first, is_kf);
-            }
-        }
-        Err(DemuxerError::EOF)
+        let (_, index) = earliest.ok_or(DemuxerError::EOF)?;
+        let track = &mut self.tracks[index];
+        let first = track.pkt_demux.is_first();
+        let (ts, offset, size, keyframe) = track.pkt_demux.get_next_chunk()
+            .ok_or(DemuxerError::InvalidData)?;
+        process_packet(self.src, strmgr, track, ts, offset, size, first, keyframe)
     }
 
     fn seek(&mut self, time: NATimePoint, seek_index: &SeekIndex) -> DemuxerResult<()> {

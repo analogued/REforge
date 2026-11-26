@@ -1,0 +1,167 @@
+use nihav_core::codecs::*;
+
+#[cfg(debug_assertions)]
+macro_rules! validate {
+    ($a:expr) => { if !$a { println!("check failed at {}:{}", file!(), line!()); return Err(DecoderError::InvalidData); } };
+}
+#[cfg(not(debug_assertions))]
+macro_rules! validate {
+    ($a:expr) => { if !$a { return Err(DecoderError::InvalidData); } };
+}
+
+#[cfg(feature="decoder_8bps")]
+mod eightbps;
+
+#[cfg(feature="decoder_qdraw")]
+pub(crate) mod qdraw;
+
+#[cfg(feature="decoder_rle")]
+mod rle;
+
+#[cfg(feature="decoder_rpza")]
+mod rpza;
+
+#[cfg(feature="decoder_smc")]
+mod smc;
+
+#[cfg(feature="decoder_cdvideo")]
+mod cdvideo;
+
+#[cfg(feature="decoder_sivq")]
+mod sivq;
+
+#[cfg(feature="decoder_svq1")]
+mod svq1;
+#[cfg(feature="decoder_svq1")]
+mod svq1data;
+
+#[cfg(feature="decoder_svq3")]
+#[allow(clippy::too_many_arguments)]
+mod svq3;
+#[cfg(feature="decoder_svq3")]
+#[allow(clippy::collapsible_else_if)]
+#[allow(clippy::erasing_op)]
+#[allow(clippy::identity_op)]
+#[allow(clippy::many_single_char_names)]
+mod svq3dsp;
+
+#[cfg(feature="decoder_rawvid")]
+mod rawvid;
+
+#[cfg(feature="decoder_alac")]
+mod alac;
+
+#[cfg(feature="decoder_ima_adpcm_qt")]
+mod imaadpcm;
+
+#[cfg(feature="decoder_mace")]
+mod mace;
+#[cfg(any(feature="decoder_mace", feature="encoder_mace"))]
+mod macecommon;
+
+#[cfg(feature="decoder_qcelp")]
+#[allow(clippy::excessive_precision)]
+mod qcelp;
+
+#[cfg(any(feature="decoder_qdm",feature="decoder_qdm2"))]
+mod qdmcommon;
+#[cfg(feature="decoder_qdm")]
+mod qdmc;
+#[cfg(feature="decoder_qdm2")]
+#[allow(clippy::excessive_precision)]
+mod qdm2fft;
+#[cfg(feature="decoder_qdm2")]
+#[allow(clippy::excessive_precision)]
+mod qdm2qmf;
+#[cfg(feature="decoder_qdm2")]
+#[allow(clippy::excessive_precision)]
+mod qdm2;
+
+const QT_CODECS: &[DecoderInfo] = &[
+#[cfg(feature="decoder_8bps")]
+    DecoderInfo { name: "8bps", get_decoder: eightbps::get_decoder },
+#[cfg(feature="decoder_qdraw")]
+    DecoderInfo { name: "qdraw", get_decoder: qdraw::get_decoder },
+#[cfg(feature="decoder_rle")]
+    DecoderInfo { name: "qt-rle", get_decoder: rle::get_decoder },
+#[cfg(feature="decoder_rpza")]
+    DecoderInfo { name: "apple-video", get_decoder: rpza::get_decoder },
+#[cfg(feature="decoder_smc")]
+    DecoderInfo { name: "qt-smc", get_decoder: smc::get_decoder },
+#[cfg(feature="decoder_cdvideo")]
+    DecoderInfo { name: "qt-cdvideo", get_decoder: cdvideo::get_decoder },
+#[cfg(feature="decoder_sivq")]
+    DecoderInfo { name: "qt-sivq", get_decoder: sivq::get_decoder },
+#[cfg(feature="decoder_svq1")]
+    DecoderInfo { name: "sorenson-video", get_decoder: svq1::get_decoder },
+#[cfg(feature="decoder_svq3")]
+    DecoderInfo { name: "sorenson-video3", get_decoder: svq3::get_decoder },
+#[cfg(feature="decoder_rawvid")]
+    DecoderInfo { name: "qt-yuv2", get_decoder: rawvid::get_decoder_yuv2 },
+#[cfg(feature="decoder_rawvid")]
+    DecoderInfo { name: "qt-yuv4", get_decoder: rawvid::get_decoder_yuv4 },
+#[cfg(feature="decoder_alac")]
+    DecoderInfo { name: "alac", get_decoder: alac::get_decoder },
+#[cfg(feature="decoder_ima_adpcm_qt")]
+    DecoderInfo { name: "ima-adpcm-qt", get_decoder: imaadpcm::get_decoder },
+#[cfg(feature="decoder_mace")]
+    DecoderInfo { name: "mace-3", get_decoder: mace::get_decoder_3 },
+#[cfg(feature="decoder_mace")]
+    DecoderInfo { name: "mace-6", get_decoder: mace::get_decoder_6 },
+#[cfg(feature="decoder_qcelp")]
+    DecoderInfo { name: "qualcomm-purevoice", get_decoder: qcelp::get_decoder },
+#[cfg(feature="decoder_qdm")]
+    DecoderInfo { name: "qdesign-music", get_decoder: qdmc::get_decoder },
+#[cfg(feature="decoder_qdm2")]
+    DecoderInfo { name: "qdesign-music2", get_decoder: qdm2::get_decoder },
+];
+
+/// Registers all available decoders provided by this crate.
+pub fn qt_register_all_decoders(rd: &mut RegisteredDecoders) {
+    for decoder in QT_CODECS.iter() {
+        rd.add_decoder(*decoder);
+    }
+}
+
+#[cfg(feature="encoder_rawvid")]
+mod rawvidenc;
+#[cfg(feature="encoder_rle")]
+mod rleenc;
+#[cfg(feature="encoder_rpza")]
+mod rpzaenc;
+#[cfg(feature="encoder_smc")]
+mod smcenc;
+
+#[cfg(feature="encoder_ima_adpcm_qt")]
+mod imaadpcmenc;
+#[cfg(feature="encoder_mace")]
+mod maceenc;
+
+#[cfg(feature="encoders")]
+const QT_ENCODERS: &[EncoderInfo] = &[
+#[cfg(feature="encoder_rawvid")]
+    EncoderInfo { name: "qt-yuv2", get_encoder: rawvidenc::get_encoder_yuv2 },
+#[cfg(feature="encoder_rawvid")]
+    EncoderInfo { name: "qt-yuv4", get_encoder: rawvidenc::get_encoder_yuv4 },
+#[cfg(feature="encoder_rle")]
+    EncoderInfo { name: "qt-rle", get_encoder: rleenc::get_encoder },
+#[cfg(feature="encoder_rpza")]
+    EncoderInfo { name: "apple-video", get_encoder: rpzaenc::get_encoder },
+#[cfg(feature="encoder_smc")]
+    EncoderInfo { name: "qt-smc", get_encoder: smcenc::get_encoder },
+
+#[cfg(feature="encoder_ima_adpcm_qt")]
+    EncoderInfo { name: "ima-adpcm-qt", get_encoder: imaadpcmenc::get_encoder },
+#[cfg(feature="encoder_mace")]
+    EncoderInfo { name: "mace-3", get_encoder: maceenc::get_encoder_3 },
+#[cfg(feature="encoder_mace")]
+    EncoderInfo { name: "mace-6", get_encoder: maceenc::get_encoder_6 },
+];
+
+/// Registers all available encoders provided by this crate.
+#[cfg(feature="encoders")]
+pub fn qt_register_all_encoders(re: &mut RegisteredEncoders) {
+    for encoder in QT_ENCODERS.iter() {
+        re.add_encoder(*encoder);
+    }
+}

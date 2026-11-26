@@ -1,5 +1,12 @@
 [workspace]
-members = ["app", "engines/alleycat", "engines/mach3", "engines/btz", "engines/centurion", "crates/reforge_sdl", "crates/reforge_audio", "crates/reforge_graphics", "crates/reforge_settings", "crates/reforge_inputs", "crates/reforge_disc", "crates/reforge_cryo_archive", "crates/reforge_hnm"]
+members = ["app", "engines/alleycat", "engines/mach3", "engines/btz", "engines/centurion", "crates/reforge_sdl", "crates/reforge_audio", "crates/reforge_graphics", "crates/reforge_settings", "crates/reforge_inputs", "crates/reforge_disc", "crates/reforge_cryo_archive", "crates/reforge_hnm", "crates/reforge_quicktime"]
+exclude = [
+    "third_party/nihav/nihav-core",
+    "third_party/nihav/nihav-codec-support",
+    "third_party/nihav/nihav-registry",
+    "third_party/nihav/nihav-commonfmt",
+    "third_party/nihav/nihav-qt",
+]
 default-members = ["app"]
 resolver = "3"
 

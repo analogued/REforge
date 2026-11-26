@@ -363,6 +363,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "nihav_codec_support"
+version = "0.1.0"
+dependencies = [
+ "nihav_core",
+]
+
+[[package]]
+name = "nihav_commonfmt"
+version = "0.1.0"
+dependencies = [
+ "nihav_codec_support",
+ "nihav_core",
+ "nihav_registry",
+]
+
+[[package]]
+name = "nihav_core"
+version = "0.1.0"
+
+[[package]]
+name = "nihav_qt"
+version = "0.1.0"
+dependencies = [
+ "nihav_codec_support",
+ "nihav_core",
+]
+
+[[package]]
+name = "nihav_registry"
+version = "0.1.0"
+dependencies = [
+ "nihav_core",
+]
+
+[[package]]
 name = "nohash-hasher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -529,6 +564,15 @@ version = "2026.3.0-dev"
 [[package]]
 name = "reforge_inputs"
 version = "2026.3.0-dev"
+
+[[package]]
+name = "reforge_quicktime"
+version = "2026.3.0-dev"
+dependencies = [
+ "nihav_commonfmt",
+ "nihav_core",
+ "nihav_qt",
+]
 
 [[package]]
 name = "reforge_sdl"

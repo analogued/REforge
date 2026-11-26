@@ -7,8 +7,8 @@ notices in imported source files remain intact. Third-party material retains
 these terms; REforge's authored code and documentation use
 [`GPL-3.0-or-later`](LICENSE).
 
-Cargo dependencies are used unmodified through their ordinary APIs. Exact
-resolved versions and crate checksums are in [Cargo.lock](Cargo.lock).
+Registry Cargo dependencies are used unmodified through their ordinary APIs.
+Exact resolved versions and registry crate checksums are in [Cargo.lock](Cargo.lock).
 Release packaging generates a combined notices document for the selected
 target and features, including indirect dependencies; see
 [release packaging](docs/releases.md). Generated dependency inventories are
@@ -70,6 +70,23 @@ is included; Cargo.lock records the exact registry checksum.
 Neither `c-reference-tests` nor `stereo-ext` is enabled, so this dependency
 requires no C/C++ compiler. Centurion enables `opl` for its AdLib output, so
 default application builds include this dependency.
+
+## NihAV QuickTime support
+
+`reforge_quicktime` uses [NihAV](https://nihav.org/) by Kostya Shishkov
+and upstream contributors under [AGPL-3.0-only](LICENSES/AGPL-3.0.txt).
+The five crates in [third_party/nihav](third_party/nihav) come from
+revision `13f31633cf325b0036d697af7bf05c611b4b8967` of the official
+[source bundle](https://nihav.org/nihav.gitbundle). The adapter enables MOV,
+Photo JPEG, Cinepak, QuickTime IMA ADPCM and QDesign Music (QDMC).
+
+REforge adds Cargo license metadata and omits the vendored crates' test-only
+dependencies. In `nihav-core/src/refs.rs` it replaces manual shared mutable
+references with copy-on-write buffers. It adds baseline JPEG restart handling
+in the two `src/codecs/jpeg.rs` files, and corrects MOV sample durations and
+repeated movie metadata in `nihav-commonfmt/src/demuxers/mov/`. The vendored
+code retains its AGPL terms. The adapter is authored under GPL-3.0-or-later and the code
+is combined under the permission in section 13 of the GPLv3 and AGPLv3.
 
 ## PC speaker response design credit
 

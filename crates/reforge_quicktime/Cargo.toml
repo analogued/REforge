@@ -1,0 +1,12 @@
+[package]
+name = "reforge_quicktime"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+license.workspace = true
+publish = false
+
+[dependencies]
+nihav_core = { path = "../../third_party/nihav/nihav-core" }
+nihav_commonfmt = { path = "../../third_party/nihav/nihav-commonfmt", default-features = false, features = ["demuxer_mov", "decoder_jpeg", "decoder_cinepak"] }
+nihav_qt = { path = "../../third_party/nihav/nihav-qt", default-features = false, features = ["decoder_ima_adpcm_qt", "decoder_qdm"] }

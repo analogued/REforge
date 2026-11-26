@@ -1,0 +1,9 @@
+[package]
+name = "nihav_registry"
+version = "0.1.0"
+authors = ["Kostya Shishkov <kostya.shishkov@gmail.com>"]
+edition = "2018"
+license = "AGPL-3.0-only"
+
+[dependencies]
+nihav_core = { path = "../nihav-core" }

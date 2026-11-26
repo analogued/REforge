@@ -168,7 +168,6 @@ mod tests {
             cli: Patch::new(),
         });
         let mut draft = session.saved.clone();
-        draft.global.insert("master_volume".into(), "70".into());
         draft.game.insert("master_volume".into(), "40".into());
         session.commit(draft).unwrap();
         let mut launch = Launch {
@@ -179,8 +178,8 @@ mod tests {
         };
         for (directory, expected_id, volume) in [
             ("one", Some(first.as_str()), 40),
-            ("two", Some(second.as_str()), 70),
-            ("unregistered", None, 70),
+            ("two", Some(second.as_str()), 80),
+            ("unregistered", None, 80),
         ] {
             launch.entry_id = None;
             let detected = Detected {
@@ -257,11 +256,9 @@ mod tests {
         let entry = library
             .add(Game::Centurion.id(), release.id, "Centurion", &root)
             .unwrap();
-        reforge_settings::launcher::save_native_option(
+        fs::write(
             &config,
-            &entry,
-            "sound",
-            Some("pc-speaker"),
+            format!("[entries.{entry}.audio]\naudio_renderer='speaker'\n"),
         )
         .unwrap();
         let detected = Detected {

@@ -243,7 +243,7 @@ impl Window {
         if session.game_id == "standalone" {
             session
                 .saved
-                .edit(false, "presentation", presentation.as_str().into());
+                .edit("presentation", presentation.as_str().into());
         }
         let requested = session.effective(&session.saved);
         if requested.renderer == reforge_settings::Renderer::Terminal {

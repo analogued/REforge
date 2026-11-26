@@ -32,13 +32,13 @@ const PAGES: [&str; SECTION_KEYS.len()] = [
     "Enhancements",
 ];
 pub(super) const LAUNCHER_PAGE: usize = PAGES.len();
-// Presence is distinct from equality: explicit overrides may match global.
+// Preserve saved-choice presence when an edit or section reset is pending.
 #[derive(Clone, Copy, Default)]
-struct Overrides<'a> {
+struct StoredChoices<'a> {
     current: Option<&'a reforge_settings::Patch>,
     saved: Option<&'a reforge_settings::Patch>,
 }
-impl<'a> Overrides<'a> {
+impl<'a> StoredChoices<'a> {
     fn current(self, key: &str) -> Option<&'a str> {
         self.current
             .and_then(|patch| patch.get(key))
@@ -56,13 +56,11 @@ impl<'a> Overrides<'a> {
 struct RowContext<'a> {
     base: &'a RuntimeSettings,
     previous: &'a RuntimeSettings,
-    scope: usize,
-    overrides: Overrides<'a>,
+    choices: StoredChoices<'a>,
     cli: &'a reforge_settings::Patch,
 }
 struct RowState {
     lock_tooltip: Option<String>,
-    overridden: bool,
     dirty: bool,
     tooltip: String,
     saved: String,
@@ -76,49 +74,11 @@ impl RowContext<'_> {
             .or_else(|| dependency_lock(key, value).map(str::to_owned));
         let saved = self.previous.get(key);
         let dirty = !self.cli.contains_key(key)
-            && if self.scope == 1 {
-                self.overrides.current(key) != self.overrides.saved(key)
-            } else {
-                value.get(key) != saved
+            && match (self.choices.current, self.choices.saved) {
+                (Some(_), Some(_)) => self.choices.current(key) != self.choices.saved(key),
+                _ => value.get(key) != saved,
             };
-        let mut tooltip = format!(
-            "{}: {}\nSaved: {}",
-            if matches!(
-                key,
-                DIGITIZED_SAMPLES
-                    | ALLEYCAT_MACHINE
-                    | CENTURION_FLEET_INFORMATION
-                    | CENTURION_POPUP_CURSOR
-                    | CENTURION_MENU_DECORATIONS
-                    | CENTURION_MAP_HIGHLIGHT
-                    | CENTURION_MAP_HOVER_INFO
-                    | CENTURION_APPLIED_VALUE_INDICATOR
-                    | ALLEYCAT_MOTION
-                    | BTZ_FILE_CURSOR
-                    | CONTROL_MODE
-                    | MOTION
-                    | CONTROLLER_MOVEMENT
-                    | CONTROLLER_ACTION
-                    | CONTROLLER_BUTTONS
-            ) {
-                "Default"
-            } else {
-                "Global"
-            },
-            self.base.get(key),
-            saved
-        );
-        if self.scope == 1 {
-            tooltip.push_str(if self.overrides.saved(key).is_some() {
-                " (game override)"
-            } else {
-                " (inherited)"
-            });
-            tooltip.push_str(&match self.overrides.current(key) {
-                Some(value) => format!("\nGame override: {value}"),
-                None => "\nFollows defaults; no game override.".into(),
-            });
-        }
+        let mut tooltip = format!("Default: {}\nSaved: {}", self.base.get(key), saved);
         if let Some(reason) = &lock_tooltip {
             tooltip = format!("{reason}\n\n{tooltip}");
         }
@@ -127,7 +87,6 @@ impl RowContext<'_> {
             dirty,
             tooltip,
             saved,
-            overridden: self.scope == 1 && self.overrides.current(key).is_some(),
         }
     }
 }
@@ -157,8 +116,8 @@ pub(super) fn draw(
     let cli = session.cli.clone();
     let game = session.game_id.clone();
     let warning = session.warning.clone();
-    let global_storage = session.has_global_storage();
-    let game_storage = session.has_game_storage();
+    let launcher_storage = session.has_launcher_storage();
+    let game_storage = session.has_entry_storage();
     drop(session);
     let capabilities = menu.capabilities;
     let mach3_options = capabilities.options == EngineOptions::Mach3;
@@ -180,9 +139,6 @@ pub(super) fn draw(
     let height = (screen.height() - 48.0).max(260.0);
     let body_height = (height - 120.0).max(160.0);
     let mut close = false;
-    if !menu.game_overrides {
-        menu.scope = 0;
-    }
     egui::Window::new("Settings")
         .id(egui::Id::new("reforge_settings"))
         .collapsible(false)
@@ -194,47 +150,24 @@ pub(super) fn draw(
             ui.horizontal_wrapped(|ui| {
                 if menu.page == LAUNCHER_PAGE {
                     ui.label("Launcher preferences");
-                    // Match the scope controls' height when changing sections.
+                    // Keep the header height stable when changing sections.
                     ui.set_min_height(ui.spacing().interact_size.y);
                     return;
                 }
-                ui.label("Editing");
-                let first = group_control(
-                    ui.selectable_value(&mut menu.scope, 0, "Global defaults"),
-                    Group::Scope,
-                );
-                let game_scope = menu.game_overrides.then(|| {
-                    group_control(
-                        ui.selectable_value(
-                            &mut menu.scope,
-                            1,
-                            format!(
-                                "{} overrides",
-                                match game.as_str() {
-                                    "alley-cat" => "Alley Cat",
-                                    "mach-3" => "Mach 3",
-                                    "centurion-defender-of-rome" => "Centurion",
-                                    "mindwheel" => "Mindwheel",
-                                    "essex" => "Essex",
-                                    "brimstone" => "Brimstone",
-                                    "breakers" => "Breakers",
-                                    _ => "Game",
-                                }
-                            ),
-                        ),
-                        Group::Scope,
-                    )
+                ui.label(match game.as_str() {
+                    "alley-cat" => "Alley Cat settings",
+                    "mach-3" => "Mach 3 settings",
+                    "centurion-defender-of-rome" => "Centurion settings",
+                    "mindwheel" => "Mindwheel settings",
+                    "essex" => "Essex settings",
+                    "brimstone" => "Brimstone settings",
+                    "breakers" => "Breakers settings",
+                    _ => "Game settings",
                 });
-                if menu.navigation.focus_first && first.enabled() {
-                    if menu.scope == 0 {
-                        first.request_focus();
-                    } else if let Some(game_scope) = game_scope {
-                        game_scope.request_focus();
-                    }
-                    menu.navigation.focus_first = false;
-                }
+                ui.weak(if game_storage { "This library entry" } else { "This run" });
+                ui.set_min_height(ui.spacing().interact_size.y);
             });
-            let controls_visible = menu.scope == 1 && controller_layouts;
+            let controls_visible = controller_layouts;
             ui.separator();
             let body = ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
@@ -243,6 +176,9 @@ pub(super) fn draw(
                     for (page, label) in PAGES.into_iter()
                         .chain(menu.launcher_options.is_some().then_some("Launcher"))
                         .enumerate() {
+                        if !menu.entry_settings && page != LAUNCHER_PAGE {
+                            continue;
+                        }
                         if page == ENHANCEMENTS_SECTION && !alleycat_options && !mach3_options && !centurion_options {
                             continue;
                         }
@@ -267,7 +203,7 @@ pub(super) fn draw(
                             ),
                             Group::Sidebar,
                         );
-                        if menu.navigation.focus_first && menu.page == LAUNCHER_PAGE && page == menu.page {
+                        if menu.navigation.focus_first && page == menu.page {
                             section.request_focus();
                             menu.navigation.focus_first = false;
                         }
@@ -307,81 +243,36 @@ pub(super) fn draw(
                             .show_viewport(ui, |ui, viewport| {
                                 ui.set_width(viewport.width());
                                 if let Some(launcher) = menu.launcher_options.as_mut() {
-                                    launcher_controls(ui, launcher, global_storage);
+                                    launcher_controls(ui, launcher, launcher_storage);
                                 }
                                 crate::settings_navigation::scroll_focus(ui, first);
                             });
                         return;
                     }
                     ui.heading(PAGES[menu.page]);
-                    if section_has_cli_locks(&cli, menu.page, menu.scope, mach3_options) {
+                    if section_has_cli_locks(&cli, menu.page, mach3_options) {
                         cli_notice(ui);
                     }
-                    if menu.page == ENHANCEMENTS_SECTION {
-                        if menu.scope == 1 {
-                            ui.weak("Game-specific options · Restore defaults returns to this game's built-in choices");
-                        }
-                    } else if menu.scope == 1 {
-                        let mut override_defaults = menu.game_editing[menu.page];
-                        if control(ui.checkbox(
-                            &mut override_defaults,
-                            canvas_text(
-                                ui,
-                                if game_storage {
-                                    "Override global defaults · only differences are saved"
-                                } else {
-                                    "Override global defaults · this run only"
-                                },
-                            ),
-                        ))
-                        .changed()
-                        {
-                            menu.game_editing[menu.page] = override_defaults;
-                            if !override_defaults {
-                                draft.reset_section(true, menu.page);
-                                menu.game_reset[menu.page] = true;
-                                if menu.page == 0 {
-                                    menu.display_edits[1] = Default::default();
-                                }
-                            }
-                        }
-                    } else {
-                        ui.weak(if global_storage {
-                            "Shared defaults · individual games can override these values"
-                        } else {
-                            "Temporary defaults · configuration is disabled"
-                        });
-                    }
                     ui.add_space(8.0);
-                    let overrides = Overrides {
+                    let choices = StoredChoices {
                         current: Some(&draft.game),
                         saved: Some(&saved.game),
                     };
-                    let base = draft.global_values();
-                    let original = if menu.scope == 0 {
-                        base.clone()
-                    } else {
-                        draft.game_values()
-                    };
+                    let base = RuntimeSettings::default();
+                    let original = draft.game_values();
                     let mut value = original.clone();
                     // Locked widgets show this run's value. The draft below still
                     // compares/updates only unlocked keys, so CLI values never save.
                     for (key, active) in &cli {
                         let _ = value.set(key, active);
                     }
-                    let previous = if menu.scope == 0 {
-                        saved.global_values()
-                    } else {
-                        saved.game_values()
-                    };
+                    let previous = saved.game_values();
                     let rows = RowContext {
                         base: &base,
                         previous: &previous,
-                        scope: menu.scope,
-                        overrides,
+                        choices,
                         cli: &cli,
                     };
-                    let enabled = menu.page == ENHANCEMENTS_SECTION || menu.scope == 0 || menu.game_editing[menu.page];
                     egui::ScrollArea::vertical()
                         .animated(false)
                         .id_salt(("settings_content", menu.page))
@@ -391,31 +282,29 @@ pub(super) fn draw(
                         .auto_shrink([false, false])
                         .show_viewport(ui, |ui, viewport| {
                             ui.set_width(viewport.width());
-                            if menu.scope == 1 && !game_storage {
-                                ui.weak(if global_storage {
+                            if !game_storage {
+                                ui.weak(if launcher_storage {
                                     "Temporary game settings · add this game to the launcher library to retain them."
                                 } else {
                                     "Temporary game settings · configuration is disabled."
                                 });
                             }
                             let first = crate::settings_navigation::scroll_start(ui.ctx());
-                            ui.add_enabled_ui(enabled || menu.page == 2, |ui| {
+                            ui.scope(|ui| {
                                 if menu.page == 0 {
                                     display_controls(
                                         ui,
                                         &mut value,
                                         rows,
-                                        &mut menu.display_edits[menu.scope],
+                                        &mut menu.display_edits,
                                         DisplayOptions {
                                             capabilities: capabilities.display.video,
                                             geometry,
                                             windowed_scale,
                                             original_renderer: original.renderer,
-                                            alleycat_machines: (menu.scope == 1).then_some(alleycat_machines).flatten(),
+                                            alleycat_machines,
                                             game_storage,
-                                            terminal: (menu.scope == 1)
-                                                .then_some(terminal)
-                                                .flatten(),
+                                            terminal,
                                         },
                                     );
                                 } else if menu.page == 1 {
@@ -428,7 +317,6 @@ pub(super) fn draw(
                                         &menu.audio_devices,
                                         audio,
                                         audio_playback,
-                                        enabled,
                                         mach3_options,
                                         game_storage,
                                     );
@@ -447,7 +335,6 @@ pub(super) fn draw(
                             crate::settings_navigation::scroll_focus(ui, first);
                         });
                     if menu.page == 0
-                        && menu.scope == 1
                         && let Some(machines) = alleycat_machines
                         && original.alleycat.machine != value.alleycat.machine
                         && !cli.contains_key(ALLEYCAT_MACHINE)
@@ -467,7 +354,6 @@ pub(super) fn draw(
                         }
                     }
                     if menu.page == 0
-                        && menu.scope == 1
                         && terminal.is_some()
                         && original.btz != value.btz
                         && !cli.contains_key(BTZ_FILE_CURSOR)
@@ -479,7 +365,6 @@ pub(super) fn draw(
                         );
                     }
                     if menu.page == ENHANCEMENTS_SECTION
-                        && menu.scope == 1
                         && mach3_options
                         && original.mach3.motion != value.mach3.motion
                         && !cli.contains_key(MOTION)
@@ -491,7 +376,6 @@ pub(super) fn draw(
                         );
                     }
                     if menu.page == ENHANCEMENTS_SECTION
-                        && menu.scope == 1
                         && alleycat_options
                         && original.alleycat.motion != value.alleycat.motion
                         && !cli.contains_key(ALLEYCAT_MOTION)
@@ -503,7 +387,6 @@ pub(super) fn draw(
                         );
                     }
                     if menu.page == ENHANCEMENTS_SECTION
-                        && menu.scope == 1
                         && centurion_options
                         && original.centurion != value.centurion
                     {
@@ -518,7 +401,6 @@ pub(super) fn draw(
                         }
                     }
                     if menu.page == 2
-                        && menu.scope == 1
                         && mach3_options
                         && original.mach3 != value.mach3
                         && !cli.contains_key(DIGITIZED_SAMPLES)
@@ -544,19 +426,11 @@ pub(super) fn draw(
                     let keys = SECTION_KEYS[menu.page];
                     for &key in keys {
                         if original.get(key) != value.get(key) && !cli.contains_key(key) {
-                            if menu.scope == 1 {
-                                draft.edit_game(
-                                    key,
-                                    value.get(key),
-                                    (!menu.game_reset[menu.page]).then_some(&saved),
-                                );
-                            } else {
-                                draft.edit_global(
-                                    key,
-                                    value.get(key),
-                                    (!menu.global_reset[menu.page]).then_some(&saved),
-                                );
-                            }
+                            draft.edit_game(
+                                key,
+                                value.get(key),
+                                (!menu.game_reset[menu.page]).then_some(&saved),
+                            );
                         }
                     }
                 });
@@ -573,36 +447,18 @@ pub(super) fn draw(
                 // settings, even when its buttons sit left of the value fields.
                 let bounds = ui.max_rect();
                 crate::settings_navigation::row_controls(ui, bounds, |ui| {
-                    let reset_label = if menu.page == LAUNCHER_PAGE || menu.scope == 0 {
+                    let reset_label = if menu.page == LAUNCHER_PAGE {
                         "Reset section"
-                    } else if menu.page == 3 || menu.page == ENHANCEMENTS_SECTION
-                        || (menu.page == 2 && (mach3_options || audio.apply == ApplyTiming::NextLaunch))
-                        || (menu.page == 0 && terminal.is_some())
-                        || (menu.page == 0 && alleycat_options)
-                    {
-                        "Restore defaults"
                     } else {
-                        "Restore global defaults"
+                        "Restore defaults"
                     };
-                    // Shorter section-specific labels must not shift Apply/Cancel.
-                    let reset_width = ui
-                        .painter()
-                        .layout_no_wrap(
-                            if menu.page == LAUNCHER_PAGE || menu.scope == 0 {
-                                "Reset section"
-                            } else {
-                                "Restore global defaults"
-                            }
-                            .into(),
-                            egui::TextStyle::Button.resolve(ui.style()),
-                            ui.visuals().text_color(),
-                        )
-                        .size()
-                        .x
-                        + ui.spacing().button_padding.x * 2.0;
+                    let reset_width = ui.painter().layout_no_wrap(
+                        "Restore defaults".into(),
+                        egui::TextStyle::Button.resolve(ui.style()),
+                        ui.visuals().text_color(),
+                    ).size().x + ui.spacing().button_padding.x * 2.0;
                     if group_control(
-                        ui.add_enabled(
-                            menu.page != ENHANCEMENTS_SECTION || menu.scope == 1,
+                        ui.add(
                             egui::Button::new(reset_label)
                                 .min_size(Vec2::new(reset_width, ui.spacing().interact_size.y)),
                         ),
@@ -615,16 +471,12 @@ pub(super) fn draw(
                                 launcher.height = reforge_settings::launcher::DEFAULT_SPLIT_PREVIEW_HEIGHT;
                                 launcher.gallery_aspect = Default::default();
                             }
-                        } else if menu.scope == 0 {
-                            draft.reset_section(false, menu.page);
-                            menu.global_reset[menu.page] = true;
                         } else {
-                            draft.reset_section(true, menu.page);
-                            menu.game_editing[menu.page] = false;
+                            draft.reset_section(menu.page);
                             menu.game_reset[menu.page] = true;
                         }
                         if menu.page == 0 {
-                            menu.display_edits[menu.scope] = Default::default();
+                            menu.display_edits = Default::default();
                         }
                     }
                     let apply = primary_footer_control(ui.add_enabled(
@@ -636,9 +488,10 @@ pub(super) fn draw(
                         menu.apply_rect = Some(apply.rect);
                     }
                     if apply.clicked() {
-                        draft.normalize_treatments(&saved);
-                        if !menu.game_overrides {
+                        if !menu.entry_settings {
                             draft.game.clone_from(&saved.game);
+                        } else if *draft != saved {
+                            draft.normalize_treatments();
                         }
                         menu.pending = Some(draft.clone());
                         menu.pending_launcher = menu.launcher_options.as_ref()
@@ -688,7 +541,6 @@ fn launcher_controls(
         "split_preview_height",
         RowState {
             lock_tooltip: None,
-            overridden: false,
             dirty: launcher.height != launcher.saved_height,
             tooltip,
             saved,
@@ -730,7 +582,6 @@ fn launcher_controls(
         "gallery_preview_aspect",
         RowState {
             lock_tooltip: None,
-            overridden: false,
             dirty: launcher.gallery_aspect != launcher.saved_gallery_aspect,
             tooltip: format!("Default: Per row\nSaved: {saved}"),
             saved: saved.into(),
@@ -803,7 +654,7 @@ fn alleycat_machine_controls(
     game_storage: bool,
 ) {
     section(ui, "Machine");
-    // Absence inherits the input profile's default, not a global machine.
+    // Absence uses the input profile's default.
     let mut selected = value.alleycat.machine.unwrap_or_else(|| {
         machines
             .default
@@ -865,12 +716,6 @@ fn centurion_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowC
             .or(map_state.lock_tooltip)
             .or(hover_state.lock_tooltip)
             .or(indicator_state.lock_tooltip),
-        overridden: fleet_state.overridden
-            || cursor_state.overridden
-            || decorations_state.overridden
-            || map_state.overridden
-            || hover_state.overridden
-            || indicator_state.overridden,
         dirty: fleet_state.dirty
             || cursor_state.dirty
             || decorations_state.dirty
@@ -1021,7 +866,7 @@ fn display_controls(
         alleycat_machines,
         game_storage,
     } = options;
-    let RowContext { scope, cli, .. } = rows;
+    let RowContext { cli, .. } = rows;
     if let Some(scale) = value.scale {
         edits.manual_scale = Some(scale);
     }
@@ -1132,7 +977,7 @@ fn display_controls(
                 Selector::new(
                     "aspect_ratio",
                     [AspectRatio::Original, AspectRatio::Square]
-                        .map(|aspect| Choice::new(aspect, geometry.label(aspect, scope == 1))),
+                        .map(|aspect| Choice::new(aspect, geometry.label(aspect, true))),
                 )
                 .show(ui, &mut value.aspect_ratio);
             },
@@ -1276,10 +1121,6 @@ fn enhancement_controls(
     alleycat: bool,
     centurion: bool,
 ) {
-    if rows.scope == 0 {
-        ui.weak("Enhancements are selected per game. Open the game's overrides to customize them.");
-        return;
-    }
     if centurion {
         centurion_controls(ui, value, rows);
     }
@@ -1320,7 +1161,7 @@ fn crt_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext
             .is_some_and(|renderer| renderer == "terminal");
     ui.add_enabled_ui(!terminal, |ui| {
         let cli = rows.cli;
-        // Use this scope's pending Display choices, with temporary CLI
+        // Use pending Display choices, with temporary CLI
         // rather than the renderer that remains active until Apply.
         let mut display = value.clone();
         display.renderer = cli
@@ -1450,16 +1291,14 @@ fn audio_controls(
     devices: &[String],
     audio: AudioCapabilities,
     audio_playback: bool,
-    section_editable: bool,
     mach3_options: bool,
     game_storage: bool,
 ) {
-    let scope = rows.scope;
     let available = audio_playback && !audio.renderers.is_empty();
     if !available {
-        ui.weak("Audio playback is unavailable in this run. Shared defaults can still be saved.");
+        ui.weak("Audio playback is unavailable in this run.");
     }
-    let shared_enabled = section_editable && (scope == 0 || available);
+    let shared_enabled = available;
     ui.add_enabled_ui(shared_enabled, |ui| {
         row(
             ui,
@@ -1510,7 +1349,7 @@ fn audio_controls(
                 rows.state(category.key(), value),
                 volume_width,
                 |ui| {
-                    ui.add_enabled_ui(scope == 0 || audio.categories.contains(&category), |ui| {
+                    ui.add_enabled_ui(audio.categories.contains(&category), |ui| {
                         ui.spacing_mut().slider_width = slider_track_width(ui, 56.0);
                         value_control(
                             ui.add(
@@ -1541,10 +1380,10 @@ fn audio_controls(
         }
         section(ui, "Playback");
     });
-    let startup = scope == 1 && audio.apply == ApplyTiming::NextLaunch;
+    let startup = audio.apply == ApplyTiming::NextLaunch;
     ui.add_enabled_ui(
         if startup {
-            section_editable && game_storage
+            game_storage
         } else {
             output_enabled
         },
@@ -1563,16 +1402,13 @@ fn audio_controls(
                 "audio_renderer",
                 state,
                 |ui| {
-                    ui.add_enabled_ui(scope == 1 && available, |ui| {
-                        sound_renderer_control(ui, &mut value.audio.renderer, audio, scope);
+                    ui.add_enabled_ui(available, |ui| {
+                        sound_renderer_control(ui, &mut value.audio.renderer, audio);
                     });
                 },
             );
         },
     );
-    if scope == 0 {
-        ui.weak("Sound renderer is selected per game; Game default follows its original hardware.");
-    }
     if startup {
         ui.weak(if game_storage {
             "Applies on next launch."
@@ -1580,10 +1416,8 @@ fn audio_controls(
             "Sound device requires saved game settings; it applies on next launch."
         });
     }
-    // The native option shares Audio's override/reset control, but its default
-    // is built in rather than inherited from a global digitized-samples value.
-    if scope == 1 && mach3_options {
-        ui.add_enabled_ui(section_editable && game_storage, |ui| {
+    if mach3_options {
+        ui.add_enabled_ui(game_storage, |ui| {
             row(
                 ui,
                 "Digitized samples",
@@ -1653,15 +1487,12 @@ fn sound_renderer_control(
     ui: &mut egui::Ui,
     renderer: &mut SoundRenderer,
     audio: AudioCapabilities,
-    scope: usize,
 ) -> egui::Response {
-    let displayed = if scope == 1 {
-        audio.resolve(*renderer)
-    } else {
-        *renderer
-    };
+    let displayed = audio.resolve(*renderer);
     let mut selected = displayed;
-    let choices = (scope == 0 || audio.renderers.is_empty())
+    let choices = audio
+        .renderers
+        .is_empty()
         .then_some(SoundRenderer::GameDefault)
         .into_iter()
         .chain(audio.renderers.iter().copied())
@@ -1676,16 +1507,10 @@ fn sound_renderer_control(
     response
 }
 
-fn section_has_cli_locks(
-    cli: &reforge_settings::Patch,
-    page: usize,
-    scope: usize,
-    mach3_options: bool,
-) -> bool {
+fn section_has_cli_locks(cli: &reforge_settings::Patch, page: usize, mach3_options: bool) -> bool {
     SECTION_KEYS[page].iter().any(|key| cli.contains_key(*key))
-        || (page == 2 && scope == 1 && mach3_options && cli.contains_key(DIGITIZED_SAMPLES))
+        || (page == 2 && mach3_options && cli.contains_key(DIGITIZED_SAMPLES))
         || (page == ENHANCEMENTS_SECTION
-            && scope == 1
             && (mach3_options && cli.contains_key(MOTION)
                 || cli.contains_key(ALLEYCAT_MOTION)
                 || cli.contains_key(CONTROL_MODE)
@@ -1860,7 +1685,7 @@ fn renderer_label(r: Renderer) -> &'static str {
 }
 // Checkbox/radio labels sit on the canvas; only their icons use the active fill.
 // Keep their text independent of that fill's contrasting foreground, while
-// retaining row override colours and egui's normal disabled fading.
+// retaining egui's normal disabled fading.
 fn canvas_text(ui: &egui::Ui, label: &str) -> egui::RichText {
     egui::RichText::new(label).color(
         ui.visuals()
@@ -1889,7 +1714,6 @@ fn row_with_width(
 ) {
     let RowState {
         lock_tooltip,
-        overridden,
         dirty,
         tooltip,
         saved,
@@ -1907,8 +1731,6 @@ fn row_with_width(
     };
     let colour = if locked {
         palette.locked_text
-    } else if overridden {
-        palette.override_text
     } else {
         ui.visuals().text_color()
     };
@@ -1962,20 +1784,6 @@ fn row_with_width(
                                 .spacing()
                                 .slider_width
                                 .min(slider_track_width(child, 56.0));
-                            if overridden && !locked {
-                                // Accent ordinary text and neutral controls without
-                                // replacing the active fill's contrasting foreground.
-                                let visuals = child.visuals_mut();
-                                visuals.override_text_color = None;
-                                for widget in [
-                                    &mut visuals.widgets.noninteractive,
-                                    &mut visuals.widgets.inactive,
-                                    &mut visuals.widgets.hovered,
-                                    &mut visuals.widgets.open,
-                                ] {
-                                    widget.fg_stroke.color = palette.override_text;
-                                }
-                            }
                             crate::settings_navigation::row_controls(child, rect, |child| {
                                 child
                                     .add_enabled_ui(!locked, draw_control)
@@ -2147,8 +1955,8 @@ mod tests {
     const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
     const CLI_LOCK: Color32 = Color32::from_rgb(182, 169, 214);
     #[test]
-    fn override_colours_and_pending_dots_follow_presence_even_when_values_match() {
-        for scope in [0, 1] {
+    fn normal_text_and_pending_dots_follow_saved_entry_choices() {
+        {
             for current in [false, true] {
                 for saved in [false, true] {
                     let context = egui::Context::default();
@@ -2170,8 +1978,7 @@ mod tests {
                                 RowContext {
                                     base: &RuntimeSettings::default(),
                                     previous: &RuntimeSettings::default(),
-                                    scope,
-                                    overrides: Overrides {
+                                    choices: StoredChoices {
                                         current: Some(&current_patch),
                                         saved: Some(&saved_patch),
                                     },
@@ -2202,8 +2009,8 @@ mod tests {
                         .shapes
                         .iter()
                         .any(|s| matches!(&s.shape, egui::Shape::Circle(c) if c.fill==PENDING));
-                    assert_eq!(accent, scope == 1 && current);
-                    assert_eq!(dot, scope == 1 && current != saved);
+                    assert!(!accent);
+                    assert_eq!(dot, current != saved);
                 }
             }
         }
@@ -2258,7 +2065,6 @@ mod tests {
                             categories: &[],
                             apply: ApplyTiming::Live,
                         },
-                        1,
                     );
                     assert!(!response.changed());
                 });
@@ -2272,8 +2078,8 @@ mod tests {
     }
 
     #[test]
-    fn silent_host_keeps_global_audio_editable_and_game_controls_disabled() {
-        for (scope, playback, editable) in [(0, false, true), (1, false, false), (1, true, true)] {
+    fn silent_host_disables_playback_controls() {
+        for (playback, editable) in [(false, false), (true, true)] {
             let context = egui::Context::default();
             style(&context);
             let mut value = RuntimeSettings::default();
@@ -2309,8 +2115,7 @@ mod tests {
                                 RowContext {
                                     base: &RuntimeSettings::default(),
                                     previous: &RuntimeSettings::default(),
-                                    scope,
-                                    overrides: Overrides::default(),
+                                    choices: StoredChoices::default(),
                                     cli: &Default::default(),
                                 },
                                 &[],
@@ -2321,7 +2126,6 @@ mod tests {
                                     apply: ApplyTiming::Live,
                                 },
                                 playback,
-                                true,
                                 false,
                                 true,
                             );
@@ -2349,7 +2153,6 @@ mod tests {
                         categories: &[],
                         apply: ApplyTiming::NextLaunch,
                     },
-                    1,
                 );
                 assert!(!response.changed());
             });
@@ -2361,7 +2164,6 @@ mod tests {
     fn renderer_frame(
         context: &egui::Context,
         renderer: &mut SoundRenderer,
-        scope: usize,
         events: Vec<egui::Event>,
     ) -> (egui::FullOutput, egui::Response) {
         let mut response = None;
@@ -2386,7 +2188,6 @@ mod tests {
                             categories: &[],
                             apply: ApplyTiming::Live,
                         },
-                        scope,
                     ));
                 });
             },
@@ -2412,15 +2213,11 @@ mod tests {
             style(&context);
             set_mode(&context, mode);
             let mut renderer = SoundRenderer::GameDefault;
-            for scope in [1, 0, 1] {
-                // Repeat after layout settles, including scope round trips.
+            for _ in 0..3 {
+                // Repeat after layout settles, across repeated frames.
                 for _ in 0..3 {
-                    let (output, response) = renderer_frame(&context, &mut renderer, scope, vec![]);
-                    let label = if scope == 1 {
-                        "PC speaker"
-                    } else {
-                        "Game default"
-                    };
+                    let (output, response) = renderer_frame(&context, &mut renderer, vec![]);
+                    let label = "PC speaker";
                     assert!(renderer_text(&output, label).is_some());
                     assert_eq!(renderer, SoundRenderer::GameDefault);
                     assert!(!response.changed());
@@ -2438,7 +2235,7 @@ mod tests {
             style(&context);
             set_mode(&context, mode);
             let mut renderer = SoundRenderer::GameDefault;
-            let (_, response) = renderer_frame(&context, &mut renderer, 1, vec![]);
+            let (_, response) = renderer_frame(&context, &mut renderer, vec![]);
             response.request_focus();
             for key in [egui::Key::ArrowRight, egui::Key::ArrowLeft] {
                 for expected in [SoundRenderer::EnhancedPcm, SoundRenderer::Speaker] {
@@ -2452,7 +2249,7 @@ mod tests {
                             modifiers: egui::Modifiers::NONE,
                         })
                         .collect();
-                    let (_, response) = renderer_frame(&context, &mut renderer, 1, events);
+                    let (_, response) = renderer_frame(&context, &mut renderer, events);
                     assert_eq!(renderer, expected);
                     assert!(response.changed());
                 }
@@ -2465,7 +2262,7 @@ mod tests {
         let context = egui::Context::default();
         style(&context);
         let mut renderer = SoundRenderer::EnhancedPcm;
-        let (_, response) = renderer_frame(&context, &mut renderer, 1, vec![]);
+        let (_, response) = renderer_frame(&context, &mut renderer, vec![]);
         let click = |pos, pressed| {
             vec![
                 egui::Event::PointerMoved(pos),
@@ -2477,24 +2274,18 @@ mod tests {
                 },
             ]
         };
+        renderer_frame(&context, &mut renderer, click(response.rect.center(), true));
         renderer_frame(
             &context,
             &mut renderer,
-            1,
-            click(response.rect.center(), true),
-        );
-        renderer_frame(
-            &context,
-            &mut renderer,
-            1,
             click(response.rect.center(), false),
         );
-        let (output, _) = renderer_frame(&context, &mut renderer, 1, vec![]);
+        let (output, _) = renderer_frame(&context, &mut renderer, vec![]);
         assert!(renderer_text(&output, "Game default").is_none());
         let speaker = renderer_text(&output, "PC speaker").unwrap().center();
         assert!(renderer_text(&output, "Enhanced PCM").is_some());
-        renderer_frame(&context, &mut renderer, 1, click(speaker, true));
-        let (_, response) = renderer_frame(&context, &mut renderer, 1, click(speaker, false));
+        renderer_frame(&context, &mut renderer, click(speaker, true));
+        let (_, response) = renderer_frame(&context, &mut renderer, click(speaker, false));
         assert_eq!(renderer, SoundRenderer::Speaker);
         assert!(response.changed());
     }
@@ -2505,7 +2296,7 @@ mod tests {
         use crate::ui::themes::{ResolvedAppearance, ThemeId};
 
         for theme in ThemeId::ALL {
-            for overridden in [false, true] {
+            {
                 for mode in [InputMode::Mouse, InputMode::Keyboard, InputMode::Controller] {
                     for kind in ["checkbox", "radio", "selector", "number"] {
                         let context = egui::Context::default();
@@ -2528,7 +2319,6 @@ mod tests {
                                         "colour regression",
                                         RowState {
                                             lock_tooltip: None,
-                                            overridden,
                                             dirty: false,
                                             tooltip: String::new(),
                                             saved: String::new(),
@@ -2558,11 +2348,7 @@ mod tests {
                             });
                             let expected =
                                 if matches!(kind, "checkbox" | "radio" | "number") || !focused {
-                                    if overridden {
-                                        palette.override_text
-                                    } else {
-                                        palette.inactive.foreground
-                                    }
+                                    palette.inactive.foreground
                                 } else {
                                     palette.active.foreground
                                 };
@@ -2589,11 +2375,7 @@ mod tests {
                                 })
                                 .filter(|colour| *colour != Color32::TRANSPARENT)
                                 .collect();
-                            assert_eq!(
-                                colours,
-                                [expected],
-                                "{theme:?} override={overridden} focused={focused} {kind}"
-                            );
+                            assert_eq!(colours, [expected], "{theme:?} focused={focused} {kind}");
                             assert_eq!(response.as_ref().unwrap().has_focus(), focused);
                         }
                     }
@@ -2655,8 +2437,8 @@ mod tests {
                                     RowContext {
                                         base: &value,
                                         previous: &value,
-                                        scope: 0,
-                                        overrides: Overrides::default(),
+
+                                        choices: StoredChoices::default(),
                                         cli: &cli,
                                     }
                                     .state("renderer", &value),
@@ -2776,8 +2558,8 @@ mod tests {
                                 RowContext {
                                     base: &saved,
                                     previous: &saved,
-                                    scope: 1,
-                                    overrides: Overrides::default(),
+
+                                    choices: StoredChoices::default(),
                                     cli: &Default::default(),
                                 }
                                 .state(key, &value),
@@ -2875,8 +2657,8 @@ mod tests {
                                     RowContext {
                                         base: &value,
                                         previous: &value,
-                                        scope: 1,
-                                        overrides: Overrides::default(),
+
+                                        choices: StoredChoices::default(),
                                         cli: &cli,
                                     }
                                     .state(key, &value),
@@ -2913,13 +2695,13 @@ mod tests {
             ("scale".into(), "8".into()),
             (DIGITIZED_SAMPLES.into(), "false".into()),
         ]);
-        assert!(section_has_cli_locks(&cli, 0, 0, true));
-        assert!(section_has_cli_locks(&cli, 0, 1, false));
-        assert!(!section_has_cli_locks(&cli, 1, 1, true));
-        assert!(!section_has_cli_locks(&cli, 2, 0, true));
-        assert!(!section_has_cli_locks(&cli, 2, 1, false));
-        assert!(section_has_cli_locks(&cli, 2, 1, true));
-        assert!(!section_has_cli_locks(&Default::default(), 2, 1, true));
+        assert!(section_has_cli_locks(&cli, 0, true));
+        assert!(section_has_cli_locks(&cli, 0, false));
+        assert!(!section_has_cli_locks(&cli, 1, true));
+        assert!(section_has_cli_locks(&cli, 2, true));
+        assert!(!section_has_cli_locks(&cli, 2, false));
+        assert!(section_has_cli_locks(&cli, 2, true));
+        assert!(!section_has_cli_locks(&Default::default(), 2, true));
         for key in [
             MOTION,
             ALLEYCAT_MOTION,
@@ -2929,10 +2711,10 @@ mod tests {
             CENTURION_APPLIED_VALUE_INDICATOR,
         ] {
             let cli = reforge_settings::Patch::from([(key.into(), "original".into())]);
-            assert!(section_has_cli_locks(&cli, ENHANCEMENTS_SECTION, 1, true));
-            assert!(!section_has_cli_locks(&cli, ENHANCEMENTS_SECTION, 0, true));
-            assert!(!section_has_cli_locks(&cli, 0, 1, true));
-            assert!(!section_has_cli_locks(&cli, 3, 1, true));
+            assert!(section_has_cli_locks(&cli, ENHANCEMENTS_SECTION, true));
+            assert!(section_has_cli_locks(&cli, ENHANCEMENTS_SECTION, true));
+            assert!(!section_has_cli_locks(&cli, 0, true));
+            assert!(!section_has_cli_locks(&cli, 3, true));
         }
 
         assert!(cli_tooltip(DIGITIZED_SAMPLES, "false").contains("--digitized-samples off"));
@@ -2948,15 +2730,11 @@ mod tests {
                 _ => None,
             })
         }
-        for (scope, mach3, section_editable, muted, locked) in [
-            (0, true, true, false, false),
-            (1, false, true, false, false),
-            (1, true, false, true, false),
-            (1, true, false, false, false),
-            (1, true, true, false, false),
-            (1, true, true, true, false),
-            (1, true, true, false, true),
-            (1, true, false, false, true),
+        for (mach3, muted, locked) in [
+            (false, false, false),
+            (true, false, false),
+            (true, true, false),
+            (true, false, true),
         ] {
             let context = egui::Context::default();
             style(&context);
@@ -3002,8 +2780,7 @@ mod tests {
                                 RowContext {
                                     base: &RuntimeSettings::default(),
                                     previous: &RuntimeSettings::default(),
-                                    scope,
-                                    overrides: Overrides::default(),
+                                    choices: StoredChoices::default(),
                                     cli: &cli,
                                 },
                                 &[],
@@ -3014,7 +2791,6 @@ mod tests {
                                     apply: ApplyTiming::Live,
                                 },
                                 true,
-                                section_editable,
                                 mach3,
                                 true,
                             );
@@ -3022,7 +2798,7 @@ mod tests {
                     },
                 );
                 let label = text_rect(&output, "Digitized samples");
-                if scope == 0 || !mach3 {
+                if !mach3 {
                     assert!(label.is_none());
                     break;
                 }
@@ -3040,7 +2816,7 @@ mod tests {
                     button = text_rect(&output, "On").unwrap().center();
                 }
                 if step == 5 {
-                    if locked || !section_editable {
+                    if locked {
                         assert!(text_rect(&output, "Off").is_none());
                         assert!(value.mach3.digitized_samples);
                         break;
@@ -3050,7 +2826,7 @@ mod tests {
                         .center();
                 }
             }
-            if scope == 1 && mach3 && section_editable && !locked {
+            if mach3 && !locked {
                 assert!(!value.mach3.digitized_samples);
                 assert_eq!(value.audio.enabled, !muted);
             }
@@ -3065,7 +2841,7 @@ mod tests {
     }
 
     #[test]
-    fn alleycat_motion_control_follows_enhancement_defaults_scope_and_cli_locks() {
+    fn alleycat_motion_control_follows_enhancement_defaults_and_cli_locks() {
         fn text_rect(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
             output.shapes.iter().find_map(|shape| match &shape.shape {
                 egui::Shape::Text(text) if text.galley.text() == label => {
@@ -3074,15 +2850,14 @@ mod tests {
                 _ => None,
             })
         }
-        for (scope, alleycat, section_editable, muted, locked) in [
-            (0, true, true, false, false),
-            (1, false, true, false, false),
-            (1, true, false, true, false),
-            (1, true, false, false, false),
-            (1, true, true, false, false),
-            (1, true, true, true, false),
-            (1, true, true, false, true),
-            (1, true, false, false, true),
+        for (alleycat, section_editable, muted, locked) in [
+            (false, true, false, false),
+            (true, false, true, false),
+            (true, false, false, false),
+            (true, true, false, false),
+            (true, true, true, false),
+            (true, true, false, true),
+            (true, false, false, true),
         ] {
             let context = egui::Context::default();
             style(&context);
@@ -3129,8 +2904,7 @@ mod tests {
                                     RowContext {
                                         base: &RuntimeSettings::default(),
                                         previous: &RuntimeSettings::default(),
-                                        scope,
-                                        overrides: Overrides::default(),
+                                        choices: StoredChoices::default(),
                                         cli: &cli,
                                     },
                                     false,
@@ -3142,7 +2916,7 @@ mod tests {
                     },
                 );
                 let label = text_rect(&output, "Scene movement");
-                if scope == 0 || !alleycat {
+                if !alleycat {
                     assert!(label.is_none());
                     break;
                 }
@@ -3170,7 +2944,7 @@ mod tests {
                         .center();
                 }
             }
-            if scope == 1 && alleycat && section_editable && !locked {
+            if alleycat && section_editable && !locked {
                 assert_eq!(value.alleycat.motion, AlleyCatMotion::Original);
                 assert_eq!(value.audio.enabled, !muted);
             }
@@ -3178,7 +2952,7 @@ mod tests {
     }
 
     #[test]
-    fn mach3_motion_control_follows_enhancement_defaults_scope_and_cli_locks() {
+    fn mach3_motion_control_follows_enhancement_defaults_and_cli_locks() {
         fn text_rect(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
             output.shapes.iter().find_map(|shape| match &shape.shape {
                 egui::Shape::Text(text) if text.galley.text() == label => {
@@ -3187,15 +2961,14 @@ mod tests {
                 _ => None,
             })
         }
-        for (scope, mach3, section_editable, muted, locked) in [
-            (0, true, true, false, false),
-            (1, false, true, false, false),
-            (1, true, false, true, false),
-            (1, true, false, false, false),
-            (1, true, true, false, false),
-            (1, true, true, true, false),
-            (1, true, true, false, true),
-            (1, true, false, false, true),
+        for (mach3, section_editable, muted, locked) in [
+            (false, true, false, false),
+            (true, false, true, false),
+            (true, false, false, false),
+            (true, true, false, false),
+            (true, true, true, false),
+            (true, true, false, true),
+            (true, false, false, true),
         ] {
             let context = egui::Context::default();
             style(&context);
@@ -3242,8 +3015,7 @@ mod tests {
                                     RowContext {
                                         base: &RuntimeSettings::default(),
                                         previous: &RuntimeSettings::default(),
-                                        scope,
-                                        overrides: Overrides::default(),
+                                        choices: StoredChoices::default(),
                                         cli: &cli,
                                     },
                                     mach3,
@@ -3255,7 +3027,7 @@ mod tests {
                     },
                 );
                 let label = text_rect(&output, "Scene movement");
-                if scope == 0 || !mach3 {
+                if !mach3 {
                     assert!(label.is_none());
                     break;
                 }
@@ -3283,7 +3055,7 @@ mod tests {
                         .center();
                 }
             }
-            if scope == 1 && mach3 && section_editable && !locked {
+            if mach3 && section_editable && !locked {
                 assert_eq!(value.mach3.motion, MotionMode::Enhanced);
                 assert_eq!(value.audio.enabled, !muted);
             }
@@ -3323,8 +3095,8 @@ mod tests {
                                     RowContext {
                                         base: &RuntimeSettings::default(),
                                         previous: &RuntimeSettings::default(),
-                                        scope: 1,
-                                        overrides: Overrides::default(),
+
+                                        choices: StoredChoices::default(),
                                         cli: &self.cli,
                                     },
                                 );
@@ -3462,8 +3234,8 @@ mod tests {
                             RowContext {
                                 base: &value,
                                 previous: &value,
-                                scope: 0,
-                                overrides: Overrides::default(),
+
+                                choices: StoredChoices::default(),
                                 cli: &Default::default(),
                             }
                             .state("backend", &value),

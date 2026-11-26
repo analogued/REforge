@@ -256,7 +256,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
     ];
     let (mut prefs, mut remaining) = launch_settings(plan.args, plan.detected.game);
     if let Err(error) = profile::bind(&mut prefs, &plan.detected, &mut remaining) {
-        eprintln!("REforge: {error}; using global defaults where possible");
+        eprintln!("REforge: {error}; using built-in game defaults where possible");
     }
     args.extend(remaining);
     let _preferences = prefs.install();

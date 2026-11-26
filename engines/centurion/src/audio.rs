@@ -510,7 +510,7 @@ mod settings_tests {
     use reforge_settings::{Draft, SoundRenderer};
 
     #[test]
-    fn shared_renderer_resolves_startup_device_and_inherited_preferences() {
+    fn shared_renderer_resolves_startup_device_and_entry_preferences() {
         for (renderer, expected) in [
             (SoundRenderer::GameDefault, SoundDevice::Adlib),
             (SoundRenderer::Adlib, SoundDevice::Adlib),
@@ -520,12 +520,12 @@ mod settings_tests {
             assert_eq!(SoundDevice::from_renderer(renderer), expected);
         }
         let mut draft = Draft::default();
-        draft.edit(false, "audio_renderer", "speaker".into());
+        draft.edit("audio_renderer", "speaker".into());
         assert_eq!(
             SoundDevice::from_renderer(draft.game_values().audio.renderer),
             SoundDevice::PcSpeaker
         );
-        draft.edit(true, "audio_renderer", "adlib".into());
+        draft.edit("audio_renderer", "adlib".into());
         assert_eq!(
             SoundDevice::from_renderer(draft.game_values().audio.renderer),
             SoundDevice::Adlib

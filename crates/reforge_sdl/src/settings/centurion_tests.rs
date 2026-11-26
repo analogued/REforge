@@ -142,16 +142,14 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
         label(&draw(&mut menu, vec![]), "UI preset").is_none(),
         "game option must not appear in Global defaults"
     );
-    menu.scope = 1;
+
     assert!(
         label(&draw(&mut menu, vec![]), "UI preset").is_none(),
         "Centurion enhancements must not remain in Display"
     );
-    menu.scope = 0;
+
     click(&mut menu, "Enhancements");
     assert_eq!(menu.page, ENHANCEMENTS_SECTION);
-    assert!(label(&draw(&mut menu, vec![]), "UI preset").is_none());
-    menu.scope = 1;
     let output = draw(&mut menu, vec![]);
     assert!(label(&output, "UI preset").is_some());
     assert!(label(&output, "Reforged").is_some());
@@ -159,10 +157,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
         menu.draft.as_ref().unwrap().game_values().audio.renderer,
         reforge_settings::SoundRenderer::Speaker
     );
-    assert!(
-        !menu.game_editing[ENHANCEMENTS_SECTION],
-        "enhancements work without enabling global overrides"
-    );
+
     assert!(
         label(
             &output,
@@ -295,7 +290,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     assert_eq!(std::fs::read(&path).unwrap(), initial);
     menu.toggle();
     menu.prepare(display.ui_metrics(), display.settings());
-    menu.scope = 1;
+
     menu.page = ENHANCEMENTS_SECTION;
     assert_eq!(
         menu.draft
@@ -579,7 +574,7 @@ fn centurion_native_settings_capture_and_detail_navigation() {
                 SettingsMenu::new(&creator, VideoCapabilities::default()).with_centurion_options();
             menu.set_theme(ResolvedAppearance::resolve(theme).theme);
             menu.toggle();
-            menu.scope = 1;
+
             menu.page = ENHANCEMENTS_SECTION;
             for _ in 0..3 {
                 menu.prepare(metrics, RuntimeSettings::default());
@@ -1029,9 +1024,6 @@ fn sound_device_shares_launcher_pin_and_audio_apply_cancel_reset() {
     menu.toggle();
     menu.prepare(display.ui_metrics(), display.settings());
     menu.page = 2;
-    assert!(label(&draw(&mut menu, vec![]), "Sound device").is_none());
-    menu.scope = 1;
-    menu.game_editing[2] = true;
     let output = draw(&mut menu, vec![]);
     assert!(label(&output, "Sound device").is_some());
     assert!(label(&output, "Sound renderer").is_none());
@@ -1043,9 +1035,9 @@ fn sound_device_shares_launcher_pin_and_audio_apply_cancel_reset() {
     menu.back();
     menu.toggle();
     menu.prepare(display.ui_metrics(), display.settings());
-    menu.scope = 1;
+
     menu.page = 2;
-    menu.game_editing[2] = true;
+
     assert_eq!(
         menu.draft.as_ref().unwrap().game_values().audio.renderer,
         SoundRenderer::GameDefault
@@ -1123,9 +1115,9 @@ fn sound_device_cli_lock_and_unregistered_runs_cannot_change_next_launch() {
             .with_startup_audio_renderers(&[SoundRenderer::Adlib, SoundRenderer::Speaker]);
         menu.toggle();
         menu.prepare(display.ui_metrics(), display.settings());
-        menu.scope = 1;
+
         menu.page = 2;
-        menu.game_editing[2] = true;
+
         let output = draw(&mut menu, vec![]);
         let selected = if locked { "PC speaker" } else { "AdLib" };
         let alternative = if locked { "AdLib" } else { "PC speaker" };

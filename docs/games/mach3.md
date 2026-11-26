@@ -58,10 +58,9 @@ P or Pause/Break provides a simpler pause toggle.
 
 ## Game-specific options
 
-**Sound renderer:** under **F10 → Mach 3 overrides → Audio**, choose PC Speaker
+**Sound renderer:** under **F10 → Audio**, choose PC Speaker
 for the original speaker treatment, or **Enhanced PCM** for full sample values
-while keeping the synthesized procedural effects. Check **Override global
-defaults** to edit, then Apply. The default is PC Speaker.
+while keeping the synthesized procedural effects. Select a value, then Apply. The default is PC Speaker.
 
 **Digitized samples:** setting this to Off on the same page skips recorded
 speech/music in the intro, pre-game, completion and Game Over/High Score sequences
@@ -84,11 +83,10 @@ Reforged scene movement is the default. It smooths the moving scene while
 retaining native gameplay, input polling, collisions and sound timing. Mountains
 keep their original artwork and updates.
 
-Use **F10 → Mach 3 overrides → Enhancements → Scene movement** to choose
+Use **F10 → Enhancements → Scene movement** to choose
 **Reforged** or **Original**. With Original scene movement, **Player craft
 movement** offers **Enhanced** (craft and shadow only) or **Original**
-(native craft placement and publication rhythm). Enable **Override global
-defaults** to edit the game section. Apply changes presentation immediately and
+(native craft placement and publication rhythm). Apply changes presentation immediately and
 saves the preference.
 
 `--motion reforged|enhanced|original` temporarily selects a mode and locks its menu

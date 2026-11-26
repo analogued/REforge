@@ -394,9 +394,9 @@ mod tests {
             let adequate_size = (native.0 * adequate_scale, native.1 * adequate_scale);
             let mut session = Session::for_window(Some(1));
             session.game_id = game.into();
-            session.saved.edit(false, "renderer", "software".into());
+            session.saved.edit("renderer", "software".into());
             if btz {
-                session.saved.edit(false, "aspect_ratio", "square".into());
+                session.saved.edit("aspect_ratio", "square".into());
             }
             let requested = session.effective(&session.saved);
             let mut display = Window::build(
@@ -459,10 +459,7 @@ mod tests {
             display.prepare_settings(&mut menu);
             // Real Apply changes a non-geometry setting; it must not retain the
             // temporary window or lose its original geometry.
-            menu.draft
-                .as_mut()
-                .unwrap()
-                .edit(false, "vsync", "false".into());
+            menu.draft.as_mut().unwrap().edit("vsync", "false".into());
             display.prepare_settings(&mut menu);
             let apply = menu.apply_rect.unwrap().center();
             click(&mut display, &mut menu, apply);
@@ -592,7 +589,7 @@ fn desktop_menu_geometry_smoke() {
     for scale in 1..=4 {
         let mut session = Session::for_window(Some(scale));
         session.game_id = "alley-cat".into();
-        session.saved.edit(false, "renderer", "software".into());
+        session.saved.edit("renderer", "software".into());
         let requested = session.effective(&session.saved);
         let mut display = Window::build(
             "REforge settings sizing test",

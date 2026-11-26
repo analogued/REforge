@@ -12,8 +12,11 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Give each library entry independent game settings with built-in defaults,
+  replacing global defaults and overrides. Old global choices need reselecting
+  per entry; launcher appearance settings remain shared.
 - Show concrete sound choices in per-game Audio settings and use shared audio
-  defaults for Centurion, preserving existing saved device choices.
+  settings for Centurion.
 - Soften PC speaker output with shared small-speaker filtering across games,
   using DOSBox Staging's response parameters.
 - Group Alley Cat and Mach 3 motion options and Alley Cat input response under
@@ -33,7 +36,7 @@ Unreleased contains changes intended for the next public release.
   16-colour swatches in four rows in Gallery and two rows in List and Split,
   preserving their original order, styling and existing line spacing.
 - Restore pending display choices correctly when switching back before Apply,
-  including renderer backends, manual scaling and explicit global defaults.
+  including renderer backends and manual scaling.
 
 ### Alley Cat
 
@@ -49,7 +52,7 @@ Unreleased contains changes intended for the next public release.
 ### Centurion
 
 - Choose AdLib or the original PC speaker sound arrangement independently of
-  video mode, from launcher options or Audio overrides in Settings. The choice
+  video mode, from launcher options or Audio settings. The choice
   is saved for each library entry and applies on the next launch.
 - Read and write DOS campaign saves, allowing progress to be shared with
   the original game.

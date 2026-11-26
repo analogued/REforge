@@ -69,7 +69,6 @@ impl EntryStatus {
 pub struct Preferences {
     pub defaults: BTreeMap<&'static str, &'static str>,
     pub saved: BTreeMap<&'static str, &'static str>,
-    pub native: Vec<&'static str>,
 }
 impl Preferences {
     fn from_options(options: &[OptionDefinition]) -> Self {
@@ -78,22 +77,13 @@ impl Preferences {
             if let Some(c) = o.choices.iter().find(|c| c.value == o.default) {
                 p.defaults.insert(o.label, c.label);
             }
-            if matches!(o.storage, Storage::Native { .. }) {
-                p.native.push(o.label);
-            }
         }
         p
     }
     pub fn tooltip(&self, field: &str, current: &str) -> String {
-        let origin = if self.native.contains(&field) {
-            "Built-in"
-        } else {
-            "Global"
-        };
         format!(
-            "{origin} default: {}\nSaved: {}\nCurrent choice: {current}\nSelections save immediately, including defaults. Click the explicit selection again to follow defaults.",
+            "Default: {}\nCurrent choice: {current}\nChanges save immediately for this library entry.",
             self.defaults[field],
-            self.saved.get(field).copied().unwrap_or("Follows defaults")
         )
     }
 }
@@ -464,7 +454,7 @@ impl GameEntry {
             .settings_capabilities(&native)
             .map(|capabilities| capabilities.audio)
             .unwrap_or(reforge_settings::AudioCapabilities::NONE);
-        let global = session.saved.global_values();
+        let defaults = reforge_settings::RuntimeSettings::default();
         let mut p = Preferences::default();
         for o in self.options {
             let (default, saved) = match o.storage {
@@ -478,22 +468,14 @@ impl GameEntry {
                         }
                     }),
                 ),
-                Storage::Shared(key) => {
-                    if !reforge_settings::keys().any(|shared| shared == key) {
-                        p.native.push(o.label);
-                    }
-                    (
-                        global.get(key),
-                        session.saved.game.get(key).map(String::as_str),
-                    )
-                }
+                Storage::Shared(key) => (
+                    defaults.get(key),
+                    session.saved.game.get(key).map(String::as_str),
+                ),
                 Storage::Native { key, .. } => {
-                    p.native.push(o.label);
                     let saved = if self.game_id == "alley-cat"
                         && key == reforge_settings::ALLEYCAT_MACHINE
                     {
-                        // Session resolves old spellings even when migration
-                        // cannot be persisted to a read-only or busy document.
                         session.saved.game.get(key).map(String::as_str)
                     } else {
                         native.get(key).map(String::as_str)
@@ -543,55 +525,27 @@ impl GameEntry {
         let Some(choice) = option.choices.iter().find(|c| c.label == value) else {
             return;
         };
-        let value = if self.preferences.saved.get(field) == Some(&value) {
-            None
-        } else {
-            Some(choice.value)
-        };
         let result = match option.storage {
-            Storage::TerminalMode => {
-                let mut s = Session::load(Launch {
-                    game_id: self.game_id.clone(),
-                    entry_id: Some(self.entry_id.clone()),
-                    path: Some(self.config.clone()),
-                    cli: Default::default(),
-                });
-                let mut d = s.saved.clone();
-                if let Some(value) = value {
-                    d.set_terminal(value == "terminal");
-                    if value == "graphical" && !d.game.contains_key("renderer") {
-                        // Like the other launch controls, clicking an inherited
-                        // default pins it, even when its value is unchanged.
-                        let renderer = d.global_values().renderer.as_str();
-                        d.game.insert("renderer".into(), renderer.into());
-                    }
-                } else {
-                    // Unpinning follows the global renderer. Selecting Graphical
-                    // instead restores the dormant per-game graphical renderer.
-                    d.game.remove("renderer");
-                }
-                s.commit(d)
-            }
             Storage::Native { key, .. } => reforge_settings::launcher::save_native_option(
                 &self.config,
                 &self.entry_id,
                 key,
-                value,
+                (choice.value != option.default).then_some(choice.value),
             ),
-            Storage::Shared(key) => {
-                let mut s = Session::load(Launch {
+            Storage::TerminalMode | Storage::Shared(_) => {
+                let mut session = Session::load(Launch {
                     game_id: self.game_id.clone(),
                     entry_id: Some(self.entry_id.clone()),
                     path: Some(self.config.clone()),
                     cli: Default::default(),
                 });
-                let mut d = s.saved.clone();
-                if let Some(value) = value {
-                    d.game.insert(key.into(), value.into());
-                } else {
-                    d.game.remove(key);
+                let mut draft = session.saved.clone();
+                match option.storage {
+                    Storage::TerminalMode => draft.set_terminal(choice.value == "terminal"),
+                    Storage::Shared(key) => draft.edit(key, choice.value.into()),
+                    Storage::Native { .. } => unreachable!(),
                 }
-                s.commit(d)
+                session.commit(draft)
             }
         };
         if let Err(e) = result.and_then(|_| self.refresh_preferences()) {

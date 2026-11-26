@@ -1481,7 +1481,8 @@ when that gate opens, so this adds no virtual execution cost or movement updates
 In the milk room, unchanged host input preserves the drink helper's approach
 direction between native polls. Direction or action changes still refresh it
 immediately, including when the helper's BIOS tick gate rejects an update.
-Original input, selectable under Alley Cat overrides → Controls, samples only at
+Original input, selectable under Enhancements → Input response in Alley Cat's
+settings, samples only at
 the modeled control gate. Headless reference runs retain Original input.
 
 Both modes preserve movement gates, blocking effects and timestamp ordering.

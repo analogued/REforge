@@ -35,7 +35,7 @@ fn launcher_section_is_opt_in_and_height_apply_cancel_reset_are_separate() {
     ));
     std::fs::write(
         &path,
-        "[launcher]\ncustom = 'keep'\n[entries.copy.audio]\nmaster_volume = 47\n",
+        "[launcher]\ncustom = 'keep'\n[entries.copy.display]\nrenderer = 'software'\n[entries.copy.crt]\npresentation = 'hyllian'\n[entries.copy.audio]\nmaster_volume = 47\n",
     )
     .unwrap();
     let before = std::fs::read(&path).unwrap();
@@ -119,6 +119,11 @@ fn launcher_section_is_opt_in_and_height_apply_cancel_reset_are_separate() {
         144
     );
     assert_eq!(menu.draft.as_ref().unwrap().game, saved_game);
+    assert_eq!(
+        menu.draft.as_ref().unwrap().game["presentation"],
+        "hyllian",
+        "launcher-only edits must not normalize untouched game choices"
+    );
     assert!(
         std::fs::read_to_string(&path)
             .unwrap()

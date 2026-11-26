@@ -1,6 +1,6 @@
 // Copyright (c) 2026 analogued.
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Shared Settings edits persist normally and configure subsequent game launches.
+//! Entry settings configure subsequent launches; launcher appearance is separate.
 use super::*;
 use reforge_sdl::settings::{SettingsAvailability, SettingsMenu, VideoCapabilities};
 
@@ -48,12 +48,10 @@ pub fn run(
                     ..SettingsAvailability::default()
                 },
             )
+            .with_launcher_options()
         }
-        None => {
-            SettingsMenu::new(&creator, VideoCapabilities::default()).with_global_defaults_only()
-        }
-    }
-    .with_launcher_options();
+        None => SettingsMenu::new(&creator, VideoCapabilities::default()).with_launcher_only(),
+    };
     menu.set_controller_style(pads.style());
     menu.set_theme(catalog::ResolvedAppearance::resolve(state.saved_theme).theme);
     menu.set_status("Changes apply when a game starts.".into());
@@ -82,7 +80,6 @@ pub fn run(
         if menu.prepare(metrics, Default::default()).is_some() {
             menu.applied();
             state.reload_preferences();
-            pads.set_dead_zone(global_dead_zone(&state.config));
         }
         let now = Instant::now();
         gui.prepare(metrics, |ctx| {
@@ -104,7 +101,6 @@ pub fn run(
     }
     state.settings_open = false;
     state.refresh();
-    pads.set_dead_zone(global_dead_zone(&state.config));
     text_input(canvas, false);
     gui.reset_input();
     Ok(false)

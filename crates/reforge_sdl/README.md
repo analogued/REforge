@@ -292,7 +292,7 @@ fresh controller input takes over. These are host UI controls, independent of
 reconstructed gameplay input and clocks.
 Window mode, scale, fitting policy, sampling, aspect ratio, renderer, backend,
 VSync, frame ceiling, Hyllian shader
-controls and Audio use draft edits with Apply/Cancel. Global and game
+controls and Audio use draft edits with Apply/Cancel. Per-library-entry game
 preferences are saved through `reforge_settings`; CLI overrides remain temporary
 and lock their controls. A dark-blue section notice and pink padlocks after
 locked controls identify these restrictions; hover the lock or disabled control
@@ -300,7 +300,7 @@ for the argument and active value. Locked labels and controls are gray; controls
 show the active launch value without copying it into the saved draft. The icons
 sit outside radio groups, sliders, checkboxes and dropdowns without adding
 per-setting explanation rows. See [configuration](../../docs/configuration.md)
-for the complete persistence, inheritance and fallback contract.
+for the complete persistence and fallback contract.
 
 `Window::presentation_due()` offers a nonblocking check of the same ceiling used
 by presentation. Engines can service input and simulation between redraws;

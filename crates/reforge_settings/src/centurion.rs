@@ -250,7 +250,7 @@ mod tests {
     use crate::{
         CENTURION_APPLIED_VALUE_INDICATOR as INDICATOR, CENTURION_FLEET_INFORMATION as KEY,
         CENTURION_MAP_HIGHLIGHT as MAP, CENTURION_MAP_HOVER_INFO as HOVER,
-        CENTURION_MENU_DECORATIONS as DECORATIONS, CENTURION_POPUP_CURSOR as CURSOR, Draft,
+        CENTURION_MENU_DECORATIONS as DECORATIONS, CENTURION_POPUP_CURSOR as CURSOR,
         ENHANCEMENTS_SECTION, Launch, Patch, RuntimeSettings, Session, SoundRenderer,
     };
     use std::{
@@ -290,13 +290,13 @@ mod tests {
     }
 
     #[test]
-    fn centurion_audio_uses_shared_inheritance_storage_and_reset() {
+    fn centurion_audio_uses_entry_storage_and_reset() {
         let temp = Temp::new();
         fs::write(temp.path(), "schema_version = 2\n[global.audio]\naudio_renderer = 'speaker'\n[entries.copy.audio]\nmaster_volume = 62\n").unwrap();
         let mut session = temp.session("centurion-defender-of-rome");
         assert_eq!(
             session.effective(&session.saved).audio.renderer,
-            SoundRenderer::Speaker
+            SoundRenderer::GameDefault
         );
         assert!(!session.saved.game.contains_key("audio_renderer"));
         let initial = fs::read(temp.path()).unwrap();
@@ -314,15 +314,18 @@ mod tests {
             Some("adlib")
         );
         assert!(document["entries"]["copy"].get("launcher").is_none());
-        assert!(session.saved.has_game_overrides(2));
+        assert!(session.saved.has_custom_settings(2));
         let mut draft = session.saved.clone();
-        draft.reset_section(true, ENHANCEMENTS_SECTION);
+        draft.reset_section(ENHANCEMENTS_SECTION);
         assert_eq!(draft.game_values().audio.renderer, SoundRenderer::Adlib);
-        draft.reset_section(true, 2);
-        assert_eq!(draft.game_values().audio.renderer, SoundRenderer::Speaker);
+        draft.reset_section(2);
+        assert_eq!(
+            draft.game_values().audio.renderer,
+            SoundRenderer::GameDefault
+        );
         session.commit(draft).unwrap();
         let mut draft = session.saved.clone();
-        draft.edit(false, "audio_renderer", "default".into());
+        draft.edit("audio_renderer", "default".into());
         session.commit(draft).unwrap();
         assert_eq!(
             session.effective(&session.saved).audio.renderer,
@@ -338,90 +341,6 @@ mod tests {
             .resolve(session.effective(&session.saved).audio.renderer),
             SoundRenderer::Adlib
         );
-    }
-
-    #[test]
-    fn centurion_legacy_sound_migrates_only_active_entry_and_preserves_comments() {
-        let temp = Temp::new();
-        for (legacy, expected) in [("adlib", "adlib"), ("pc-speaker", "speaker")] {
-            fs::write(temp.path(), format!("[global.launcher]\nsound = 'pc-speaker'\n[entries.copy.launcher]\nsound = '{legacy}' # keep device comment\nvideo = 'ega'\nfuture = 7\n[entries.other.launcher]\nsound = 'pc-speaker'\n")).unwrap();
-            let session = temp.session("centurion-defender-of-rome");
-            assert_eq!(session.saved.game["audio_renderer"], expected);
-            let text = fs::read_to_string(temp.path()).unwrap();
-            let doc = text.parse::<toml_edit::DocumentMut>().unwrap();
-            assert_eq!(
-                doc["entries"]["copy"]["audio"]["audio_renderer"].as_str(),
-                Some(expected)
-            );
-            assert!(text.contains("# keep device comment"));
-            assert!(doc["entries"]["copy"]["launcher"].get("sound").is_none());
-            assert_eq!(
-                doc["entries"]["copy"]["launcher"]["video"].as_str(),
-                Some("ega")
-            );
-            assert_eq!(
-                doc["entries"]["copy"]["launcher"]["future"].as_integer(),
-                Some(7)
-            );
-            assert_eq!(
-                doc["entries"]["other"]["launcher"]["sound"].as_str(),
-                Some("pc-speaker")
-            );
-            assert_eq!(
-                doc["global"]["launcher"]["sound"].as_str(),
-                Some("pc-speaker")
-            );
-            let once = fs::read(temp.path()).unwrap();
-            temp.session("centurion-defender-of-rome");
-            assert_eq!(fs::read(temp.path()).unwrap(), once);
-        }
-    }
-
-    #[test]
-    fn canonical_renderer_wins_over_legacy_device_including_default_alias() {
-        let temp = Temp::new();
-        for canonical in ["default", "adlib", "speaker", "enhanced-pcm"] {
-            fs::write(temp.path(), format!("[entries.copy.launcher]\nsound = 'pc-speaker'\n[entries.copy.audio]\naudio_renderer = '{canonical}' # canonical wins\n")).unwrap();
-            let session = temp.session("centurion-defender-of-rome");
-            assert_eq!(session.saved.game["audio_renderer"], canonical);
-            let text = fs::read_to_string(temp.path()).unwrap();
-            assert!(text.contains(&format!("audio_renderer = '{canonical}' # canonical wins")));
-            let doc = text.parse::<toml_edit::DocumentMut>().unwrap();
-            assert!(doc["entries"]["copy"]["launcher"].get("sound").is_none());
-        }
-    }
-
-    #[test]
-    fn migration_keeps_invalid_data_and_unregistered_or_other_game_entries() {
-        let temp = Temp::new();
-        for original in [
-            "[entries.copy]\nlauncher = 'broken'\n",
-            "[entries.copy.launcher]\nsound = 'unknown'\n",
-            "[entries.copy.launcher]\nsound = 5\n",
-            "[entries.copy]\naudio = 'broken'\n[entries.copy.launcher]\nsound = 'pc-speaker'\n",
-            "[entries.copy.audio]\naudio_renderer = 'unknown'\n[entries.copy.launcher]\nsound = 'pc-speaker'\n",
-        ] {
-            fs::write(temp.path(), original).unwrap();
-            let session = temp.session("centurion-defender-of-rome");
-            assert!(!session.saved.game.contains_key("audio_renderer"));
-            assert_eq!(fs::read_to_string(temp.path()).unwrap(), original);
-        }
-        let original = "[entries.copy.launcher]\nsound = 'pc-speaker'\n";
-        for (game, entry_id) in [
-            ("mach-3", Some("copy")),
-            ("centurion-defender-of-rome", None),
-            ("centurion-defender-of-rome", Some("missing")),
-        ] {
-            fs::write(temp.path(), original).unwrap();
-            let session = Session::load(Launch {
-                game_id: game.into(),
-                entry_id: entry_id.map(Into::into),
-                path: Some(temp.path()),
-                cli: Patch::new(),
-            });
-            assert!(!session.saved.game.contains_key("audio_renderer"));
-            assert_eq!(fs::read_to_string(temp.path()).unwrap(), original);
-        }
     }
 
     #[test]
@@ -445,7 +364,7 @@ mod tests {
             SoundRenderer::Adlib
         );
         let mut draft = session.saved.clone();
-        draft.edit(true, "master_volume", "70".into());
+        draft.edit("master_volume", "70".into());
         session.commit(draft).unwrap();
         let doc = fs::read_to_string(temp.path())
             .unwrap()
@@ -457,10 +376,10 @@ mod tests {
         );
         let mut latest = temp.session("centurion-defender-of-rome");
         let mut draft = latest.saved.clone();
-        draft.edit(true, "audio_renderer", "speaker".into());
+        draft.edit("audio_renderer", "speaker".into());
         latest.commit(draft).unwrap();
         let mut unrelated = session.saved.clone();
-        unrelated.edit(true, "vsync", "false".into());
+        unrelated.edit("vsync", "false".into());
         session.commit(unrelated).unwrap();
         assert_eq!(
             temp.session("centurion-defender-of-rome")
@@ -499,17 +418,12 @@ mod tests {
         for choice in MapHoverInfo::ALL {
             fs::write(temp.path(), format!("[global.enhancements]\nmap_hover_info = 'on'\n[entries.copy.enhancements]\nmap_hover_info = '{}' # retain choice\nunknown = 'retained'\n[entries.copy.display]\nwindow_mode = 'fullscreen'\n", choice.as_str())).unwrap();
             let mut session = temp.session("centurion-defender-of-rome");
-            assert_eq!(
-                session.saved.global_values().centurion.map_hover_info,
-                MapHoverInfo::Off
-            );
+
             assert_eq!(
                 session.effective(&session.saved).centurion.map_hover_info,
                 choice
             );
             let mut draft = session.saved.clone();
-            draft.edit(false, HOVER, "on".into());
-            assert!(!draft.global.contains_key(HOVER));
             draft.edit_game(CURSOR, "hidden".into(), Some(&session.saved));
             session.commit(draft).unwrap();
             let text = fs::read_to_string(temp.path()).unwrap();
@@ -520,9 +434,9 @@ mod tests {
             assert!(!text.contains(HOVER));
             assert!(!text.contains("preset"));
             let mut reset = session.saved.clone();
-            assert!(reset.has_game_overrides(ENHANCEMENTS_SECTION));
-            reset.reset_section(true, ENHANCEMENTS_SECTION);
-            assert!(!reset.has_game_overrides(ENHANCEMENTS_SECTION));
+            assert!(reset.has_custom_settings(ENHANCEMENTS_SECTION));
+            reset.reset_section(ENHANCEMENTS_SECTION);
+            assert!(!reset.has_custom_settings(ENHANCEMENTS_SECTION));
             assert_eq!(reset.game_values().centurion, CenturionOptions::default());
             assert!(reset.game_values().fullscreen);
             session.commit(reset).unwrap();
@@ -594,14 +508,7 @@ mod tests {
         for choice in AppliedValueIndicator::ALL {
             fs::write(temp.path(), format!("[global.enhancements]\napplied_value_indicator = 'original'\n[entries.copy.enhancements]\napplied_value_indicator = '{}' # retain choice\nmenu_decorations = 'dynamic'\nunknown = 'retained'\n[entries.copy.display]\nwindow_mode = 'fullscreen'\n", choice.as_str())).unwrap();
             let mut session = temp.session("centurion-defender-of-rome");
-            assert_eq!(
-                session
-                    .saved
-                    .global_values()
-                    .centurion
-                    .applied_value_indicator,
-                AppliedValueIndicator::SubduedBand
-            );
+
             assert_eq!(
                 session
                     .effective(&session.saved)
@@ -610,8 +517,6 @@ mod tests {
                 choice
             );
             let mut draft = session.saved.clone();
-            draft.edit(false, INDICATOR, "original".into());
-            assert!(!draft.global.contains_key(INDICATOR));
             draft.edit_game(CURSOR, "hidden".into(), Some(&session.saved));
             session.commit(draft).unwrap();
             let text = fs::read_to_string(temp.path()).unwrap();
@@ -622,9 +527,9 @@ mod tests {
             assert!(!text.contains(INDICATOR));
             assert!(!text.contains("preset"));
             let mut reset = session.saved.clone();
-            assert!(reset.has_game_overrides(ENHANCEMENTS_SECTION));
-            reset.reset_section(true, ENHANCEMENTS_SECTION);
-            assert!(!reset.has_game_overrides(ENHANCEMENTS_SECTION));
+            assert!(reset.has_custom_settings(ENHANCEMENTS_SECTION));
+            reset.reset_section(ENHANCEMENTS_SECTION);
+            assert!(!reset.has_custom_settings(ENHANCEMENTS_SECTION));
             assert_eq!(reset.game_values().centurion, CenturionOptions::default());
             assert!(reset.game_values().fullscreen);
             session.commit(reset).unwrap();
@@ -684,17 +589,12 @@ mod tests {
         let temp = Temp::new();
         fs::write(temp.path(), "[global.enhancements]\nmap_highlight = 'off'\n[entries.copy.enhancements]\nmap_highlight = 'off' # retain choice\nunknown = 'retained'\n[entries.copy.audio]\nmaster_volume = 43\n").unwrap();
         let mut session = temp.session("centurion-defender-of-rome");
-        assert_eq!(
-            session.saved.global_values().centurion.map_highlight,
-            MapHighlight::On
-        );
+
         assert_eq!(
             session.effective(&session.saved).centurion.map_highlight,
             MapHighlight::Off
         );
         let mut draft = session.saved.clone();
-        draft.edit(false, MAP, "off".into());
-        assert!(!draft.global.contains_key(MAP));
         draft.edit_game(CURSOR, "hidden".into(), Some(&session.saved));
         session.commit(draft).unwrap();
         assert!(
@@ -702,14 +602,14 @@ mod tests {
                 .unwrap()
                 .contains("map_highlight = 'off' # retain choice")
         );
-        assert!(session.saved.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert!(session.saved.has_custom_settings(ENHANCEMENTS_SECTION));
         let mut draft = session.saved.clone();
-        draft.reset_section(true, ENHANCEMENTS_SECTION);
+        draft.reset_section(ENHANCEMENTS_SECTION);
         assert_eq!(
             draft.game_values().centurion.map_highlight,
             MapHighlight::On
         );
-        assert!(!draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert!(!draft.has_custom_settings(ENHANCEMENTS_SECTION));
         session.commit(draft).unwrap();
         let text = fs::read_to_string(temp.path()).unwrap();
         let doc = text.parse::<toml_edit::DocumentMut>().unwrap();
@@ -769,17 +669,12 @@ mod tests {
         for choice in MenuDecorations::ALL {
             fs::write(temp.path(), format!("[global.enhancements]\nmenu_decorations = 'keyboard'\n[entries.copy.enhancements]\nmenu_decorations = '{}' # retain\nunknown = 'retained'\n[entries.copy.display]\nwindow_mode = 'fullscreen'\n", choice.as_str())).unwrap();
             let mut session = temp.session("centurion-defender-of-rome");
-            assert_eq!(
-                session.saved.global_values().centurion.menu_decorations,
-                MenuDecorations::Mouse
-            );
+
             assert_eq!(
                 session.effective(&session.saved).centurion.menu_decorations,
                 choice
             );
             let mut draft = session.saved.clone();
-            draft.edit(false, DECORATIONS, "dynamic".into());
-            assert!(!draft.global.contains_key(DECORATIONS));
             draft.edit_game(CURSOR, "hidden".into(), Some(&session.saved));
             session.commit(draft).unwrap();
             let text = fs::read_to_string(temp.path()).unwrap();
@@ -799,9 +694,9 @@ mod tests {
         );
         let mut session = temp.session("centurion-defender-of-rome");
         let mut draft = session.saved.clone();
-        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
-        draft.reset_section(true, ENHANCEMENTS_SECTION);
-        assert!(!draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert!(draft.has_custom_settings(ENHANCEMENTS_SECTION));
+        draft.reset_section(ENHANCEMENTS_SECTION);
+        assert!(!draft.has_custom_settings(ENHANCEMENTS_SECTION));
         assert!(draft.game_values().fullscreen);
         assert_eq!(
             draft.game_values().centurion.menu_decorations,
@@ -846,10 +741,7 @@ mod tests {
         let temp = Temp::new();
         fs::write(temp.path(), "[global.enhancements]\npopup_cursor = 'hidden'\n[entries.copy.enhancements]\npopup_cursor = 'hidden' # keep\nunknown = 'retained'\n[entries.copy.display]\nwindow_mode = 'fullscreen'\n").unwrap();
         let mut session = temp.session("centurion-defender-of-rome");
-        assert_eq!(
-            session.saved.global_values().centurion.popup_cursor,
-            PopupCursor::Visible
-        );
+
         assert_eq!(
             session.effective(&session.saved).centurion.popup_cursor,
             PopupCursor::Hidden
@@ -861,8 +753,6 @@ mod tests {
             PopupCursor::Visible
         );
         let mut draft = session.saved.clone();
-        draft.edit(false, CURSOR, "hidden".into());
-        assert!(!draft.global.contains_key(CURSOR));
         draft.edit_game(KEY, "original".into(), Some(&session.saved));
         session.commit(draft).unwrap();
         let text = fs::read_to_string(temp.path()).unwrap();
@@ -871,9 +761,9 @@ mod tests {
         assert!(!text.contains("preset"));
         let mut session = temp.session("centurion-defender-of-rome");
         let mut draft = session.saved.clone();
-        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
-        draft.reset_section(true, ENHANCEMENTS_SECTION);
-        assert!(!draft.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert!(draft.has_custom_settings(ENHANCEMENTS_SECTION));
+        draft.reset_section(ENHANCEMENTS_SECTION);
+        assert!(!draft.has_custom_settings(ENHANCEMENTS_SECTION));
         assert!(draft.game_values().fullscreen);
         assert_eq!(draft.game_values().centurion, CenturionOptions::default());
         session.commit(draft).unwrap();
@@ -973,7 +863,7 @@ mod tests {
         );
         fs::write(
             temp.path(),
-            "[entries.copy.display]\nfleet_information = 'detailed' # retain choice\n",
+            "[entries.copy.enhancements]\nfleet_information = 'detailed' # retain choice\n",
         )
         .unwrap();
         let session = temp.session("centurion-defender-of-rome");
@@ -992,12 +882,9 @@ mod tests {
     #[test]
     fn fleet_information_is_per_entry_and_ignores_global_and_other_game_values() {
         let temp = Temp::new();
-        fs::write(temp.path(), "[global.display]\nfleet_information = 'original'\n[entries.copy.display]\nfleet_information = 'original' # keep\nunknown = 'retained'\n[entries.copy.audio]\nmaster_volume = 43\n").unwrap();
+        fs::write(temp.path(), "[global.display]\nfleet_information = 'original'\n[entries.copy.enhancements]\nfleet_information = 'original' # keep\nunknown = 'retained'\n[entries.copy.audio]\nmaster_volume = 43\n").unwrap();
         let mut session = temp.session("centurion-defender-of-rome");
-        assert_eq!(
-            session.saved.global_values().centurion,
-            CenturionOptions::default()
-        );
+
         assert_eq!(
             session
                 .effective(&session.saved)
@@ -1013,22 +900,16 @@ mod tests {
             document["entries"]["copy"]["enhancements"]["fleet_information"].as_str(),
             Some("original")
         );
-        assert!(
-            document["entries"]["copy"]["display"]
-                .get("fleet_information")
-                .is_none()
-        );
+        assert!(document["entries"]["copy"].get("display").is_none());
         let other = temp.session("alley-cat");
         assert_eq!(
             other.effective(&other.saved).centurion,
             CenturionOptions::default()
         );
         assert!(!other.saved.game.contains_key(KEY));
-        let mut global = Draft::default();
-        global.edit(false, KEY, "original".into());
-        assert!(global.global.is_empty());
+
         let mut draft = session.saved.clone();
-        draft.edit(false, "window_mode", "fullscreen".into());
+        draft.edit("window_mode", "fullscreen".into());
         session.commit(draft).unwrap();
         let text = fs::read_to_string(temp.path()).unwrap();
         assert!(text.contains("fleet_information = 'original' # keep"));
@@ -1038,19 +919,19 @@ mod tests {
         assert!(!text.contains("preset"));
         let mut loaded = temp.session("centurion-defender-of-rome");
         let mut reset = loaded.saved.clone();
-        reset.edit(true, "window_mode", "fullscreen".into());
+        reset.edit("window_mode", "fullscreen".into());
         let mut enhancements_only = reset.clone();
-        enhancements_only.reset_section(true, ENHANCEMENTS_SECTION);
+        enhancements_only.reset_section(ENHANCEMENTS_SECTION);
         assert!(
             enhancements_only.game_values().fullscreen,
             "Enhancements reset must preserve Display"
         );
         assert_eq!(crate::section_index(KEY), ENHANCEMENTS_SECTION);
-        assert!(reset.has_game_overrides(ENHANCEMENTS_SECTION));
-        reset.reset_section(true, 0);
-        assert!(reset.has_game_overrides(ENHANCEMENTS_SECTION));
-        reset.reset_section(true, ENHANCEMENTS_SECTION);
-        assert!(!reset.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert!(reset.has_custom_settings(ENHANCEMENTS_SECTION));
+        reset.reset_section(0);
+        assert!(reset.has_custom_settings(ENHANCEMENTS_SECTION));
+        reset.reset_section(ENHANCEMENTS_SECTION);
+        assert!(!reset.has_custom_settings(ENHANCEMENTS_SECTION));
         assert_eq!(reset.game_values().centurion, CenturionOptions::default());
         assert_eq!(reset.game["master_volume"], "43");
         loaded.commit(reset).unwrap();

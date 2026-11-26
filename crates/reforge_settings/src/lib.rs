@@ -95,8 +95,7 @@ const ALLEYCAT_CONTROL_KEYS: &[&str] = &[
     CONTROLLER_ACTION,
     CONTROLLER_BUTTONS,
 ];
-// Dormant per-entry override while Terminal is selected. Absence means the
-// graphical renderer should continue to inherit the global setting.
+// Dormant per-entry renderer while Terminal is selected. Absence uses Auto.
 const GRAPHICAL_RENDERER: &str = "graphical_renderer";
 /// Game identities with an attached-terminal player host.
 pub fn supports_terminal(game: &str) -> bool {
@@ -579,7 +578,7 @@ impl std::str::FromStr for AlleyCatMachine {
         }
     }
 }
-/// Alley Cat preferences; they have no global or other-game counterpart.
+/// Per-entry Alley Cat preferences.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct AlleyCatSettings {
     /// None inherits the input-specific machine default. Changes apply on launch.
@@ -891,25 +890,12 @@ fn overlay(mut base: RuntimeSettings, patch: &Patch) -> RuntimeSettings {
 }
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Draft {
-    pub global: Patch,
+    /// Saved choices for one library entry, applied over built-in game defaults.
     pub game: Patch,
 }
 impl Draft {
-    pub fn global_values(&self) -> RuntimeSettings {
-        let mut values = overlay(RuntimeSettings::default(), &self.global);
-        // Terminal play is an engine-specific startup selection, never a
-        // graphics default inherited by unrelated games or the launcher.
-        if values.renderer == Renderer::Terminal {
-            values.renderer = Renderer::Auto;
-        }
-        values.mach3 = Mach3Settings::default();
-        values.alleycat = AlleyCatSettings::default();
-        values.btz = BtzSettings::default();
-        values.centurion = CenturionOptions::default();
-        values
-    }
     pub fn game_values(&self) -> RuntimeSettings {
-        overlay(self.global_values(), &self.game)
+        overlay(RuntimeSettings::default(), &self.game)
     }
     /// Switch BTZ's startup frontend without replacing graphical preferences.
     pub fn set_terminal(&mut self, terminal: bool) {
@@ -930,41 +916,28 @@ impl Draft {
             }
         }
     }
-    /// Resolve incompatible treatment preferences at menu Apply, before CLI
-    /// overrides. Game edits leave global defaults alone; global edits also
-    /// reconcile this game's inherited choices without touching other games.
-    pub fn normalize_treatments(&mut self, saved: &Self) {
-        let global = self.global_values();
-        if self.global != saved.global
-            && global.presentation == Presentation::Hyllian
-            && !global.supports_hyllian()
-        {
-            self.edit(false, "presentation", "pixels".into());
-        }
+    /// Resolve incompatible treatments at Apply, before temporary CLI values.
+    pub fn normalize_treatments(&mut self) {
         let game = self.game_values();
         if game.renderer != Renderer::Terminal
             && game.presentation == Presentation::Hyllian
             && !game.supports_hyllian()
         {
-            self.edit(true, "presentation", "pixels".into());
+            self.edit("presentation", "pixels".into());
         }
     }
-    pub fn reset_section(&mut self, game: bool, page: usize) {
-        let patch = if game {
-            &mut self.game
-        } else {
-            &mut self.global
-        };
+    pub fn reset_section(&mut self, page: usize) {
+        let patch = &mut self.game;
         patch.retain(|key, _| !SECTION_KEYS[page].contains(&key.as_str()));
-        if game && page == 2 {
+        if page == 2 {
             patch.remove(DIGITIZED_SAMPLES);
         }
-        if game && page == 3 {
+        if page == 3 {
             patch.retain(|key, _| {
                 !ALLEYCAT_CONTROL_KEYS.contains(&key.as_str()) || key == CONTROL_MODE
             });
         }
-        if game && page == ENHANCEMENTS_SECTION {
+        if page == ENHANCEMENTS_SECTION {
             patch.remove(MOTION);
             patch.remove(ALLEYCAT_MOTION);
             patch.remove(CONTROL_MODE);
@@ -975,14 +948,14 @@ impl Draft {
             patch.remove(CENTURION_MAP_HOVER_INFO);
             patch.remove(CENTURION_APPLIED_VALUE_INDICATOR);
         }
-        if game && page == 0 {
+        if page == 0 {
             patch.remove(GRAPHICAL_RENDERER);
             patch.remove(BTZ_FILE_CURSOR);
             patch.remove(ALLEYCAT_MACHINE);
         }
     }
-    /// Native game options can share a menu page without acquiring global keys.
-    pub fn has_game_overrides(&self, page: usize) -> bool {
+    /// Whether this entry has explicit choices in a settings section.
+    pub fn has_custom_settings(&self, page: usize) -> bool {
         SECTION_KEYS[page]
             .iter()
             .any(|key| self.game.contains_key(*key))
@@ -1004,62 +977,22 @@ impl Draft {
                     .iter()
                     .any(|key| *key != CONTROL_MODE && self.game.contains_key(*key))
     }
-    pub fn edit(&mut self, game: bool, key: &str, value: String) {
-        if !game
-            && (matches!(
-                key,
-                DIGITIZED_SAMPLES
-                    | MOTION
-                    | ALLEYCAT_MOTION
-                    | BTZ_FILE_CURSOR
-                    | ALLEYCAT_MACHINE
-                    | CENTURION_FLEET_INFORMATION
-                    | CENTURION_POPUP_CURSOR
-                    | CENTURION_MENU_DECORATIONS
-                    | CENTURION_MAP_HIGHLIGHT
-                    | CENTURION_MAP_HOVER_INFO
-                    | CENTURION_APPLIED_VALUE_INDICATOR
-            ) || ALLEYCAT_CONTROL_KEYS.contains(&key))
-        {
-            return;
-        }
-        if !game && key == "renderer" && value == "terminal" {
-            return;
-        }
-        let base = if game {
-            self.global_values()
+    /// Store entry choices relative to the game's built-in defaults.
+    pub fn edit(&mut self, key: &str, value: String) {
+        if value == RuntimeSettings::default().get(key) {
+            self.game.remove(key);
         } else {
-            RuntimeSettings::default()
-        };
-        let patch = if game {
-            &mut self.game
-        } else {
-            &mut self.global
-        };
-        if value == base.get(key) {
-            patch.remove(key);
-        } else {
-            patch.insert(key.into(), value);
+            self.game.insert(key.into(), value);
         }
     }
-    /// Restore an existing explicit global value when an edit is undone. After
-    /// resetting a section, pass None so its cleared keys remain sparse.
-    pub fn edit_global(&mut self, key: &str, value: String, original: Option<&Self>) {
-        if original.and_then(|draft| draft.global.get(key)) == Some(&value) {
-            self.global.insert(key.into(), value);
-        } else {
-            self.edit(false, key, value);
-        }
-    }
-
     /// Settings edits save differences, while returning to an original explicit
-    /// override restores its presence even when it matches the current global.
+    /// choice restores its presence even when it matches the built-in default.
     /// Pass None after an explicit section reset so cleared overrides stay clear.
     pub fn edit_game(&mut self, key: &str, value: String, original: Option<&Self>) {
         if original.and_then(|draft| draft.game.get(key)) == Some(&value) {
             self.game.insert(key.into(), value);
         } else {
-            self.edit(true, key, value);
+            self.edit(key, value);
         }
     }
 }
@@ -1104,10 +1037,9 @@ impl Session {
                 path: None,
                 cli: Patch::new(),
                 saved: Draft {
-                    global: scale
+                    game: scale
                         .map(|n| BTreeMap::from([("scale".into(), n.to_string())]))
                         .unwrap_or_default(),
-                    game: Patch::new(),
                 },
                 warning: None,
                 blocked: false,
@@ -1133,20 +1065,7 @@ impl Session {
         };
         if let Some(path) = &s.path {
             match read(path) {
-                Ok(mut doc) => {
-                    if let Some(entry) = s.entry_id.as_deref()
-                        && migrate_legacy_settings(&mut doc, &s.game_id, entry)
-                    {
-                        // Read the latest document under the ordinary save lock,
-                        // preserving concurrent edits and all unrelated settings.
-                        match edit_document(path, "settings", |latest| {
-                            migrate_legacy_settings(latest, &s.game_id, entry);
-                            Ok(latest.clone())
-                        }) {
-                            Ok(latest) => doc = latest,
-                            Err(error) => s.warning = Some(error),
-                        }
-                    }
+                Ok(doc) => {
                     s.saved = read_draft(&doc, &s.game_id, s.entry_id.as_deref(), &mut s.warning);
                 }
                 Err(e) => {
@@ -1157,14 +1076,14 @@ impl Session {
         }
         s
     }
-    /// Global edits have a durable destination when configuration is enabled.
-    pub fn has_global_storage(&self) -> bool {
+    /// Launcher appearance preferences have storage when configuration is enabled.
+    pub fn has_launcher_storage(&self) -> bool {
         self.path.is_some()
     }
     /// Per-copy edits require both configuration and a registered library entry.
     /// Unregistered CLI launches retain game edits only in this session.
-    pub fn has_game_storage(&self) -> bool {
-        self.has_global_storage() && self.entry_id.is_some()
+    pub fn has_entry_storage(&self) -> bool {
+        self.has_launcher_storage() && self.entry_id.is_some()
     }
     pub fn effective(&self, draft: &Draft) -> RuntimeSettings {
         let mut values = overlay(draft.game_values(), &self.cli);
@@ -1188,7 +1107,7 @@ impl Session {
     pub fn commit(&mut self, draft: Draft) -> Result<(), String> {
         self.commit_with_launcher(draft, launcher::Edits::default())
     }
-    /// Apply game/default edits and launcher-only preference edits in one
+    /// Apply entry edits and launcher-only preference edits in one
     /// locked, atomic configuration update. Unchanged launcher values are omitted.
     pub fn commit_with_launcher(
         &mut self,
@@ -1202,7 +1121,7 @@ impl Session {
             return Err("preferences were applied, but the invalid/unreadable configuration was preserved; repair it before saving".into());
         }
         // Settings can choose Terminal through the full Renderer selector too.
-        // Preserve the explicit graphical override across either entry point.
+        // Preserve the graphical choice across either entry point.
         if supports_terminal(&self.game_id) {
             if draft.game_values().renderer == Renderer::Terminal {
                 let key = if self.saved.game_values().renderer == Renderer::Terminal {
@@ -1234,196 +1153,6 @@ impl Session {
         Ok(())
     }
 }
-/// Canonicalize legacy preferences without changing their behavior or presence.
-fn migrate_legacy_settings(doc: &mut DocumentMut, game: &str, entry: &str) -> bool {
-    let enhancements_changed =
-        migrate_enhancements(doc, game, entry) | migrate_centurion_sound(doc, game, entry);
-    let (section, key, old, canonical) = match game {
-        "mach-3" => ("enhancements", MOTION, "scene", "reforged"),
-        "alley-cat" => ("launcher", ALLEYCAT_MACHINE, "tandy", "pcjr"),
-        _ => return enhancements_changed,
-    };
-    // Item::get_mut may create missing paths. Inspect first so an unrelated
-    // save cannot materialize empty sections or alter absent entry structure.
-    if doc
-        .get("entries")
-        .and_then(|entries| entries.get(entry))
-        .and_then(|entry| entry.get(section))
-        .and_then(|section| section.get(key))
-        .and_then(Item::as_str)
-        != Some(old)
-    {
-        return enhancements_changed;
-    }
-    let Some(value) = doc
-        .get_mut("entries")
-        .and_then(|entries| entries.get_mut(entry))
-        .and_then(|entry| entry.get_mut(section))
-        .and_then(|section| section.get_mut(key))
-        .and_then(Item::as_value_mut)
-    else {
-        return enhancements_changed;
-    };
-    if value.as_str() != Some(old) {
-        return enhancements_changed;
-    }
-    let mut replacement = toml_edit::Value::from(canonical);
-    *replacement.decor_mut() = value.decor().clone();
-    *value = replacement;
-    true
-}
-
-/// Fold the legacy startup device pin into the ordinary shared audio preference.
-// TODO(compat-cleanup): Retire with the legacy settings migrations after the
-// compatibility window described in docs/releases.md.
-fn migrate_centurion_sound(doc: &mut DocumentMut, game: &str, entry: &str) -> bool {
-    if game != "centurion-defender-of-rome" {
-        return false;
-    }
-    // Inspect before mutable traversal: absent/unregistered entries must not
-    // acquire tables, and malformed or unknown data must remain repairable.
-    if doc
-        .get("entries")
-        .and_then(|entries| entries.get(entry))
-        .is_none_or(|entry| !entry.is_table_like())
-    {
-        return false;
-    }
-    let Some(entry) = doc
-        .get_mut("entries")
-        .and_then(|entries| entries.get_mut(entry))
-        .and_then(Item::as_table_like_mut)
-    else {
-        return false;
-    };
-    let canonical = match entry
-        .get("launcher")
-        .and_then(|launcher| launcher.get("sound"))
-        .and_then(Item::as_str)
-    {
-        Some("adlib") => "adlib",
-        Some("pc-speaker") => "speaker",
-        _ => return false,
-    };
-    if entry
-        .get("audio")
-        .is_some_and(|audio| !audio.is_table_like())
-    {
-        return false;
-    }
-    if let Some(current) = entry
-        .get("audio")
-        .and_then(|audio| audio.get("audio_renderer"))
-        && current
-            .as_str()
-            .is_none_or(|value| value.parse::<SoundRenderer>().is_err())
-    {
-        return false;
-    }
-    let mut legacy = entry
-        .get_mut("launcher")
-        .unwrap()
-        .as_table_like_mut()
-        .unwrap()
-        .remove("sound")
-        .unwrap();
-    if entry.get("audio").is_none() {
-        entry.insert("audio", Item::Table(toml_edit::Table::new()));
-    }
-    let audio = entry.get_mut("audio").unwrap().as_table_like_mut().unwrap();
-    if audio.get("audio_renderer").is_none() {
-        let value = legacy.as_value_mut().unwrap();
-        let mut replacement = toml_edit::Value::from(canonical);
-        *replacement.decor_mut() = value.decor().clone();
-        *value = replacement;
-        audio.insert("audio_renderer", legacy);
-    }
-    true
-}
-
-/// Move only this game's recognized preferences; canonical values take precedence.
-// TODO(compat-cleanup): Remove after a few published releases carry this migration.
-// Remove its caller, legacy-section reading and migration-only tests together;
-// see "Temporary compatibility cleanup" in docs/releases.md.
-fn migrate_enhancements(doc: &mut DocumentMut, game: &str, entry: &str) -> bool {
-    let moves: &[(&str, &str, &str)] = match game {
-        "mach-3" => &[("display", "motion", MOTION)],
-        "centurion-defender-of-rome" => {
-            &[("display", "fleet_information", CENTURION_FLEET_INFORMATION)]
-        }
-        "alley-cat" => &[
-            ("display", "motion", ALLEYCAT_MOTION),
-            ("controls", "control_mode", CONTROL_MODE),
-        ],
-        _ => return false,
-    };
-    if doc
-        .get("entries")
-        .and_then(|entries| entries.get(entry))
-        .is_none_or(|entry| !entry.is_table_like())
-    {
-        return false;
-    }
-    let Some(entry) = doc
-        .get_mut("entries")
-        .and_then(|entries| entries.get_mut(entry))
-        .and_then(Item::as_table_like_mut)
-    else {
-        return false;
-    };
-    if entry
-        .get("enhancements")
-        .is_some_and(|item| !item.is_table_like())
-    {
-        return false;
-    }
-    let mut changed = false;
-    for &(source, key, runtime_key) in moves {
-        let Some(item) = entry.get(source).and_then(|table| table.get(key)) else {
-            continue;
-        };
-        let Some(text) = item.as_str() else {
-            continue;
-        };
-        let text = if game == "mach-3" && text == "scene" {
-            "reforged"
-        } else {
-            text
-        };
-        if RuntimeSettings::default().set(runtime_key, text).is_err() {
-            continue;
-        }
-        // Preserve invalid canonical data for repair rather than replacing it.
-        if let Some(canonical) = entry.get("enhancements").and_then(|table| table.get(key))
-            && canonical
-                .as_str()
-                .is_none_or(|value| RuntimeSettings::default().set(runtime_key, value).is_err())
-        {
-            continue;
-        }
-        let item = entry
-            .get_mut(source)
-            .unwrap()
-            .as_table_like_mut()
-            .unwrap()
-            .remove(key)
-            .unwrap();
-        if entry.get("enhancements").is_none() {
-            entry.insert("enhancements", Item::Table(toml_edit::Table::new()));
-        }
-        let target = entry
-            .get_mut("enhancements")
-            .unwrap()
-            .as_table_like_mut()
-            .unwrap();
-        if target.get(key).is_none() {
-            target.insert(key, item);
-        }
-        changed = true;
-    }
-    changed
-}
-
 fn read(path: &Path) -> Result<DocumentMut, String> {
     read_document(path, "settings")
 }
@@ -1461,26 +1190,12 @@ fn read_draft(
                     .chain((game == "alley-cat").then_some("launcher"))
                 {
                     if table.get(name).is_some_and(|v| !v.is_table_like()) {
-                        *warning = Some(format!("Invalid {name} section; using inherited values"));
+                        *warning = Some(format!("Invalid {name} section; using built-in defaults"));
                     }
                 }
                 for key in keys().chain(game_keys(game)) {
-                    // TODO(compat-cleanup): Retire with migrate_enhancements.
-                    let legacy = match key {
-                        MOTION | ALLEYCAT_MOTION | CENTURION_FLEET_INFORMATION => Some("display"),
-                        CONTROL_MODE => Some("controls"),
-                        _ => None,
-                    };
-                    if let Some(v) = table
-                        .get(section(key))
-                        .and_then(|x| x.get(stored_key(key)))
-                        .or_else(|| {
-                            legacy
-                                .and_then(|section| table.get(section))
-                                .and_then(|x| x.get(stored_key(key)))
-                        })
-                    {
-                        let mut text: String = if let Some(s) = v.as_str() {
+                    if let Some(v) = table.get(section(key)).and_then(|x| x.get(stored_key(key))) {
+                        let text: String = if let Some(s) = v.as_str() {
                             s.into()
                         } else if let Some(n) = v.as_integer() {
                             n.to_string()
@@ -1491,11 +1206,6 @@ fn read_draft(
                         } else {
                             String::new()
                         };
-                        // A failed disk migration can still use the intended
-                        // preference for this run without accepting the old CLI name.
-                        if key == MOTION && text == "scene" {
-                            text = "reforged".into();
-                        }
                         let mut validated = RuntimeSettings::default();
                         if key == GRAPHICAL_RENDERER {
                             match text.parse::<Renderer>() {
@@ -1504,7 +1214,7 @@ fn read_draft(
                                 }
                                 _ => {
                                     *warning = Some(
-                                        "Invalid graphical renderer; using inherited value".into(),
+                                        "Invalid graphical renderer; using built-in default".into(),
                                     )
                                 }
                             }
@@ -1519,37 +1229,30 @@ fn read_draft(
                             p.insert(key.into(), validated.get(key));
                         } else {
                             *warning = Some(format!(
-                                "Invalid setting {}; using inherited value",
+                                "Invalid setting {}; using built-in default",
                                 stored_key(key)
                             ));
                         }
                     }
                 }
             } else {
-                *warning = Some("Invalid display section; using inherited values".into());
+                *warning = Some("Invalid display section; using built-in defaults".into());
             }
         }
         p
     }
     let mut draft = Draft {
-        global: patch(doc.get("global"), "", warning),
         game: patch(
             entry.and_then(|id| doc.get("entries").and_then(|x| x.get(id))),
             game,
             warning,
         ),
     };
-    // Cross-field validation follows inheritance, so a sparse beam override is
-    // checked against its inherited partner, not an unrelated built-in default.
-    if draft.global_values().hyllian.validate().is_err() {
-        draft.global.remove("beam_min");
-        draft.global.remove("beam_max");
-        *warning = Some("Invalid global beam widths; using built-in widths".into());
-    }
+    // Validate dependent fields together against this entry's defaults.
     if draft.game_values().hyllian.validate().is_err() {
         draft.game.remove("beam_min");
         draft.game.remove("beam_max");
-        *warning = Some("Invalid game beam widths; using global widths".into());
+        *warning = Some("Invalid beam widths; using built-in widths".into());
     }
     draft
 }
@@ -1561,21 +1264,19 @@ fn save_changes(
     new: &Draft,
     launcher_edits: launcher::Edits,
 ) -> Result<(), String> {
+    if entry.is_none()
+        && launcher_edits.split_preview_height.is_none()
+        && launcher_edits.gallery_preview_aspect.is_none()
+    {
+        return Ok(());
+    }
     edit_document(path, "settings", |doc| {
-        if let Some(entry) = entry {
-            migrate_legacy_settings(doc, game, entry);
-        }
         launcher::write_edits(doc, launcher_edits)?;
         doc["schema_version"] = toml_edit::value(2);
-        for (before, after, route) in [
-            (&old.global, &new.global, vec!["global"]),
-            (&old.game, &new.game, vec!["entries", entry.unwrap_or("")]),
-        ] {
-            if route.len() == 2 && entry.is_none() {
-                continue;
-            }
-            let scope_game = if route.len() == 2 { game } else { "" };
-            for key in keys().chain(game_keys(scope_game)) {
+        if let Some(entry) = entry {
+            let (before, after) = (&old.game, &new.game);
+            let route = ["entries", entry];
+            for key in keys().chain(game_keys(game)) {
                 if before.get(key) == after.get(key) {
                     continue;
                 }
@@ -1716,60 +1417,6 @@ pub fn default_path() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn explicit_matching_overrides_survive_unrelated_and_global_saves() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        fs::write(&path, "[global.display]\nwindow_mode = \"windowed\"\n[entries.alley-cat.display]\nwindow_mode = \"windowed\"\n[entries.mach-3.display]\nwindow_mode = \"fullscreen\"\n").unwrap();
-        let mut current = session(path.clone(), "alley-cat");
-        let original = current.saved.clone();
-        let mut draft = original.clone();
-        draft.edit_game("vsync", "false".into(), Some(&original));
-        current.commit(draft).unwrap();
-        let mut loaded = session(path.clone(), "alley-cat");
-        assert_eq!(loaded.saved.game["window_mode"], "windowed");
-        assert_eq!(loaded.saved.game["vsync"], "false");
-        for mode in ["fullscreen", "windowed", "fullscreen"] {
-            let mut draft = loaded.saved.clone();
-            draft.edit(false, "window_mode", mode.into());
-            loaded.commit(draft).unwrap();
-            loaded = session(path.clone(), "alley-cat");
-            assert_eq!(loaded.saved.game["window_mode"], "windowed");
-            assert!(!loaded.saved.game_values().fullscreen);
-        }
-        assert_eq!(
-            session(path, "mach-3").saved.game["window_mode"],
-            "fullscreen"
-        );
-    }
-
-    #[test]
-    fn global_edits_restore_original_presence_but_resets_do_not() {
-        for (key, initial, other) in [
-            ("window_mode", "windowed", "fullscreen"),
-            ("master_volume", "80", "60"),
-            ("renderer", "auto", "software"),
-        ] {
-            let original = Draft {
-                global: Patch::from([(key.into(), initial.into())]),
-                ..Default::default()
-            };
-            let mut draft = original.clone();
-            draft.edit_global(key, other.into(), Some(&original));
-            draft.edit_global(key, initial.into(), Some(&original));
-            assert_eq!(draft, original, "preserve explicit {key}");
-            let inherited = Draft::default();
-            let mut draft = inherited.clone();
-            draft.edit_global(key, other.into(), Some(&inherited));
-            draft.edit_global(key, initial.into(), Some(&inherited));
-            assert_eq!(draft, inherited, "preserve default absence for {key}");
-            draft = original.clone();
-            draft.reset_section(false, section_index(key));
-            draft.edit_global(key, other.into(), None);
-            draft.edit_global(key, initial.into(), None);
-            assert!(draft.global.is_empty(), "reset {key} must not return");
-        }
-    }
 
     #[test]
     fn game_edits_restore_original_presence_but_resets_do_not() {
@@ -1788,7 +1435,6 @@ mod tests {
         ] {
             let original = Draft {
                 game: Patch::from([(key.into(), initial.into())]),
-                ..Default::default()
             };
             let mut draft = original.clone();
             draft.edit_game(key, other.into(), Some(&original));
@@ -1803,50 +1449,13 @@ mod tests {
                 "round trip must preserve inheritance for {key}"
             );
             let mut draft = original.clone();
-            draft.reset_section(true, section_index(key));
+            draft.reset_section(section_index(key));
             draft.edit_game(key, other.into(), None);
             draft.edit_game(key, initial.into(), None);
             assert!(draft.game.is_empty(), "reset {key} must not return");
         }
-        let original = Draft::default();
-        let mut draft = original.clone();
-        draft.edit(false, "window_mode", "fullscreen".into());
-        draft.edit_game("window_mode", "windowed".into(), Some(&original));
-        assert_eq!(
-            draft.game["window_mode"], "windowed",
-            "game edits compare against the pending global, not the original resolved value"
-        );
     }
 
-    #[test]
-    fn controller_dead_zone_inherits_overrides_resets_and_validates() {
-        use super::*;
-        let doc: DocumentMut = "[global.controls]\nstick_dead_zone = 40\n[entries.mach-3.controls]\nstick_dead_zone = 20\n[entries.alley-cat.controls]\nstick_dead_zone = 55\n".parse().unwrap();
-        let mut warning = None;
-        let mut mach = read_draft(&doc, "mach-3", Some("mach-3"), &mut warning);
-        assert!(warning.is_none());
-        assert_eq!(mach.global_values().stick_dead_zone, 40);
-        assert_eq!(mach.game_values().stick_dead_zone, 20);
-        assert!(mach.has_game_overrides(3));
-        mach.reset_section(true, 3);
-        assert_eq!(mach.game_values().stick_dead_zone, 40);
-        assert!(!mach.has_game_overrides(3));
-        let alley = read_draft(&doc, "alley-cat", Some("alley-cat"), &mut warning);
-        assert_eq!(alley.game_values().stick_dead_zone, 55);
-        assert_eq!(
-            read_draft(&doc, "another-game", Some("another-game"), &mut warning)
-                .game_values()
-                .stick_dead_zone,
-            40
-        );
-        let mut settings = RuntimeSettings::default();
-        for valid in [5, 35, 90] {
-            settings.set(STICK_DEAD_ZONE, &valid.to_string()).unwrap();
-        }
-        for invalid in ["0", "4", "91", "256", "-1", "NaN", "0.35"] {
-            assert!(settings.set(STICK_DEAD_ZONE, invalid).is_err());
-        }
-    }
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -1867,23 +1476,23 @@ mod tests {
                 cli: Patch::new(),
             };
             let mut session = Session::load(launch.clone());
-            assert_eq!(session.has_global_storage(), configured);
-            assert_eq!(session.has_game_storage(), configured && registered);
+            assert_eq!(session.has_launcher_storage(), configured);
+            assert_eq!(session.has_entry_storage(), configured && registered);
             let mut draft = session.saved.clone();
-            draft.global.insert("master_volume".into(), "75".into());
+            draft.game.insert("master_volume".into(), "75".into());
             draft.game.insert(MOTION.into(), "original".into());
             session.commit(draft).unwrap();
             assert_eq!(session.saved.game[MOTION], "original");
             let reloaded = Session::load(launch);
             assert_eq!(
-                reloaded.saved.global.contains_key("master_volume"),
-                configured
+                reloaded.saved.game.contains_key("master_volume"),
+                configured && registered
             );
             assert_eq!(
                 reloaded.saved.game.contains_key(MOTION),
                 configured && registered
             );
-            assert_eq!(path.exists(), configured);
+            assert_eq!(path.exists(), configured && registered);
         }
     }
     struct TestDir(PathBuf);
@@ -1960,10 +1569,9 @@ mod tests {
                 let path = dir.file();
                 let mut settings = session(path.clone(), game);
                 let mut draft = settings.saved.clone();
-                draft.edit(false, BTZ_FILE_CURSOR, style.as_str().into());
-                assert!(!draft.global.contains_key(BTZ_FILE_CURSOR));
-                draft.edit(true, BTZ_FILE_CURSOR, style.as_str().into());
-                assert!(draft.has_game_overrides(0));
+
+                draft.edit(BTZ_FILE_CURSOR, style.as_str().into());
+                assert!(draft.has_custom_settings(0));
                 assert_eq!(
                     settings.effective(&settings.saved).btz.file_cursor,
                     FileCursorStyle::PulsingUnderline
@@ -1987,9 +1595,9 @@ mod tests {
                     );
                 }
                 let mut reset = loaded.saved.clone();
-                reset.reset_section(true, 1);
+                reset.reset_section(1);
                 assert_eq!(reset.game_values().btz.file_cursor, style);
-                reset.reset_section(true, 0);
+                reset.reset_section(0);
                 assert!(!reset.game.contains_key(BTZ_FILE_CURSOR));
                 assert_eq!(
                     reset.game_values().btz.file_cursor,
@@ -2009,13 +1617,13 @@ mod tests {
             let path = dir.file();
             fs::write(
             &path,
-            "[global.display]\nbackend = 'vulkan'\nscale = 3\n[global.crt]\npresentation = 'hyllian'\n",
+            format!("[entries.{game}.display]\nbackend = 'vulkan'\nscale = 3\n[entries.{game}.crt]\npresentation = 'hyllian'\n"),
         )
         .unwrap();
             let mut s = session(path.clone(), game);
             let mut draft = s.saved.clone();
-            draft.edit(true, "renderer", "terminal".into());
-            draft.normalize_treatments(&s.saved);
+            draft.edit("renderer", "terminal".into());
+            draft.normalize_treatments();
             s.commit(draft).unwrap();
             let mut loaded = session(path.clone(), game);
             let terminal = loaded.effective(&loaded.saved);
@@ -2028,39 +1636,10 @@ mod tests {
             assert_eq!(loaded.effective(&loaded.saved).renderer, Renderer::Gpu);
             assert_eq!(session(path.clone(), game).saved, loaded.saved);
             let mut reset = loaded.saved.clone();
-            reset.reset_section(true, 0);
+            reset.reset_section(0);
             assert_eq!(reset.game_values().renderer, Renderer::Auto);
             assert_eq!(reset.game_values().presentation, Presentation::Hyllian);
         }
-    }
-
-    #[test]
-    fn terminal_renderer_cannot_become_a_global_default_or_affect_other_games() {
-        let mut draft = Draft::default();
-        draft.edit(false, "renderer", "terminal".into());
-        assert!(!draft.global.contains_key("renderer"));
-        // Explicitly authored configuration and CLI input are independently
-        // checked even when they bypass the GUI's choice availability.
-        draft.global.insert("renderer".into(), "terminal".into());
-        assert_eq!(draft.global_values().renderer, Renderer::Auto);
-        draft.game.insert("renderer".into(), "terminal".into());
-        for game in ["alley-cat", "mach-3", "standalone"] {
-            let mut session = Session::for_window(None);
-            session.game_id = game.into();
-            session.cli.insert("renderer".into(), "terminal".into());
-            assert_eq!(session.effective(&draft).renderer, Renderer::Auto);
-        }
-        let doc: DocumentMut = "[global.display]\nrenderer = 'terminal'\n[entries.mindwheel.display]\nrenderer = 'terminal'\n[entries.mach-3.display]\nrenderer = 'terminal'\n".parse().unwrap();
-        let mut warning = None;
-        let mindwheel = read_draft(&doc, "mindwheel", Some("mindwheel"), &mut warning);
-        assert!(warning.is_some());
-        assert!(!mindwheel.global.contains_key("renderer"));
-        assert_eq!(mindwheel.game_values().renderer, Renderer::Terminal);
-        warning = None;
-        let mach = read_draft(&doc, "mach-3", Some("mach-3"), &mut warning);
-        assert!(warning.is_some());
-        assert!(!mach.game.contains_key("renderer"));
-        assert_eq!(mach.game_values().renderer, Renderer::Auto);
     }
 
     #[test]
@@ -2076,7 +1655,6 @@ mod tests {
             let path = dir.file();
             let mut s = session(path.clone(), "mindwheel");
             let mut d = s.saved.clone();
-            d.global.insert("renderer".into(), "gpu".into());
             d.game.insert("window_mode".into(), "fullscreen".into());
             d.game.insert("presentation".into(), "hyllian".into());
             if let Some(renderer) = renderer {
@@ -2086,7 +1664,7 @@ mod tests {
             let graphical = s.saved.clone();
             // Use the same direct setting edit as the full Renderer selector.
             let mut d = s.saved.clone();
-            d.edit(true, "renderer", "terminal".into());
+            d.edit("renderer", "terminal".into());
             s.commit(d).unwrap();
             s = session(path.clone(), "mindwheel");
             assert_eq!(s.effective(&s.saved).renderer, Renderer::Terminal);
@@ -2098,9 +1676,8 @@ mod tests {
             let mut d = s.saved.clone();
             d.set_terminal(true);
             s.commit(d).unwrap();
-            // Inherited renderers keep following global changes while dormant.
-            let mut d = s.saved.clone();
-            d.global.insert("renderer".into(), "sdl".into());
+            // The built-in renderer stays the fallback while terminal play is active.
+            let d = s.saved.clone();
             s.commit(d).unwrap();
             s = session(path, "mindwheel");
             let mut d = s.saved.clone();
@@ -2109,7 +1686,7 @@ mod tests {
             assert_eq!(s.saved.game.get("renderer").map(String::as_str), renderer);
             assert_eq!(
                 s.saved.game_values().renderer.as_str(),
-                renderer.unwrap_or("sdl")
+                renderer.unwrap_or("auto")
             );
             assert!(s.saved.game_values().fullscreen);
             assert_eq!(s.saved.game_values().presentation, Presentation::Hyllian);
@@ -2124,8 +1701,8 @@ mod tests {
             &path,
             concat!(
                 "[global.display]\nmotion='original'\n",
-                "[entries.other.display]\nmotion='original'\n",
-                "[entries.mach-3.display]\nmotion='enhanced'\n"
+                "[entries.other.enhancements]\nmotion='original'\n",
+                "[entries.mach-3.enhancements]\nmotion='enhanced'\n"
             ),
         )
         .unwrap();
@@ -2145,11 +1722,10 @@ mod tests {
             ControlMode::Responsive
         );
         let mut draft = first.saved.clone();
-        draft.edit(false, ALLEYCAT_MOTION, "original".into());
-        assert!(!draft.global.contains_key(ALLEYCAT_MOTION));
-        draft.edit(true, ALLEYCAT_MOTION, "original".into());
-        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
-        assert!(!draft.has_game_overrides(3));
+
+        draft.edit(ALLEYCAT_MOTION, "original".into());
+        assert!(draft.has_custom_settings(ENHANCEMENTS_SECTION));
+        assert!(!draft.has_custom_settings(3));
         assert_eq!(draft.game_values().get(ALLEYCAT_MOTION), "original");
         assert_eq!(draft.game_values().get(MOTION), "reforged");
         first.commit(draft).unwrap();
@@ -2201,8 +1777,8 @@ mod tests {
             Some("enhanced")
         );
         let mut controls = loaded.saved.clone();
-        controls.edit(true, CONTROL_MODE, "original".into());
-        controls.reset_section(true, ENHANCEMENTS_SECTION);
+        controls.edit(CONTROL_MODE, "original".into());
+        controls.reset_section(ENHANCEMENTS_SECTION);
         assert_eq!(
             controls.game_values().alleycat.motion,
             AlleyCatMotion::Reforged
@@ -2211,8 +1787,8 @@ mod tests {
             controls.game_values().alleycat.control_mode,
             ControlMode::Responsive
         );
-        assert!(!controls.has_game_overrides(3));
-        assert!(!controls.has_game_overrides(ENHANCEMENTS_SECTION));
+        assert!(!controls.has_custom_settings(3));
+        assert!(!controls.has_custom_settings(ENHANCEMENTS_SECTION));
     }
 
     #[test]
@@ -2251,7 +1827,7 @@ mod tests {
             );
             fs::write(
                 &path,
-                format!("[entries.alley-cat.display]\nmotion='{invalid}' # preserve\n"),
+                format!("[entries.alley-cat.enhancements]\nmotion='{invalid}' # preserve\n"),
             )
             .unwrap();
             let original = fs::read_to_string(&path).unwrap();
@@ -2272,7 +1848,7 @@ mod tests {
         let path = dir.file();
         fs::write(
             &path,
-            "[global.display]\nmotion='original'\n[entries.alley-cat.display]\nmotion='original'\n",
+            "[global.display]\nmotion='original'\n[entries.alley-cat.enhancements]\nmotion='original'\n",
         )
         .unwrap();
         let mut mach = session(path.clone(), "mach-3");
@@ -2287,10 +1863,9 @@ mod tests {
                 .contains_key(MOTION)
         );
         let mut draft = mach.saved.clone();
-        draft.edit(false, MOTION, "original".into());
-        assert!(!draft.global.contains_key(MOTION));
-        draft.edit(true, MOTION, "original".into());
-        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
+
+        draft.edit(MOTION, "original".into());
+        assert!(draft.has_custom_settings(ENHANCEMENTS_SECTION));
         assert_eq!(section_index(MOTION), ENHANCEMENTS_SECTION);
         assert_eq!(
             mach.effective(&mach.saved).mach3.motion,
@@ -2321,10 +1896,10 @@ mod tests {
             Some("original")
         );
         let mut reset = loaded.saved.clone();
-        reset.reset_section(true, 2);
+        reset.reset_section(2);
         assert_eq!(reset.game_values().mach3.motion, MotionMode::Original);
-        reset.reset_section(true, ENHANCEMENTS_SECTION);
-        assert!(!reset.has_game_overrides(ENHANCEMENTS_SECTION));
+        reset.reset_section(ENHANCEMENTS_SECTION);
+        assert!(!reset.has_custom_settings(ENHANCEMENTS_SECTION));
         assert_eq!(reset.game_values().mach3.motion, MotionMode::Reforged);
         assert_eq!(
             session(path, "alley-cat")
@@ -2334,181 +1909,6 @@ mod tests {
             MotionMode::Reforged
         );
         assert!("faithful".parse::<MotionMode>().is_err());
-    }
-
-    #[test]
-    fn enhancements_migrate_together_and_reset_independently_of_display_and_bindings() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let original = "[entries.copy.display]\nmotion = 'original' # motion note\nscale = 4\n[entries.copy.controls]\ncontrol_mode = 'original' # response note\ncontroller_action = 'north'\n[entries.other.display]\nmotion = 'original'\n";
-        fs::write(&path, original).unwrap();
-        let launch = Launch {
-            game_id: "alley-cat".into(),
-            entry_id: Some("copy".into()),
-            path: Some(path.clone()),
-            cli: Patch::new(),
-        };
-        let mut loaded = Session::load(launch.clone());
-        assert!(loaded.warning.is_none());
-        let migrated = fs::read_to_string(&path).unwrap();
-        let doc = migrated.parse::<DocumentMut>().unwrap();
-        assert_eq!(
-            doc["entries"]["copy"]["enhancements"]["motion"].as_str(),
-            Some("original")
-        );
-        assert_eq!(
-            doc["entries"]["copy"]["enhancements"]["control_mode"].as_str(),
-            Some("original")
-        );
-        assert!(doc["entries"]["copy"]["display"].get("motion").is_none());
-        assert!(
-            doc["entries"]["copy"]["controls"]
-                .get("control_mode")
-                .is_none()
-        );
-        assert_eq!(
-            doc["entries"]["other"]["display"]["motion"].as_str(),
-            Some("original")
-        );
-        assert!(migrated.contains("# motion note") && migrated.contains("# response note"));
-        let _ = Session::load(launch.clone());
-        assert_eq!(fs::read_to_string(&path).unwrap(), migrated);
-        let mut draft = loaded.saved.clone();
-        draft.reset_section(true, 0);
-        draft.reset_section(true, 3);
-        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
-        assert_eq!(
-            draft.game_values().alleycat.motion,
-            AlleyCatMotion::Original
-        );
-        assert_eq!(
-            draft.game_values().alleycat.control_mode,
-            ControlMode::Original
-        );
-        let mut draft = loaded.saved.clone();
-        draft.reset_section(true, ENHANCEMENTS_SECTION);
-        assert!(!draft.has_game_overrides(ENHANCEMENTS_SECTION));
-        assert_eq!(draft.game_values().scale, Some(4));
-        assert_eq!(
-            draft.game_values().alleycat.controller_action,
-            FaceButton::North
-        );
-        loaded.commit(draft).unwrap();
-        assert!(
-            !Session::load(launch)
-                .saved
-                .has_game_overrides(ENHANCEMENTS_SECTION)
-        );
-    }
-
-    #[test]
-    fn enhancement_migration_preserves_canonical_values_and_malformed_sections() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        fs::write(&path, "[entries.alley-cat.display]\nmotion = 'original'\n[entries.alley-cat.enhancements]\nmotion = 'reforged'\n").unwrap();
-        let loaded = session(path.clone(), "alley-cat");
-        assert!(loaded.warning.is_none());
-        assert_eq!(
-            loaded.saved.game.get(ALLEYCAT_MOTION).map(String::as_str),
-            Some("reforged")
-        );
-        let doc = read(&path).unwrap();
-        assert!(
-            doc["entries"]["alley-cat"]["display"]
-                .get("motion")
-                .is_none()
-        );
-        let malformed = "[entries.alley-cat]\nenhancements = 'broken'\n[entries.alley-cat.display]\nmotion = 'original'\n";
-        fs::write(&path, malformed).unwrap();
-        let mut loaded = session(path.clone(), "alley-cat");
-        assert!(loaded.warning.is_some());
-        assert_eq!(fs::read_to_string(&path).unwrap(), malformed);
-        let mut draft = loaded.saved.clone();
-        draft.edit(true, ALLEYCAT_MOTION, "reforged".into());
-        assert!(loaded.commit(draft).is_err());
-        assert_eq!(fs::read_to_string(&path).unwrap(), malformed);
-    }
-
-    #[test]
-    fn mach3_scene_preference_migrates_only_the_active_entry() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let original = concat!(
-            "schema_version = 2\n",
-            "[global.display]\nscale = 4\n",
-            "[entries.custom.display]\nmotion = 'scene' # keep this comment\nunknown = 7\n",
-            "[entries.other.display]\nmotion = 'scene'\n",
-        );
-        fs::write(&path, original).unwrap();
-        let loaded = Session::load(Launch {
-            game_id: "mach-3".into(),
-            entry_id: Some("custom".into()),
-            path: Some(path.clone()),
-            cli: Patch::from([(MOTION.into(), "original".into())]),
-        });
-        assert!(loaded.warning.is_none());
-        assert_eq!(
-            loaded.saved.game_values().mach3.motion,
-            MotionMode::Reforged
-        );
-        assert_eq!(
-            loaded.effective(&loaded.saved).mach3.motion,
-            MotionMode::Original
-        );
-        let migrated = fs::read_to_string(&path).unwrap();
-        let doc = migrated.parse::<DocumentMut>().unwrap();
-        assert_eq!(
-            doc["entries"]["custom"]["enhancements"][MOTION].as_str(),
-            Some("reforged")
-        );
-        assert!(doc["entries"]["custom"]["display"].get(MOTION).is_none());
-        assert_eq!(
-            doc["entries"]["custom"]["display"]["unknown"].as_integer(),
-            Some(7)
-        );
-        assert_eq!(
-            doc["entries"]["other"]["display"][MOTION].as_str(),
-            Some("scene")
-        );
-        assert!(migrated.contains("# keep this comment"));
-        // Reloading is idempotent and never persists the command-line override.
-        let _ = Session::load(Launch {
-            game_id: "mach-3".into(),
-            entry_id: Some("custom".into()),
-            path: Some(path.clone()),
-            cli: Patch::new(),
-        });
-        assert_eq!(fs::read_to_string(path).unwrap(), migrated);
-        assert!("scene".parse::<MotionMode>().is_err());
-    }
-
-    #[test]
-    fn other_games_do_not_migrate_scene_preferences() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let original = "[entries.alley-cat.display]\nmotion = 'scene'\n";
-        fs::write(&path, original).unwrap();
-        let loaded = session(path.clone(), "alley-cat");
-        assert!(loaded.warning.is_some());
-        assert!(!loaded.saved.game.contains_key(MOTION));
-        assert!(!loaded.saved.game.contains_key(ALLEYCAT_MOTION));
-        assert_eq!(
-            loaded.effective(&loaded.saved).alleycat.motion,
-            AlleyCatMotion::Reforged
-        );
-        assert_eq!(fs::read_to_string(path).unwrap(), original);
-    }
-
-    #[test]
-    fn legacy_scene_preference_remains_usable_without_disk_migration() {
-        let doc = "[entries.custom.display]\nmotion = 'scene'\n"
-            .parse::<DocumentMut>()
-            .unwrap();
-        let mut warning = None;
-        let draft = read_draft(&doc, "mach-3", Some("custom"), &mut warning);
-        assert!(warning.is_none());
-        assert_eq!(draft.game.get(MOTION).map(String::as_str), Some("reforged"));
-        assert_eq!(draft.game_values().mach3.motion, MotionMode::Reforged);
     }
 
     #[test]
@@ -2522,7 +1922,7 @@ mod tests {
         ] {
             fs::write(
                 &path,
-                format!("[entries.mach-3.display]\nmotion='{name}'\n"),
+                format!("[entries.mach-3.enhancements]\nmotion='{name}'\n"),
             )
             .unwrap();
             let mut loaded = session(path.clone(), "mach-3");
@@ -2531,17 +1931,17 @@ mod tests {
             assert_eq!(mode.as_str(), name);
             // Saving another section must not migrate a deliberate legacy choice.
             let mut draft = loaded.saved.clone();
-            draft.edit(true, DIGITIZED_SAMPLES, "false".into());
+            draft.edit(DIGITIZED_SAMPLES, "false".into());
             loaded.commit(draft).unwrap();
             let saved = session(path.clone(), "mach-3");
             assert_eq!(saved.saved.game.get(MOTION).map(String::as_str), Some(name));
             assert_eq!(saved.effective(&saved.saved).mach3.motion, mode);
             let mut reset = saved.saved.clone();
-            reset.reset_section(false, 0);
-            reset.reset_section(true, 2);
-            reset.reset_section(true, 3);
+
+            reset.reset_section(2);
+            reset.reset_section(3);
             assert_eq!(reset.game_values().mach3.motion, mode);
-            reset.reset_section(true, ENHANCEMENTS_SECTION);
+            reset.reset_section(ENHANCEMENTS_SECTION);
             assert_eq!(reset.game_values().mach3.motion, MotionMode::Reforged);
         }
     }
@@ -2573,10 +1973,9 @@ control_mode = "original"
         );
         assert!(!mach.saved.game.contains_key(CONTROL_MODE));
         let mut draft = cat.saved.clone();
-        draft.edit(false, CONTROL_MODE, "original".into());
-        assert!(draft.global.is_empty());
-        draft.edit(true, CONTROL_MODE, "original".into());
-        assert!(draft.has_game_overrides(ENHANCEMENTS_SECTION));
+
+        draft.edit(CONTROL_MODE, "original".into());
+        assert!(draft.has_custom_settings(ENHANCEMENTS_SECTION));
         assert_eq!(section_index(CONTROL_MODE), ENHANCEMENTS_SECTION);
         assert_eq!(
             cat.effective(&cat.saved).alleycat.control_mode,
@@ -2584,7 +1983,7 @@ control_mode = "original"
         );
         // A concurrent change to another game must survive this game's Apply.
         let mut mach_draft = mach.saved.clone();
-        mach_draft.edit(true, DIGITIZED_SAMPLES, "false".into());
+        mach_draft.edit(DIGITIZED_SAMPLES, "false".into());
         mach.commit(mach_draft).unwrap();
         cat.commit(draft).unwrap();
         let mut loaded = session(path.clone(), "alley-cat");
@@ -2593,13 +1992,13 @@ control_mode = "original"
             ControlMode::Original
         );
         let mut reset = loaded.saved.clone();
-        reset.reset_section(false, 3);
-        reset.reset_section(true, 2);
+
+        reset.reset_section(2);
         assert_eq!(
             reset.game_values().alleycat.control_mode,
             ControlMode::Original
         );
-        reset.reset_section(true, ENHANCEMENTS_SECTION);
+        reset.reset_section(ENHANCEMENTS_SECTION);
         assert_eq!(
             reset.game_values().alleycat.control_mode,
             ControlMode::Responsive
@@ -2628,7 +2027,7 @@ control_mode = "original"
         // Invalid values warn and fall back without rewriting the user's file.
         fs::write(
             &path,
-            "[entries.alley-cat.controls]\ncontrol_mode = 'fast'\n",
+            "[entries.alley-cat.enhancements]\ncontrol_mode = 'fast'\n",
         )
         .unwrap();
         let invalid = session(path.clone(), "alley-cat");
@@ -2662,11 +2061,10 @@ control_mode = "original"
         let mut draft = cat.saved.clone();
         for (key, value) in selected {
             assert_eq!(section_index(key), 3);
-            draft.edit(false, key, value.into());
-            assert!(draft.global.is_empty(), "{key} has no global value");
-            draft.edit(true, key, value.into());
+            draft.edit(key, value.into());
+            draft.edit(key, value.into());
         }
-        assert!(draft.has_game_overrides(3));
+        assert!(draft.has_custom_settings(3));
         cat.commit(draft).unwrap();
 
         let mut loaded = session(path.clone(), "alley-cat");
@@ -2692,7 +2090,7 @@ control_mode = "original"
 
         // A mode switch leaves both independent layout choices stored.
         let mut draft = loaded.saved.clone();
-        draft.edit(true, CONTROLLER_MOVEMENT, "directional".into());
+        draft.edit(CONTROLLER_MOVEMENT, "directional".into());
         loaded.commit(draft).unwrap();
         let mut loaded = session(path.clone(), "alley-cat");
         let directional = loaded.saved.game_values().alleycat;
@@ -2709,14 +2107,14 @@ control_mode = "original"
             saved_layout.controller_buttons
         );
         assert!(!loaded.saved.game.contains_key(CONTROLLER_MOVEMENT));
-        assert!(loaded.saved.has_game_overrides(3));
+        assert!(loaded.saved.has_custom_settings(3));
 
         let mut reset = loaded.saved.clone();
-        reset.reset_section(true, 0);
+        reset.reset_section(0);
         assert_eq!(reset.game_values().alleycat, directional);
-        reset.reset_section(true, 3);
+        reset.reset_section(3);
         assert_eq!(reset.game_values().alleycat, defaults);
-        assert!(!reset.has_game_overrides(3));
+        assert!(!reset.has_custom_settings(3));
         loaded.commit(reset).unwrap();
         let doc = read(&path).unwrap();
         for (key, value) in selected {
@@ -2747,115 +2145,6 @@ control_mode = "original"
     }
 
     #[test]
-    fn alleycat_machine_alias_migrates_only_the_active_entry() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let original = concat!(
-            "schema_version = 2\n",
-            "[global.launcher]\nmachine = 'tandy'\n",
-            "[entries.custom.launcher]\nmachine = 'tandy' # keep this comment\nunknown = 7\n",
-            "[entries.other.launcher]\nmachine = 'tandy'\n",
-            "[entries.mach-3.launcher]\nmachine = 'tandy'\n",
-        );
-        fs::write(&path, original).unwrap();
-        let launch = Launch {
-            game_id: "alley-cat".into(),
-            entry_id: Some("custom".into()),
-            path: Some(path.clone()),
-            cli: Patch::from([(ALLEYCAT_MACHINE.into(), "cga".into())]),
-        };
-        let loaded = Session::load(launch.clone());
-        assert!(loaded.warning.is_none());
-        assert_eq!(loaded.saved.game[ALLEYCAT_MACHINE], "pcjr");
-        assert!(loaded.saved.has_game_overrides(0));
-        assert_eq!(
-            loaded.saved.game_values().alleycat.machine,
-            Some(AlleyCatMachine::Pcjr)
-        );
-        assert_eq!(
-            loaded.effective(&loaded.saved).alleycat.machine,
-            Some(AlleyCatMachine::Cga)
-        );
-        let migrated = fs::read_to_string(&path).unwrap();
-        assert_eq!(
-            migrated,
-            original.replace(
-                "machine = 'tandy' # keep this comment",
-                "machine = \"pcjr\" # keep this comment"
-            )
-        );
-        let reloaded = Session::load(launch);
-        assert_eq!(reloaded.saved, loaded.saved);
-        assert_eq!(fs::read_to_string(path).unwrap(), migrated);
-        assert_eq!(
-            "tandy".parse::<AlleyCatMachine>().unwrap(),
-            AlleyCatMachine::Pcjr
-        );
-        assert_eq!(AlleyCatMachine::Pcjr.as_str(), "pcjr");
-    }
-
-    #[test]
-    fn other_games_and_unregistered_launches_do_not_migrate_machine_aliases() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let original = "[entries.custom.launcher]\nmachine = 'tandy'\n";
-        fs::write(&path, original).unwrap();
-        for (game, entry) in [
-            ("mach-3", Some("custom")),
-            ("mindwheel", Some("custom")),
-            ("alley-cat", None),
-        ] {
-            let loaded = Session::load(Launch {
-                game_id: game.into(),
-                entry_id: entry.map(str::to_owned),
-                path: Some(path.clone()),
-                cli: Patch::new(),
-            });
-            assert!(loaded.warning.is_none());
-            assert!(!loaded.saved.game.contains_key(ALLEYCAT_MACHINE));
-            assert_eq!(fs::read_to_string(&path).unwrap(), original);
-        }
-    }
-
-    #[test]
-    fn machine_alias_remains_explicit_when_disk_migration_fails() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let original = "[entries.alley-cat.launcher]\nmachine = 'tandy' # retained\n";
-        fs::write(&path, original).unwrap();
-        let lock_path = path.with_extension("lock");
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&lock_path)
-            .unwrap();
-        fs2::FileExt::try_lock_exclusive(&lock).unwrap();
-        let loaded = session(path.clone(), "alley-cat");
-        assert!(loaded.warning.as_ref().unwrap().contains("busy"));
-        assert_eq!(loaded.saved.game[ALLEYCAT_MACHINE], "pcjr");
-        assert!(loaded.saved.has_game_overrides(0));
-        assert_eq!(fs::read_to_string(&path).unwrap(), original);
-        drop(lock);
-        // An inaccessible lock destination exercises other persistence errors too.
-        fs::remove_file(&lock_path).unwrap();
-        fs::create_dir(&lock_path).unwrap();
-        let loaded = session(path.clone(), "alley-cat");
-        assert!(loaded.warning.is_some());
-        assert_eq!(loaded.saved.game[ALLEYCAT_MACHINE], "pcjr");
-        assert_eq!(fs::read_to_string(&path).unwrap(), original);
-        fs::remove_dir(lock_path).unwrap();
-        let loaded = session(path.clone(), "alley-cat");
-        assert!(loaded.warning.is_none());
-        assert_eq!(loaded.saved.game[ALLEYCAT_MACHINE], "pcjr");
-        assert_eq!(
-            fs::read_to_string(path).unwrap(),
-            original.replace("'tandy'", "\"pcjr\"")
-        );
-    }
-
-    #[test]
     fn alleycat_machine_shares_launcher_pins_and_resets_to_input_default() {
         let dir = TestDir::new();
         let path = dir.file();
@@ -2867,7 +2156,7 @@ control_mode = "original"
             current.saved.game_values().alleycat.machine,
             Some(AlleyCatMachine::Pcjr)
         );
-        assert!(current.saved.has_game_overrides(0));
+        assert!(current.saved.has_custom_settings(0));
         assert_eq!(section_index(ALLEYCAT_MACHINE), 0);
         let mut draft = current.saved.clone();
         draft.edit_game(ALLEYCAT_MACHINE, "cga".into(), Some(&current.saved));
@@ -2879,20 +2168,20 @@ control_mode = "original"
         let mut current = session(path.clone(), "alley-cat");
         let mut draft = current.saved.clone();
         // Choosing an engine's concrete default remains an explicit pin.
-        draft.edit(true, ALLEYCAT_MACHINE, "cga".into());
+        draft.edit(ALLEYCAT_MACHINE, "cga".into());
         current.commit(draft).unwrap();
         assert_eq!(
             launcher::native_options(&path, "alley-cat").unwrap()["machine"],
             "cga"
         );
         let mut draft = current.saved.clone();
-        draft.reset_section(false, 0);
+
         assert_eq!(
             draft.game_values().alleycat.machine,
             Some(AlleyCatMachine::Cga)
         );
-        draft.reset_section(true, 0);
-        assert!(!draft.has_game_overrides(0));
+        draft.reset_section(0);
+        assert!(!draft.has_custom_settings(0));
         assert_eq!(draft.game_values().alleycat.machine, None);
         current.commit(draft).unwrap();
         let native = launcher::native_options(&path, "alley-cat").unwrap();
@@ -2905,47 +2194,6 @@ control_mode = "original"
     }
 
     #[test]
-    fn alleycat_machine_never_inherits_global_or_other_game_values() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        fs::write(
-            &path,
-            "[global.launcher]\nmachine = 'tandy'\n[entries.mach-3.launcher]\nmachine = 'pcjr'\n",
-        )
-        .unwrap();
-        for game in ["alley-cat", "mach-3", "mindwheel"] {
-            let mut current = session(path.clone(), game);
-            assert_eq!(current.saved.global_values().alleycat.machine, None);
-            assert_eq!(current.effective(&current.saved).alleycat.machine, None);
-            assert!(!current.saved.game.contains_key(ALLEYCAT_MACHINE));
-            let mut draft = current.saved.clone();
-            draft.edit(false, ALLEYCAT_MACHINE, "cga".into());
-            assert!(!draft.global.contains_key(ALLEYCAT_MACHINE));
-            if game != "alley-cat" {
-                draft.edit(true, ALLEYCAT_MACHINE, "cga".into());
-                current.commit(draft).unwrap();
-            }
-        }
-        let doc = read(&path).unwrap();
-        assert_eq!(doc["global"]["launcher"]["machine"].as_str(), Some("tandy"));
-        assert_eq!(
-            doc["entries"]["mach-3"]["launcher"]["machine"].as_str(),
-            Some("pcjr")
-        );
-        let mut value = RuntimeSettings::default();
-        for mode in ["cga", "pcjr", "tandy", "default"] {
-            value.set(ALLEYCAT_MACHINE, mode).unwrap();
-            assert_eq!(
-                value.get(ALLEYCAT_MACHINE),
-                if mode == "tandy" { "pcjr" } else { mode }
-            );
-        }
-        for invalid in ["", "other", "CGA"] {
-            assert!(value.set(ALLEYCAT_MACHINE, invalid).is_err());
-        }
-    }
-
-    #[test]
     fn unrelated_settings_save_preserves_concurrent_launcher_machine_edits() {
         let dir = TestDir::new();
         let path = dir.file();
@@ -2954,7 +2202,7 @@ control_mode = "original"
         launcher::save_native_option(&path, "alley-cat", "machine", Some("pcjr")).unwrap();
         launcher::save_native_option(&path, "alley-cat", "future_option", Some("new")).unwrap();
         let mut draft = current.saved.clone();
-        draft.edit(true, "vsync", "false".into());
+        draft.edit("vsync", "false".into());
         current.commit(draft).unwrap();
         let latest = session(path.clone(), "alley-cat");
         assert_eq!(
@@ -2984,7 +2232,7 @@ control_mode = "original"
             assert!(current.warning.is_some());
             assert_eq!(current.saved.game_values().alleycat.machine, None);
             let mut draft = current.saved.clone();
-            draft.edit(true, "vsync", "false".into());
+            draft.edit("vsync", "false".into());
             current.commit(draft).unwrap();
             let doc = read(&path).unwrap();
             assert_eq!(
@@ -3001,8 +2249,8 @@ control_mode = "original"
         let mut current = session(path.clone(), "alley-cat");
         assert!(current.warning.is_some());
         let mut draft = current.saved.clone();
-        draft.edit(false, "vsync", "false".into());
-        draft.edit(true, ALLEYCAT_MACHINE, "pcjr".into());
+        draft.edit("vsync", "false".into());
+        draft.edit(ALLEYCAT_MACHINE, "pcjr".into());
         assert!(current.commit(draft).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
     }
@@ -3028,36 +2276,37 @@ digitized_samples = false
         assert!(cat.effective(&cat.saved).mach3.digitized_samples);
         assert!(!cat.saved.game.contains_key(DIGITIZED_SAMPLES));
         let mut draft = mach.saved.clone();
-        assert!(!draft.has_game_overrides(2));
-        draft.edit(false, DIGITIZED_SAMPLES, "false".into());
-        assert!(draft.global.is_empty());
-        draft.edit(true, DIGITIZED_SAMPLES, "false".into());
-        assert!(draft.has_game_overrides(2));
+        assert!(!draft.has_custom_settings(2));
+
+        draft.edit(DIGITIZED_SAMPLES, "false".into());
+        assert!(draft.has_custom_settings(2));
         assert_eq!(section_index(DIGITIZED_SAMPLES), 2);
-        draft.edit(false, "sound_enabled", "false".into());
+        draft.edit("sound_enabled", "false".into());
         assert!(!mach.effective(&draft).mach3.digitized_samples);
         assert!(!mach.effective(&draft).audio.enabled);
         mach.commit(draft).unwrap();
         let loaded = session(path.clone(), "mach-3");
         assert!(!loaded.effective(&loaded.saved).mach3.digitized_samples);
         assert!(!loaded.saved.game_values().audio.enabled);
-        // Global resets leave the native override intact; resetting this game's
-        // Audio section returns it to its built-in On value in the draft.
+        // Other sections leave Audio intact; resetting Audio restores On.
         let mut draft = loaded.saved.clone();
-        draft.reset_section(true, 1);
-        draft.reset_section(false, 2);
+        draft.reset_section(1);
+
         assert!(!draft.game_values().mach3.digitized_samples);
-        assert!(draft.game_values().audio.enabled);
-        assert!(draft.has_game_overrides(2));
+        assert!(!draft.game_values().audio.enabled);
+        assert!(draft.has_custom_settings(2));
         let doc = read(&path).unwrap();
         assert_eq!(
             doc["entries"]["mach-3"]["gameplay"][DIGITIZED_SAMPLES].as_bool(),
             Some(false)
         );
-        assert!(doc["entries"]["mach-3"].get("audio").is_none());
-        draft.reset_section(true, 2);
+        assert_eq!(
+            doc["entries"]["mach-3"]["audio"]["sound_enabled"].as_bool(),
+            Some(false)
+        );
+        draft.reset_section(2);
         assert!(draft.game_values().mach3.digitized_samples);
-        assert!(!draft.has_game_overrides(2));
+        assert!(!draft.has_custom_settings(2));
         // Cancel leaves the saved Off value intact. Apply removes only the
         // game override, without creating a global digitized-samples setting.
         assert!(
@@ -3070,7 +2319,7 @@ digitized_samples = false
         mach.commit(draft).unwrap();
         let reset = session(path.clone(), "mach-3");
         assert!(reset.saved.game_values().mach3.digitized_samples);
-        assert!(!reset.saved.has_game_overrides(2));
+        assert!(!reset.saved.has_custom_settings(2));
     }
 
     #[test]
@@ -3082,10 +2331,10 @@ digitized_samples = false
         mach.cli.insert(DIGITIZED_SAMPLES.into(), "false".into());
         assert!(!mach.effective(&mach.saved).mach3.digitized_samples);
         let mut cat_draft = cat.saved.clone();
-        cat_draft.edit(true, "scale", "2".into());
+        cat_draft.edit("scale", "2".into());
         cat.commit(cat_draft).unwrap();
         let mut draft = mach.saved.clone();
-        draft.edit(true, "master_volume", "65".into());
+        draft.edit("master_volume", "65".into());
         mach.commit(draft).unwrap();
         let loaded = session(path.clone(), "mach-3");
         assert!(loaded.effective(&loaded.saved).mach3.digitized_samples);
@@ -3094,10 +2343,10 @@ digitized_samples = false
             Some(2)
         );
         let mut draft = mach.saved.clone();
-        draft.edit(true, DIGITIZED_SAMPLES, "false".into());
+        draft.edit(DIGITIZED_SAMPLES, "false".into());
         mach.commit(draft).unwrap();
         let mut draft = mach.saved.clone();
-        draft.reset_section(true, 2);
+        draft.reset_section(2);
         assert!(
             !mach.effective(&draft).mach3.digitized_samples,
             "S overrides this run even after resetting the saved preference"
@@ -3117,307 +2366,35 @@ digitized_samples = false
             );
         }
     }
-    #[test]
-    fn category_levels_round_trip_inherit_and_reset_without_persisting_cli() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let mut s = session(path.clone(), "mach-3");
-        assert_eq!(s.saved.game_values().audio.volume, 80);
-        assert_eq!(
-            s.saved.game_values().audio.categories,
-            CategoryVolumes([100; 3])
-        );
-        let mut draft = s.saved.clone();
-        draft.edit(false, "music_volume", "60".into());
-        draft.edit(false, "speech_volume", "70".into());
-        draft.edit(true, "speech_volume", "20".into());
-        draft.edit(true, "effects_volume", "0".into());
-        s.cli.insert("music_volume".into(), "25".into());
-        assert_eq!(
-            s.effective(&draft).audio.categories,
-            CategoryVolumes([25, 20, 0])
-        );
-        s.commit(draft.clone()).unwrap();
-        let loaded = session(path.clone(), "mach-3");
-        assert_eq!(
-            loaded.saved.game_values().audio.categories,
-            CategoryVolumes([60, 20, 0])
-        );
-        draft.edit(true, "speech_volume", "70".into());
-        assert!(!draft.game.contains_key("speech_volume"));
-        draft.reset_section(false, 2);
-        assert_eq!(
-            draft.global_values().audio.categories,
-            CategoryVolumes([100; 3])
-        );
-        assert_eq!(
-            draft.game_values().audio.categories,
-            CategoryVolumes([100, 100, 0])
-        );
-        draft.reset_section(true, 2);
-        assert!(draft.game.is_empty());
-        for category in SoundCategory::ALL {
-            for bad in ["101", "-1", "NaN", "50.5"] {
-                assert!(RuntimeSettings::default().set(category.key(), bad).is_err());
-            }
-        }
-    }
 
-    #[test]
-    fn audio_inherits_sparsely_resets_independently_and_keeps_cli_temporary() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let mut s = session(path.clone(), "mach-3");
-        let mut d = s.saved.clone();
-        d.edit(false, "scale", "4".into());
-        d.edit(false, "master_volume", "65".into());
-        d.edit(false, "output_device", "Test \"speakers\"".into());
-        d.edit(true, "audio_renderer", "enhanced-pcm".into());
-        d.edit(true, "mute_unfocused", "false".into());
-        s.cli.insert("audio_renderer".into(), "speaker".into());
-        assert_eq!(s.effective(&d).audio.renderer, SoundRenderer::Speaker);
-        s.commit(d.clone()).unwrap();
-        let loaded = session(path.clone(), "mach-3");
-        assert_eq!(loaded.saved, d);
-        assert_eq!(
-            loaded.saved.game_values().audio.renderer,
-            SoundRenderer::EnhancedPcm
-        );
-        assert_eq!(loaded.saved.game_values().audio.volume, 65);
-        d.reset_section(false, 2);
-        assert_eq!(d.global_values().scale, Some(4));
-        assert_eq!(d.game_values().audio.volume, 80);
-        assert_eq!(d.game.len(), 2);
-        d.reset_section(true, 2);
-        assert!(d.game.is_empty());
-        let mut value = RuntimeSettings::default();
-        for bad in ["-1", "101", "NaN", "50.1"] {
-            assert!(value.set("master_volume", bad).is_err());
-        }
-        assert!(value.set("output_device", "").is_err());
-    }
-    #[test]
-    fn fitting_and_sampling_persist_inherit_and_reset_without_clearing_aspect() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let mut saved_session = session(path.clone(), "mach-3");
-        let mut draft = saved_session.saved.clone();
-        draft.edit(false, "scaling_policy", "fit".into());
-        draft.edit(false, "sampling", "linear".into());
-        draft.edit(true, "aspect_ratio", "square".into());
-        draft.edit(true, "scaling_policy", "stretch".into());
-        saved_session.commit(draft).unwrap();
-        let loaded = session(path.clone(), "mach-3");
-        let value = loaded.saved.game_values();
-        assert_eq!(value.scaling_policy, ScalingPolicy::Stretch);
-        assert_eq!(value.sampling, Sampling::Linear);
-        assert_eq!(value.aspect_ratio, AspectRatio::Square);
-        let mut draft = loaded.saved.clone();
-        draft.edit(true, "scaling_policy", "fit".into());
-        assert_eq!(draft.game_values().aspect_ratio, AspectRatio::Square);
-        assert!(!draft.game.contains_key("scaling_policy"));
-        draft.reset_section(true, 0);
-        assert_eq!(draft.game_values().scaling_policy, ScalingPolicy::Fit);
-        assert_eq!(draft.game_values().aspect_ratio, AspectRatio::Original);
-        draft.reset_section(false, 0);
-        assert_eq!(draft.game_values().scaling_policy, ScalingPolicy::Integer);
-        assert_eq!(draft.game_values().sampling, Sampling::Nearest);
-        let text = fs::read_to_string(path).unwrap();
-        for setting in [
-            "scaling_policy = \"fit\"",
-            "scaling_policy = \"stretch\"",
-            "sampling = \"linear\"",
-        ] {
-            assert!(text.contains(setting));
-        }
-        for (key, invalid) in [("scaling_policy", "crop"), ("sampling", "cubic")] {
-            assert!(RuntimeSettings::default().set(key, invalid).is_err());
-        }
-    }
-
-    #[test]
-    fn aspect_preference_round_trips_without_persisting_an_engine_ratio() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let mut s = session(path.clone(), "mach-3");
-        assert_eq!(s.saved.game_values().aspect_ratio, AspectRatio::Original);
-        let mut d = s.saved.clone();
-        d.edit(false, "aspect_ratio", "square".into());
-        d.edit(true, "aspect_ratio", "original".into());
-        s.commit(d).unwrap();
-        let loaded = session(path.clone(), "mach-3");
-        assert_eq!(
-            loaded.saved.global_values().aspect_ratio,
-            AspectRatio::Square
-        );
-        assert_eq!(
-            loaded.saved.game_values().aspect_ratio,
-            AspectRatio::Original
-        );
-        assert_eq!(
-            session(path.clone(), "alley-cat")
-                .saved
-                .game_values()
-                .aspect_ratio,
-            AspectRatio::Square
-        );
-        let text = fs::read_to_string(&path).unwrap();
-        assert!(text.contains("aspect_ratio = \"square\""));
-        assert!(text.contains("aspect_ratio = \"original\""));
-        assert!(!text.contains("4:3"));
-        let mut d = loaded.saved.clone();
-        d.reset_section(true, 0);
-        assert_eq!(d.game_values().aspect_ratio, AspectRatio::Square);
-        let mut settings = RuntimeSettings::default();
-        for invalid in ["4:3", "16:9", "square-pixels", ""] {
-            assert!(settings.set("aspect_ratio", invalid).is_err());
-        }
-    }
-
-    #[test]
-    fn sections_round_trip_sparse_parameters_and_reset_independently() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        let mut s = session(path.clone(), "mach-3");
-        let mut d = s.saved.clone();
-        d.edit(false, "frame_limit", "120".into());
-        d.edit(false, "presentation", "hyllian".into());
-        d.edit(false, "input_gamma", "2.60".into());
-        d.edit(true, "mask_intensity", "0.20".into());
-        d.edit(true, "frame_limit", "unlimited".into());
-        s.commit(d.clone()).unwrap();
-        let loaded = session(path.clone(), "mach-3");
-        assert_eq!(loaded.saved, d);
-        assert_eq!(loaded.saved.game_values().get("input_gamma"), "2.60");
-        let text = fs::read_to_string(&path).unwrap();
-        assert!(text.contains("[global.crt]"));
-        assert!(text.contains("[entries.mach-3.crt]"));
-        d.reset_section(false, 0);
-        assert_eq!(d.global_values().presentation, Presentation::Hyllian);
-        assert_eq!(d.game_values().frame_limit, FrameLimit::Unlimited);
-        d.reset_section(true, 1);
-        assert_eq!(d.game.len(), 1);
-        s.commit(d).unwrap();
-        assert_eq!(
-            session(path, "mach-3").saved.game_values().hyllian.values[5],
-            35
-        );
-    }
-    #[test]
-    fn invalid_shader_fields_and_inherited_beam_pair_fall_back() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        fs::write(&path, "[global.crt]\nbeam_min=0.8\nbeam_max=1.1\nmask_intensity=999.0\noutput_gamma=2.6\n[entries.mach-3.crt]\nbeam_min=1.5\n").unwrap();
-        let s = session(path, "mach-3");
-        assert!(s.warning.is_some());
-        let h = s.saved.game_values().hyllian;
-        assert_eq!(h.values, [65, 80, 110, 200, 100, 35, 100, 240, 260]);
-        assert!(h.validate().is_ok());
-        let mut value = RuntimeSettings::default();
-        for bad in ["NaN", "inf", "-1", "0.99", "4.01"] {
-            assert!(value.set("input_gamma", bad).is_err());
-        }
-    }
-    #[test]
-    fn sparse_game_edits_track_global_and_remove_equal_values() {
-        let mut d = Draft::default();
-        d.edit(false, "scale", "4".into());
-        assert_eq!(d.game_values().scale, Some(4));
-        assert!(d.game.is_empty());
-        d.edit(true, "scale", "8".into());
-        d.edit(false, "vsync", "false".into());
-        assert!(!d.game_values().vsync);
-        assert_eq!(d.game.len(), 1);
-        d.edit(true, "scale", "4".into());
-        assert!(d.game.is_empty());
-    }
-    #[test]
-    fn temporary_cli_is_not_saved_and_global_reset_keeps_game_entries() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        fs::write(
-            &path,
-            "schema_version=1\n[global.display]\nscale=4\n[entries.mach-3.display]\nvsync=false\n",
-        )
-        .unwrap();
-        let mut s = session(path.clone(), "mach-3");
-        s.cli.insert("scale".into(), "8".into());
-        assert_eq!(s.effective(&s.saved).scale, Some(8));
-        let mut d = s.saved.clone();
-        d.global.clear();
-        s.commit(d).unwrap();
-        let loaded = session(path.clone(), "mach-3");
-        assert_eq!(loaded.saved.game_values().scale, None);
-        assert!(!loaded.saved.game_values().vsync);
-        assert!(!fs::read_to_string(path).unwrap().contains("scale = 8"));
-    }
     #[test]
     fn treatment_reset_is_saved_per_game_and_requires_reselection() {
         let dir = TestDir::new();
         let path = dir.file();
         let mut s = session(path.clone(), "mach-3");
         let mut draft = s.saved.clone();
-        draft.edit(false, "presentation", "hyllian".into());
+        draft.edit("presentation", "hyllian".into());
         s.commit(draft.clone()).unwrap();
-        draft.edit(true, "backend", "opengl".into());
-        draft.normalize_treatments(&s.saved);
-        assert_eq!(draft.global_values().presentation, Presentation::Hyllian);
+        draft.edit("backend", "opengl".into());
+        draft.normalize_treatments();
         assert_eq!(draft.game_values().presentation, Presentation::Pixels);
-        assert_eq!(draft.game.get("presentation").unwrap(), "pixels");
+        assert!(!draft.game.contains_key("presentation"));
         s.commit(draft).unwrap();
 
         let mut s = session(path, "mach-3");
         let mut draft = s.saved.clone();
         assert_eq!(draft.game_values().presentation, Presentation::Pixels);
-        draft.edit(true, "backend", "auto".into());
-        draft.normalize_treatments(&s.saved);
+        draft.edit("backend", "auto".into());
+        draft.normalize_treatments();
         assert_eq!(draft.game_values().presentation, Presentation::Pixels);
         // A temporary renderer restriction must not rewrite compatible saved
         // settings. It can still cause the runtime's ordinary pixel fallback.
-        draft.edit(true, "presentation", "hyllian".into());
+        draft.edit("presentation", "hyllian".into());
         s.cli.insert("renderer".into(), "software".into());
-        draft.normalize_treatments(&s.saved);
+        draft.normalize_treatments();
         assert_eq!(draft.game_values().presentation, Presentation::Hyllian);
         s.commit(draft).unwrap();
         assert_eq!(s.saved.game_values().renderer, Renderer::Auto);
-    }
-
-    #[test]
-    fn global_treatment_reset_preserves_compatible_game_overrides() {
-        let dir = TestDir::new();
-        let path = dir.file();
-        fs::write(&path, "[global.crt]\npresentation='hyllian'\n[entries.mach-3.display]\nrenderer='gpu'\n[entries.mach-3.crt]\npresentation='hyllian'\n[entries.alley-cat.crt]\npresentation='hyllian'\n").unwrap();
-        let mut s = session(path.clone(), "mach-3");
-        let mut draft = s.saved.clone();
-        draft.edit(false, "renderer", "sdl".into());
-        draft.normalize_treatments(&s.saved);
-        assert_eq!(draft.global_values().presentation, Presentation::Pixels);
-        assert_eq!(draft.game_values().presentation, Presentation::Hyllian);
-        s.commit(draft).unwrap();
-        let loaded = session(path.clone(), "mach-3");
-        assert_eq!(
-            loaded.saved.global_values().presentation,
-            Presentation::Pixels
-        );
-        assert_eq!(
-            loaded.saved.game_values().presentation,
-            Presentation::Hyllian
-        );
-        let other = session(path, "alley-cat");
-        assert_eq!(
-            other.saved.game_values().presentation,
-            Presentation::Hyllian
-        );
-
-        let mut inherited = Draft::default();
-        inherited.edit(false, "presentation", "hyllian".into());
-        inherited.edit(true, "renderer", "software".into());
-        inherited.normalize_treatments(&Draft::default());
-        assert_eq!(
-            inherited.global_values().presentation,
-            Presentation::Hyllian
-        );
-        assert_eq!(inherited.game_values().presentation, Presentation::Pixels);
     }
 
     #[test]
@@ -3428,11 +2405,11 @@ digitized_samples = false
         let mut a = session(path.clone(), "alley-cat");
         let mut b = session(path.clone(), "mach-3");
         let mut ad = a.saved.clone();
-        ad.edit(true, "scale", "5".into());
+        ad.edit("scale", "5".into());
         a.commit(ad).unwrap();
         let mut bd = b.saved.clone();
-        bd.edit(false, "vsync", "false".into());
-        bd.edit(true, "renderer", "software".into());
+        bd.edit("vsync", "false".into());
+        bd.edit("renderer", "software".into());
         b.commit(bd).unwrap();
         let result = fs::read_to_string(&path).unwrap();
         assert!(
@@ -3461,7 +2438,7 @@ digitized_samples = false
         assert_eq!(fs::read_to_string(&path).unwrap(), bad);
         fs::write(
             &path,
-            "[global.display]\nscale=99\nvsync=false # valid with comment\nrenderer='software'\n",
+            "[entries.mach-3.display]\nscale=99\nvsync=false # valid with comment\nrenderer='software'\n",
         )
         .unwrap();
         let s = session(path, "mach-3");
@@ -3484,11 +2461,163 @@ digitized_samples = false
             .unwrap();
         fs2::FileExt::try_lock_exclusive(&lock).unwrap();
         let mut d = s.saved.clone();
-        d.edit(true, "scale", "4".into());
+        d.edit("scale", "4".into());
         assert!(s.commit(d.clone()).is_err());
         assert!(!path.exists());
         drop(lock);
         s.commit(d).unwrap();
         assert_eq!(session(path, "mach-3").saved.game_values().scale, Some(4));
+    }
+    #[test]
+    fn loading_ignores_globals_and_old_sections_without_rewriting() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let text = concat!(
+            "# Old settings are left for manual cleanup, not migrated.\n",
+            "[global.display]\nscale=8\nwindow_mode='fullscreen'\n",
+            "[global.audio]\nmaster_volume=15\n",
+            "[entries.copy.display]\nvsync=false\nmotion='original'\n",
+            "[entries.copy.controls]\ncontrol_mode='original'\n",
+            "[entries.copy.launcher]\nsound='pc-speaker'\n",
+        );
+        fs::write(&path, text).unwrap();
+        for (game, entry) in [
+            ("alley-cat", Some("copy")),
+            ("centurion-defender-of-rome", Some("copy")),
+            ("mach-3", None),
+        ] {
+            let current = Session::load(Launch {
+                game_id: game.into(),
+                entry_id: entry.map(str::to_owned),
+                path: Some(path.clone()),
+                cli: Patch::new(),
+            });
+            let value = current.effective(&current.saved);
+            assert_eq!(value.scale, None);
+            assert!(!value.fullscreen);
+            assert_eq!(value.audio.volume, 80);
+            assert_eq!(value.audio.renderer, SoundRenderer::GameDefault);
+            assert_eq!(value.alleycat.motion, AlleyCatMotion::Reforged);
+            assert_eq!(value.alleycat.control_mode, ControlMode::Responsive);
+            assert_eq!(value.vsync, entry.is_none());
+            assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        }
+    }
+
+    #[test]
+    fn copies_use_their_own_preferences_and_reset_to_built_in_defaults() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(&path, "[global.display]\nscale=8\n[entries.first.display]\nscale=3\n[entries.second.display]\nscale=5\n").unwrap();
+        let load = |entry: &str| {
+            Session::load(Launch {
+                game_id: "alley-cat".into(),
+                entry_id: Some(entry.into()),
+                path: Some(path.clone()),
+                cli: Patch::new(),
+            })
+        };
+        let mut first = load("first");
+        assert_eq!(first.saved.game_values().scale, Some(3));
+        assert_eq!(load("second").saved.game_values().scale, Some(5));
+        assert_eq!(load("new-copy").saved.game_values().scale, None);
+        let mut draft = first.saved.clone();
+        draft.edit("scale", "6".into());
+        draft.edit("master_volume", "45".into());
+        draft.edit(STICK_DEAD_ZONE, "55".into());
+        assert_eq!(
+            load("first").saved.game_values().scale,
+            Some(3),
+            "draft is not saved"
+        );
+        first.commit(draft).unwrap();
+        let mut draft = first.saved.clone();
+        draft.reset_section(0);
+        first.commit(draft).unwrap();
+        let value = load("first").saved.game_values();
+        assert_eq!(value.scale, None);
+        assert_eq!(value.audio.volume, 45);
+        assert_eq!(value.stick_dead_zone, 55);
+        assert_eq!(load("second").saved.game_values().scale, Some(5));
+    }
+
+    #[test]
+    fn audio_display_and_crt_round_trip_with_temporary_cli_values() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        let mut current = session(path.clone(), "mach-3");
+        let mut draft = current.saved.clone();
+        for (key, value) in [
+            ("scale", "4"),
+            ("aspect_ratio", "square"),
+            ("scaling_policy", "fit"),
+            ("sampling", "linear"),
+            ("master_volume", "65"),
+            ("music_volume", "60"),
+            ("speech_volume", "20"),
+            ("effects_volume", "0"),
+            ("mute_unfocused", "false"),
+            ("output_device", "Test \"speakers\""),
+            ("audio_renderer", "enhanced-pcm"),
+            ("presentation", "hyllian"),
+            ("input_gamma", "2.60"),
+            ("mask_intensity", "0.20"),
+        ] {
+            draft.edit(key, value.into());
+        }
+        current.cli.insert("scale".into(), "8".into());
+        current.cli.insert("music_volume".into(), "25".into());
+        assert_eq!(current.effective(&draft).scale, Some(8));
+        assert_eq!(
+            current.effective(&draft).audio.categories,
+            CategoryVolumes([25, 20, 0])
+        );
+        current.commit(draft.clone()).unwrap();
+        let loaded = session(path.clone(), "mach-3");
+        assert_eq!(loaded.saved, draft);
+        assert_eq!(loaded.saved.game_values().scale, Some(4));
+        assert_eq!(
+            loaded.saved.game_values().audio.categories,
+            CategoryVolumes([60, 20, 0])
+        );
+        draft.reset_section(2);
+        assert_eq!(draft.game_values().audio, RuntimeSettings::default().audio);
+        assert_eq!(draft.game_values().scale, Some(4));
+        draft.reset_section(0);
+        assert_eq!(draft.game_values().aspect_ratio, AspectRatio::Original);
+        assert_eq!(draft.game_values().presentation, Presentation::Hyllian);
+        draft.reset_section(1);
+        assert_eq!(draft, Draft::default());
+        let text = fs::read_to_string(path).unwrap();
+        assert!(!text.contains("[global"));
+        assert!(!text.contains("scale = 8"));
+    }
+
+    #[test]
+    fn invalid_entry_fields_fall_back_without_hiding_valid_choices() {
+        let dir = TestDir::new();
+        let path = dir.file();
+        fs::write(&path, "[entries.mach-3.crt]\nbeam_min=1.5\nbeam_max=1.1\nmask_intensity=999.0\noutput_gamma=2.6\n[entries.mach-3.controls]\nstick_dead_zone=91\n").unwrap();
+        let original = fs::read(&path).unwrap();
+        let current = session(path.clone(), "mach-3");
+        assert!(current.warning.is_some());
+        let value = current.saved.game_values();
+        assert!(value.hyllian.validate().is_ok());
+        assert_eq!(value.get("output_gamma"), "2.60");
+        assert_eq!(
+            value.stick_dead_zone,
+            RuntimeSettings::default().stick_dead_zone
+        );
+        assert_eq!(fs::read(path).unwrap(), original);
+        for (key, bad) in [
+            (STICK_DEAD_ZONE, "4"),
+            ("scaling_policy", "crop"),
+            ("sampling", "cubic"),
+            ("aspect_ratio", "4:3"),
+            ("input_gamma", "NaN"),
+            ("music_volume", "101"),
+        ] {
+            assert!(RuntimeSettings::default().set(key, bad).is_err());
+        }
     }
 }

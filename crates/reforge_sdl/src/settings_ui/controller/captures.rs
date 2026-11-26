@@ -352,20 +352,18 @@ fn native_controller_templates_and_themes() {
     let creator = FrameCreator::for_ui(&canvas);
     let mut cases = Vec::new();
     for theme in ThemeId::ALL {
-        for enabled in [true, false] {
-            cases.push((theme, ControllerStyle::Xbox, [960, 720], enabled, 1.0));
-        }
+        cases.push((theme, ControllerStyle::Xbox, [960, 720], 1.0));
     }
     for style in [ControllerStyle::DualSense, ControllerStyle::Switch] {
-        cases.push((ThemeId::CrispLight, style, [960, 720], true, 1.0));
+        cases.push((ThemeId::CrispLight, style, [960, 720], 1.0));
     }
     for theme in [ThemeId::ClassicDark, ThemeId::CrispLight] {
-        cases.push((theme, ControllerStyle::Xbox, [630, 470], true, 1.0));
-        cases.push((theme, ControllerStyle::Xbox, [860, 560], true, 2.25));
-        cases.push((theme, ControllerStyle::Xbox, [960, 720], true, 2.25));
+        cases.push((theme, ControllerStyle::Xbox, [630, 470], 1.0));
+        cases.push((theme, ControllerStyle::Xbox, [860, 560], 2.25));
+        cases.push((theme, ControllerStyle::Xbox, [960, 720], 2.25));
     }
     let mut captured = 0;
-    for (theme_id, style, size, enabled, density) in cases {
+    for (theme_id, style, size, density) in cases {
         let physical = size.map(|size| (size as f32 * density).round() as u32);
         canvas
             .window_mut()
@@ -377,9 +375,9 @@ fn native_controller_templates_and_themes() {
             SettingsMenu::new(&creator, VideoCapabilities::default()).with_alleycat_options();
         menu.set_theme(theme);
         menu.toggle();
-        menu.scope = 1;
+
         menu.page = 3;
-        menu.game_editing[3] = enabled;
+
         menu.draft = Some(Default::default());
         menu.controller_style = style;
         menu.density = density;
@@ -412,9 +410,8 @@ fn native_controller_templates_and_themes() {
             theme.palette.inactive.background,
         );
         let movement = text(&directional.output, "Directional jump").0.center();
-        let before = menu.draft.clone();
         let switched = click(&mut menu, &mut canvas, movement);
-        if enabled {
+        {
             if let Some(directory) = &output_dir {
                 for (name, frame) in [("directional", &directional), ("button", &switched)] {
                     write_capture(
@@ -434,29 +431,9 @@ fn native_controller_templates_and_themes() {
         }
         assert_eq!(
             switched.diagram, directional.diagram,
-            "diagram moved: {theme_id:?}, {size:?}, enabled={enabled}"
+            "diagram moved: {theme_id:?}, {size:?}"
         );
-        if !enabled {
-            assert_eq!(
-                menu.draft, before,
-                "disabled carousel must not edit the draft"
-            );
-            if let Some(directory) = &output_dir {
-                write_capture(
-                    directory,
-                    &format!(
-                        "{}-{:?}-{}x{}-disabled{suffix}",
-                        theme_id.slug(),
-                        style,
-                        size[0],
-                        size[1]
-                    ),
-                    &switched,
-                );
-                captured += 1;
-            }
-            continue;
-        }
+
         assert_eq!(
             menu.draft
                 .as_ref()

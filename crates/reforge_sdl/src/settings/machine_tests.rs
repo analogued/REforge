@@ -152,11 +152,10 @@ fn machine_choices_share_launcher_storage_and_apply_cancel_reset() {
         menu.toggle();
         menu.prepare(display.ui_metrics(), display.settings());
         assert!(
-            label(&draw(&mut menu, vec![]), "Machine").is_none(),
-            "global defaults must not select machines"
+            label(&draw(&mut menu, vec![]), "Machine").is_some(),
+            "entry settings directly expose the machine"
         );
-        menu.scope = 1;
-        menu.game_editing[0] = true;
+
         let (selected, away, away_value) = if machines.default == "pcjr" {
             ("IBM PCjr", "IBM PC (CGA)", "cga")
         } else {
@@ -173,8 +172,7 @@ fn machine_choices_share_launcher_storage_and_apply_cancel_reset() {
         menu.toggle(); // Cancel/close discards this draft.
         menu.toggle();
         menu.prepare(display.ui_metrics(), display.settings());
-        menu.scope = 1;
-        menu.game_editing[0] = true;
+
         assert!(
             !menu
                 .draft
@@ -256,8 +254,7 @@ fn machine_round_trip_restores_saved_override_presence() {
                 .with_alleycat_machines(machines);
             menu.toggle();
             menu.prepare(display.ui_metrics(), display.settings());
-            menu.scope = 1;
-            menu.game_editing[0] = true;
+
             let initial = pin.unwrap_or(machines.default);
             let away = if initial == "pcjr" { "cga" } else { "pcjr" };
             let title = |value| {
@@ -330,8 +327,7 @@ fn machine_selector_locks_cli_overrides_and_disables_unsavable_runs() {
             .with_alleycat_machines(&RESTORED);
         menu.toggle();
         menu.prepare(display.ui_metrics(), display.settings());
-        menu.scope = 1;
-        menu.game_editing[0] = true;
+
         click(&mut menu, "IBM PCjr");
         let output = draw(&mut menu, vec![]);
         assert!(
@@ -352,9 +348,9 @@ fn machine_selector_locks_cli_overrides_and_disables_unsavable_runs() {
 }
 
 #[test]
-fn legacy_machine_alias_migrates_and_keeps_explicit_override() {
+fn machine_alias_loads_without_rewriting_or_override_colours() {
     if !dummy_video(
-        "settings::machine_tests::legacy_machine_alias_migrates_and_keeps_explicit_override",
+        "settings::machine_tests::machine_alias_loads_without_rewriting_or_override_colours",
     ) {
         return;
     }
@@ -392,8 +388,7 @@ fn legacy_machine_alias_migrates_and_keeps_explicit_override() {
                 .with_alleycat_machines(machines);
             menu.toggle();
             menu.prepare(display.ui_metrics(), display.settings());
-            menu.scope = 1;
-            assert!(menu.game_editing[0]);
+
             draw(&mut menu, vec![]);
             let output = draw(&mut menu, vec![]);
             assert_eq!(
@@ -419,17 +414,17 @@ fn legacy_machine_alias_migrates_and_keeps_explicit_override() {
                         color
                     }
                 });
-                assert_eq!(
+                assert_ne!(
                     color,
                     crate::ui::current_palette(&menu.context).override_text,
-                    "explicit {pin} pin must accent {shown}"
+                    "stored {pin} choice uses normal text for {shown}"
                 );
             }
             assert!(label(&output, "No pending changes").is_some());
             assert_eq!(
                 reforge_settings::launcher::native_options(&path, "copy").unwrap()
                     [ALLEYCAT_MACHINE],
-                "pcjr"
+                pin
             );
             let saved = menu.draft.clone();
             click(&mut menu, "IBM PCjr");
@@ -441,14 +436,14 @@ fn legacy_machine_alias_migrates_and_keeps_explicit_override() {
             menu.draft
                 .as_mut()
                 .unwrap()
-                .edit(true, "master_volume", "60".into());
+                .edit("master_volume", "60".into());
             menu.pending = menu.draft.clone();
             menu.applied();
             assert!(menu.error.is_none());
             assert_eq!(
                 reforge_settings::launcher::native_options(&path, "copy").unwrap()
                     [ALLEYCAT_MACHINE],
-                "pcjr"
+                pin
             );
             click(&mut menu, "Restore defaults");
             assert!(
@@ -462,7 +457,7 @@ fn legacy_machine_alias_migrates_and_keeps_explicit_override() {
             assert_eq!(
                 reforge_settings::launcher::native_options(&path, "copy").unwrap()
                     [ALLEYCAT_MACHINE],
-                "pcjr",
+                pin,
                 "reset is pending until Apply"
             );
             click(&mut menu, "Apply");

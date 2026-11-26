@@ -26,7 +26,7 @@ image. See each guide for the required files and current limitations.
 - Automatic window sizing, manual scaling and borderless fullscreen.
 - Keyboard and gamepad controls.
 - Separate master, music, effects and speech levels, where the game supports them.
-- Shared preferences with per-game overrides, changed through an in-game menu.
+- Independent preferences for each library entry, changed through an in-game menu.
 
 Game-specific features, including Alley Cat's Responsive controls and Mach 3's
 Enhanced PCM audio, are described in the player guides.
@@ -57,8 +57,8 @@ a game returns to the launcher. **Remove** forgets an entry without deleting fil
 The launcher remembers game locations, not gameplay progress. Choose a colour theme
 with the palette button or **Ctrl+T**. **F2**, **F3** and **F4** select Split,
 Gallery and Compact layouts; theme and layout choices are remembered separately.
-Game options save immediately. Dim selections follow defaults; a full highlight
-marks a saved override. Select a saved choice again to return to defaults.
+Game options save immediately for the selected library entry. Selecting the
+current choice again leaves it unchanged.
 Artwork uses cached, engine-generated previews, with symbolic initials as a
 fallback.
 
@@ -73,8 +73,8 @@ REforge searches the game root and any subdirectories specified by its catalog.
 Press **Esc** or **F10** to open Settings. Centurion uses **F10**, preserving
 Escape for its game menus. Choose windowed or fullscreen play, adjust scaling,
 try CRT presentation, or change audio levels and your controller's stick dead zone.
-**Apply** activates and saves edits; **Cancel** discards them. Preferences can be
-shared globally or overridden for an individual game.
+**Apply** activates and saves edits; **Cancel** discards them. Each library entry has independent game settings and built-in defaults.
+Launcher appearance preferences are application-wide.
 
 | Action | Keyboard | Gamepad |
 | --- | --- | --- |

@@ -40,18 +40,6 @@ struct LaunchedGame {
     _ticket: Option<launch_handoff::Ticket>,
 }
 
-fn global_dead_zone(config: &Path) -> u8 {
-    reforge_settings::Session::load(reforge_settings::Launch {
-        game_id: "standalone".into(),
-        entry_id: None,
-        path: Some(config.to_owned()),
-        cli: Default::default(),
-    })
-    .saved
-    .global_values()
-    .stick_dead_zone
-}
-
 fn text_input(canvas: &WindowCanvas, enabled: bool) {
     let keyboard = canvas.window().subsystem().text_input();
     if enabled != keyboard.is_active(canvas.window()) {
@@ -348,7 +336,7 @@ pub fn run() -> Result<(), String> {
     let mut gui = Gui::new(&creator);
     gui.set_focus_overlay(false);
     let mut events = sdl.event_pump().map_err(|e| e.to_string())?;
-    let mut pads = Gamepads::new(global_dead_zone(&state.config));
+    let mut pads = Gamepads::new(reforge_settings::RuntimeSettings::default().stick_dead_zone);
     let mut picker: Option<(UiAction, mpsc::Receiver<FolderResult>)> = None;
     let mut child: Option<LaunchedGame> = None;
     let mut visible = false;

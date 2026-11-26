@@ -393,12 +393,8 @@ pub fn paint_preview_in_rect(
     }
 }
 
-fn option_label(ui: &mut egui::Ui, ap: &ResolvedAppearance, game: &GameEntry, field: &str) {
-    let colour = if game.preferences.saved.contains_key(field) {
-        ap.theme.palette.override_text
-    } else {
-        ap.tokens.text_secondary
-    };
+fn option_label(ui: &mut egui::Ui, ap: &ResolvedAppearance, field: &str) {
+    let colour = ap.tokens.text_secondary;
     ui.label(RichText::new(field).size(13.0).color(colour));
 }
 pub(crate) fn option_control(
@@ -411,7 +407,6 @@ pub(crate) fn option_control(
 ) {
     let values = game.option_values();
     let current = values[field];
-    let explicit = game.preferences.saved.contains_key(field);
     let options: Vec<_> = choices
         .iter()
         .map(|value| {
@@ -425,11 +420,7 @@ pub(crate) fn option_control(
             )
         })
         .collect();
-    let state = if explicit {
-        SelectionState::Explicit
-    } else {
-        SelectionState::Inherited
-    };
+    let state = SelectionState::Explicit;
     let clicked = if ap.id == super::catalog::ThemeId::ClassicDark {
         // Same native button and explicit corner override as production Settings.
         ui.horizontal(|ui| {
@@ -437,9 +428,7 @@ pub(crate) fn option_control(
             let mut clicked = None;
             for (value, label) in &options {
                 let selected = *value == current;
-                let colour = if selected && !explicit {
-                    ap.theme.palette.inherited.foreground
-                } else if selected {
+                let colour = if selected {
                     ap.theme.palette.selection.foreground
                 } else {
                     ap.theme.palette.inactive.foreground
@@ -463,11 +452,7 @@ pub(crate) fn option_control(
                 }
                 if let Some(frame) = frame {
                     let p = ap.theme.palette;
-                    let base = if explicit {
-                        p.selection.background
-                    } else {
-                        p.inherited.background
-                    };
+                    let base = p.selection.background;
                     let fill =
                         if response.is_pointer_button_down_on() && response.contains_pointer() {
                             base.lerp_to_gamma(Color32::BLACK, 0.12)
@@ -478,10 +463,8 @@ pub(crate) fn option_control(
                         };
                     let border = if response.has_focus() {
                         p.focus
-                    } else if explicit {
-                        p.selection.foreground
                     } else {
-                        p.inherited.border
+                        p.selection.foreground
                     };
                     ui.painter().set(
                         frame,
@@ -509,7 +492,7 @@ pub(crate) fn option_control(
     if let Some(value) = clicked {
         game.save_option(field, value);
     }
-    // The group tooltip explains inherited and explicit state without a legend.
+    // State the game default and the immediate-save behavior.
     let mut tooltip = game.preferences.tooltip(field, current);
     if field == "Renderer"
         && game
@@ -537,7 +520,7 @@ pub fn draw_launch_options_rows(ui: &mut egui::Ui, ap: &ResolvedAppearance, game
                     ui.allocate_ui_with_layout(
                         Vec2::new(82.0, 24.0),
                         Layout::left_to_right(Align::Center),
-                        |ui| option_label(ui, ap, game, field),
+                        |ui| option_label(ui, ap, field),
                     );
                     option_control(ui, ap, game, field, &choices, false);
                 });
@@ -586,7 +569,7 @@ pub fn draw_launch_options_inline(
                             ui.disable();
                         }
                         ui.spacing_mut().item_spacing.x = 6.0;
-                        option_label(ui, ap, game, field);
+                        option_label(ui, ap, field);
                         option_control(ui, ap, game, field, &choices, true);
                     },
                 );

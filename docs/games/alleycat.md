@@ -60,8 +60,7 @@ By default, use the left stick or D-pad for movement and the bottom face
 button for Alt's action. It also advances title/instruction screens and confirms
 skill selection. Start/Menu pauses; Back/View opens Settings.
 
-In **Settings → Alley Cat overrides → Controls**, enable **Override global
-defaults** to choose a controller layout. **Directional jump** keeps Up to jump
+In **Settings → Controls**, choose a controller layout. **Directional jump** keeps Up to jump
 and Down to drop, with a choice of Action button. **Button jump** uses left/right
 movement and separate Jump/Drop and Action buttons. Hold Down before pressing
 Jump to drop from higher surfaces; on the floor it still jumps. Swimming always
@@ -73,25 +72,26 @@ Keyboard and menu controls keep their usual bindings.
 
 **Scene movement** defaults to **Reforged**, smoothing movement while retaining
 the game's speed, physics and collision rules. Choose **Original** for native
-stepped movement under **Settings → Alley Cat overrides → Enhancements → Scene
+stepped movement under **Settings → Enhancements → Scene
 movement**. Choose the mode and Apply to save it for this library entry.
-`--motion reforged|original` temporarily overrides it for one launch. Reforged adds a small visual delay and works independently of the input
+`--motion reforged|original` temporarily overrides it for one launch. Reforged
+adds a small visual delay and works independently of the input
 response setting below.
 
 **Responsive controls** are enabled by default. They reduce the wait before
 direction and action requests are read, while preserving movement speed and
 jump physics. To use the original polling behavior, open
-**F10 → Alley Cat overrides → Enhancements → Input response**, select
+**F10 → Enhancements → Input response**, select
 **Original**, then Apply.
 
 **Machine:** the DOS conversion (including its disk image) and PC booter offer
 **IBM PC (CGA)** (the default) and **IBM PCjr**. The restored DOS inputs default
 to IBM PCjr. Choose in the launcher or under
-**Settings → Alley Cat overrides → Display → Machine**. Enable
-**Override global defaults**, choose the machine and Apply. Settings and the
+**Settings → Display → Machine**. Choose the machine
+and Apply. Settings and the
 launcher share this choice; during play it applies on the next launch. You can
 also use `--machine cga` or `--machine pcjr`. The old `tandy` spelling remains an
-alias for PCjr, and saved Tandy choices migrate automatically. The modes retain
+alias for PCjr, and saved Tandy choices are accepted as PCjr. The modes retain
 their original pacing differences; underwater play can feel more variable in PCjr.
 PCjr plays the three-voice intro melody with booter or restored DOS inputs.
 CGA keeps the PC Speaker version, and gameplay effects remain PC Speaker. Booter and restored DOS inputs use white

@@ -106,8 +106,7 @@ pub struct SettingsMenu<'a> {
     pub(super) generation: usize,
     pub(super) draft: Option<Draft>,
     pub(super) pending: Option<Draft>,
-    pub(super) scope: usize,
-    pub(super) game_overrides: bool,
+    pub(super) entry_settings: bool,
     pub(super) launcher_options: Option<LauncherOptions>,
     pub(super) pending_launcher: reforge_settings::launcher::Edits,
     #[cfg(test)]
@@ -117,12 +116,10 @@ pub struct SettingsMenu<'a> {
     pub(super) audio_devices: Vec<String>,
     pub(super) audio_devices_loaded: bool,
     pub(super) controller_style: crate::gamepad::ControllerStyle,
-    pub(super) game_editing: [bool; reforge_settings::SECTION_KEYS.len()],
     pub(super) page: usize,
     // A section reset prevents edit round trips from restoring cleared keys.
     pub(super) game_reset: [bool; reforge_settings::SECTION_KEYS.len()],
-    pub(super) global_reset: [bool; reforge_settings::SECTION_KEYS.len()],
-    pub(super) display_edits: [crate::settings_ui::DisplayEdits; 2],
+    pub(super) display_edits: crate::settings_ui::DisplayEdits,
     pub(super) status: Option<String>,
     pub(super) jobs: Vec<egui::ClippedPrimitive>,
     pub(super) pending_textures: egui::TexturesDelta,
@@ -216,14 +213,12 @@ impl<'a> SettingsMenu<'a> {
         session.effective(&session.saved)
     }
 
-    /// Show shared preferences without a game-override scope, for example before
-    /// a launcher has any games. Applying preserves all existing game settings.
-    pub fn with_global_defaults_only(mut self) -> Self {
-        self.game_overrides = false;
-        self.scope = 0;
-        self
+    /// Show only application-wide launcher appearance preferences.
+    pub fn with_launcher_only(mut self) -> Self {
+        self.entry_settings = false;
+        self.page = crate::settings_ui::LAUNCHER_PAGE;
+        self.with_launcher_options()
     }
-    /// Add a launcher-only Settings section. Game hosts leave this disabled.
     pub fn with_launcher_options(mut self) -> Self {
         let result = self
             .creator
@@ -291,8 +286,7 @@ impl<'a> SettingsMenu<'a> {
             generation: creator.generation(),
             draft: None,
             pending: None,
-            scope: 0,
-            game_overrides: true,
+            entry_settings: true,
             launcher_options: None,
             pending_launcher: Default::default(),
             #[cfg(test)]
@@ -302,10 +296,8 @@ impl<'a> SettingsMenu<'a> {
             audio_devices: Vec::new(),
             audio_devices_loaded: false,
             controller_style: Default::default(),
-            game_editing: [false; reforge_settings::SECTION_KEYS.len()],
             page: 0,
             game_reset: [false; reforge_settings::SECTION_KEYS.len()],
-            global_reset: [false; reforge_settings::SECTION_KEYS.len()],
             display_edits: Default::default(),
             status: None,
             jobs: Vec::new(),
@@ -348,7 +340,6 @@ impl<'a> SettingsMenu<'a> {
             launcher.revert();
         }
         self.game_reset = [false; reforge_settings::SECTION_KEYS.len()];
-        self.global_reset = [false; reforge_settings::SECTION_KEYS.len()];
         self.display_edits = Default::default();
         self.events.clear();
         let mode = self.navigation.mode;
@@ -597,7 +588,6 @@ impl<'a> SettingsMenu<'a> {
         if self.draft.is_none() {
             self.audio_devices_loaded = false;
             let saved = self.creator.session.borrow().saved.clone();
-            self.game_editing = std::array::from_fn(|page| saved.has_game_overrides(page));
             self.draft = Some(saved);
         }
         if self.page == 2 && !self.audio_devices_loaded {
@@ -698,7 +688,6 @@ impl<'a> SettingsMenu<'a> {
                         }
                     }
                     self.game_reset = [false; reforge_settings::SECTION_KEYS.len()];
-                    self.global_reset = [false; reforge_settings::SECTION_KEYS.len()];
                     self.display_edits = Default::default();
                 }
                 Err(error) => {
@@ -1203,8 +1192,7 @@ mod tests {
             SettingsMenu::new(&creator, VideoCapabilities::default()).with_btz_options(false);
         menu.toggle();
         menu.prepare(window.ui_metrics(), window.settings());
-        menu.scope = 1;
-        menu.game_editing[0] = true;
+
         let output = draw(&mut menu, vec![]);
         assert!(label(&output, "Text interface").top() > label(&output, "Rendering").bottom());
         assert!(label(&output, "Cursor style").top() > label(&output, "Frame limit").bottom());
@@ -1294,11 +1282,11 @@ mod tests {
         // remains editable and is used by the terminal frontend too.
         creator.session.borrow_mut().cli.remove("renderer");
         menu.availability.terminal = true;
-        menu.game_editing[0] = true;
+
         menu.draft
             .as_mut()
             .unwrap()
-            .edit(true, "renderer", "terminal".into());
+            .edit("renderer", "terminal".into());
         click(&mut menu, "Pulsing underline");
         click(&mut menu, "Blinking underline");
         assert_eq!(
@@ -1414,7 +1402,7 @@ mod tests {
         assert_eq!(display.settings().alleycat.motion, MotionMode::Reforged);
         menu.toggle();
         menu.prepare(display.ui_metrics(), display.settings());
-        menu.scope = 1;
+
         menu.page = reforge_settings::ENHANCEMENTS_SECTION;
         click(&mut menu, "Reforged");
         click(&mut menu, "Original");
@@ -1515,10 +1503,7 @@ mod tests {
         assert_eq!(display.settings().mach3.motion, MotionMode::Reforged);
         menu.toggle();
         menu.prepare(display.ui_metrics(), display.settings());
-        menu.draft
-            .as_mut()
-            .unwrap()
-            .edit(true, MOTION, "original".into());
+        menu.draft.as_mut().unwrap().edit(MOTION, "original".into());
         assert_eq!(display.settings().mach3.motion, MotionMode::Reforged);
         assert!(!path.exists());
         menu.pending = menu.draft.clone();
@@ -1537,7 +1522,7 @@ mod tests {
             MotionMode::Original
         );
         assert!(display.settings().mach3.digitized_samples);
-        menu.draft.as_mut().unwrap().reset_section(true, 0);
+        menu.draft.as_mut().unwrap().reset_section(0);
         menu.handle_event(&key(Scancode::Escape, Mod::NOMOD, true, false));
         assert_eq!(display.settings().mach3.motion, MotionMode::Original);
         assert_eq!(
@@ -1615,15 +1600,15 @@ mod tests {
                 .with_mach3_options(None);
             menu.toggle();
             menu.prepare(display.ui_metrics(), display.settings());
-            menu.scope = 1;
+
             menu.page = 2;
-            menu.game_editing[2] = true;
+
             draw(&mut menu);
             let output = draw(&mut menu);
-            let checkbox = if registered {
-                "Override global defaults · only differences are saved"
+            let checkbox = if registered && configured {
+                "This library entry"
             } else {
-                "Override global defaults · this run only"
+                "This run"
             };
             assert!(label(&output, checkbox).is_some());
             assert!(label(&output, "PC speaker").is_some());
@@ -1684,7 +1669,7 @@ mod tests {
         menu.toggle();
         menu.prepare(display.ui_metrics(), display.settings());
         draw(&mut menu);
-        assert!(label(&draw(&mut menu), "Breakers overrides").is_some());
+        assert!(label(&draw(&mut menu), "Breakers settings").is_some());
     }
 
     #[test]
@@ -1793,8 +1778,7 @@ mod tests {
         menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
         menu.prepare(display.ui_metrics(), display.settings());
         assert!(label(&draw(&mut menu, vec![]), "Controls").is_some());
-        for scope in ["Global defaults", "Alley Cat overrides"] {
-            click(&mut menu, scope);
+        {
             draw(&mut menu, vec![]);
             let bounds = menu
                 .context
@@ -1815,7 +1799,7 @@ mod tests {
                             memory.area_rect(egui::Id::new("reforge_settings")).unwrap()
                         }),
                         bounds,
-                        "section changes must preserve the menu frame: {scope}, {page}"
+                        "section changes must preserve the menu frame: {page}"
                     );
                     assert_eq!(menu.cancel_rect.unwrap(), cancel, "footer moved: {page}");
                     if page == "Enhancements" {
@@ -1838,12 +1822,11 @@ mod tests {
                 }
             }
         }
-        click(&mut menu, "Alley Cat overrides");
         click(&mut menu, "Enhancements");
         assert_eq!(menu.page, reforge_settings::ENHANCEMENTS_SECTION);
         let override_label = "Override global defaults · only differences are saved";
         assert!(label(&draw(&mut menu, vec![]), override_label).is_none());
-        assert!(!menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION]);
+
         click(&mut menu, "Responsive");
         click(&mut menu, "Original");
         assert_eq!(
@@ -1856,13 +1839,13 @@ mod tests {
             ControlMode::Original
         );
         click(&mut menu, "Restore defaults");
-        assert!(!menu.game_editing[reforge_settings::ENHANCEMENTS_SECTION]);
+
         assert!(
             !menu
                 .draft
                 .as_ref()
                 .unwrap()
-                .has_game_overrides(reforge_settings::ENHANCEMENTS_SECTION)
+                .has_custom_settings(reforge_settings::ENHANCEMENTS_SECTION)
         );
         click(&mut menu, "Responsive");
         click(&mut menu, "Original");
@@ -1931,10 +1914,10 @@ mod tests {
         assert!(
             !Session::load(launch.clone())
                 .saved
-                .has_game_overrides(reforge_settings::ENHANCEMENTS_SECTION)
+                .has_custom_settings(reforge_settings::ENHANCEMENTS_SECTION)
         );
 
-        // An explicit launcher preference may equal global. Exercise the real
+        // A saved preference may equal its built-in default. Exercise the real
         // menu and Apply path, rather than just editing the model directly.
         let mut explicit = creator.session.borrow().saved.clone();
         explicit
@@ -1946,9 +1929,9 @@ mod tests {
             .commit(explicit.clone())
             .unwrap();
         menu.draft = Some(explicit);
-        menu.scope = 1;
+
         menu.page = 0;
-        menu.game_editing[0] = true;
+
         menu.game_reset[0] = false;
         click(&mut menu, "Fullscreen");
         click(&mut menu, "Windowed");
@@ -1976,30 +1959,7 @@ mod tests {
             "windowed"
         );
 
-        click(&mut menu, "Global defaults");
-        click(&mut menu, "Fullscreen");
-        click(&mut menu, "Apply");
-        assert_eq!(
-            menu.pending.as_ref().unwrap().game["window_mode"],
-            "windowed",
-            "global edits must leave explicit game overrides intact"
-        );
-        // Discard this pending global edit without requiring desktop fullscreen.
-        menu.toggle();
-        menu.toggle();
-        menu.prepare(display.ui_metrics(), display.settings());
-        menu.scope = 1;
-        menu.page = 0;
-        click(&mut menu, override_label);
-        assert!(
-            !menu
-                .draft
-                .as_ref()
-                .unwrap()
-                .game
-                .contains_key("window_mode")
-        );
-        click(&mut menu, override_label);
+        click(&mut menu, "Restore defaults");
         click(&mut menu, "Fullscreen");
         click(&mut menu, "Windowed");
         assert!(
@@ -2008,8 +1968,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .game
-                .contains_key("window_mode"),
-            "an explicit section reset must not resurrect its old override"
+                .contains_key("window_mode")
         );
         click(&mut menu, "Apply");
         let request = creator
@@ -2018,69 +1977,33 @@ mod tests {
             .effective(menu.pending.as_ref().unwrap());
         display.apply_settings(request).unwrap();
         menu.applied();
-        assert!(!Session::load(launch).saved.has_game_overrides(0));
+        assert!(!Session::load(launch).saved.has_custom_settings(0));
         click(&mut menu, "Controls");
-        click(&mut menu, "Global defaults");
-        assert_eq!(menu.page, 3, "Controls is now shared across scopes");
-        assert!(label(&draw(&mut menu, vec![]), "Stick dead zone").is_some());
+        assert_eq!(menu.page, 3, "Controls exposes the entry stick dead zone");
+        assert!(label(&draw(&mut menu, vec![]), "Controller layout").is_some());
         assert!(label(&draw(&mut menu, vec![]), "Input response").is_none());
         creator.session.borrow_mut().game_id = "mach-3".into();
         let mut mach_menu =
             SettingsMenu::new(&creator, VideoCapabilities::default()).with_mach3_options(None);
         mach_menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
         mach_menu.prepare(display.ui_metrics(), display.settings());
-        mach_menu.scope = 1;
+
         mach_menu.page = 3;
         assert!(label(&draw(&mut mach_menu, vec![]), "Stick dead zone").is_some());
         assert!(label(&draw(&mut mach_menu, vec![]), "Input response").is_none());
 
-        // A launcher without a game exposes shared settings only. Even when
-        // used with a session containing overrides, Apply must leave them alone.
-        {
-            let mut session = creator.session.borrow_mut();
-            let mut draft = session.saved.clone();
-            draft.game.insert("window_mode".into(), "windowed".into());
-            session.commit(draft).unwrap();
+        // Launcher appearance remains independent of every entry's settings.
+        let before = creator.session.borrow().saved.clone();
+        let mut launcher_menu =
+            SettingsMenu::new(&creator, VideoCapabilities::default()).with_launcher_only();
+        launcher_menu.toggle();
+        launcher_menu.prepare(display.ui_metrics(), display.settings());
+        let output = draw(&mut launcher_menu, vec![]);
+        for hidden in ["Global defaults", "Display", "Controls", "Enhancements"] {
+            assert!(label(&output, hidden).is_none(), "unexpected {hidden}");
         }
-        let before = creator.session.borrow().saved.game.clone();
-        let mut global_menu =
-            SettingsMenu::new(&creator, VideoCapabilities::default()).with_global_defaults_only();
-        global_menu.toggle();
-        global_menu.prepare(display.ui_metrics(), display.settings());
-        for page in 0..4 {
-            global_menu.page = page;
-            let output = draw(&mut global_menu, vec![]);
-            assert!(label(&output, "Global defaults").is_some());
-            for hidden in [
-                "Game overrides",
-                "Alley Cat overrides",
-                "Mach 3 overrides",
-                "Input response",
-                "Digitized samples",
-            ] {
-                assert!(label(&output, hidden).is_none(), "unexpected {hidden}");
-            }
-        }
-        assert!(label(&draw(&mut global_menu, vec![]), "Stick dead zone").is_some());
-        global_menu.page = 0;
-        click(&mut global_menu, "Fullscreen");
-        click(&mut global_menu, "Apply");
-        assert_eq!(global_menu.pending.as_ref().unwrap().game, before);
-        global_menu.applied();
-        let saved = creator.session.borrow().saved.clone();
-        assert!(saved.global_values().fullscreen);
-        assert_eq!(saved.game, before);
-        assert_eq!(
-            Session::load(Launch {
-                game_id: "mach-3".into(),
-                entry_id: Some("alley-cat".into()),
-                path: Some(path.clone()),
-                cli: Patch::new(),
-            })
-            .saved
-            .game,
-            before
-        );
+        assert!(label(&output, "Launcher").is_some());
+        assert_eq!(creator.session.borrow().saved, before);
         std::fs::remove_file(path).unwrap();
     }
 
@@ -2261,10 +2184,7 @@ mod tests {
         menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
         menu.prepare(display.ui_metrics(), display.settings());
         let unchanged = display.settings();
-        menu.draft
-            .as_mut()
-            .unwrap()
-            .edit(false, "vsync", "false".into());
+        menu.draft.as_mut().unwrap().edit("vsync", "false".into());
         assert!(
             menu.prepare(display.ui_metrics(), display.settings())
                 .is_none()
@@ -2274,25 +2194,22 @@ mod tests {
         menu.handle_event(&key(Scancode::F10, Mod::NOMOD, true, false));
         menu.prepare(display.ui_metrics(), display.settings());
         assert_eq!(
-            menu.draft.as_ref().unwrap().global_values().vsync,
+            menu.draft.as_ref().unwrap().game_values().vsync,
             unchanged.vsync
         );
-        menu.draft
-            .as_mut()
-            .unwrap()
-            .edit(false, "vsync", "false".into());
+        menu.draft.as_mut().unwrap().edit("vsync", "false".into());
         // Apply must reconcile treatment and renderer together, including the
         // saved draft, rather than leave a remembered but inactive shader.
         menu.draft
             .as_mut()
             .unwrap()
-            .edit(false, "presentation", "hyllian".into());
+            .edit("presentation", "hyllian".into());
         menu.draft
             .as_mut()
             .unwrap()
-            .edit(false, "renderer", "software".into());
-        // Applying from a different scope must still normalize pending global edits.
-        menu.scope = 1;
+            .edit("renderer", "software".into());
+        // Applying from another page must still normalize pending display edits.
+
         for _ in 0..3 {
             menu.prepare(display.ui_metrics(), display.settings());
         }
@@ -2335,7 +2252,7 @@ mod tests {
         assert_eq!(display.presentation(), crate::Presentation::Pixels);
         assert_eq!(display.settings().presentation, crate::Presentation::Pixels);
         assert_eq!(
-            creator.session.borrow().saved.global_values().presentation,
+            creator.session.borrow().saved.game_values().presentation,
             crate::Presentation::Pixels
         );
         assert_eq!(
@@ -2609,10 +2526,10 @@ mod tests {
                     pixels_per_point: density,
                 };
                 for page in 0..reforge_settings::SECTION_KEYS.len() {
-                    for scope in 0..2 {
+                    {
+                        let scope = 1;
                         menu.page = page;
-                        menu.scope = scope;
-                        menu.game_editing = [true; reforge_settings::SECTION_KEYS.len()];
+
                         for _ in 0..3 {
                             menu.prepare(metrics, display.settings());
                         }
@@ -2798,9 +2715,9 @@ mod tests {
                     ] {
                         display.prepare_settings(&mut menu);
                         let draft = menu.draft.as_mut().unwrap();
-                        draft.edit(false, "presentation", treatment.as_str().into());
-                        draft.edit(false, "scaling_policy", policy.as_str().into());
-                        draft.edit(false, "aspect_ratio", aspect.as_str().into());
+                        draft.edit("presentation", treatment.as_str().into());
+                        draft.edit("scaling_policy", policy.as_str().into());
+                        draft.edit("aspect_ratio", aspect.as_str().into());
                         menu.pending = menu.draft.clone();
                         display.prepare_settings(&mut menu);
                         assert_eq!(display.settings().aspect_ratio, aspect);
@@ -3094,10 +3011,6 @@ mod tests {
             menu.navigation.set_mode(&menu.context, mode);
             for page in [0, 1, 2] {
                 menu.page = page;
-                if page == 2 {
-                    menu.scope = 1;
-                    menu.game_editing[2] = true;
-                }
                 for _ in 0..3 {
                     menu.prepare(display.ui_metrics(), display.settings());
                     assert!(

@@ -84,12 +84,7 @@ impl Library {
                 Err(error) => warning = Some(format!("Cannot save updated release IDs: {error}")),
             }
         }
-        // Library identities are committed first. If copying old preferences fails,
-        // retrying uses the same IDs and never generates a second profile.
-        self.warning = match (warning, migrate_preferences(&self.config, &updated).err()) {
-            (Some(a), Some(b)) => Some(format!("{a}\n{b}")),
-            (a, b) => a.or(b),
-        };
+        self.warning = warning;
         self.entries = updated;
         Ok(())
     }
@@ -403,64 +398,6 @@ pub fn save_directory(root: &Path, entry_id: &str) -> Result<PathBuf, String> {
     }
     Ok(root.join(entry_id))
 }
-fn migrate_preferences(path: &Path, entries: &[Entry]) -> Result<(), String> {
-    let doc = super::read_document(path, "settings")?;
-    if !entries
-        .iter()
-        .any(|e| doc.get("games").and_then(|g| g.get(&e.game_id)).is_some())
-    {
-        return Ok(());
-    }
-    super::edit_document(path, "settings", |doc| {
-        let mut moved = HashSet::new();
-        for entry in entries {
-            if let Some(old) = doc
-                .get("games")
-                .and_then(|g| g.get(&entry.game_id))
-                .cloned()
-            {
-                let target = super::launcher::table_mut(doc, &["entries"])?;
-                if let Some(existing) = target
-                    .as_table_like_mut()
-                    .expect("validated table")
-                    .get_mut(&entry.entry_id)
-                {
-                    merge_missing(existing, &old)?;
-                } else {
-                    target[&entry.entry_id] = old;
-                }
-                moved.insert(entry.game_id.clone());
-            }
-        }
-        if let Some(table) = doc.get_mut("games").and_then(Item::as_table_like_mut) {
-            for game in moved {
-                table.remove(&game);
-            }
-        }
-        doc["schema_version"] = value(2);
-        Ok(())
-    })
-}
-// A retry may encounter keys written after the first library migration.
-// Preserve those edits while retaining every untouched legacy field.
-fn merge_missing(target: &mut Item, source: &Item) -> Result<(), String> {
-    let table = target
-        .as_table_like_mut()
-        .ok_or("Invalid entry preferences; file preserved")?;
-    let source = source
-        .as_table_like()
-        .ok_or("Invalid legacy game preferences; file preserved")?;
-    for (key, value) in source.iter() {
-        if let Some(current) = table.get_mut(key) {
-            if value.is_table_like() {
-                merge_missing(current, value)?;
-            }
-        } else {
-            table.insert(key, value.clone());
-        }
-    }
-    Ok(())
-}
 fn string(table: &Table, key: &str) -> Result<String, String> {
     table
         .get(key)
@@ -761,71 +698,24 @@ mod identity_tests {
     }
 
     #[test]
-    fn legacy_migration_is_restartable_and_copies_pins_to_each_existing_copy() {
+    fn library_identity_upgrade_does_not_convert_old_preferences() {
         let root =
-            std::env::temp_dir().join(format!("reforge-entry-migration-{}", std::process::id()));
+            std::env::temp_dir().join(format!("reforge-entry-upgrade-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let path = root.join("library.toml");
         let config = root.join("config.toml");
-        fs::write(&path, format!("# library note\nschema_version = 1\nnext_id = 3\n[[games]]\nid = 1\ngame_id = 'alley-cat'\nrelease_id = 'r1'\ntitle = 'One'\noriginal = '{}'\ncustom = 'keep'\n[[games]]\nid = 2\ngame_id = 'alley-cat'\nrelease_id = 'r1'\ntitle = 'Two'\noriginal = '{}'\n", root.join("one/CAT.EXE").display(), root.join("two/CAT.EXE").display())).unwrap();
-        fs::write(&config, "# preferences note\n[global.audio]\nmaster_volume = 65\n[games.alley-cat.display]\nwindow_mode = 'windowed' # explicit equal pin\n[games.alley-cat.launcher]\nmachine = 'pcjr'\n[games.alley-cat.future]\nvalue = 42\n").unwrap();
-        let mut library =
-            Library::new(path.clone()).with_storage(config.clone(), Some(root.join("saves")));
-        let lock = fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(config.with_extension("lock"))
-            .unwrap();
-        fs2::FileExt::lock_exclusive(&lock).unwrap();
+        fs::write(&path, format!("schema_version=1\n[[games]]\nid=1\ngame_id='alley-cat'\nrelease_id='r1'\ntitle='One'\noriginal='{}'\n",root.join("one/CAT.EXE").display())).unwrap();
+        let old = "[global.audio]\nmaster_volume=65\n[games.alley-cat.display]\nscale=4\n";
+        fs::write(&config, old).unwrap();
+        let mut library = Library::new(path.clone()).with_storage(config.clone(), None);
         library.reload().unwrap();
-        assert!(library.warning.as_ref().unwrap().contains("busy"));
-        let committed_ids = library.entries.clone();
-        drop(lock);
+        assert!(library.entries[0].entry_id.starts_with("alley-cat-"));
+        assert!(library.warning.is_none());
+        assert_eq!(fs::read_to_string(&config).unwrap(), old);
+        let entries = library.entries.clone();
         library.reload().unwrap();
-        assert_eq!(library.entries, committed_ids);
-        assert!(library.warning.is_none(), "{:?}", library.warning);
-        assert_eq!(library.entries.len(), 2);
-        assert_ne!(library.entries[0].entry_id, library.entries[1].entry_id);
-        for entry in &library.entries {
-            assert!(entry.entry_id.starts_with("alley-cat-"));
-            assert_eq!(entry.entry_id.len(), "alley-cat-".len() + 6);
-            assert_eq!(entry.directory, entry.original.parent().unwrap());
-            assert_eq!(
-                super::super::launcher::native_options(&config, &entry.entry_id).unwrap()["machine"],
-                "pcjr"
-            );
-            let session = super::super::Session::load(super::super::Launch {
-                game_id: entry.game_id.clone(),
-                entry_id: Some(entry.entry_id.clone()),
-                path: Some(config.clone()),
-                cli: Default::default(),
-            });
-            assert_eq!(session.saved.game["window_mode"], "windowed");
-        }
-        let first = fs::read_to_string(&path).unwrap();
-        assert!(first.contains("# library note") && first.contains("custom = 'keep'"));
-        assert!(!first.contains("next_id"));
-        let preferences = fs::read_to_string(&config).unwrap();
-        assert!(
-            preferences.contains("# preferences note")
-                && preferences.contains("# explicit equal pin")
-                && preferences.contains("value = 42")
-        );
-        let snapshot = library.entries.clone();
-        library.reload().unwrap();
-        assert_eq!(snapshot, library.entries);
-        assert_eq!(first, fs::read_to_string(&path).unwrap());
-        assert_eq!(preferences, fs::read_to_string(&config).unwrap());
-        // Simulate a crash after the library commit, before old config was copied.
-        fs::write(&config, "[games.alley-cat.launcher]\nmachine = 'cga'\n").unwrap();
-        library.reload().unwrap();
-        assert_eq!(snapshot, library.entries);
-        assert_eq!(
-            super::super::launcher::native_options(&config, &snapshot[0].entry_id).unwrap()["machine"],
-            "cga"
-        );
+        assert_eq!(library.entries, entries);
+        assert_eq!(fs::read_to_string(&config).unwrap(), old);
         fs::remove_dir_all(root).unwrap();
     }
 

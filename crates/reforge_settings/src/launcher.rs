@@ -424,7 +424,7 @@ mod tests {
             cli: Patch::new(),
         });
         let mut draft = session.saved.clone();
-        draft.global.insert("master_volume".into(), "72".into());
+        draft.game.insert("master_volume".into(), "72".into());
         draft.game.insert("window_mode".into(), "fullscreen".into());
         save_layout(&path, "gallery").unwrap();
         save_native_option(&path, "other-copy", "machine", Some("pcjr")).unwrap();
@@ -449,7 +449,7 @@ mod tests {
         );
         let before = fs::read(&path).unwrap();
         let saved = session.saved.clone();
-        draft.global.insert("master_volume".into(), "35".into());
+        draft.game.insert("master_volume".into(), "35".into());
         assert!(
             session
                 .commit_with_launcher(
@@ -494,9 +494,7 @@ mod tests {
             cli: Patch::new(),
         });
         let mut draft = session.saved.clone();
-        draft
-            .global
-            .insert("window_mode".into(), "fullscreen".into());
+        draft.game.insert("window_mode".into(), "fullscreen".into());
         draft.game.insert("control_mode".into(), "original".into());
         session.commit(draft).unwrap();
         save_layout(&path, "compact").unwrap();
@@ -517,7 +515,7 @@ mod tests {
             cli: Patch::new(),
         });
         assert_eq!(session.saved.game["control_mode"], "original");
-        assert!(session.saved.global_values().fullscreen);
+        assert!(session.saved.game_values().fullscreen);
     }
 
     #[test]

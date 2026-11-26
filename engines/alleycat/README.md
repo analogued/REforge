@@ -24,7 +24,7 @@ mechanisms that REforge replaces with host facilities.
 **Reforged** scene movement is enabled by default. It smooths actor movement
 while keeping the game's movement speed, physics and collision rules. **Original**
 retains the native stepped presentation. Choose under
-**Settings → Alley Cat overrides → Enhancements → Scene movement**.
+**Settings → Enhancements → Scene movement**.
 Choose the mode, then Apply to save it for this library entry. You can also use
 `--motion reforged|original` for a temporary launch override.
 
@@ -39,7 +39,7 @@ scope and remaining native animations.
 Responsive controls reduce the wait before the game reads direction and action
 requests. They are enabled by default and preserve movement speed, physics and
 blocking effects. Original input polling remains available under
-F10 → Alley Cat overrides → Enhancements → Input response.
+F10 → Enhancements → Input response.
 Apply activates and saves the selection, and Cancel discards it. The preference
 persists across restarts.
 
@@ -174,7 +174,7 @@ The panel pauses animation and gameplay, then restores the previous pause state.
 Its keys do not dismiss native questions or reach gameplay; keys held on closing
 must be released before they control the game. The REforge app saves global and
 game-specific preferences; [configuration](../../docs/configuration.md) explains
-locations, inheritance and temporary CLI overrides.
+locations, per-entry preferences and temporary CLI overrides.
 
 Use the arrow keys to move and jump. P and Pause/Break toggle pause;
 other keys, including arrows, leave it paused. Pause shortcuts are ignored while
@@ -216,12 +216,12 @@ headless builds.
 **IBM PCjr** graphics and mode-specific timing rules. The DOS conversion and PC
 booter default to `cga`; restored DOS inputs default to
 `pcjr`. The old `--machine tandy` spelling remains an alias for `pcjr`, and stored
-Tandy choices migrate to explicit PCjr overrides. In PCjr mode the booter uses
+Tandy choices are accepted as PCjr. In PCjr mode the booter uses
 its full-build text colours and three-voice intro music automatically; there is
 no TV/external-speaker question. The same choice is available in the
-launcher and under F10 → Alley Cat overrides → Display → Machine. Enable
-Override global defaults and Apply to save it for the next launch; the running
-game keeps its current machine. An explicit `--machine` override locks this
+launcher and under F10 → Display → Machine. Select a value
+and Apply to save it for the next launch; the running game keeps its current
+machine. An explicit `--machine` override locks this
 control for that run. Unregistered/configuration-disabled runs cannot save a
 next-launch selection. Booter and restored DOS inputs use white menu and pause
 text instead of the conversion's color-two text. PCjr retains

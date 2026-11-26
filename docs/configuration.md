@@ -22,7 +22,7 @@ settings are skipped. Down from the last option goes to Apply when it is enabled
 otherwise it goes to Reset. Tab retains the footer's visual order. Menu input
 does not reach gameplay.
 With Auto selected, the disabled scale slider shows the resolved windowed
-multiplier. Turning Auto off restores the last manual scale edited in that scope
+multiplier. Turning Auto off restores the last manual scale edited in this menu
 before Apply; if none has been selected, it starts at the resolved multiplier.
 
 During graphical play, the mouse cursor hides after two seconds without mouse
@@ -82,44 +82,35 @@ meeting the threshold are unchanged. Closing settings restores the previous
 size and, where the compositor permits, position. Applying a different scale
 or window mode supersedes that restoration; temporary sizing is never saved.
 
-Controls edit a draft. Apply activates and saves pending edits across both
-Global defaults and the current game's overrides, leaving the menu open.
+Game settings belong to the selected library entry. Two copies of the same game
+can have different settings. New entries and missing values use built-in game
+defaults; changing one entry never changes another. Launcher appearance settings
+remain application-wide on the separate **Launcher** page. With no selected
+game, Settings offers only that page.
+
+Controls edit a draft and are immediately editable. **Apply** activates and saves
+pending edits, leaving the menu open. **Cancel**, Escape and F10 discard unapplied
+edits. **Restore defaults** resets only the current entry's selected section to
+built-in defaults; the reset remains a draft until Apply. Display, CRT & Colour,
+Audio, Controls and Enhancements reset independently.
+
 Before Apply, switching back to a renderer restores its previous backend choice.
-These remembered backend and manual-scale choices are separate for each scope
-and are cleared by Apply, Cancel or resetting the corresponding Display section.
-For an unregistered game launched with `--original`, game overrides apply only
-to the current run; add the game to the launcher library to retain them. Global
-defaults still save normally. With `--no-config`, all edits are temporary.
-Next-launch-only settings such as Mach 3's Digitized samples require a registered
-game with configuration enabled and are disabled otherwise.
-Cancel, Escape and F10 discard unapplied edits. **Reset section** clears only the
-selected global section when editing Global defaults. When editing a game, the
-button is **Restore defaults** on Controls and Enhancements, `btz`'s Display page
-and Mach 3's Audio page, or **Restore global defaults** on the other pages.
-It clears only that game's overrides for the selected section: shared fields inherit global
-preferences, and game-only fields return to their built-in defaults. Display,
-CRT & Colour, Audio, Controls and Enhancements reset independently. Resets remain
-drafts until Apply.
+The menu also remembers a manual scale while Auto is selected. These remembered
+choices are cleared by Apply, Cancel or resetting Display. Changing a field away
+and back restores its original saved state. Resetting a section deliberately
+clears that state, and Apply preserves untouched fields.
 
-Game fields with an override in the draft use the theme accent text, including
-explicit values matching global defaults. An amber dot marks a change compared with
-saved preferences, including removal of an old override.
-Older Alley Cat `machine = "tandy"` selections migrate to explicit `pcjr`
-selections; they keep their override status even when matching the input default.
-Hover labels/dots for global or saved values. No override badges or individual
-reset buttons are displayed. Where present, **Override global defaults**
-enables game editing without copying the global section. The checkbox explains
-that only different values are saved. Unchecking it clears that section's game
-overrides in the draft; Apply saves the reset and Cancel discards it.
+An amber dot marks a pending change. Hover a label or dot to see default and
+saved values. Command-line choices remain temporary and lock their controls.
+For unregistered `--original` launches, edits apply only to this run; add the game
+to the library to retain them. With `--no-config`, all game edits are temporary.
+Next-launch-only settings require a registered entry with configuration enabled.
 
-New game edits save only differences from the current global draft (or built-in
-value for game-only options). Existing overrides are preserved when editing
-other fields or global defaults, even when their values match global. Changing
-a field away and back to its starting value preserves its original override
-state. Explicit section resets clear that state; subsequent edits do not restore
-cleared overrides. Apply never prunes unrelated overrides from the same section.
-Renderer/treatment compatibility adjustments still apply. Hover details
-distinguish saved overrides from inherited values.
+This configuration change intentionally does not migrate old global game
+preferences or settings stored in former sections. Those values are ignored;
+reselect any desired choices in each entry's Settings. Compatible values already
+stored in the current entry tables still load. Reading preferences never
+rewrites the file to convert old settings, and unrelated old tables remain intact.
 
 ## File and precedence
 
@@ -209,7 +200,7 @@ Relocate verifies the replacement using the detection catalog. It accepts the
 same release or another release with the same game ID and explicit
 `compatibility_id`, meaning compatible saves and persistent option semantics.
 Matching hashes, titles or platforms alone never establish compatibility. The
-stored release ID and paths change; entry identity, overrides and its reserved
+stored release ID and paths change; entry identity, settings and its reserved
 save namespace remain intact. Saved files are not moved. BTZ games' default
 save directory follows the selected game-data directory. A directory already
 registered to another entry is rejected.
@@ -236,21 +227,17 @@ adding a game. `btz` uses its native format and game-data-relative default,
 not this reserved namespace. Future REforge-owned save formats should record
 format version and compatibility group rather than require an exact release hash.
 
-Schema-1 numeric library IDs migrate automatically to stable string IDs. Old
-`[games.<game-id>]` preferences, including native launcher choices and explicit
-pins equal to globals, are copied to every existing entry for that game. Those
-legacy sections are then removed; unmapped game sections are preserved until
-an entry for that game exists. The migration is restartable if interrupted
-between the library and preferences writes. Unknown entry fields and comments
-are retained. Repair malformed preferences before completing a pending migration.
+Schema-1 numeric library IDs still upgrade automatically to stable string IDs.
+Old `[games.<game-id>]` preference tables are ignored rather than copied into
+entries. Loading the library does not convert preference tables.
 
 The launcher uses the same Compact UI and supports mouse, keyboard and controller
 navigation. Games run through the ordinary `--original` path in a child REforge
 process while the launcher is hidden; exiting the game restores the launcher.
-Existing global/entry preferences apply. Launching with command-line arguments
+The selected entry's preferences apply. Launching with command-line arguments
 does not add library entries. A detected directory matching an existing entry
-uses that entry's preferences and launcher choices; otherwise it uses global
-and built-in defaults. Explicit CLI values take precedence. Native launcher
+uses that entry's preferences and launcher choices; otherwise it uses built-in
+game defaults. Explicit CLI values take precedence. Native launcher
 choices are applied by windowed (SDL-enabled) builds. `--config` and
 `--no-config` continue to affect that command-line game launch; they do not
 redirect the no-argument launcher's library.
@@ -269,7 +256,7 @@ behavior has not yet been validated. `--config <path>` selects an alternative.
 ```toml
 schema_version = 2
 
-[global.display]
+[entries.alley-cat-m7k4p9.display]
 window_mode = "windowed"
 scale = "auto"
 aspect_ratio = "original"
@@ -280,15 +267,12 @@ backend = "auto"
 vsync = true
 frame_limit = "display"
 
-[global.crt]
+[entries.alley-cat-m7k4p9.crt]
 presentation = "hyllian"
 mask_intensity = 0.35
 
-[global.controls]
+[entries.alley-cat-m7k4p9.controls]
 stick_dead_zone = 35
-
-[entries.alley-cat-m7k4p9.display]
-scale = 4
 
 [entries.alley-cat-m7k4p9.enhancements]
 control_mode = "original"
@@ -296,7 +280,7 @@ control_mode = "original"
 [entries.mach-3-q8n2v5.display]
 vsync = false
 
-[global.audio]
+[entries.alley-cat-m7k4p9.audio]
 master_volume = 80
 mute_unfocused = true
 
@@ -309,8 +293,8 @@ digitized_samples = true
 
 Defaults are windowed, Auto scale, automatic GPU-preferred rendering,
 automatic backend, VSync enabled when supported, a display-refresh frame
-ceiling, and sharp pixels. Missing keys inherit: shared defaults, then
-global preferences, then entry preferences. Catalog game IDs (`alley-cat`,
+ceiling, and sharp pixels. Missing keys use built-in game defaults. Catalog game
+IDs (`alley-cat`,
 `mach-3`, `mindwheel`, `essex`, `brimstone`, `breakers`) identify games; entry IDs
 identify individual configured copies.
 The example suffixes above are illustrative; use the IDs from your library.
@@ -329,8 +313,8 @@ Explicit CLI values form the final temporary layer.
 | frame_limit | `"display"`, `"60"`, `"120"`, `"unlimited"` |
 | file_cursor | `"pulsing-underline"` (default), `"blinking-underline"`, `"steady-block"`; `btz` entries only |
 
-`btz`'s `file_cursor` belongs in `[entries.<entry-id>.display]` and cannot be set
-globally. In Settings it appears under **Text interface**, at the end of
+`btz`'s `file_cursor` belongs in `[entries.<entry-id>.display]` and applies to that
+entry. In Settings it appears under **Text interface**, at the end of
 the game's Display page as **Cursor style**. It affects command input and file
 dialogs in both frontends. Terminal play uses a steady underline for Pulsing
 underline and delegates the other shapes and blink rate to the terminal. See the
@@ -347,15 +331,14 @@ to select GPU/Vulkan.
 `--scale auto|1..16`, `--window-mode windowed|fullscreen`,
 `--renderer auto|gpu|sdl|software|terminal`, `--backend <name>`, `--vsync on|off`,
 `--frame-limit display|60|120|unlimited` and `--presentation pixels|hyllian` override
-only this run. Those controls are disabled in both editing scopes. Each scope
-shows the active CLI value in the locked control. Apply never copies CLI values
+only this run. Their controls display the active CLI value and stay locked. Apply never copies CLI values
 into the file; the saved preferences remain available on the next ordinary run.
 
 Terminal is a startup renderer available to BTZ games. It uses the process's
 attached input/output terminal and does not open a terminal application or an SDL game
 window. It is available through `--renderer terminal`, including builds without
-SDL, or in per-entry Settings when a terminal is attached. It cannot be a global
-default or replace a running SDL game window. Other games warn and ignore the
+SDL, or in per-entry Settings when a terminal is attached. This startup choice
+cannot replace a running SDL game window. Other games warn and ignore the
 Terminal CLI choice.
 
 Window, backend and CRT preferences are retained and ignored during terminal
@@ -384,8 +367,8 @@ the observed frame rate lower than the chosen ceiling.
 
 ## CRT & Colour
 
-CRT preferences use `[global.crt]` and `[entries.<entry-id>.crt]`, with the same
-sparse inheritance and Apply/Cancel rules as Display. `presentation` accepts
+CRT preferences use `[entries.<entry-id>.crt]`, with the same
+Apply/Cancel and section reset rules as Display. `presentation` accepts
 `"pixels"` (default) or `"hyllian"`. Fine adjustments is a shared collapsible
 section for the selected treatment's controls, closed by default. Hyllian exposes
 its horizontal filter and shader sliders there. Sharp pixels keeps the section
@@ -394,9 +377,8 @@ expanding/collapsing changes only visibility, while parameter edits use Apply.
 Hyllian remains visible but disabled for incompatible renderer/backend choices.
 Applying such a combination resets its treatment to Sharp pixels and saves that
 choice. Switching back to a compatible renderer requires selecting Hyllian again.
-Global edits reconcile global defaults and this game's inherited choices; game
-edits leave global defaults unchanged. Explicit compatible game overrides and
-other games' saved overrides are preserved. Temporary CLI restrictions do not
+Changes affect only the selected entry. Other entries' saved choices are
+preserved. Temporary CLI restrictions do not
 rewrite preferences. Automatic GPU initialization failure still falls back to
 pixels without changing the saved treatment. Modern menu overlays are always
 drawn after the shader.
@@ -418,17 +400,15 @@ Numeric controls use increments of 0.01. Initial values preserve the earlier fix
 Hyllian treatment. Beam widths control brightness-dependent scanline thickness;
 they do not change the 200 source-row beam cycles. The RGB aperture mask retains
 its physical two-pixel pitch. Gamma controls belong to the shader, not a separate
-monitor profile or white-point conversion. Invalid fields inherit; invalid beam
-pairs discard the pair's overrides at that scope and warn.
+monitor profile or white-point conversion. Invalid fields use built-in defaults; invalid beam
+pairs discard both stored values for this entry and warn.
 
 ## Audio
 
-Audio preferences use `[global.audio]` and `[entries.<entry-id>.audio]` with the
-same draft, sparse overrides and section reset rules. Sound renderer selection
-is enabled in game overrides for engines/runs that provide alternative rendering.
-Centurion labels that same shared selection Sound device and applies it on the
-next launch. Shared levels, devices and focus defaults can be edited globally
-even from a silent game.
+Audio preferences use `[entries.<entry-id>.audio]`, with the same draft and
+section reset rules as Display. Sound renderer selection is enabled for runs
+that provide alternative rendering. Centurion labels it **Sound device** and
+applies it on the next launch. Playback controls are disabled in silent runs.
 
 | Key | Values | Built-in default |
 | --- | --- | --- |
@@ -448,23 +428,21 @@ the alias without creating an override. Development-only step/static previews re
 silent. Alley Cat supports PC Speaker playback and full-build PCjr
 three-voice title music, with Music and Effects categories; its uniform-step diagnostic
 runner remains silent. Engines declare supported Music, Speech and Sound effects groups;
-unsupported game groups remain visible but disabled. Global category defaults
-can still be edited. Latency controls and stereo processing are not implemented.
+unsupported game groups remain visible but disabled. Latency controls and stereo processing are not implemented.
 
-All engines use the same audio-selection setting, inheritance, sparse overrides
-and default resolution. `"default"` resolves to the engine's declared default:
+All engines use the same per-entry audio-selection setting and default
+resolution. `"default"` resolves to the engine's declared default:
 AdLib for Centurion, PC speaker for Mach 3, Alley Cat and graphical BTZ.
-A supported explicit global choice is inherited unless the entry overrides it;
-an unsupported choice resolves to the engine default without rewriting the
+An unsupported entry choice resolves to the engine default without rewriting the
 stored preference. Per-game menus show concrete supported choices. Opening a
 menu does not replace the default alias or create an override.
 
 Centurion's **Audio → Sound device** selects AdLib or PC speaker for the next
 launch, sharing `audio_renderer` with the launcher's **Sound** choice. Apply
 saves it; Cancel discards it; restoring Audio defaults clears the entry's choice
-and restores inheritance. An explicit `--sound adlib|pc-speaker` is temporary and
-locks the same setting for that run. Existing per-entry `launcher.sound` choices
-migrate to `audio.audio_renderer`; an existing canonical choice takes precedence.
+and restores its built-in default. An explicit `--sound adlib|pc-speaker` is temporary and
+locks the same setting for that run. Former `launcher.sound` values are ignored;
+use `audio.audio_renderer` for saved preferences.
 Unregistered launches cannot save next-launch edits. Master/category volumes,
 host output device and focus muting still apply during play.
 
@@ -511,12 +489,11 @@ Audio buffering uses the existing latency policy, and output remains mono.
 
 ## Alley Cat machine
 
-**Alley Cat overrides → Display → Machine** exposes the same choices as the
+Alley Cat's ** Display → Machine** exposes the same choices as the
 launcher: **IBM PC (CGA)** and **IBM PCjr**. The original DOS conversion and PC
 booter default to IBM PC (CGA); restored DOS inputs default to IBM PCjr,
 preserving their enhanced presentation.
-Enable **Override global defaults**, select the machine and Apply. There is no
-global machine preference.
+Select the machine and Apply to save it for this entry.
 
 This is a startup choice: changing it in-game saves the next launch's selection
 without changing the running game's graphics, sound or timing. It uses the
@@ -525,8 +502,8 @@ edits stay synchronized. Display's **Restore defaults** removes the pin and
 returns to the input-specific default. Cancel discards pending edits.
 
 The old Tandy choice was equivalent to PCjr and is no longer shown separately.
-Saved `tandy` values migrate to explicit `pcjr` selections, and `--machine tandy`
-remains a compatibility alias for `--machine pcjr`.
+Saved `tandy` values are accepted as PCjr, and `--machine tandy` remains a
+compatibility alias for `--machine pcjr`. Loading does not rewrite the old spelling.
 
 An explicit `--machine` argument is temporary and locks the selector for that
 run. A saved launcher selection remains editable. Next-launch edits require a
@@ -538,34 +515,30 @@ registered library entry and configuration storage; unregistered or
 Game-specific improvements are grouped under **Enhancements** in each game's
 settings. Alley Cat offers scene movement and input response; Mach 3 offers
 scene movement and, with Original scenes, player craft movement. These options
-have built-in game defaults rather than shared global defaults. They are stored
-in each entry's `enhancements` table. Existing motion and input-response
-preferences migrate there automatically when that entry loads. Options are
-directly editable, without an override checkbox; **Restore defaults** restores
-the game's built-in choices on Apply. The Global defaults view is informational
-for this section.
+use built-in game defaults and are stored in each entry's `enhancements` table.
+**Restore defaults** restores those choices on Apply. Old motion and input-response
+values in Display or Controls are ignored.
 
 ### Alley Cat input response
 
-**Alley Cat overrides → Enhancements → Input response** offers **Responsive** (the
+Alley Cat's ** Enhancements → Input response** offers **Responsive** (the
 built-in default) and **Original**. Responsive refreshes direction and action
 requests more often, preserving movement cadence and blocking effects. Original
 retains the original game's input polling. Apply changes the running game and
 saves the preference; Cancel discards pending edits.
 
-This option exists only for Alley Cat, without a Global defaults or Mach 3
-counterpart. It is stored as
+This option exists only for Alley Cat. It is stored as
 `[entries.alley-cat-m7k4p9.enhancements] control_mode = "original"`; selecting Responsive
-removes that override.
+removes the saved choice.
 **Restore defaults** resets this entry's Enhancements section on Apply,
 including input response and scene movement. Controller layouts and the stick
 dead zone reset separately under Controls.
-Global resets leave game overrides intact. Reference/headless diagnostics retain
+Reference/headless diagnostics retain
 original input polling.
 
 ### Mach 3 motion
 
-**Mach 3 overrides → Enhancements → Scene movement** offers **Reforged** (the
+Mach 3's ** Enhancements → Scene movement** offers **Reforged** (the
 built-in default) and **Original**. Reforged smooths scene movement while
 keeping the original mountain artwork and updates. Original scene movement shows
 **Player craft movement**, with **Enhanced** for craft/shadow-only smoothing
@@ -574,33 +547,26 @@ collisions, randomness, PIT execution and audio timing are unchanged. Apply
 changes the running presentation and saves the preference; Cancel discards draft
 changes.
 
-This option is game-specific and has no global or other-game counterpart. Its
+This option is specific to Mach 3. Its
 storage is `[entries.mach-3-q8n2v5.enhancements] motion = "reforged"|"enhanced"|"original"`.
-`reforged` is the built-in default, so selecting it normally removes the override.
-An existing saved `scene` value is automatically renamed to `reforged` when its
-Mach 3 entry loads, preserving the selected behavior.
+`reforged` is the built-in default, so selecting it normally removes the saved choice.
 Existing explicit `enhanced` values keep craft/shadow-only interpolation;
 `original` keeps native presentation. The menu remembers the last player craft
 choice while switching scene movement during a session.
 
 Resetting the game Enhancements section restores Reforged scene movement on
-Apply; global resets and other game sections leave the motion override intact.
+Apply; other sections leave the motion preference intact.
 `--motion reforged|enhanced|original` is a temporary, locked override and does not
 change the saved value.
 
 ## Mach 3 digitized samples
 
-Mach 3 overrides on the Audio page include **Digitized samples** immediately
-below Sound renderer. It defaults to On and is stored only as
-`[entries.mach-3-q8n2v5.gameplay] digitized_samples = true|false`. There is no global or
-Alley Cat counterpart. On this page, unchecking **Override global defaults**
-makes shared audio inherit global defaults and restores Digitized
-samples to its built-in On value. Section preference controls are grayed out
-until that checkbox is checked. A saved samples Off value counts as an Audio
-override, so the section reopens enabled. **Restore defaults** has the same reset
-behavior; Apply saves the reset and Cancel discards it. Resetting global audio
-leaves game overrides intact. Host mute remains separate from the native sample
-policy.
+Mach 3's Audio page includes **Digitized samples** immediately below Sound
+renderer. It defaults to On and is stored as
+`[entries.mach-3-q8n2v5.gameplay] digitized_samples = true|false`.
+**Restore defaults** resets Audio and restores Digitized samples to On when
+applied. Cancel discards the reset. Host mute remains separate from the native
+sample policy.
 
 This is a native game option, separate from host mute, volumes and rendering.
 Off skips the original digitized playback calls and their time/input effects:
@@ -657,22 +623,21 @@ The diagram follows the connected controller family; without a recognized family
 it shows Xbox button positions. These templates do not change keyboard, title or
 menu controls, or Mach 3's bindings.
 
-Enable **Override global defaults** on Alley Cat's Controls page to edit the
-templates. Each movement mode remembers its button layout. Apply saves them
+Edit the templates on Alley Cat's Controls page. Each movement mode remembers
+its button layout. Apply saves them
 under `[entries.<entry-id>.controls]` as `controller_movement` (`directional` or
 `button`), `controller_action` (a physical face-button position), and
 `controller_buttons` (a pair such as `west-jump-south-action`). They have built-in
-defaults rather than global counterparts. Restore defaults resets this entry's
+defaults for each entry. Restore defaults resets this entry's
 Controls section on Apply; Cancel discards unapplied changes. There are no
 corresponding command-line arguments.
 
-**Stick dead zone** is an integer percentage from 5 to 90, default 35. Set it in
-Global defaults → Controls, or check **Override global defaults** in a game's
-Controls page to override it. TOML uses `[global.controls] stick_dead_zone = 35` and
-`[entries.<entry-id>.controls] stick_dead_zone = 35`. Apply activates and saves the
-value; Cancel discards edits. There is no corresponding command-line option.
-Launcher navigation uses the global value, including after Apply; per-game
-overrides affect that game's controls.
+**Stick dead zone** is an integer percentage from 5 to 90, default 35. Set it
+under **Controls** for each entry. TOML uses
+`[entries.<entry-id>.controls] stick_dead_zone = 35`. Apply activates and saves
+the value; Cancel discards edits. There is no corresponding command-line option.
+Launcher navigation uses the built-in 35% threshold, independently of game
+settings.
 
 Each left-stick axis activates a digital direction at that displacement and
 releases below five sevenths of that threshold (approximately 25% at the default
@@ -720,7 +685,8 @@ The lock file may remain; its OS lock is released on process exit or crash.
 
 Malformed TOML and unsupported schema versions warn and run with defaults while
 protecting the file from replacement. Invalid individual fields warn and
-inherit; valid fields still load. Original game data failures retain their
+use built-in defaults; valid fields still load. Original game data failures
+retain their
 existing fatal-error behavior.
 
 `reforge_settings` owns resolution and persistence; `reforge_sdl` owns activation
@@ -730,8 +696,7 @@ preferences; the REforge app supplies persistent settings and the common CLI.
 
 ## Centurion UI preferences
 
-Centurion's **Enhancements** page exposes **Centurion UI** when editing
-**Centurion overrides**. Enable **Override global defaults**, then expand
+Centurion's **Enhancements** page exposes **Centurion UI**. Expand
 **Advanced options** for individual controls. **UI preset** selects Original or
 Reforged; it is derived from the six detailed choices rather than saved separately.
 Other combinations display Custom. Apply updates the presentation immediately;
@@ -804,11 +769,10 @@ an incomplete last row to its first column.
 The first launch uses Classic Dark and Split. Unknown stored appearance values
 fall back for display without rewriting them until the player changes that choice.
 
-Quick options are declared by each engine. Choosing a value saves it immediately,
-even when it currently equals its default. Its full highlight means an override
-exists; dim highlighting means the option follows its default. Clicking an
-explicit selection removes that override. Global edits and unrelated Settings
-Apply operations preserve explicit selections, including matching defaults.
+Quick options are declared by each engine. Choosing a value saves it immediately
+for that library entry. The selected value always uses the same highlight;
+clicking it again leaves the choice unchanged. Built-in defaults apply where no
+choice is stored. Unrelated Settings edits preserve the selected values.
 
 Shared options use the ordinary per-entry Settings keys. Native startup choices
 use the entry's launcher table, for example:

@@ -187,11 +187,7 @@ fn detail(ui: &mut Ui, text: &str) {
 
 fn heading(ui: &mut Ui, text: &str, state: RowState) {
     let palette = crate::ui::current_palette(ui.ctx());
-    let colour = if state.overridden {
-        palette.override_text
-    } else {
-        ui.visuals().text_color()
-    };
+    let colour = ui.visuals().text_color();
     let response = ui.add_sized(
         [ui.available_width(), 20.0],
         egui::Label::new(egui::RichText::new(text).color(colour)),

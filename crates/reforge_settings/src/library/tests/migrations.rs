@@ -140,7 +140,7 @@ fn malformed_libraries_are_preserved_before_any_alias_write() {
 }
 
 #[test]
-fn release_aliases_compose_with_schema_one_and_preference_migration() {
+fn release_aliases_upgrade_library_identities_without_converting_preferences() {
     let temp = Temp::new();
     let mut library = setup(&temp);
     fs::write(&library.path,format!("schema_version = 1\n[[games]]\nid = 1\ngame_id = 'one'\nrelease_id = 'r1'\ntitle = 'Old copy'\noriginal = '{}'\n",temp.0.join("missing").display())).unwrap();
@@ -160,5 +160,5 @@ fn release_aliases_compose_with_schema_one_and_preference_migration() {
         path: Some(library.config.clone()),
         cli: Default::default(),
     });
-    assert_eq!(preferences.effective(&preferences.saved).audio.volume, 40);
+    assert_eq!(preferences.effective(&preferences.saved).audio.volume, 80);
 }

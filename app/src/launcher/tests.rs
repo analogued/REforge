@@ -248,6 +248,11 @@ fn alleycat_settings_and_launcher_share_machine_without_turning_saved_pins_into_
         let mut game = model::GameEntry::from_entry(entry, fixture.config.clone());
         game.reload_preferences();
         game.save_option("Machine", "IBM PCjr");
+        let expected = if game.options[0].default == "pcjr" {
+            Vec::new()
+        } else {
+            vec!["--machine", "pcjr"]
+        };
         assert_eq!(game.native_arguments(), ["--machine", "pcjr"]);
         assert!(game.launch_arguments().is_empty());
         let mut launch = Launch {
@@ -267,12 +272,15 @@ fn alleycat_settings_and_launcher_share_machine_without_turning_saved_pins_into_
         crate::profile::bind(&mut launch, &detected, &mut forwarded).unwrap();
         assert_eq!(
             forwarded,
-            [std::ffi::OsString::from("--machine"), "pcjr".into()]
+            expected
+                .iter()
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>()
         );
         assert!(!launch.cli.contains_key(reforge_settings::ALLEYCAT_MACHINE));
         let mut session = Session::load(launch);
         let mut draft = session.saved.clone();
-        draft.reset_section(true, 0);
+        draft.reset_section(0);
         session.commit(draft).unwrap();
         game.reload_preferences();
         assert_eq!(
@@ -307,7 +315,6 @@ fn invalid_shared_fields_preserve_launcher_choices_and_cli_agreement() {
         let game = loaded_game_entry(entry, fixture.config.clone(), false);
         assert!(game.error.is_some());
         assert_eq!(game.option_values()["Window"], "Fullscreen");
-        assert_eq!(global_dead_zone(&fixture.config), 60);
         let release = detection::RELEASES
             .iter()
             .find(|r| r.id == entry.release_id)
@@ -348,19 +355,7 @@ fn invalid_shared_fields_preserve_launcher_choices_and_cli_agreement() {
 }
 
 #[test]
-fn launcher_dead_zone_tracks_global_edits_independently_of_game_overrides() {
-    let fixture = Fixture::new(0);
-    assert_eq!(global_dead_zone(&fixture.config), 35);
-    for value in [60, 15] {
-        std::fs::write(&fixture.config, format!(
-            "schema_version = 2\n[global.controls]\nstick_dead_zone = {value}\n[entries.test.controls]\nstick_dead_zone = 80\n"
-        )).unwrap();
-        assert_eq!(global_dead_zone(&fixture.config), value);
-    }
-}
-
-#[test]
-fn migration_write_warning_preserves_resolved_launcher_preferences() {
+fn loading_preferences_does_not_require_a_write_lock() {
     let fixture = Fixture::new(detection::RELEASES.len());
     let mut library = Library::new(fixture.library.clone());
     library.reload().unwrap();
@@ -383,7 +378,7 @@ fn migration_write_warning_preserves_resolved_launcher_preferences() {
         .unwrap();
     fs2::FileExt::try_lock_exclusive(&lock).unwrap();
     let game = loaded_game_entry(entry, fixture.config.clone(), false);
-    assert!(game.error.as_ref().unwrap().contains("busy"));
+    assert!(game.error.is_none());
     assert_eq!(game.option_values()["Window"], "Fullscreen");
     assert_eq!(game.native_arguments(), ["--video", "mono"]);
     assert_eq!(std::fs::read_to_string(&fixture.config).unwrap(), original);
@@ -1117,13 +1112,13 @@ fn symbolic_art_uses_catalog_titles_and_engine_mode_palettes() {
             );
             assert_eq!(game.gallery_palette_display(), game.palette_display());
             assert_eq!(game.native_arguments(), ["--machine", "pcjr"]);
-            game.save_option("Machine", "IBM PCjr");
+            game.save_option("Machine", "IBM PC (CGA)");
             let game = &mut h.state.games[1];
             game.save_option("Video", "Monochrome");
             assert_eq!(game.palette_swatches(), &[[0, 0, 0], [255, 255, 255]]);
             assert_eq!(game.gallery_palette_display(), game.palette_display());
             assert_eq!(game.native_arguments(), ["--video", "mono"]);
-            game.save_option("Video", "Monochrome");
+            game.save_option("Video", "CGA");
             let game = h
                 .state
                 .games
@@ -1381,35 +1376,18 @@ fn mach3_quick_presentation_options_preserve_hidden_sample_preferences() {
 }
 
 #[test]
-fn immediate_pins_survive_reloads_and_global_changes_even_when_values_match() {
+fn quick_options_save_entry_choices_without_toggling_off() {
     for theme in ThemeId::ALL {
         for layout in LayoutVariant::ALL {
             let fixture = Fixture::new(2);
             let mut h = Harness::new(&fixture, theme, layout, true);
             h.state.options_open = true;
-            let output = h.settle();
-            h.moving_click_at(text_rect(&output, "Windowed").unwrap().center());
+            h.state.games[0].save_option("Window", "Fullscreen");
             assert_eq!(
                 fixture.session("alley-cat").saved.game["window_mode"],
-                "windowed"
+                "fullscreen"
             );
-            let mut session = fixture.session("alley-cat");
-            let mut draft = session.saved.clone();
-            draft
-                .global
-                .insert("window_mode".into(), "fullscreen".into());
-            session.commit(draft).unwrap();
-            h.state.games[0].refresh_preferences().unwrap();
-            assert_eq!(h.state.games[0].option_values()["Window"], "Windowed");
-            h.click("Windowed");
-            assert!(
-                !fixture
-                    .session("alley-cat")
-                    .saved
-                    .game
-                    .contains_key("window_mode")
-            );
-            assert_eq!(h.state.games[0].option_values()["Window"], "Fullscreen");
+            h.settle();
             h.click("Fullscreen");
             assert_eq!(
                 fixture.session("alley-cat").saved.game["window_mode"],
@@ -1417,12 +1395,24 @@ fn immediate_pins_survive_reloads_and_global_changes_even_when_values_match() {
             );
             let mut session = fixture.session("alley-cat");
             let mut draft = session.saved.clone();
-            draft.global.remove("window_mode");
-            draft.edit(false, "master_volume", "65".into());
+            draft.edit("master_volume", "65".into());
             session.commit(draft).unwrap();
             let reloaded = fixture.state(theme, layout, false);
-            assert_eq!(reloaded.games[0].preferences.saved["Window"], "Fullscreen");
             assert_eq!(reloaded.games[0].option_values()["Window"], "Fullscreen");
+            assert_eq!(reloaded.games[1].option_values()["Window"], "Windowed");
+            h.state.games[0].save_option("Window", "Windowed");
+            h.settle();
+            h.click("Windowed");
+            assert!(!fixture.session("alley-cat").saved.game_values().fullscreen);
+            assert_eq!(
+                fixture
+                    .session("alley-cat")
+                    .saved
+                    .game_values()
+                    .audio
+                    .volume,
+                65
+            );
         }
     }
 }
@@ -1510,7 +1500,7 @@ fn btz_title_preview_is_shared_by_graphical_and_terminal_choices() {
 }
 
 #[test]
-fn btz_renderer_pins_and_unpins_like_other_launch_options() {
+fn btz_frontend_selections_preserve_dormant_graphics() {
     // The active-mode preview badge can also say "Terminal". Target the
     // button beside Graphical rather than that noninteractive label.
     let click_terminal = |h: &mut Harness| {
@@ -1534,7 +1524,7 @@ fn btz_renderer_pins_and_unpins_like_other_launch_options() {
             let fixture = Fixture::new(detection::RELEASES.len());
             let mut session = fixture.session("mindwheel");
             let mut draft = session.saved.clone();
-            draft.global.insert("renderer".into(), "gpu".into());
+            draft.game.insert("renderer".into(), "gpu".into());
             draft.game.insert("window_mode".into(), "fullscreen".into());
             draft.game.insert("presentation".into(), "hyllian".into());
             session.commit(draft).unwrap();
@@ -1544,47 +1534,14 @@ fn btz_renderer_pins_and_unpins_like_other_launch_options() {
             h.state.selected = Some(h.state.games[0].entry_id.clone());
             h.state.options_open = true;
             h.state.games[0].terminal_available = true;
-            assert!(!h.state.games[0].preferences.saved.contains_key("Renderer"));
-
-            // Clicking the inherited choice pins it, including a matching default.
-            h.click("Graphical");
-            assert_eq!(fixture.session("mindwheel").saved.game["renderer"], "gpu");
-            h.state.games[0].refresh_preferences().unwrap();
-            assert_eq!(h.state.games[0].preferences.saved["Renderer"], "Graphical");
-            let mut session = fixture.session("mindwheel");
-            let mut draft = session.saved.clone();
-            draft.global.insert("renderer".into(), "sdl".into());
-            session.commit(draft).unwrap();
-            h.state.games[0].refresh_preferences().unwrap();
-            assert_eq!(
-                fixture.session("mindwheel").saved.game_values().renderer,
-                reforge_settings::Renderer::Gpu
-            );
-
-            // Clicking the pinned choice removes it and follows updated globals.
             h.click("Graphical");
             assert_eq!(fixture.session("mindwheel").saved.game, original_graphics);
-            assert_eq!(
-                fixture.session("mindwheel").saved.game_values().renderer,
-                reforge_settings::Renderer::Sdl
-            );
-            assert!(!h.state.games[0].preferences.saved.contains_key("Renderer"));
-
-            // Both frontend choices use the same pin/unpin rule.
             click_terminal(&mut h);
             h.state.games[0].refresh_preferences().unwrap();
-            assert_eq!(h.state.games[0].preferences.saved["Renderer"], "Terminal");
+            assert_eq!(h.state.games[0].option_values()["Renderer"], "Terminal");
             click_terminal(&mut h);
-            h.state.games[0].refresh_preferences().unwrap();
-            assert!(!h.state.games[0].preferences.saved.contains_key("Renderer"));
-            assert_eq!(h.state.games[0].option_values()["Renderer"], "Graphical");
-            assert_eq!(fixture.session("mindwheel").saved.game, original_graphics);
-
-            // Unpinning Terminal clears its entire renderer override, whereas
-            // selecting Graphical restores the dormant override (covered above).
+            assert_eq!(h.state.games[0].option_values()["Renderer"], "Terminal");
             h.click("Graphical");
-            click_terminal(&mut h);
-            click_terminal(&mut h);
             assert_eq!(fixture.session("mindwheel").saved.game, original_graphics);
         }
     }
@@ -2793,7 +2750,7 @@ fn centurion_sound_settings_and_launcher_share_pins_without_cli_locks() {
 }
 
 #[test]
-fn centurion_sound_resolves_global_defaults_and_entry_aliases_without_rewriting() {
+fn centurion_sound_resolves_entry_defaults_without_rewriting() {
     use reforge_settings::Patch;
     let release = detection::RELEASES
         .iter()
@@ -2809,7 +2766,7 @@ fn centurion_sound_resolves_global_defaults_and_entry_aliases_without_rewriting(
         cli: Patch::new(),
     });
     let mut draft = session.saved.clone();
-    draft.edit(false, "audio_renderer", "speaker".into());
+    draft.edit("audio_renderer", "speaker".into());
     session.commit(draft).unwrap();
     state.games[0].reload_preferences();
     assert_eq!(state.games[0].option_values()["Sound"], "PC speaker");
@@ -2821,8 +2778,8 @@ fn centurion_sound_resolves_global_defaults_and_entry_aliases_without_rewriting(
     assert_eq!(state.games[0].option_values()["Sound"], "AdLib");
     assert_eq!(std::fs::read(&fixture.config).unwrap(), before);
     let mut draft = session.saved.clone();
-    draft.reset_section(true, 2);
+    draft.reset_section(2);
     session.commit(draft).unwrap();
     state.games[0].reload_preferences();
-    assert_eq!(state.games[0].option_values()["Sound"], "PC speaker");
+    assert_eq!(state.games[0].option_values()["Sound"], "AdLib");
 }

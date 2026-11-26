@@ -40,9 +40,9 @@ new-campaign data, including 1.00B's higher initial plunder reserve in Pontus.
 
 ## Sound
 
-The launcher's **Sound** choice and **Settings → Centurion overrides → Audio →
+The launcher's **Sound** choice and **Settings → Audio →
 Sound device** offer **AdLib** (default) and **PC speaker** for either DOS version
-and either video mode. They share the standard per-entry audio selection and default inheritance.
+and either video mode. They share the standard per-entry audio selection and built-in defaults.
 Settings changes take effect on the next launch; they do not switch the running
 sound arrangement. PC speaker plays the original game's single-voice arrangement.
 
@@ -136,8 +136,8 @@ Original game resources are only read; campaign writes target the save directory
 
 ## Game-specific options
 
-Open **F10 → Centurion overrides → Enhancements → Centurion UI**. Enable
-**Override global defaults** to edit the game settings, then Apply.
+Open **F10 → Enhancements → Centurion UI**. Edit the
+settings, then Apply.
 **UI preset** selects Original or Reforged (the default). Expand **Advanced
 options** to adjust the six choices separately:
 

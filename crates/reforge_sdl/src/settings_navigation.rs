@@ -297,7 +297,6 @@ struct Target {
 }
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum Group {
-    Scope,
     Sidebar,
     Content,
     Footer,
@@ -775,17 +774,15 @@ mod tests {
             }
         };
         let mut targets = vec![
-            target("Global defaults", Group::Scope, 150.0, 0.0),
-            target("Game overrides", Group::Scope, 270.0, 0.0),
             target("Display", Group::Sidebar, 0.0, 45.0),
             target("Windowed", Group::Content, 180.0, 230.0),
             target("Reset section", Group::Footer, 0.0, 400.0),
         ];
-        assert_eq!(directional_target(&targets, 2, Key::ArrowRight), Some(3));
-        targets.remove(3); // Every page option may be locked or disabled.
-        assert_eq!(directional_target(&targets, 2, Key::ArrowRight), Some(3));
-        targets.remove(3);
-        assert_eq!(directional_target(&targets, 2, Key::ArrowRight), None);
+        assert_eq!(directional_target(&targets, 0, Key::ArrowRight), Some(1));
+        targets.remove(1); // Every page option may be locked or disabled.
+        assert_eq!(directional_target(&targets, 0, Key::ArrowRight), Some(1));
+        targets.remove(1);
+        assert_eq!(directional_target(&targets, 0, Key::ArrowRight), None);
     }
 
     #[test]
@@ -908,7 +905,8 @@ mod tests {
         let display = crate::Window::new("Audio row navigation", 320, 240, Some(4)).unwrap();
         let creator = display.texture_creator();
         for mach3 in [false, true] {
-            for scope in [0, 1] {
+            {
+                let scope = 1;
                 for (size, density) in [
                     ((640, 480), 1.0),
                     ((960, 720), 1.5),
@@ -936,10 +934,10 @@ mod tests {
                             menu.with_alleycat_options()
                         };
                         menu.toggle();
-                        menu.scope = scope;
+
                         menu.page = 2;
                         menu.prepare(metrics, display.settings());
-                        menu.game_editing[2] = true;
+
                         for _ in 0..4 {
                             menu.prepare(metrics, display.settings());
                         }
@@ -1081,18 +1079,17 @@ mod tests {
                         for changed in [false, true] {
                             menu.draft = clean.clone();
                             if changed {
-                                menu.draft.as_mut().unwrap().edit(
-                                    scope == 1,
-                                    "master_volume",
-                                    "79".into(),
-                                );
+                                menu.draft
+                                    .as_mut()
+                                    .unwrap()
+                                    .edit("master_volume", "79".into());
                             }
                             for page in 0..reforge_settings::SECTION_KEYS.len() {
                                 if page == reforge_settings::ENHANCEMENTS_SECTION && scope == 0 {
                                     continue;
                                 }
                                 menu.page = page;
-                                menu.game_editing[page] = true;
+
                                 for _ in 0..3 {
                                     menu.prepare(metrics, display.settings());
                                 }
@@ -1177,10 +1174,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let next = PadEvent {
-            next: true,
-            ..Default::default()
-        };
+
         let frame =
             |menu: &mut SettingsMenu<'_>| menu.prepare(display.ui_metrics(), display.settings());
         let controller = |menu: &mut SettingsMenu<'_>, pad| {
@@ -1188,6 +1182,7 @@ mod tests {
             frame(menu)
         };
         for mach3 in [true, false] {
+            creator.session.borrow_mut().saved = Default::default();
             let mut menu = SettingsMenu::new(&creator, VideoCapabilities::default());
             menu = if mach3 {
                 menu.with_mach3_options(None)
@@ -1205,10 +1200,7 @@ mod tests {
             frame(&mut menu);
             frame(&mut menu);
             assert!(menu.context.memory(|memory| memory.focused()).is_some());
-            controller(&mut menu, next);
-            controller(&mut menu, confirm);
-            assert_eq!(menu.scope, 1);
-            controller(&mut menu, next); // Display page button
+            // Opening focuses the Display sidebar button.
             for page in 1..=3 {
                 controller(
                     &mut menu,
@@ -1235,11 +1227,7 @@ mod tests {
                     ..Default::default()
                 },
             );
-            controller(&mut menu, PadEvent::default()); // Override defaults checkbox
-            assert!(!menu.game_editing[3]);
-            controller(&mut menu, confirm);
-            assert!(menu.game_editing[3]);
-            controller(&mut menu, next); // shared stick slider
+            controller(&mut menu, PadEvent::default()); // Entry stick slider
             let before = menu.draft.as_ref().unwrap().game_values().stick_dead_zone;
             controller(
                 &mut menu,
@@ -1451,7 +1439,7 @@ mod tests {
                 menu.prepare(metrics, display.settings());
                 assert!(menu.navigation.mode == InputMode::Keyboard);
                 assert_eq!(
-                    menu.draft.as_ref().unwrap().global_values().scaling_policy,
+                    menu.draft.as_ref().unwrap().game_values().scaling_policy,
                     reforge_settings::ScalingPolicy::Fit
                 );
                 assert!(!menu.context.memory(|m| m.any_popup_open()));
@@ -1505,7 +1493,7 @@ mod tests {
                 menu.handle_event(&key(Scancode::Right, Keycode::Right, false));
                 menu.prepare(metrics, display.settings());
                 assert_eq!(
-                    menu.draft.as_ref().unwrap().global_values().scaling_policy,
+                    menu.draft.as_ref().unwrap().game_values().scaling_policy,
                     reforge_settings::ScalingPolicy::Stretch
                 );
                 assert!(!menu.context.memory(|m| m.any_popup_open()));
@@ -1608,11 +1596,10 @@ mod tests {
                         pixels_per_point: density,
                     };
                     menu.prepare(metrics, display.settings());
-                    menu.draft.as_mut().unwrap().edit(
-                        false,
-                        "scale",
-                        if auto_scale { "auto" } else { "4" }.into(),
-                    );
+                    menu.draft
+                        .as_mut()
+                        .unwrap()
+                        .edit("scale", if auto_scale { "auto" } else { "4" }.into());
                     for _ in 0..4 {
                         menu.prepare(metrics, display.settings());
                     }
@@ -1831,7 +1818,7 @@ mod tests {
                     }
                     menu.context.memory_mut(|m| m.request_focus(vsync));
                     menu.prepare(metrics, display.settings());
-                    let before = menu.draft.as_ref().unwrap().global_values().vsync;
+                    let before = menu.draft.as_ref().unwrap().game_values().vsync;
                     menu.handle_gamepad(PadEvent {
                         pressed: Actions {
                             action: true,
@@ -1841,7 +1828,7 @@ mod tests {
                     });
                     menu.prepare(metrics, display.settings());
                     assert_ne!(
-                        menu.draft.as_ref().unwrap().global_values().vsync,
+                        menu.draft.as_ref().unwrap().game_values().vsync,
                         before,
                         "VSync must activate once focused"
                     );
@@ -2099,14 +2086,14 @@ mod tests {
                 SettingsMenu::new(&creator, VideoCapabilities::default()).with_mach3_options(None);
             menu.set_theme(ResolvedAppearance::resolve(theme).theme);
             menu.toggle();
-            menu.scope = 1;
+
             menu.prepare(metrics, reforge_settings::RuntimeSettings::default());
             menu.page = 0;
-            menu.game_editing[0] = true;
+
             menu.draft
                 .as_mut()
                 .unwrap()
-                .edit(true, "scaling_policy", "fit".into());
+                .edit("scaling_policy", "fit".into());
             for _ in 0..3 {
                 menu.prepare(metrics, reforge_settings::RuntimeSettings::default());
             }

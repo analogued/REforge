@@ -935,6 +935,14 @@ metadata is read through the catalog links and is not duplicated in user
 configuration. Metadata edits leave native preview cache identities unchanged.
 The local development `project.toml` inventories are not runtime catalog inputs.
 
+Preview display textures are prepared in the background. Resized artwork and
+its CRT treatment are cached independently of the theme's border and rounded
+corners. Theme changes reuse those processed pixels; a cached version of the
+same image remains visible while its new frame is prepared. Selecting a game
+whose display texture has not yet been prepared can show a placeholder on first
+use. Returning to a cached preview is immediate. These memory caches are bounded
+and separate from the native PNG cache described below.
+
 The launcher loads cached static engine scene previews in a background worker
 and generates missing or corrupt images from verified originals. It warms the
 available visual variants (CGA/PCjr for Alley Cat, colour/monochrome for Mach 3).

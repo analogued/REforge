@@ -289,4 +289,205 @@ mod tests {
             Err(mpsc::TryRecvError::Empty)
         ));
     }
+    #[test]
+    fn cold_theme_changes_keep_artwork_visible_and_reuse_processing_across_worker_jobs() {
+        let ctx = egui::Context::default();
+        let source = Arc::new(
+            Frame::new(
+                DisplayGeometry::new((2, 2), (4, 3)),
+                [80, 120, 200, 255].repeat(4),
+            )
+            .unwrap(),
+        );
+        let original_key = TextureKey {
+            frame: FrameKey {
+                width: 80,
+                height: 60,
+                density: 1.0_f32.to_bits(),
+                radius: 2,
+                light: false,
+                dimmed: false,
+            },
+            colours: vec![],
+            image: Some(("game".into(), true)),
+        };
+        let mut compositor = Compositor::default();
+        let mut cache = Cache::default();
+        let original = cache.upload(
+            &ctx,
+            original_key.clone(),
+            compositor.render(&original_key, Some(&source)),
+        );
+        let metrics = UiMetrics {
+            drawable: (880, 560),
+            window: (880, 560),
+            pixels_per_point: 1.0,
+        };
+        let now = Instant::now();
+        let (requests, submitted) = mpsc::channel();
+        let (send, completed) = mpsc::channel();
+        cache.resize = Some(Resize {
+            metrics,
+            last_frame: now,
+            settled_at: now,
+            generation: 0,
+            worker: Some(Worker {
+                requests,
+                completed,
+                busy: false,
+            }),
+            ready: None,
+        });
+        let mut theme = original_key.clone();
+        theme.frame.radius = 6;
+        theme.frame.light = true;
+        assert_eq!(
+            cache
+                .texture(&ctx, theme.clone(), Some(&source))
+                .unwrap()
+                .id(),
+            original.id()
+        );
+        let request = submitted.try_recv().unwrap();
+        assert_eq!(request.key, theme);
+        // Change theme again before the first composition completes.
+        theme.frame.radius = 3;
+        assert_eq!(
+            cache
+                .texture(&ctx, theme.clone(), Some(&source))
+                .unwrap()
+                .id(),
+            original.id()
+        );
+        let first = compositor.render(&request.key, request.source.as_deref());
+        send.send(Reply {
+            generation: request.generation,
+            key: request.key,
+            image: first,
+        })
+        .unwrap();
+        cache
+            .resize
+            .as_mut()
+            .unwrap()
+            .begin_frame(metrics, now + Duration::from_millis(16));
+        assert_eq!(
+            cache
+                .texture(&ctx, theme.clone(), Some(&source))
+                .unwrap()
+                .id(),
+            original.id()
+        );
+        let request = submitted.try_recv().unwrap();
+        assert_eq!(request.key, theme);
+        let image = compositor.render(&request.key, request.source.as_deref());
+        send.send(Reply {
+            generation: request.generation,
+            key: request.key,
+            image,
+        })
+        .unwrap();
+        cache
+            .resize
+            .as_mut()
+            .unwrap()
+            .begin_frame(metrics, now + Duration::from_millis(32));
+        let updated = cache.texture(&ctx, theme.clone(), Some(&source)).unwrap();
+        assert_ne!(updated.id(), original.id());
+        assert_eq!(
+            compositor.processed.renders, 1,
+            "frame-only jobs must not resize or filter artwork again"
+        );
+        assert_eq!(
+            cache
+                .texture(&ctx, original_key, Some(&source))
+                .unwrap()
+                .id(),
+            original.id()
+        );
+        assert_eq!(
+            cache
+                .texture(&ctx, theme.clone(), Some(&source))
+                .unwrap()
+                .id(),
+            updated.id()
+        );
+        assert!(matches!(
+            submitted.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+        // An actual CRT or source change cannot borrow an unrelated preview.
+        theme.image.as_mut().unwrap().1 = false;
+        assert!(cache.texture(&ctx, theme, Some(&source)).is_none());
+    }
+    #[test]
+    fn switching_games_uses_only_the_selected_games_cached_artwork() {
+        let ctx = egui::Context::default();
+        let source = Arc::new(
+            Frame::new(
+                DisplayGeometry::new((2, 2), (4, 3)),
+                [80, 120, 200, 255].repeat(4),
+            )
+            .unwrap(),
+        );
+        let second_source = Arc::new(
+            Frame::new(
+                DisplayGeometry::new((2, 2), (4, 3)),
+                [200, 50, 80, 255].repeat(4),
+            )
+            .unwrap(),
+        );
+        let mut cache = Cache::default();
+        let mut first = TextureKey {
+            frame: FrameKey {
+                width: 80,
+                height: 60,
+                density: 1.0_f32.to_bits(),
+                radius: 2,
+                light: false,
+                dimmed: false,
+            },
+            colours: vec![],
+            image: Some(("first-game".into(), false)),
+        };
+        let mut second = first.clone();
+        second.image.as_mut().unwrap().0 = "second-game".into();
+        let first_texture = cache.texture(&ctx, first.clone(), Some(&source)).unwrap();
+        let second_texture = cache
+            .texture(&ctx, second.clone(), Some(&second_source))
+            .unwrap();
+        // Another view has also cached this game at a larger size. The
+        // original size should win over the more recently used larger image.
+        let mut larger = second.clone();
+        larger.frame.width = 100;
+        larger.frame.height = 75;
+        let _ = cache.texture(&ctx, larger, Some(&second_source)).unwrap();
+        cache.resize = Some(Resize::new(
+            UiMetrics {
+                drawable: (880, 560),
+                window: (880, 560),
+                pixels_per_point: 1.0,
+            },
+            Instant::now(),
+        ));
+        first.frame.radius = 6;
+        first.frame.light = true;
+        second.frame = first.frame;
+        assert_eq!(
+            cache.texture(&ctx, first, Some(&source)).unwrap().id(),
+            first_texture.id()
+        );
+        assert_eq!(
+            cache
+                .texture(&ctx, second.clone(), Some(&second_source))
+                .unwrap()
+                .id(),
+            second_texture.id()
+        );
+        second.image.as_mut().unwrap().0 = "never-viewed-game".into();
+        assert!(
+            cache.texture(&ctx, second, Some(&second_source)).is_none(),
+            "an uncached game's first render must not borrow a different game's picture"
+        );
+    }
 }

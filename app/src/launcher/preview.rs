@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Preview compositing and cached textures for the launcher.
 mod coverage;
+mod processed;
 mod resize;
 pub(super) mod sources;
 #[cfg(test)]
@@ -73,11 +74,10 @@ struct TextureKey {
     image: Option<(String, bool)>,
 }
 impl TextureKey {
+    // Radius and border shading decorate the image; they do not identify it.
     fn same_artwork(&self, other: &Self) -> bool {
         self.image == other.image
             && self.colours == other.colours
-            && self.frame.radius == other.frame.radius
-            && self.frame.light == other.frame.light
             && self.frame.dimmed == other.frame.dimmed
     }
 }
@@ -87,6 +87,7 @@ struct CachedTexture {
 }
 #[derive(Default)]
 struct Compositor {
+    processed: processed::Cache,
     masks: VecDeque<(FrameKey, Arc<FrameMask>)>,
     mask_bytes: usize,
 }
@@ -108,11 +109,15 @@ impl Compositor {
     fn render(&mut self, key: &TextureKey, source: Option<&Frame>) -> egui::ColorImage {
         let mask = self.mask(key.frame);
         if let Some(source) = source {
-            let content = reforge_sdl::preview::render(
+            let (id, crt) = key.image.as_ref().expect("image preview identity");
+            let content = self.processed.image(
+                processed::Key {
+                    source: id.clone(),
+                    size: [key.frame.width as usize, key.frame.height as usize],
+                    density: key.frame.density,
+                    crt: *crt,
+                },
                 source,
-                [key.frame.width as usize, key.frame.height as usize],
-                key.frame.density(),
-                key.image.as_ref().is_some_and(|(_, crt)| *crt),
             );
             mask.compose(key.frame.size()[1], |uv| {
                 let x = (uv.x * key.frame.width as f32)
@@ -172,7 +177,17 @@ impl Cache {
                 return Some(self.upload(ctx, key, image));
             }
             if resize.defer(&key, source) {
-                return self.cached_texture(|cached| cached.same_artwork(&key));
+                // A new frame style can reuse the same artwork while its
+                // replacement is composed. Prefer an exact pixel-size match;
+                // active window resizing may also stretch an older size.
+                return self
+                    .cached_texture(|cached| {
+                        cached.same_artwork(&key)
+                            && cached.frame.width == key.frame.width
+                            && cached.frame.height == key.frame.height
+                            && cached.frame.density == key.frame.density
+                    })
+                    .or_else(|| self.cached_texture(|cached| cached.same_artwork(&key)));
             }
         }
         let image = self.compositor.render(&key, source.map(Arc::as_ref));

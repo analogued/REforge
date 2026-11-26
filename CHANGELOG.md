@@ -12,6 +12,8 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Keep cached previews visible when changing themes across launcher views,
+  reusing processed artwork instead of repeating image filtering for new frames.
 - Fix duplicate launch options appearing over the toolbar when the Options
   drawer is expanded in Gallery or Compact view.
 - Give each library entry independent game settings with built-in defaults,

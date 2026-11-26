@@ -544,3 +544,72 @@ fn real_images_reuse_frames_and_invalidate_textures_for_source_and_treatment() {
 fn frame_key_for_image() -> FrameKey {
     frame(2.25, 6, false, Vec2::new(350.0, 263.0), false)
 }
+
+#[test]
+fn theme_frames_reuse_processed_artwork_and_leave_interior_pixels_unchanged() {
+    use reforge_sdl::{
+        DisplayGeometry,
+        ui::themes::{ResolvedAppearance, ThemeId},
+    };
+    let source = Frame::new(
+        DisplayGeometry::new((2, 2), (4, 3)),
+        [20, 140, 240, 255, 220, 80, 30, 255].repeat(2),
+    )
+    .unwrap();
+    let mut compositor = Compositor::default();
+    let mut interior = None;
+    for crt in [false, true] {
+        for theme in ThemeId::ALL {
+            let appearance = ResolvedAppearance::resolve(theme);
+            let key = TextureKey {
+                frame: frame(
+                    1.0,
+                    appearance.tokens.preview_radius,
+                    !appearance.theme.palette.dark,
+                    Vec2::new(80.0, 60.0),
+                    false,
+                ),
+                colours: vec![],
+                image: Some(("same-preview".into(), crt)),
+            };
+            let image = compositor.render(&key, Some(&source));
+            let pixels = (12..48)
+                .flat_map(|y| (12..68).map(move |x| (y, x)))
+                .map(|(y, x)| {
+                    image.pixels[(y + MARGIN as usize) * image.size[0] + x + MARGIN as usize]
+                })
+                .collect::<Vec<_>>();
+            if let Some(previous) = &interior {
+                assert_eq!(
+                    &pixels, previous,
+                    "{theme:?}: frame styling changed image pixels"
+                );
+            } else {
+                interior = Some(pixels);
+            }
+            assert_eq!(compositor.processed.renders, if crt { 2 } else { 1 });
+        }
+        interior = None;
+    }
+    // A different source, size or density must still get its own processed image.
+    for (id, size, density) in [
+        ("other-preview", (80, 60), 1.0),
+        ("same-preview", (81, 60), 1.0),
+        ("same-preview", (80, 60), 2.25),
+    ] {
+        let before = compositor.processed.renders;
+        let key = TextureKey {
+            frame: frame(
+                density,
+                2,
+                false,
+                Vec2::new(size.0 as f32, size.1 as f32),
+                false,
+            ),
+            colours: vec![],
+            image: Some((id.into(), false)),
+        };
+        compositor.render(&key, Some(&source));
+        assert_eq!(compositor.processed.renders, before + 1);
+    }
+}

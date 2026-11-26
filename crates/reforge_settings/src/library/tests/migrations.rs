@@ -155,6 +155,7 @@ fn release_aliases_upgrade_library_identities_without_converting_preferences() {
     assert!(entry.entry_id.starts_with("one-"));
     assert!(!entry.entry_id.starts_with("legacy-"));
     let preferences = crate::Session::load(crate::Launch {
+        directory: None,
         game_id: "one".into(),
         entry_id: Some(entry.entry_id.clone()),
         path: Some(library.config.clone()),

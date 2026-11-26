@@ -112,6 +112,7 @@ fn warn(warnings: &[String]) {
 fn launch_settings(values: Vec<OsString>, game: Game) -> (reforge_settings::Launch, Vec<OsString>) {
     let mut args = Vec::new();
     let mut prefs = reforge_settings::Launch {
+        directory: None,
         game_id: game.id().into(),
         entry_id: None,
         path: reforge_settings::default_path(),
@@ -255,6 +256,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
         plan.detected.original.clone().into_os_string(),
     ];
     let (mut prefs, mut remaining) = launch_settings(plan.args, plan.detected.game);
+    prefs.directory = Some(plan.detected.root.clone());
     if let Err(error) = profile::bind(&mut prefs, &plan.detected, &mut remaining) {
         eprintln!("REforge: {error}; using built-in game defaults where possible");
     }

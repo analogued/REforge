@@ -17,6 +17,7 @@ fn with_menu(contents: &str, test: impl FnOnce(&mut SettingsMenu<'_>)) {
     std::fs::write(&path, contents).unwrap();
     let before = std::fs::read(&path).unwrap();
     let _guard = Launch {
+        directory: None,
         game_id: "alley-cat".into(),
         entry_id: Some("copy".into()),
         path: Some(path.clone()),

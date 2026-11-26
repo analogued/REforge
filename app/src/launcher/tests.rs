@@ -207,6 +207,7 @@ fn library_round_trip_retains_an_explicit_file_and_binds_its_directory_profile()
         fixture.directory.canonicalize().unwrap()
     );
     let mut launch = Launch {
+        directory: None,
         game_id: "mach-3".into(),
         entry_id: None,
         path: Some(fixture.config.clone()),
@@ -256,6 +257,7 @@ fn alleycat_settings_and_launcher_share_machine_without_turning_saved_pins_into_
         assert_eq!(game.native_arguments(), ["--machine", "pcjr"]);
         assert!(game.launch_arguments().is_empty());
         let mut launch = Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: None,
             path: Some(fixture.config.clone()),
@@ -327,6 +329,7 @@ fn invalid_shared_fields_preserve_launcher_choices_and_cli_agreement() {
             files: Default::default(),
         };
         let mut launch = Launch {
+            directory: None,
             game_id: game_id.into(),
             entry_id: None,
             path: Some(fixture.config.clone()),
@@ -749,6 +752,7 @@ impl Fixture {
     }
     fn session(&self, game: &str) -> Session {
         Session::load(Launch {
+            directory: None,
             game_id: game.into(),
             entry_id: {
                 let mut library = Library::new(self.library.clone());
@@ -1800,6 +1804,7 @@ fn btz_presentation_controls_native_painter() {
     use reforge_sdl::settings::UiMetrics;
     let fixture = Fixture::new(detection::RELEASES.len());
     let _guard = Launch {
+        directory: None,
         game_id: "standalone".into(),
         entry_id: None,
         path: Some(fixture.config.clone()),
@@ -1866,6 +1871,7 @@ fn native_painter_capture_matrix_and_modal_navigation() {
     use reforge_sdl::settings::UiMetrics;
     let configuration = Fixture::new(0);
     let _guard = Launch {
+        directory: None,
         game_id: "standalone".into(),
         entry_id: None,
         path: Some(configuration.config.clone()),
@@ -2131,6 +2137,7 @@ fn native_notification_previews() {
     use reforge_sdl::settings::UiMetrics;
     let fixture = Fixture::new(2);
     let _guard = Launch {
+        directory: None,
         game_id: "standalone".into(),
         entry_id: None,
         path: Some(fixture.config.clone()),
@@ -2318,6 +2325,7 @@ fn native_engine_previews() {
         std::fs::create_dir_all(path).unwrap();
     }
     let _guard = Launch {
+        directory: None,
         game_id: "standalone".into(),
         entry_id: None,
         path: Some(fixture.config.clone()),
@@ -2389,6 +2397,7 @@ fn gallery_settings_render_three_cards_per_row_at_the_minimum() {
     h.size = Vec2::new(MIN_LOGICAL_SIZE.0 as f32, MIN_LOGICAL_SIZE.1 as f32);
     assert_eq!(h.state.gallery_preview_aspect, GalleryPreviewAspect::PerRow);
     let mut session = Session::load(Launch {
+        directory: None,
         game_id: "standalone".into(),
         path: Some(fixture.config.clone()),
         entry_id: None,
@@ -2760,6 +2769,7 @@ fn centurion_sound_resolves_entry_defaults_without_rewriting() {
     let mut state = fixture.state(ThemeId::ClassicDark, LayoutVariant::SplitInspector, true);
     let id = state.games[0].entry_id.clone();
     let mut session = Session::load(Launch {
+        directory: None,
         game_id: detection::Game::Centurion.id().into(),
         entry_id: Some(id.clone()),
         path: Some(fixture.config.clone()),

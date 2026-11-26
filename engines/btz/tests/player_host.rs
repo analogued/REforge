@@ -158,6 +158,7 @@ mod terminal_bell {
                 let original = b"invalid = [";
                 fs::write(&path, original).unwrap();
                 let _guard = reforge_settings::Launch {
+                    directory: None,
                     game_id: "mindwheel".into(),
                     entry_id: None,
                     path: Some(path.clone()),

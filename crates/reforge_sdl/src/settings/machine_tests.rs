@@ -135,6 +135,7 @@ fn machine_choices_share_launcher_storage_and_apply_cancel_reset() {
         ));
         assert!(!path.exists());
         let _guard = Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: Some("copy".into()),
             path: Some(path.clone()),
@@ -238,6 +239,7 @@ fn machine_round_trip_restores_saved_override_presence() {
             }
             let before = std::fs::read(&path).ok();
             let _guard = Launch {
+                directory: None,
                 game_id: "alley-cat".into(),
                 entry_id: Some("copy".into()),
                 path: Some(path.clone()),
@@ -314,6 +316,7 @@ fn machine_selector_locks_cli_overrides_and_disables_unsavable_runs() {
             cli.insert(ALLEYCAT_MACHINE.into(), "pcjr".into());
         }
         let _guard = Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: registered.then(|| "copy".into()),
             path: Some(path.clone()),
@@ -372,6 +375,7 @@ fn machine_alias_loads_without_rewriting_or_override_colours() {
             )
             .unwrap();
             let _guard = Launch {
+                directory: None,
                 game_id: "alley-cat".into(),
                 entry_id: Some("copy".into()),
                 path: Some(path.clone()),

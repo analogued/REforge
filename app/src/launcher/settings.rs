@@ -29,6 +29,7 @@ pub fn run(
         |capabilities| capabilities.display.geometry,
     );
     let guard = reforge_settings::Launch {
+        directory: state.selected_game().map(|game| game.directory.clone()),
         game_id: game.clone().unwrap_or_else(|| "standalone".into()),
         entry_id,
         path: Some(state.config.clone()),

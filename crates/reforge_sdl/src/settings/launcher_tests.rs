@@ -40,6 +40,7 @@ fn launcher_section_is_opt_in_and_height_apply_cancel_reset_are_separate() {
     .unwrap();
     let before = std::fs::read(&path).unwrap();
     let _guard = Launch {
+        directory: None,
         game_id: "centurion-defender-of-rome".into(),
         entry_id: Some("copy".into()),
         path: Some(path.clone()),
@@ -212,6 +213,7 @@ fn launcher_section_native_capture_at_minimum_and_large_sizes() {
         let creator = FrameCreator::new(
             &canvas,
             reforge_settings::Session::load(Launch {
+                directory: None,
                 game_id: "standalone".into(),
                 entry_id: None,
                 path: Some(std::env::temp_dir().join(format!(

@@ -998,6 +998,8 @@ impl Draft {
 }
 #[derive(Clone, Debug)]
 pub struct Launch {
+    /// Installation directory for display; never used as a preferences path.
+    pub directory: Option<PathBuf>,
     pub game_id: String,
     pub entry_id: Option<String>,
     pub path: Option<PathBuf>,
@@ -1018,6 +1020,8 @@ impl Drop for LaunchGuard {
 
 #[derive(Clone)]
 pub struct Session {
+    /// Display-only installation context supplied by the application.
+    pub directory: Option<PathBuf>,
     pub game_id: String,
     pub entry_id: Option<String>,
     pub path: Option<PathBuf>,
@@ -1032,6 +1036,7 @@ impl Session {
         match launch {
             Some(x) => Self::load(x),
             None => Self {
+                directory: None,
                 game_id: "standalone".into(),
                 entry_id: None,
                 path: None,
@@ -1055,6 +1060,7 @@ impl Session {
             launch.cli.insert(ALLEYCAT_MOTION.into(), motion);
         }
         let mut s = Self {
+            directory: launch.directory,
             game_id: launch.game_id,
             entry_id: launch.entry_id,
             path: launch.path,
@@ -1470,12 +1476,15 @@ mod tests {
         ] {
             let path = dir.0.join(format!("{name}.toml"));
             let launch = Launch {
+                directory: Some(dir.0.join("installation")),
                 game_id: "mach-3".into(),
                 entry_id: registered.then(|| "test-copy".into()),
                 path: configured.then(|| path.clone()),
                 cli: Patch::new(),
             };
             let mut session = Session::load(launch.clone());
+            assert_eq!(session.directory, launch.directory);
+            assert!(!dir.0.join("installation").exists());
             assert_eq!(session.has_launcher_storage(), configured);
             assert_eq!(session.has_entry_storage(), configured && registered);
             let mut draft = session.saved.clone();
@@ -1517,6 +1526,7 @@ mod tests {
     }
     fn session(path: PathBuf, game: &str) -> Session {
         Session::load(Launch {
+            directory: None,
             game_id: game.into(),
             entry_id: Some(game.into()),
             path: Some(path),
@@ -1707,6 +1717,7 @@ mod tests {
         )
         .unwrap();
         let launch = |entry: &str| Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: Some(entry.into()),
             path: Some(path.clone()),
@@ -1797,6 +1808,7 @@ mod tests {
         let path = dir.file();
         fs::write(&path, "[entries.copy.enhancements]\nmotion='reforged'\n").unwrap();
         let launch = Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: Some("copy".into()),
             path: Some(path.clone()),
@@ -2076,6 +2088,7 @@ control_mode = "original"
             ControllerButtons::EastActionSouthJump
         );
         let other = Session::load(Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: Some("alley-cat-other".into()),
             path: Some(path.clone()),
@@ -2487,6 +2500,7 @@ digitized_samples = false
             ("mach-3", None),
         ] {
             let current = Session::load(Launch {
+                directory: None,
                 game_id: game.into(),
                 entry_id: entry.map(str::to_owned),
                 path: Some(path.clone()),
@@ -2511,6 +2525,7 @@ digitized_samples = false
         fs::write(&path, "[global.display]\nscale=8\n[entries.first.display]\nscale=3\n[entries.second.display]\nscale=5\n").unwrap();
         let load = |entry: &str| {
             Session::load(Launch {
+                directory: None,
                 game_id: "alley-cat".into(),
                 entry_id: Some(entry.into()),
                 path: Some(path.clone()),

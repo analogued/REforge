@@ -276,6 +276,7 @@ mod tests {
         }
         fn session(&self, game: &str) -> Session {
             Session::load(Launch {
+                directory: None,
                 game_id: game.into(),
                 entry_id: Some("copy".into()),
                 path: Some(self.path()),

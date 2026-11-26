@@ -18,7 +18,8 @@ Unreleased contains changes intended for the next public release.
   drawer is expanded in Gallery or Compact view.
 - Give each library entry independent game settings with built-in defaults,
   replacing global defaults and overrides. Old global choices need reselecting
-  per entry; launcher appearance settings remain shared.
+  per entry; launcher appearance settings remain shared. Show the installation
+  directory beside the game name in Settings.
 - Show concrete sound choices in per-game Audio settings and use shared audio
   settings for Centurion.
 - Soften PC speaker output with shared small-speaker filtering across games,

@@ -418,6 +418,7 @@ mod tests {
         let path = temp.path();
         save_theme(&path, "crisp-light").unwrap();
         let mut session = Session::load(Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: Some("copy".into()),
             path: Some(path.clone()),
@@ -488,6 +489,7 @@ mod tests {
         save_native_option(&path, "mach-3", "video", Some("mono")).unwrap();
         save_theme(&path, "warm-amber").unwrap();
         let mut session = Session::load(Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: Some("alley-cat".into()),
             path: Some(path.clone()),
@@ -509,6 +511,7 @@ mod tests {
         assert!(native_options(&path, "alley-cat").unwrap().is_empty());
         assert_eq!(native_options(&path, "mach-3").unwrap()["video"], "mono");
         let session = Session::load(Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: Some("alley-cat".into()),
             path: Some(path),

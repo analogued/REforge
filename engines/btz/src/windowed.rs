@@ -836,6 +836,7 @@ mod tests {
             return;
         }
         let _guard = reforge_settings::Launch {
+            directory: None,
             game_id: "mindwheel".into(),
             entry_id: None,
             path: None,

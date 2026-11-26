@@ -122,6 +122,7 @@ fn centurion_presets_alias_granular_choice_and_apply_cancel_reset() {
     .unwrap();
     let initial = std::fs::read(&path).unwrap();
     let _guard = Launch {
+        directory: None,
         game_id: "centurion-defender-of-rome".into(),
         entry_id: Some("copy".into()),
         path: Some(path.clone()),
@@ -552,6 +553,7 @@ fn centurion_native_settings_capture_and_detail_navigation() {
         let creator = FrameCreator::new(
             &canvas,
             reforge_settings::Session::load(Launch {
+                directory: None,
                 game_id: "centurion-defender-of-rome".into(),
                 entry_id: Some("copy".into()),
                 path: Some(std::env::temp_dir().join(format!(
@@ -1006,6 +1008,7 @@ fn sound_device_shares_launcher_pin_and_audio_apply_cancel_reset() {
     ));
     assert!(!path.exists());
     let _guard = Launch {
+        directory: None,
         game_id: "centurion-defender-of-rome".into(),
         entry_id: Some("copy".into()),
         path: Some(path.clone()),
@@ -1096,6 +1099,7 @@ fn sound_device_cli_lock_and_unregistered_runs_cannot_change_next_launch() {
         ));
         assert!(!path.exists());
         let _guard = Launch {
+            directory: None,
             game_id: "centurion-defender-of-rome".into(),
             entry_id: registered.then(|| "copy".into()),
             path: Some(path.clone()),

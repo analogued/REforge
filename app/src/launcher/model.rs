@@ -432,6 +432,7 @@ impl GameEntry {
 
     pub fn refresh_preferences(&mut self) -> Result<(), String> {
         let session = Session::load(Launch {
+            directory: None,
             game_id: self.game_id.clone(),
             entry_id: Some(self.entry_id.clone()),
             path: Some(self.config.clone()),
@@ -534,6 +535,7 @@ impl GameEntry {
             ),
             Storage::TerminalMode | Storage::Shared(_) => {
                 let mut session = Session::load(Launch {
+                    directory: None,
                     game_id: self.game_id.clone(),
                     entry_id: Some(self.entry_id.clone()),
                     path: Some(self.config.clone()),

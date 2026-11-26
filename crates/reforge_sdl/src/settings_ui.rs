@@ -118,6 +118,7 @@ pub(super) fn draw(
     let warning = session.warning.clone();
     let launcher_storage = session.has_launcher_storage();
     let game_storage = session.has_entry_storage();
+    let directory = session.directory.clone();
     drop(session);
     let capabilities = menu.capabilities;
     let mach3_options = capabilities.options == EngineOptions::Mach3;
@@ -147,7 +148,7 @@ pub(super) fn draw(
         .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
         .fixed_size([width, height])
         .show(context, |ui| {
-            ui.horizontal_wrapped(|ui| {
+            ui.horizontal(|ui| {
                 if menu.page == LAUNCHER_PAGE {
                     ui.label("Launcher preferences");
                     // Keep the header height stable when changing sections.
@@ -164,7 +165,11 @@ pub(super) fn draw(
                     "breakers" => "Breakers settings",
                     _ => "Game settings",
                 });
-                ui.weak(if game_storage { "This library entry" } else { "This run" });
+                if game_storage && let Some(directory) = &directory {
+                    installation_path(ui, &directory.display().to_string());
+                } else {
+                    ui.weak(if game_storage { "This library entry" } else { "This run" });
+                }
                 ui.set_min_height(ui.spacing().interact_size.y);
             });
             let controls_visible = controller_layouts;
@@ -1949,8 +1954,100 @@ fn scale_slider(
     (r, number)
 }
 
+/// Fit installation context without displacing the game title. Keep both ends
+/// of a long path, with more space reserved for the identifying final directory.
+fn installation_path(ui: &mut egui::Ui, path: &str) {
+    let width = ui.available_width().max(0.0).floor();
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let colour = ui.visuals().weak_text_color();
+    let measure = |text: String| {
+        ui.painter()
+            .layout_no_wrap(text, font.clone(), colour)
+            .size()
+            .x
+    };
+    let mut text = path.to_owned();
+    if measure(text.clone()) > width {
+        let chars: Vec<char> = path.chars().collect();
+        let mut low = 0;
+        let mut high = chars.len().saturating_sub(1);
+        while low < high {
+            let keep = (low + high).div_ceil(2);
+            let candidate = abbreviated_path(&chars, keep);
+            if measure(candidate) <= width {
+                low = keep;
+            } else {
+                high = keep - 1;
+            }
+        }
+        text = abbreviated_path(&chars, low);
+    }
+    ui.add(egui::Label::new(egui::RichText::new(text).color(colour)).truncate())
+        .on_hover_text(path);
+}
+
+fn abbreviated_path(chars: &[char], keep: usize) -> String {
+    let prefix = keep / 3;
+    let suffix = keep - prefix;
+    chars[..prefix]
+        .iter()
+        .chain(std::iter::once(&'…'))
+        .chain(chars[chars.len() - suffix..].iter())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn installation_context_keeps_the_directory_tail_inside_the_header() {
+        let context = egui::Context::default();
+        for path in [
+            "/home/player/games/installations/alleycat/private/play/nrs-patch",
+            "C:\\Users\\Player\\Games\\Installations\\Alley Cat\\nrs-patch",
+            "/home/プレイヤー/ゲーム/Alley Cat/nrs-patch",
+        ] {
+            for width in [300.0, 500.0, 860.0] {
+                let mut bounds = egui::Rect::NOTHING;
+                let output = context.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 100.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            bounds = ui.max_rect();
+                            ui.horizontal(|ui| {
+                                ui.label("Alley Cat settings");
+                                super::installation_path(ui, path);
+                            });
+                        });
+                    },
+                );
+                let texts: Vec<_> = output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| {
+                        if let egui::Shape::Text(text) = &shape.shape {
+                            Some(text)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                assert_eq!(texts.len(), 2);
+                assert_eq!(texts[0].galley.text(), "Alley Cat settings");
+                let label = texts[1];
+                assert!(label.pos.x >= texts[0].pos.x + texts[0].galley.size().x);
+                assert!(label.pos.x + label.galley.size().x <= bounds.right() + 0.5);
+                assert!(label.galley.text().ends_with("nrs-patch"));
+                assert_eq!(label.pos.y, texts[0].pos.y);
+            }
+        }
+    }
+
     const ACCENT: Color32 = Color32::from_rgb(100, 200, 226);
     const PENDING: Color32 = Color32::from_rgb(245, 185, 90);
     const CLI_LOCK: Color32 = Color32::from_rgb(182, 169, 214);

@@ -1070,6 +1070,7 @@ mod tests {
     #[test]
     fn terminal_startup_is_rejected_before_creating_an_sdl_window() {
         let _guard = reforge_settings::Launch {
+            directory: None,
             game_id: "mindwheel".into(),
             entry_id: None,
             path: None,
@@ -1085,6 +1086,7 @@ mod tests {
     fn btz_terminal_choice_is_startup_scoped_and_cannot_replace_a_live_window() {
         use reforge_settings::{Launch, Patch, Renderer};
         let _guard = Launch {
+            directory: None,
             game_id: "mindwheel".into(),
             entry_id: None,
             path: None,
@@ -1177,6 +1179,7 @@ mod tests {
             std::env::temp_dir().join(format!("reforge-btz-cursor-ui-{}.toml", std::process::id()));
         assert!(!path.exists());
         let launch = Launch {
+            directory: None,
             game_id: "essex".into(),
             entry_id: Some("essex".into()),
             path: Some(path.clone()),
@@ -1384,6 +1387,7 @@ mod tests {
         ));
         assert!(!path.exists());
         let launch = Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: Some("alley-cat".into()),
             path: Some(path.clone()),
@@ -1485,6 +1489,7 @@ mod tests {
         ));
         assert!(!path.exists());
         let launch = Launch {
+            directory: None,
             game_id: "mach-3".into(),
             entry_id: Some("mach-3".into()),
             path: Some(path.clone()),
@@ -1584,6 +1589,7 @@ mod tests {
             ));
             assert!(!path.exists());
             let _guard = Launch {
+                directory: Some(std::path::PathBuf::from("/Games/Mach 3")),
                 game_id: "mach-3".into(),
                 entry_id: registered.then(|| "copy".into()),
                 path: configured.then(|| path.clone()),
@@ -1605,12 +1611,12 @@ mod tests {
 
             draw(&mut menu);
             let output = draw(&mut menu);
-            let checkbox = if registered && configured {
-                "This library entry"
+            let context_label = if registered && configured {
+                "/Games/Mach 3"
             } else {
                 "This run"
             };
-            assert!(label(&output, checkbox).is_some());
+            assert!(label(&output, context_label).is_some());
             assert!(label(&output, "PC speaker").is_some());
             assert_eq!(
                 menu.draft.as_ref().unwrap().game_values().audio.renderer,
@@ -1656,6 +1662,7 @@ mod tests {
             assert!(!path.exists());
         }
         let _guard = Launch {
+            directory: None,
             game_id: "breakers".into(),
             entry_id: None,
             path: None,
@@ -1762,6 +1769,7 @@ mod tests {
         ));
         assert!(!path.exists());
         let launch = Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: Some("alley-cat".into()),
             path: Some(path.clone()),
@@ -2371,6 +2379,7 @@ mod tests {
             return;
         }
         let _launch = reforge_settings::Launch {
+            directory: None,
             game_id: "mach-3".into(),
             entry_id: None,
             path: None,

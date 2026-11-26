@@ -191,6 +191,7 @@ mod tests {
         use crate::{FrameFormat, FrameTexture, Window};
         use reforge_settings::{Backend, Renderer};
         let _guard = reforge_settings::Launch {
+            directory: None,
             game_id: "standalone".into(),
             entry_id: None,
             path: None,
@@ -328,6 +329,7 @@ mod tests {
     #[ignore = "owns SDL video; run serially with dummy/software"]
     fn widget_focus_can_replace_overlay_without_losing_navigation() {
         let _guard = reforge_settings::Launch {
+            directory: None,
             game_id: "standalone".into(),
             entry_id: None,
             path: None,

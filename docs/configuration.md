@@ -82,9 +82,11 @@ meeting the threshold are unchanged. Closing settings restores the previous
 size and, where the compositor permits, position. Applying a different scale
 or window mode supersedes that restoration; temporary sizing is never saved.
 
-Game settings belong to the selected library entry. Two copies of the same game
-can have different settings. New entries and missing values use built-in game
-defaults; changing one entry never changes another. Launcher appearance settings
+Game settings belong to the selected library entry. Its installation directory
+appears beside the game name in Settings; hover over a shortened path to see it
+in full. Two copies of the same game can have different settings. New entries
+and missing values use built-in game defaults; changing one entry never changes
+another. Launcher appearance settings
 remain application-wide on the separate **Launcher** page. With no selected
 game, Settings offers only that page.
 

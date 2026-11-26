@@ -325,6 +325,7 @@ pub fn run() -> Result<(), String> {
     let video = sdl.video().map_err(|e| e.to_string())?;
     let mut canvas = canvas(&video)?;
     let guard = reforge_settings::Launch {
+        directory: None,
         game_id: "standalone".into(),
         entry_id: None,
         path: Some(config),
@@ -484,6 +485,7 @@ pub fn run() -> Result<(), String> {
                         .find(|g| g.entry_id == id)
                         .ok_or("Game is no longer in the library")?;
                     let preferences = reforge_settings::Session::load(reforge_settings::Launch {
+                        directory: None,
                         game_id: entry.game_id.clone(),
                         entry_id: Some(entry.entry_id.clone()),
                         path: Some(state.config.clone()),

@@ -121,6 +121,7 @@ mod tests {
             .add(alias.game_id, alias.old_release_id, "My copy", &root)
             .unwrap();
         let mut launch = Launch {
+            directory: None,
             game_id: alias.game_id.into(),
             entry_id: None,
             path: Some(config),
@@ -162,6 +163,7 @@ mod tests {
             )
             .unwrap();
         let mut session = Session::load(Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: Some(first.clone()),
             path: Some(config.clone()),
@@ -171,6 +173,7 @@ mod tests {
         draft.game.insert("master_volume".into(), "40".into());
         session.commit(draft).unwrap();
         let mut launch = Launch {
+            directory: None,
             game_id: "alley-cat".into(),
             entry_id: None,
             path: Some(config.clone()),

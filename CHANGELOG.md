@@ -12,6 +12,8 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Fix duplicate launch options appearing over the toolbar when the Options
+  drawer is expanded in Gallery or Compact view.
 - Give each library entry independent game settings with built-in defaults,
   replacing global defaults and overrides. Old global choices need reselecting
   per entry; launcher appearance settings remain shared.

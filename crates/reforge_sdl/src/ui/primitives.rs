@@ -304,7 +304,9 @@ fn joined_choice_strip<T: Clone + PartialEq>(
         // Use egui's normal fade for an unavailable choice, without adding
         // opacity or compounding the fade inherited from a disabled group.
         let mut painter = ui.painter().clone();
-        if !available {
+        // An invisible measurement pass is disabled too. Preserve its
+        // transparent fade instead of revealing it with disabled shading.
+        if !available && ui.is_visible() {
             painter.set_fade_to_color(Some(ui.visuals().fade_out_to_color()));
         }
         let fill = if response.is_pointer_button_down_on() && response.contains_pointer() {

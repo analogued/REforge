@@ -2783,3 +2783,48 @@ fn centurion_sound_resolves_entry_defaults_without_rewriting() {
     state.games[0].reload_preferences();
     assert_eq!(state.games[0].option_values()["Sound"], "AdLib");
 }
+
+#[test]
+fn options_height_measurement_does_not_paint_above_the_drawer() {
+    let fixture = Fixture::new(2);
+    for theme in ThemeId::ALL {
+        let appearance = ResolvedAppearance::resolve(theme);
+        let context = Context::default();
+        appearance.theme.apply_palette(&context);
+        let mut game = fixture
+            .state(theme, LayoutVariant::GalleryShelf, true)
+            .games
+            .remove(0);
+        for width in [630.0, 1000.0] {
+            for _ in 0..3 {
+                let mut panel_top = 0.0;
+                let output = context.run(
+                    RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(width, 720.0))),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        widgets::draw_options_panel(ctx, &appearance, &mut game, "test_options");
+                        panel_top = ctx.available_rect().bottom();
+                    },
+                );
+                let mut labels = 0;
+                for shape in &output.shapes {
+                    if let egui::Shape::Text(text) = &shape.shape {
+                        let visible = Rect::from_min_size(text.pos, text.galley.size())
+                            .intersect(shape.clip_rect);
+                        if visible.is_positive() {
+                            labels += 1;
+                            assert!(
+                                visible.top() >= panel_top,
+                                "{theme:?} width={width}: {:?} escaped the drawer at {visible:?}, top={panel_top}",
+                                text.galley.text()
+                            );
+                        }
+                    }
+                }
+                assert!(labels > 0, "the real drawer must still paint its controls");
+            }
+        }
+    }
+}

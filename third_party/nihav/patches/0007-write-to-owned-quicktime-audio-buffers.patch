@@ -1,0 +1,64 @@
+diff --git a/nihav-qt/src/codecs/imaadpcm.rs b/nihav-qt/src/codecs/imaadpcm.rs
+index 9bc9fff2a4b7a98a81f039c4b543c0808be96caa..072041d5fb4420ceefe729e075795432735132af 100644
+--- a/nihav-qt/src/codecs/imaadpcm.rs
++++ b/nihav-qt/src/codecs/imaadpcm.rs
+@@ -1,3 +1,5 @@
++// REforge made the decoder fill its owned output buffer in 2026.
++
+ use nihav_core::codecs::*;
+ use nihav_core::io::byteio::*;
+ use nihav_codec_support::codecs::imaadpcm::*;
+@@ -42,8 +44,10 @@ impl NADecoder for IMAADPCMDecoder {
+             validate!(pktbuf.len() % (PACKET_LEN * channels) == 0);
+             let nblocks = pktbuf.len() / channels / PACKET_LEN;
+             let nsamples = nblocks * PACKET_SAMPLES;
+-            let abuf = alloc_audio_buffer(self.ainfo, nsamples, self.chmap.clone())?;
+-            let mut adata = abuf.get_abuf_i16().unwrap();
++            let NABufferType::AudioI16(mut adata) =
++                alloc_audio_buffer(self.ainfo, nsamples, self.chmap.clone())? else {
++                return Err(DecoderError::Bug);
++            };
+             let mut off = [adata.get_offset(0), adata.get_offset(1)];
+             let dst = adata.get_data_mut().unwrap();
+ 
+@@ -66,7 +70,7 @@ impl NADecoder for IMAADPCMDecoder {
+                 }
+             }
+ 
+-            let mut frm = NAFrame::new_from_pkt(pkt, info.replace_info(NACodecTypeInfo::Audio(self.ainfo)), abuf);
++            let mut frm = NAFrame::new_from_pkt(pkt, info.replace_info(NACodecTypeInfo::Audio(self.ainfo)), NABufferType::AudioI16(adata));
+             frm.set_duration(Some(nsamples as u64));
+             frm.set_keyframe(false);
+             Ok(frm.into_ref())
+diff --git a/nihav-qt/src/codecs/qdmc.rs b/nihav-qt/src/codecs/qdmc.rs
+index 790e6240ece4f28dca7e3404520aa717794a08d1..bab928a884cb14f656a45edbee5cf6e064fb76f8 100644
+--- a/nihav-qt/src/codecs/qdmc.rs
++++ b/nihav-qt/src/codecs/qdmc.rs
+@@ -1,3 +1,5 @@
++// REforge made the decoder fill its owned output buffer in 2026.
++
+ use nihav_core::codecs::*;
+ use nihav_core::io::byteio::*;
+ use nihav_core::io::bitreader::*;
+@@ -326,8 +328,10 @@ impl NADecoder for QdmcDecoder {
+             validate!(sum == checksum);
+ 
+             let channels = self.chmap.num_channels();
+-            let abuf = alloc_audio_buffer(self.ainfo, self.samples, self.chmap.clone())?;
+-            let mut adata = abuf.get_abuf_f32().unwrap();
++            let NABufferType::AudioF32(mut adata) =
++                alloc_audio_buffer(self.ainfo, self.samples, self.chmap.clone())? else {
++                return Err(DecoderError::Bug);
++            };
+             let mut off = [adata.get_offset(0), adata.get_offset(1)];
+             let dst = adata.get_data_mut().unwrap();
+ 
+@@ -358,7 +362,7 @@ impl NADecoder for QdmcDecoder {
+                 }
+             }
+ 
+-            let mut frm = NAFrame::new_from_pkt(pkt, info.replace_info(NACodecTypeInfo::Audio(self.ainfo)), abuf);
++            let mut frm = NAFrame::new_from_pkt(pkt, info.replace_info(NACodecTypeInfo::Audio(self.ainfo)), NABufferType::AudioF32(adata));
+             frm.set_duration(Some(self.samples as u64));
+             frm.set_keyframe(false);
+             Ok(frm.into_ref())

@@ -1,3 +1,5 @@
+// REforge made the decoder fill its owned output buffer in 2026.
+
 use nihav_core::codecs::*;
 use nihav_core::io::byteio::*;
 use nihav_core::io::bitreader::*;
@@ -326,8 +328,10 @@ impl NADecoder for QdmcDecoder {
             validate!(sum == checksum);
 
             let channels = self.chmap.num_channels();
-            let abuf = alloc_audio_buffer(self.ainfo, self.samples, self.chmap.clone())?;
-            let mut adata = abuf.get_abuf_f32().unwrap();
+            let NABufferType::AudioF32(mut adata) =
+                alloc_audio_buffer(self.ainfo, self.samples, self.chmap.clone())? else {
+                return Err(DecoderError::Bug);
+            };
             let mut off = [adata.get_offset(0), adata.get_offset(1)];
             let dst = adata.get_data_mut().unwrap();
 
@@ -358,7 +362,7 @@ impl NADecoder for QdmcDecoder {
                 }
             }
 
-            let mut frm = NAFrame::new_from_pkt(pkt, info.replace_info(NACodecTypeInfo::Audio(self.ainfo)), abuf);
+            let mut frm = NAFrame::new_from_pkt(pkt, info.replace_info(NACodecTypeInfo::Audio(self.ainfo)), NABufferType::AudioF32(adata));
             frm.set_duration(Some(self.samples as u64));
             frm.set_keyframe(false);
             Ok(frm.into_ref())

@@ -1,3 +1,5 @@
+// REforge made the decoder fill its owned output buffer in 2026.
+
 use nihav_core::codecs::*;
 use nihav_core::io::byteio::*;
 use nihav_codec_support::codecs::imaadpcm::*;
@@ -42,8 +44,10 @@ impl NADecoder for IMAADPCMDecoder {
             validate!(pktbuf.len() % (PACKET_LEN * channels) == 0);
             let nblocks = pktbuf.len() / channels / PACKET_LEN;
             let nsamples = nblocks * PACKET_SAMPLES;
-            let abuf = alloc_audio_buffer(self.ainfo, nsamples, self.chmap.clone())?;
-            let mut adata = abuf.get_abuf_i16().unwrap();
+            let NABufferType::AudioI16(mut adata) =
+                alloc_audio_buffer(self.ainfo, nsamples, self.chmap.clone())? else {
+                return Err(DecoderError::Bug);
+            };
             let mut off = [adata.get_offset(0), adata.get_offset(1)];
             let dst = adata.get_data_mut().unwrap();
 
@@ -66,7 +70,7 @@ impl NADecoder for IMAADPCMDecoder {
                 }
             }
 
-            let mut frm = NAFrame::new_from_pkt(pkt, info.replace_info(NACodecTypeInfo::Audio(self.ainfo)), abuf);
+            let mut frm = NAFrame::new_from_pkt(pkt, info.replace_info(NACodecTypeInfo::Audio(self.ainfo)), NABufferType::AudioI16(adata));
             frm.set_duration(Some(nsamples as u64));
             frm.set_keyframe(false);
             Ok(frm.into_ref())

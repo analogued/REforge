@@ -1,0 +1,58 @@
+diff --git a/nihav-commonfmt/src/demuxers/mov/pktread.rs b/nihav-commonfmt/src/demuxers/mov/pktread.rs
+index 0d244a4c688d0a4c3ad8bf1562427bce5dc6b403..09131dd21f72afe5b5ae8a25fc06e9cefa55588c 100644
+--- a/nihav-commonfmt/src/demuxers/mov/pktread.rs
++++ b/nihav-commonfmt/src/demuxers/mov/pktread.rs
+@@ -1,3 +1,5 @@
++// REforge added video sample durations and corrected stts run boundaries in 2026.
++
+ use nihav_core::demuxers::*;
+ 
+ #[derive(Default)]
+@@ -25,7 +27,7 @@ impl TimeSearcher {
+                 self.cur_mul = cur_mul;
+                 self.idx += 1;
+             }
+-            while self.idx < tts.len() && sample > self.cur_len {
++            while self.idx < tts.len() && sample >= self.cur_len {
+                 sample -= self.cur_len;
+                 self.sbase += self.cur_len;
+                 self.base += u64::from(self.cur_len) * u64::from(self.cur_mul);
+@@ -291,7 +293,7 @@ impl QTPacketDemuxer {
+             } else {
+                 Some(dts_val)
+             };
+-        let ts = NATimeInfo::new(pts, Some(dts_val), None, self.tb_num, self.tb_den);
++        let mut ts = NATimeInfo::new(pts, Some(dts_val), None, self.tb_num, self.tb_den);
+         match self.mode {
+             PacketMode::OneToOne => {
+                 if self.cur_sample >= self.chunk_sizes.len() {
+@@ -300,6 +302,7 @@ impl QTPacketDemuxer {
+                 let offset = self.chunk_offsets[self.cur_sample];
+                 let size   = self.chunk_sizes[self.cur_sample] as usize;
+                 self.cur_sample += 1;
++                ts.duration = self.sample_duration(dts_val);
+                 let is_kf = self.keyframes.contains(&(self.cur_sample as u32));
+                 Some((ts, offset, size, is_kf))
+             },
+@@ -309,6 +312,7 @@ impl QTPacketDemuxer {
+                 let size = self.get_size(self.cur_sample);
+                 self.last_offset += size as u64;
+                 self.cur_sample += 1;
++                ts.duration = self.sample_duration(dts_val);
+                 let is_kf = chunk_start && self.keyframes.contains(&(self.cur_sample as u32));
+                 self.samples_left -= 1;
+                 Some((ts, offset, size, is_kf))
+@@ -348,6 +352,13 @@ impl QTPacketDemuxer {
+             _ => unreachable!(),
+         }
+     }
++    fn sample_duration(&mut self, dts: u64) -> Option<u64> {
++        if self.mode.is_audio() || self.is_data_stream {
++            return None;
++        }
++        let next = self.timesearch.map_time(self.cur_sample as u32, &self.time_to_sample);
++        next.checked_sub(dts)
++    }
+     fn get_size(&self, sample_no: usize) -> usize {
+         if !self.chunk_sizes.is_empty() {
+             self.chunk_sizes[sample_no] as usize

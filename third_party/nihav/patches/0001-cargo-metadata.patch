@@ -1,0 +1,80 @@
+diff --git a/nihav-codec-support/Cargo.toml b/nihav-codec-support/Cargo.toml
+index c3b67a9b2062d16563d7184831d0d8a3f09efcc2..b93942fa9f427331c3530e78209106f0546d646c 100644
+--- a/nihav-codec-support/Cargo.toml
++++ b/nihav-codec-support/Cargo.toml
+@@ -3,6 +3,7 @@ name = "nihav_codec_support"
+ version = "0.1.0"
+ authors = ["Kostya Shishkov <kostya.shishkov@gmail.com>"]
+ edition = "2018"
++license = "AGPL-3.0-only"
+ 
+ [dependencies.nihav_core]
+ path = "../nihav-core"
+diff --git a/nihav-commonfmt/Cargo.toml b/nihav-commonfmt/Cargo.toml
+index af8112f44e16bbe6d3a030e0eea40a2d1aecfd9d..8fe5681ca0ddda3b8230bce6ae2944febd2a2d09 100644
+--- a/nihav-commonfmt/Cargo.toml
++++ b/nihav-commonfmt/Cargo.toml
+@@ -3,6 +3,7 @@ name = "nihav_commonfmt"
+ version = "0.1.0"
+ authors = ["Kostya Shishkov <kostya.shishkov@gmail.com>"]
+ edition = "2018"
++license = "AGPL-3.0-only"
+ 
+ [dependencies.nihav_core]
+ path = "../nihav-core"
+@@ -21,9 +22,6 @@ features = [
+     "qt_pal"
+ ]
+ 
+-[dev-dependencies]
+-nihav_realmedia = { path = "../nihav-realmedia", default-features=false, features = ["all_demuxers"] }
+-
+ [features]
+ default = ["all_decoders", "all_demuxers", "all_encoders", "all_muxers"]
+ decoders = []
+diff --git a/nihav-core/Cargo.toml b/nihav-core/Cargo.toml
+index bb06d950b9aab769bf06b5bb6ae82050cf4fd2a4..98b86c439f13bb43f3049d5441fc8805892c0e2e 100644
+--- a/nihav-core/Cargo.toml
++++ b/nihav-core/Cargo.toml
+@@ -3,6 +3,7 @@ name = "nihav_core"
+ version = "0.1.0"
+ authors = ["Kostya Shishkov <kostya.shishkov@gmail.com>"]
+ edition = "2018"
++license = "AGPL-3.0-only"
+ 
+ [features]
+ default = [
+diff --git a/nihav-qt/Cargo.toml b/nihav-qt/Cargo.toml
+index 12a9259ac9f5b0a34bafa9208e38c7954549c7ec..462f5682b5998105b2fe1170209298d1a5ccfdb1 100644
+--- a/nihav-qt/Cargo.toml
++++ b/nihav-qt/Cargo.toml
+@@ -3,6 +3,7 @@ name = "nihav_qt"
+ version = "0.1.0"
+ authors = ["Kostya Shishkov <kostya.shishkov@gmail.com>"]
+ edition = "2018"
++license = "AGPL-3.0-only"
+ 
+ [dependencies.nihav_core]
+ path = "../nihav-core"
+@@ -18,9 +19,6 @@ features = [
+     "vq"
+ ]
+ 
+-[dev-dependencies]
+-nihav_commonfmt = { path = "../nihav-commonfmt", default-features=false, features = ["all_demuxers", "muxer_mov", "decoder_pcm"] }
+-
+ [features]
+ default = ["all_decoders", "all_demuxers", "all_encoders"]
+ all_decoders = ["all_video_decoders", "all_audio_decoders"]
+diff --git a/nihav-registry/Cargo.toml b/nihav-registry/Cargo.toml
+index 0eb6b8c668f192675b3dc8a0d8b06bfdd4437bb5..4ddcde6165caed623cf1a6ed4def5fe6d03adbe0 100644
+--- a/nihav-registry/Cargo.toml
++++ b/nihav-registry/Cargo.toml
+@@ -3,6 +3,7 @@ name = "nihav_registry"
+ version = "0.1.0"
+ authors = ["Kostya Shishkov <kostya.shishkov@gmail.com>"]
+ edition = "2018"
++license = "AGPL-3.0-only"
+ 
+ [dependencies]
+ nihav_core = { path = "../nihav-core" }

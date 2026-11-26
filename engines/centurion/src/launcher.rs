@@ -95,6 +95,7 @@ pub fn settings_capabilities(
             frontend: None,
         },
         controls: ControlCapabilities {
+            gamepad: false,
             controller_layouts: ControllerLayouts::None,
         },
         options: EngineOptions::Centurion,
@@ -163,6 +164,7 @@ mod tests {
                 let profile = LoadingProfile::new(release, ega);
                 let caps = settings_capabilities(profile, &Default::default());
                 assert_eq!(caps.validate(), Ok(()));
+                assert!(!caps.controls.gamepad);
                 assert_eq!(caps.display.mode.is_some(), ega);
                 if let Some(video) = caps.display.mode {
                     assert_eq!(video.key(), "video");

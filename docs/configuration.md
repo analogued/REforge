@@ -10,11 +10,13 @@ Machine choice and Reforged/Original scene movement; Mach 3 also offers scene
 and player craft movement settings. CRT & Colour offers sharp pixels or Hyllian CRT with adjustable
 shader controls. Colour profiles and white points remain future work. Audio
 offers enable sound, master/category volumes, per-game sound renderer, output
-device and focus muting. Controls offers a shared controller stick dead zone and
-Alley Cat's input response and controller layout templates, with diagrams.
+device and focus muting. Controls is available for Alley Cat and Mach 3, with a
+shared controller stick dead zone and Alley Cat's input response and controller
+layout templates, with diagrams.
 Navigate with Tab/Shift+Tab or the arrow keys; Enter/Space activates a control.
-Arrow keys adjust sliders and numeric fields. The controller's View/Back button
-opens settings, D-pad/left stick navigates, A (bottom face button) confirms,
+Arrow keys adjust sliders and numeric fields. In Alley Cat and Mach 3, the
+controller's View/Back button opens settings, D-pad/left stick navigates,
+A (bottom face button) confirms,
 B (right face button) goes back, and the shoulders move to the previous/next
 control. Held directions repeat. Escape/B closes a dropdown first, then cancels
 the menu on a fresh press. Focus is outlined and scrolls into view; disabled
@@ -589,24 +591,24 @@ is distinct from setting Music or Speech volume to zero.
 
 ## Controllers
 
-SDL-recognized gamepads work during graphical play without Steam. Drivers,
-pairing and device permissions are operating-system setup; SDL reports available
+SDL-recognized gamepads work with Alley Cat and Mach 3 during graphical play
+without Steam. BTZ games and Centurion do not support controllers, and their
+Settings menus omit the Controls page. The launcher can still be navigated with
+a controller. Drivers, pairing and device permissions are operating-system
+setup; SDL reports available
 devices.
 The first available recognized controller is used, with a replacement selected
 if it disconnects. Device-open failures warn and leave keyboard play available.
 The table shows the default bindings.
 
-| Controller input   | Alley Cat                        | Mach 3          | BTZ games |
-| ------------------ | -------------------------------- | --------------- | --------- |
-| Left stick / D-pad | Move, jump and swim              | Steer           | Navigate menus |
-| Bottom face button | Contextual action (keyboard Alt) | Fire            | Confirm menu control |
-| Start/Menu         | Host pause                       | Host pause      | Unassigned |
-| Back/View          | Toggle settings                  | Toggle settings | Toggle settings |
+| Controller input   | Alley Cat                        | Mach 3          |
+| ------------------ | -------------------------------- | --------------- |
+| Left stick / D-pad | Move, jump and swim              | Steer           |
+| Bottom face button | Contextual action (keyboard Alt) | Fire            |
+| Start/Menu         | Host pause                       | Host pause      |
+| Back/View          | Toggle settings                  | Toggle settings |
 
 The bottom face button advances Alley Cat and Mach 3's title/start screens.
-BTZ games use controllers for Settings and file-dialog navigation; game commands
-and filename text still use the keyboard. B cancels a filename prompt and the
-shoulders change focus. Terminal play uses its terminal's keyboard input.
 
 Alley Cat's skill question accepts Up/Down to choose among its four initial
 skills and the bottom button to confirm; another fresh press starts play after
@@ -635,7 +637,7 @@ Controls section on Apply; Cancel discards unapplied changes. There are no
 corresponding command-line arguments.
 
 **Stick dead zone** is an integer percentage from 5 to 90, default 35. Set it
-under **Controls** for each entry. TOML uses
+under **Controls** for each supported game entry. TOML uses
 `[entries.<entry-id>.controls] stick_dead_zone = 35`. Apply activates and saves
 the value; Cancel discards edits. There is no corresponding command-line option.
 Launcher navigation uses the built-in 35% threshold, independently of game

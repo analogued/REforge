@@ -40,7 +40,7 @@ Both modern player frontends replace these pages with the same framed text
 browser. Windowed play uses the game's bitmap font and selected display treatment;
 terminal play uses ANSI attributes and the terminal's font. The browser adds folder
 navigation, bookmark filtering, local modification dates, caret editing,
-selection and clipboard shortcuts. Keyboard, mouse and controller navigation
+selection and clipboard shortcuts. Keyboard and mouse navigation
 operate the browser independently of the story's command editor.
 
 The windowed browser adds monochrome hover and pressed-button feedback,
@@ -61,8 +61,8 @@ in the file list when matching bookmarks are available.
 The browser uses a temporary screen and stops the story clock while open.
 Settings can open above it and return to the same selection or overwrite
 question. Terminal keyboard navigation uses the same selection and completion
-logic, with UTF-8 filename input and terminal paste. Clipboard copy/cut, mouse
-and controller input belong to the windowed adapter. Diagnostic tools retain
+logic, with UTF-8 filename input and terminal paste. Clipboard copy/cut and mouse
+input belong to the windowed adapter. Diagnostic tools retain
 typed filename prompts and the original game-specific overwrite policy.
 
 Bookmark contents retain the original format, with no automatic extension.

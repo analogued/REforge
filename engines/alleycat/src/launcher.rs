@@ -98,6 +98,7 @@ pub fn settings_capabilities(
             frontend: None,
         },
         controls: ControlCapabilities {
+            gamepad: true,
             controller_layouts: ControllerLayouts::AlleyCat,
         },
         options: EngineOptions::AlleyCat,

@@ -250,13 +250,14 @@ primitives with that theme. Ordinary egui widgets receive the same palette.
 
 ## Settings menu
 
-Esc or F10 opens the Compact Display, CRT & Colour, Audio and Controls pages in each engine.
+Esc or F10 opens the Compact Display, CRT & Colour and Audio pages.
+Controls appears only for engines declaring controller support.
 Games with optional improvements also expose an Enhancements page.
 Each engine supplies one `SettingsCapabilities` declaration to launcher and player
 hosts through `SettingsMenu::for_game`. It groups explicit audio defaults,
 supported renderers and volume categories, display geometry and scale constraints,
-release-specific machine/video choices, controller layouts, typed engine panels
-and launcher quick options. `OptionDefinition` metadata is shared with the launcher;
+release-specific machine/video choices, controller support and layouts, typed
+engine panels and launcher quick options. `OptionDefinition` metadata is shared with the launcher;
 `ApplyTiming` distinguishes live changes from next-launch selections. Engines
 remain responsible for applying their native settings and running their hardware
 adapters. Live frame geometry remains authoritative after video mode changes.

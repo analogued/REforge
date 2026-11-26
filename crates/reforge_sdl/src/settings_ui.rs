@@ -184,6 +184,9 @@ pub(super) fn draw(
                         if !menu.entry_settings && page != LAUNCHER_PAGE {
                             continue;
                         }
+                        if page == 3 && !capabilities.controls.gamepad {
+                            continue;
+                        }
                         if page == ENHANCEMENTS_SECTION && !alleycat_options && !mach3_options && !centurion_options {
                             continue;
                         }

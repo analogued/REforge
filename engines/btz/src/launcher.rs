@@ -60,6 +60,7 @@ pub fn settings_capabilities() -> SettingsCapabilities {
             frontend: Some(&quick_options[0]),
         },
         controls: ControlCapabilities {
+            gamepad: false,
             controller_layouts: ControllerLayouts::None,
         },
         options: EngineOptions::Btz,
@@ -169,6 +170,7 @@ mod tests {
         assert!(caps.display.machine.is_none());
         assert!(caps.display.mode.is_none());
         assert_eq!(caps.controls.controller_layouts, ControllerLayouts::None);
+        assert!(!caps.controls.gamepad);
         assert_eq!(
             caps.audio.resolve(SoundRenderer::Adlib),
             SoundRenderer::Speaker

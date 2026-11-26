@@ -32,6 +32,7 @@ const TEST_FRONTEND: crate::launcher::OptionDefinition = crate::launcher::Option
 impl<'a> SettingsMenu<'a> {
     /// Expose Centurion's game-only presentation preferences.
     pub fn with_centurion_options(mut self) -> Self {
+        self.capabilities.controls.gamepad = false;
         let mut session = self.creator.session.borrow_mut();
         if session.game_id == "standalone" {
             session.game_id = "centurion-defender-of-rome".into();
@@ -79,6 +80,7 @@ impl<'a> SettingsMenu<'a> {
     /// whether its child can inherit an interactive terminal; SDL play passes
     /// false because an existing game window cannot switch host mid-session.
     pub fn with_btz_options(mut self, terminal_available: bool) -> Self {
+        self.capabilities.controls.gamepad = false;
         let mut session = self.creator.session.borrow_mut();
         if session.game_id == "standalone" {
             session.game_id = "mindwheel".into();

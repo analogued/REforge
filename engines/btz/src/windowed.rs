@@ -17,7 +17,6 @@ use crate::{
 };
 use reforge_sdl::{
     DisplayGeometry, FrameFormat, FrameTexture, HostPause, HostShortcut, Window, egui, game_title,
-    gamepad::{Gamepads, PadEvent},
     host_shortcut,
     sdl3::{
         event::{Event, WindowEvent},
@@ -136,7 +135,6 @@ struct Overlay {
     prompt: Option<FilePrompt>,
     error: Option<String>,
     retry: Option<HostRequest>,
-    back: bool,
 }
 
 enum OverlayAction {
@@ -165,7 +163,6 @@ impl Overlay {
 
     fn show(&mut self, context: &egui::Context) -> Option<OverlayAction> {
         let mut action = None;
-        let back = std::mem::take(&mut self.back);
         if let Some(prompt) = &mut self.prompt {
             egui::Window::new("Game files")
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -180,7 +177,6 @@ impl Overlay {
                                 action = Some(OverlayAction::Submit(Some(PathBuf::from("y"))));
                             }
                             if Gui::control(ui.button("Cancel")).clicked()
-                                || back
                                 || ui.input(|input| input.key_pressed(egui::Key::Escape))
                             {
                                 action = Some(OverlayAction::Submit(None));
@@ -203,7 +199,7 @@ impl Overlay {
                         ui.colored_label(egui::Color32::LIGHT_RED, error);
                     }
                     let enter = ui.input(|input| input.key_pressed(egui::Key::Enter));
-                    let escape = back || ui.input(|input| input.key_pressed(egui::Key::Escape));
+                    let escape = ui.input(|input| input.key_pressed(egui::Key::Escape));
                     ui.horizontal(|ui| {
                         if Gui::control(ui.button("Continue")).clicked() || enter {
                             action = Some(OverlayAction::Submit(
@@ -235,7 +231,6 @@ impl Overlay {
                             }
                         });
                     } else if Gui::control(ui.button("Continue")).clicked()
-                        || back
                         || ui.input(|input| {
                             input.key_pressed(egui::Key::Enter)
                                 || input.key_pressed(egui::Key::Escape)
@@ -246,22 +241,6 @@ impl Overlay {
                 });
         }
         action
-    }
-}
-
-/// Controller actions belong to host menus, never to the story's text editor.
-fn route_gamepad(
-    pad: PadEvent,
-    menu: &mut SettingsMenu<'_>,
-    gui: &mut Gui<'_>,
-    overlay: &mut Overlay,
-) -> bool {
-    if overlay.open() {
-        overlay.back |= pad.cancel;
-        gui.handle_gamepad(pad);
-        true
-    } else {
-        menu.handle_gamepad(pad)
     }
 }
 
@@ -339,7 +318,6 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
     let mut overlay = Overlay::default();
     let mut file_browser: Option<FileBrowser> = None;
     let mut keyboard = Keyboard::default();
-    let mut gamepads = Gamepads::new(window.settings().stick_dead_zone);
     let epoch = Instant::now();
     let mut pause = HostPause::default();
     let mut manual_pause = false;
@@ -351,9 +329,7 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
     loop {
         let was_menu = menu.is_open();
         let mut file_action = None;
-        gamepads.set_dead_zone(window.settings().stick_dead_zone);
         for event in window.poll_events().collect::<Vec<_>>() {
-            let pad = gamepads.handle(&event);
             if matches!(
                 event,
                 Event::Quit { .. }
@@ -367,17 +343,15 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
             }
             if let Some(browser) = &mut file_browser {
                 if file_action.is_none() {
-                    file_action = browser.event_with_settings(&event, pad, &mut menu, &window);
+                    file_action = browser.event_with_settings(&event, &mut menu, &window);
                 }
                 // All keys in this SDL batch belong to the modal UI, including
                 // text events following the Enter/Space that closes it.
                 continue;
             }
-            let pad_consumed =
-                pad.is_some_and(|pad| route_gamepad(pad, &mut menu, &mut gui, &mut overlay));
             if overlay.open() {
                 gui.handle_event(&event);
-            } else if menu.handle_event(&event) || pad_consumed {
+            } else if menu.handle_event(&event) {
                 keyboard.keys.clear();
             } else if host_shortcut(&event) == Some(HostShortcut::TogglePause) {
                 manual_pause = !manual_pause;
@@ -395,12 +369,6 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                 file_browser = None;
             }
             keyboard.keys.clear();
-            gamepads.reset();
-        }
-        if let Some(browser) = &mut file_browser
-            && !menu.is_open()
-        {
-            browser.tick();
         }
         // Resizing or replacing the renderer can block. Keep that time outside
         // the story clock, and use the shared menu geometry/restoration policy.
@@ -421,9 +389,6 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
         );
         if was_menu && !menu.is_open() {
             window.start_text_input();
-        }
-        if was_menu != menu.is_open() {
-            gamepads.reset();
         }
         let paused = manual_pause || menu.is_open() || overlay.open() || file_browser.is_some();
         if paused != pause.is_paused() {
@@ -451,7 +416,6 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                 }
                 gui.reset_input();
                 keyboard.keys.clear();
-                gamepads.reset();
             }
         } else if !paused
             && loaded
@@ -501,7 +465,6 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                         if let Some(browser) = FileBrowser::begin(&loaded, &request, title) {
                             file_browser = Some(browser);
                             keyboard.keys.clear();
-                            gamepads.reset();
                         } else if let Some(label) = loaded.files.prompt(&request) {
                             overlay.prompt = Some(FilePrompt {
                                 request,
@@ -512,7 +475,6 @@ pub fn run(mut loaded: Loaded, preferences: RuntimeSettings, title: &str) -> Res
                             });
                             keyboard.keys.clear();
                             gui.reset_input();
-                            gamepads.reset();
                         } else {
                             complete_file_request(&mut loaded, &request, None, &mut overlay)?;
                         }
@@ -815,14 +777,14 @@ mod tests {
     }
 
     #[test]
-    fn controller_navigation_reaches_settings_and_file_dialogs() {
-        const TEST: &str =
-            "windowed::tests::controller_navigation_reaches_settings_and_file_dialogs";
-        const MARKER: &str = "REFORGE_BTZ_CONTROLLER_TEST";
-        if std::env::var(MARKER).as_deref() != Ok(TEST) {
+    fn fallback_filename_prompt_keeps_keyboard_caret_and_selection() {
+        const NAME: &str =
+            "windowed::tests::fallback_filename_prompt_keeps_keyboard_caret_and_selection";
+        const MARKER: &str = "REFORGE_BTZ_FILENAME_PROMPT_SDL";
+        if std::env::var(MARKER).as_deref() != Ok(NAME) {
             let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .args(["--exact", TEST, "--test-threads=1"])
-                .env(MARKER, TEST)
+                .args(["--exact", NAME, "--test-threads=1"])
+                .env(MARKER, NAME)
                 .env("SDL_VIDEODRIVER", "dummy")
                 .env("SDL_RENDER_DRIVER", "software")
                 .output()
@@ -846,164 +808,47 @@ mod tests {
         let sdl = reforge_sdl::sdl3::init().unwrap();
         let video = sdl.video().unwrap();
         let window = video
-            .window("BTZ controller regression", 640, 480)
+            .window("BTZ filename prompt", 640, 480)
             .hidden()
             .build()
             .unwrap();
         let canvas = window.into_canvas();
         let creator = reforge_sdl::FrameCreator::for_ui(&canvas);
-        let mut menu = SettingsMenu::for_game(
-            &creator,
-            crate::launcher::settings_capabilities(),
-            SettingsAvailability::default(),
-        );
-        let mut gui = Gui::new(&creator);
-        let mut overlay = Overlay::default();
         let metrics = Gui::metrics(&canvas).unwrap();
-
-        assert!(!route_gamepad(
-            PadEvent::default(),
-            &mut menu,
-            &mut gui,
-            &mut overlay
-        ));
-        assert!(route_gamepad(
-            PadEvent {
-                settings: true,
-                ..Default::default()
-            },
-            &mut menu,
-            &mut gui,
-            &mut overlay
-        ));
-        assert!(menu.is_open());
+        let mut gui = Gui::new(&creator);
+        let mut overlay = Overlay {
+            prompt: Some(FilePrompt {
+                request: HostRequest::LoadBookmark,
+                label: "Bookmark".into(),
+                path: "save.dat".into(),
+                focus: true,
+                replacement: false,
+            }),
+            ..Default::default()
+        };
+        let draw = |gui: &mut Gui<'_>, overlay: &mut Overlay| {
+            let mut action = None;
+            gui.prepare(metrics, |ctx| action = overlay.show(ctx));
+            action
+        };
         for _ in 0..3 {
-            menu.prepare(metrics, RuntimeSettings::default());
+            assert!(draw(&mut gui, &mut overlay).is_none());
         }
-        assert!(route_gamepad(
-            PadEvent {
-                next: true,
-                ..Default::default()
-            },
-            &mut menu,
-            &mut gui,
-            &mut overlay
-        ));
-        menu.prepare(metrics, RuntimeSettings::default());
-        route_gamepad(
-            PadEvent {
-                cancel: true,
-                ..Default::default()
-            },
-            &mut menu,
-            &mut gui,
-            &mut overlay,
-        );
-        assert!(!menu.is_open());
 
-        overlay.prompt = Some(FilePrompt {
-            request: HostRequest::LoadBookmark,
-            label: "Bookmark".into(),
-            path: "save.dat".into(),
-            focus: true,
-            replacement: false,
-        });
-        let mut action = None;
-        for _ in 0..3 {
-            gui.prepare(metrics, |ctx| {
-                action = overlay.show(ctx);
-            });
-        }
-        assert!(action.is_none());
-        // Filename editing must keep its caret keys instead of moving UI focus.
         gui.handle_event(&press(Keycode::End, Mod::NOMOD));
-        gui.handle_event(&press(Keycode::Left, Mod::NOMOD));
-        gui.handle_event(&Event::TextInput {
-            timestamp: 0,
-            window_id: 1,
-            text: "X".into(),
-        });
-        gui.prepare(metrics, |ctx| {
-            action = overlay.show(ctx);
-        });
-        assert!(action.is_none());
-        assert_eq!(overlay.prompt.as_ref().unwrap().path, "save.daXt");
-
-        gui.handle_event(&press(Keycode::Right, Mod::NOMOD));
-        gui.handle_event(&Event::TextInput {
-            timestamp: 0,
-            window_id: 1,
-            text: "Y".into(),
-        });
-        gui.prepare(metrics, |ctx| {
-            action = overlay.show(ctx);
-        });
-        assert_eq!(overlay.prompt.as_ref().unwrap().path, "save.daXtY");
-        gui.handle_event(&press(Keycode::Left, Mod::LSHIFTMOD));
-        gui.handle_event(&Event::TextInput {
-            timestamp: 0,
-            window_id: 1,
-            text: "Z".into(),
-        });
-        gui.prepare(metrics, |ctx| {
-            action = overlay.show(ctx);
-        });
-        assert_eq!(overlay.prompt.as_ref().unwrap().path, "save.daXtZ");
-
-        // The field and both buttons must participate in shared navigation.
-        for _ in 0..2 {
-            assert!(route_gamepad(
-                PadEvent {
-                    next: true,
-                    ..Default::default()
-                },
-                &mut menu,
-                &mut gui,
-                &mut overlay
-            ));
-            gui.prepare(metrics, |ctx| {
-                action = overlay.show(ctx);
+        for (key, modifiers, text, expected) in [
+            (Keycode::Left, Mod::NOMOD, "X", "save.daXt"),
+            (Keycode::Right, Mod::NOMOD, "Y", "save.daXtY"),
+            (Keycode::Left, Mod::LSHIFTMOD, "Z", "save.daXtZ"),
+        ] {
+            gui.handle_event(&press(key, modifiers));
+            gui.handle_event(&Event::TextInput {
+                timestamp: 0,
+                window_id: 1,
+                text: text.into(),
             });
-            assert!(action.is_none());
+            assert!(draw(&mut gui, &mut overlay).is_none());
+            assert_eq!(overlay.prompt.as_ref().unwrap().path, expected);
         }
-        route_gamepad(
-            PadEvent {
-                pressed: reforge_sdl::gamepad::Actions {
-                    action: true,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            &mut menu,
-            &mut gui,
-            &mut overlay,
-        );
-        gui.prepare(metrics, |ctx| {
-            action = overlay.show(ctx);
-        });
-        assert!(
-            matches!(action, Some(OverlayAction::Submit(None))),
-            "controller A did not activate Cancel"
-        );
-        assert!(!menu.is_open());
-
-        gui.reset_input();
-        route_gamepad(
-            PadEvent {
-                cancel: true,
-                ..Default::default()
-            },
-            &mut menu,
-            &mut gui,
-            &mut overlay,
-        );
-        gui.prepare(metrics, |ctx| {
-            action = overlay.show(ctx);
-        });
-        assert!(
-            matches!(action, Some(OverlayAction::Submit(None))),
-            "controller B did not cancel the filename prompt"
-        );
-        assert_eq!(overlay.prompt.as_ref().unwrap().path, "save.daXtZ");
     }
 }

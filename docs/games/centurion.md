@@ -71,10 +71,12 @@ button dismisses it.
 
 ## Controls
 
+Use the keyboard and mouse; controllers are not supported.
+
 | Context | Controls |
 | --- | --- |
 | Shared Settings | F10; Escape closes Settings while it is open |
-| Host pause / resume | Pause/Break, or controller Start/Menu |
+| Host pause / resume | Pause/Break |
 | Quit / return to launcher | Ctrl+Q or the window close button |
 | Campaign map | Click a province; arrows move the cursor and Space selects it. Enter selects a legion. Escape or F1 opens Game Control. |
 | Menus | Arrows select, Enter activates, Escape goes back; letters activate labeled shortcuts. Mouse movement highlights choices; click to activate. |

@@ -63,8 +63,6 @@ pub(crate) fn run(
             None
         }
     };
-    let mut gamepads = reforge_sdl::gamepad::Gamepads::new(window.settings().stick_dead_zone);
-    menu.set_controller_style(gamepads.style());
     let mut selected_device = None;
     let mut focused = true;
     let mut manual_pause = false;
@@ -136,15 +134,6 @@ pub(crate) fn run(
                     WindowEvent::MouseEnter => session.set_map_pointer_active(true),
                     _ => {}
                 }
-            }
-            let pad = gamepads.handle(&event);
-            if pad.is_some_and(|pad| menu.handle_gamepad(pad)) {
-                modal_batch = true;
-                continue;
-            }
-            if pad.is_some_and(|pad| pad.pause) {
-                manual_pause = !manual_pause;
-                continue;
             }
             // This shared variant keeps Escape for the game's original menus.
             if menu.handle_dialog_event(&event) {
@@ -333,7 +322,6 @@ pub(crate) fn run(
             session.set_map_pointer_active(false);
         }
         session.set_menu_decorations(window.settings().centurion.menu_decorations);
-        gamepads.set_dead_zone(window.settings().stick_dead_zone);
         if !paused {
             let frame = audio.as_mut().map(|o| o.clock_frames()).transpose()?;
             let now = frame.map_or_else(

@@ -103,6 +103,7 @@ pub fn settings_capabilities(
             frontend: None,
         },
         controls: ControlCapabilities {
+            gamepad: true,
             controller_layouts: ControllerLayouts::None,
         },
         options: EngineOptions::Mach3,

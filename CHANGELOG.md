@@ -12,6 +12,8 @@ Unreleased contains changes intended for the next public release.
 
 ### General
 
+- Hide controller settings and disable controller input for BTZ games and
+  Centurion; launcher controller navigation remains available.
 - Keep cached previews visible when changing themes across launcher views,
   reusing processed artwork instead of repeating image filtering for new frames.
 - Fix duplicate launch options appearing over the toolbar when the Options

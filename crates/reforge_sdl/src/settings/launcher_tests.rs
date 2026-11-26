@@ -19,6 +19,48 @@ fn pulse(menu: &mut SettingsMenu<'_>, metrics: UiMetrics, key: Key) {
 }
 
 #[test]
+fn controller_settings_follow_engine_support_without_disabling_launcher_navigation() {
+    if !dummy_video(
+        "settings::launcher_tests::controller_settings_follow_engine_support_without_disabling_launcher_navigation",
+    ) {
+        return;
+    }
+    let _guard = Launch {
+        directory: None,
+        game_id: "mindwheel".into(),
+        entry_id: None,
+        path: None,
+        cli: Patch::from([("renderer".into(), "software".into())]),
+    }
+    .install();
+    let display = crate::Window::new("controller settings", 320, 240, Some(3)).unwrap();
+    let creator = display.texture_creator();
+    for gamepad in [false, true] {
+        let mut capabilities =
+            SettingsCapabilities::basic(crate::DisplayGeometry::new((320, 200), (320, 240)));
+        capabilities.controls.gamepad = gamepad;
+        let mut menu =
+            SettingsMenu::for_game(&creator, capabilities, SettingsAvailability::default())
+                .with_launcher_options();
+        menu.toggle();
+        menu.prepare(display.ui_metrics(), display.settings());
+        assert_eq!(
+            label(&draw(&mut menu, vec![]), "Controls").is_some(),
+            gamepad
+        );
+        if gamepad {
+            click(&mut menu, "Controls");
+            assert!(label(&draw(&mut menu, vec![]), "Stick dead zone").is_some());
+        }
+        assert!(menu.handle_gamepad(crate::gamepad::PadEvent {
+            cancel: true,
+            ..Default::default()
+        }));
+        assert!(!menu.is_open(), "launcher navigation remains available");
+    }
+}
+
+#[test]
 fn launcher_section_is_opt_in_and_height_apply_cancel_reset_are_separate() {
     if !dummy_video(
         "settings::launcher_tests::launcher_section_is_opt_in_and_height_apply_cancel_reset_are_separate",

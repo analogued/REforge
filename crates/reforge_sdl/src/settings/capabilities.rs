@@ -30,6 +30,9 @@ pub enum ControllerLayouts {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ControlCapabilities {
+    /// Controller input during play and availability of controller settings.
+    /// The application launcher can still use controllers independently.
+    pub gamepad: bool,
     pub controller_layouts: ControllerLayouts,
 }
 
@@ -85,6 +88,7 @@ impl SettingsCapabilities {
                 frontend: None,
             },
             controls: ControlCapabilities {
+                gamepad: true,
                 controller_layouts: ControllerLayouts::None,
             },
             options: EngineOptions::None,
@@ -97,6 +101,9 @@ impl SettingsCapabilities {
         self.audio.validate()?;
         if self.game_id.is_empty() {
             return Err("settings scope must not be empty");
+        }
+        if !self.controls.gamepad && self.controls.controller_layouts != ControllerLayouts::None {
+            return Err("controller layouts require controller support");
         }
         if self.display.video.min_scale == 0
             || self.display.video.max_scale < self.display.video.min_scale
@@ -229,6 +236,18 @@ mod tests {
         quick_options: QUICK,
         ..SettingsCapabilities::basic(DisplayGeometry::new((320, 200), (320, 240)))
     };
+
+    #[test]
+    fn controller_layouts_require_controller_input() {
+        let mut caps = CAPABILITIES;
+        caps.controls.gamepad = false;
+        assert_eq!(caps.validate(), Ok(()));
+        caps.controls.controller_layouts = ControllerLayouts::AlleyCat;
+        assert_eq!(
+            caps.validate(),
+            Err("controller layouts require controller support")
+        );
+    }
 
     #[test]
     fn shared_audio_declarations_keep_explicit_defaults_and_application_policy() {

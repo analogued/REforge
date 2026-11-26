@@ -46,8 +46,6 @@ impl Drop for Pointers {
 pub(super) struct FileBrowser {
     request: HostRequest,
     pub(super) dialog: FileDialog,
-    held: Option<Input>,
-    repeat_at: Instant,
 }
 
 impl FileBrowser {
@@ -56,27 +54,21 @@ impl FileBrowser {
     pub(super) fn event_with_settings(
         &mut self,
         event: &Event,
-        pad: Option<PadEvent>,
         menu: &mut SettingsMenu<'_>,
         window: &Window,
     ) -> Option<Action> {
         let was_open = menu.is_open();
-        let pad_consumed = pad.is_some_and(|pad| menu.handle_gamepad(pad));
-        if menu.handle_dialog_event(event) || pad_consumed || was_open || menu.is_open() {
-            self.held = None;
+        if menu.handle_dialog_event(event) || was_open || menu.is_open() {
             self.dialog.clear_pointer();
             return None;
         }
-        pad.and_then(|pad| self.pad(pad))
-            .or_else(|| self.event(event, window))
+        self.event(event, window)
     }
 
     pub(super) fn begin(loaded: &Loaded, request: &HostRequest, title: &str) -> Option<Self> {
         Some(Self {
             request: request.clone(),
             dialog: crate::player::file_dialog::begin_selection(loaded, request, title)?,
-            held: None,
-            repeat_at: Instant::now(),
         })
     }
 
@@ -177,7 +169,6 @@ impl FileBrowser {
                     | WindowEvent::PixelSizeChanged(..),
                 ..
             } => {
-                self.held = None;
                 self.dialog.clear_pointer();
                 None
             }
@@ -197,47 +188,6 @@ impl FileBrowser {
                 .mouse_position()
                 .and_then(|(x, y)| Self::point(window, x, y)),
         );
-    }
-
-    pub(super) fn pad(&mut self, pad: PadEvent) -> Option<Action> {
-        let held = if pad.actions.up {
-            Some(Input::Up)
-        } else if pad.actions.down {
-            Some(Input::Down)
-        } else if pad.actions.left {
-            Some(Input::Left(false))
-        } else if pad.actions.right {
-            Some(Input::Right(false))
-        } else {
-            None
-        };
-        let changed = held != self.held;
-        self.held = held.clone();
-        if changed {
-            self.repeat_at = Instant::now() + Duration::from_millis(350);
-        }
-        let input = if pad.cancel {
-            Input::Escape
-        } else if pad.previous {
-            Input::Tab(true)
-        } else if pad.next {
-            Input::Tab(false)
-        } else if pad.pressed.action {
-            Input::Enter
-        } else if changed {
-            held?
-        } else {
-            return None;
-        };
-        self.dialog.input(input)
-    }
-    pub(super) fn tick(&mut self) {
-        if Instant::now() >= self.repeat_at {
-            if let Some(input) = self.held.clone() {
-                self.dialog.input(input);
-            }
-            self.repeat_at = Instant::now() + Duration::from_millis(100);
-        }
     }
 
     pub(super) fn complete(&mut self, loaded: &mut Loaded, action: Action) -> Result<bool, String> {
@@ -261,6 +211,7 @@ mod tests {
         session::Session,
         text::TextCodec,
     };
+    use reforge_sdl::sdl3;
     fn put(bytes: &mut [u8], offset: usize, value: u16) {
         bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
     }
@@ -474,8 +425,8 @@ mod tests {
     }
 
     #[test]
-    fn real_sdl_events_edit_names_route_mouse_and_controller_and_retain_frames() {
-        const NAME: &str = "windowed::file_browser::tests::real_sdl_events_edit_names_route_mouse_and_controller_and_retain_frames";
+    fn real_sdl_events_edit_names_route_mouse_ignore_gamepads_and_retain_frames() {
+        const NAME: &str = "windowed::file_browser::tests::real_sdl_events_edit_names_route_mouse_ignore_gamepads_and_retain_frames";
         if std::env::var("REFORGE_FILE_BROWSER_SDL").as_deref() != Ok(NAME) {
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
@@ -536,6 +487,30 @@ mod tests {
                 .dialog
                 .input(Input::Text("retained-filename".into()));
             let before = chooser.dialog.cells();
+            for button in [
+                sdl3::gamepad::Button::South,
+                sdl3::gamepad::Button::East,
+                sdl3::gamepad::Button::Back,
+                sdl3::gamepad::Button::Start,
+                sdl3::gamepad::Button::DPadDown,
+                sdl3::gamepad::Button::RightShoulder,
+            ] {
+                let event = Event::GamepadButtonDown {
+                    timestamp: 0,
+                    which: Default::default(),
+                    button,
+                };
+                assert!(
+                    chooser
+                        .event_with_settings(&event, &mut menu, &window)
+                        .is_none()
+                );
+                assert!(!menu.is_open());
+                assert_eq!(chooser.dialog.cells(), before);
+                let mut keyboard = Keyboard::default();
+                keyboard.event(&event);
+                assert!(keyboard.keys.is_empty());
+            }
             assert!(
                 !String::from_utf8_lossy(&before.iter().step_by(2).copied().collect::<Vec<_>>())
                     .contains("F10")
@@ -546,11 +521,25 @@ mod tests {
             }
             assert!(
                 chooser
-                    .event_with_settings(&f10, None, &mut menu, &window)
+                    .event_with_settings(&f10, &mut menu, &window)
                     .is_none()
             );
             assert!(menu.is_open());
             window.prepare_settings(&mut menu);
+            assert!(
+                chooser
+                    .event_with_settings(
+                        &Event::GamepadButtonDown {
+                            timestamp: 0,
+                            which: Default::default(),
+                            button: sdl3::gamepad::Button::Back,
+                        },
+                        &mut menu,
+                        &window,
+                    )
+                    .is_none()
+            );
+            assert!(menu.is_open());
             assert!(
                 chooser
                     .event_with_settings(
@@ -559,7 +548,6 @@ mod tests {
                             window_id: 0,
                             text: "menu-only".into()
                         },
-                        None,
                         &mut menu,
                         &window
                     )
@@ -571,7 +559,7 @@ mod tests {
             }
             assert!(
                 chooser
-                    .event_with_settings(&escape, None, &mut menu, &window)
+                    .event_with_settings(&escape, &mut menu, &window)
                     .is_none()
             );
             assert!(!menu.is_open());
@@ -586,7 +574,6 @@ mod tests {
                     keymod: Mod::NOMOD,
                     repeat: false,
                 },
-                None,
                 &mut menu,
                 &window,
             );
@@ -594,13 +581,13 @@ mod tests {
             assert_eq!(host(&mut loaded), request);
             assert!(
                 chooser
-                    .event_with_settings(&f10, None, &mut menu, &window)
+                    .event_with_settings(&f10, &mut menu, &window)
                     .is_none()
             );
             assert!(menu.is_open());
             assert!(
                 chooser
-                    .event_with_settings(&f10, None, &mut menu, &window)
+                    .event_with_settings(&f10, &mut menu, &window)
                     .is_none()
             );
             assert!(!menu.is_open());
@@ -617,16 +604,16 @@ mod tests {
                     .contains("F10")
                 );
                 assert_ne!(confirmation, before);
-                chooser.event_with_settings(&f10, None, &mut menu, &window);
+                chooser.event_with_settings(&f10, &mut menu, &window);
                 assert!(menu.is_open());
-                chooser.event_with_settings(&f10, None, &mut menu, &window);
+                chooser.event_with_settings(&f10, &mut menu, &window);
                 assert!(!menu.is_open());
                 assert_eq!(chooser.dialog.cells(), confirmation);
                 assert_eq!(std::fs::read(&path).unwrap(), b"old file");
                 std::fs::remove_file(path).unwrap();
                 assert!(
                     chooser
-                        .event_with_settings(&escape, None, &mut menu, &window)
+                        .event_with_settings(&escape, &mut menu, &window)
                         .is_none()
                 );
                 assert!(!menu.is_open());
@@ -635,7 +622,7 @@ mod tests {
             // With Settings closed, Escape cancels the chooser rather than
             // reopening Settings. The earlier close/release must not leak here.
             assert_eq!(
-                chooser.event_with_settings(&escape, None, &mut menu, &window),
+                chooser.event_with_settings(&escape, &mut menu, &window),
                 Some(Action::Cancel)
             );
             assert!(!menu.is_open());
@@ -674,9 +661,9 @@ mod tests {
         if let Event::KeyDown { scancode, .. } = &mut settings_key {
             *scancode = Some(reforge_sdl::sdl3::keyboard::Scancode::F10);
         }
-        browser.event_with_settings(&settings_key, None, &mut menu, &window);
+        browser.event_with_settings(&settings_key, &mut menu, &window);
         assert!(menu.is_open());
-        browser.event_with_settings(&settings_key, None, &mut menu, &window);
+        browser.event_with_settings(&settings_key, &mut menu, &window);
         assert!(!menu.is_open());
         assert_eq!(browser.event(&release, &window), None);
         browser.event(&cancel, &window);
@@ -716,26 +703,14 @@ mod tests {
         browser.event(&key(Keycode::V, Mod::LCTRLMOD), &window);
         browser.event(&key(Keycode::Tab, Mod::NOMOD), &window);
         assert!(browser.dialog.cursor(Duration::ZERO).is_none());
-        browser.pad(PadEvent {
-            next: true,
-            ..Default::default()
-        });
+        browser.event(&key(Keycode::Tab, Mod::NOMOD), &window);
         assert_eq!(
             browser.event(&key(Keycode::Return, Mod::NOMOD), &window),
             Some(Action::Cancel)
         );
-        browser.pad(PadEvent {
-            previous: true,
-            ..Default::default()
-        });
+        browser.event(&key(Keycode::Tab, Mod::LSHIFTMOD), &window);
         let action = browser
-            .pad(PadEvent {
-                pressed: reforge_sdl::gamepad::Actions {
-                    action: true,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
+            .event(&key(Keycode::Return, Mod::NOMOD), &window)
             .unwrap();
         assert!(matches!(action,Action::Choose{path,..} if path==dir.0.join("clipboard-save")));
         browser.dialog.input(Input::Tab(true));

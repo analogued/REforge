@@ -72,21 +72,20 @@ REforge searches the game root and any subdirectories specified by its catalog.
 
 Press **Esc** or **F10** to open Settings. Centurion uses **F10**, preserving
 Escape for its game menus. Choose windowed or fullscreen play, adjust scaling,
-try CRT presentation, or change audio levels and your controller's stick dead zone.
+try CRT presentation, or change audio levels.
 **Apply** activates and saves edits; **Cancel** discards them. Each library entry has independent game settings and built-in defaults.
 Launcher appearance preferences are application-wide.
 
 | Action | Keyboard | Gamepad |
 | --- | --- | --- |
 | Pause / resume | Pause/Break | Start/Menu (Alley Cat, Mach 3) |
-| Open / close Settings | Esc or F10 | Back/View |
+| Open / close Settings | Esc or F10 | Back/View (Alley Cat, Mach 3) |
 | Quit | Ctrl+Q | — |
 
 Alley Cat and Mach 3 also accept **P** to pause. By default, the left stick or
 D-pad supplies movement, and the bottom face button performs the main action.
-Alley Cat offers controller layout templates in Settings. The `btz` engine uses
-keyboard commands; controllers navigate Settings and file dialogs. Game-specific controls
-are in the player guides.
+Alley Cat offers controller layout templates in Settings. BTZ games and Centurion
+do not support controllers. Game-specific controls are in the player guides.
 
 The [btz engine](docs/games/btz.md) supports the normal SDL text display and
 optional terminal play using `--renderer terminal`.

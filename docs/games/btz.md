@@ -149,8 +149,8 @@ Choose a file with Up/Down and Enter, or enter a name in the filename field.
 Tab/Shift+Tab switches controls; Escape cancels. Page Up/Down scrolls the list,
 and Backspace goes up a folder when the list has focus.
 
-Windowed play also supports mouse and controller navigation. In terminal play,
-use your terminal's paste shortcut.
+Windowed play also supports mouse navigation. Controllers are not supported.
+In terminal play, use your terminal's paste shortcut.
 
 The game pauses while the browser is open. Modification dates use your system's
 local timezone. In windowed play, F10 opens Settings and returns to the same

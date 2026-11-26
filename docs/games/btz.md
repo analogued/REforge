@@ -114,7 +114,7 @@ sends BEL: your terminal's settings determine whether it sounds, flashes or
 stays silent. REforge's mute controls can suppress it; terminal bell volume is
 controlled by the terminal.
 
-**Display → Text interface → Cursor style** selects the cursor for command
+**Enhancements → Text interface → Cursor style** selects the cursor for command
 input and file dialogs. In windowed play, Pulsing underline (the default)
 stays visible while alternating between two heights. Blinking underline alternates
 between a two-pixel underline and no cursor. Steady block reverses the colours

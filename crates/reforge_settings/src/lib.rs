@@ -130,6 +130,7 @@ pub fn section_index(key: &str) -> usize {
     if matches!(
         key,
         MOTION
+            | BTZ_FILE_CURSOR
             | ALLEYCAT_MOTION
             | CONTROL_MODE
             | CENTURION_FLEET_INFORMATION
@@ -941,6 +942,7 @@ impl Draft {
             patch.remove(MOTION);
             patch.remove(ALLEYCAT_MOTION);
             patch.remove(CONTROL_MODE);
+            patch.remove(BTZ_FILE_CURSOR);
             patch.remove(CENTURION_FLEET_INFORMATION);
             patch.remove(CENTURION_POPUP_CURSOR);
             patch.remove(CENTURION_MENU_DECORATIONS);
@@ -950,7 +952,6 @@ impl Draft {
         }
         if page == 0 {
             patch.remove(GRAPHICAL_RENDERER);
-            patch.remove(BTZ_FILE_CURSOR);
             patch.remove(ALLEYCAT_MACHINE);
         }
     }
@@ -962,7 +963,7 @@ impl Draft {
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(MOTION)
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(ALLEYCAT_MOTION)
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(CONTROL_MODE)
-            || page == 0 && self.game.contains_key(BTZ_FILE_CURSOR)
+            || page == ENHANCEMENTS_SECTION && self.game.contains_key(BTZ_FILE_CURSOR)
             || page == 0 && self.game.contains_key(ALLEYCAT_MACHINE)
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(CENTURION_FLEET_INFORMATION)
             || page == ENHANCEMENTS_SECTION && self.game.contains_key(CENTURION_POPUP_CURSOR)
@@ -1581,7 +1582,8 @@ mod tests {
                 let mut draft = settings.saved.clone();
 
                 draft.edit(BTZ_FILE_CURSOR, style.as_str().into());
-                assert!(draft.has_custom_settings(0));
+                assert!(draft.has_custom_settings(ENHANCEMENTS_SECTION));
+                assert!(!draft.has_custom_settings(0));
                 assert_eq!(
                     settings.effective(&settings.saved).btz.file_cursor,
                     FileCursorStyle::PulsingUnderline
@@ -1608,6 +1610,8 @@ mod tests {
                 reset.reset_section(1);
                 assert_eq!(reset.game_values().btz.file_cursor, style);
                 reset.reset_section(0);
+                assert_eq!(reset.game_values().btz.file_cursor, style);
+                reset.reset_section(ENHANCEMENTS_SECTION);
                 assert!(!reset.game.contains_key(BTZ_FILE_CURSOR));
                 assert_eq!(
                     reset.game_values().btz.file_cursor,

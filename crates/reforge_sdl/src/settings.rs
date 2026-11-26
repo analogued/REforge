@@ -1175,8 +1175,14 @@ mod tests {
                 );
             }
         }
-        let path =
-            std::env::temp_dir().join(format!("reforge-btz-cursor-ui-{}.toml", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "reforge-btz-cursor-ui-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
         assert!(!path.exists());
         let launch = Launch {
             directory: None,
@@ -1197,8 +1203,12 @@ mod tests {
         menu.prepare(window.ui_metrics(), window.settings());
 
         let output = draw(&mut menu, vec![]);
-        assert!(label(&output, "Text interface").top() > label(&output, "Rendering").bottom());
-        assert!(label(&output, "Cursor style").top() > label(&output, "Frame limit").bottom());
+        assert!(!output.shapes.iter().any(|shape| {
+            matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == "Text interface")
+        }));
+        click(&mut menu, "Enhancements");
+        let output = draw(&mut menu, vec![]);
+        assert!(label(&output, "Cursor style").top() > label(&output, "Text interface").bottom());
         assert_eq!(
             window.settings().btz.file_cursor,
             FileCursorStyle::PulsingUnderline
@@ -1263,6 +1273,18 @@ mod tests {
             menu.draft.as_ref().unwrap().game_values().btz.file_cursor,
             FileCursorStyle::BlinkingUnderline
         );
+        click(&mut menu, "Display");
+        click(&mut menu, "Restore defaults");
+        click(&mut menu, "Apply");
+        assert!(
+            menu.pending.is_none(),
+            "the cursor is not a Display override"
+        );
+        assert_eq!(
+            window.settings().btz.file_cursor,
+            FileCursorStyle::BlinkingUnderline
+        );
+        click(&mut menu, "Enhancements");
         click(&mut menu, "Restore defaults");
         click(&mut menu, "Apply");
         let settings = creator

@@ -318,8 +318,8 @@ Explicit CLI values form the final temporary layer.
 | file_cursor | `"pulsing-underline"` (default), `"blinking-underline"`, `"steady-block"`; `btz` entries only |
 
 `btz`'s `file_cursor` belongs in `[entries.<entry-id>.display]` and applies to that
-entry. In Settings it appears under **Text interface**, at the end of
-the game's Display page as **Cursor style**. It affects command input and file
+entry. In Settings it appears under **Enhancements → Text interface → Cursor
+style**. It affects command input and file
 dialogs in both frontends. Terminal play uses a steady underline for Pulsing
 underline and delegates the other shapes and blink rate to the terminal. See the
 [BTZ controls](games/btz.md#commands-and-controls).
@@ -518,8 +518,10 @@ registered library entry and configuration storage; unregistered or
 
 Game-specific improvements are grouped under **Enhancements** in each game's
 settings. Alley Cat offers scene movement and input response; Mach 3 offers
-scene movement and, with Original scenes, player craft movement. These options
-use built-in game defaults and are stored in each entry's `enhancements` table.
+scene movement and, with Original scenes, player craft movement. BTZ games offer
+**Text interface → Cursor style**. Enhancements use built-in game defaults and
+are stored in each entry's `enhancements` table, except the BTZ cursor choice,
+which retains its existing `display.file_cursor` key.
 **Restore defaults** restores those choices on Apply. Old motion and input-response
 values in Display or Controls are ignored.
 

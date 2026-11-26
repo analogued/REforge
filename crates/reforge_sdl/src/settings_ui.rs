@@ -124,6 +124,7 @@ pub(super) fn draw(
     let mach3_options = capabilities.options == EngineOptions::Mach3;
     let alleycat_options = capabilities.options == EngineOptions::AlleyCat;
     let centurion_options = capabilities.options == EngineOptions::Centurion;
+    let btz_options = capabilities.options == EngineOptions::Btz;
     let alleycat_machines = capabilities.display.machine;
     let terminal = capabilities
         .display
@@ -187,7 +188,7 @@ pub(super) fn draw(
                         if page == 3 && !capabilities.controls.gamepad {
                             continue;
                         }
-                        if page == ENHANCEMENTS_SECTION && !alleycat_options && !mach3_options && !centurion_options {
+                        if page == ENHANCEMENTS_SECTION && !alleycat_options && !mach3_options && !centurion_options && !btz_options {
                             continue;
                         }
                         if page == LAUNCHER_PAGE {
@@ -337,7 +338,7 @@ pub(super) fn draw(
                                         menu.controller_style,
                                     );
                                 } else if menu.page == ENHANCEMENTS_SECTION {
-                                    enhancement_controls(ui, &mut value, rows, mach3_options, alleycat_options, centurion_options);
+                                    enhancement_controls(ui, &mut value, rows, mach3_options, alleycat_options, centurion_options, btz_options);
                                 }
                             });
                             crate::settings_navigation::scroll_focus(ui, first);
@@ -361,8 +362,8 @@ pub(super) fn draw(
                             draft.edit_game(ALLEYCAT_MACHINE, selection, original_pin);
                         }
                     }
-                    if menu.page == 0
-                        && terminal.is_some()
+                    if menu.page == ENHANCEMENTS_SECTION
+                        && btz_options
                         && original.btz != value.btz
                         && !cli.contains_key(BTZ_FILE_CURSOR)
                     {
@@ -1052,35 +1053,36 @@ fn display_controls(
     if value.renderer == Renderer::Terminal {
         ui.weak("Terminal play uses the attached terminal. Window and CRT settings do not apply.");
     }
-    if terminal.is_some() {
-        section(ui, "Text interface");
-        ui.scope(|ui| {
-            row(
-                ui,
-                "Cursor style",
-                BTZ_FILE_CURSOR,
-                rows.state(BTZ_FILE_CURSOR, value),
-                |ui| {
-                    Selector::new(
-                        BTZ_FILE_CURSOR,
-                        [
-                            Choice::new(FileCursorStyle::PulsingUnderline, "Pulsing underline"),
-                            Choice::new(FileCursorStyle::BlinkingUnderline, "Blinking underline"),
-                            Choice::new(FileCursorStyle::SteadyBlock, "Steady block"),
-                        ],
-                    )
-                    .show(ui, &mut value.btz.file_cursor);
-                },
-            );
-            ui.weak(if value.renderer == Renderer::Terminal {
-                "Command input and file dialogs · Pulsing underline uses a steady underline. Blink rate and shape follow the terminal."
-            } else { match value.btz.file_cursor {
-                FileCursorStyle::PulsingUnderline => "Command input and file dialogs · stays visible and alternates between two heights.",
-                FileCursorStyle::BlinkingUnderline => "Command input and file dialogs · a two-pixel underline alternates with no cursor.",
-                FileCursorStyle::SteadyBlock => "Command input and file dialogs · a steady block reverses the character underneath.",
-            }});
-        });
-    }
+}
+
+fn text_interface_controls(ui: &mut egui::Ui, value: &mut RuntimeSettings, rows: RowContext<'_>) {
+    section(ui, "Text interface");
+    ui.scope(|ui| {
+        row(
+            ui,
+            "Cursor style",
+            BTZ_FILE_CURSOR,
+            rows.state(BTZ_FILE_CURSOR, value),
+            |ui| {
+                Selector::new(
+                    BTZ_FILE_CURSOR,
+                    [
+                        Choice::new(FileCursorStyle::PulsingUnderline, "Pulsing underline"),
+                        Choice::new(FileCursorStyle::BlinkingUnderline, "Blinking underline"),
+                        Choice::new(FileCursorStyle::SteadyBlock, "Steady block"),
+                    ],
+                )
+                .show(ui, &mut value.btz.file_cursor);
+            },
+        );
+        ui.weak(if value.renderer == Renderer::Terminal {
+            "Command input and file dialogs · Pulsing underline uses a steady underline. Blink rate and shape follow the terminal."
+        } else { match value.btz.file_cursor {
+            FileCursorStyle::PulsingUnderline => "Command input and file dialogs · stays visible and alternates between two heights.",
+            FileCursorStyle::BlinkingUnderline => "Command input and file dialogs · a two-pixel underline alternates with no cursor.",
+            FileCursorStyle::SteadyBlock => "Command input and file dialogs · a steady block reverses the character underneath.",
+        }});
+    });
 }
 
 fn renderer_options(terminal: Option<bool>) -> Vec<(Renderer, bool)> {
@@ -1128,7 +1130,11 @@ fn enhancement_controls(
     mach3: bool,
     alleycat: bool,
     centurion: bool,
+    btz: bool,
 ) {
+    if btz {
+        text_interface_controls(ui, value, rows);
+    }
     if centurion {
         centurion_controls(ui, value, rows);
     }
@@ -3016,6 +3022,7 @@ mod tests {
                                     false,
                                     alleycat,
                                     false,
+                                    false,
                                 );
                             });
                         });
@@ -3125,6 +3132,7 @@ mod tests {
                                         cli: &cli,
                                     },
                                     mach3,
+                                    false,
                                     false,
                                     false,
                                 );

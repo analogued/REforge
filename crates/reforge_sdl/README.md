@@ -270,8 +270,9 @@ stored `default` alias displays as the engine's explicitly declared default
 without creating an override merely by opening the menu.
 Modal dialogs retain Escape for cancel/back; F10 can open Settings above them.
 Controls offers a shared stick dead zone and Alley Cat controller layouts.
-Enhancements groups Alley Cat's input response and scene movement, and Mach 3's
-scene and player-craft movement. Alley Cat offers Reforged / Original scene
+Enhancements groups Alley Cat's input response and scene movement, Mach 3's
+scene and player-craft movement, Centurion UI options and `btz`'s text-interface
+cursor choices. Alley Cat offers Reforged / Original scene
 movement. Applying changes it live; Cancel keeps the active
 and saved choice. `with_temporary_override` supplies normalized command-line
 choices and locks the corresponding game controls without saving them. `startup_settings` resolves

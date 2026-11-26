@@ -1958,7 +1958,7 @@ fn scale_slider(
 /// of a long path, with more space reserved for the identifying final directory.
 fn installation_path(ui: &mut egui::Ui, path: &str) {
     let width = ui.available_width().max(0.0).floor();
-    let font = egui::TextStyle::Body.resolve(ui.style());
+    let font = egui::FontId::proportional(12.0);
     let colour = ui.visuals().weak_text_color();
     let measure = |text: String| {
         ui.painter()
@@ -1982,7 +1982,7 @@ fn installation_path(ui: &mut egui::Ui, path: &str) {
         }
         text = abbreviated_path(&chars, low);
     }
-    ui.add(egui::Label::new(egui::RichText::new(text).color(colour)).truncate())
+    ui.add(egui::Label::new(egui::RichText::new(text).font(font).color(colour)).truncate())
         .on_hover_text(path);
 }
 
@@ -2043,7 +2043,13 @@ mod tests {
                 assert!(label.pos.x >= texts[0].pos.x + texts[0].galley.size().x);
                 assert!(label.pos.x + label.galley.size().x <= bounds.right() + 0.5);
                 assert!(label.galley.text().ends_with("nrs-patch"));
-                assert_eq!(label.pos.y, texts[0].pos.y);
+                assert!(
+                    (label.pos.y + label.galley.size().y / 2.0
+                        - texts[0].pos.y
+                        - texts[0].galley.size().y / 2.0)
+                        .abs()
+                        < 0.5
+                );
             }
         }
     }

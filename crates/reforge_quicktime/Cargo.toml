@@ -9,4 +9,4 @@ publish = false
 [dependencies]
 nihav_core = { path = "../../third_party/nihav/nihav-core" }
 nihav_commonfmt = { path = "../../third_party/nihav/nihav-commonfmt", default-features = false, features = ["demuxer_mov", "decoder_jpeg", "decoder_cinepak"] }
-nihav_qt = { path = "../../third_party/nihav/nihav-qt", default-features = false, features = ["decoder_ima_adpcm_qt", "decoder_qdm"] }
+nihav_qt = { path = "../../third_party/nihav/nihav-qt", default-features = false, features = ["decoder_ima_adpcm_qt", "decoder_qdm", "decoder_rpza"] }

@@ -255,7 +255,10 @@ fn demux_error(action: &str, error: DemuxerError) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use super::{VideoCodec, decode_still};
+    use super::{
+        NACodecInfo, NACodecTypeInfo, NAPacket, NAStream, NAVideoInfo, StreamType, TrackDecoder,
+        VideoCodec, YUV420_FORMAT, decode_still, frames, registered_decoders,
+    };
 
     fn jpeg_with_restarts(second_restart: u8) -> Vec<u8> {
         let mut image = vec![0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00];
@@ -321,5 +324,33 @@ mod tests {
         let error =
             decode_still(VideoCodec::PhotoJpeg, 24, 8, jpeg_with_restarts(0xd2)).unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rpza_retains_unmodified_blocks_between_frames() {
+        let info = NACodecInfo::new(
+            "apple-video",
+            NACodecTypeInfo::Video(NAVideoInfo::new(8, 4, false, YUV420_FORMAT)),
+            None,
+        );
+        let stream = NAStream::new(StreamType::Video, 0, info, 1, 15, 0).into_ref();
+        let mut decoder = TrackDecoder::new(&registered_decoders(), &stream).unwrap();
+        let decode = |decoder: &mut TrackDecoder, bytes: &[u8]| {
+            let time = stream.make_ts(None, None, None);
+            let packet = NAPacket::new(stream.clone(), time, true, bytes.to_vec());
+            frames::video(&decoder.decode(&packet).unwrap().get_buffer()).unwrap()
+        };
+        // The initial frame fills two adjacent blocks. The next sample
+        // skips the first block and replaces the second with blue.
+        let first = decode(
+            &mut decoder,
+            &[0xe1, 0, 0, 10, 0xa0, 0x7c, 0, 0xa0, 0x03, 0xe0],
+        );
+        let second = decode(&mut decoder, &[0xe1, 0, 0, 8, 0x80, 0xa0, 0, 0x1f]);
+        assert_eq!(
+            &first.luma.pixels[..8],
+            &[77, 77, 77, 77, 149, 149, 149, 149]
+        );
+        assert_eq!(&second.luma.pixels[..8], &[77, 77, 77, 77, 29, 29, 29, 29]);
     }
 }

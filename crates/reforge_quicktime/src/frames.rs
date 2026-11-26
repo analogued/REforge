@@ -3,7 +3,8 @@
 
 use std::{io, time::Duration};
 
-use nihav_core::frame::{NAAudioBuffer, NABufferType};
+use nihav_core::formats::RGB555_FORMAT;
+use nihav_core::frame::{NAAudioBuffer, NABufferType, NAVideoBuffer};
 
 #[derive(Debug)]
 pub enum Frame {
@@ -19,7 +20,7 @@ pub struct Plane {
     pub pixels: Vec<u8>,
 }
 
-/// Full-range YCbCr components from Photo JPEG or Cinepak.
+/// Full-range YCbCr video components.
 #[derive(Debug)]
 pub struct VideoFrame {
     pub luma: Plane,
@@ -46,6 +47,9 @@ impl AudioFrame {
 }
 
 pub(crate) fn video(frame: &NABufferType) -> io::Result<VideoFrame> {
+    if let NABufferType::Video16(buffer) = frame {
+        return rgb555(buffer.as_ref());
+    }
     let buffer = frame.get_vbuf().ok_or_else(unsupported_video)?;
     let info = buffer.get_info();
     let format = info.get_format();
@@ -88,6 +92,56 @@ pub(crate) fn video(frame: &NABufferType) -> io::Result<VideoFrame> {
     Ok(VideoFrame {
         luma: read_plane(0)?,
         chroma,
+    })
+}
+
+fn rgb555(buffer: &NAVideoBuffer<u16>) -> io::Result<VideoFrame> {
+    let info = buffer.get_info();
+    if info.get_format() != RGB555_FORMAT {
+        return Err(unsupported_video());
+    }
+    let (width, height) = buffer.get_dimensions(0);
+    let stride = buffer.get_stride(0);
+    let offset = buffer.get_offset(0);
+    let data = buffer.get_data();
+    let size = width
+        .checked_mul(height)
+        .filter(|&size| size != 0 && size <= data.len() && width <= stride)
+        .ok_or_else(invalid_buffer)?;
+    let mut planes = std::array::from_fn(|_| Plane {
+        width,
+        height,
+        pixels: Vec::with_capacity(size),
+    });
+    for y in 0..height {
+        let line = if info.is_flipped() { height - 1 - y } else { y };
+        let start = line
+            .checked_mul(stride)
+            .and_then(|line_offset| offset.checked_add(line_offset))
+            .ok_or_else(invalid_buffer)?;
+        let row = data
+            .get(start..start.saturating_add(width))
+            .ok_or_else(invalid_buffer)?;
+        for &pixel in row {
+            let expand = |shift: u32| {
+                let value = i32::from((pixel >> shift) & 31);
+                (value << 3) | (value >> 2)
+            };
+            let (r, g, b) = (expand(10), expand(5), expand(0));
+            let values = [
+                (77 * r + 150 * g + 29 * b + 128) >> 8,
+                128 + ((-43 * r - 85 * g + 128 * b + 128) >> 8),
+                128 + ((128 * r - 107 * g - 21 * b + 128) >> 8),
+            ];
+            for (plane, component) in planes.iter_mut().zip(values) {
+                plane.pixels.push(component.clamp(0, 255) as u8);
+            }
+        }
+    }
+    let [luma, cb, cr] = planes;
+    Ok(VideoFrame {
+        luma,
+        chroma: Some([cb, cr]),
     })
 }
 

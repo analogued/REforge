@@ -78,7 +78,8 @@ and upstream contributors under [AGPL-3.0-only](LICENSES/AGPL-3.0.txt).
 The five crates in [third_party/nihav](third_party/nihav) come from
 revision `13f31633cf325b0036d697af7bf05c611b4b8967` of the official
 [source bundle](https://nihav.org/nihav.gitbundle). The adapter enables MOV,
-Photo JPEG, Cinepak, QuickTime IMA ADPCM and QDesign Music (QDMC).
+Photo JPEG, Cinepak, Apple Video (RPZA), QuickTime IMA ADPCM and QDesign Music
+(QDMC).
 
 REforge adds Cargo license metadata and omits the vendored crates' test-only
 dependencies. In `nihav-core/src/refs.rs` it replaces manual shared mutable
@@ -87,6 +88,7 @@ in the two `src/codecs/jpeg.rs` files, and corrects MOV sample durations,
 repeated movie metadata, and packet interleaving in
 `nihav-commonfmt/src/demuxers/mov/`. The IMA ADPCM and QDMC decoders in
 `nihav-qt/src/codecs/` write directly to their returned PCM buffers. The
+RPZA decoder retains the completed frame as the next decode reference. The
 [import instructions](third_party/nihav/README.md) describe how to reapply
 the [patch series](third_party/nihav/patches). The vendored code retains its
 AGPL terms. The adapter is authored under GPL-3.0-or-later and the code is

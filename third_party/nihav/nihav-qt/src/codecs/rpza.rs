@@ -1,3 +1,5 @@
+// REforge retained decoded frames explicitly under copy-on-write in 2026.
+
 use nihav_core::codecs::*;
 use nihav_core::io::byteio::*;
 use nihav_codec_support::codecs::HAMShuffler;
@@ -59,15 +61,13 @@ impl NADecoder for RpzaDecoder {
         let length                      = br.read_u24be()? as usize;
         validate!(length >= 4 && length <= src.len());
 
-        let bufret = self.hams.clone_ref();
+        let bufret = self.hams.get_output_frame();
         let mut buf;
         if let Some(bbuf) = bufret {
             buf = bbuf;
         } else {
             let bufinfo = alloc_video_buffer(self.info.get_properties().get_video_info().unwrap(), 2)?;
             buf = bufinfo.get_vbuf16().unwrap();
-            self.hams.add_frame(buf);
-            buf = self.hams.get_output_frame().unwrap();
         }
         let frm = NASimpleVideoFrame::from_video_buf(&mut buf).unwrap();
         let stride = frm.stride[0];
@@ -161,6 +161,7 @@ impl NADecoder for RpzaDecoder {
             validate!(br.tell() <= (length as u64));
         }
 
+        self.hams.add_frame(buf.clone());
         let buftype = NABufferType::Video16(buf);
 
         let mut frm = NAFrame::new_from_pkt(pkt, self.info.clone(), buftype);
